@@ -170,6 +170,22 @@ pub(super) fn reduce_document(
     Ok((rows, off_kind, notes))
 }
 
+impl OutlineFile {
+    /// About the heap its rows hold, each with the `path` the outline adds to it.
+    pub(super) fn heap_bytes(&self) -> usize {
+        self.rows
+            .iter()
+            .chain(&self.off_kind)
+            .map(|row| {
+                super::rows::heap_bytes(row)
+                    + std::mem::size_of::<Value>()
+                    + super::rows::PATH_FIELD_BYTES
+                    + self.path.len()
+            })
+            .sum()
+    }
+}
+
 /// Declaration rows per file, after the kind filter and a name prefilter.
 pub(crate) struct Outline {
     pub(crate) files: Vec<OutlineFile>,
@@ -189,6 +205,8 @@ pub(crate) struct Outline {
     pub(super) walk_errors: (u32, u32),
     /// What a `testCode` scope left out.
     pub(super) test_code_excluded: octocode_engine::types::TestCodeExcluded,
+    /// The files a `testCode` scope's verdict needed and could not read.
+    pub(super) test_code_unread: Vec<std::path::PathBuf>,
 }
 
 /// One file's declarations; `Err` is a terminal row (size limit, no
@@ -303,6 +321,9 @@ pub(super) fn outline_file(
         walk_errors: (0, 0),
         test_code_excluded: scoped
             .map(crate::tools::test_code::Scoped::excluded)
+            .unwrap_or_default(),
+        test_code_unread: scoped
+            .map(crate::tools::test_code::Scoped::unread)
             .unwrap_or_default(),
     }))
 }

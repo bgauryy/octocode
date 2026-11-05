@@ -19,14 +19,27 @@ import { join } from 'node:path';
 
 /** `text` with comments and string or char literal contents blanked to spaces, offsets kept. */
 export function blankLiterals(text: string): string {
-  const out = text.split('');
+  const parts: string[] = [];
+  let kept = 0;
   const blank = (from: number, to: number): void => {
-    for (let i = from; i < to; i += 1) if (out[i] !== '\n') out[i] = ' ';
+    const end = Math.min(to, text.length);
+    if (from >= end) return;
+    parts.push(text.slice(kept, from), text.slice(from, end).replace(/[^\n]/g, ' '));
+    kept = end;
   };
   const ident = /[A-Za-z0-9_]/;
+  const opener = /[/r"']/g;
+  const rawOpener = /r(#*)"/y;
   let i = 0;
   while (i < text.length) {
-    const c = text[i];
+    // Only these four characters can open a comment or a literal; the source between them stays as it is.
+    opener.lastIndex = i;
+    const found = opener.exec(text);
+    if (!found) break;
+    i = found.index;
+    const c = found[0];
+    rawOpener.lastIndex = i;
+    const raw = c === 'r' && !ident.test(text[i - 1] ?? '') ? rawOpener.exec(text) : null;
     if (c === '/' && text[i + 1] === '/') {
       const end = text.indexOf('\n', i);
       const stop = end === -1 ? text.length : end;
@@ -37,8 +50,8 @@ export function blankLiterals(text: string): string {
       const stop = end === -1 ? text.length : end + 2;
       blank(i, stop);
       i = stop;
-    } else if (c === 'r' && !ident.test(text[i - 1] ?? '') && /^r#*"/.test(text.slice(i, i + 64))) {
-      const hashes = /^r(#*)"/.exec(text.slice(i, i + 64))?.[1] ?? '';
+    } else if (raw) {
+      const hashes = raw[1] ?? '';
       const open = i + 1 + hashes.length + 1;
       const end = text.indexOf(`"${hashes}`, open);
       const stop = end === -1 ? text.length : end;
@@ -59,7 +72,8 @@ export function blankLiterals(text: string): string {
       i += 1;
     }
   }
-  return out.join('');
+  parts.push(text.slice(kept));
+  return parts.join('');
 }
 
 /** Top-level items of blanked Rust source as `[start, end)` ranges; each starts after the previous one. */

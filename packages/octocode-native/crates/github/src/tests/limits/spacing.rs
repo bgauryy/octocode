@@ -143,3 +143,58 @@ async fn limiter_keys_isolate_tokens() {
             .expect("other token unaffected");
     }
 }
+
+/// GitHub asks for a second between mutative requests, and serial requests in
+/// general: production keeps the one-at-a-time GraphQL lane but spaces no read.
+#[tokio::test]
+async fn production_graphql_reads_are_unspaced_and_one_at_a_time() {
+    let server = MockServer::builder().start().await;
+    let answer = Delayed::new(
+        Duration::from_millis(100),
+        ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})),
+    );
+    let arrivals = answer.arrivals.clone();
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(answer)
+        .mount(&server)
+        .await;
+    let budget = Arc::new(GitHubBudget::with_config(ExecutorConfig::octokit()));
+    let (transport, _) = executor_transport(&server, budget, short_retry());
+    let read = |n: usize| {
+        let transport = transport.clone();
+        async move {
+            transport
+                .execute_graphql(
+                    "query Q($n: Int) { viewer { login } }",
+                    serde_json::json!({"n": n}),
+                    &with_token("t", Duration::from_secs(30), 1024),
+                )
+                .await
+                .expect("graphql")
+        }
+    };
+    for n in 0..3 {
+        read(n).await;
+    }
+    let sequential = arrivals.times();
+    for pair in sequential.windows(2) {
+        assert!(
+            pair[1].duration_since(pair[0]) < Duration::from_millis(600),
+            "a read waited on spacing: {sequential:?}"
+        );
+    }
+    futures_util::future::join_all((3..6).map(read)).await;
+    let all = arrivals.times();
+    assert_eq!(all.len(), 6);
+    for pair in all[3..].windows(2) {
+        assert!(
+            pair[1].duration_since(pair[0]) >= Duration::from_millis(90),
+            "two reads ran at once: {all:?}"
+        );
+    }
+    assert!(
+        !ExecutorConfig::octokit().write_spacing.is_zero(),
+        "a write keeps its spacing"
+    );
+}

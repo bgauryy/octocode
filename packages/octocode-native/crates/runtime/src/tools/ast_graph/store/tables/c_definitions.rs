@@ -15,7 +15,9 @@ impl<'a> Projector<'a> {
     /// pool what no other file can name: an internal-linkage definition
     /// (unless its file is included), and a definition whose prototype
     /// stands for it elsewhere. A prototype whose definition shares its
-    /// file is redundant and leaves every pool.
+    /// file and its scope is redundant and leaves every pool; one that the
+    /// file defines out of line (`struct B { int x(); }; int B::x() {}`) stays
+    /// the name a scope is matched by, and stands for the definition.
     pub(super) fn c_definitions(&self, symbols: &mut Symbols<'a>) {
         let built = self.built;
         // (includer, included) file pairs.
@@ -90,7 +92,10 @@ impl<'a> Projector<'a> {
                 let [definition] = visible[..] else {
                     continue;
                 };
-                if self.nodes[definition as usize].file == file {
+                let definition_node = &self.nodes[definition as usize];
+                if definition_node.file == file
+                    && definition_node.parent == self.nodes[prototype as usize].parent
+                {
                     redundant.insert(prototype);
                 } else {
                     symbols.definitions.insert(prototype, definition);

@@ -62,10 +62,10 @@ impl Selected {
     /// `next.unfilteredUnknown` when it is narrower: the unknown hits (the
     /// same search over exactly the files holding them). Without unknown
     /// hits, or when they span every file, the whole result is the one
-    /// lead. Groups the candidate budget left
-    /// unjudged get `nextCandidatePage`: the same classified search of the
-    /// same scan judging exactly them, so a chain of candidate pages judges
-    /// every group once.
+    /// lead. Hits the page's budget or a provider
+    /// that could not answer left unjudged get `nextCandidatePage`: the same
+    /// classified search of the same scan judging exactly them, so a chain of
+    /// candidate pages judges every hit once.
     pub(in crate::tools::local_search) fn leads(
         &self,
         query: &LocalSearchQuery,
@@ -78,7 +78,7 @@ impl Selected {
             return Ok(Vec::new());
         }
         let mut leads = self.unfiltered_leads(query, snapshot, root_is_dir)?;
-        if let Some(token) = self.outcome.next_candidates(ToolId::LocalSearch) {
+        if let Some(token) = self.outcome.next_candidates() {
             let mut changes = serde_json::Map::new();
             for field in crate::contracts::state_fields(ToolId::LocalSearch) {
                 changes.insert(field.clone(), Value::Null);
@@ -131,7 +131,7 @@ impl Selected {
 
     /// The provider's error when it failed this page, the hit rows kept
     /// (those that pass the classifiers) of the pre-selection totals when
-    /// selection removed hits, and, when it kept none, why (every chunk
+    /// selection removed hits, and, when it kept none, why (every hit
     /// judged and none passed, or some could not be judged) and that an
     /// empty classified result is no absence: the unfiltered search matched
     /// those rows and `next.unfiltered` lists them. That counts describe
@@ -148,9 +148,9 @@ impl Selected {
         if self.rows_kept == 0 && self.rows_before > 0 && self.provider.is_none() {
             let unknown = self.outcome.receipt.unknown_items;
             let why = if unknown == 0 {
-                "every chunk was judged and none passed the questions".to_owned()
+                "every hit was judged and none passed the questions".to_owned()
             } else {
-                format!("no chunk passed the questions and {unknown} could not be judged")
+                format!("no hit passed the questions and {unknown} could not be judged")
             };
             notes.push(format!(
                 "classification: {why}, so none of the {} ({}) is listed. An empty classified result is not absence: the unfiltered search matched them, and `next.unfiltered` lists them.",

@@ -6,6 +6,7 @@
 
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::Notify;
 use tokio::time::{Duration, Instant, timeout};
@@ -35,6 +36,8 @@ struct PushDiagnosticsState {
 pub(super) struct PushDiagnosticsStore {
     state: Mutex<PushDiagnosticsState>,
     changed: Notify,
+    /// Reports received, for any document, however many are kept.
+    published: AtomicU64,
 }
 
 impl PushDiagnosticsStore {
@@ -42,7 +45,13 @@ impl PushDiagnosticsStore {
         Arc::new(Self::default())
     }
 
+    /// How many reports the server has published, for any document.
+    pub(super) fn published(&self) -> u64 {
+        self.published.load(Ordering::Relaxed)
+    }
+
     pub(super) fn record(&self, mut params: Value) {
+        self.published.fetch_add(1, Ordering::Relaxed);
         let Some(uri) = params.get("uri").and_then(Value::as_str).map(str::to_owned) else {
             return;
         };

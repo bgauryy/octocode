@@ -152,7 +152,7 @@ async fn bad_request_is_not_retried_and_maps_the_provider_error_type() {
         .await
         .unwrap_err();
     assert_eq!(error.code, ErrorCode::ClassificationStateTooLarge);
-    assert!(error.hints[0].contains("source ranges"), "{error:?}");
+    assert!(error.hints[0].contains("narrower ranges"), "{error:?}");
 }
 
 #[test]

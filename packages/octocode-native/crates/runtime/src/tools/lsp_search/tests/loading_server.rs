@@ -25,6 +25,7 @@ function send(m) {
 }
 const progress = (value) => send({ jsonrpc: '2.0', method: '$/progress', params: { token: 'load', value } });
 const begin = () => progress({ kind: 'begin', title: 'Loading' });
+const status = (health, message) => send({ jsonrpc: '2.0', method: 'experimental/serverStatus', params: { health, quiescent: true, message } });
 function finish() { loaded = true; burning = false; progress({ kind: 'end' }); }
 function burn() {
   const until = Date.now() + 20;
@@ -41,12 +42,21 @@ function firstAnswer() {
 }
 function handle(msg) {
   if (msg.method === 'initialize') {
-    send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: { definitionProvider: true, textDocumentSync: 1 } } });
+    send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: { definitionProvider: true, referencesProvider: true, textDocumentSync: 1 } } });
   } else if (msg.method === 'initialized' && scenario === 'loadAnnouncedAfterTheAnswer') {
     burning = true;
     burn();
+  } else if (msg.method === 'initialized' && scenario === 'healthError') {
+    status('error', 'Failed to load workspaces: unparsable Cargo.toml');
+  } else if (msg.method === 'initialized' && scenario === 'healthWarning') {
+    status('warning', 'Failed to run build scripts of some packages.');
+  } else if (msg.method === 'initialized' && scenario === 'healthUnexplained') {
+    status('error');
+  } else if (msg.method === 'initialized' && scenario === 'healthRecovers') {
+    status('error', 'Failed to load workspaces: unparsable Cargo.toml');
   } else if (msg.method === 'textDocument/definition') {
     asked += 1;
+    if (scenario === 'healthRecovers' && asked === 2) status('ok');
     fs.appendFileSync(__dirname + '/asked.txt', 'definition\n');
     const known = loaded;
     if (asked === 1) firstAnswer();
@@ -54,6 +64,13 @@ function handle(msg) {
     send({ jsonrpc: '2.0', id: msg.id, result: known
       ? [{ uri: msg.params.textDocument.uri, range: { start: { line: 0, character: 9 }, end: { line: 0, character: 15 } } }]
       : [] });
+  } else if (msg.method === 'textDocument/references') {
+    asked += 1;
+    fs.appendFileSync(__dirname + '/asked.txt', 'references\n');
+    const known = loaded;
+    if (asked === 1) firstAnswer();
+    const site = (line, character) => ({ uri: msg.params.textDocument.uri, range: { start: { line, character }, end: { line, character: character + 6 } } });
+    send({ jsonrpc: '2.0', id: msg.id, result: known ? [site(0, 9), site(1, 0)] : [site(0, 9)] });
   } else if (msg.method === 'exit') {
     process.exit(0);
   } else if (msg.id !== undefined && msg.method) {
@@ -75,6 +92,8 @@ process.stdin.on('data', (d) => {
 });
 "#;
 
+mod server_health;
+
 struct Loading {
     _dir: crate::tools::test_support::Fixture,
     root: std::path::PathBuf,
@@ -90,6 +109,8 @@ impl Loading {
         use std::os::unix::fs::PermissionsExt;
         let dir = crate::tools::test_support::Fixture::new();
         let root = dir.0.canonicalize().expect("canonical root");
+        // A repository bounds the project: these tests judge the server's answer.
+        std::fs::create_dir_all(root.join(".git")).expect("repository");
         let script = root.join("fake-lsp.js");
         let server = LOADING_SERVER.replace(SCENARIO, &format!("const scenario = '{scenario}';"));
         std::fs::write(&script, server).expect("script");
@@ -271,4 +292,69 @@ fn an_empty_answer_from_an_idle_silent_server_stands() {
             assert_eq!(server.asked(), before + 1, "asked once: {row}");
         }
     }
+}
+
+impl Loading {
+    fn references(&self) -> Value {
+        let paths = crate::tools::test_support::workspace_policy(&self.root);
+        let query = query(json!({
+            "operation": "references",
+            "path": self.root.join("a.ts").to_string_lossy(),
+            "symbolName": "helper",
+            "line": 1
+        }));
+        self.runtime
+            .block_on(crate::tools::lsp_search::execute(
+                query,
+                &NeverCancel,
+                &self.pool,
+                &paths,
+                &self.execution,
+                None,
+                crate::tools::lsp_search::test_answers(),
+            ))
+            .expect("row")
+    }
+}
+
+/// A server still loading lists the declaration it can see and no use: that
+/// reads as "nothing calls this" as an empty answer does, so it is judged the
+/// same way and asked again once the load ends.
+#[test]
+fn a_declaration_only_answer_during_a_load_is_asked_again_after_it() {
+    if !crate::tools::test_support::require_node() {
+        return;
+    }
+    let server = Loading::new("loadAnnouncedWithTheAnswer", "go", Duration::ZERO);
+    let row = server.references();
+    assert_eq!(row["matchCount"], 2, "the use is listed: {row}");
+    assert_ne!(row["isPartial"], true, "{row}");
+    assert_eq!(server.asked(), 2, "{row}");
+}
+
+/// A load that outlasts the budget leaves the declaration on the row, partial:
+/// the evidence stays, and it is no claim that nothing uses the name.
+#[test]
+fn a_declaration_only_answer_past_the_budget_stays_partial_with_its_evidence() {
+    if !crate::tools::test_support::require_node() {
+        return;
+    }
+    let server = Loading::new("loadNeverEnds", "shellscript", Duration::ZERO);
+    let row = server.references();
+    assert_eq!(row["matchCount"], 1, "{row}");
+    assert_eq!(row["isPartial"], true, "{row}");
+    assert_eq!(row["partialReasons"], json!(["languageServerIndexing"]));
+}
+
+/// An idle server's declaration-only answer stands: the name is unused.
+#[test]
+fn a_declaration_only_answer_from_an_idle_server_stands() {
+    if !crate::tools::test_support::require_node() {
+        return;
+    }
+    let server = Loading::new("silent", "go", Duration::from_millis(300));
+    let row = server.references();
+    assert_eq!(row["matchCount"], 1, "{row}");
+    assert_ne!(row["isPartial"], true, "{row}");
+    assert_eq!(server.asked(), 1, "{row}");
 }

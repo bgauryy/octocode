@@ -6,16 +6,21 @@
 //! names a class by its package path (`com.google.common.collect.ImmutableList`
 //! → `…/com/google/common/collect/ImmutableList.java` under any source root).
 //! An import therefore links to every non-test source file of the package
-//! (Go, Java `.*`) or to the class's file (Java). Imports outside the scanned
-//! modules (standard library, third-party) stay external. Java classes of
+//! (Go, Java `.*`) or to the class's file (Java). An import that names no scanned
+//! module stays external unless the repository shows it is local: a module the
+//! enclosing `go.mod`, a local `replace` or `go.work` names, a Java package the
+//! scan holds or a class file above the scan root. Java classes of
 //! one package use each other without an import; a call, constructor, or
 //! heritage clause naming a same-package class links to its file. Go
 //! same-package references produce no edge.
 
 use super::linking::Linker;
-use super::paths::dirname;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::Path;
+use super::paths::{dirname, dirs_above_within_repository};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::path::{Path, PathBuf};
+
+mod go_modules;
+mod java;
 
 #[derive(Default)]
 pub(super) struct PackageIndex {
@@ -28,6 +33,18 @@ pub(super) struct PackageIndex {
     go_module_missing: bool,
     /// Each Go file's package clause: the name a plain import of it binds.
     go_package_names: HashMap<String, String>,
+    /// Module paths local to the repository but outside the scan: the module
+    /// enclosing the scan root, a local `replace`, a `go.work` member.
+    go_local_modules: Vec<String>,
+    /// Every trailing run of a scanned Java directory's components: the package
+    /// paths the scan may hold (`com/acme` for `src/main/java/com/acme`).
+    java_packages: HashSet<String>,
+    /// Scan root's components, nearest first, as a Java package path may spell them.
+    java_root_names: Vec<String>,
+    /// The directories above the scan root, up to the repository boundary.
+    above_root: Vec<PathBuf>,
+    /// Java package or class path → whether a file above the scan root spells it.
+    java_outer_hits: std::sync::Mutex<HashMap<String, bool>>,
 }
 
 /// How a package import resolved.
@@ -57,10 +74,12 @@ fn go_module_path(text: &str) -> Option<String> {
 /// Enclosing `go.mod` directories searched above a scan root.
 const MAX_GO_MODULE_ANCESTORS: usize = 16;
 
-/// The module path of `root` itself when it sits inside a module whose
-/// `go.mod` is in an ancestor directory: the module path joined with the
-/// root's path below the module directory.
-fn enclosing_go_module(root: &Path, read: &dyn Fn(&Path) -> Option<String>) -> Option<String> {
+/// The module enclosing `root` from an ancestor directory, `root`'s path below
+/// that module's directory, and the modules its `go.mod` replaces locally.
+fn enclosing_go_module(
+    root: &Path,
+    read: &dyn Fn(&Path) -> Option<String>,
+) -> Option<(String, String, Vec<String>)> {
     if octocode_engine::search::repository::is_root(root) {
         return None;
     }
@@ -71,9 +90,14 @@ fn enclosing_go_module(root: &Path, read: &dyn Fn(&Path) -> Option<String>) -> O
         dir = dir.parent()?;
         let manifest = dir.join("go.mod");
         if manifest.is_file() {
-            let module = go_module_path(&read(&manifest)?)?;
+            let text = read(&manifest)?;
+            let module = go_module_path(&text)?;
             below.reverse();
-            return Some(format!("{module}/{}", below.join("/")));
+            return Some((
+                module,
+                below.join("/"),
+                go_modules::local_replacements(&text),
+            ));
         }
         // A repository boundary ends the search: its go.mod would belong
         // to another project.
@@ -124,6 +148,18 @@ impl PackageIndex {
                     current = dirname(current);
                 }
             }
+            if linker == Linker::Java && dir != "." {
+                let mut package = dir.as_str();
+                loop {
+                    if !index.java_packages.insert(package.to_owned()) {
+                        break;
+                    }
+                    let Some((_, rest)) = package.split_once('/') else {
+                        break;
+                    };
+                    package = rest;
+                }
+            }
             if let Some(name) = file.rsplit('/').next().filter(|_| linker == Linker::Java) {
                 index
                     .java_by_name
@@ -139,19 +175,54 @@ impl PackageIndex {
             } else {
                 root.join(&dir).join("go.mod")
             };
-            if let Some(module) = read(&manifest).as_deref().and_then(go_module_path) {
-                index.go_modules.push((module, dir));
+            if let Some(text) = read(&manifest) {
+                index
+                    .go_local_modules
+                    .extend(go_modules::local_replacements(&text));
+                if let Some(module) = go_module_path(&text) {
+                    index.go_modules.push((module, dir));
+                }
             }
         }
         if has_go && !index.go_modules.iter().any(|(_, dir)| dir == ".") {
             // A scan rooted below its module (`go/tsdb` under `go/go.mod`)
             // imports its own packages by the enclosing module path; map
             // the scan root to `<module>/<root relative to the module>`.
-            if let Some(module) = enclosing_go_module(root, read) {
-                index.go_modules.push((module, ".".to_owned()));
+            if let Some((module, below, replaced)) = enclosing_go_module(root, read) {
+                index
+                    .go_modules
+                    .push((format!("{module}/{below}"), ".".to_owned()));
+                index.go_local_modules.push(module);
+                index.go_local_modules.extend(replaced);
             }
         }
+        index.above_root = dirs_above_within_repository(root);
+        if has_go {
+            index.go_local_modules.extend(go_modules::workspace_members(
+                root,
+                &index.above_root,
+                read,
+            ));
+        }
         index.go_module_missing = has_go && index.go_modules.is_empty();
+        index.java_root_names = root
+            .components()
+            .rev()
+            .take(MAX_GO_MODULE_ANCESTORS)
+            .filter_map(|part| part.as_os_str().to_str().map(str::to_owned))
+            .collect();
+        if !index.java_by_name.is_empty() {
+            // The scan root may itself be a package (`.../com/acme`).
+            let mut below = String::new();
+            for name in &index.java_root_names {
+                below = if below.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{name}/{below}")
+                };
+                index.java_packages.insert(below.clone());
+            }
+        }
         index
             .go_modules
             .sort_by_key(|(module, _)| std::cmp::Reverse(module.len()));
@@ -232,7 +303,23 @@ impl PackageIndex {
             .iter()
             .find(|(module, _)| spec == module || spec.starts_with(&format!("{module}/")))
         else {
-            return PackageLink::External;
+            // With no module to compare it to, a module path could be anyone's;
+            // a path with no dot in its first segment is the standard library's.
+            let unknowable = self.go_module_missing
+                && spec
+                    .split('/')
+                    .next()
+                    .is_some_and(|host| host.contains('.'));
+            return if unknowable
+                || self
+                    .go_local_modules
+                    .iter()
+                    .any(|module| spec == module || spec.starts_with(&format!("{module}/")))
+            {
+                PackageLink::UnresolvedInternal
+            } else {
+                PackageLink::External
+            };
         };
         let rest = spec[module.len()..].trim_start_matches('/');
         let files = self.package_files(&join(dir, rest), ".go");
@@ -241,52 +328,6 @@ impl PackageIndex {
         } else {
             PackageLink::Files(files)
         }
-    }
-
-    fn resolve_java(&self, spec: &str, importer: &str) -> PackageLink {
-        // `import static a.b.C.*;` names class `C`'s members, not a package.
-        let (spec, static_member) = match spec.strip_prefix("static ") {
-            Some(member) => (member.trim(), true),
-            None => (spec.trim(), false),
-        };
-        if let Some(package) = spec.strip_suffix(".*").filter(|_| !static_member) {
-            let tail = package.replace('.', "/");
-            let best = self
-                .files_by_dir
-                .keys()
-                .filter(|dir| *dir == &tail || dir.ends_with(&format!("/{tail}")))
-                .max_by_key(|dir| closeness(dir, importer));
-            return match best {
-                Some(dir) => {
-                    let files = self.package_files(dir, ".java");
-                    if files.is_empty() {
-                        PackageLink::UnresolvedInternal
-                    } else {
-                        PackageLink::Files(files)
-                    }
-                }
-                None => PackageLink::External,
-            };
-        }
-        // `a.b.C`, `a.b.C.Inner`, `static a.b.C.member` and `static a.b.C.*`
-        // all name the file of the longest prefix that is a scanned class.
-        let spec = spec.strip_suffix(".*").unwrap_or(spec);
-        let segments = spec.split('.').collect::<Vec<_>>();
-        for end in (2..=segments.len()).rev() {
-            let tail = format!("{}.java", segments[..end].join("/"));
-            let name = format!("{}.java", segments[end - 1]);
-            let best = self
-                .java_by_name
-                .get(&name)
-                .into_iter()
-                .flatten()
-                .filter(|file| **file == tail || file.ends_with(&format!("/{tail}")))
-                .max_by_key(|file| closeness(file, importer));
-            if let Some(file) = best {
-                return PackageLink::Files(vec![file.clone()]);
-            }
-        }
-        PackageLink::External
     }
 }
 

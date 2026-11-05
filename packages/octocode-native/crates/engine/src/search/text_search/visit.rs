@@ -51,7 +51,7 @@ impl WalkScope<'_> {
         // (path or mount) puts it on the other side; a file that may mix
         // both is searched and its hits are kept by line.
         if let Some(scope) = &opts.test_code {
-            let test = (scope.test_path)(path);
+            let test = (scope.unread_test_path)(path);
             let searched = if scope.keep_test {
                 test || (scope.may_hold)(path)
             } else {
@@ -171,12 +171,12 @@ impl WalkScope<'_> {
         };
         let spans = match &outcome.test_spans {
             Some(spans) => std::sync::Arc::clone(spans),
-            None if self.keep_unmatched
-                && outcome.matched_lines == 0
-                && !(scope.test_path)(path)
-                && (scope.may_hold)(path) =>
-            {
-                (scope.spans)(path)
+            None if self.keep_unmatched && outcome.matched_lines == 0 && (scope.may_hold)(path) => {
+                if (scope.test_path)(path) {
+                    std::sync::Arc::new(vec![crate::types::WHOLE_FILE])
+                } else {
+                    (scope.spans)(path)
+                }
             }
             None => return false,
         };

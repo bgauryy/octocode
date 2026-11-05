@@ -5,15 +5,10 @@ use std::fs;
 use std::path::Path;
 use std::time::SystemTime;
 
-use ignore::gitignore::Gitignore;
-use regex::Regex;
-
 use super::compiled::CompiledQuery;
 use super::walker::{QueryState, entered_empty};
-use crate::error::{Error, ErrorKind};
-use crate::search::glob;
 use crate::text::extension_of;
-use crate::types::{EntryType, FileKind, FileSystemEntry};
+use crate::types::{EntryType, EvaluatedEntry, FileKind, FileSystemEntry};
 
 /// Whether the `entry_type` filter lists an entry of `kind`.
 fn lists(entry_type: EntryType, kind: EntryKind) -> bool {
@@ -81,32 +76,9 @@ pub(super) fn visit_path(
     query: &CompiledQuery,
     state: &mut QueryState,
 ) -> Result<(), ()> {
-    if depth < query.min_depth {
+    if !passes(path, name, (depth, kind), metadata, query, state, false)? {
         return Ok(());
     }
-    if query.max_depth.is_some_and(|max_depth| depth > max_depth) {
-        return Ok(());
-    }
-    if !matches_names(path, name, kind, query) {
-        return Ok(());
-    }
-    if query.stats_entries && metadata.is_none() {
-        *metadata = Some(lstat(path, state).ok_or(())?);
-    }
-    if metadata
-        .as_ref()
-        .is_some_and(|metadata| !matches_metadata(path, metadata, (depth, kind), query, state))
-    {
-        return Ok(());
-    }
-    if query
-        .lists
-        .as_ref()
-        .is_some_and(|lists| !(lists.0)(path, kind.is_dir, state.position))
-    {
-        return Ok(());
-    }
-
     state.total_discovered += 1;
     if state.entries.len() >= query.limit {
         if state.first_unlisted.is_none() {
@@ -126,6 +98,85 @@ pub(super) fn visit_path(
     Ok(())
 }
 
+/// Hand an entry a resumed walk replays to the caller's reader when the filters
+/// list it now, as [`visit_path`] would: nothing is listed or counted, the walk
+/// it resumes did that. An entry that cannot be read lists nothing.
+pub(super) fn visit_replayed(
+    path: &Path,
+    name: &str,
+    (depth, kind): (u32, EntryKind),
+    metadata: &mut Option<fs::Metadata>,
+    query: &CompiledQuery,
+    state: &mut QueryState,
+) {
+    let Some(replayed) = query.replayed.as_ref() else {
+        return;
+    };
+    if passes(path, name, (depth, kind), metadata, query, state, true) == Ok(true) {
+        (replayed.0)(&to_entry(
+            path,
+            name,
+            state.position,
+            kind,
+            metadata.as_ref(),
+            query,
+        ));
+    }
+}
+
+/// Whether every filter lists the entry, reading its `lstat` (into `metadata`)
+/// only when they ask for one. `Err` when that read failed; a `replaying` entry
+/// was counted by the walk it resumes, so the failure is not.
+fn passes(
+    path: &Path,
+    name: &str,
+    (depth, kind): (u32, EntryKind),
+    metadata: &mut Option<fs::Metadata>,
+    query: &CompiledQuery,
+    state: &mut QueryState,
+    replaying: bool,
+) -> Result<bool, ()> {
+    if depth < query.min_depth || query.max_depth.is_some_and(|max_depth| depth > max_depth) {
+        return Ok(false);
+    }
+    if !matches_names(path, name, kind, query) {
+        return Ok(false);
+    }
+    if query.stats_entries && metadata.is_none() {
+        *metadata = Some(if replaying {
+            fs::symlink_metadata(path).map_err(|_| ())?
+        } else {
+            lstat(path, state).ok_or(())?
+        });
+    }
+    let matched = metadata
+        .as_ref()
+        .is_none_or(|metadata| matches_metadata(path, metadata, (depth, kind), query, state));
+    if let Some(metadata) = metadata.as_ref()
+        && (replaying || (query.metadata_filtered && !matched))
+        && !enters(depth, kind, query)
+    {
+        state.evaluated.push(EvaluatedEntry {
+            path: path.to_path_buf(),
+            stamp: crate::stamp::SourceStamp::of(metadata),
+            walk_position: state.position,
+        });
+    }
+    Ok(matched
+        && query
+            .lists
+            .as_ref()
+            .is_none_or(|lists| (lists.0)(path, kind.is_dir, state.position)))
+}
+
+/// Whether the walk enters this directory entry, so its own listing proves it.
+fn enters(depth: u32, kind: EntryKind, query: &CompiledQuery) -> bool {
+    kind.is_dir
+        && query.recursive
+        && depth < super::walker::MAX_RECURSION_DEPTH
+        && query.max_depth.is_none_or(|max_depth| depth < max_depth)
+}
+
 /// The filters an entry's name, path and type decide.
 fn matches_names(path: &Path, name: &str, kind: EntryKind, query: &CompiledQuery) -> bool {
     query
@@ -134,66 +185,6 @@ fn matches_names(path: &Path, name: &str, kind: EntryKind, query: &CompiledQuery
         && query
             .entry_type
             .is_none_or(|entry_type| lists(entry_type, kind))
-}
-
-/// A query's name filters, compiled once: `names` globs (see [`glob`]: an
-/// entry is listed when one matches it), `extensions` (OR-combined, files
-/// only) and a `regex` over the entry's name. An empty filter lists all.
-pub struct NameFilter {
-    names: Option<Gitignore>,
-    extensions: Vec<String>,
-    regex: Option<Regex>,
-}
-
-impl NameFilter {
-    /// The filters of a walk rooted at `root`. A glob or regex that does not
-    /// compile fails ([`ErrorKind::InvalidGlob`], [`ErrorKind::InvalidPattern`]):
-    /// a filter is never silently dropped.
-    pub fn new(
-        root: &Path,
-        names: &[String],
-        extensions: &[String],
-        regex: Option<&str>,
-    ) -> Result<Self, Error> {
-        // An extension never holds a glob or path character: `fs_*` or
-        // `src/*.ts` is a name glob, which would match nothing here.
-        if let Some(glob) = extensions
-            .iter()
-            .find(|value| value.contains(['*', '?', '[', '/', '\\']))
-        {
-            return Err(Error::with_kind(
-                ErrorKind::InvalidPattern,
-                format!(
-                    "extensions take bare extensions such as \"rs\"; \"{glob}\" is a name glob: pass it as include"
-                ),
-            ));
-        }
-        Ok(Self {
-            names: glob::set(root, names.iter().map(String::as_str), "names")?,
-            extensions: normalize_extensions(extensions.to_vec()),
-            regex: regex
-                .map(|pattern| {
-                    Regex::new(pattern).map_err(|err| {
-                        Error::with_kind(
-                            ErrorKind::InvalidPattern,
-                            format!("Invalid regex for local filesystem query: {err}"),
-                        )
-                    })
-                })
-                .transpose()?,
-        })
-    }
-
-    /// Whether the entry at `path` named `name` passes every filter. A
-    /// directory never passes an extension filter (the walk still enters
-    /// it).
-    pub fn lists(&self, path: &Path, name: &str, is_dir: bool, is_file: bool) -> bool {
-        self.names
-            .as_ref()
-            .is_none_or(|names| glob::matches(names, path, is_dir))
-            && self.regex.as_ref().is_none_or(|regex| regex.is_match(name))
-            && (self.extensions.is_empty() || (is_file && has_extension(name, &self.extensions)))
-    }
 }
 
 /// The filters that need the entry's metadata.
@@ -292,15 +283,11 @@ fn caller_can(path: &Path, how: libc::c_int) -> bool {
     unsafe { libc::faccessat(libc::AT_FDCWD, path.as_ptr(), how, libc::AT_EACCESS) == 0 }
 }
 
+/// `permissions`, `executable` and `readable` never reach here off Unix: the
+/// query compile refuses them, having no mode bits to read.
 #[cfg(not(unix))]
 fn matches_permissions(_path: &Path, metadata: &fs::Metadata, query: &CompiledQuery) -> bool {
-    if query.permissions.is_some() || query.executable || query.readable {
-        return true;
-    }
-    if query.writable {
-        return !metadata.permissions().readonly();
-    }
-    true
+    !query.writable || !metadata.permissions().readonly()
 }
 
 /// A file with no bytes, or a directory with no entries: the listing the walk

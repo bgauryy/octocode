@@ -175,3 +175,35 @@ async fn policy_withheld_files_are_disclosed_never_advised_as_retry_or_spelling(
     );
     runtime.close().await;
 }
+
+/// A refused absolute path says what works, with the path built from it.
+#[tokio::test]
+async fn a_path_outside_the_workspace_names_the_relative_path_that_works() {
+    let workspace = Workspace::new();
+    workspace.write("docs/guide.md", "words\n");
+    let runtime = workspace.runtime(&[]);
+    let outcome = call(
+        &runtime,
+        "localFetch",
+        json!({"path": "/somewhere/else/checkout/docs/guide.md"}),
+    )
+    .await
+    .expect("typed denial row");
+    assert_eq!(row_status(&outcome), "error");
+    let error = row_data(&outcome)["error"].as_str().expect("error");
+    assert!(error.contains("\"docs/guide.md\""), "{error}");
+    assert!(error.contains("relative to the workspace root"), "{error}");
+    for internal in ["~/clones", "materialize/v3", "capture/url", "allowed:"] {
+        assert!(!error.contains(internal), "{internal} in {error}");
+    }
+    let unknown = call(
+        &runtime,
+        "localFetch",
+        json!({"path": "/somewhere/nothing.md"}),
+    )
+    .await
+    .expect("typed denial row");
+    let error = row_data(&unknown)["error"].as_str().expect("error");
+    assert!(error.contains("structureSearch path \".\""), "{error}");
+    runtime.close().await;
+}

@@ -30,6 +30,7 @@ pub(crate) mod match_list;
 mod module_boundaries;
 pub(crate) mod page_memo;
 pub(crate) mod root_read;
+pub(crate) mod security_check;
 pub(crate) mod selection;
 pub(crate) mod source;
 pub(crate) mod source_capture;

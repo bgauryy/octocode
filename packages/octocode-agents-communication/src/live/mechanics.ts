@@ -49,11 +49,11 @@ export async function configuredCodexModel(): Promise<string> {
       if (frame.error) reject(new Error(JSON.stringify(frame.error)));
       else resolveCall(frame.result);
     });
-    child.stdin.write(JSON.stringify({ id, method, params }) + '\n');
+    child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
   });
   try {
     await request(1, 'initialize', { clientInfo: { name: 'communication-live', version: '1' } });
-    child.stdin.write(JSON.stringify({ method: 'initialized', params: {} }) + '\n');
+    child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
     const read = await request(2, 'config/read', { includeLayers: false });
     const value = isReply(read) && isReply(read.config) ? read.config.model : undefined;
     if (typeof value !== 'string' || !value) throw new Error('Codex has no configured model; supply --model with an available model ID');

@@ -23,11 +23,11 @@ async function fixture(t:TestContext){
  const closed=new Promise(resolve=>child.once('exit',resolve));
  t.after(async()=>{if(child.exitCode===null)child.kill();await closed;});
  const ready=await new Promise<JsonRecord>((resolve,reject)=>{
-  const timer=setTimeout(()=>reject(Error('View startup timeout: '+stderr)),15000);
-  child.once('error',reject);child.once('exit',code=>{clearTimeout(timer);reject(Error('View exited '+code+': '+stderr));});
+  const timer=setTimeout(()=>reject(Error(`View startup timeout: ${stderr}`)),15000);
+  child.once('error',reject);child.once('exit',code=>{clearTimeout(timer);reject(Error(`View exited ${code}: ${stderr}`));});
   createInterface({input:child.stdout}).once('line',line=>{clearTimeout(timer);resolve(JSON.parse(line));});
  });
- const get=async(path:string):Promise<JsonRecord>=>{let response;try{response=await fetch(ready.url+path);}catch(cause){throw new Error('View fetch '+path+': '+stderr,{cause});}assert.equal(response.status,200);const body:unknown=await response.json();assert.ok(typeof body==='object'&&body!==null);return body;};
+ const get=async(path:string):Promise<JsonRecord>=>{let response;try{response=await fetch(ready.url+path);}catch(cause){throw new Error(`View fetch ${path}: ${stderr}`,{cause});}assert.equal(response.status,200);const body:unknown=await response.json();assert.ok(typeof body==='object'&&body!==null);return body;};
  return {workspace,database,call,a,b,ready,get};
 }
 
@@ -47,44 +47,44 @@ test('view exposes live workspace entities read-only, with bounded complete pagi
  const agents=await f.get('api/session');assert.equal(agents.items.length,2);assert.ok(agents.items.every((s:JsonRecord)=>s.name!=='OUTSIDE_WORKSPACE'));
  let page:JsonRecord|null=await f.get('api/message');const ids:number[]=[];
  assert.equal(page.items.length,50);
- do{ids.push(...page.items.map((row:JsonRecord)=>row.id));page=page.next?await f.get('api/message?after='+page.next):null;}while(page);
+ do{ids.push(...page.items.map((row:JsonRecord)=>row.id));page=page.next?await f.get(`api/message?after=${page.next}`):null;}while(page);
  assert.equal(ids.length,117);assert.equal(new Set(ids).size,117);assert.deepEqual(ids,[...ids].sort((a,b)=>b-a));
  const recent=await f.get('api/message');assert.equal(recent.items[0].id,answer.id);assert.equal(recent.items[0].replyTo,request.id);assert.equal(recent.items[1].pending,0);
  assert.ok((await f.get('api/lease')).items.every((r:JsonRecord)=>r.path.endsWith('active.rs')));
  assert.equal((await f.get('api/document')).items[0].data.context.summary,'Review evidence');
- assert.deepEqual((await f.get('api/subscriptions?agent='+f.a)).items[0].topics,['review']);
- for(const entity of summary.entities){const value=await f.get('api/'+entity);assert.ok(Array.isArray(value.items));assert.ok(!JSON.stringify(value).includes('OUTSIDE_WORKSPACE'));}
- assert.equal((await f.get('api/delivery?agent='+f.a)).items.length,1);
- const deliveries:number[]=[];page=await f.get('api/delivery');do{deliveries.push(...page.items.map((r:JsonRecord)=>r.id));page=page.next?await f.get('api/delivery?after='+page.next):null;}while(page);
+ assert.deepEqual((await f.get(`api/subscriptions?agent=${f.a}`)).items[0].topics,['review']);
+ for(const entity of summary.entities){const value=await f.get(`api/${entity}`);assert.ok(Array.isArray(value.items));assert.ok(!JSON.stringify(value).includes('OUTSIDE_WORKSPACE'));}
+ assert.equal((await f.get(`api/delivery?agent=${f.a}`)).items.length,1);
+ const deliveries:number[]=[];page=await f.get('api/delivery');do{deliveries.push(...page.items.map((r:JsonRecord)=>r.id));page=page.next?await f.get(`api/delivery?after=${page.next}`):null;}while(page);
  assert.equal(deliveries.length,117);assert.equal(new Set(deliveries).size,117);
  assert.equal(only(db.prepare('SELECT count(*) n FROM records').get()).n,before.audit);assert.equal(only(db.prepare('SELECT count(*) n FROM sessions').get()).n,before.sessions);
  f.call('set_status',{status:'blocked',task:'Waiting for review'},f.a);
- assert.equal((await f.get('api/session?agent='+f.a)).items[0].status,'blocked','Existing observer reads fresh committed state');
- const oldest=await f.get('api/message?q='+encodeURIComponent('message 0 <script>'));
+ assert.equal((await f.get(`api/session?agent=${f.a}`)).items[0].status,'blocked','Existing observer reads fresh committed state');
+ const oldest=await f.get(`api/message?q=${encodeURIComponent('message 0 <script>')}`);
  assert.equal(oldest.items.length,1);assert.deepEqual(oldest.items[0].parts,[{text:'message 0 <script>not executable</script>'}]);
  assert.ok(oldest.items[0].createdAt>0);assert.equal(oldest.items[0].senderVendor,'codex');
  assert.equal((await f.get('api/summary')).counts.messages,117);
  let thread=await f.get('api/message?conversation=older-thread');const threadIds=thread.items.map((r:JsonRecord)=>r.id);
  assert.ok(thread.items.every((r:JsonRecord)=>r.contextId==='older-thread'));
  assert.equal(thread.items.length,50);assert.match(thread.next,/^[A-Za-z0-9_-]+$/,'a base64url cursor');
- const tail=await f.get('api/message?conversation=older-thread&after='+thread.next);threadIds.push(...tail.items.map((r:JsonRecord)=>r.id));
+ const tail=await f.get(`api/message?conversation=older-thread&after=${thread.next}`);threadIds.push(...tail.items.map((r:JsonRecord)=>r.id));
  assert.equal(threadIds.length,60);assert.equal(new Set(threadIds).size,60);assert.equal(tail.next,null);
- assert.equal((await fetch(f.ready.url+'api/message?conversation=recent-thread&after='+thread.next)).status,400);
+ assert.equal((await fetch(`${f.ready.url}api/message?conversation=recent-thread&after=${thread.next}`)).status,400);
  assert.equal((await f.get('api/message?status=handled')).items.length,1);
  assert.ok((await f.get('api/message?status=pending')).items.every((r:JsonRecord)=>r.pending>0));
- assert.equal((await f.get('api/message?agent='+f.b+'&q='+encodeURIComponent('Please review'))).items.length,1,'Agent filter includes sent messages');
- assert.equal((await f.get('api/message?agent='+f.a+'&q='+encodeURIComponent('Please review'))).items.length,1,'Agent filter includes received messages');
+ assert.equal((await f.get(`api/message?agent=${f.b}&q=${encodeURIComponent('Please review')}`)).items.length,1,'Agent filter includes sent messages');
+ assert.equal((await f.get(`api/message?agent=${f.a}&q=${encodeURIComponent('Please review')}`)).items.length,1,'Agent filter includes received messages');
  f.call('send_message',{parts: [{ text: 'Résumé + 100% & history' }], to:f.b,reasoning:'UTF-8 literal search'},f.a);
- assert.equal((await f.get('api/message?q='+encodeURIComponent('Résumé + 100% &'))).items.length,1);
- assert.equal((await f.get('api/message?q='+encodeURIComponent("' OR 1=1 --"))).items.length,0);
+ assert.equal((await f.get(`api/message?q=${encodeURIComponent('Résumé + 100% &')}`)).items.length,1);
+ assert.equal((await f.get(`api/message?q=${encodeURIComponent("' OR 1=1 --")}`)).items.length,0);
  db.prepare('UPDATE sessions SET expiresAt=0 WHERE id=?').run(f.a);
- assert.equal((await f.get('api/message?q='+encodeURIComponent('message 0 <script>'))).items.length,1,'Past agents retain searchable history');
- assert.equal((await fetch(f.ready.url+'api/message?q=%FF')).status,400);
- assert.equal((await fetch(f.ready.url+'api/message?q=%GG')).status,400);
- assert.equal((await fetch(f.ready.url+'api/message?q=a&q=b')).status,400);
- assert.equal((await fetch(f.ready.url+'api/records?status=pending')).status,400);
- assert.equal((await fetch(f.ready.url+'api/message?status=unknown')).status,400);
- const wrongCursor=await fetch(f.ready.url+'api/records?after='+recent.next);assert.equal(wrongCursor.status,400);
+ assert.equal((await f.get(`api/message?q=${encodeURIComponent('message 0 <script>')}`)).items.length,1,'Past agents retain searchable history');
+ assert.equal((await fetch(`${f.ready.url}api/message?q=%FF`)).status,400);
+ assert.equal((await fetch(`${f.ready.url}api/message?q=%GG`)).status,400);
+ assert.equal((await fetch(`${f.ready.url}api/message?q=a&q=b`)).status,400);
+ assert.equal((await fetch(`${f.ready.url}api/records?status=pending`)).status,400);
+ assert.equal((await fetch(`${f.ready.url}api/message?status=unknown`)).status,400);
+ const wrongCursor=await fetch(`${f.ready.url}api/records?after=${recent.next}`);assert.equal(wrongCursor.status,400);
  const html=await (await fetch(f.ready.url)).text();assert.ok(html.includes('Every agent. Every exchange.'));assert.ok(!html.includes('<script>not executable'));
 });
 
@@ -99,12 +99,12 @@ test('view rejects mutations, foreign origins, invalid routes and missing databa
  assert.match(delayed,/^HTTP\/1.1 200/,'Accepted sockets wait for request bytes within the bounded timeout');
  const forgedHost=await new Promise((resolve,reject)=>{httpGet(f.ready.url,{headers:{Host:'attacker.example'}},response=>{response.resume();resolve(response.statusCode);}).on('error',reject);});
  assert.equal(forgedHost,403);
- assert.equal((await fetch(f.ready.url+'api/session',{method:'POST'})).status,405);
- assert.equal((await fetch(f.ready.url+'api/session',{headers:{Origin:'https://example.com'}})).status,403);
+ assert.equal((await fetch(`${f.ready.url}api/session`,{method:'POST'})).status,405);
+ assert.equal((await fetch(`${f.ready.url}api/session`,{headers:{Origin:'https://example.com'}})).status,403);
  assert.equal((await fetch(new URL('/',f.ready.url))).status,404);
- assert.equal((await fetch(f.ready.url+'api/unknown')).status,400);
- assert.equal((await fetch(f.ready.url+'api/session?agent=invalid')).status,400);
- assert.equal((await fetch(f.ready.url+'api/session?sql=DROP')).status,400);
+ assert.equal((await fetch(`${f.ready.url}api/unknown`)).status,400);
+ assert.equal((await fetch(`${f.ready.url}api/session?agent=invalid`)).status,400);
+ assert.equal((await fetch(`${f.ready.url}api/session?sql=DROP`)).status,400);
  const response=await fetch(f.ready.url);assert.equal(response.headers.get('cache-control'),'no-store');assert.equal(response.headers.get('x-frame-options'),'DENY');assert.ok(!response.headers.has('access-control-allow-origin'));
  const absent=join(f.workspace,'absent.sqlite');
  assert.throws(()=>execFileSync(binary,['view','{"open":false}','--workspace',f.workspace,'--database',absent],{stdio:'pipe'}));assert.equal(existsSync(absent),false);
@@ -117,7 +117,7 @@ test('a request head must fit 8192 bytes, terminator included, even when it arri
   assert.equal(head.length,size);
   const socket=createConnection({host:url.hostname,port:Number(url.port)},()=>socket.write(head));
   socket.setTimeout(3000,()=>socket.destroy(Error('Header limit timeout')));
-  socket.on('data',chunk=>response+=chunk).on('error',reject).on('close',()=>resolve(response));
+  socket.on('data',chunk=>response+=chunk).on('error',(error:NodeJS.ErrnoException)=>{if(error.code!=='ECONNRESET')reject(error);}).on('close',()=>resolve(response));
  });
  assert.match(await send(8192),/^HTTP\/1.1 200/,'a head of exactly 8192 bytes is served');
  assert.equal(await send(8193),'','a head one byte over closes without a response');

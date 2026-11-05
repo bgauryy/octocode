@@ -15,7 +15,10 @@
 //! size cap); everything after it checks the flag.
 //!
 //! Each pool thread also owns one reusable oxc [`Allocator`], handed out via
-//! [`with_thread_allocator`] and `reset()` before every job.
+//! [`with_thread_allocator`] and `reset()` before every job. Between jobs they
+//! hold at most [`MAX_POOL_THREADS`] x [`MAX_RETAINED_ARENA_BYTES`], whatever the
+//! inputs were, so they draw on no memory budget: an arena in use belongs to the
+//! thread running on it, and no other thread could release it.
 
 use std::cell::RefCell;
 use std::panic::{AssertUnwindSafe, catch_unwind};

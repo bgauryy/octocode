@@ -1,0 +1,121 @@
+{
+ "case": "maven/exact",
+ "tool": "artifactSearch",
+ "query": {
+  "operation": "resolve",
+  "ecosystem": "maven",
+  "packageName": "com.google.code.gson:gson",
+  "version": "2.8.9"
+ },
+ "recordedAt": "2026-11-05",
+ "unread": [
+  "metadata.versioning.lastUpdated",
+  "metadata.versioning.latest",
+  "metadata.versioning.release",
+  "project.build",
+  "project.dependencies",
+  "project.licenses.license.name",
+  "project.modelVersion",
+  "project.parent.artifactId",
+  "project.properties",
+  "response.docs[*].id",
+  "response.docs[*].p",
+  "response.docs[*].timestamp",
+  "responseHeader"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo.maven.apache.org/maven2/com/google/code/gson/gson/maven-metadata.xml",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"7c521a02e21e4058dfc3c2e4eb275cd2\""
+    ]
+   ],
+   "digest": "sha256:c9996274c198582789a697fdfa367d8e59733d792a81a5405ec42bf6fadd41ea",
+   "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<metadata>\n  <groupId>com.google.code.gson</groupId>\n  <artifactId>gson</artifactId>\n  <versioning>\n    <latest>2.15.0</latest>\n    <release>2.15.0</release>\n    <versions>\n      <version>1.1</version>\n      <version>1.4</version>\n      <version>1.5</version>\n      <version>1.6</version>\n      <version>1.7</version>\n      <version>1.7.1</version>\n      <version>1.7.2</version>\n      <version>2.0</version>\n      <version>2.1</version>\n      <version>2.2</version>\n      <version>2.2.1</version>\n      <version>2.2.2</version>\n      <version>2.2.3</version>\n      <version>2.2.4</version>\n      <version>2.3</version>\n      <version>2.3.1</version>\n      <version>2.4</version>\n      <version>2.5</version>\n      <version>2.6</version>\n      <version>2.6.1</version>\n      <version>2.6.2</version>\n      <version>2.7</version>\n      <version>2.8.0</version>\n      <version>2.8.1</version>\n      <version>2.8.2</version>\n      <version>2.8.3</version>\n      <version>2.8.4</version>\n      <version>2.8.5</version>\n      <version>2.8.6</version>\n      <version>2.8.7</version>\n      <version>2.8.8</version>\n      <version>2.8.9</version>\n      <version>2.9.0</version>\n      <version>2.9.1</version>\n      <version>2.10</version>\n      <version>2.10.1</version>\n      <version>2.11.0</version>\n      <version>2.12.0</version>\n      <version>2.12.1</version>\n      <version>2.13.0</version>\n      <version>2.13.1</version>\n      <version>2.13.2-rc1</version>\n      <version>2.13.2</version>\n      <version>2.14.0</version>\n      <version>2.15.0</version>\n    </versions>\n    <lastUpdated>20261024012745</lastUpdated>\n  </versioning>\n</metadata>\n"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo1.maven.org/maven2/com/google/code/gson/gson/2.8.9/gson-2.8.9.pom",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"6cddce19473acd4bb9cfe35fad04f802\""
+    ]
+   ],
+   "digest": "sha256:afded6e6a690fbf3ad4ae65ada397f0a90a5f630b303d1b741b9c97926fdd4de",
+   "body": "<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd\">\n  <modelVersion>4.0.0</modelVersion>\n\n  <parent>\n    <groupId>com.google.code.gson</groupId>\n    <artifactId>gson-parent</artifactId>\n    <version>2.8.9</version>\n  </parent>\n\n  <artifactId>gson</artifactId>\n  <name>Gson</name>\n\n  <properties>\n    <proguardVersion>7.1.1</proguardVersion>\n  </properties>\n\n  <licenses>\n    <license>\n      <name>Apache-2.0</name>\n      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>\n    </license>\n  </licenses>\n\n  <dependencies>\n    <dependency>\n      <groupId>junit</groupId>\n      <artifactId>junit</artifactId>\n      <scope>test</scope>\n    </dependency>\n  </dependencies>\n\n  <build>\n    <plugins>\n      <plugin>\n        <groupId>org.apache.maven.plugins</groupId>\n        <artifactId>maven-javadoc-plugin</artifactId>\n        <configuration>\n          <includePackageNames>com.google.gson</includePackageNames>\n          <excludePackageNames>com.google.gson.internal:com.google.gson.internal.bind</excludePackageNames>\n          <links>\n            <link>https://docs.oracle.com/javase/6/docs/api/</link>\n          </links>\n        </configuration>\n      </plugin>\n      <plugin>\n        <groupId>biz.aQute.bnd</groupId>\n        <artifactId>bnd-maven-plugin</artifactId>\n        <version>6.0.0</version>\n        <executions>\n          <execution>\n            <goals>\n              <goal>bnd-process</goal>\n            </goals>\n          </execution>\n        </executions>\n      </plugin>\n      <plugin>\n        <groupId>org.apache.maven.plugins</groupId>\n        <artifactId>maven-jar-plugin</artifactId>\n        <configuration>\n          <archive>\n            <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>\n          </archive>\n        </configuration>\n      </plugin>\n      <plugin>\n        <groupId>org.codehaus.mojo</groupId>\n        <artifactId>templating-maven-plugin</artifactId>\n        <version>1.0.0</version>\n        <executions>\n          <execution>\n            <id>filtering-java-templates</id>\n            <goals>\n              <goal>filter-sources</goal>\n            </goals>\n            <configuration>\n              <sourceDirectory>${basedir}/src/main/java-templates</sourceDirectory>\n              <outputDirectory>${project.build.directory}/generated-sources/java-templates</outputDirectory>\n            </configuration>\n          </execution>\n        </executions>\n      </plugin>\n      <plugin>\n        <groupId>com.coderplus.maven.plugins</groupId>\n        <artifactId>copy-rename-maven-plugin</artifactId>\n        <version>1.0.1</version>\n        <executions>\n          <execution>\n            <id>pre-obfuscate-class</id>\n            <phase>process-test-classes</phase>\n            <goals>\n              <goal>rename</goal>\n            </goals>\n            <configuration>\n              <fileSets>\n                <fileSet>\n                  <sourceFile>${project.build.directory}/test-classes/com/google/gson/functional/EnumWithObfuscatedTest.class</sourceFile>\n                  <destinationFile>${project.build.directory}/test-classes-obfuscated-injar/com/google/gson/functional/EnumWithObfuscatedTest.class</destinationFile>\n                </fileSet>\n                <fileSet>\n                  <sourceFile>${project.build.directory}/test-classes/com/google/gson/functional/EnumWithObfuscatedTest$Gender.class</sourceFile>\n                  <destinationFile>${project.build.directory}/test-classes-obfuscated-injar/com/google/gson/functional/EnumWithObfuscatedTest$Gender.class</destinationFile>\n                </fileSet>\n              </fileSets>\n            </configuration>\n          </execution>\n        </executions>\n      </plugin>\n      <plugin>\n        <groupId>com.github.wvengen</groupId>\n        <artifactId>proguard-maven-plugin</artifactId>\n        <version>2.5.1</version>\n        <executions>\n          <execution>\n            <phase>process-test-classes</phase>\n            <goals>\n              <goal>proguard</goal>\n            </goals>\n          </execution>\n        </executions>\n        <configuration>\n          <proguardVersion>${proguardVersion}</proguardVersion>\n          <obfuscate>true</obfuscate>\n          <injar>test-classes-obfuscated-injar</injar>\n          <outjar>test-classes-obfuscated-outjar</outjar>\n          <inFilter>**/*.class</inFilter>\n          <proguardInclude>${basedir}/src/test/resources/testcases-proguard.conf</proguardInclude>\n          <libs>\n            <lib>${project.build.directory}/classes</lib>\n            <lib>${java.home}/jmods/java.base.jmod</lib>\n          </libs>\n        </configuration>\n        <dependencies>\n          <dependency>\n            <groupId>com.guardsquare</groupId>\n            <artifactId>proguard-core</artifactId>\n            <version>${proguardVersion}</version>\n            <scope>runtime</scope>\n          </dependency>\n          <dependency>\n            <groupId>com.guardsquare</groupId>\n            <artifactId>proguard-base</artifactId>\n            <version>${proguardVersion}</version>\n            <scope>runtime</scope>\n          </dependency>\n        </dependencies>\n      </plugin>\n      <plugin>\n        <artifactId>maven-resources-plugin</artifactId>\n        <version>3.2.0</version>\n        <executions>\n          <execution>\n            <id>post-obfuscate-class</id>\n            <phase>process-test-classes</phase>\n            <goals>\n              <goal>copy-resources</goal>\n            </goals>\n            <configuration>\n              <outputDirectory>${project.build.directory}/test-classes/com/google/gson/functional</outputDirectory>\n              <resources>\n                <resource>\n                  <directory>${project.build.directory}/test-classes-obfuscated-outjar/com/google/gson/functional</directory>\n                  <includes>\n                    <include>EnumWithObfuscatedTest.class</include>\n                    <include>EnumWithObfuscatedTest$Gender.class</include>\n                  </includes>\n                </resource>\n              </resources>\n            </configuration>\n          </execution>\n        </executions>\n      </plugin>\n    </plugins>\n  </build>\n</project>\n"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://central.sonatype.com/solrsearch/select?q=g%3A%22com.google.code.gson%22+AND+a%3A%22gson%22+AND+v%3A%222.8.9%22&core=gav&rows=1&wt=json",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:330aff2661b91dc307f101e2db090d56ac9d2add8dcb397d33297327e77819ee",
+   "body": {
+    "responseHeader": {
+     "status": 0,
+     "QTime": 0,
+     "params": {
+      "q": "g:\"com.google.code.gson\" AND a:\"gson\" AND v:\"2.8.9\"",
+      "core": "",
+      "indent": "off",
+      "spellcheck": "false",
+      "start": "",
+      "spellcheck.count": "0",
+      "sort": "",
+      "rows": "1",
+      "wt": "json",
+      "version": "None"
+     }
+    },
+    "response": {
+     "numFound": 1,
+     "start": 0,
+     "docs": [
+      {
+       "id": "com.google.code.gson:gson:2.8.9",
+       "g": "com.google.code.gson",
+       "a": "gson",
+       "v": "2.8.9",
+       "repositoryId": "central",
+       "p": "jar",
+       "timestamp": 1635537601000,
+       "versionCount": 0,
+       "ec": []
+      }
+     ]
+    },
+    "spellcheck": {
+     "suggestions": []
+    }
+   }
+  }
+ ]
+}

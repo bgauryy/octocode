@@ -136,7 +136,7 @@ define('large file-backed plans execute without environment size limits', [
   'Runtime.evaluate',
 ], async () => {
   const file = join(suite.work, 'large-plan.json'),
-    expression = JSON.stringify('x'.repeat(4000000)) + '.length';
+    expression = `${JSON.stringify('x'.repeat(4000000))}.length`;
   writeFileSync(
     file,
     JSON.stringify({

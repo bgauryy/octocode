@@ -112,18 +112,13 @@ fn streamed_multirange_continuations_reach_every_requested_line_once() {
                 "duplicate {line}"
             );
         }
-        if let Some(next) = out.next {
-            for call in [next.continue_window, next.read_other_ranges]
-                .into_iter()
-                .flatten()
-            {
-                crate::contracts::prepare_many_built(
-                    "localFetch",
-                    serde_json::json!({"queries":[&call.query]}),
-                )
-                .expect("canonical continuation");
-                pending.push_back(call.query);
-            }
+        if let Some(call) = out.next.and_then(|next| next.continue_window) {
+            crate::contracts::prepare_many_built(
+                "localFetch",
+                serde_json::json!({"queries":[&call.query]}),
+            )
+            .expect("canonical continuation");
+            pending.push_back(call.query);
         }
         pages += 1;
         assert!(pages < 100);

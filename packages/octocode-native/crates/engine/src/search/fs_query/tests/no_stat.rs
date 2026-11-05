@@ -272,3 +272,53 @@ fn an_empty_filter_counts_an_unreadable_directory_once() {
     assert!(found.entries.is_empty(), "{:?}", found.entries);
     assert_eq!(found.permission_denied, 1, "counted once");
 }
+
+/// A metadata filter decides by what it read of every entry, so a caller proving
+/// the listing needs the stamps of those it left out: the rows hold their own, in
+/// either view. A directory the walk enters is proved by its own listing, and a
+/// window's end drops what it did not cover.
+#[test]
+fn a_metadata_filter_reports_what_it_left_out() {
+    let root = TmpDir::new();
+    fs::create_dir(root.join("dir")).expect("dir");
+    fs::write(root.join("dir/big.rs"), "xxxx").expect("file");
+    fs::write(root.join("big.rs"), "xxxx").expect("file");
+    fs::write(root.join("small.rs"), "x").expect("file");
+    for names_only in [false, true] {
+        let mut found = query_file_system_inner(FileSystemQueryOptions {
+            path: root.to_string_lossy().into_owned(),
+            size_min: Some(2),
+            names_only,
+            ..Default::default()
+        })
+        .expect("query");
+        assert_eq!(found.entries.len(), 2, "{:?}", found.entries);
+        assert!(found.entries.iter().all(|entry| entry.stamp.is_some()));
+        let names = found
+            .evaluated
+            .iter()
+            .map(|entry| {
+                assert!(entry.stamp.is_some(), "{entry:?}");
+                entry.path.file_name().expect("name").to_owned()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["small.rs"], "names only: {names_only}");
+        found.end_at(0);
+        assert!(found.evaluated.is_empty(), "{:?}", found.evaluated);
+    }
+}
+
+#[test]
+fn a_walk_with_no_metadata_filter_evaluates_nothing() {
+    let root = TmpDir::new();
+    tree(&root, 2);
+    for names_only in [false, true] {
+        let found = query_file_system_inner(FileSystemQueryOptions {
+            path: root.to_string_lossy().into_owned(),
+            names_only,
+            ..Default::default()
+        })
+        .expect("query");
+        assert!(found.evaluated.is_empty(), "{:?}", found.evaluated);
+    }
+}

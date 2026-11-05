@@ -1,0 +1,145 @@
+{
+ "case": "npm/search",
+ "tool": "artifactSearch",
+ "query": {
+  "operation": "search",
+  "ecosystem": "npm",
+  "keywords": [
+   "left-pad"
+  ],
+  "limit": 5
+ },
+ "recordedAt": "2026-11-05",
+ "unread": [
+  "objects[*].downloads.weekly",
+  "objects[*].package.date",
+  "objects[*].package.links",
+  "objects[*].package.maintainers[*].email",
+  "objects[*].package.publisher.email",
+  "objects[*].updated",
+  "time"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://registry.npmjs.org/-/v1/search?text=left-pad&size=5",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "max-age=300"
+    ],
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:4274d70263407604214e4098ab9c96e47e17b9557ce0ad7bbfdc1e75e983c69f",
+   "body": {
+    "objects": [
+     {
+      "downloads": {
+       "monthly": 2887357,
+       "weekly": 966267
+      },
+      "dependents": "71",
+      "updated": "2026-11-05T10:09:37.185Z",
+      "searchScore": 634.0034,
+      "package": {
+       "name": "pad-left",
+       "keywords": [
+        "align",
+        "zeros"
+       ],
+       "version": "2.1.0",
+       "description": "Left pad a string with zeros or a specified string. Fastest implementation.",
+       "sanitized_name": "pad-left",
+       "publisher": {
+        "email": "person@example.test",
+        "username": "jonschlinkert"
+       },
+       "maintainers": [
+        {
+         "email": "person@example.test",
+         "username": "jonschlinkert"
+        }
+       ],
+       "license": "MIT",
+       "date": "2016-05-07T10:18:51.750Z",
+       "links": {
+        "homepage": "https://github.com/jonschlinkert/pad-left",
+        "repository": "git+https://github.com/jonschlinkert/pad-left.git",
+        "bugs": "https://github.com/jonschlinkert/pad-left/issues",
+        "npm": "https://www.npmjs.com/package/pad-left"
+       }
+      },
+      "score": {
+       "final": 634.0034,
+       "detail": {
+        "popularity": 1,
+        "quality": 1,
+        "maintenance": 1
+       }
+      },
+      "flags": {
+       "insecure": 0
+      }
+     },
+     {
+      "downloads": {
+       "monthly": 2291,
+       "weekly": 769
+      },
+      "dependents": "11",
+      "updated": "2026-11-05T03:41:24.005Z",
+      "searchScore": 498.18808,
+      "package": {
+       "name": "utils-left-pad-string",
+       "keywords": [
+        "utilities",
+        "cli"
+       ],
+       "version": "1.0.1",
+       "description": "Left pad a string.",
+       "sanitized_name": "utils-left-pad-string",
+       "publisher": {
+        "email": "person@example.test",
+        "username": "kgryte"
+       },
+       "maintainers": [
+        {
+         "email": "person@example.test",
+         "username": "kgryte"
+        }
+       ],
+       "license": "MIT",
+       "date": "2016-01-15T10:23:13.166Z",
+       "links": {
+        "homepage": "https://github.com/kgryte/utils-left-pad-string#readme",
+        "repository": "git://github.com/kgryte/utils-left-pad-string.git",
+        "bugs": "https://github.com/kgryte/utils-left-pad-string/issues",
+        "npm": "https://www.npmjs.com/package/utils-left-pad-string"
+       }
+      },
+      "score": {
+       "final": 498.18808,
+       "detail": {
+        "popularity": 1,
+        "quality": 1,
+        "maintenance": 1
+       }
+      },
+      "flags": {
+       "insecure": 0
+      }
+     }
+    ],
+    "total": 59544,
+    "time": "2026-11-05T16:49:59.320Z"
+   }
+  }
+ ]
+}

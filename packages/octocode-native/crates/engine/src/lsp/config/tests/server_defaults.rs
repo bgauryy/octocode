@@ -69,7 +69,7 @@ fn tsgo_starts_without_network_typing_acquisition() {
         max_memory_mb: None,
         source: Default::default(),
     };
-    crate::lsp::config::apply_server_default_options(&mut config, None);
+    crate::lsp::config::apply_server_default_options(&mut config, None, None);
     let options = config.initialization_options.expect("options");
     assert_eq!(
         options.pointer("/js~1ts/disableAutomaticTypeAcquisition"),
@@ -90,14 +90,14 @@ fn server_defaults_touch_only_rust_analyzer_and_are_idempotent() {
         max_memory_mb: None,
         source: Default::default(),
     };
-    crate::lsp::config::apply_server_default_options(&mut config, None);
+    crate::lsp::config::apply_server_default_options(&mut config, None, None);
     assert!(config.initialization_options.is_none());
 
     config.command = "C:/tools/Rust-Analyzer.exe".to_owned();
     config.initialization_options = Some(json!({"checkOnSave": true}));
-    crate::lsp::config::apply_server_default_options(&mut config, None);
+    crate::lsp::config::apply_server_default_options(&mut config, None, None);
     let once = config.initialization_options.clone();
-    crate::lsp::config::apply_server_default_options(&mut config, None);
+    crate::lsp::config::apply_server_default_options(&mut config, None, None);
     assert_eq!(config.initialization_options, once);
     let options = once.expect("options");
     assert_eq!(options.pointer("/checkOnSave"), Some(&json!(true)));
@@ -168,8 +168,8 @@ fn clangd_jdtls_and_metals_routes_start_headless() {
         max_memory_mb: None,
         source: Default::default(),
     };
-    crate::lsp::config::apply_server_default_options(&mut config, None);
-    crate::lsp::config::apply_server_default_options(&mut config, None);
+    crate::lsp::config::apply_server_default_options(&mut config, None, None);
+    crate::lsp::config::apply_server_default_options(&mut config, None, None);
     assert_eq!(
         config.args.as_deref().unwrap_or_default(),
         [
@@ -183,10 +183,26 @@ fn clangd_jdtls_and_metals_routes_start_headless() {
     config.args = Some(vec!["-data".to_owned(), "/mine".to_owned()]);
     config.initialization_options =
         Some(json!({"settings": {"java": {"autobuild": {"enabled": true}}}}));
-    crate::lsp::config::apply_server_default_options(&mut config, None);
+    crate::lsp::config::apply_server_default_options(&mut config, None, None);
     assert_eq!(
         config.args.as_deref().unwrap_or_default(),
-        ["-data", "/mine"]
+        [
+            "-data",
+            "/mine",
+            super::super::defaults::JDTLS_HEADLESS_ARGS[0]
+        ]
+    );
+    // A user's own `--jvm-arg` keeps the default, and re-applying adds nothing.
+    let mut own = config.clone();
+    own.args = Some(vec!["--jvm-arg=-Xmx1g".to_owned()]);
+    crate::lsp::config::apply_server_default_options(&mut own, None, None);
+    crate::lsp::config::apply_server_default_options(&mut own, None, None);
+    assert_eq!(
+        own.args.as_deref().unwrap_or_default(),
+        [
+            "--jvm-arg=-Xmx1g",
+            super::super::defaults::JDTLS_HEADLESS_ARGS[0]
+        ]
     );
     let merged = config.initialization_options.clone().expect("options");
     assert_eq!(
@@ -248,7 +264,7 @@ fn typescript_server_gets_headless_options_sized_to_the_cap() {
             max_memory_mb,
             source: Default::default(),
         };
-        crate::lsp::config::apply_server_default_options(&mut config, None);
+        crate::lsp::config::apply_server_default_options(&mut config, None, None);
         config
     };
     let ts = crate::lsp::config::catalog::default_server_for_file_from(
@@ -282,7 +298,7 @@ fn typescript_server_gets_headless_options_sized_to_the_cap() {
         max_memory_mb: Some(8192),
         source: Default::default(),
     };
-    crate::lsp::config::apply_server_default_options(&mut config, None);
+    crate::lsp::config::apply_server_default_options(&mut config, None, None);
     let init = config.initialization_options.expect("init");
     assert_eq!(init["maxTsServerMemory"], 1234, "{init}");
 }

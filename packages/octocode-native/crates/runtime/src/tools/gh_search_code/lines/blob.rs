@@ -227,7 +227,7 @@ impl Blob<'_> {
     fn numbered(&self, index: usize, security: &impl ContentScan) -> String {
         let number = saturating_u32(index + 1);
         let shown = if self.in_key_block(number) {
-            crate::security::key_fragment_placeholder()
+            crate::security::hide_key_line(self.raw[index])
         } else if let Some(clean) = self.clean.as_ref().and_then(|clean| clean.get(index)) {
             clean.clone()
         } else {

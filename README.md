@@ -195,7 +195,7 @@ Method and how to run your own: [benchmark guide](https://github.com/bgauryy/oct
 
 ## Tools
 
-**16 tools.** The default configuration exposes 12 tools over MCP and 16 in the CLI. These add the other four to MCP ([details](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#tool-availability-cli-and-mcp)):
+**16 tools, plus the opt-in `securityCheck`.** The default configuration exposes 12 tools over MCP and 15 in the CLI; a classification key adds `clasify` to both, and `OCTOCODE_SECURITY_CHECKS=true` adds `securityCheck`, which asks OSV about known vulnerabilities. These add the other four to MCP ([details](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#tool-availability-cli-and-mcp)):
 
 ```bash
 npx octocode config set local.beta true                 # graphBuild, graphQuery
@@ -373,7 +373,7 @@ Skills guide an agent through a whole task using the tools. Install one with `np
 | GitHub auth fails | `npx octocode auth status`, then `npx octocode auth login --refresh` |
 | MCP cannot reach GitHub | Run `npx octocode auth login` or `gh auth login` once, then restart the MCP server |
 | A setting or key has no effect | Restart the MCP server, then `npx octocode config list` shows the value and where it came from |
-| A tool is missing from MCP | Check its [opt-in](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#tool-availability-cli-and-mcp); the CLI always lists all 16 |
+| A tool is missing from MCP | Check its [opt-in](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#tool-availability-cli-and-mcp); the CLI lists all but `clasify` without a key |
 | Path is outside allowed roots | `npx octocode config set ALLOWED_PATHS /that/path`, then restart the MCP server |
 | Node.js errors | Use Node.js 22+ for `npx` |
 

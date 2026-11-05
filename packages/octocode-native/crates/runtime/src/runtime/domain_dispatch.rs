@@ -1,6 +1,8 @@
 //! One domain execution path for public tools and Jev's bounded read context.
 mod finalize;
+mod lsp_row;
 mod panic_site;
+mod registry_row;
 mod source_reader;
 use super::{dispatch, github};
 use crate::execution::{ExecutionContext, ExecutionError};
@@ -23,6 +25,8 @@ use std::{
 
 pub(crate) struct DomainDispatcher {
     pub paths: Arc<PathPolicy>,
+    /// [`Self::paths`] with credential file names withheld whatever the setting.
+    pub egress_paths: Arc<PathPolicy>,
     pub security: Arc<ContentSecurity>,
     pub(super) github_services: Arc<OnceLock<Result<github::GitHubServices, ProviderError>>>,
     pub(super) provider_answers: Arc<crate::providers::saved_answers::KeptAnswers>,
@@ -90,6 +94,19 @@ impl DomainDispatcher {
         }
     }
 
+    /// The policy a local row reads under. A graph writes what it reads to disk
+    /// and a classifier sends it to a provider, so neither reads credential
+    /// files; nor does a row a source reader captures for one (`egress`).
+    fn local_paths(&self, tool: ToolId, query: &Value, egress: bool) -> &PathPolicy {
+        if matches!(tool, ToolId::GraphBuild | ToolId::GraphQuery)
+            || goes_to_provider(query, egress)
+        {
+            &self.egress_paths
+        } else {
+            &self.paths
+        }
+    }
+
     /// Every route matches the contract family exhaustively; within a
     /// family only the tools with their own runner are named. The runtime
     /// resolves the wire name once.
@@ -99,14 +116,30 @@ impl DomainDispatcher {
         query: &CheckedQuery,
         context: &ExecutionContext,
     ) -> Result<DomainResult, ExecutionError> {
+        self.execute_row_under(tool, query, context, false)
+    }
+
+    /// [`Self::execute`]; `egress` when the row's text leaves the local read.
+    fn execute_row_under(
+        &self,
+        tool: ToolId,
+        query: &CheckedQuery,
+        context: &ExecutionContext,
+        egress: bool,
+    ) -> Result<DomainResult, ExecutionError> {
         let _enter = self.handle.enter();
         context.check()?;
         let mut result = execute_row(|| match tool.family() {
-            ToolFamily::GitHub => self.execute_github(tool, query, context),
-            ToolFamily::Local if tool == ToolId::LspSearch => self.execute_lsp(query, context),
-            ToolFamily::Local => self.execute_local(tool, query, context),
+            ToolFamily::GitHub => self.execute_github(tool, query, context, egress),
+            ToolFamily::Local if tool == ToolId::LspSearch => {
+                self.execute_lsp(query, context, egress)
+            }
+            ToolFamily::Local => self.execute_local(tool, query, context, egress),
             // Clasify runs its own batch, never a domain row.
             ToolFamily::Remote if tool.is_clasify() => Err(ExecutionError::UnroutedTool),
+            ToolFamily::Remote if tool == ToolId::SecurityCheck => {
+                self.execute_security_check(query, context)
+            }
             ToolFamily::Remote => self.execute_artifact(query, context),
         })?;
         if matches!(tool.family(), ToolFamily::Local) {
@@ -120,7 +153,14 @@ impl DomainDispatcher {
         tool: ToolId,
         query: &Value,
         context: &ExecutionContext,
+        egress: bool,
     ) -> Result<DomainResult, ExecutionError> {
+        if tool == ToolId::GhGetFileContent
+            && goes_to_provider(query, egress)
+            && let Some(withheld) = source_reader::withheld_github_read(query)
+        {
+            return Ok(withheld);
+        }
         let selection = self.selection_runtime(context);
         match self.github_services() {
             Ok(services) => services.execute_query(
@@ -139,128 +179,12 @@ impl DomainDispatcher {
         }
     }
 
-    fn execute_artifact(
-        &self,
-        query: &Value,
-        context: &ExecutionContext,
-    ) -> Result<DomainResult, ExecutionError> {
-        let row_query = query;
-        let query = match dispatch::parse_query(query) {
-            Ok(query) => query,
-            Err(row) => return Ok(*row),
-        };
-        // Release tags are checked through the GitHub transport; without
-        // usable GitHub services a lookup reads no tags.
-        let services = self.github_services().ok();
-        let tags = services.map(|services| services.release_tags(context, &self.github_access));
-        let env = self.config.credential_env();
-        let call = crate::tools::artifact_search::ArtifactCall {
-            deadline: context.deadline,
-            cancellation: context.cancellation.clone(),
-            allow_private_registry: self.config.resolved.network.allow_private_registry,
-            timeout: self.limits.network_timeout,
-            max_retries: self.limits.max_retries,
-            answers: Some(&*self.provider_answers),
-            tags: tags
-                .as_ref()
-                .map(|tags| tags as &dyn crate::providers::artifact::ReleaseTags),
-            env: &env,
-        };
-        self.handle.block_on(async {
-            Ok(
-                match crate::tools::artifact_search::execute(query, call).await {
-                    Ok(data) => dispatch::data_result(data),
-                    Err(error) => {
-                        let calls = error.calls;
-                        let mut row = dispatch::provider_failure(
-                            error.message,
-                            error.code,
-                            error.hints,
-                            error.status,
-                            None,
-                        );
-                        if let Some(calls) = calls {
-                            crate::response::result::attach_calls(&mut row.data, *calls);
-                        }
-                        // A retryable registry failure offers the same
-                        // `next.retry` every GitHub failure does.
-                        dispatch::offer_retry(
-                            crate::id::ToolId::ArtifactSearch,
-                            row_query,
-                            &mut row.data,
-                        );
-                        row
-                    }
-                },
-            )
-        })
-    }
-
-    fn execute_lsp(
-        &self,
-        query: &Value,
-        context: &ExecutionContext,
-    ) -> Result<DomainResult, ExecutionError> {
-        let query: LspSearchQuery = match dispatch::parse_query(query) {
-            Ok(query) => query,
-            Err(row) => return Ok(*row),
-        };
-        let requested = lsp_search_query::path(&query).map(str::to_owned);
-        self.lsp_requested
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        self.handle.block_on(async {
-            match within_request(
-                context,
-                crate::tools::lsp_search::execute(
-                    query,
-                    context,
-                    &self.lsp_pool,
-                    &self.paths,
-                    &self.lsp_execution_config,
-                    local_response_window(ToolId::LspSearch, context, self.limits.auto_page_chars),
-                    &self.lsp_answers,
-                ),
-            )
-            .await?
-            {
-                Ok(data) => Ok(dispatch::value_result(data)),
-                Err(failure) => {
-                    // A cancelled/expired request is a runtime outcome,
-                    // not a provider failure.
-                    context.check()?;
-                    let missing = failure.code == ErrorCode::PathNotFound;
-                    // No tip here: the response stage states the code's tip
-                    // for lspSearch (`ToolOutput::error_hint`).
-                    let mut row = DomainResult::provider(
-                        failure.code,
-                        failure.message,
-                        Vec::new(),
-                        None,
-                        Upstream {
-                            retryable: failure.retryable,
-                            http_status: None,
-                            rate_limit: None,
-                        },
-                    );
-                    // The same recovery every local tool gives a missing path.
-                    if missing
-                        && let Some(next) = requested.as_deref().and_then(|requested| {
-                            crate::response::result::missing_path_lead(&self.paths, requested)
-                        })
-                    {
-                        crate::response::result::attach_calls(&mut row.data, next);
-                    }
-                    Ok(row)
-                }
-            }
-        })
-    }
-
     fn execute_local(
         &self,
         tool: ToolId,
         query: &Value,
         context: &ExecutionContext,
+        egress: bool,
     ) -> Result<DomainResult, ExecutionError> {
         let context = ExecutionContext {
             response_window: local_response_window(tool, context, self.limits.auto_page_chars),
@@ -289,7 +213,7 @@ impl DomainDispatcher {
                     cargo: self
                         .config
                         .env_value(crate::config::environment::OCTOCODE_CARGO),
-                    paths: &self.paths,
+                    paths: self.local_paths(tool, query, egress),
                     security: &self.security,
                     selection: Some(&selection),
                     graph_rows: Some(&self.graph_rows),
@@ -323,6 +247,15 @@ impl DomainDispatcher {
         }
         Ok(result)
     }
+}
+
+/// Whether a row's text goes to a classification provider: a source reader
+/// captures it for one (`egress`), or the row judges with one.
+fn goes_to_provider(query: &Value, egress: bool) -> bool {
+    egress
+        || ["classification", "selection"]
+            .into_iter()
+            .any(|field| query.get(field).is_some())
 }
 
 /// Runs language-server work for the request `context` admits. A starved

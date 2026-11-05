@@ -1,5 +1,6 @@
 use super::*;
 
+mod allowed_credential_files;
 mod credential_directories;
 mod denials;
 mod read_filter;
@@ -101,7 +102,7 @@ fn walk_discovery_matches_permits_discovery_for_every_entry() {
     ] {
         let path = root.join(entry);
         assert_eq!(
-            walk.permits(&path),
+            walk.permits_entry(&path, None),
             policy.permits_discovery(&path),
             "{entry}"
         );

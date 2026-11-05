@@ -162,7 +162,7 @@ test('bound MCP exposes discriminated memory/event/checkpoint schemas and preser
   {jsonrpc:'2.0',id:4,method:'tools/call',params:{name:'records',arguments:{type:'write',input:{type:'event',data:{content:'Missing name'}}}}},
  ];
  const responses=execFileSync(binary,['mcp','--tools','records','--session',f.a,'--workspace',f.workspace,'--database',f.database],{
-  input:frames.map(frame=>JSON.stringify(frame)).join('\n')+'\n',encoding:'utf8',stdio:'pipe'}).trim().split('\n').map((line): JsonRecord=>JSON.parse(line));
+  input:`${frames.map(frame=>JSON.stringify(frame)).join('\n')}\n`,encoding:'utf8',stdio:'pipe'}).trim().split('\n').map((line): JsonRecord=>JSON.parse(line));
  const schema=responses[0].result.tools.find((tool: JsonRecord)=>tool.name==='records').inputSchema;
  const write=schema.oneOf.find((item: JsonRecord)=>item.properties.type.const==='write').properties.input;
  assert.deepEqual(write.oneOf.map((item: JsonRecord)=>item.properties.type.const),['memory','event','checkpoint']);
@@ -222,7 +222,7 @@ test('all type discovery examples are valid, compact fields are complete and dis
   assert.deepEqual([...brief.required,...brief.optional].sort(),Object.keys(item.dataSchema.properties).sort());
   assert.match(item.description,/\S/);assert.match(item.routing,/\S/);assert.deepEqual(item.fetch,{type:item.type});
   assert.deepEqual(call('schema','type',item.type),item);
-  for(const field of Object.keys(item.dataSchema.properties))assert.ok(readFileSync(join(root,'docs/RECORDS.md'),'utf8').includes(field),item.type+':'+field);
+  for(const field of Object.keys(item.dataSchema.properties))assert.ok(readFileSync(join(root,'docs/RECORDS.md'),'utf8').includes(field),`${item.type}:${field}`);
  }
  assert.deepEqual(byType(compact,'document').nested.context.optional,['path','kind','branch','ttlMs','expiresAt']);
  assert.deepEqual(byType(compact,'message').nested.next.nested.input.required,['recordId']);

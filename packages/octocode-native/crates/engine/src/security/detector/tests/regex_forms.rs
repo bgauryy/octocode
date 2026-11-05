@@ -124,3 +124,43 @@ fn on_ascii_text_both_forms_find_the_same_spans() {
     }
     assert!(matched > 10, "the corpus exercises the patterns: {matched}");
 }
+
+/// `kubernetesSecrets` runs its walk only for text naming the kind, however that
+/// is spelled, and its gate and pattern answer alike.
+#[test]
+fn the_kubernetes_walk_runs_only_for_text_naming_a_secret() {
+    let idx = PATTERNS
+        .iter()
+        .position(|pattern| pattern.name == "kubernetesSecrets")
+        .expect("pattern");
+    let named = |text: &str| {
+        matching_patterns(text, Scope::Stored(None))
+            .iter()
+            .any(|candidate| candidate == idx)
+    };
+    for text in [
+        "the kind: of readme text",
+        "kind: Deployment\ndata:\n  k: v\n",
+        "resource_kind: Secret\ndata:\n  k: v\n",
+        "kind: SecretStore\ndata:\n  k: v\n",
+    ] {
+        assert!(!named(text), "{text:?}");
+    }
+    for text in [
+        "kind: Secret\ndata:\n  k: v\n",
+        "data:\n  k: v\nkind: Secret\n",
+        "KIND:\t'SECRET'\ndata:\n  k: v\n",
+    ] {
+        assert!(named(text), "{text:?}");
+        assert!(pattern_regex(idx).is_match(text), "{text:?}");
+    }
+    // Case folding and the ASCII boundary answer alike in the gate and the pattern.
+    for text in [
+        "\u{212A}ind: Secret\ndata:\n  k: v\n",
+        "a\u{212A}ind: Secret\ndata:\n  k: v\n",
+        "\u{e9}kind: Secret\ndata:\n  k: v\n",
+        "x kind: Secret\ndata:\n  k: v\n",
+    ] {
+        assert_eq!(named(text), pattern_regex(idx).is_match(text), "{text:?}");
+    }
+}

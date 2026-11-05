@@ -36,7 +36,7 @@ function devCheckInput(argv) {
     else if (['url', 'waitUntil'].includes(field)) input[field] = argv[++i];
     else if (['timeoutMs', 'idleMs'].includes(field))
       input[field] = Number(argv[++i]);
-    else throw Error('Unmapped dev-check argument ' + argv[i]);
+    else throw Error(`Unmapped dev-check argument ${argv[i]}`);
   }
   return input;
 }
@@ -70,7 +70,7 @@ function toolInput(argv) {
     } else if (['--browser', '--close-tab', '--keep-tab'].includes(key))
       connection[camel(key)] = true;
     else if (!key.startsWith('--') && name === 'protocol') input.member = key;
-    else throw Error('Unmapped fixture argument ' + key);
+    else throw Error(`Unmapped fixture argument ${key}`);
   }
   input.connection = connection;
   return { name, input };
@@ -125,7 +125,7 @@ export async function cli(argv, timeout = 45000) {
     const stderr = message.logs?.stderr
       ? readFileSync(message.logs.stderr, 'utf8')
       : '';
-    return { code: message.exitCode, out: stdout + '\n' + stderr };
+    return { code: message.exitCode, out: `${stdout}\n${stderr}` };
   }
   const r = spawnSync(
     process.execPath,
@@ -143,9 +143,9 @@ export async function cli(argv, timeout = 45000) {
   };
 }
 export function artifact(out, name) {
-  const prefix = '[ARTIFACT] ' + name + ' ',
+  const prefix = `[ARTIFACT] ${name} `,
     line = out.split('\n').find(row => row.startsWith(prefix));
-  if (!line) throw Error('Missing ' + name + ': ' + out);
+  if (!line) throw Error(`Missing ${name}: ${out}`);
   return JSON.parse(readFileSync(line.slice(prefix.length), 'utf8'));
 }
 export const cdp = (method, params = {}, extra = {}) => ({
@@ -186,14 +186,14 @@ export async function check(name, needs, fn) {
   const absent = needs.filter(method => !advertised.has(method));
   if (absent.length) {
     results.push({ name, status: 'unavailable', absent });
-    console.log('UNAVAILABLE ' + name + ': ' + absent.join(', '));
+    console.log(`UNAVAILABLE ${name}: ${absent.join(', ')}`);
     return;
   }
   const start = Date.now();
   try {
     await fn();
     results.push({ name, status: 'passed', ms: Date.now() - start });
-    console.log('ok ' + name + ' (' + (Date.now() - start) + 'ms)');
+    console.log(`ok ${name} (${Date.now() - start}ms)`);
   } catch (error) {
     results.push({
       name,
@@ -201,7 +201,7 @@ export async function check(name, needs, fn) {
       ms: Date.now() - start,
       error: error.message,
     });
-    console.log('FAIL ' + name + ': ' + error.message);
+    console.log(`FAIL ${name}: ${error.message}`);
   }
 }
 export function navigate(extra = []) {

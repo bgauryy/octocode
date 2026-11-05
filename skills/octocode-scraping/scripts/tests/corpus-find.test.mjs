@@ -146,10 +146,10 @@ test('corpus queries refuse a folder that is not a scrape session instead of rep
 
 test('JSON key names never match a query; only values do', () => {
   mkdirSync(join(sessionDir, 'extracts'));
-  writeFileSync(join(sessionDir, 'extracts/elements.jsonl'), [
+  writeFileSync(join(sessionDir, 'extracts/elements.jsonl'), `${[
     { pageId: 'page-0', kind: 'table', _file: 'tables', source: 'html', headers: ['Plan', 'Price'], preview: 'Starter 10 dollars' },
     { pageId: 'page-1', kind: 'jsonld', _file: 'jsonld', source: 'html', json: { '@type': 'Product', name: 'Widget' } },
-  ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  ].map((r) => JSON.stringify(r)).join('\n')}\n`);
   for (const keyName of ['source', 'pageId', 'headers', 'preview']) {
     const res = spawnSync(process.execPath, [script, '--session-dir', sessionDir, '--query', keyName], { encoding: 'utf8' });
     assert.equal(readSuccess(res).pagination.totalMatches, 0, keyName);

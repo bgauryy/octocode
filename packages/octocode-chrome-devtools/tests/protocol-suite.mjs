@@ -61,10 +61,10 @@ const fixturePort = await new Promise((yes, no) => {
   });
   fixture.once('error', no);
 });
-const base = 'http://127.0.0.1:' + fixturePort;
+const base = `http://127.0.0.1:${fixturePort}`;
 const transport = args.includes('--transport') ? get('--transport') : 'legacy';
 if (!['legacy', 'mcp', 'typed-cli'].includes(transport))
-  throw Error('Unknown transport ' + transport);
+  throw Error(`Unknown transport ${transport}`);
 const { connectStdio } =
   transport === 'legacy' ? {} : await import('../dist/runtime.js');
 const client =
@@ -102,7 +102,7 @@ try {
   suite.protocol = artifact(capture.out, 'cdp-protocol.json');
   for (const domain of suite.protocol.domains)
     for (const command of domain.commands ?? [])
-      advertised.add(domain.domain + '.' + command.name);
+      advertised.add(`${domain.domain}.${command.name}`);
   for (const { name, needs, fn } of [
     ...pageChecks,
     ...targetChecks,
@@ -134,9 +134,9 @@ try {
       });
     }
     if (results.some(row => row.status === 'failed'))
-      console.log('Retained failed-flow captures ' + work);
+      console.log(`Retained failed-flow captures ${work}`);
     else rmSync(work, { recursive: true, force: true });
-  } else console.log('Kept browser port ' + port + ', captures ' + work);
+  } else console.log(`Kept browser port ${port}, captures ${work}`);
   await client?.close();
 }
 const failed = results.filter(row => row.status === 'failed'),
@@ -156,32 +156,31 @@ const inventory = {
   domains: (suite.protocol?.domains ?? []).map(domain => ({
     domain: domain.domain,
     commands: (domain.commands ?? []).map(row => ({
-      method: domain.domain + '.' + row.name,
-      executed: tested.has(domain.domain + '.' + row.name),
+      method: `${domain.domain}.${row.name}`,
+      executed: tested.has(`${domain.domain}.${row.name}`),
     })),
-    events: (domain.events ?? []).map(row => domain.domain + '.' + row.name),
+    events: (domain.events ?? []).map(row => `${domain.domain}.${row.name}`),
   })),
   results,
 };
 if (args.includes('--report')) {
   const file = resolve(get('--report'));
   mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify(inventory, null, 2) + '\n');
-  console.log('[ARTIFACT] protocol-coverage.json ' + file);
+  writeFileSync(file, `${JSON.stringify(inventory, null, 2)}\n`);
+  console.log(`[ARTIFACT] protocol-coverage.json ${file}`);
   console.log(
-    '[NEXT] ' +
-      JSON.stringify({
-        continue: {
-          command: process.execPath,
-          args: [
-            join(scripts, 'artifact-query.mjs'),
-            '--file',
-            file,
-            '--format',
-            'json',
-          ],
-        },
-      })
+    `[NEXT] ${JSON.stringify({
+      continue: {
+        command: process.execPath,
+        args: [
+          join(scripts, 'artifact-query.mjs'),
+          '--file',
+          file,
+          '--format',
+          'json',
+        ],
+      },
+    })}`
   );
 }
 console.log(

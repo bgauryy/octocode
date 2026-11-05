@@ -28,7 +28,8 @@ const MARKERS: [&str; 12] = [
 /// The language server root of `file_path`: for a Rust file, the root of
 /// the Cargo workspace its package belongs to (one rust-analyzer analyzes
 /// every member crate, so a member crate never roots a second one);
-/// otherwise the nearest ancestor holding a project marker, widened for a
+/// otherwise its language's project ([`language_project_root`]), else the
+/// nearest ancestor holding a project marker, widened for a
 /// TypeScript-family file to the directory of its governing
 /// `tsconfig.json`/`jsconfig.json` when that sits above the marker. With no
 /// marker anywhere, the file's own directory. Never the process cwd: a
@@ -43,11 +44,143 @@ pub fn resolve_workspace_root_for_file(file_path: String) -> Result<String> {
         .flatten()
         .map(|package| cargo_workspace_root(&package).unwrap_or(package));
     let root = cargo_root
+        .or_else(|| language_project_root(&file_path, &directory))
         .or_else(|| project_root_of_dir(&directory))
         .unwrap_or_else(|| directory.clone());
-    let root = typescript_config_above(&file_path, &directory, &root).unwrap_or(root);
-    let root = multi_module_root_above(&file_path, &root).unwrap_or(root);
+    // Widening stays in the repository: a config above it belongs to something else.
+    let in_repository = |above: &PathBuf| {
+        repository_root(&directory).is_none_or(|repository| above.starts_with(repository))
+    };
+    let root = typescript_config_above(&file_path, &directory, &root)
+        .filter(in_repository)
+        .unwrap_or(root);
+    let root = multi_module_root_above(&file_path, &root)
+        .filter(in_repository)
+        .unwrap_or(root);
     Ok(root.to_string_lossy().into_owned())
+}
+
+/// The files naming a C-family project's build, nearest being a module of it.
+const C_BUILD_FILES: [&str; 4] = ["CMakeLists.txt", "meson.build", "Makefile", "configure.ac"];
+
+/// The files that name a language's project, in tiers: the nearest ancestor
+/// holding a file of the first tier that has one is the project. A later tier
+/// is weaker evidence (a `requirements.txt` under a `pyproject.toml` lists a
+/// subdirectory's dependencies). `*.ext` matches any file with that suffix.
+/// Rust is absent: `cargo_package_dir` and the Cargo workspace root it.
+fn project_file_tiers(language_id: &str) -> &'static [&'static [&'static str]] {
+    match language_id {
+        "typescript" | "typescriptreact" | "javascript" | "javascriptreact" => &[&[
+            "tsconfig.json",
+            "jsconfig.json",
+            "package.json",
+            "pnpm-workspace.yaml",
+            "yarn.lock",
+        ]],
+        "python" => &[
+            &[
+                "pyrightconfig.json",
+                "pyproject.toml",
+                "setup.py",
+                "setup.cfg",
+                "Pipfile",
+            ],
+            &["requirements.txt"],
+        ],
+        "go" => &[&["go.mod"]],
+        "java" => &[&[
+            "pom.xml",
+            "build.gradle",
+            "build.gradle.kts",
+            "settings.gradle",
+            "settings.gradle.kts",
+        ]],
+        "scala" => &[&["build.sbt", "build.sc", "build.mill"]],
+        "csharp" => &[&["*.sln", "*.slnx"], &["*.csproj"]],
+        _ => &[],
+    }
+}
+
+/// Whether `dir` holds `marker`: a file of that name, or for `*.ext` a file
+/// with that suffix.
+pub(crate) fn dir_holds(dir: &Path, marker: &str) -> bool {
+    let Some(suffix) = marker.strip_prefix('*') else {
+        return dir.join(marker).is_file();
+    };
+    std::fs::read_dir(dir).is_ok_and(|entries| {
+        entries.flatten().any(|entry| {
+            entry.file_name().to_string_lossy().ends_with(suffix)
+                && entry.file_type().is_ok_and(|kind| kind.is_file())
+        })
+    })
+}
+
+/// The project root of `file_path` by its own language's project files, else
+/// its repository. A marker of another language or a generic build file in a
+/// subdirectory (a `Makefile` beside the sources) names no project of this
+/// language, and rooting there hides every other file from the server.
+/// `None` with neither: the nearest marker of any kind stands.
+fn language_project_root(file_path: &str, directory: &Path) -> Option<PathBuf> {
+    let language = crate::lsp::config::detect_language_id(file_path)?;
+    if crate::lsp::family::is_c_family(Some(&language)) {
+        return c_project_root(directory);
+    }
+    let within = within_repository(directory);
+    project_file_tiers(&language)
+        .iter()
+        .find_map(|tier| {
+            within
+                .iter()
+                .copied()
+                .find(|dir| tier.iter().any(|marker| dir_holds(dir, marker)))
+        })
+        .or_else(|| {
+            (language != "rust")
+                .then(|| repository_root(directory))
+                .flatten()
+        })
+        .map(Path::to_path_buf)
+}
+
+/// `directory` and its ancestors, up to the repository holding it: a project
+/// file above the repository belongs to something else.
+fn within_repository(directory: &Path) -> Vec<&Path> {
+    let mut within = Vec::new();
+    for dir in directory.ancestors() {
+        within.push(dir);
+        if dir.join(".git").exists() {
+            break;
+        }
+    }
+    within
+}
+
+/// The nearest ancestor of `directory` that is a repository's root.
+fn repository_root(directory: &Path) -> Option<&Path> {
+    directory.ancestors().find(|dir| dir.join(".git").exists())
+}
+
+/// The root of the project a C-family file in `directory` compiles in, found
+/// the way clangd finds its command: the nearest ancestor holding a compilation
+/// database or `.clangd`; else the repository, where an out-of-tree build
+/// directory (`build/debug`) lives and a relative `--compile-commands-dir`
+/// resolves; else the top of the unbroken chain of build files above the file
+/// (a subdirectory's `Makefile` is one module of it).
+fn c_project_root(directory: &Path) -> Option<PathBuf> {
+    use crate::lsp::clangd_database::is_project_config_dir;
+    let has_build_file = |dir: &Path| C_BUILD_FILES.iter().any(|name| dir.join(name).is_file());
+    within_repository(directory)
+        .into_iter()
+        .find(|dir| is_project_config_dir(dir))
+        .or_else(|| repository_root(directory))
+        .or_else(|| {
+            directory
+                .ancestors()
+                .skip_while(|dir| !has_build_file(dir))
+                .take_while(|dir| has_build_file(dir))
+                .last()
+        })
+        .map(Path::to_path_buf)
 }
 
 /// The top of a multi-module project above `root`, for a server that

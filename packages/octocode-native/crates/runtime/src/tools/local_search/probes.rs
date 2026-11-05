@@ -10,7 +10,7 @@ use crate::response::result::ToolError;
 use crate::tools::empty_walk::{Cause, Globs, Hits, Tagged, Verdict, Walk, diagnose};
 use crate::tools::leads::skipped::{SkippedEntry, skipped_cause, skipped_paths};
 use octocode_contract_types::{LocalSearchQuery, SkippedPaths};
-use octocode_engine::search::text_search::search_cancellable;
+use octocode_engine::search::text_search::{TextSearchPathFilter, search_cancellable};
 use octocode_engine::types::{SearchOutput, TextSearchOptions};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -30,11 +30,14 @@ pub(super) struct Lifted {
 
 /// Re-run an empty search over what the defaults leave out (ignored and
 /// hidden entries, the default-excluded directories), each file found
-/// tagged with the causes that hid it ([`probe_lifted`]).
+/// tagged with the causes that hid it ([`probe_lifted`]). `searched` is what
+/// the empty scan already searched, when its record can serve: those files hold
+/// nothing the page could list, so they are not read again.
 pub(super) fn probe_unsearched(
     query: &LocalSearchQuery,
     paths: &PathPolicy,
     search_options: &TextSearchOptions,
+    searched: Option<&[std::path::PathBuf]>,
     cancel: &impl CancellationCheck,
 ) -> Result<Lifted, ()> {
     let walk = query_walk(query);
@@ -42,8 +45,39 @@ pub(super) fn probe_unsearched(
         search_options,
         walk.lifting(&walk.skipping()),
         paths,
+        searched,
         cancel,
     )
+}
+
+/// A probe walk's path filter: the walk's verdicts, less the files already
+/// searched. Directories still walk: a skipped path lies below them.
+struct BeyondSearched {
+    walk: Arc<crate::policy::discovery::WalkAdmission<'static>>,
+    searched: std::collections::HashSet<std::path::PathBuf>,
+}
+
+impl TextSearchPathFilter for BeyondSearched {
+    fn allows(&self, path: &std::path::Path, is_dir: bool) -> bool {
+        (is_dir || !self.searched.contains(path)) && self.walk.allows(path, is_dir)
+    }
+
+    fn allows_entry(&self, path: &std::path::Path, file_type: Option<std::fs::FileType>) -> bool {
+        (file_type.is_some_and(|kind| kind.is_dir()) || !self.searched.contains(path))
+            && self.walk.allows_entry(path, file_type)
+    }
+
+    fn skipped_hidden(&self, path: &std::path::Path, is_dir: bool) {
+        self.walk.skipped_hidden(path, is_dir);
+    }
+
+    fn skipped_ignored(&self, path: &std::path::Path, is_dir: bool) {
+        self.walk.skipped_ignored(path, is_dir);
+    }
+
+    fn skipped_symlink(&self, path: &std::path::Path) {
+        self.walk.skipped_symlink(path);
+    }
 }
 
 /// Whether a walk's ledger names nothing: no skipped path a flag lifts, nothing
@@ -221,6 +255,7 @@ fn probe_walked(
     options: TextSearchOptions,
     paths: &PathPolicy,
     defaults: bool,
+    searched: Option<&[std::path::PathBuf]>,
     cancel: &impl CancellationCheck,
 ) -> Option<(
     octocode_engine::types::TextSearchResult,
@@ -235,8 +270,15 @@ fn probe_walked(
         defaults,
         options.include.as_deref().unwrap_or_default(),
     ));
+    let filter: Arc<dyn TextSearchPathFilter> = match searched {
+        Some(searched) => Arc::new(BeyondSearched {
+            walk: Arc::clone(&walk),
+            searched: searched.iter().cloned().collect(),
+        }),
+        None => walk.clone(),
+    };
     let (found, cut) = within_budget(cancel, |stopped| {
-        search_cancellable(options, walk.clone(), stopped)
+        search_cancellable(options, filter, stopped)
     });
     Some((found.ok()?, cut, walk.skipped().withheld))
 }
@@ -267,6 +309,7 @@ fn probe_lifted(
     options: &TextSearchOptions,
     walk: Walk,
     paths: &PathPolicy,
+    searched: Option<&[std::path::PathBuf]>,
     cancel: &impl CancellationCheck,
 ) -> Result<Lifted, ()> {
     // The files the row's view lists: those without a match for a
@@ -286,7 +329,7 @@ fn probe_lifted(
         exclude: options.exclude.as_deref().unwrap_or_default(),
     };
     let (searched, _, withheld) =
-        probe_walked(lifted, paths, walk.default_excludes, cancel).ok_or(())?;
+        probe_walked(lifted, paths, walk.default_excludes, searched, cancel).ok_or(())?;
     let cut = !searched.stats.cap_reasons.is_empty();
     let tagged = Tagged::found(
         &root,

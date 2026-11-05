@@ -10,9 +10,10 @@ use std::fs;
 use std::io::Read;
 use std::path::Path;
 
-/// In-memory read guard. Larger sources use bounded streaming windows up to
+/// In-memory read guard: what the scanner judges at once, so every source read
+/// whole is judged whole. Larger sources use bounded streaming windows up to
 /// `MAX_STREAM_SOURCE_BYTES`; a growing small-file read stops at this guard.
-pub(crate) const MAX_SOURCE_BYTES: u64 = 10 * 1024 * 1024;
+pub(crate) const MAX_SOURCE_BYTES: u64 = octocode_engine::security::MAX_CONTENT_SIZE as u64;
 
 #[derive(Clone, Copy)]
 pub(super) enum SourceSizeLimit {
@@ -27,18 +28,23 @@ pub(super) fn source_too_large(path: &str, len: u64, limit: SourceSizeLimit) -> 
                 "File too large: {len} bytes (streaming ceiling: {} bytes / 1 GiB). localFetch cannot read this path, even in ranges.",
                 super::large_source::MAX_STREAM_SOURCE_BYTES
             ),
-            "No selection lifts this source-size ceiling; choose a smaller text source or split it outside localFetch.",
+            "No selection lifts this source-size ceiling; choose a smaller text source or split it outside localFetch.".to_owned(),
         ),
-        SourceSizeLimit::InMemoryGrowth => (
-            format!(
-                "Source grew past the in-memory read guard: at least {len} bytes (guard: {MAX_SOURCE_BYTES} bytes / 10 MiB); the read stopped."
-            ),
-            "Retry a bounded line window once the source stops changing; sources over 10 MiB stream, up to the 1 GiB ceiling.",
-        ),
+        SourceSizeLimit::InMemoryGrowth => {
+            let mib = MAX_SOURCE_BYTES / (1024 * 1024);
+            (
+                format!(
+                    "Source grew past the in-memory read guard: at least {len} bytes (guard: {MAX_SOURCE_BYTES} bytes / {mib} MiB); the read stopped."
+                ),
+                format!(
+                    "Retry a bounded line window once the source stops changing; sources over {mib} MiB stream, up to the 1 GiB ceiling."
+                ),
+            )
+        }
     };
     let mut result = LocalFetchResult::error(path.to_owned(), ErrorCode::FileTooLarge, message);
     result.terminal_limit(PartialReason::FileTooLarge);
-    result.hints = vec![hint.into()];
+    result.hints = vec![hint];
     result
 }
 

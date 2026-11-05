@@ -7,9 +7,9 @@ test('capture inventory pages every artifact and preserves all findings and logs
   fixture(async (work, client) => {
     const lines = [];
     for (let i = 0; i < 60; i++) {
-      const file = join(work, 'row-' + i + '.json');
-      writeFileSync(file, JSON.stringify([{ text: 'needle ' + i }]));
-      lines.push('[ARTIFACT] row ' + file);
+      const file = join(work, `row-${i}.json`);
+      writeFileSync(file, JSON.stringify([{ text: `needle ${i}` }]));
+      lines.push(`[ARTIFACT] row ${file}`);
     }
     lines.push(lines[0], '[FINDING] pending request remains unobserved');
     const result = await shape(work, lines.join('\n'));
@@ -120,10 +120,7 @@ test('direct extraction pages retain every row', () =>
     );
     const result = await shape(
       work,
-      '[ARTIFACT] EXTRACT ' +
-        source +
-        '\n[ARTIFACT] browser-result.json ' +
-        flow
+      `[ARTIFACT] EXTRACT ${source}\n[ARTIFACT] browser-result.json ${flow}`
     );
     const first = result.flow.steps[0].data;
     assert.equal(first.rows.length, 3);
@@ -211,7 +208,7 @@ test('compact CLI JSON retains numeric lexemes and failed oversized step evidenc
         eventCoverage: [],
       })
     );
-    const result = await shape(work, '[ARTIFACT] browser-result.json ' + flow);
+    const result = await shape(work, `[ARTIFACT] browser-result.json ${flow}`);
     assert(Buffer.byteLength(JSON.stringify(result)) < 2500);
     const page = await call(client, result.flow.steps[0].next);
     assert(page.data.rows[0].oversized);

@@ -1,5 +1,4 @@
-use super::Printed;
-use super::output::Stream;
+use super::output::{Printed, Stream};
 use super::parse::parse_args_from;
 use octocode_contract_types::ErrorCode;
 use octocode_native::runtime::RuntimeError;
@@ -79,7 +78,7 @@ fn printed_calls_round_trip_through_the_reply_line() {
 /// for work that ignores cancellation; without one, the drain completes.
 #[tokio::test]
 async fn second_interrupt_stops_waiting_for_uncooperative_work() {
-    use super::{Interrupted, drain_after_interrupt};
+    use super::tool_call::{Interrupted, drain_after_interrupt};
     let forced = drain_after_interrupt(std::future::pending::<()>(), std::future::ready(())).await;
     assert_eq!(forced, Interrupted::Forced);
     let drained = drain_after_interrupt(std::future::ready(()), std::future::pending::<()>()).await;
@@ -207,25 +206,29 @@ fn tool_input_reads_a_file_and_rejects_bad_json() {
     let dir = tempfile::tempdir().expect("dir");
     let path = dir.path().join("q.json");
     std::fs::write(&path, r#"{"queries":[]}"#).expect("write");
-    let args = super::ToolArgs {
+    let args = super::commands::ToolArgs {
         args: Vec::new(),
         input: Some(path),
     };
     assert_eq!(
-        super::tool_input("localSearch", &args),
+        super::tool_call::tool_input("localSearch", &args),
         Ok(json!({"queries": []}))
     );
-    let bad = super::ToolArgs {
+    let bad = super::commands::ToolArgs {
         args: vec!["{".into()],
         input: None,
     };
-    assert!(super::tool_input("localSearch", &bad).is_err_and(|e| e.starts_with("Invalid JSON")));
-    let missing = super::ToolArgs {
+    assert!(
+        super::tool_call::tool_input("localSearch", &bad)
+            .is_err_and(|e| e.starts_with("Invalid JSON"))
+    );
+    let missing = super::commands::ToolArgs {
         args: Vec::new(),
         input: None,
     };
     assert!(
-        super::tool_input("localSearch", &missing).is_err_and(|e| e.starts_with("Missing query"))
+        super::tool_call::tool_input("localSearch", &missing)
+            .is_err_and(|e| e.starts_with("Missing query"))
     );
 }
 

@@ -146,10 +146,13 @@ fn security_limit(
 /// Redacted text is not the source: say so, as localSearch does. Only the
 /// placeholders this read put on the page count (a byte page may show part
 /// of a redacted line, so never more than the page holds): literal
-/// `[REDACTED…]` text in the source is verbatim.
+/// `[REDACTED…]` text in the source is verbatim. A redaction spanning lines
+/// shows its placeholder on its first and blanks the others, so a page of them
+/// holds no placeholder: `blanked` says it shows such a line.
 pub(super) fn warn_redacted(
     text: &str,
     view_redacted: bool,
+    blanked: bool,
     redactions: usize,
     warnings: &mut Vec<String>,
 ) {
@@ -158,7 +161,7 @@ pub(super) fn warn_redacted(
         warnings.push(format!(
             "redactedContent: {redactions} secret-shaped value(s) in the returned text were replaced by [REDACTED…] placeholders; this content is not verbatim source."
         ));
-    } else if view_redacted {
+    } else if view_redacted || blanked {
         warnings.push(
             "redactedContent: secret-shaped text in the requested view was redacted; this content is not verbatim source.".into(),
         );

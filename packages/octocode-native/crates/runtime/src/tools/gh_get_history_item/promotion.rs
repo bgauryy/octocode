@@ -1,11 +1,10 @@
 //! Promotion of a shaped page's cursors (`contentPagination`) to `next.*`
-//! for pull requests and issues, with the note of what each page leaves.
+//! for pull requests and issues.
 use super::axis::{Axis, Cursor};
 use super::patch_hop::*;
 use super::pr_menu::*;
 use super::remaining::Remainder;
 use super::{HistoryItemRequest, ItemOperation, Sections};
-use crate::response::result::Remaining;
 use crate::tools::gh_get_history_item::sections::Section;
 use serde_json::{Map, Value, json};
 
@@ -43,27 +42,22 @@ fn strip_cursors(pages: &mut Map<String, Value>) {
 }
 
 /// `next.*` for every unfinished axis of the pull request's page, and the
-/// note of what each leaves ([`Remainder`]). `isPartial` is set only for an axis
+/// `isPartial` is set only for an axis
 /// with more to read that no continuation reaches: `hasMore` beside a
 /// `next.*` page already says the rest is unread.
-pub(super) fn promote_pr_continuations(
-    out: &mut Value,
-    q: &HistoryItemRequest,
-    remainder: &Remainder,
-) -> Vec<Remaining> {
+pub(super) fn promote_pr_continuations(out: &mut Value, q: &HistoryItemRequest) {
     hoist_provider_limit(out, "/pullRequests/0");
     let Some(pages) = out
         .pointer_mut("/pullRequests/0/contentPagination")
         .and_then(Value::as_object_mut)
     else {
-        return Vec::new();
+        return;
     };
     // A file page with unread patches continues them first: its window
     // that finishes the patches offers the next file page.
     let patches_open = pages
         .get(Axis::Patches.key())
         .is_some_and(|entry| entry.get("hasMore").and_then(Value::as_bool) == Some(true));
-    let mut notes = Vec::new();
     let mut unreached = false;
     for (key, entry) in pages.iter_mut() {
         if entry.get("hasMore").and_then(Value::as_bool) != Some(true) {
@@ -94,13 +88,11 @@ pub(super) fn promote_pr_continuations(
         if let Some(call) = call {
             entry["next"][Axis::next_name()] = call;
         }
-        notes.extend(remainder.note(axis, entry));
     }
     strip_cursors(pages);
     if unreached {
         out["isPartial"] = json!(true);
     }
-    notes
 }
 
 /// A pull-request continuation of `axis` reads that surface alone. `offset`
@@ -146,18 +138,18 @@ fn narrow_to_axis(nq: &mut Value, axis: Axis, q: &HistoryItemRequest) {
 }
 
 /// `next.*` for every unfinished axis of the issue's page, and the note of
-/// what each leaves ([`Remainder`]); `isPartial` as for a pull request
+/// `isPartial` as for a pull request
 /// ([`promote_pr_continuations`]).
 pub(super) fn promote_issue_continuations(
     out: &mut Value,
     q: &HistoryItemRequest,
     remainder: &Remainder,
-) -> Vec<Remaining> {
+) {
     let Some(pages) = out
         .pointer_mut("/issues/0/contentPagination")
         .and_then(Value::as_object_mut)
     else {
-        return Vec::new();
+        return;
     };
     let comments = Sections::of([Section::Comments]);
     // A comment-body hop keeps the body section its first window read: the
@@ -167,7 +159,6 @@ pub(super) fn promote_issue_continuations(
     } else {
         comments
     };
-    let mut notes = Vec::new();
     let mut unreached = false;
     for (key, entry) in pages.iter_mut() {
         if entry.get("hasMore").and_then(Value::as_bool) != Some(true) {
@@ -201,13 +192,11 @@ pub(super) fn promote_issue_continuations(
         if let Some(call) = continuation(nq) {
             entry["next"][Axis::next_name()] = call;
         }
-        notes.extend(remainder.note(axis, entry));
     }
     strip_cursors(pages);
     if unreached {
         out["isPartial"] = json!(true);
     }
-    notes
 }
 
 #[cfg(test)]

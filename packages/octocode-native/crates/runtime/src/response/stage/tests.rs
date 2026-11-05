@@ -14,7 +14,7 @@ fn context() -> ExecutionContext {
 fn run(value: Value) -> Result<ToolOutcome, ContractValidationError> {
     let mut structured = Sanitized::sealed(value);
     let mut failure = None;
-    let remaining = settle(
+    settle(
         ToolId::LocalFetch,
         &mut structured,
         &json!({"queries":[{"path":"a.txt"}]}),
@@ -29,7 +29,6 @@ fn run(value: Value) -> Result<ToolOutcome, ContractValidationError> {
             auto_page_chars: 20_000,
             allow_auto_paging: true,
         },
-        remaining,
         None,
         &context(),
     )

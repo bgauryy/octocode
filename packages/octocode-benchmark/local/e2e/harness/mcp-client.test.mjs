@@ -21,7 +21,7 @@ test('CLI stdout and stderr preserve UTF-8 characters split across pipe chunks',
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'octocode-cli-utf8-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const bin = path.join(dir, 'writer.mjs');
-  await fs.writeFile(bin, splitWriter + '\nawait split(process.stdout, text); await split(process.stderr, text);');
+  await fs.writeFile(bin, `${splitWriter}\nawait split(process.stdout, text); await split(process.stderr, text);`);
   const result = await spawnCli([], { bin, timeoutMs: 10_000 });
   assert.equal(result.status, 0);
   assert.equal(result.stdout, text);
@@ -32,7 +32,7 @@ test('MCP JSON and stderr preserve UTF-8 characters split across pipe chunks', a
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'octocode-mcp-utf8-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const entry = path.join(dir, 'server.mjs');
-  await fs.writeFile(entry, splitWriter + `
+  await fs.writeFile(entry, `${splitWriter}
 import readline from 'node:readline';
 for await (const line of readline.createInterface({ input: process.stdin })) {
   const request = JSON.parse(line);
@@ -65,7 +65,7 @@ async function jsonTextServer(t) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'octocode-mcp-json-text-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const entry = path.join(dir, 'server.mjs');
-  await fs.writeFile(entry, splitWriter + `
+  await fs.writeFile(entry, `${splitWriter}
 import readline from 'node:readline';
 for await (const line of readline.createInterface({ input: process.stdin })) {
   const request = JSON.parse(line);

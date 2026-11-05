@@ -9,7 +9,7 @@ fn context_selection_plan_returns_only_selected_ordinals_in_source_order() {
         4,
         SelectionStatus::Partial,
         SelectionScope::SelectedView,
-        SelectionUnit::Files,
+        SelectionUnit::Hits,
         Some("candidateBudget"),
     );
     plan.selected = vec![2, 0];
@@ -29,7 +29,7 @@ fn context_selection_failure_withholds_all_unknown_bodies() {
         3,
         SelectionStatus::Unavailable,
         SelectionScope::SelectedView,
-        SelectionUnit::Files,
+        SelectionUnit::Hits,
         Some("providerUnavailable"),
     );
     let outcome = plan.finish();
@@ -71,7 +71,6 @@ fn partial_provider_failures_survive_replay_without_losing_successful_evidence()
     }
     let executor = tokio::runtime::Runtime::new().unwrap();
     let mut runtime = test_runtime(std::sync::Arc::new(PartialJudge), executor.handle().clone());
-    runtime.limits.max_candidates = 64;
     runtime.limits.max_chars = 100_000;
     let query = json!({"classification":{"predicates":["States the fact?"]}});
     let candidates: Vec<_> = (0..64)
@@ -132,15 +131,9 @@ fn selection_tokens_reject_malformed_and_excessively_expanded_data() {
 
 #[test]
 fn token_preserves_disjoint_partitions_and_rejects_drift() {
-    let limits = SelectionLimits {
-        max_candidates: 2,
-        max_chars: 100,
-        timeout: Duration::from_secs(1),
-    };
     let bound = binding(
         &json!({"classification":{"predicates":["find it"]},"page":1}),
         "source",
-        limits,
         None,
     );
     let mut plan = Plan::new(
@@ -148,74 +141,39 @@ fn token_preserves_disjoint_partitions_and_rejects_drift() {
         4,
         SelectionStatus::Partial,
         SelectionScope::SelectedView,
-        SelectionUnit::Files,
+        SelectionUnit::Hits,
         Some("candidateBudget"),
     );
     plan.selected = vec![2, 0];
     plan.seal();
-    assert!(plan.valid(
-        &bound,
-        4,
-        SelectionScope::SelectedView,
-        SelectionUnit::Files
-    ));
+    assert!(plan.valid(&bound, 4, SelectionScope::SelectedView, SelectionUnit::Hits));
     let outcome = plan.clone().finish();
     assert_eq!(outcome.selected, vec![0, 2]);
     assert_eq!(outcome.receipt.selected_items, 2);
     let decoded: Plan = decode(&outcome.token).unwrap();
-    assert!(decoded.valid(
-        &bound,
-        4,
-        SelectionScope::SelectedView,
-        SelectionUnit::Files
-    ));
+    assert!(decoded.valid(&bound, 4, SelectionScope::SelectedView, SelectionUnit::Hits));
     assert!(!decoded.valid(
         "changed",
         4,
         SelectionScope::SelectedView,
-        SelectionUnit::Files
+        SelectionUnit::Hits
     ));
-    assert!(!decoded.valid(
-        &bound,
-        4,
-        SelectionScope::ProviderPage,
-        SelectionUnit::Files
-    ));
+    assert!(!decoded.valid(&bound, 4, SelectionScope::ProviderPage, SelectionUnit::Hits));
     let mut previous_policy = decoded.clone();
     previous_policy.version = VERSION - 1;
     previous_policy.seal();
-    assert!(!previous_policy.valid(
-        &bound,
-        4,
-        SelectionScope::SelectedView,
-        SelectionUnit::Files
-    ));
+    assert!(!previous_policy.valid(&bound, 4, SelectionScope::SelectedView, SelectionUnit::Hits));
     plan.selected = vec![2, 2];
     plan.seal();
-    assert!(!plan.valid(
-        &bound,
-        4,
-        SelectionScope::SelectedView,
-        SelectionUnit::Files
-    ));
+    assert!(!plan.valid(&bound, 4, SelectionScope::SelectedView, SelectionUnit::Hits));
     plan.selected = vec![2, 4];
     plan.seal();
-    assert!(!plan.valid(
-        &bound,
-        4,
-        SelectionScope::SelectedView,
-        SelectionUnit::Files
-    ));
+    assert!(!plan.valid(&bound, 4, SelectionScope::SelectedView, SelectionUnit::Hits));
     plan.selected = vec![0];
     plan.excluded = vec![0];
     plan.seal();
     assert!(
-        !plan.valid(
-            &bound,
-            4,
-            SelectionScope::SelectedView,
-            SelectionUnit::Files
-        ),
+        !plan.valid(&bound, 4, SelectionScope::SelectedView, SelectionUnit::Hits),
         "selected and excluded partitions must be disjoint"
     );
     assert!(
@@ -229,19 +187,13 @@ fn token_preserves_disjoint_partitions_and_rejects_drift() {
     );
     let mut tampered = decoded;
     tampered.selected = vec![2, 0];
-    assert!(!tampered.valid(
-        &bound,
-        4,
-        SelectionScope::SelectedView,
-        SelectionUnit::Files
-    ));
+    assert!(!tampered.valid(&bound, 4, SelectionScope::SelectedView, SelectionUnit::Hits));
 }
 
 /// An opening token carries no decisions: one that claims any is stale.
 #[test]
 fn an_opening_token_with_decisions_is_stale() {
-    let limits = crate::execution::RuntimeLimits::DEFAULT.selection;
-    let bound = binding(&json!({}), "source", limits, None);
+    let bound = binding(&json!({}), "source", None);
     let mut plan = Plan::new(
         bound.clone(),
         4,

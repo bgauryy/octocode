@@ -16,7 +16,7 @@ function fixture(t: TestContext, requireLeases?: boolean, options: Partial<PiInb
   const ledger: JsonRecord[] = [];
   const {host: pi, handlers} = fakePi(message => {
     ledger.push({type: 'custom_message', ...message});
-    writeFileSync(sessionFile, [JSON.stringify({type: 'session', id: 'pi-guard'}), ...ledger.map(row => JSON.stringify(row))].join('\n') + '\n');
+    writeFileSync(sessionFile, `${[JSON.stringify({type: 'session', id: 'pi-guard'}), ...ledger.map(row => JSON.stringify(row))].join('\n')}\n`);
   });
   const ctx: PiContext = {cwd: workspace, sessionManager: {getSessionId: () => 'pi-guard', getSessionFile: () => sessionFile, getEntries: () => ledger}};
   const fire = async (name: string, event: JsonRecord = {}, context: PiContext = ctx): Promise<JsonRecord | undefined> => { const result = await handlers.get(name)?.(event, context); return isJsonRecord(result) ? result : undefined; };

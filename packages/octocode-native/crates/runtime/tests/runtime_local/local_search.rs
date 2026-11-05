@@ -159,3 +159,122 @@ async fn a_reader_match_limit_discloses_the_limit_and_links_to_search() {
     }
     runtime.close().await;
 }
+
+/// A source under the read limit whose Latin-1 decodes past it, naming a Secret
+/// or not.
+fn grown_source(names_a_secret: bool) -> Vec<u8> {
+    let kind = if names_a_secret { "Secret" } else { "Config" };
+    let mut text = format!(
+        "{{\"kind\":\"{kind}\",\"apiVersion\":\"v1\",\"metadata\":{{\"name\":\"f\"}},\"data\":{{\"a\":\"QUJD\"}}}}\n\"needle here\"\n"
+    )
+    .into_bytes();
+    let mut latin1 = vec![0xe9_u8; 79];
+    latin1.push(b'\n');
+    while text.len() + latin1.len() < 10 * 1024 * 1024 - 1024 {
+        text.extend_from_slice(&latin1);
+    }
+    text
+}
+
+/// The read lead of `found`, when it offers one.
+fn read_leads(found: &serde_json::Value) -> Vec<serde_json::Value> {
+    found["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|lead| lead["tool"] == "localFetch")
+        .map(|lead| lead["input"].clone())
+        .collect()
+}
+
+/// A source that decodes past the read limit is read, whatever it names: a
+/// search offers the read, and that read shows the hit with only a Secret's
+/// value hidden.
+#[tokio::test]
+async fn a_read_is_offered_of_a_source_decoding_past_the_limit_and_hides_only_its_secret() {
+    let workspace = Workspace::new();
+    let secret = workspace.write("a-secret.json", grown_source(true));
+    let plain = workspace.write("b-plain.json", grown_source(false));
+    let runtime = workspace.runtime(&[]);
+    for (path, value_shown) in [(&secret, false), (&plain, true)] {
+        let found = call(
+            &runtime,
+            "localSearch",
+            json!({"path":path,"matchString":["needle"]}),
+        )
+        .await
+        .expect("search");
+        assert_eq!(
+            row_status(&found),
+            "success",
+            "{:?}",
+            found.structured_content
+        );
+        assert_eq!(row_data(&found)["matchCount"], 1);
+        let leads = read_leads(row_data(&found));
+        assert_eq!(leads.len(), 1, "{:?}", found.structured_content);
+        let read = runtime
+            .run("read".into(), "localFetch".into(), leads[0].clone())
+            .await
+            .expect("read")
+            .structured_content;
+        assert_ne!(read["results"][0]["status"], "error", "{read}");
+        let lines = read["results"][0]["data"].to_string();
+        assert!(lines.contains("needle here"), "{read}");
+        assert_eq!(lines.contains("QUJD"), value_shown, "{read}");
+    }
+    runtime.close().await;
+}
+
+/// UTF-16 past the whole-file read limit cannot be decoded in windows, so every
+/// read of it is refused: its hit stays, no read is offered, and beside it in a
+/// search of both the readable file is the one offered.
+#[tokio::test]
+async fn no_read_is_offered_of_utf16_past_the_read_limit() {
+    let workspace = Workspace::new();
+    let text = format!(
+        "first\nneedle here\n{}",
+        "padding of the fixture\n".repeat(300_000)
+    );
+    let utf16 = |text: &str| {
+        let mut bytes = vec![0xff, 0xfe];
+        bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        bytes
+    };
+    let over = workspace.write("a-over.txt", utf16(&text));
+    let under = workspace.write("b-under.txt", utf16("first\nneedle here\n"));
+    let runtime = workspace.runtime(&[]);
+    let search = |path: &std::path::Path| json!({"path":path,"matchString":["needle"]});
+    let found = call(&runtime, "localSearch", search(&over))
+        .await
+        .expect("search");
+    assert_eq!(row_data(&found)["matchCount"], 1);
+    assert_eq!(
+        read_leads(row_data(&found)),
+        Vec::<serde_json::Value>::new()
+    );
+    let read = call(
+        &runtime,
+        "localFetch",
+        json!({"path":over,"ranges":[{"startLine":1,"endLine":8}]}),
+    )
+    .await
+    .expect("read");
+    assert_eq!(row_data(&read)["errorCode"], "fileTooLarge");
+    let found = call(&runtime, "localSearch", search(&under))
+        .await
+        .expect("search");
+    assert_eq!(read_leads(row_data(&found)).len(), 1, "a small one reads");
+    let both = call(&runtime, "localSearch", search(&workspace.workspace))
+        .await
+        .expect("search");
+    let leads = read_leads(row_data(&both));
+    assert_eq!(leads.len(), 1, "{:?}", both.structured_content);
+    assert!(
+        leads[0]["queries"][0]["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("b-under.txt")),
+        "{leads:?}"
+    );
+    runtime.close().await;
+}

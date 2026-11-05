@@ -48,14 +48,14 @@ ELSE NULL END AS issue FROM sessions s JOIN deliveries d ON d.recipient=s.id AND
 JOIN messages m ON m.id=d.message LEFT JOIN dispatches x ON x.message=d.message AND x.recipient=d.recipient WHERE s.workspace=?1) `;
   const params = [host.workspace, at, at - threshold];
   const [counts, found] = readTransaction(host.db, () => {
-    const summary = query(host.db, pending + `SELECT count(*) AS unacknowledged,
+    const summary = query(host.db, `${pending}SELECT count(*) AS unacknowledged,
 coalesce(sum(issue IS NOT NULL),0) AS attention,
 coalesce(sum(state IN ('queued','ready') AND wake='action' AND expiresAt>?2),0) AS queuedAction,
 coalesce(sum(state IN ('queued','ready') AND wake='passive' AND expiresAt>?2),0) AS waitingPassive,
 coalesce(sum(state='staged'),0) AS staged, coalesce(sum(state='submitted'),0) AS submittedUnacknowledged,
 coalesce(sum(state='uncertain'),0) AS uncertain, coalesce(sum(expiresAt<=?2),0) AS expiredUnacknowledged FROM pending`, params)[0]!;
     const cursor = input.after ?? { message: 0, recipient: '' };
-    const rows = query(host.db, pending + 'SELECT message,recipient,name,vendor,state,issue,attemptedAt,submittedAt FROM pending WHERE issue IS NOT NULL AND (message>?4 OR (message=?4 AND recipient>?5)) ORDER BY message,recipient LIMIT ?6', [...params, cursor.message, cursor.recipient, limit + 1]);
+    const rows = query(host.db, `${pending}SELECT message,recipient,name,vendor,state,issue,attemptedAt,submittedAt FROM pending WHERE issue IS NOT NULL AND (message>?4 OR (message=?4 AND recipient>?5)) ORDER BY message,recipient LIMIT ?6`, [...params, cursor.message, cursor.recipient, limit + 1]);
     return [summary, rows] as const;
   });
   const more = found.length > limit;

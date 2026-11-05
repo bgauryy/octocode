@@ -4,6 +4,7 @@
 //! the next one starts there, behind a lookahead the match can reach into,
 //! so every hit line is counted once whatever the source's line lengths.
 
+use super::hits::{Runs, Shape};
 use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
 use crate::execution::cancel::CancellationCheck;
 use crate::tools::source_view::*;
@@ -68,6 +69,11 @@ pub(super) struct Scan {
     pub(super) more: bool,
     pub(super) total_lines: usize,
     pub(super) binary: bool,
+    /// A NUL anywhere, past a regex limit too (where `binary` stops looking):
+    /// such a pass cannot stand in for a plain read, which refuses it.
+    pub(super) nul: bool,
+    /// Every hit line counted, for the later pages of this read.
+    pub(super) runs: Runs,
     /// The line a regex scan stopped at its match limit.
     pub(super) limited: Option<usize>,
     /// Scan edges the source crossed: at a line start, and inside a line (one
@@ -90,7 +96,7 @@ pub(super) struct Scan {
 impl Scan {
     /// Count hit `line` and keep its context `window` when the window reaches
     /// past `resume`, the last line earlier pages served.
-    fn hit(&mut self, line: usize, window: (usize, usize), resume: usize) {
+    pub(super) fn hit(&mut self, line: usize, window: (usize, usize), resume: usize) {
         self.count += 1;
         #[cfg(test)]
         self.lines.push(line);
@@ -111,21 +117,31 @@ impl Scan {
             _ => self.more = true,
         }
     }
+
+    /// The source's line count is known: its windows end by it.
+    pub(super) fn close(&mut self, lines: usize) {
+        self.total_lines = lines;
+        for window in &mut self.windows {
+            window.1 = window.1.min(lines);
+        }
+    }
 }
 
 /// Judge the whole source behind `file` for `q`'s patterns, from its start.
 pub(super) fn scan(
     q: &LocalFetchQuery,
     file: &std::fs::File,
+    path: &std::path::Path,
     resume: usize,
     cancel: &impl CancellationCheck,
 ) -> Result<Scan, ExtractionError> {
-    scan_with(q, file, resume, Limits::of(q), cancel)
+    scan_with(q, file, path, resume, Limits::of(q), cancel)
 }
 
 pub(super) fn scan_with(
     q: &LocalFetchQuery,
     file: &std::fs::File,
+    path: &std::path::Path,
     resume: usize,
     limits: Limits,
     cancel: &impl CancellationCheck,
@@ -134,19 +150,12 @@ pub(super) fn scan_with(
     let mut reader = std::io::BufReader::with_capacity(limits.read, file);
     std::io::Seek::seek(&mut reader, std::io::SeekFrom::Start(0))
         .map_err(|error| failed(error.to_string()))?;
-    let context = local_fetch_query::context_lines(q);
     let mut scanner = Scanner {
         q,
         cancel,
         limits,
         resume,
-        before: octocode_engine::num::saturating_usize(context.before),
-        after: octocode_engine::num::saturating_usize(context.after),
-        regions: local_fetch_query::line_ranges(q)
-            .iter()
-            .map(|range| (range.start, range.end))
-            .collect(),
-        ranged: local_fetch_query::has_ranges(q),
+        shape: Shape::of(q),
         found: Scan {
             overlap: limits.overlap,
             ..Scan::default()
@@ -158,7 +167,7 @@ pub(super) fn scan_with(
         counted: 0,
         newlines: 0,
         last: None,
-        proof: super::proven::Proof::new(file, &[]).map_err(failed)?,
+        proof: super::proven::Proof::new(file, path, &[]).map_err(failed)?,
     };
     loop {
         let ended = scanner.fill(&mut reader)?;
@@ -178,11 +187,7 @@ struct Scanner<'a, C: CancellationCheck> {
     cancel: &'a C,
     limits: Limits,
     resume: usize,
-    before: usize,
-    after: usize,
-    /// The read's ranges as first and last lines.
-    regions: Vec<(usize, usize)>,
-    ranged: bool,
+    shape: Shape,
     found: Scan,
     /// The window: the character before its own bytes, the lines (or a line's part) being judged and
     /// the lookahead behind them.
@@ -228,8 +233,10 @@ impl<C: CancellationCheck> Scanner<'_, C> {
             self.last = piece.last().copied();
             super::count_read(read);
             self.proof.feed(piece);
+            let nul = piece.contains(&0);
+            self.found.nul |= nul;
             if !limited {
-                self.found.binary |= piece.contains(&0);
+                self.found.binary |= nul;
                 self.decode(piece);
             }
             reader.consume(read);
@@ -337,21 +344,10 @@ impl<C: CancellationCheck> Scanner<'_, C> {
 
     /// Count hit `line` with its context window, within the read's ranges.
     fn record(&mut self, line: usize) {
-        let mut window = (
-            line.saturating_sub(self.before).max(1),
-            line.saturating_add(self.after),
-        );
-        if self.ranged {
-            let Some(region) = self
-                .regions
-                .iter()
-                .find(|range| (range.0..=range.1).contains(&line))
-            else {
-                return;
-            };
-            window = (window.0.max(region.0), window.1.min(region.1));
+        if let Some(window) = self.shape.window(line) {
+            self.found.runs.push(line);
+            self.found.hit(line, window, self.resume);
         }
-        self.found.hit(line, window, self.resume);
     }
 
     /// Drop the window's text before its `edge`, but the character before it:
@@ -375,10 +371,7 @@ impl<C: CancellationCheck> Scanner<'_, C> {
     /// The scan's totals, once the source ended.
     fn finish(mut self) -> Scan {
         let lines = self.newlines + usize::from(self.last.is_some_and(|byte| byte != b'\n'));
-        self.found.total_lines = lines;
-        for window in &mut self.found.windows {
-            window.1 = window.1.min(lines);
-        }
+        self.found.close(lines);
         self.found.proven = Some(self.proof.finish().proven);
         self.found
     }

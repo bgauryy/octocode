@@ -120,11 +120,13 @@ async fn dispatch(
                 }
             }
             (None, "experimental/serverStatus") => {
-                if let Some(quiescent) = params
-                    .as_ref()
-                    .and_then(|params| params.get("quiescent"))
-                    .and_then(Value::as_bool)
-                {
+                let field = |name| params.as_ref().and_then(|params| params.get(name));
+                // Before the end of a load is seen: a waiter it wakes reads this.
+                if let Some(level) = field("health").and_then(Value::as_str) {
+                    let message = field("message").and_then(Value::as_str);
+                    progress.on_server_health(level, message);
+                }
+                if let Some(quiescent) = field("quiescent").and_then(Value::as_bool) {
                     progress.on_server_status(quiescent).await;
                 }
             }

@@ -30,7 +30,29 @@ pub(crate) struct EvaluationInput<'a> {
     pub state: &'a Value,
     pub questions: &'a [Value],
     pub assets: Option<&'a Value>,
-    pub(crate) long_context: bool,
+    pub(crate) long_context: LongContext,
+}
+
+/// The provider's long-context window, which it documents as slower and less
+/// accurate than its default one.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum LongContext {
+    Never,
+    /// Only after the provider refuses the default window, which is unbilled:
+    /// no size guess of ours decides, the provider does.
+    OnRefusal,
+    Always,
+}
+
+impl LongContext {
+    /// The caller's `longContext` choice; omitted is [`Self::OnRefusal`].
+    pub(crate) fn from_field(field: Option<bool>) -> Self {
+        match field {
+            Some(true) => Self::Always,
+            Some(false) => Self::Never,
+            None => Self::OnRefusal,
+        }
+    }
 }
 
 impl EvaluationInput<'_> {
@@ -234,6 +256,16 @@ impl Evaluator {
     ) -> Result<QuestionOutcomes, ClassificationError> {
         let key = self.credential()?;
         let model = model.unwrap_or(&self.model);
+        if crate::security::ContentSecurity::new()
+            .sanitize_leaf(model, None)
+            .is_some()
+        {
+            return Err(ClassificationError::new(
+                ErrorCode::InvalidClassificationConfiguration,
+                "The classification model contains a credential; nothing was sent.",
+                "Set a model identifier without credentials.",
+            ));
+        }
         transport::check_budget(budget)?;
         let connection = batch::Connection {
             key,

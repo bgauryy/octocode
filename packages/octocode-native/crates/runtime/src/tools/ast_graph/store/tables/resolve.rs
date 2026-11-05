@@ -224,6 +224,10 @@ fn resolve_call(
             .and_then(|id| unit.index.decl_nodes.get(id).copied())
             .map_or(unit.file_id, |caller| linker.rust_item_caller(caller));
         let (qualifier, name) = split_callee(&call.callee);
+        // `p->B::x()` calls `B`'s member, whatever `p`'s type declares.
+        let names_its_class = matches!(unit.language, "c" | "cpp" | "cuda")
+            && call.callee.as_bytes().get(qualifier.len()) == Some(&b':');
+        let receiver_type = receiver_type.filter(|_| !names_its_class);
         // Rust needs a receiver or type path for an associated function, and
         // a JS/TS class or object member is never in lexical scope. A bare
         // name can still name a nested free function; Java/C++ may also call

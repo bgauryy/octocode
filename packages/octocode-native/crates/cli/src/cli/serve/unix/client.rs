@@ -5,7 +5,7 @@ use super::frames::PROGRESS;
 use super::identity::{call_identity, exe_identity, served_env, server_key, workspace_of};
 use super::sockets::socket_in;
 use super::{read_line_bounded, same_dir_form};
-use crate::cli::Printed;
+use crate::cli::output::Printed;
 use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 use serde_json::json;
@@ -31,7 +31,7 @@ pub(super) enum Failed {
     /// No reply within the deadline.
     Deadline,
     /// Ctrl-C: the server was told to cancel, then drained or abandoned.
-    Interrupted(crate::cli::Interrupted),
+    Interrupted(crate::cli::tool_call::Interrupted),
 }
 
 /// Run `tool` through the workspace's server when one is reachable or can
@@ -65,7 +65,7 @@ pub(in crate::cli) async fn call(
     let warn = || octocode_native::runtime::ToolRuntime::print_startup_diagnostics(&target.config);
     let interrupted = || {
         warn();
-        eprintln!("{}", crate::cli::CANCELLING);
+        eprintln!("{}", crate::cli::tool_call::CANCELLING);
     };
     let first = async {
         if tokio::signal::ctrl_c().await.is_err() {
@@ -254,7 +254,7 @@ pub(super) async fn exchange(
                 let _ = tokio::io::copy(&mut rest, &mut tokio::io::sink()).await;
             };
             return Err(Failed::Interrupted(
-                crate::cli::drain_after_interrupt(finished, second).await,
+                crate::cli::tool_call::drain_after_interrupt(finished, second).await,
             ));
         }
     };

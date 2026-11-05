@@ -103,7 +103,7 @@ test('health probes a recipient\'s delivery owner once however many of its offer
   assert.equal(spawnSync(join(bin, 'ps'), ['-p', String(process.pid)], { stdio: 'ignore', timeout: 30000 }).status, 0, 'the wrapper runs before the probe is measured');
   rmSync(log);
   const path = process.env.PATH;
-  process.env.PATH = bin + ':' + path;
+  process.env.PATH = `${bin}:${path}`;
   t.after(() => { process.env.PATH = path; });
   const report = runtime.health.health(f.store, {});
   assert.deepEqual(report.issues, [], 'a live owner keeps the full stale threshold');

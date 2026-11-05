@@ -22,7 +22,7 @@ test('Pi inbox pages maximum escaped messages without loss or buffer overflow',a
  const db=new DatabaseSync(f.database);
  // The envelope is valid at the CLI's 16,384 UTF-16-unit limit. Control
  // characters require six output bytes per unit, the largest JSON expansion.
- const content='x'+'\u0001'.repeat(16383), parts=JSON.stringify([{text:content}]);
+ const content=`x${'\u0001'.repeat(16383)}`, parts=JSON.stringify([{text:content}]);
  invoke(f,['send_message',JSON.stringify({to:b.id,parts:[{text:content}]}),'--session',a.id]);
  const insert=db.prepare('INSERT INTO messages(sender,target,parts,key,expiresAt,reasoning) VALUES(?,?,?,?,?,?)');
  const delivery=db.prepare('INSERT INTO deliveries(message,recipient) VALUES(?,?)');
@@ -152,8 +152,8 @@ rl.on('line',line=>{const c=JSON.parse(line);
   // Keep the Node interpreter stable and pass vendor flags only to the fixture.
   const script = join(bin, `${vendor}.cjs`);
   writeFileSync(script, readFileSync(join(bin, vendor)));
-  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
-  writeFileSync(join(bin, vendor), `#!/bin/sh\nprintf 'started' > ${quote(capture+'.launch')}\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`, { mode: 0o755 });
+  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+  writeFileSync(join(bin, vendor), `#!/bin/sh\nprintf 'started' > ${quote(`${capture}.launch`)}\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`, { mode: 0o755 });
   // These Node programs emulate vendor CLIs; they must not inherit the test runner protocol.
   const vendorEnv: NodeJS.ProcessEnv={...process.env,PATH:bin,COMMUNICATION_CAPTURE:capture,...stableVendor(bin,vendor,script)};delete vendorEnv.NODE_TEST_CONTEXT;
   // Separate the host's first-execution checks on this freshly written fixture
@@ -162,7 +162,7 @@ rl.on('line',line=>{const c=JSON.parse(line);
   try {
    execFileSync(join(bin,vendor),[],{env:vendorEnv,input:'',encoding:'utf8',stdio:['pipe','pipe','pipe'],timeout:30000,maxBuffer:1024*1024});
   } catch(error) {
-   t.diagnostic(JSON.stringify({vendor,phase:'fixture-interpreter-preflight',elapsedMs:Date.now()-preflightStarted,wrapperStarted:existsSync(capture+'.launch'),nodeStarted:existsSync(capture+'.boot'),stderr:isChildFailure(error)?error.stderr.toString().slice(-2000):undefined}));
+   t.diagnostic(JSON.stringify({vendor,phase:'fixture-interpreter-preflight',elapsedMs:Date.now()-preflightStarted,wrapperStarted:existsSync(`${capture}.launch`),nodeStarted:existsSync(`${capture}.boot`),stderr:isChildFailure(error)?error.stderr.toString().slice(-2000):undefined}));
    throw error;
   }
   t.diagnostic(`${vendor} fixture interpreter preflight: ${Date.now()-preflightStarted} ms`);
@@ -172,12 +172,12 @@ rl.on('line',line=>{const c=JSON.parse(line);
   try {
    events=await runUntilTurn(['run','--vendor',vendor,'--model','test','--prompt','Task sentinel','--tools','agents,messages','--trace','--duration-ms','10000','--workspace',f.workspace,'--database',f.database],vendorEnv);
   } catch(error) {
-   const boot=existsSync(capture+'.boot')?JSON.parse(readFileSync(capture+'.boot','utf8')):null;
-   const frames=existsSync(capture+'.frames')?readFileSync(capture+'.frames','utf8').trim().split('\n').slice(-20).map((line): JsonRecord=>JSON.parse(line)):[];
-   t.diagnostic(JSON.stringify({vendor,elapsedMs:Date.now()-started,wrapperStarted:existsSync(capture+'.launch'),nodeBootMs:boot?boot.at-started:null,frames,stderr:isWorkerFailure(error)?error.stderr.slice(-2000):undefined,stdout:isWorkerFailure(error)?error.stdout.slice(-2000):undefined}));
+   const boot=existsSync(`${capture}.boot`)?JSON.parse(readFileSync(`${capture}.boot`,'utf8')):null;
+   const frames=existsSync(`${capture}.frames`)?readFileSync(`${capture}.frames`,'utf8').trim().split('\n').slice(-20).map((line): JsonRecord=>JSON.parse(line)):[];
+   t.diagnostic(JSON.stringify({vendor,elapsedMs:Date.now()-started,wrapperStarted:existsSync(`${capture}.launch`),nodeBootMs:boot?boot.at-started:null,frames,stderr:isWorkerFailure(error)?error.stderr.slice(-2000):undefined,stdout:isWorkerFailure(error)?error.stdout.slice(-2000):undefined}));
    throw error;
   }
-  assert.ok(existsSync(capture),`${vendor}: prompt not captured; boot=${existsSync(capture+'.boot')}; ${JSON.stringify(events)}`);
+  assert.ok(existsSync(capture),`${vendor}: prompt not captured; boot=${existsSync(`${capture}.boot`)}; ${JSON.stringify(events)}`);
   const prompt=JSON.parse(readFileSync(capture,'utf8'));
   assert.equal(prompt.includes('# Agents communication'), false, 'workers receive compact family guidance, not the full OPERATING guide');
   const workerSkill=prompt.slice(prompt.indexOf('\n\n')+2,prompt.indexOf('\n\nCommunication binding:'));
@@ -195,14 +195,14 @@ rl.on('line',line=>{const c=JSON.parse(line);
   const ready=events.find(e=>e.type==='ready');assert.ok(ready);
   assert.ok(prompt.includes(ready.session));
   assert.ok(prompt.endsWith('User task:\nTask sentinel'));
-  const boot=JSON.parse(readFileSync(capture+'.boot','utf8'));
+  const boot=JSON.parse(readFileSync(`${capture}.boot`,'utf8'));
   assert.notEqual(boot.cwd,f.workspace);assert.equal(existsSync(boot.cwd),false,'temporary vendor directory survived teardown');
   assert.equal(events.filter(e=>e.type==='usage').length,1);
   const stateDb=new DatabaseSync(f.database,{readOnly:true});
   assert.equal(only(stateDb.prepare('SELECT status FROM sessions WHERE id=?').get(ready.session)).status,'available');
   stateDb.close();
   if(vendor==='codex'){
-   const params=JSON.parse(readFileSync(capture+'.thread','utf8'));
+   const params=JSON.parse(readFileSync(`${capture}.thread`,'utf8'));
    assert.equal(params.cwd,boot.cwd);assert.equal(params.config.project_doc_max_bytes,0);
    assert.equal(params.config.features.shell_tool,false);assert.equal(params.ephemeral,true);
    assert.equal(params.config.plugins['unrelated@test'].enabled,false);
@@ -236,7 +236,7 @@ test('idle proxy exits and reaps its vendor when the database is removed', {skip
  });
  `,{mode:0o755});
  const script=join(bin,'claude.cjs');writeFileSync(script,readFileSync(join(bin,'claude')));
- const quote=(value: string)=>"'"+value.replaceAll("'","'\\''")+"'";
+ const quote=(value: string)=>`'${value.replaceAll("'","'\\''")}'`;
  writeFileSync(join(bin,'claude'),`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`,{mode:0o755});
  const env: NodeJS.ProcessEnv=fastHeartbeatEnv({...process.env,PATH:bin,COMMUNICATION_PID:pidFile,COMMUNICATION_DB:f.database,...stableVendor(bin,'claude',script)});delete env.NODE_TEST_CONTEXT;
  // Warm only the fixture interpreter; the guard does not create a PID or touch the DB.
@@ -262,7 +262,7 @@ test('managed run resumes a native-bound identity with its new vendor session', 
  const script=join(bin,'claude.cjs');
  writeFileSync(script, `const rl=require('node:readline').createInterface({input:process.stdin});
  rl.on('line',()=>{console.log(JSON.stringify({type:'system',subtype:'init',session_id:'managed-session'}));console.log(JSON.stringify({type:'result',is_error:false}));});`);
- const quote=(value: string)=>"'"+value.replaceAll("'","'\\''")+"'";
+ const quote=(value: string)=>`'${value.replaceAll("'","'\\''")}'`;
  writeFileSync(join(bin,'claude'),`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`,{mode:0o755});
  const env: NodeJS.ProcessEnv={...process.env,PATH:bin};delete env.NODE_TEST_CONTEXT;
  const identity=invoke(f,['join',JSON.stringify({name:'resumed-worker',vendor:'claude'})]);
@@ -292,7 +292,7 @@ test('managed Codex separates user kickoff from pending peer tools and preserves
    const result=c.method==='config/read'?{config:{}}:c.method==='skills/list'?{data:[]}:c.method==='thread/start'?{thread:{id:'worker'}}:{};
    send({id:c.id,result});
   });`);
-  const quote=(value: string)=>"'"+value.replaceAll("'","'\\''")+"'";
+  const quote=(value: string)=>`'${value.replaceAll("'","'\\''")}'`;
   writeFileSync(join(bin,'codex'),`#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`,{mode:0o755});
   const env: NodeJS.ProcessEnv={...process.env,PATH:bin,CAPTURE:capture,REJECT_KICKOFF:String(rejectKickoff),...stableVendor(bin,'codex',script)};delete env.NODE_TEST_CONTEXT;
   execFileSync(join(bin,'codex'),[],{env,input:'',timeout:30000});

@@ -58,6 +58,8 @@ pub struct GraphFactsMappedScan<T> {
     pub kept: Vec<(String, T)>,
     /// Files read and parsed (kept or not); skipped files are separate.
     pub parsed: usize,
+    /// Files read that `keep` left unparsed.
+    pub passed_over: usize,
     pub skipped: Vec<GraphFactsScanDiagnostic>,
     pub files_skipped: u32,
     pub truncated: bool,
@@ -323,6 +325,44 @@ pub fn scan_walked_graph_facts<T: Send>(
     )
 }
 
+/// What a scan's caller may hold: past `limit` by `weigh` the scan stops.
+pub struct ScanHold<'a, T> {
+    pub limit: usize,
+    pub weigh: &'a (dyn Fn(&T) -> usize + Sync),
+}
+
+/// [`scan_walked_graph_facts`] that stops after the first file, in walk order, that
+/// takes what `map` kept past `hold`, reporting `scan_resume`. The same files stop
+/// at the same one, whatever the workers did; the first file always runs.
+pub fn scan_walked_graph_facts_within<T: Send>(
+    options: GraphFactsScanOptions,
+    walked: crate::types::FileSystemQueryResult,
+    source: FactsSource<'_>,
+    keep: &(dyn Fn(&str) -> bool + Sync),
+    map: &(dyn Fn(&GraphFactsView<'_>) -> Option<T> + Sync),
+    stop: &Stop<'_>,
+    hold: &ScanHold<'_, T>,
+) -> Result<GraphFactsMappedScan<T>, GraphScanError> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        evaluate::evaluate_walk_with_registry(
+            options,
+            walked,
+            source,
+            keep,
+            map,
+            stop,
+            (Some(crate::scan_budget::SCAN_TIME_BUDGET), Some(hold)),
+            RegistryView::installed(),
+            MapLimits::default(),
+        )
+    }))
+    .unwrap_or_else(|_| {
+        Err(GraphScanError::Failed(
+            "graph-facts scan failed on pathological input".to_owned(),
+        ))
+    })
+}
+
 pub fn scan_walked_graph_facts_with_registry<T: Send>(
     options: GraphFactsScanOptions,
     walked: crate::types::FileSystemQueryResult,
@@ -341,7 +381,7 @@ pub fn scan_walked_graph_facts_with_registry<T: Send>(
             keep,
             map,
             stop,
-            Some(crate::scan_budget::SCAN_TIME_BUDGET),
+            (Some(crate::scan_budget::SCAN_TIME_BUDGET), None),
             registry,
             map_limits,
         )

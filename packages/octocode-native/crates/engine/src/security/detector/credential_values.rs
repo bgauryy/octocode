@@ -31,9 +31,41 @@ pub(super) static KEEPS_NON_CREDENTIAL_VALUES: LazyLock<Vec<bool>> = LazyLock::n
 /// the value (ending in the key, its quotes and its operator).
 pub(super) fn assigns_a_credential(key: &str, secret: &str) -> bool {
     !is_identifier_name(secret)
+        && !names_a_locator(key)
         && !is_file_digest(key, secret)
         && !reads_a_name(key, secret)
         && !is_plain_phrase(key, secret)
+}
+
+/// Locator fields describe where data lives, not the data itself. Recognizable
+/// credentials inside a locator still match the independent token/URL rules.
+fn names_a_locator(key: &str) -> bool {
+    let name = key_name(key);
+    let lower = name.to_ascii_lowercase();
+    [
+        "url",
+        "urls",
+        "uri",
+        "uris",
+        "path",
+        "paths",
+        "dir",
+        "dirs",
+        "directory",
+        "directories",
+        "folder",
+        "folders",
+        "file",
+        "files",
+    ]
+    .iter()
+    .any(|suffix| {
+        lower.strip_suffix(suffix).is_some_and(|prefix| {
+            prefix.is_empty()
+                || prefix.ends_with(['_', '-', '.'])
+                || name.as_bytes()[prefix.len()].is_ascii_uppercase()
+        })
+    })
 }
 
 /// Credential words that name a value a person may choose as a phrase.

@@ -44,7 +44,7 @@ const server = createServer((req, res) => {
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 let cases = 0;
 try {
-  const url = 'http://127.0.0.1:' + server.address().port;
+  const url = `http://127.0.0.1:${server.address().port}`;
   let result = await cli('cdp-checks/api-replay.mjs', [
     '--url',
     url,
@@ -81,7 +81,7 @@ try {
   cases++;
   result = await cli('cdp-checks/api-replay.mjs', [
     '--url',
-    url + '/slow',
+    `${url}/slow`,
     '--timeout-ms',
     '30',
   ]);
@@ -129,7 +129,7 @@ try {
   cases++;
   const base = join(WORK, '.octocode', 'prune-test');
   for (let n = 1; n <= 3; n++)
-    mkdirSync(join(base, '2026-10-06-00-00-0' + n), { recursive: true });
+    mkdirSync(join(base, `2026-10-06-00-00-0${n}`), { recursive: true });
   result = await cli('prune-artifacts.mjs', [
     '--base',
     base,

@@ -4,7 +4,9 @@
 //! query: the walk it asks the engine for ([`Listing`]).
 use super::probe::{FilterProbe, broaden_empty, deepen_empty, lead_to_skipped, probe_listing};
 use super::walked::{PageCut, Walked, push_warnings};
-use super::{Walking, listing_prefix, memo, restart_if_stale, rows, validated_root, walked};
+use super::{
+    Walking, listing_prefix, memo, restart_if_stale, rows, validated_root, walked, windows,
+};
 use crate::response::result::ToolError;
 use crate::tools::empty_walk::Walk;
 use serde_json::{Value, json};
@@ -30,14 +32,18 @@ pub(super) enum Move {
         page: std::num::NonZeroU64,
         snapshot: String,
     },
-    /// The window after one a row limit cut, past the rows already listed.
+    /// The window after one a row limit cut, past the rows already listed,
+    /// bound to what those windows listed ([`windows`]).
     Window {
         scan_offset: Option<std::num::NonZeroU64>,
+        snapshot: Option<String>,
     },
-    /// The walk resumed after a time cut, past the rows already listed.
+    /// The walk resumed after a time cut, past the rows already listed,
+    /// bound to what the windows so far listed ([`resume`](super::resume)).
     Resume {
         walk_offset: std::num::NonZeroU64,
         scan_offset: Option<std::num::NonZeroU64>,
+        snapshot: Option<String>,
     },
 }
 
@@ -157,25 +163,26 @@ macro_rules! listing_fields {
             fn moved(&self, to: super::listing::Move) -> Self {
                 use super::listing::Move;
                 let first = std::num::NonZeroU64::MIN;
+                let token = |snapshot: String| {
+                    snapshot
+                        .parse()
+                        .expect("a listing snapshot is a sha256 hex digest")
+                };
                 match to {
                     Move::Page { page, snapshot } => Self {
                         page,
-                        snapshot: Some(
-                            snapshot
-                                .parse()
-                                .expect("a listing snapshot is a sha256 hex digest"),
-                        ),
+                        snapshot: Some(token(snapshot)),
                         ..self.clone()
                     },
-                    Move::Window { scan_offset } => Self {
+                    Move::Window { scan_offset, snapshot } => Self {
                         page: first,
-                        snapshot: None,
+                        snapshot: snapshot.map(token),
                         scan_offset,
                         ..self.clone()
                     },
-                    Move::Resume { walk_offset, scan_offset } => Self {
+                    Move::Resume { walk_offset, scan_offset, snapshot } => Self {
                         page: first,
-                        snapshot: None,
+                        snapshot: snapshot.map(token),
                         scan_offset,
                         walk_offset: Some(walk_offset),
                         ..self.clone()
@@ -245,23 +252,45 @@ pub(super) fn execute_listing<Q: Listing>(
     let policy = paths.identity();
     let page = q.page();
     let (walk, stored) = walked(page, q.snapshot(), &policy, || {
-        walk_listing(
-            q,
-            root,
-            paths,
-            security,
-            cancel,
-            requested,
-            Walking::Listing(budget),
+        windows::ranked_window(q, (root, security), &policy, requested).map_or_else(
+            || {
+                walk_listing(
+                    q,
+                    root,
+                    paths,
+                    security,
+                    cancel,
+                    requested,
+                    Walking::Listing(budget),
+                )
+            },
+            Ok,
         )
     })?;
+    if let Some(before) = walk.meta.pinned_before.as_deref()
+        && let Some(restart) = restart_if_stale(q, windows::pinned(q), before)
+    {
+        return Ok(restart);
+    }
     // The page cut and the row layout are part of the snapshot: a
     // continuation under a different response window restarts instead of
     // skipping entries.
     let budget = crate::response::page_windows::page_budget(response_window);
-    let snapshot =
-        crate::digest::json_sha256(&json!([identity, budget, Q::LAYOUT, walk.rows_digest()]));
-    if let Some(restart) = restart_if_stale(q, page, q.snapshot(), &snapshot) {
+    let mut bound = vec![
+        identity,
+        json!(budget),
+        json!(Q::LAYOUT),
+        json!(walk.rows_digest()),
+    ];
+    // A later page of a listing past one window binds the windows before it too.
+    bound.extend(
+        walk.meta
+            .pins_through
+            .as_ref()
+            .map(|through| json!(through)),
+    );
+    let snapshot = crate::digest::json_sha256(&bound);
+    if let Some(restart) = restart_if_stale(q, q.snapshot().filter(|_| page > 1), &snapshot) {
         return Ok(restart);
     }
     let prefix = listing_prefix(paths, root);
@@ -275,7 +304,7 @@ pub(super) fn execute_listing<Q: Listing>(
         budget,
         limit: q.page_rows(),
     });
-    if !stored && pages.len() > 1 && crate::tools::test_code::result_may_be_kept(q.test_code()) {
+    if !stored && pages.len() > 1 {
         memo::put(snapshot.clone(), policy, paths, root, &walk);
     }
     let mut out = listing_page(

@@ -142,6 +142,39 @@ async fn owner_wide_hits_keep_fragments_without_offsets() {
     assert!(row.get("commitSha").is_none(), "{row}");
 }
 
+/// GitHub's fragments reach no row. The one thing taken from them is the top
+/// file's read lead, and that term is one the caller searched for: a highlight
+/// spelling anything else, a key's body line here, reaches no output.
+#[tokio::test]
+async fn a_fragment_reaches_no_row_and_its_lead_only_names_a_searched_term() {
+    const BODY: &str = "MIIEpAIBAAKCAQEAfakebodylinefakebodylinefakebodyline00000";
+    for (keyword, start, end, led) in [
+        ("wrap_app", 4, 12, true),
+        ("WRAP_APP", 4, 12, true),
+        ("wrap_app", 0, BODY.len(), false),
+    ] {
+        let server = MockServer::builder().start().await;
+        let (fragment, highlighted) = if led {
+            (format!("def wrap_app(app): {BODY}"), "wrap_app")
+        } else {
+            (BODY.to_owned(), BODY)
+        };
+        mount_json(&server, "/api/v3/search/code", 200, json!({
+            "total_count":1,"incomplete_results":false,"items":[
+                {"name":"handler.py","path":"src/handler.py","sha":"1","html_url":"https://x",
+                 "repository":{"full_name":"a/b","html_url":"https://x","url":"https://x"},
+                 "text_matches":[{"fragment":fragment,"matches":[{"text":highlighted,"indices":[start,end]}]}]}
+            ]
+        })).await;
+        let out = run(&server, json!({"owner":"a","keywords":[keyword]}))
+            .await
+            .expect("search");
+        let shown = serde_json::to_string(&out.data).expect("data");
+        assert!(!shown.contains(BODY), "{shown}");
+        assert_eq!(shown.contains("wrap_app"), led, "{shown}");
+    }
+}
+
 /// Path matches carry no empty snippet list.
 #[tokio::test]
 async fn path_match_rows_omit_empty_matches() {

@@ -1,17 +1,29 @@
 //! One evaluation row: capture its source when it names one, capture its
 //! assets, and judge the state.
-use super::{Row, RowOutcome, Target, max_state_chars};
+use super::{Row, RowOutcome, Target};
 use crate::execution::ExecutionContext;
 use crate::tools::judgment::{
-    ClassificationError, EvaluationInput, Evaluator, shared::Evaluations,
+    ClassificationError, EvaluationInput, Evaluator, LongContext, shared::Evaluations,
 };
 use crate::tools::source_capture::{self, Captured, SourceReader};
+use octocode_contract_types::ErrorCode;
 
 fn rejected(error: ClassificationError, captured: Option<Box<Captured>>) -> RowOutcome {
     RowOutcome::Judgment {
         judged: Err(error),
         captured,
         assets: None,
+    }
+}
+
+/// Whether literal `content` holds nothing to judge.
+fn blank(state: &serde_json::Value) -> bool {
+    match state {
+        serde_json::Value::Null => true,
+        serde_json::Value::String(text) => text.trim().is_empty(),
+        serde_json::Value::Array(items) => items.is_empty(),
+        serde_json::Value::Object(fields) => fields.is_empty(),
+        _ => false,
     }
 }
 
@@ -22,34 +34,29 @@ pub(super) fn evaluate_row(
     target: &Target,
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
-    budget: &octocode_io::budget::RequestBudget,
     gate: &crate::providers::classification::gate::GateLease,
 ) -> RowOutcome {
-    // Omitted longContext admits up to the long window; the small window is
-    // used whenever the state fits it.
-    let max_chars = max_state_chars(row.long_context != Some(false));
     let (state, captured) = match target {
-        // Admission measured a literal state against the same budget.
+        // An empty literal is nothing to judge, as an empty source is.
+        Target::Content(state) if blank(state) => {
+            return rejected(
+                ClassificationError::new(
+                    ErrorCode::ClassificationContextEmpty,
+                    "content is empty; nothing was judged.",
+                    "Supply the text to judge.",
+                ),
+                None,
+            );
+        }
         Target::Content(state) => (state.clone(), None),
         Target::Source(source) => {
-            let mut captured = match source_capture::capture(source, dispatcher, context, max_chars)
-            {
+            // Only local memory bounds a capture: the provider's own window
+            // decides what it judges, and its refusal says so.
+            let limit = dispatcher.text_capture_limit();
+            let mut captured = match source_capture::capture(source, dispatcher, context, limit) {
                 Ok(captured) => captured,
                 Err(error) => return rejected(error, None),
             };
-            // The admission budget in serialized Unicode scalars: captured
-            // identities, line labels and JSON escapes count too; no source
-            // is judged from a silently shortened state.
-            if crate::tools::selection::serialized_chars(&captured.state) > max_chars {
-                return rejected(
-                    source_capture::too_large(
-                        max_chars,
-                        "The serialized state",
-                        source_capture::IN_PARTS_HINT,
-                    ),
-                    Some(Box::new(captured)),
-                );
-            }
             // The answer row reports the capture's read and provenance, never
             // its state.
             (
@@ -69,20 +76,19 @@ pub(super) fn evaluate_row(
         Ok(assets) => assets,
         Err(error) => return rejected(error, captured),
     };
-    let long_context = row.long_context.unwrap_or_else(|| {
-        crate::tools::selection::serialized_chars(&state) > max_state_chars(false)
-    });
     let state = super::rows::contextual_state(&state, row.context.as_deref());
+    // One request's time starts when it runs, after the capture.
+    let budget = evaluator.budget(context.deadline, context.cancellation.clone());
     let mut judged = dispatcher.handle().block_on(evaluator.evaluate_once(
         evaluations,
         EvaluationInput {
             state: &state,
             questions: &row.questions,
             assets: assets.as_ref().map(|assets| &assets.provider),
-            long_context,
+            long_context: LongContext::from_field(row.long_context),
         },
         row.model.as_deref(),
-        budget,
+        &budget,
         gate,
     ));
     // Jev's boxes are fractions of the fitted canvas; callers also get them

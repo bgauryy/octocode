@@ -15,6 +15,7 @@ pub(super) struct Publish<'a> {
     pub argument_coverage: &'a Value,
     pub inputs: &'a BTreeMap<String, String>,
     pub input_proof: Option<&'a str>,
+    pub scope_proof: Option<&'a Value>,
     pub build_ms: u64,
     pub registry: RegistryView<'a>,
     pub registry_identity: &'a str,
@@ -85,6 +86,7 @@ pub(super) fn publish_snapshot(
         language_globs: &job.options.language_globs,
         inputs: job.inputs,
         input_proof: job.input_proof,
+        scope_proof: job.scope_proof,
         build_ms: job.build_ms,
         registry: job.registry,
         registry_identity: job.registry_identity,
@@ -135,5 +137,6 @@ pub(super) fn publish_snapshot(
     if !pruned.is_empty() {
         receipt["pruned"] = json!(pruned);
     }
+    super::super::manifest::disclose_value_references(&mut receipt);
     GraphOutput::ok(receipt)
 }

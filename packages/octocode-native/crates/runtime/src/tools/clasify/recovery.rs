@@ -21,8 +21,16 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
         return;
     }
     let acquisition = captured.is_none() && matches!(row.input, Input::Judge(Target::Source(_)));
-    let too_large =
-        crate::id::error_code_of(failure) == Some(ErrorCode::ClassificationContextTooLarge);
+    let too_large = matches!(
+        crate::id::error_code_of(failure),
+        Some(ErrorCode::ClassificationContextTooLarge | ErrorCode::ClassificationStateTooLarge)
+    );
+    if too_large
+        && let Input::Judge(Target::Source(source)) = &row.input
+        && let Some(split) = sections_call(row, source)
+    {
+        crate::response::result::attach_related(failure, split);
+    }
     let read = captured
         .map(|capture| capture.read.clone())
         .or_else(|| {
@@ -65,6 +73,31 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
     failure["hints"] = json!(tips);
 }
 
+/// The same questions over `source` as a ready `sections` call: where each
+/// answer sits, and the way to judge a source too large for one state. A box
+/// has no text to read, so it stays out.
+pub(super) fn sections_call(row: &Row, source: &Value) -> Option<Value> {
+    let questions = row
+        .keys
+        .iter()
+        .zip(&row.questions)
+        .filter(|(_, question)| question["type"] != "box")
+        .map(|(key, question)| (key.clone(), question.clone()))
+        .collect::<serde_json::Map<_, _>>();
+    if questions.is_empty() {
+        return None;
+    }
+    let mut call =
+        json!({"operation":"sections","resources":{"source":source},"questions":questions});
+    if let Some(context) = &row.context {
+        call["context"] = json!(context);
+    }
+    if let Some(model) = &row.model {
+        call["model"] = json!(model);
+    }
+    Some(crate::response::result::Continuation::related(ToolId::Clasify, call).build())
+}
+
 /// Whether the same read can answer differently when repeated: not after a
 /// not-found, permission or input refusal.
 pub(super) fn rereadable(failure: &Value) -> bool {
@@ -102,6 +135,7 @@ mod tests {
         };
         let snapshot = "f".repeat(64);
         let capture = Captured {
+            read_chars: 0,
             state: json!({"content":"PRIVATE SOURCE BODY"}),
             read: source_capture::read_lead(
                 ToolId::LocalFetch,
@@ -145,11 +179,17 @@ mod tests {
             source["query"]
         );
         assert!(failure.get("next").is_none());
-        for code in [
-            "pathNotFound",
-            "outsideAllowedRoots",
-            "classificationContextTooLarge",
-        ] {
+        // Too large to judge whole: no read of it, a ready call in parts.
+        let mut asked = source_row();
+        asked.keys = vec!["q".into()];
+        asked.questions = vec![json!({"type":"noul","instructions":"Is it big?"})];
+        let mut too_large = json!({"errorCode":"classificationContextTooLarge"});
+        add(&asked, None, &mut too_large);
+        assert!(too_large.get("next").is_none(), "{too_large}");
+        let split = &too_large["related"][0]["input"]["queries"][0];
+        assert_eq!(split["operation"], "sections", "{too_large}");
+        assert_eq!(split["resources"]["source"], *source, "{too_large}");
+        for code in ["pathNotFound", "outsideAllowedRoots"] {
             let mut failure = json!({"errorCode":code});
             add(&row, None, &mut failure);
             assert!(failure.get("next").is_none(), "{failure}");

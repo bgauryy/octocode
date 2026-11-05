@@ -1,5 +1,5 @@
 //! A row's answer or failure as the row reports it.
-use super::{Row, recovery};
+use super::{Input, Row, Target, recovery};
 use crate::response::result::FailureKind;
 use crate::tools::judgment::{ClassificationError, Judged};
 use crate::tools::source_capture::Captured;
@@ -12,6 +12,11 @@ pub(super) fn answered(
     captured: Option<Box<Captured>>,
     assets: Option<Value>,
 ) -> Value {
+    // A yes is worth checking, and the read is the whole source: offer where
+    // the answer sits, ready to run, only then.
+    let locate = judged.answers.iter().any(|answer| {
+        answer["type"] != "box" && answer["noul"].as_f64().is_none_or(|noul| noul >= 0.5)
+    });
     let answers: Map<String, Value> = row.keys.iter().cloned().zip(judged.answers).collect();
     let mut out = json!({
         "model": judged.model,
@@ -28,7 +33,14 @@ pub(super) fn answered(
         if let Some(source) = captured.source {
             out["source"] = source;
         }
+        out["readChars"] = json!(captured.read_chars);
         crate::response::result::attach_calls(&mut out, json!({"read":captured.read}));
+    }
+    if locate
+        && let Input::Judge(Target::Source(source)) = &row.input
+        && let Some(call) = recovery::sections_call(row, source)
+    {
+        crate::response::result::attach_related(&mut out, call);
     }
     out
 }

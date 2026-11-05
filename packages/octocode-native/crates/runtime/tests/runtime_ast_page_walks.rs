@@ -121,8 +121,6 @@ async fn walk_input(
     let mut query_pages = None;
     loop {
         let (mut rows, mut has_more, mut next_page) = (Vec::new(), None, None);
-        let mut response_page = 1;
-        let mut response_pages = None;
         loop {
             calls += 1;
             assert!(
@@ -158,25 +156,17 @@ async fn walk_input(
                 next_page = Some(next.clone());
             }
             let response = &envelope["responsePagination"];
-            if !response.is_null() {
-                let page = response["page"].as_u64().expect("response page");
-                let total = response["totalPages"].as_u64().expect("response pages");
-                assert_eq!(page, response_page, "response pages advance");
-                assert_eq!(
-                    *response_pages.get_or_insert(total),
-                    total,
-                    "response page count is stable"
-                );
-                assert!(page <= total, "response page is within the declared plan");
-                assert_eq!(response["hasMore"] == true, page < total);
+            // A split page reads on through its parts; its last part's call
+            // is the query's next page.
+            let part = &row["rowPart"];
+            if part.is_object() && part["part"] != part["of"] {
+                walk.splits += 1;
+                input = response["next"]["input"].clone();
+                assert!(input.is_object(), "mcp={mcp}: {response}");
+                continue;
             }
-            if response["hasMore"] != true {
-                break;
-            }
-            response_page += 1;
-            walk.splits += 1;
-            input = response["next"]["input"].clone();
-            assert!(input.is_object(), "mcp={mcp}: {response}");
+            next_page = response.get("next").cloned().or(next_page);
+            break;
         }
         walk.pages.push(rows);
         if has_more.expect("every page states pagination") {

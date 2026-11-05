@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, expect, it } from 'vitest';
 import { getNativeContractFingerprint } from '@octocodeai/octocode-core/schema';
 import { generateToolContract } from '../scripts/generate-tool-contract.ts';
+import { contractIr } from './contract-ir.ts';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path: string): string =>
@@ -14,7 +15,7 @@ const read = (path: string): string =>
 // other contract checks instead of after them.
 let generated: ReturnType<typeof generateToolContract>;
 beforeAll(() => {
-  generated = generateToolContract();
+  generated = generateToolContract(contractIr());
 });
 
 it('generated tool types are current with the core Zod contract (embed, fixtures, bundle, Rust header)', () => {

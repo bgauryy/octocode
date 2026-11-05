@@ -7,7 +7,7 @@ use crate::{
     policy::path::PathPolicy,
     response::outcome::DomainResult,
     security::{CheckedQuery, ContentSecurity},
-    tools::source_capture::SourceReader,
+    tools::source_capture::{SourceReader, withheld_github_source},
 };
 use octocode_contract_types::ErrorCode;
 use serde_json::Value;
@@ -22,8 +22,9 @@ fn retained_access_error() -> crate::tools::judgment::ClassificationError {
 }
 
 impl SourceReader for DomainDispatcher {
+    // What a source reader captures goes to a provider.
     fn paths(&self) -> &PathPolicy {
-        &self.paths
+        self.egress_paths.as_ref()
     }
 
     fn security(&self) -> &ContentSecurity {
@@ -64,7 +65,8 @@ impl SourceReader for DomainDispatcher {
         query: &CheckedQuery,
         context: &ExecutionContext,
     ) -> Result<DomainResult, ExecutionError> {
-        Self::execute(self, tool, query, context)
+        // A source reader's row goes to a classification provider.
+        self.execute_row_under(tool, query, context, true)
     }
 
     fn retained_github_identity(
@@ -123,7 +125,7 @@ impl SourceReader for DomainDispatcher {
             )
         })?;
         let captured =
-            crate::tools::local_fetch::capture_text(&parsed, self.paths.as_ref(), context);
+            crate::tools::local_fetch::capture_text(&parsed, self.egress_paths.as_ref(), context);
         context.check().map_err(|error| {
             crate::tools::judgment::ClassificationError::new(
                 error.code(),
@@ -143,6 +145,9 @@ impl SourceReader for DomainDispatcher {
         context: &ExecutionContext,
         max_bytes: usize,
     ) -> Result<octocode_github::ContentResponse, crate::tools::judgment::ClassificationError> {
+        if let Some(withheld) = withheld_github_source(query) {
+            return Err(withheld);
+        }
         let acquired = self
             .github_services()
             .map_err(Clone::clone)
@@ -178,6 +183,19 @@ impl SourceReader for DomainDispatcher {
             }
         })
     }
+}
+
+/// The error row of a GitHub read whose text would reach a provider and whose
+/// name the egress withholds.
+pub(super) fn withheld_github_read(query: &Value) -> Option<DomainResult> {
+    let withheld = withheld_github_source(query)?;
+    let next = Value::Object(withheld.leads.into_iter().collect());
+    Some(DomainResult::failure(
+        withheld.code,
+        withheld.message,
+        withheld.hints,
+        Some(next),
+    ))
 }
 
 /// A failed local capture as a classification error, with the reader's own

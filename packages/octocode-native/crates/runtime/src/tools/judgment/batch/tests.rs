@@ -10,7 +10,7 @@ fn text_input<'a>(state: &'a Value, questions: &'a [Value]) -> EvaluationInput<'
         state,
         questions,
         assets: None,
-        long_context: false,
+        long_context: crate::tools::judgment::LongContext::Never,
     }
 }
 
@@ -131,7 +131,7 @@ fn multibyte_state_within_the_window_stays_one_grouped_request() {
 fn questions_group_until_the_body_ceiling() {
     let questions = vec![json!({"type":"noul","instructions":"q"}); 3];
     assert!(grouped(text_input(&json!("small"), &questions), "m", jev()).is_some());
-    let over = json!("x".repeat(MAX_TEXT_REQUEST_BYTES));
+    let over = json!("x".repeat(MAX_REQUEST_BYTES));
     assert!(grouped(text_input(&over, &questions), "m", jev()).is_none());
 }
 
@@ -150,7 +150,6 @@ fn images_share_one_request_without_counting_base64_as_text_context() {
     assert_eq!(request["assets"], assets);
     assert!(body.len() > 120 * 1024);
     assert_eq!(request["questions"].as_object().unwrap().len(), 2);
-    assert!(max_request_bytes(input) > MAX_TEXT_REQUEST_BYTES);
 }
 
 #[test]

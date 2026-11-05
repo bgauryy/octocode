@@ -53,9 +53,9 @@ pub use search::{
     TreeRequest, TreeResponse,
 };
 pub use transport::{
-    GitHubTransport, GraphQlError, GraphQlPage, HTTP_USER_AGENT, HttpMethod, ProviderAnswer,
-    ProviderEvidence, RequestContext, RequestSpec, ResponsePage, RetryPolicy, Reuse, SavedAnswer,
-    SavedAnswers, sso_partial_warning, worth_keeping,
+    AnswerBody, GitHubTransport, GraphQlError, GraphQlPage, HTTP_USER_AGENT, HttpMethod,
+    ProviderAnswer, ProviderEvidence, RequestContext, RequestSpec, ResponsePage, RetryPolicy,
+    Reuse, SavedAnswer, SavedAnswers, requested_file, sso_partial_warning, worth_keeping,
 };
 pub use tree::{ContentsEntry, ContentsListing};
 

@@ -26,7 +26,7 @@ fn a_cut_comment_body_continues_with_offset_on_its_comment_page() {
     let mut out = json!({"pullRequests":[{"contentPagination":{
         "commentBody":{"hasMore":true,"nextOffset":500}
     }}]});
-    promote_pr_continuations(&mut out, &query, &Remainder::default());
+    promote_pr_continuations(&mut out, &query);
     let next = &pr_page(&out, "commentBody")["input"]["queries"][0];
     assert_eq!(next["offset"], 500, "{out}");
     assert_eq!(next["page"], 2, "{out}");
@@ -110,7 +110,7 @@ fn char_offset_continuations_narrow_content_to_their_own_surface() {
         "patches":{"hasMore":true,"nextOffset":900},
         "comments":{"hasMore":true,"nextPage":2}
     }}]});
-    promote_pr_continuations(&mut out, &query, &Remainder::default());
+    promote_pr_continuations(&mut out, &query);
     let next = &out["pullRequests"][0]["contentPagination"];
     assert_eq!(
         next["body"]["next"]["nextPage"]["input"]["queries"][0]["sections"],
@@ -175,7 +175,7 @@ fn budget_sized_file_pages_pin_their_grid_on_the_continuation() {
         let mut out = json!({"pullRequests":[{"contentPagination":{
             "files":{"hasMore":true,"nextPage":2}
         }}]});
-        promote_pr_continuations(&mut out, query, &Remainder::default());
+        promote_pr_continuations(&mut out, query);
         pr_page(&out, "files")["input"]["queries"][0].clone()
     };
     let pr = |fields: Value| {
@@ -246,7 +246,7 @@ fn cursors_ride_next_and_is_partial_marks_only_unreached_axes() {
         "body":{"offset":0,"length":10,"total":30,"hasMore":true,"nextOffset":10},
         "files":{"page":1,"hasMore":true,"nextPage":2}
     }}]});
-    promote_pr_continuations(&mut out, &pr, &Remainder::default());
+    promote_pr_continuations(&mut out, &pr);
     assert!(out.get("isPartial").is_none(), "{out}");
     assert_eq!(pr_page(&out, "files")["input"]["queries"][0]["page"], 2);
     assert_eq!(pr_page(&out, "body")["input"]["queries"][0]["offset"], 10);
@@ -258,7 +258,7 @@ fn cursors_ride_next_and_is_partial_marks_only_unreached_axes() {
     let mut out = json!({"pullRequests":[{"contentPagination":{
         "files":{"page":1,"hasMore":true}
     }}]});
-    promote_pr_continuations(&mut out, &pr, &Remainder::default());
+    promote_pr_continuations(&mut out, &pr);
     assert_eq!(out["isPartial"], true, "{out}");
     assert!(pr_page(&out, "files").is_null(), "{out}");
 

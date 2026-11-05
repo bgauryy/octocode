@@ -157,10 +157,9 @@ mod tests {
 
     /// (microsoft/TypeScript#57465: seven 26–37k-char comments on one
     /// page): one shared `offset` continues every cut body of a page, so
-    /// the page's body entry is the first cut window and its rest counts
-    /// the chars left in all of them, not only in the first cut one.
+    /// the page's body entry is the first cut window.
     #[test]
-    fn cut_bodies_of_one_page_count_every_remaining_char() {
+    fn the_first_cut_body_is_the_pages_entry() {
         let pr = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","owner":"o","repo":"r","number":1
         }))
@@ -169,21 +168,10 @@ mod tests {
         for body in ["a".repeat(12_015), "b".repeat(5), "c".repeat(12_030)] {
             window_body(&body, None, &pr, &mut windows);
         }
-        let mut remainder = super::super::remaining::Remainder::default();
         let mut pagination = serde_json::Map::new();
-        remainder.bodies(
-            super::super::axis::Axis::CommentBody,
-            windows,
-            &mut pagination,
-        );
+        windows.attach(super::super::axis::Axis::CommentBody, &mut pagination);
         let page = &pagination["commentBody"];
         assert_eq!(page["nextOffset"], 12_000, "{page}");
         assert_eq!(page["total"], 12_015, "{page}");
-        assert_eq!(
-            remainder
-                .note(super::super::axis::Axis::CommentBody, page)
-                .map(|note| note.left),
-            Some(format!("{} more comment body chars", 15 + 30))
-        );
     }
 }

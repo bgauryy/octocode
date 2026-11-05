@@ -14,7 +14,7 @@ Load when judging a tool's input schema, descriptions, MCP/CLI instructions, con
 - The description is `<when>…</when><workflow>…</workflow>`: `<when>` names the triggers and when a sibling fits better; `<workflow>` says which outputs feed it, where results go, and what an empty result means. No `next.*` names.
 - A field description adds what the name cannot: unit, default effect, interaction. Delete descriptions that restate the name; add one only where the inventory flags an ambiguous undescribed field.
 - No claim the implementation cannot back (languages, views, limits). Verify each against code or a live call.
-- Instructions are one core string (`MCP_INSTRUCTIONS`); the native CLI appends its own `<cli>` notes. Flag tool guidance hand-written in `packages/octocode-mcp` or `packages/octocode`.
+- Instructions are one core base (`MCP_INSTRUCTIONS`) plus a block per optional tool (`MCP_TOOL_INSTRUCTIONS`), served when that tool is available; the native CLI appends its own `<cli>` notes. Flag tool guidance hand-written in `packages/octocode-mcp` or `packages/octocode`.
 - Each sentence changes an agent decision. Keep a rule at its narrowest owner, not in both instructions and descriptions. Rewrites go through `octocode-agentic-prompts`; measure context cost with core `publishedSurfaceBudget.test.ts`.
 
 ## Config and docs

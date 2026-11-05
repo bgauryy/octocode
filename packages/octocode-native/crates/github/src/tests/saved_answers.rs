@@ -112,6 +112,31 @@ async fn a_mutable_read_is_confirmed_by_its_validator_and_answers_the_same_page(
 }
 
 #[tokio::test]
+async fn a_read_within_the_origins_own_max_age_is_not_disclosed() {
+    let server = MockServer::start().await;
+    Mock::given(path("/api/v3/repos/a/b"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("cache-control", "private, max-age=60")
+                .insert_header("etag", "\"v1\"")
+                .set_body_string("{}"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (transport, endpoint, _) = keeping(&server);
+    let spec = || RequestSpec::get(endpoint.rest(&["repos", "a", "b"]).unwrap());
+    transport.execute(spec(), &request("t")).await.unwrap();
+    let context = request("t");
+    transport.execute(spec(), &context).await.unwrap();
+    assert_eq!(
+        context.reused_since(),
+        None,
+        "the origin stated how long it stands"
+    );
+}
+
+#[tokio::test]
 async fn a_changed_resource_replaces_the_saved_answer() {
     let server = MockServer::start().await;
     let (transport, endpoint, _) = keeping(&server);

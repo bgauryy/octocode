@@ -23,7 +23,7 @@ async function connect(t: TestContext, f: ReturnType<typeof fixture>, extra: str
   const notifications: JsonRecord[] = [];
   let id = 0;
   async function request(method: string, params: object = {}): Promise<JsonRecord> {
-    child.stdin.write(JSON.stringify({jsonrpc:'2.0', id:++id, method, params})+'\n');
+    child.stdin.write(`${JSON.stringify({jsonrpc:'2.0', id:++id, method, params})}\n`);
     while (true) {
       const line = await lines.next();assert.equal(line.done,false,stderr);
       const response: JsonRecord = JSON.parse(line.value);

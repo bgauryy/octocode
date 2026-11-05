@@ -19,9 +19,6 @@ pub(crate) struct DomainResult {
     pub status: Option<&'static str>,
     pub(crate) source_digest: Option<String>,
     pub failure: Option<FailureKind>,
-    /// The tool's typed notes of what its pages leave to read
-    /// ([`crate::response::result::ToolData::remaining`]).
-    pub remaining: Vec<crate::response::result::Remaining>,
 }
 
 impl DomainResult {
@@ -40,7 +37,6 @@ impl DomainResult {
             status,
             source_digest: None,
             failure,
-            remaining: Vec::new(),
         }
     }
 
@@ -67,7 +63,6 @@ impl DomainResult {
             status: Some("error"),
             source_digest: None,
             failure: Some(kind),
-            remaining: Vec::new(),
         }
     }
 

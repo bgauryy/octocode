@@ -1,7 +1,6 @@
 // Markdown engine. Runs in Node (self-test) and in the page (inlined via Function#toString), so
 // mdKit must stay self-contained: no imports or outer references inside it, so its helpers
 // cannot move to module scope and the function holds the whole engine.
-/* oxlint-disable unicorn/consistent-function-scoping -- helpers must stay inside the serialized mdKit */
 // oxlint-disable-next-line max-lines-per-function -- serialized whole via Function#toString
 export function mdKit() {
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -10,7 +9,7 @@ export function mdKit() {
   const safeUrl = (u) => (/^(javascript|vbscript|data):/i.test(String(u).replace(/[\s\u0000-\u001f]/g, '')) ? '#' : String(u).trim());
   const decode = (value) => { try { return decodeURIComponent(value); } catch { return value; } };
   const encodePath = (path) => path.split('/').map(encodeURIComponent).join('/');
-  const routeHref = (path, slug = '') => '#/' + (path ? encodePath(path) + (slug ? '@' + encodeURIComponent(slug) : '') : '');
+  const routeHref = (path, slug = '') => `#/${path ? `${encodePath(path)}${slug ? `@${encodeURIComponent(slug)}` : ''}` : ''}`;
   const routeParse = (hash) => {
     const raw = hash.replace(/^#\/?/, '');
     const at = raw.lastIndexOf('@');

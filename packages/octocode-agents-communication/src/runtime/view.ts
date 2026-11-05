@@ -89,7 +89,7 @@ function handle(stream: Socket, head: string, store: StoreHost, host: string, pr
     if (colon >= 0) headers.push([line.slice(0, colon).toLowerCase(), line.slice(colon + 1).trim()]);
   }
   const hosts = headers.filter(([key]) => key === 'host').map(([, value]) => value);
-  if (hosts.length !== 1 || hosts[0] !== host || headers.some(([key, value]) => key === 'origin' && value !== 'http://' + host)) return respond(stream, '403 Forbidden', 'text/plain', 'Local origin required');
+  if (hosts.length !== 1 || hosts[0] !== host || headers.some(([key, value]) => key === 'origin' && value !== `http://${host}`)) return respond(stream, '403 Forbidden', 'text/plain', 'Local origin required');
   const target = first[1]!;
   if (!target.startsWith(prefix)) return respond(stream, '404 Not Found', 'text/plain', 'Not found');
   const route = target.slice(prefix.length);
@@ -152,9 +152,9 @@ export async function run(args: ViewArgs, input: ViewInput, runtime: ViewRuntime
       server.once('error', reject);
       server.listen(input.port ?? 0, '127.0.0.1', resolve);
     });
-    host = '127.0.0.1:' + (server.address() as { port: number }).port;
-    prefix = '/' + randomUUID() + '/';
-    const url = 'http://' + host + prefix;
+    host = `127.0.0.1:${(server.address() as { port: number }).port}`;
+    prefix = `/${randomUUID()}/`;
+    const url = `http://${host}${prefix}`;
     runtime.output({ url, pid: process.pid, workspace: store.workspace, database: store.database, readOnly: true, stop: 'Ctrl+C' });
     if (input.open ?? true) runtime.openBrowser(url).catch(() => process.stderr.write('Browser could not open; use the printed local URL\n'));
     if (!stop.signal.aborted) await new Promise<void>(resolve => stop.signal.addEventListener('abort', () => resolve(), { once: true }));

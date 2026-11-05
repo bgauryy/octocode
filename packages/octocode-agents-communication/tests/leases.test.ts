@@ -111,7 +111,7 @@ test('locks reads without competing with a held SQLite writer or changing histor
 test('check_paths pages all conflicts in ID order across overlapping targets without changing history',t=>{
  const f=fixture(t),db=new DatabaseSync(f.database),at=Date.now();
  const insert=db.prepare("INSERT INTO leases(workspace,path,kind,owner,acquiredAt,refreshedAt,expiresAt,reasoning,pathKey) VALUES(?,?,'file',?,?,?,?,?,?)");
- const add=(path: string,owner: string=f.a,expiry=at+600000,reasoning='Reserve '+path)=>Number(insert.run(f.workspace,join(f.workspace,path),owner,at,at,expiry,reasoning,join(f.workspace,path).toLowerCase()).lastInsertRowid);
+ const add=(path: string,owner: string=f.a,expiry=at+600000,reasoning=`Reserve ${path}`)=>Number(insert.run(f.workspace,join(f.workspace,path),owner,at,at,expiry,reasoning,join(f.workspace,path).toLowerCase()).lastInsertRowid);
  const ids: number[]=[];for(let i=0;i<205;i++)ids.push(add(`${i%2?'odd':'even'}/f${i}`,f.a,at+600000,'evidence '.repeat(50)));
  add('even/owned',f.b);add('even/expired',f.a,at-1);
  const before=only(db.prepare('SELECT count(*) n FROM records').get()).n;
@@ -131,7 +131,7 @@ test('check_paths pages all conflicts in ID order across overlapping targets wit
   const end=f.call(f.b,'check_paths',{paths,after:ids.at(-1)});
   assert.equal(end.ok,false);assert.deepEqual(end.conflicts,[]);assert.equal(end.next,undefined);
   assert.equal(f.call(f.b,'check_paths',{paths:[{path:'clear',kind:'tree'}]}).ok,true);
-  const widePaths=[...paths,...Array.from({length:120},(_,i)=>({path:`unused/${i}/`+'x'.repeat(180)}))];
+  const widePaths=[...paths,...Array.from({length:120},(_,i)=>({path:`unused/${i}/${'x'.repeat(180)}`}))];
   const wide=f.call(f.b,'check_paths',{paths:widePaths});
   assert.equal(wide.conflicts.length,1);assert.equal(wide.budget.targetBytes,16*1024);
   assert.deepEqual(wide.next.input.paths,widePaths);assert.equal(wide.next.input.after,ids[0]);

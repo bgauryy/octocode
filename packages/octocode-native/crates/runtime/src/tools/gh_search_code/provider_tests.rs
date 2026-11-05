@@ -22,8 +22,8 @@ fn paths_of(out: &crate::response::result::ToolData) -> Vec<String> {
 
 /// GitHub's answer to one caller page of a code search (page `page` at
 /// `limit` a page, listing `names` in `a/b` of `total` matches) as the wide
-/// read asks for it: the `MAX_PER_PAGE` page holding that caller page, other
-/// files before it. Served once, so mounts in walk order are the successive
+/// read asks for it: a first page at its `limit`, a later one in the
+/// `MAX_PER_PAGE` page holding it, other files before it. Served once, so mounts in walk order are the successive
 /// answers of a search whose results move between page reads.
 async fn mount_answer(
     server: &MockServer,
@@ -32,8 +32,13 @@ async fn mount_answer(
     total: usize,
     names: &[&str],
 ) {
-    let per = octocode_github::MAX_PER_PAGE;
     let offset = (page - 1) * limit;
+    // A first page asks for itself; a later one reads through the largest page.
+    let per = if page == 1 {
+        limit
+    } else {
+        octocode_github::MAX_PER_PAGE
+    };
     let items = (0..offset % per)
         .map(|slot| format!("slot{slot}.rs"))
         .chain(names.iter().map(|name| (*name).to_owned()))

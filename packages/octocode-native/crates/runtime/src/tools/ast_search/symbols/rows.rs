@@ -3,9 +3,41 @@ use crate::response::symbol_outline::declaration_rows;
 use octocode_engine::graph::{GraphFactDeclaration, GraphParseAssessment};
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::mem::size_of;
 
 #[cfg(test)]
 mod tests;
+
+/// What the allocator adds to each block on top of what was asked: rounding and
+/// bookkeeping, about what a small block costs.
+const BLOCK: usize = 16;
+/// An object's entry: its hash, key and value, its slot in the index, and its key's
+/// block.
+const ENTRY: usize = size_of::<(u64, String, Value)>() + size_of::<usize>() + BLOCK;
+
+/// What the `path` field an outline adds to a row holds beside the path's text.
+pub(super) const PATH_FIELD_BYTES: usize = ENTRY + "path".len();
+
+/// About the heap `value` holds under its slot in a row table: what the rows of a
+/// large outline weigh against the memory budget, which their serialized size
+/// understates about tenfold. Lengths, not capacities: where a scan stops must be a
+/// fact of the files.
+pub(super) fn heap_bytes(value: &Value) -> usize {
+    match value {
+        Value::String(text) => BLOCK + text.len(),
+        Value::Array(items) => {
+            BLOCK + items.len() * size_of::<Value>() + items.iter().map(heap_bytes).sum::<usize>()
+        }
+        Value::Object(fields) => {
+            BLOCK
+                + fields
+                    .iter()
+                    .map(|(key, field)| ENTRY + key.len() + heap_bytes(field))
+                    .sum::<usize>()
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) => 0,
+    }
+}
 
 /// Characters each top-level row (a span of `declarations`) adds to its
 /// page, as the page delivers it: its rendered row with its members, without

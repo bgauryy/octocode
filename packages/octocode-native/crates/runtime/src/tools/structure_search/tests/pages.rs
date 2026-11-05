@@ -87,6 +87,7 @@ fn a_time_cut_window_states_the_cut_once_on_the_page_that_resumes_the_walk() {
             scan_offset: 0,
             covered: 30,
             snapshot: "a".repeat(64),
+            pins_through: None,
         };
         let mut out = json!({});
         let mut warnings = Vec::new();

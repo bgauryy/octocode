@@ -3,9 +3,10 @@ use serde_json::{Value, json};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-/// rust-analyzer settings that keep it from running repository code: no
-/// build scripts (`build.rs`), no proc-macro expansion, and no `cargo check`
-/// on save. Cache priming stays on (rust-analyzer's default): it indexes the
+/// rust-analyzer settings that limit the repository code it runs: no build
+/// scripts (`build.rs`), no proc-macro expansion, and no `cargo check` on save.
+/// They don't stop it entirely: the `cargo` calls it still makes honor
+/// `.cargo/config.toml`, so a repository's `rustc-wrapper` runs. Cache priming stays on (rust-analyzer's default): it indexes the
 /// workspace in-process on every core as soon as the project loads, so a
 /// prewarmed server answers its first workspace-wide request warm instead
 /// of building that index lazily, on one request, when the call arrives
@@ -31,9 +32,11 @@ pub fn rust_analyzer_headless_options() -> Value {
     })
 }
 
-/// clangd flags that keep it read-only and quiet: no background index (it
-/// writes `.cache/clangd/` into the repository), no clang-tidy, errors-only
-/// logging, and precompiled preambles in memory rather than temp files.
+/// clangd flags that keep it read-only and quiet: no background index unless a
+/// mirrored database keeps it out of the repository (`clangd_database`), no
+/// clang-tidy, errors-only logging, and precompiled preambles in memory rather
+/// than temp files. Without an index, requests that need other files open them
+/// first (`lsp_search::importers::index_window`) and say the answer is partial.
 pub(crate) const CLANGD_HEADLESS_ARGS: &[&str] = &[
     "--background-index=false",
     "--clang-tidy=false",
@@ -81,6 +84,11 @@ pub(crate) const CLANGD_CUDA_FALLBACK_FLAGS: &[&str] = &["-xcuda", "--cuda-host-
 fn clangd_default_options(language_id: Option<&str>) -> Option<Value> {
     (language_id == Some("cuda")).then(|| json!({ "fallbackFlags": CLANGD_CUDA_FALLBACK_FLAGS }))
 }
+
+/// jdtls flags: its importers read this JVM property, not the settings below,
+/// when they decide where `.project`, `.classpath` and `.settings/` go.
+pub(crate) const JDTLS_HEADLESS_ARGS: &[&str] =
+    &["--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false"];
 
 /// jdtls settings (sent as `initializationOptions.settings`): no automatic
 /// workspace build, and Eclipse metadata (`.project`, `.classpath`,
@@ -169,10 +177,14 @@ const TSGO_WORKSPACE_SYMBOL_LIMIT: usize = 256;
 pub(crate) fn apply_server_default_options(
     config: &mut LspLanguageServerConfig,
     octocode_home: Option<&Path>,
+    index_home: Option<&Path>,
 ) {
     match server_stem(&config.command).as_deref() {
         Some("rust-analyzer") => apply_rust_analyzer_defaults(config),
         Some("clangd") => {
+            if let Some(home) = index_home {
+                crate::lsp::clangd_database::mirror_database(config, home);
+            }
             add_default_args(config, CLANGD_HEADLESS_ARGS);
             if let Some(options) = clangd_default_options(config.language_id.as_deref()) {
                 merge_default_options(config, options);
@@ -188,6 +200,13 @@ pub(crate) fn apply_server_default_options(
                 let args = config.args.get_or_insert_with(Vec::new);
                 args.push("-data".to_owned());
                 args.push(dir.to_string_lossy().into_owned());
+            }
+            // `--jvm-arg` repeats, so a user's own is no reason to drop this one.
+            let args = config.args.get_or_insert_with(Vec::new);
+            for default in JDTLS_HEADLESS_ARGS {
+                if !args.iter().any(|arg| arg == default) {
+                    args.push((*default).to_owned());
+                }
             }
             merge_default_options(config, jdtls_headless_options());
         }

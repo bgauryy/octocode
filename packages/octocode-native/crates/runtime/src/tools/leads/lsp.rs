@@ -192,6 +192,36 @@ mod tests {
         assert!(!ran.exists(), "{:?}", std::fs::read_to_string(&ran));
     }
 
+    /// A lead that could only be refused is not offered: fetched code answers
+    /// `lspSearch` with a policy refusal.
+    #[cfg(unix)]
+    #[test]
+    fn no_lead_points_into_fetched_code() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().expect("fixture");
+        let command = dir.path().join("fixture-lsp");
+        std::fs::write(&command, "#!/bin/sh\nexit 0\n").expect("server");
+        std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755))
+            .expect("executable");
+        std::fs::write(dir.path().join("lsp-servers.json"), serde_json::json!({"languageServers":{".fixture":{"command":command,"args":[],"languageId":"fixture"}}}).to_string()).expect("config");
+        let clones = dir.path().join("clones");
+        std::fs::create_dir(&clones).expect("clones");
+        let file = clones.join("a.fixture");
+        std::fs::write(&file, "function a() {}\n").expect("file");
+        let path = file.to_string_lossy().into_owned();
+        let options = |fetched_code_roots| LspDiscoveryOptions {
+            octocode_home: Some(dir.path().to_path_buf()),
+            fetched_code_roots,
+            ..Default::default()
+        };
+        with_lead_discovery(options(vec![clones.clone()]), || {
+            assert_eq!(verify_query(&path, "a", 1, Verify::Callers), None);
+        });
+        with_lead_discovery(options(Vec::new()), || {
+            assert!(verify_query(&path, "a", 1, Verify::Callers).is_some());
+        });
+    }
+
     /// A declaration lead runs `callers` for a callable and `references`
     /// otherwise, and is withheld when no language server would start for the
     /// file.

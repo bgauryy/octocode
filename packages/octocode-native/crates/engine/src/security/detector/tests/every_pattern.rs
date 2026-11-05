@@ -20,12 +20,17 @@ fn path_for(context: Option<&str>, rng: &mut Lcg) -> String {
 /// Every pattern fires somewhere: a text sampled from its own syntax, alone on
 /// its line in a file its context admits, is redacted. An edge a real line
 /// cannot satisfy (a `\b` beside a dash at a line start) or a file context
-/// nothing can name leaves a pattern that never runs, and this names it.
+/// nothing can name leaves a pattern that never runs, and this names it. A
+/// pattern a document's shape decides is sampled in `document_forms` instead: its
+/// regex alone spells no secret.
 #[test]
 fn every_pattern_redacts_a_sample_of_itself_on_its_own_line() {
     let mut rng = Lcg(0x5eed);
     let mut dead = Vec::new();
     for (idx, pattern) in PATTERNS.iter().enumerate() {
+        if document::Form::of(idx).is_some() {
+            continue;
+        }
         let hir = regex_syntax::parse(pattern.regex).expect(pattern.name);
         let alive = (0..TRIES).any(|_| {
             let path = path_for(pattern.file_context, &mut rng);

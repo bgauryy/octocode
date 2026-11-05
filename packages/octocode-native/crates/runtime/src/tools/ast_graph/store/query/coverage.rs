@@ -38,10 +38,11 @@ impl Graph {
             coverage["warning"] = json!(format!(
                 "Call extraction is {extraction} for this language in the selected snapshot. Empty call results do not establish absence; another language's linkage is not applicable."
             ));
-        } else if linkage["ratio"].as_f64().is_none_or(|ratio| ratio < 0.9) {
-            coverage["warning"] = json!(
-                "Syntax linkage measures only extracted call sites selected by the stated population. It is not semantic recall. Inspect unresolved sites and confirm identity with lspSearch."
-            );
+        } else {
+            coverage["warning"] = json!(format!(
+                "Syntax linkage measures only extracted call sites selected by the stated population. It is not semantic recall. {} Inspect unresolved sites and confirm identity with lspSearch.",
+                super::super::manifest::VALUE_REFERENCES
+            ));
         }
         coverage
     }
@@ -97,8 +98,9 @@ impl Graph {
         json!({
             "language":"", "linkage":linkage, "basis":"syntax", "callExtraction":extraction,
             "warning":format!(
-                "{scope} Recorded call extraction: supported=[{}]; unsupported=[{}]; notAssessed=[{}]. Linkage describes only extracted syntax call sites, not semantic recall. Empty results do not establish absence where extraction is unsupported or not assessed.",
+                "{scope} Recorded call extraction: supported=[{}]; unsupported=[{}]; notAssessed=[{}]. Linkage describes only extracted syntax call sites, not semantic recall. {values} Empty results do not establish absence where extraction is unsupported or not assessed.",
                 supported.join(", "), unsupported.join(", "), unassessed.join(", "),
+                values = super::super::manifest::VALUE_REFERENCES,
             ),
         })
     }

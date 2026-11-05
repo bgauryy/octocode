@@ -205,12 +205,6 @@ fn the_tool_flow_is_readable_as_a_resource() {
         "{init}"
     );
     let uri = "octocode://research/tool-flow";
-    assert!(
-        init["result"]["instructions"]
-            .as_str()
-            .is_some_and(|text| text.contains(uri)),
-        "{init}"
-    );
     server.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
     let listed = server.request("resources/list", json!({}));
     let listed_uris: Vec<&str> = listed["result"]["resources"]
@@ -220,6 +214,15 @@ fn the_tool_flow_is_readable_as_a_resource() {
         .filter_map(|resource| resource["uri"].as_str())
         .collect();
     assert!(listed_uris.contains(&uri), "{listed}");
+    // An output view follows its tool: no key, no clasify.
+    assert!(
+        listed_uris.contains(&"octocode://contract/output/localSearch"),
+        "{listed}"
+    );
+    assert!(
+        !listed_uris.contains(&"octocode://contract/output/clasify"),
+        "{listed}"
+    );
     let references = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../../../skills/octocode-research/references");
     // Follow every sibling link from the tool flow: each must be listed and

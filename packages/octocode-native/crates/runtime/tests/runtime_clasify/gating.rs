@@ -9,7 +9,7 @@ use serde_json::json;
 async fn retired_jev_vendor_key_does_not_enable_clasify() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("OCTOCODE_JEV_KEY", "jev-native-secret".into())]);
-    assert!(runtime.is_available("clasify"));
+    assert!(!runtime.is_available("clasify"));
     let response = runtime
         .run_mcp(
             "retired-key".into(),
@@ -51,7 +51,7 @@ async fn public_clasify_requires_a_nonblank_key_regardless_of_beta() {
         ),
     ] {
         let runtime = workspace.runtime(&env);
-        assert!(runtime.is_available("clasify"), "CLI discovery: {env:?}");
+        assert!(!runtime.is_available("clasify"), "CLI discovery: {env:?}");
         let refused = runtime
             .run_mcp(
                 "mcp-missing-key".into(),

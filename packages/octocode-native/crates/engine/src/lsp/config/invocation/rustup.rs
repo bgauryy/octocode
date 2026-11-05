@@ -110,6 +110,7 @@ pub(in crate::lsp::config) fn selected_component(
         toolchain: view.toolchain.clone(),
     };
     if let Some(kept) = ANSWERS.get(&key).filter(|kept| kept.value.inputs.holds()) {
+        ANSWERS.touch(&key, crate::memory::IDLE);
         return kept.value.binary.clone();
     }
     let started = settle_clock();
@@ -192,7 +193,8 @@ fn inputs_of(view: &RustupView, proxy: &Path, rustup: &Path, workspace: &Path) -
     Some(inputs)
 }
 
-/// Answers kept this process, against the one process budget.
+/// Answers kept this process, against the one process budget, each until
+/// [`crate::memory::IDLE`] after its last read.
 static ANSWERS: Memo<Question, Answer> = Memo::new(&crate::memory::MEMORY);
 
 fn keep_answer(question: Question, answer: Answer) {
@@ -209,7 +211,7 @@ fn keep_answer(question: Question, answer: Answer) {
         .map(std::ffi::OsStr::len)
         .sum::<usize>()
         + answer.inputs.weight();
-    ANSWERS.insert(question, answer, weight, None);
+    ANSWERS.insert(question, answer, weight, Some(crate::memory::IDLE));
 }
 
 /// The `rustup` a proxy dispatches to: its link target (a bare name is a

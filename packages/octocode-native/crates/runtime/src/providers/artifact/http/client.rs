@@ -115,8 +115,7 @@ impl RegistryClient<'_> {
         let mut request = request;
         if let Some(kept) = &kept {
             match kept.reuse(false, None, now_millis()) {
-                Reuse::Pinned | Reuse::Fresh => {
-                    self.reused.record(kept.observed_ms);
+                Reuse::Pinned | Reuse::Fresh | Reuse::Window => {
                     return decode(kept.answer.body.as_bytes())
                         .map(Some)
                         .ok_or_else(|| invalid(artifact_type));
@@ -198,7 +197,7 @@ impl RegistryClient<'_> {
                     request: identity.clone(),
                     status,
                     headers,
-                    body,
+                    body: body.into(),
                     next: None,
                     not_found: None,
                 },
@@ -308,7 +307,7 @@ fn registry_error(artifact_type: ArtifactType, status: u16, body: &[u8]) -> Arti
 /// The reason a JSON registry error body gives (`errors[0].detail`,
 /// `error`, `message`), on one line and at most 200 chars; registry text is
 /// data, quoted as the registry wrote it.
-fn rejection_detail(body: &[u8]) -> Option<String> {
+pub(crate) fn rejection_detail(body: &[u8]) -> Option<String> {
     let value: serde_json::Value = serde_json::from_slice(body).ok()?;
     let detail = value
         .pointer("/errors/0/detail")

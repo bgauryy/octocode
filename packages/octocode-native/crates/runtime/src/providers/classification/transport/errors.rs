@@ -17,8 +17,8 @@ pub(super) fn budget_error(stop: BudgetStop) -> ClassificationError {
         ),
         BudgetStop::Deadline => ClassificationError::new(
             ErrorCode::Timeout,
-            "Classification request exceeded its total deadline.",
-            "Retry unresolved evidence in a smaller request.",
+            "The classification provider is slow: it did not answer within the request time.",
+            "Retry later; the evidence stays readable without classification.",
         ),
     }
 }
@@ -133,7 +133,8 @@ pub(crate) fn quota_exhausted() -> ClassificationError {
     ClassificationError::new(
         ErrorCode::ClassificationQuotaExhausted,
         "Classification provider billing or quota is exhausted (HTTP 402); retrying will not help.",
-        "Add credit or quota to the OCTOCODE_CLASSIFICATION_API account, then rerun.",
+        // A rerun sooner is refused the same way (`gate::QUOTA_MEMO`).
+        "Add credit or quota to the OCTOCODE_CLASSIFICATION_API account, then rerun in a minute: this process repeats the refusal until then.",
     )
 }
 
@@ -165,8 +166,8 @@ pub(super) fn status_error(
     if error_type(provider_body) == Some("max_tokens_exceeded") {
         ClassificationError::new(
             ErrorCode::ClassificationStateTooLarge,
-            "The state exceeded the classification provider's context window.",
-            "Narrow the state or the source ranges, or shorten the questions.",
+            "The state exceeded the classification provider's context window; the refused request is not billed.",
+            "Split it: narrower ranges, one row per part, or operation:\"sections\" with the source under resources.",
         )
     } else {
         ClassificationError::new(

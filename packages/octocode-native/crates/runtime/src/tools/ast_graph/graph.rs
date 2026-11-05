@@ -169,6 +169,12 @@ pub(crate) fn build_graph_with_registry(
             sanitize(security, &format!("{}: {}", skipped.code, skipped.message)),
         ));
     }
+    let js_modules = ModulesByName::new(
+        known
+            .iter()
+            .filter(|file| Linker::of(file) == Linker::JsTs)
+            .map(String::as_str),
+    );
     let inputs = LinkInputs {
         known: &known,
         security,
@@ -176,6 +182,7 @@ pub(crate) fn build_graph_with_registry(
         rust_modules: &rust_modules,
         ctx: &resolve_context,
         packages: &packages,
+        js_modules: &js_modules,
     };
     // Restoring a spilled file decodes its artifact: a window of files is
     // restored in parallel, then linked one by one in scan order, so the
@@ -199,7 +206,7 @@ pub(crate) fn build_graph_with_registry(
         }
     }
     markup::link_markup(&mut built, &inputs, markup, cancel)?;
-    diagnose_unlinked_path_imports(&mut built, security);
+    diagnose_unlinked_path_imports(&mut built, &js_modules, security);
     built.diagnostics.sort();
     built.diagnostics.dedup();
     Ok(built)
@@ -256,9 +263,12 @@ pub(super) fn registry_identity(registry: RegistryView<'_>) -> Result<String, To
 /// (`vs/base/common/x` for `src/vs/base/common/x.ts`). Each one is recorded
 /// against the file it names, so `dependents` of that file states it and
 /// never silently lacks an importer a text search finds.
-fn diagnose_unlinked_path_imports(b: &mut BuiltGraph, security: &ContentSecurity) {
+fn diagnose_unlinked_path_imports(
+    b: &mut BuiltGraph,
+    modules: &ModulesByName<'_>,
+    security: &ContentSecurity,
+) {
     let js_ts = |file: &&String| Linker::of(file) == Linker::JsTs;
-    let modules = ModulesByName::new(b.facts.keys().filter(js_ts).map(String::as_str));
     let mut found = Vec::new();
     for (importer, facts) in b.facts.iter().filter(|(file, _)| js_ts(file)) {
         for import in facts

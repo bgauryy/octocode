@@ -104,6 +104,16 @@ pub(super) fn emit(
         metadata["sections"] = json!(sections);
         resources.insert(resource.key.clone(), metadata);
     }
+    // A batch a sibling row's admissions left nothing to add still answers
+    // for its first resource: the row reads on with its next batch.
+    if resources.is_empty()
+        && let Some(resource) = session.resources.first()
+        && let Some(shown) = &resource.shown
+    {
+        let mut metadata = shown.clone();
+        metadata["sections"] = json!([]);
+        resources.insert(resource.key.clone(), metadata);
+    }
     // Score cells carry no legend, so the shared questions are the only one:
     // every batch carries them, so a page read through a cursor is
     // self-contained. The response layer drops them from the first page of a

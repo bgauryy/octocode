@@ -46,7 +46,7 @@ function plans(db: DatabaseSync, statements: readonly { command: string; sql: st
     if (!/^\s*(SELECT|UPDATE|DELETE|WITH)\b/i.test(statement.sql)) continue;
     // The store binds booleans as 0/1; EXPLAIN takes the same values.
     const args = statement.args.map(value => typeof value === 'boolean' ? Number(value) : value);
-    const details = (db.prepare('EXPLAIN QUERY PLAN ' + statement.sql).all(...(args as never[])) as { detail: string }[]).map(row => `${row.detail}\t${statement.sql.replace(/\s+/g, ' ')}`);
+    const details = (db.prepare(`EXPLAIN QUERY PLAN ${statement.sql}`).all(...(args as never[])) as { detail: string }[]).map(row => `${row.detail}\t${statement.sql.replace(/\s+/g, ' ')}`);
     byCommand.set(statement.command, [...byCommand.get(statement.command) ?? [], ...details]);
   }
   return byCommand;

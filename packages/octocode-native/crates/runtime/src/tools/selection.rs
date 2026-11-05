@@ -4,12 +4,12 @@
 use crate::execution::{ExecutionContext, SelectionLimits};
 use crate::id::ToolId;
 use octocode_contract_types::ErrorCode;
-use octocode_contract_types::{Selection, SelectionFailure, SelectionStatus, SelectionUnit};
+use octocode_contract_types::{Selection, SelectionFailure, SelectionStatus};
 use serde_json::{Value, json};
 
-mod admission;
 mod judge;
 mod plan;
+mod provider_hits;
 mod provider_page;
 mod run;
 #[cfg(test)]
@@ -43,6 +43,10 @@ pub(crate) trait SelectionJudge: Send + Sync {
     fn identity(&self) -> Value;
     fn project(&self, state: Value) -> Value {
         state
+    }
+    /// Characters one candidate's questions add to its request.
+    fn question_chars(&self, _predicates: &[String]) -> usize {
+        0
     }
     fn select(&self, call: JudgeCall<'_>) -> Judgments;
 }
@@ -82,8 +86,7 @@ pub(crate) struct JudgeCall<'a> {
     pub admitted: &'a [usize],
     pub predicates: &'a [String],
     pub(crate) research_context: Option<&'a str>,
-    pub(crate) long_context: bool,
-    pub limits: SelectionLimits,
+    pub(crate) long_context: crate::tools::judgment::LongContext,
     pub handle: &'a tokio::runtime::Handle,
     pub context: &'a ExecutionContext,
 }
@@ -104,8 +107,9 @@ impl Candidate {
         }
     }
 
-    fn fits_budget(&self, limits: SelectionLimits) -> bool {
-        self.state.is_some() && limits.max_candidates > 0 && self.evidence_chars <= limits.max_chars
+    /// Serialized characters of the state.
+    pub(crate) fn state_chars(&self) -> usize {
+        self.evidence_chars
     }
 }
 
@@ -133,9 +137,9 @@ pub(crate) struct Outcome {
     pub related: Vec<usize>,
     /// Judged irrelevant; every other unselected ordinal is unknown.
     pub excluded: Vec<usize>,
-    /// The unknown ordinals no judge saw: eligible candidates past the
-    /// candidate budget. The rest of the unknown ones were judged unsure,
-    /// or had no state to judge.
+    /// The unknown ordinals a next candidate page judges: past the page's
+    /// budget, or failed because the provider could not answer. The rest of
+    /// the unknown ones were judged unsure, or had no state to judge.
     pub unjudged: Vec<usize>,
     pub receipt: Selection,
     pub token: String,
@@ -188,16 +192,10 @@ impl Outcome {
     }
 
     /// The `selection` token of `next.nextCandidatePage`: the same call
-    /// judging the ordinals this page's budget left unjudged. `None` when
-    /// none were left, or when `tool`'s `selection` field declares a
-    /// `maxLength` the token exceeds (the unjudged rest then stays unknown).
-    /// A field without one bounds no chain.
-    pub(crate) fn next_candidates(&self, tool: ToolId) -> Option<&str> {
-        let max = crate::contracts::query_schema_number(tool, None, "selection", "maxLength")
-            .map(|n| usize::try_from(n).unwrap_or(usize::MAX));
-        self.next_candidates
-            .as_deref()
-            .filter(|token| max.is_none_or(|max| token.len() <= max))
+    /// judging the ordinals this page's budget or a provider that could not
+    /// answer left unjudged. `None` when none were left.
+    pub(crate) fn next_candidates(&self) -> Option<&str> {
+        self.next_candidates.as_deref()
     }
 }
 
@@ -330,7 +328,7 @@ fn progress_fields() -> &'static std::collections::BTreeSet<String> {
 #[cfg(test)]
 mod shared_tests {
     use super::*;
-    use octocode_contract_types::SelectionScope;
+    use octocode_contract_types::{SelectionScope, SelectionUnit};
 
     fn outcome(unjudged: Vec<[u32; 2]>) -> Outcome {
         let mut plan = plan::Plan::new(
@@ -338,7 +336,7 @@ mod shared_tests {
             3,
             SelectionStatus::Partial,
             SelectionScope::SelectedView,
-            SelectionUnit::Chunks,
+            SelectionUnit::Hits,
             None,
         );
         plan.selected = vec![0];

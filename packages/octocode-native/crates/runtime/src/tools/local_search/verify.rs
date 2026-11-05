@@ -12,9 +12,11 @@ use octocode_engine::num::saturating_u32;
 use octocode_engine::signatures::MAX_PARSE_SIZE;
 
 mod decoded;
+mod exposed;
 mod guard;
 pub(super) mod lines;
 mod redaction;
+mod settle;
 #[cfg(test)]
 mod verification_tests;
 

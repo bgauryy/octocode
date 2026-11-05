@@ -61,36 +61,7 @@ fn a_page_with_rows_left_over_leads_with_an_incomplete_warning() {
     let pages = walk(&structured, 12_000);
     assert!(pages.len() > 1);
     let (first, _) = &pages[0];
-    assert_eq!(first.keys().next().map(String::as_str), Some("warnings"));
-    let banner = first["warnings"][0].as_str().expect("banner");
-    let rows = first["results"].as_array().expect("rows");
-    let index = |row: &Value| row["index"].as_u64().expect("index");
-    let served = rows.iter().map(index).collect::<Vec<_>>();
-    let continued = rows
-        .iter()
-        .filter(|row| row["rowPart"]["part"] != row["rowPart"]["of"])
-        .map(index)
-        .collect::<Vec<_>>();
-    let unserved = (0..3)
-        .filter(|index| !served.contains(index))
-        .collect::<Vec<_>>();
-    let list = |indexes: &[u64]| {
-        let noun = if indexes.len() == 1 {
-            "query"
-        } else {
-            "queries"
-        };
-        let indexes = indexes.iter().map(u64::to_string).collect::<Vec<_>>();
-        format!("{noun} {}", indexes.join(", "))
-    };
-    assert!(!unserved.is_empty(), "{first:?}");
-    let mut expected = format!("incomplete: later response pages serve {}", list(&unserved));
-    if !continued.is_empty() {
-        expected.push_str(&format!(" and continue {}", list(&continued)));
-    }
-    assert_eq!(banner, expected);
-    // How to follow `next` lives once in the instructions, not per page.
-    assert!(!banner.contains("responsePagination.next"), "{banner}");
+    assert!(first.get("warnings").is_none(), "{first:?}");
     let (last, pagination) = pages.last().expect("last");
     assert!(!pagination.has_more);
     assert!(last.get("warnings").is_none(), "{last:?}");

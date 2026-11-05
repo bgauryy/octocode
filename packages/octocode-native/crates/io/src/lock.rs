@@ -5,6 +5,9 @@
 //! [`Turnstile`] is the in-process side: taken before a file lock, it leaves
 //! the file contended across processes only.
 
+mod removable;
+pub use removable::{lock_path_within, remove_unheld};
+
 use std::fs::{File, TryLockError};
 use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant};

@@ -295,6 +295,7 @@ impl Operation<'_, '_> {
                 symbol,
                 snippet_policy: self.snippet_policy,
                 window: WindowRequest::of(query),
+                proof: super::importers::SiteProof::of(self.language_id),
             }),
             None => None,
         };
@@ -312,7 +313,7 @@ impl Operation<'_, '_> {
             importers.annotate(&mut row, query, self.scope);
             // A deeper walk follows the last importer window, not a page
             // that still has windows to verify.
-            if row.pointer("/next/nextPage").is_some()
+            if row.pointer("/next/nextImporterWindow").is_some()
                 && let Some(next) = row.get_mut("next").and_then(Value::as_object_mut)
             {
                 next.remove("walkDeeper");

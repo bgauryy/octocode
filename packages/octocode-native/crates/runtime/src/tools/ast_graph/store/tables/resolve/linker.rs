@@ -191,8 +191,12 @@ impl Linker<'_> {
         if site.qualifier.is_empty() && !site.typed() {
             return self.imported(site);
         }
+        // A lone crate name is a path too, unless a local module takes the name.
+        let crate_path = self.is_rust(site.caller)
+            && self.scope.crate_dirs.contains_key(site.qualifier)
+            && !site.bindings.modules.contains_key(head);
         if !receiver
-            && site.qualifier.contains("::")
+            && (site.qualifier.contains("::") || crate_path)
             && let Some(module_file) = self
                 .scope
                 .path(self.file_of(site.caller))

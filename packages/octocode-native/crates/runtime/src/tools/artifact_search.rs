@@ -168,7 +168,8 @@ fn respond(
         artifacts
             .iter()
             .filter_map(leads::source_warning)
-            .chain(artifacts.iter().filter_map(leads::property_warning)),
+            .chain(artifacts.iter().filter_map(leads::property_warning))
+            .chain(artifacts.iter().filter_map(leads::prerelease_warning)),
     );
     if let Some(limit) = terminal_limit {
         paging::terminal_limit(&mut data, limit.reason, &[limit.warning]);

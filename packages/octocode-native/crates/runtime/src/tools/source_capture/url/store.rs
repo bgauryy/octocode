@@ -123,13 +123,14 @@ impl<'a> Store<'a> {
             crate::response::result::Continuation::continued_query(LocalFetchQuery::from(read))
                 .build();
         Ok(Captured {
+            read_chars: selection.text.chars().count(),
             state: json!({
                 "source": { "url": url, "section": selection.section },
                 "text": selection.text,
             }),
             read,
             source: Some(
-                json!({ "url": url, "snapshot": snapshot, "expiresAt": saved["expiresAt"] }),
+                json!({ "url": url, "snapshot": snapshot, "path": file, "expiresAt": saved["expiresAt"] }),
             ),
         })
     }

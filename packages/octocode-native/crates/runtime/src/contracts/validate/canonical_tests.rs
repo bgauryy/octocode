@@ -174,3 +174,19 @@ fn invalid_rows_cannot_hide_an_oversized_batch() {
     let error = prepare_rows("localFetch", json!({"queries":queries})).unwrap_err();
     assert!(error.issues.iter().any(|issue| issue.path == ["queries"]));
 }
+
+/// A batch's limit bounds what a caller sends; saved rows were admitted once,
+/// and one row's walks may fan out past it on one handle.
+#[test]
+fn saved_rows_may_pass_the_batch_limit_a_fresh_call_keeps() {
+    let rows = (0..6).map(|_| json!({"path":"a.txt"})).collect::<Vec<_>>();
+    let input = json!({"queries":rows});
+    assert_eq!(
+        prepare_saved_rows("localFetch", input.clone())
+            .expect("saved rows admitted")
+            .len(),
+        6
+    );
+    let refused = prepare_rows("localFetch", input).expect_err("a fresh batch is capped");
+    assert!(refused.issues[0].message.contains("exceeds the maximum"));
+}

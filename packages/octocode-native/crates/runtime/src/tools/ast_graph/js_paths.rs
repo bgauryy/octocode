@@ -84,6 +84,17 @@ pub(super) fn source_equivalent(
     })
 }
 
+/// Whether `stem` names a module file on disk: itself, with a module suffix, or
+/// a directory's `index`.
+pub(super) fn module_on_disk(stem: &std::path::Path) -> bool {
+    stem.is_file()
+        || MODULE_SUFFIXES.iter().any(|suffix| {
+            let suffix = suffix.trim_start_matches('.');
+            stem.with_added_extension(suffix).is_file()
+                || stem.join("index").with_added_extension(suffix).is_file()
+        })
+}
+
 /// Probe a module path the way relative imports are linked: exact file,
 /// `.js`→`.ts` style swaps, extension probing, and `index` files.
 pub(super) fn probe_js(stem: &str, known: &BTreeSet<String>) -> Option<String> {

@@ -14,6 +14,9 @@ use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadProgressUnit};
 use octocode_engine::num::saturating_usize;
 use std::path::Path;
 
+/// Why a page of a source whose structure outran the memory budget hides its values.
+const EVERY_VALUE_NOTE: &str = "redactedContent: this source names a Kubernetes Secret or a JSON Web Key, and its nesting outgrew the memory budget before the walk that places their values finished, so every value on this page is hidden, secret or not. Split the source to read it.";
+
 /// The file lines one streamed window of `q` holds.
 #[derive(Clone, Copy)]
 pub(super) struct WindowSpan {
@@ -42,6 +45,11 @@ impl WindowSpan {
             first: self.first,
             last: self.last,
             from: self.from,
+            room: if self.byte_page {
+                super::BYTE_WINDOW_BYTES
+            } else {
+                super::WINDOW_BYTES
+            },
         }
     }
 }
@@ -115,7 +123,7 @@ impl Opened<'_> {
         match self.proven {
             Some((proven, total_lines)) => proven.windows(self.file, wants, total_lines, cancel),
             None => {
-                let Streaming { pass, binary } = stream_pass(self.file, wants, cancel)?;
+                let Streaming { pass, binary } = stream_pass(self.file, self.path, wants, cancel)?;
                 let windows = streamed(pass.lines, &pass.proven.digest, pass.total_lines, binary);
                 if !binary {
                     super::kept::keep(self, pass.proven, pass.total_lines);
@@ -162,6 +170,10 @@ pub(super) fn serve_window(
     cancel: &impl CancellationCheck,
 ) -> LocalFetchResult {
     let (path, len) = (source.path, source.len);
+    let security = &super::unjudged::Masked {
+        scan: security,
+        masked: streamed.masked,
+    };
     let WindowSpan {
         first,
         requested_last,
@@ -254,6 +266,12 @@ pub(super) fn serve_window(
             return result;
         }
         map_to_file(&mut result, &streamed);
+        if streamed.every_value {
+            result
+                .warnings
+                .retain(|warning| !warning.starts_with("redactedContent"));
+            result.warnings.push(EVERY_VALUE_NOTE.to_owned());
+        }
         if !chunked && requested_last > total {
             // The in-memory read states the same clamp.
             result.warnings.push(format!(

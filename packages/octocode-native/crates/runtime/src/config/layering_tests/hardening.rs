@@ -236,6 +236,88 @@ fn a_workspace_cannot_widen_local_tools_or_email_redaction() {
     assert!(narrowed.dotenv.skipped_protected.is_empty());
 }
 
+/// A cloned repository cannot open credential files, by either file; it can
+/// only narrow a home that allows them. Saved work follows the effective value.
+#[test]
+fn a_workspace_cannot_allow_credential_files() {
+    let widened = resolve(Layers {
+        project_env: Some("OCTOCODE_CREDENTIAL_FILES=allow"),
+        project_rc: Some(r#"{"security":{"credentialFiles":"allow"}}"#),
+        ..NONE
+    });
+    assert_eq!(
+        value_of(&widened, "security.credentialFiles"),
+        serde_json::json!("withhold")
+    );
+    assert!(has_diagnostic(
+        &widened,
+        "workspace_config_protected",
+        "security.credentialFiles"
+    ));
+    assert!(saves_local_results(&widened.resolved));
+
+    let home = resolve(Layers {
+        global_rc: Some(r#"{"security":{"credentialFiles":"allow"}}"#),
+        ..NONE
+    });
+    assert_eq!(
+        value_of(&home, "security.credentialFiles"),
+        serde_json::json!("allow")
+    );
+    assert!(!saves_local_results(&home.resolved));
+    // Provider answers and clones hold no credential file, and stay on disk.
+    assert!(is_persistent_storage_enabled(&home.resolved));
+
+    let narrowed = resolve(Layers {
+        global_rc: Some(r#"{"security":{"credentialFiles":"allow"}}"#),
+        project_rc: Some(r#"{"security":{"credentialFiles":"withhold"}}"#),
+        ..NONE
+    });
+    assert_eq!(
+        value_of(&narrowed, "security.credentialFiles"),
+        serde_json::json!("withhold")
+    );
+}
+
+/// A cloned repository cannot trust itself to run a language server, by either
+/// file; it can only narrow a home that does.
+#[test]
+fn a_workspace_cannot_opt_in_to_language_servers_on_fetched_code() {
+    let widened = resolve(Layers {
+        project_env: Some("OCTOCODE_LSP_TRUST_FETCHED_CODE=true"),
+        project_rc: Some(r#"{"lsp":{"trustFetchedCode":true}}"#),
+        ..NONE
+    });
+    assert_eq!(
+        value_of(&widened, "lsp.trustFetchedCode"),
+        serde_json::json!(false)
+    );
+    assert!(has_diagnostic(
+        &widened,
+        "workspace_config_protected",
+        "lsp.trustFetchedCode"
+    ));
+
+    let home = resolve(Layers {
+        global_rc: Some(r#"{"lsp":{"trustFetchedCode":true}}"#),
+        ..NONE
+    });
+    assert_eq!(
+        value_of(&home, "lsp.trustFetchedCode"),
+        serde_json::json!(true)
+    );
+
+    let narrowed = resolve(Layers {
+        global_rc: Some(r#"{"lsp":{"trustFetchedCode":true}}"#),
+        project_rc: Some(r#"{"lsp":{"trustFetchedCode":false}}"#),
+        ..NONE
+    });
+    assert_eq!(
+        value_of(&narrowed, "lsp.trustFetchedCode"),
+        serde_json::json!(false)
+    );
+}
+
 #[test]
 fn unknown_settings_warn_without_exposing_values_or_overriding_valid_fields() {
     let out = resolve(Layers {

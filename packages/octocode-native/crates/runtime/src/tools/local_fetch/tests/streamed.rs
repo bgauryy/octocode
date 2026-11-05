@@ -82,9 +82,8 @@ fn streamed_oversized_line_pages_its_bytes_and_later_selected_lines() {
 
 /// A streamed multi-range page stops inside the first span that needs
 /// several window pages: it serves every span before it and that span's
-/// first page, then continues that span alone (`nextPage`) and reads
-/// the ranges after it once (`readOtherRanges`, L2-F15). Following them
-/// reaches every requested line exactly once.
+/// first page, and `nextPage` reads on through that span and the ranges after
+/// it. Following it alone reaches every requested line exactly once.
 #[test]
 fn a_streamed_multi_range_read_serves_what_fits_and_continues_the_rest() {
     let fixture = Fixture::new();
@@ -115,24 +114,12 @@ fn a_streamed_multi_range_read_serves_what_fits_and_continues_the_rest() {
     count(content);
     let next = first.next.expect("continuations");
     assert!(next.read_bounded_lines.is_none(), "{next:?}");
-    let others = next
-        .read_other_ranges
-        .expect("the ranges after the cut")
-        .query;
-    assert_eq!(
-        serde_json::to_value(&others).expect("query")["ranges"],
-        serde_json::json!([{"startLine":300000,"endLine":300010}])
-    );
     let mut page = next.continue_window;
     let mut pages = 1;
     while let Some(call) = page {
         let wire = serde_json::to_value(call).expect("executable continuation");
         let query: LocalFetchQuery =
             serde_json::from_value(wire["input"]["queries"][0].clone()).expect("copied query");
-        assert_eq!(
-            serde_json::to_value(&query).expect("query")["ranges"],
-            serde_json::json!([{"startLine":150000,"endLine":157500}])
-        );
         let result = checked_streamed_page(&query, &paths);
         assert_eq!(result.status, ReadStatus::Success, "{result:?}");
         count(result.content.as_deref().expect("page content"));
@@ -141,10 +128,6 @@ fn a_streamed_multi_range_read_serves_what_fits_and_continues_the_rest() {
         assert!(pages < 100, "paging must terminate");
     }
     assert!(pages > 1);
-    let rest = checked_streamed_page(&others, &paths);
-    assert_eq!(rest.status, ReadStatus::Success, "{rest:?}");
-    assert!(rest.next.is_none(), "{rest:?}");
-    count(rest.content.as_deref().expect("content"));
     let requested = (100..=150)
         .chain(150_000..=157_500)
         .chain(300_000..=300_010);

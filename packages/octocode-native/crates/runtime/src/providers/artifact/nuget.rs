@@ -11,7 +11,7 @@ use std::cmp::Ordering;
 mod entries;
 mod service;
 
-use entries::{catalog, compare_versions, item};
+use entries::{catalog, compare_versions, is_prerelease, item, safety_facts, search_item};
 use service::{official_url, service_endpoint};
 
 pub(crate) async fn nuget(
@@ -69,7 +69,7 @@ pub(crate) async fn nuget(
         .iter()
         .skip(drop)
         .take(size)
-        .map(|value| item(object_for(value, ArtifactType::Nuget)?))
+        .map(|value| search_item(object_for(value, ArtifactType::Nuget)?))
         .collect::<Result<Vec<_>, _>>()?;
     let count = total(data.get("totalHits"));
     let next_offset = offset + artifacts.len() as u64;
@@ -222,6 +222,9 @@ async fn exact(
     artifact.published_at =
         date_prefix(release.get("published")).filter(|day| !day.starts_with(UNLISTED_YEAR));
     artifact.dependencies = Some(declared_dependencies(&release));
+    safety_facts(&mut artifact, &release);
+    artifact.only_prerelease =
+        version.is_none() && artifact.version.as_deref().is_some_and(is_prerelease);
     // The registration catalogEntry usually omits `repository`; the package's
     // own nuspec declares it.
     if artifact.repository.is_none()
@@ -301,7 +304,7 @@ async fn latest(
                 continue;
             }
             let version = required(candidate.get("version"), ArtifactType::Nuget)?;
-            let slot = if version.contains('-') {
+            let slot = if is_prerelease(&version) {
                 &mut prerelease
             } else {
                 &mut stable
@@ -366,3 +369,6 @@ mod tests;
 
 #[cfg(test)]
 mod paging_tests;
+
+#[cfg(test)]
+mod latest_tests;

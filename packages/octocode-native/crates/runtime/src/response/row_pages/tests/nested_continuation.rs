@@ -95,7 +95,7 @@ fn parts_split_several_levels_deep_join_back_exactly_once() {
         let mut joined: Option<Value> = None;
         for page in 0..plan.total_pages {
             for row in plan
-                .build_page(page, &[None], &[], &Cancellation::new())
+                .build_page(page, &[None], &Cancellation::new())
                 .expect("valid page")
             {
                 let marker = &row["rowPart"]["continues"];

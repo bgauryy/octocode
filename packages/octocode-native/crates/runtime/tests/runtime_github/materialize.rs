@@ -234,3 +234,63 @@ async fn clone_mcp_opt_in_is_independent_of_storage_and_cli_host() {
         "storage prerequisite precedes GitHub work"
     );
 }
+
+/// Memory mode disables materialization (docs/STORAGE_AND_LIMITS.md), as it does
+/// clone: a materialize row is refused by name before any GitHub work, writes
+/// nothing, and a plain listing and any other row of the batch still answer.
+#[tokio::test]
+async fn memory_storage_refuses_materialize_before_any_github_work() {
+    let server = MockServer::builder().start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents"))
+        .and(query_param("ref", sha))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"name":"one.rs","path":"one.rs","type":"file","size":4,"sha":"1".repeat(40)}
+        ])))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+        ("OCTOCODE_STORAGE_MODE", "memory".into()),
+    ]);
+    let refused = call(
+        &runtime,
+        "ghStructure",
+        json!({"operation":"tree","owner":"a","repo":"b","ref":sha,"materialize":true}),
+    )
+    .await
+    .expect("row");
+    assert_eq!(
+        row_status(&refused),
+        "error",
+        "{}",
+        refused.structured_content
+    );
+    let row = row_data(&refused);
+    assert_eq!(row["errorCode"], "persistentStorageDisabled", "{row}");
+    assert!(row.to_string().contains("materialize"), "{row}");
+    assert!(
+        server.received_requests().await.unwrap().is_empty(),
+        "the storage prerequisite precedes GitHub work"
+    );
+    assert!(
+        !workspace.home.join("tmp/materialize").exists(),
+        "memory mode wrote a checkout"
+    );
+    let listed = call(
+        &runtime,
+        "ghStructure",
+        json!({"operation":"tree","owner":"a","repo":"b","ref":sha}),
+    )
+    .await
+    .expect("row");
+    assert_eq!(
+        row_status(&listed),
+        "success",
+        "{}",
+        listed.structured_content
+    );
+    runtime.close().await;
+}

@@ -20,24 +20,6 @@ impl SelectionJudge for BudgetJudge {
 
     fn select(&self, call: JudgeCall<'_>) -> crate::tools::selection::Judgments {
         self.0.fetch_add(1, Ordering::SeqCst);
-        let sent_chars = call
-            .admitted
-            .iter()
-            .map(|&ordinal| {
-                call.candidates[ordinal]
-                    .state
-                    .as_ref()
-                    .unwrap()
-                    .to_string()
-                    .chars()
-                    .count()
-            })
-            .sum::<usize>();
-        assert!(
-            sent_chars <= call.limits.max_chars,
-            "sent {sent_chars} serialized state characters with budget {}",
-            call.limits.max_chars
-        );
         Ok(call
             .admitted
             .iter()
@@ -109,8 +91,8 @@ fn budgeted_read(
     let executor = tokio::runtime::Runtime::new().unwrap();
     let mut runtime = budget_runtime(executor.handle().clone(), Arc::new(AtomicUsize::new(0)));
     runtime.judge = Arc::new(WordJudge { fail: None });
-    runtime.limits.max_chars = 1_000_000;
-    runtime.limits.max_candidates = max;
+    // `word_lines` chunks serialize to about 1,560 characters each.
+    runtime.limits.max_chars = max * 1_600;
     let query: LocalFetchQuery = serde_json::from_value(query.clone()).unwrap();
     crate::tools::source_view::process_fetched_content_selected(
         &query,

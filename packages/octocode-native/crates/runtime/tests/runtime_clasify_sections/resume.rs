@@ -105,50 +105,47 @@ async fn sibling_section_rows_keep_continuations_until_every_section_is_answered
         .await
         .expect("first batch")
         .structured_content;
-    for initial in first["results"].as_array().expect("rows") {
-        let mut row = initial["data"].clone();
-        let mut seen = std::collections::HashSet::new();
-        let mut pages = 0;
-        loop {
-            pages += 1;
-            // Two rows share each call's admission budget: progress, never a stall.
-            assert!(
-                pages <= 70,
-                "continuation made no bounded progress: {row:#}"
-            );
-            for section in row["resources"]["file"]["sections"]
+    // Each row's sections, in the rows' one walk: progress for both, never a stall.
+    let mut seen = [
+        std::collections::HashSet::new(),
+        std::collections::HashSet::new(),
+    ];
+    let (mut page, mut pages) = (first, 0);
+    loop {
+        pages += 1;
+        assert!(pages <= 70, "continuation made no bounded progress: {page}");
+        for result in page["results"].as_array().expect("rows") {
+            let index = result["index"].as_u64().expect("index") as usize;
+            for section in result["data"]["resources"]["file"]["sections"]
                 .as_array()
-                .expect("sections")
+                .into_iter()
+                .flatten()
             {
-                assert_eq!(section["answers"]["q"]["status"], "answered", "{row:#}");
+                assert_eq!(section["answers"]["q"]["status"], "answered", "{result:#}");
                 assert!(
-                    seen.insert(section["id"].as_str().expect("section id").to_owned()),
+                    seen[index].insert(section["id"].as_str().expect("section id").to_owned()),
                     "section emitted twice"
                 );
             }
-            let next = &row["next"]["nextPage"];
-            if next.is_null() {
-                break;
-            }
-            row = runtime
-                .run(
-                    format!("resume-{}-{pages}", initial["index"]),
-                    "clasify".into(),
-                    next["input"].clone(),
-                )
-                .await
-                .expect("resume")
-                .structured_content["results"][0]["data"]
-                .clone();
         }
-        assert_eq!(seen.len(), 70, "{row:#}");
-        assert!(pages > 1, "70 page-sized sections need a continuation");
-        assert!(
-            row["resources"]["file"]["coverage"]
-                .get("unassessed")
-                .is_none()
-        );
+        let Some(next) = crate::support::next_input(&page) else {
+            for result in page["results"].as_array().expect("rows") {
+                assert!(
+                    result["data"]["resources"]["file"]["coverage"]
+                        .get("unassessed")
+                        .is_none()
+                );
+            }
+            break;
+        };
+        page = runtime
+            .run(format!("resume-{pages}"), "clasify".into(), next)
+            .await
+            .expect("resume")
+            .structured_content;
     }
+    assert!(pages > 1, "70 page-sized sections need a continuation");
+    assert_eq!((seen[0].len(), seen[1].len()), (70, 70));
     runtime.close().await;
 }
 

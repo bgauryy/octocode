@@ -99,13 +99,7 @@ fn an_indivisible_fragment_flags_its_page_oversized() {
 #[test]
 fn a_page_request_builds_only_that_pages_fragments() {
     let structured = envelope();
-    let (_, first) = paginate_rows(
-        structured.clone(),
-        &options(700, 0, None),
-        Vec::new(),
-        &[],
-        TOOL,
-    );
+    let (_, first) = paginate_rows(structured.clone(), &options(700, 0, None), Vec::new(), TOOL);
     assert!(first.total_pages > 20, "{}", first.total_pages);
     let last = first.total_pages - 1;
     MATERIALIZED.with(|count| count.set(0));
@@ -113,7 +107,6 @@ fn a_page_request_builds_only_that_pages_fragments() {
         structured,
         &options(700, last, Some(first.snapshot.clone())),
         Vec::new(),
-        &[],
         TOOL,
     );
     let returned = page["results"].as_array().map_or(0, Vec::len);
@@ -133,41 +126,28 @@ fn a_last_part_carries_its_pages_without_a_countless_line() {
         "next":{"nextPage":{"tool":"astSearch","query":{"queries":[{"page":2}]}}},
         "hints":{"read":{"tool":"localFetch","query":{"path":"a"}}}
     }});
-    keep_row_next(&mut row, PartShare::Last, &[]);
+    keep_row_next(&mut row, PartShare::Last);
     assert!(row["data"].get("warnings").is_none(), "{row}");
     assert!(row["data"]["next"].get("nextPage").is_some(), "{row}");
     assert!(row["data"].get("hints").is_none(), "{row}");
 }
 
-/// A split row's first part keeps its warnings while its pages ride the
-/// last part: its disclosure, re-rendered from the row's notes, names
-/// the response page, never a `next` entry the part does not carry.
+/// A split row's first part keeps its warnings; its pages ride the last part.
 #[test]
-fn a_first_part_warning_names_only_continuations_it_carries() {
-    let notes = [Remaining {
-        page: "nextPage".into(),
-        left: "4 more pages".into(),
-    }];
+fn a_first_part_keeps_its_warnings_and_no_page() {
     let mut row = json!({"index":0,"data":{
         "warnings":["Regex trap."],
         "files":[],
         "next":{"nextPage":{"tool":"astSearch","query":{"page":2}}},
         "hints":{"read":{"tool":"localFetch","query":{"path":"a"}}}
     }});
-    keep_row_next(&mut row, PartShare::First, &notes);
+    keep_row_next(&mut row, PartShare::First);
     assert!(row["data"].get("next").is_none(), "{row}");
-    assert_eq!(
-        row["data"]["warnings"],
-        json!([
-            "Regex trap.",
-            "4 more pages (next.nextPage on the row's last part)"
-        ]),
-        "{row}"
-    );
+    assert_eq!(row["data"]["warnings"], json!(["Regex trap."]), "{row}");
     let mut whole = json!({"index":0,"data":{
         "next":{"nextPage":{"tool":"astSearch","query":{"page":2}}}
     }});
     let before = whole.clone();
-    keep_row_next(&mut whole, PartShare::Whole, &notes);
+    keep_row_next(&mut whole, PartShare::Whole);
     assert_eq!(whole, before);
 }

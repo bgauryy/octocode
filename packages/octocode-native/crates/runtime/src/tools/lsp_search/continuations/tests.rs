@@ -7,6 +7,10 @@ fn query() -> LspSearchQuery {
     )
     .expect("query")
 }
+fn soon() -> std::time::Instant {
+    std::time::Instant::now() + std::time::Duration::from_secs(30)
+}
+
 fn selected(value: &str) -> ResponseScope {
     ResponseScope {
         generation: "source-revision".into(),
@@ -26,10 +30,10 @@ fn row() -> Value {
         &[("snapshot", json!("lsp-v1:selected"))],
     )
     .expect("call");
-    json!({"status":"success","operation":"references","pagination":{"hasMore":true,"next":{"nextPage":call}}})
+    json!({"status":"success","operation":"references","pagination":{"hasMore":true},"next":{"nextPage":call}})
 }
 fn next(row: &Value) -> LspSearchQuery {
-    serde_json::from_value(row["pagination"]["next"]["nextPage"]["input"]["queries"][0].clone())
+    serde_json::from_value(row["next"]["nextPage"]["input"]["queries"][0].clone())
         .expect("issued query")
 }
 fn raw(scope: &ResponseScope) -> Value {
@@ -54,12 +58,12 @@ fn issued_pages_keep_the_original_answer_when_a_fresh_provider_answer_changes() 
     );
     let mut first = row();
     store
-        .retain(&mut first, &selected("FIRST_PROVIDER_EVIDENCE"))
+        .retain(&mut first, &selected("FIRST_PROVIDER_EVIDENCE"), soon())
         .expect("retain");
     let first_query = next(&first);
     let mut fresh = row();
     store
-        .retain(&mut fresh, &selected("CHANGED_PROVIDER_EVIDENCE"))
+        .retain(&mut fresh, &selected("CHANGED_PROVIDER_EVIDENCE"), soon())
         .expect("retain changed answer");
     assert_ne!(
         lsp_search_query::snapshot(&first_query),
@@ -113,19 +117,20 @@ fn retention_failure_refuses_progress_and_incidental_objects_are_not_continuatio
         "policy".into(),
     );
     assert!(
-        matches!(refused.retain(&mut row(), &selected("evidence")), Err(failure) if failure.code == ErrorCode::RequestFailed)
+        matches!(refused.retain(&mut row(), &selected("evidence"), soon()), Err(failure) if failure.code == ErrorCode::RequestFailed)
     );
-    let mut incidental = json!({"status":"success","unrelatedProviderData":row()["pagination"]["next"]["nextPage"].clone()});
+    let mut incidental =
+        json!({"status":"success","unrelatedProviderData":row()["next"]["nextPage"].clone()});
     let unchanged = incidental.clone();
     refused
-        .retain(&mut incidental, &selected("evidence"))
+        .retain(&mut incidental, &selected("evidence"), soon())
         .expect("no declared continuation");
     assert_eq!(incidental, unchanged);
     let mut related = row();
-    related["pagination"]["next"]["nextPage"]["kind"] = json!("related");
+    related["next"]["nextPage"]["kind"] = json!("related");
     let unchanged = related.clone();
     refused
-        .retain(&mut related, &selected("evidence"))
+        .retain(&mut related, &selected("evidence"), soon())
         .expect("related calls do not own selected pages");
     assert_eq!(related, unchanged);
 }
@@ -169,7 +174,7 @@ fn retained_answers_hold_no_credential_and_replay_what_the_output_gate_shows() {
     let hover = json!({"contents":{"kind":"markdown","value":format!("const token = \"{TOKEN}\"")},"range":{"start":{"line":0,"character":6},"end":{"line":0,"character":11}}});
     let mut first = row();
     store
-        .retain(&mut first, &answered(hover.clone()))
+        .retain(&mut first, &answered(hover.clone()), soon())
         .expect("text evidence is retained sealed");
     assert!(
         !stored_bytes(dir.path()).contains(TOKEN),
@@ -207,7 +212,7 @@ fn a_credential_in_protocol_data_refuses_the_continuation_without_storing_it() {
             Some(dir.path().into()),
             "policy".into(),
         );
-        let refused = store.retain(&mut row(), &answered(answer.clone()));
+        let refused = store.retain(&mut row(), &answered(answer.clone()), soon());
         assert!(
             matches!(&refused, Err(failure) if failure.code == ErrorCode::ContentSecurityLimit),
             "{answer}"

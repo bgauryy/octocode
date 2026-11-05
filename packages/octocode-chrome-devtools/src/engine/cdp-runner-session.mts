@@ -234,7 +234,7 @@ function writeArtifact(file: string, data: unknown, format: string) {
     throw new Error(
       'Artifact exists; use a new name to preserve continuations'
     );
-  const body = format === 'json' ? JSON.stringify(data, null, 2) + '\n' : data;
+  const body = format === 'json' ? `${JSON.stringify(data, null, 2)}\n` : data;
   // writeFileSync rejects any other value with the same TypeError before creating the file.
   if (typeof body !== 'string' && !isByteView(body))
     throw new TypeError(

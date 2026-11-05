@@ -88,6 +88,7 @@ fn a_file_wholly_test_by_its_spans_is_left_out_as_a_file() {
     let scope = TestCodeScope {
         keep_test: false,
         test_path: Arc::new(|_| false),
+        unread_test_path: Arc::new(|_| false),
         may_hold: Arc::new(|path| path.extension().is_some_and(|ext| ext == "rs")),
         spans: Arc::new(move |path| {
             Arc::new(if gated(path) {
@@ -127,9 +128,12 @@ fn scoped_scope(root: &str, keep_test: bool) -> Option<TestCodeScope> {
             .into_owned()
     };
     let relative_too = relative.clone();
+    let by_path: Arc<crate::types::PathTest> =
+        Arc::new(move |path| crate::text::test_paths::is_test_path(&relative(path)));
     Some(TestCodeScope {
         keep_test,
-        test_path: Arc::new(move |path| crate::text::test_paths::is_test_path(&relative(path))),
+        test_path: Arc::clone(&by_path),
+        unread_test_path: by_path,
         may_hold: Arc::new(|path| path.extension().is_some_and(|ext| ext == "rs")),
         spans: Arc::new(move |path| {
             Arc::new(if relative_too(path) == "lib.rs" {

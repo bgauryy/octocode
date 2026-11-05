@@ -94,7 +94,7 @@ fn record_reference_into_evidence_dictionary_is_rejected() {
 /// Every blocked section (`STRE`, `NODE`, `DECL`, `SRCO`) spans more than one
 /// block here.
 #[test]
-fn blocked_sections_round_trip_across_block_boundaries() {
+fn snapshot_bytes_are_pinned_across_block_boundaries() {
     let mut t = evidence_fixture();
     t.sources = super::evidence_tests::origins_fixture(&[[(0, 8), (0, 12), (2, 5)]; 200].concat());
     let (symbol, declaration, site) = (t.nodes[1], t.declarations[0], t.unresolved[0]);
@@ -114,4 +114,9 @@ fn blocked_sections_round_trip_across_block_boundaries() {
     t.index();
     let (bytes, _) = encode(&t);
     decode(&bytes).expect("the blocks decode");
+    // Readers of this format version hold exactly these bytes.
+    assert_eq!(
+        octocode_engine::digest::sha256(&bytes),
+        "69caf81b6be2850a6e639c98364da5602bb8ca32cbb05567e9d3953014d1cdef"
+    );
 }

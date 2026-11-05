@@ -10,7 +10,7 @@ fn fragments(data: Value, tool: ToolId, budget: usize) -> Vec<Value> {
     assert!(plan.total_pages > 1, "fixture must exercise fragmentation");
     (0..plan.total_pages)
         .flat_map(|page| {
-            plan.build_page(page, &[None], &[], &Cancellation::new())
+            plan.build_page(page, &[None], &Cancellation::new())
                 .expect("valid build_page")
         })
         .collect()
@@ -244,7 +244,6 @@ fn undeclared_collections_remain_whole_and_oversized_is_terminal() {
             .clone(),
         &options,
         Vec::new(),
-        &[],
         ToolId::GraphQuery,
     );
     assert_eq!(pagination.total_pages, 1);

@@ -182,7 +182,7 @@ export function unix(path: string, closedMessage: string): Promise<Channel> {
 }
 
 export function object(value: unknown, what: string): JsonObject {
-  if (!isObject(value)) throw new TypeError(what + ' is not a JSON object');
+  if (!isObject(value)) throw new TypeError(`${what} is not a JSON object`);
   return value;
 }
 

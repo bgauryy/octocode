@@ -15,10 +15,7 @@ use reqwest::header::{ACCEPT, CONTENT_TYPE, LOCATION};
 use std::net::{IpAddr, SocketAddr};
 use url::{Host, Url};
 
-/// The largest response body a capture reads.
-pub(super) const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
-
-pub(super) const ACCEPTED: &str = "text/html, text/plain;q=0.9, text/markdown;q=0.9";
+pub(super) const ACCEPTED: &str = "text/html, text/*;q=0.9, application/json;q=0.9, application/javascript;q=0.9, application/xml;q=0.9, */*;q=0.1";
 
 /// One request, without following its redirect.
 pub(super) trait Fetch {

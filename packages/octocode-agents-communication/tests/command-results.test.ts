@@ -65,7 +65,7 @@ function storeDriver(t: TestContext): Driver {
     try {
       return await f.call(session ?? '', name, input);
     } catch (error) {
-      if (error instanceof Error && /^Unknown operation: /.test(error.message)) return fallback(name, input, session, flags);
+      if (error instanceof Error && error.message.startsWith('Unknown operation: ')) return fallback(name, input, session, flags);
       throw error;
     }
   };
@@ -238,14 +238,14 @@ test('host-hook results satisfy their schema for every hook vendor', t => {
 
 test('mcp frames satisfy their schema', t => {
   const f = fixture(t, { git: true });
-  const frames = [
+  const frames = `${[
     { id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'results', version: '1' } } },
     { method: 'notifications/initialized' },
     { id: 2, method: 'tools/list' },
     { id: 3, method: 'tools/call', params: { name: 'agents', arguments: { type: 'list', input: {} } } },
     { id: 4, method: 'tools/call', params: { name: 'nope', arguments: {} } },
     { id: 5, method: 'unknown/method' },
-  ].map(frame => JSON.stringify({ jsonrpc: '2.0', ...frame })).join('\n') + '\n';
+  ].map(frame => JSON.stringify({ jsonrpc: '2.0', ...frame })).join('\n')}\n`;
   const out = execFileSync(binary, ['mcp', '--managed', '--name', 'results-mcp', '--vendor', 'generic', '--workspace', f.workspace, '--database', f.file], { input: frames, encoding: 'utf8', timeout: 15000, stdio: ['pipe', 'pipe', 'pipe'] });
   const printed = lines(out);
   assert.equal(printed.length, 5);

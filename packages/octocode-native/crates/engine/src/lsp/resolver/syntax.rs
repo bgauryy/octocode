@@ -6,6 +6,7 @@ use super::{DEFAULT_RADIUS, check_budget, hinted_line, line_delta, order_hint_er
 use crate::error::Result;
 use crate::lsp::types::{LspFuzzyPosition, LspResolvedSymbol};
 use crate::signatures::node_kinds::is_comment_kind;
+use crate::signatures::spelled::Spelled;
 use crate::text::LineIndex;
 use crate::text::utf8_offsets::{byte_to_utf16_offset, hide_bom_in_line};
 use std::time::Instant;
@@ -39,6 +40,8 @@ pub(super) fn collect_symbol_candidates(
     candidates: &mut Vec<SymbolCandidate>,
     deadline: Instant,
 ) -> Result<()> {
+    // A candidate's text holds the name, so a node without it holds none.
+    let spelled = Spelled::of(content, symbol_name);
     let mut cursor = node.walk();
     let mut path = vec![PathStep {
         kind: node.kind(),
@@ -47,7 +50,10 @@ pub(super) fn collect_symbol_candidates(
     loop {
         check_budget(deadline)?;
         let current = cursor.node();
-        if current.is_named() && !is_ignored_node(current.kind()) {
+        if current.is_named()
+            && !is_ignored_node(current.kind())
+            && spelled.within(current.start_byte(), current.end_byte())
+        {
             if let Some(mut candidate) = candidate_from_node(current, content, index, symbol_name) {
                 candidate.is_declaration = candidate.is_exact && is_declaration_name(&path);
                 candidates.push(candidate);
@@ -84,7 +90,9 @@ fn candidate_from_node(
     index: &LineIndex,
     symbol_name: &str,
 ) -> Option<SymbolCandidate> {
-    let text = node.utf8_text(content.as_bytes()).ok()?;
+    // `content` is text: a span of it is text exactly when it is on char
+    // boundaries, so nothing validates the root's whole file again.
+    let text = content.get(node.start_byte()..node.end_byte())?;
     let is_exact = exact_symbol_text(text, symbol_name);
     if !is_exact && node.named_child_count() > 0 && !is_symbolish_node(node.kind()) {
         return None;

@@ -117,74 +117,76 @@ pub(super) fn outline_walked(
     cancel: &dyn CancellationCheck,
 ) -> Result<Outline, ToolError> {
     let filter = ast_search_query_symbols::name_filter(q);
-    let passed_over = std::sync::atomic::AtomicUsize::new(0);
     let keep = |source: &str| {
-        let spelled = filter
+        filter
             .as_ref()
-            .is_none_or(|filter| filter.spelled_in(source));
-        if !spelled {
-            passed_over.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        }
-        spelled
+            .is_none_or(|filter| filter.spelled_in(source))
     };
     let rooted = |relative: &str| {
         crate::tools::ast_search::rooted_display(canonical, std::path::Path::new(relative))
     };
     let failure = std::sync::Mutex::new(None);
-    let scan = octocode_engine::fact_scan::scan_walked_graph_facts(
+    let map = |view: &octocode_engine::fact_scan::GraphFactsView<'_>| {
+        let project = || -> Result<Option<OutlineFile>, ToolError> {
+            let cancelled = || cancel.check().is_err();
+            let mut maps = super::super::source::mapping_budget(cancel, &cancelled);
+            let mut evidence =
+                super::super::evidence::FileEvidence::new(view.source, &mut maps, cancel);
+            let file = canonical.join(view.relative_path);
+            let (rows, off_kind, notes) = reduce_document(
+                q,
+                (
+                    filter.as_ref(),
+                    scoped.map(|scoped| (scoped, file.as_path())),
+                ),
+                view.facts,
+                || Some(view.content.to_owned()),
+                &mut evidence,
+            )?;
+            let source_descriptors = evidence.finish()?;
+            Ok(
+                (!rows.is_empty() || !off_kind.is_empty() || !notes.is_empty()).then(|| {
+                    OutlineFile {
+                        path: rooted(view.relative_path),
+                        rows,
+                        off_kind,
+                        notes,
+                        source_descriptors,
+                    }
+                }),
+            )
+        };
+        match project() {
+            Ok(file) => file,
+            Err(error) => {
+                failure
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .get_or_insert(error);
+                None
+            }
+        }
+    };
+    let scan = octocode_engine::fact_scan::scan_walked_graph_facts_within(
         directory_scan_options(q, canonical),
         walk.files,
         octocode_engine::fact_scan::FactsSource::Declarations(&|source, path, parser| {
             declarations(source, &path.to_string_lossy(), parser)
         }),
         &keep,
-        &|view| {
-            let project = || -> Result<Option<OutlineFile>, ToolError> {
-                let cancelled = || cancel.check().is_err();
-                let mut maps = super::super::source::mapping_budget(cancel, &cancelled);
-                let mut evidence =
-                    super::super::evidence::FileEvidence::new(view.source, &mut maps, cancel);
-                let file = canonical.join(view.relative_path);
-                let (rows, off_kind, notes) = reduce_document(
-                    q,
-                    (
-                        filter.as_ref(),
-                        scoped.map(|scoped| (scoped, file.as_path())),
-                    ),
-                    view.facts,
-                    || Some(view.content.to_owned()),
-                    &mut evidence,
-                )?;
-                let source_descriptors = evidence.finish()?;
-                Ok(
-                    (!rows.is_empty() || !off_kind.is_empty() || !notes.is_empty()).then(|| {
-                        OutlineFile {
-                            path: rooted(view.relative_path),
-                            rows,
-                            off_kind,
-                            notes,
-                            source_descriptors,
-                        }
-                    }),
-                )
-            };
-            match project() {
-                Ok(file) => file,
-                Err(error) => {
-                    failure
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .get_or_insert(error);
-                    None
-                }
-            }
-        },
+        &map,
         &|| {
             cancel.check().is_err()
                 || failure
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .is_some()
+        },
+        // The time budget alone does not bound what is kept: a file can hold
+        // millions of rows.
+        &octocode_engine::fact_scan::ScanHold {
+            limit: crate::tools::ast_search::scan_window::memory_limit(),
+            weigh: &OutlineFile::heap_bytes,
         },
     );
     if let Some(error) = failure
@@ -205,7 +207,7 @@ pub(super) fn outline_walked(
         .map(|(_, file)| file)
         .collect::<Vec<_>>();
     Ok(Outline {
-        scanned: scan.parsed + passed_over.into_inner(),
+        scanned: scan.parsed + scan.passed_over,
         files,
         truncated: scan.truncated,
         scan_resume: scan.scan_resume,
@@ -216,6 +218,9 @@ pub(super) fn outline_walked(
         walk_errors: walk.walk_errors,
         test_code_excluded: scoped
             .map(crate::tools::test_code::Scoped::excluded)
+            .unwrap_or_default(),
+        test_code_unread: scoped
+            .map(crate::tools::test_code::Scoped::unread)
             .unwrap_or_default(),
     })
 }

@@ -236,7 +236,9 @@ pub(super) fn failure(
     if lsp_search_query::path(query).is_some() {
         attach_recovery_next(&mut value, query);
         match code {
-            ErrorCode::ServerUnavailable => attach_text_search(&mut value, query),
+            ErrorCode::ServerUnavailable | ErrorCode::Policy => {
+                attach_text_search(&mut value, query);
+            }
             // Whatever the server held is lost: the lexical check is all
             // that is left, and no verification stands behind it.
             ErrorCode::ServerCrashed => attach_text_search(&mut value, query),

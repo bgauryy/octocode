@@ -15,20 +15,20 @@ mod schema;
 mod serve;
 mod skill;
 mod system;
+mod tool_call;
 use catalog::machine_catalog;
 use clap::Parser;
-use commands::{AuthCommand, Command, ConfigCommand, ToolArgs};
+use commands::{AuthCommand, Command, ConfigCommand};
 use management::config_management;
 use octocode_contract_types::ErrorCode;
 use octocode_native::config::RuntimeSurface;
-use octocode_native::id::ToolId;
-use octocode_native::runtime::{Channel, HostOptions, RuntimeError, ToolRuntime};
-use output::{Printed, exit_code};
+use octocode_native::runtime::{HostOptions, RuntimeError, ToolRuntime};
+use output::exit_code;
 pub(super) use output::{write_json, write_text};
 use parse::emit_error;
 pub use parse::parse_args;
-use serde_json::Value;
 use std::io::{self};
+use tool_call::run_tool;
 
 #[derive(Parser)]
 #[command(
@@ -50,14 +50,16 @@ const ROOT_HELP: &str = r#"Native Octocode research tools.
 
 Route by where the evidence is: this checkout (local tools, lspSearch), a package
 (artifactSearch), another repo (gh tools); read the deciding span before a claim.
-Decision graphs: the octocode-research skill's references/tool-flow.md.
+Which tool, how little to ask for: schema --view flow.
 
 Tools: one JSON envelope ({"queries":[…]} or {"cursor":"…"} alone); a query takes
 mainGoal (the task) and reasoning (why this query). --input FILE|- reads the same
 JSON from a file or stdin. Examples: <tool> --help.
 Discovery, smallest first: schema <tool> --view variants (operations, required
 fields, an example); schema <tool> (every field); schema --view full (all tools).
-Graph: graphBuild '{"queries":[{"path":"."}]}', then graphQuery with operation stats.
+All tools run here, including the MCP opt-ins graphBuild, graphQuery, ghCloneRepo:
+  graphBuild '{"queries":[{"path":"."}]}', then graphQuery with operation stats;
+  ghCloneRepo '{"queries":[{"owner":"o","repo":"r"}]}', then local tools at localPath.
 
 Output: text, on a terminal or a pipe; --json prints JSON (schema always does).
 Text on stdout: search hits, listings and outlines one line each ([ … ] after a
@@ -67,7 +69,7 @@ Errors: the JSON envelope on stdout with --json, text on stderr otherwise.
 Exits: 0 success, 1 empty, 2 invalid input (including batch rows), 3 not found,
 4 auth required, 5 execution error, 7 rate limited, 130 interrupted.
 A batch exits with its worst row; stdout still carries every row's result.
-More pages still exit 0: follow next.*; check pagination.hasMore."#;
+More pages still exit 0: run responsePagination.next, else next.nextPage, until neither remains."#;
 
 /// How a command answers: JSON or text, and whether a pipe chose JSON.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -187,6 +189,16 @@ impl Command {
 async fn dispatch(command: Command, runtime: &ToolRuntime, mode: OutputMode) -> u8 {
     let json_out = mode.json;
     match command {
+        Command::Schema {
+            tool: None, view, ..
+        } if view.as_deref() == Some("flow") => {
+            // A closed pipe (`| head`) is not a failure of the guide.
+            let _ = std::io::Write::write_all(
+                &mut std::io::stdout(),
+                mcp_server::resources::TOOL_FLOW.as_bytes(),
+            );
+            0
+        }
         Command::Schema { tool, view, select } => {
             let value = machine_catalog(runtime)
                 .map_err(|message| schema::SchemaError { message, exit: 5 })
@@ -277,118 +289,6 @@ async fn dispatch(command: Command, runtime: &ToolRuntime, mode: OutputMode) -> 
         // Handled in `run` before the runtime starts.
         Command::Tool(_) | Command::Serve { .. } | Command::Mcp => 2,
     }
-}
-
-/// Parse the query, then run it on the workspace's warm server (read-only
-/// tools) or in this process.
-async fn run_tool(tool: commands::ToolCommand, mode: OutputMode) -> u8 {
-    let input = match tool_input(tool.name, &tool.args) {
-        Ok(input) => input,
-        Err(message) => {
-            emit_error(ErrorCode::InvalidInput, &message, mode);
-            return 2;
-        }
-    };
-    let mut loaded = None;
-    if ToolId::from_name(tool.name).is_some_and(serve::runs_on_server)
-        && let Some(code) = serve::call(tool.name, &input, mode, &mut loaded).await
-    {
-        return code;
-    }
-    // Progress (a build's stages, a rate-limit wait) goes to stderr; stdout
-    // keeps only the result.
-    octocode_io::notice::report_progress_to(|line| eprintln!("{line}"));
-    let host = HostOptions {
-        loaded,
-        ..cli_host()
-    };
-    let runtime = match ToolRuntime::from_host(host) {
-        Ok(runtime) => runtime,
-        Err(error) => return start_failed(&error, mode),
-    };
-    let code = execute(&runtime, tool.name, input, mode).await;
-    runtime.close().await;
-    code
-}
-
-/// The JSON input of a tool command, supplied inline or through --input.
-fn tool_input(tool: &str, args: &ToolArgs) -> Result<Value, String> {
-    if args.input.is_some() && !args.args.is_empty() {
-        return Err(format!(
-            "--input reads the query; drop the other arguments. Usage: octocode {tool} --help"
-        ));
-    }
-    parse_json_query(tool, args.query_text()?)
-}
-
-/// The JSON form's query text, parsed.
-fn parse_json_query(tool: &str, json: Option<String>) -> Result<Value, String> {
-    let query_text = json.ok_or_else(|| {
-        format!("Missing query. Usage: octocode {tool} '<json>' or --input FILE|-")
-    })?;
-    serde_json::from_str::<Value>(&query_text)
-        .map_err(|parse_error| format!("Invalid JSON query: {parse_error}"))
-}
-
-/// What an interrupted call says while its cancelled work drains.
-const CANCELLING: &str = "Cancelling; press Ctrl-C again to exit now.";
-
-#[derive(Debug, PartialEq, Eq)]
-enum Interrupted {
-    /// The cancelled work finished.
-    Drained,
-    /// A second interrupt arrived first.
-    Forced,
-}
-
-/// Wait for cancelled `execution` to finish, unless `second` (the next
-/// interrupt) arrives first.
-async fn drain_after_interrupt<T>(
-    execution: impl std::future::Future<Output = T>,
-    second: impl std::future::Future,
-) -> Interrupted {
-    tokio::select! {
-        _ = execution => Interrupted::Drained,
-        _ = second => Interrupted::Forced,
-    }
-}
-
-/// Execute one tool call and print its result. Exits with the code of the
-/// runtime's [`ExitClass`].
-async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, mode: OutputMode) -> u8 {
-    const REQUEST: &str = "cli-1";
-    let admission = match runtime.admit(REQUEST.into()) {
-        Ok(admission) => admission,
-        Err(error) => {
-            return Printed::finish(tool, Err(error), mode.json, &input, None).print(mode);
-        }
-    };
-    let query = input.clone();
-    let execution = runtime.execute(admission, tool.into(), input, Channel::Cli);
-    tokio::pin!(execution);
-    let result = tokio::select! {
-        result = &mut execution => result,
-        signal = tokio::signal::ctrl_c() => {
-            if signal.is_err() {
-                execution.await
-            } else {
-                runtime.requests.cancel(REQUEST);
-                eprintln!("{CANCELLING}");
-                if drain_after_interrupt(&mut execution, tokio::signal::ctrl_c()).await
-                    == Interrupted::Forced
-                {
-                    // Work that ignores cancellation must not hold the
-                    // terminal hostage: the user asked twice. Returning would
-                    // drop the runtime in `main`, which joins its blocking
-                    // threads, so the process exits here instead.
-                    std::process::exit(130);
-                }
-                return 130;
-            }
-        }
-    };
-    let cwd = std::env::current_dir().ok();
-    Printed::finish(tool, result, mode.json, &query, cwd.as_deref()).print(mode)
 }
 
 #[cfg(test)]

@@ -141,8 +141,10 @@ pub fn known_env_report(config: &ConfigOutput, known: &'static KnownEnv) -> Sett
                 Value::from(octocode_engine::security::redaction_placeholder(known.name))
             } else if known.kind == "url" {
                 shown_url(Value::from(value))
-            } else {
+            } else if known.kind == "path" {
                 Value::from(value)
+            } else {
+                Value::from(crate::security::scrub_error_text(value))
             }
         }),
         set: raw.is_some(),

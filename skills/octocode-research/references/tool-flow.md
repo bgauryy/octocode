@@ -27,6 +27,7 @@ flowchart TD
     PQ{Name known?}
     PQ -- no --> PS[artifactSearch search]
     PQ -- yes --> PR[artifactSearch resolve]
+    PQ -- yes, a CVE question --> PA[securityCheck, if listed]
     PS --> PR
   end
 
@@ -38,7 +39,7 @@ flowchart TD
     GQ -- text on the default branch --> GC[ghSearchCode]
     GQ -- why, when, who --> GH[ghSearchHistory]
     GQ -- known PR, commit, or two refs --> GI[ghGetHistoryItem]
-    GQ -- code shape, identity, many searches --> GM[ghStructure materialize]
+    GQ -- code shape, many searches --> GM[ghStructure materialize]
     GH --> GI
   end
 
@@ -133,11 +134,12 @@ flowchart TD
   LB -- no --> R[next.read or target lines, then cite]
 ```
 
+- The loop is find, judge, read, cite: find candidates with exact search, paths and globs; judge them with `classification` or `clasify`; read the judged lines; cite path and lines. An unknown or partial answer goes back to find; lines that do not confirm the answer go back to judge.
 - When `clasify` or `classification` is listed, screen before reading whole: it replaces reading, not searching. Main-agent tokens saved, in single benchmark runs: a named fact in a 33 KB doc 98%, `classification` over too many hits 41–85%, `sections` over 30–100 files 73–84%. `view:"files"` beats them all when file names answer.
 - Narrow by path, glob or term first; the model is for meaning, not spelling. A directory is not one source: discover concrete paths first.
-- Ask one observable fact per question, standing alone: the provider has no conversation history or sibling answers. Say what does not count ("assigns a timeout, not one it forwards"). Vague questions are the main cause of confident wrong answers.
-- `classification` judges captured hits plus `contextLines`, not hidden whole files, so give a condition spanning lines enough context. Each page judges up to 64 units, one model call each; `responseChars` shapes output, not provider context. The receipt counts selected, related, excluded and unknown: unknown is never a no, and a partial list is not corpus absence.
-- `clasify` question types are `noul`, `choice`, `score` and `box`, keyed under `questions`, with exactly one of `content` (literal data; paths inside it are not fetched) or `source` (a reader query or HTTPS URL). `sections` hits are candidates: read their lines. Assets take PNG or JPEG; check flaws one image per query.
+- Ask one observable fact per question, standing alone: the provider has no conversation history or sibling answers. Say what does not count ("assigns a timeout, not one it forwards"). Vague questions are the main cause of confident wrong answers. Give `choice` an `unknown` option and a near miss; treat answers between 0.3 and 0.7 as unsure.
+- `classification` judges captured hits plus `contextLines`, not hidden whole files, so give a condition spanning lines enough context. A file's hits share one model call, each with its own verdict; `responseChars` shapes output, not provider context. The receipt counts selected, related, excluded and unknown: unknown is never a no, and a partial list is not corpus absence.
+- `clasify` question types are `noul`, `choice`, `score` and `box`, keyed under `questions`, with exactly one of `content` (literal data; paths inside it are not fetched) or `source` (a reader query or HTTPS URL). Follow `sections` `next.nextPage` unchanged until no resource reports `remainingSections`; `unassessed` and `error` cells were not judged. `sections` hits are candidates: read their lines, then ask one atomic `evaluate` follow-up about just those lines if a fact stays open. Assets take PNG or JPEG; check flaws one image per query. `box` locates a region of the image and still returns a box for an absent target, so ask a `noul` about presence first.
 - Keep counts, totals, maxima, causes, symbol identity and pixel layout with exact tools. A score is a judgment: ground it with `localSearch` before reporting it. Provider confidence is not correctness.
 - Recover: check `errorCode`, `selection.status` and coverage before trusting an answer. A transient provider failure may disclose an unfiltered view; refused credentials stay a failure. `usage` and `replayed` tell new work from replayed pages: saved pages and continuations replay free, while a fresh request is judged and billed again, edited or not.
 
@@ -167,6 +169,7 @@ Reuse a search's `matchString`, `regexEngine`, `caseMode` and `wholeWord` when r
 |---|---|---|---|
 | Import in local code | symbol + hit line | `lspSearch` definition | The installed file in `node_modules` |
 | Lockfile or installed `package.json` | `packageName`, `version` | `artifactSearch` resolve | `owner`, `repo`, `ref`, `verification` |
+| Lockfile or installed `package.json` | `ecosystem`, `packageName`, `version` | `securityCheck` package | `affected`, `upgradeTo`, `cves` at that version |
 | Resolved `ref` | `ref` | `ghStructure`, then `ghGetFileContent` | Source of that exact release |
 | Two resolved versions | `baseRef`, `headRef` | `ghGetHistoryItem` compare | What changed between releases |
 | Commit SHA + paths | `ref`, `include`, `materialize:true` | `ghStructure` | `localPath` for local tools |
@@ -177,15 +180,16 @@ Reuse a search's `matchString`, `regexEngine`, `caseMode` and `wholeWord` when r
 
 ## Route conditions
 
-- **Version in use beats latest.** Omitting `version` resolves latest, so pass the lockfile's version and read installed files first.
+- **Version in use beats latest.** Omitting `version` resolves the latest stable release, so pass the lockfile's version and read installed files first.
+- **A CVE question goes to `securityCheck` when it is listed:** `package` at the lockfile's version, `url`, `advisory` with an id, or `commit`. `status:"empty"` is none known to OSV, not proof the version is safe; `status:"error"` is not checked. When it is not listed, say the user turns it on with `OCTOCODE_SECURITY_CHECKS`: `artifactSearch` carries `advisories` only for PyPI and NuGet, from the registry, and elsewhere the state is unknown, never clean. With a CVE already named, prove the fix from source: the release's `ref`, then `ghSearchHistory` and `ghGetHistoryItem` compare.
 - **Trust the ref by `verification`.** `provenance` and `tag` tie it to the version; with `registryRef` or `defaultBranch`, check that tree's manifest before citing. PyPI resolves only; custom registries are npm only.
 - **`ghSearchCode` sees only the default branch.** Its `ref` re-reads hits and never widens the search: at zod `v3.23.8` it returned `packages/zod/src/v3/types.ts`, but the file there is `src/types.ts`. For a past revision, use `ghStructure` at that ref. One hit is not the only definition. An empty index result is not absence.
 - **`ghSearchCode` requires `owner`.** With no owner, start from `artifactSearch` or `ghSearchRepo`, or ask; never guess.
 - **Only LSP crosses your scope.** `references` on one package's symbol also found its importers in two other packages; graph, AST and text stayed inside the `path` they were given.
 - **AST and graph edges are candidates.** Check grammar capabilities, parse assessment and scan coverage, then confirm with LSP. Empty LSP while `analysisContext` reports errors is not absence.
-- **Graph needs the workspace.** When listed, `graphBuild` rejects a materialized or cloned path outside it; use LSP and AST there.
+- **Graph needs the workspace.** When listed, `graphBuild` rejects a materialized or cloned path outside it; use AST and text there.
 - **Materialize until `coverage.state` is `complete`.** A large selection returns `partial`; follow `next.continueMaterialize`.
-- **Materialized trees limit LSP.** Text and AST work on them. LSP reports `inferredProject` without a tsconfig and `documentAnalysisErrors` when imported files were left out, so include project config and the source tree, then read `coverage`. A whole-repo claim needs `ghCloneRepo` (CLI, or MCP with `OCTOCODE_ENABLE_CLONE`); sparse paths and shallow history limit what it proves.
+- **Fetched code has no LSP by default.** Text and AST work on materialized and cloned trees. `lspSearch` refuses them (`errorCode:"policy"`), and any root holding them, because a server can run repository code; only the user's `lsp.trustFetchedCode` opts in. With it on, LSP reports `inferredProject` without a tsconfig and `documentAnalysisErrors` when imported files were left out, so include project config and the source tree, then read `coverage`. A whole-repo claim needs `ghCloneRepo` (CLI, or MCP with `OCTOCODE_ENABLE_CLONE`); sparse paths and shallow history limit what it proves.
 - **Discussion lives only on GitHub.** Prefer a local checkout for code; use `ghGetHistoryItem` for PR intent.
 
 ## Analysis evidence
@@ -202,7 +206,7 @@ Build the smallest directory containing both sides of the relationship, and keep
 
 `find` discovers nodes, `candidates` resolves ambiguous references to an exact ID, `witnesses` lists every occurrence behind a relationship, `unresolved` lists missing links with reasons. A `passes` edge is a direct reference in an argument slot, not invocation, scheduling or value propagation. Dynamic imports, feature gates, generated inputs and frameworks can constrain reachability. Test declarations suggest relevance; only test execution establishes a result.
 
-Finish `responsePagination.next` before logical `next.*`, and drain all relevant streams before an exhaustive claim; size the population from `pagination.totalItems`, not one page. A terminal scan or model limit is not overcome by more pages. A query verifies only the snapshot blocks it reads: for coverage read `scan`, `linkage` and `argumentCoverage` from `stats` and `coverage` on call queries; for currency read `freshness` and the `stale` operation. `extraction.resumedFiles` counts recovered extraction after an interrupted build, and `refresh` ignores checkpoints.
+Run `responsePagination.next`, else `next.nextPage`, until neither remains, then the other `next.*` a claim needs, before an exhaustive claim; size the population from `pagination.totalItems`, not one page. A terminal scan or model limit is not overcome by more pages. A query verifies only the snapshot blocks it reads: for coverage read `scan`, `linkage` and `argumentCoverage` from `stats` and `coverage` on call queries; for currency read `freshness` and the `stale` operation. `extraction.resumedFiles` counts recovered extraction after an interrupted build, and `refresh` ignores checkpoints.
 
 ## History
 

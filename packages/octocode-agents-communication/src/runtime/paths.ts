@@ -117,7 +117,7 @@ export function realpath(value: string, strict = false): string {
 
 /** `/` plus each component's canonical caseless form; the workspace root is the empty key. */
 export function leaseKey(path: string): string {
-  return split(path).parts.map(component => '/' + normalizePathComponent(component)).join('');
+  return split(path).parts.map(component => `/${normalizePathComponent(component)}`).join('');
 }
 
 /** Every proper prefix of a key that ends before a `/`, shortest first. */
@@ -128,7 +128,7 @@ export function ancestors(key: string): string[] {
 }
 
 export function keysOverlap(a: string, ak: string, b: string, bk: string): boolean {
-  return a === b || (ak === 'tree' && b.startsWith(a + '/')) || (bk === 'tree' && a.startsWith(b + '/'));
+  return a === b || (ak === 'tree' && b.startsWith(`${a}/`)) || (bk === 'tree' && a.startsWith(`${b}/`));
 }
 
 export function overlap(a: string, ak: string, b: string, bk: string): boolean {

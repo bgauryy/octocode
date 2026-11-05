@@ -137,6 +137,7 @@ fn module_beside_its_parent(declares: &str) -> Fixture {
         root.write(&format!("src/sub/m{module}.rs"), "pub fn f() {}\n");
     }
     root.write("src/sub/mod.rs", declared);
+    octocode_engine::stamp::settle_written_so_far();
     root
 }
 
@@ -167,8 +168,8 @@ fn a_scoped_listing_follows_what_its_verdicts_read() {
             let snapshot = next["snapshot"].as_str().expect("snapshot");
             let (paths, _) = simple_policy(&root.0);
             assert!(
-                super::super::memo::get(snapshot, &paths.identity()).is_none(),
-                "{view} {test_code}: the verdicts are not proved"
+                super::super::memo::get(snapshot, &paths.identity()).is_some(),
+                "{view} {test_code}: what the verdicts read proves them"
             );
             let second = run(&root.0, next.clone()).expect("second");
             assert!(second.get("errorCode").is_none(), "{view}: {second}");
@@ -200,4 +201,20 @@ fn a_listing_with_no_test_code_filter_keeps_its_walk() {
         let second = run(&root.0, next).expect("second");
         assert!(second.get("errorCode").is_none(), "{test_code:?}: {second}");
     }
+}
+
+/// A verdict that needed a parent no read can admit is unproven, and the
+/// listing says so instead of counting the module as production.
+#[test]
+fn a_parent_that_cannot_be_read_leaves_the_listing_partial() {
+    let root = module_beside_its_parent(OPEN);
+    let over = u64::try_from(octocode_engine::memory::MEMORY.limit()).expect("limit") + 1;
+    std::fs::File::options()
+        .write(true)
+        .open(root.0.join("src/lib.rs"))
+        .and_then(|file| file.set_len(over))
+        .expect("sparse parent");
+    let out = run(&root.0, scoped_files(&root, Some("exclude"), "paths")).expect("listing");
+    assert_eq!(out["isPartial"], true, "{out}");
+    assert!(out.to_string().contains("testCode verdict"), "{out}");
 }

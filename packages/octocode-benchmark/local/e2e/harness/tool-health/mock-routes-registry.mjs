@@ -1,6 +1,10 @@
 // Provider wire fixtures behind the hermetic TLS proxy. Coordinates and search
 // windows share one model; these routes do not know which tool invoked them.
-export const REGISTRY_HOSTS = ['pypi.org', 'crates.io', 'central.sonatype.com', 'repo.maven.apache.org', 'repo1.maven.org', 'api.nuget.org', 'pkg.go.dev', 'proxy.golang.org', 'repo.packagist.org', 'packagist.org', 'rubygems.org'];
+import { recordedJson } from './recorded-answers.mjs';
+
+export const REGISTRY_HOSTS = ['pypi.org', 'crates.io', 'central.sonatype.com', 'repo.maven.apache.org', 'repo1.maven.org', 'api.nuget.org', 'azuresearch-usnc.nuget.org', 'pkg.go.dev', 'proxy.golang.org', 'repo.packagist.org', 'packagist.org', 'rubygems.org', 'registry.npmjs.org', 'api.osv.dev'];
+// OSV's only route takes a POST; the proxy answers it from `osvAnswers`, never from a registry route.
+export const OSV_HOST = 'api.osv.dev';
 const VERSION = '1.2.3', DATE = '2025-02-03T12:00:00Z';
 const versions = ['1.0.0', VERSION];
 const names = Array.from({ length: 45 }, (_, i) => `proof-${String(i).padStart(2, '0')}`);
@@ -41,12 +45,13 @@ function maven(url) {
   return missing();
 }
 function nugetRoute(url) {
-  if (url.pathname === '/v3/index.json') return ok({ resources: [{ '@type': 'SearchQueryService/3.5.0', '@id': 'https://api.nuget.org/search' }, { '@type': 'RegistrationsBaseUrl/3.6.0', '@id': 'https://api.nuget.org/registration' }] });
-  if (url.pathname === '/search') {
+  // NuGet's real service index: the tool finds each endpoint where NuGet lists it.
+  if (url.pathname === '/v3/index.json') return ok(recordedJson('nuget/exact-advisory', '/v3/index.json'));
+  if (url.pathname === '/query') {
     const hits = keywordNames(url);
     return ok({ totalHits: hits.length, data: slice(hits, url.searchParams.get('skip') ?? 0, url.searchParams.get('take') ?? 20).map(nuget) });
   }
-  if (url.pathname === '/registration/proof/index.json') return ok({ items: [{ lower: '1.0.0', upper: VERSION, items: versions.map(version => ({ catalogEntry: { ...nuget('proof'), version } })) }] });
+  if (url.pathname === '/v3/registration5-gz-semver2/proof/index.json') return ok({ items: [{ lower: '1.0.0', upper: VERSION, items: versions.map(version => ({ catalogEntry: { ...nuget('proof'), version } })) }] });
   return missing();
 }
 function go(url) {
@@ -61,7 +66,7 @@ function go(url) {
   return missing();
 }
 function packagist(url) {
-  if (url.pathname === '/p2/proof/proof.json') return ok({ packages: { 'proof/proof': [composer('proof')] } });
+  if (url.pathname === '/p2/proof/proof.json') return ok({ packages: { 'proof/proof': [composer('proof'), { ...composer('proof'), version: '1.0.0' }] } });
   if (url.pathname === '/search.json') {
     const hits = keywordNames(url), selected = page(url, hits), current = Number(url.searchParams.get('page') ?? 1), size = Number(url.searchParams.get('per_page') ?? 20);
     return ok({ results: selected.map(composer), total: hits.length, ...(current * size < hits.length && { next: `https://packagist.org/search.json?q=proof&page=${current + 1}` }) });
@@ -70,15 +75,25 @@ function packagist(url) {
 }
 function rubygems(url) {
   if (url.pathname === '/api/v1/gems/proof.json') return ok(gem('proof'));
+  const exact = /^\/api\/v2\/rubygems\/proof\/versions\/([^/]+)\.json$/.exec(url.pathname);
+  if (exact && versions.includes(exact[1])) return ok({ ...gem('proof'), version: exact[1] });
+  if (url.pathname === '/api/v1/versions/proof.json') return ok(versions.map(number => ({ number })));
   if (url.pathname === '/api/v1/search.json') return ok(page(url, keywordNames(url, 'query'), 30).map(gem));
   return missing();
 }
+function npmjs(url) {
+  const manifest = /^\/proof\/([^/]+)$/.exec(url.pathname)?.[1];
+  if (manifest) return versions.includes(manifest) || manifest === 'latest' ? ok({ name: 'proof', version: manifest === 'latest' ? VERSION : manifest }) : missing();
+  if (url.pathname !== '/proof') return missing();
+  return ok({ name: 'proof', 'dist-tags': { latest: VERSION }, versions: Object.fromEntries(versions.map(version => [version, { name: 'proof', version }])) });
+}
 export function registryResponse(url) {
   const host = url.hostname;
+  if (host === 'registry.npmjs.org') return npmjs(url);
   if (host === 'pypi.org') return pypi(url);
   if (host === 'crates.io') return crates(url);
   if (host.includes('maven') || host === 'central.sonatype.com') return maven(url);
-  if (host === 'api.nuget.org') return nugetRoute(url);
+  if (host.endsWith('nuget.org')) return nugetRoute(url);
   if (host === 'pkg.go.dev' || host === 'proxy.golang.org') return go(url);
   if (host.includes('packagist')) return packagist(url);
   if (host === 'rubygems.org') return rubygems(url);

@@ -55,6 +55,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 memchr = { workspace = true }
+# URL captures decode the charset a page declares.
+encoding_rs = "0.8"
 regex = { workspace = true }
 # Contract validation runs the schemas' ECMAScript patterns.
 regress = "0.12"

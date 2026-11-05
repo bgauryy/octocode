@@ -271,7 +271,6 @@ async fn saved_history_item_pages_replay_after_a_persistent_restart() {
     let mut pagination = first.structured_content["responsePagination"].clone();
     assert_eq!(pagination["hasMore"], true, "{}", first.structured_content);
     runtime.close().await;
-    let total_pages = pagination["totalPages"].clone();
     let mut files = filenames(&first.structured_content);
     let mut page = 1;
     while pagination["hasMore"] == true {
@@ -290,8 +289,6 @@ async fn saved_history_item_pages_replay_after_a_persistent_restart() {
         page += 1;
         pagination = replayed.structured_content["responsePagination"].clone();
         files.extend(filenames(&replayed.structured_content));
-        assert_eq!(pagination["page"], page, "{pagination}");
-        assert_eq!(pagination["totalPages"], total_pages, "{pagination}");
         assert_eq!(pagination["replayed"], true, "{pagination}");
         assert_ne!(pagination["restart"], true, "{pagination}");
     }

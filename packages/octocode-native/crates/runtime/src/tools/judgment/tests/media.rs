@@ -27,7 +27,7 @@ async fn prepared_media_batches_headers_and_fresh_reads_without_exposing_assets(
         state: &state,
         questions: &questions,
         assets: Some(&assets),
-        long_context: false,
+        long_context: crate::tools::judgment::LongContext::Never,
     };
     let (first, concurrent) = tokio::join!(
         evaluator.evaluate_prepared(input, None, &budget, &gate),
@@ -60,7 +60,7 @@ async fn prepared_media_batches_headers_and_fresh_reads_without_exposing_assets(
     let extended = evaluator
         .evaluate_prepared(
             EvaluationInput {
-                long_context: true,
+                long_context: crate::tools::judgment::LongContext::Always,
                 ..input
             },
             None,
@@ -164,7 +164,7 @@ async fn split_media_requests_keep_only_assets_referenced_by_each_question() {
                     state: &state,
                     questions: &questions,
                     assets: Some(&assets),
-                    long_context: false,
+                    long_context: crate::tools::judgment::LongContext::Never,
                 },
                 None,
                 &evaluation_budget(&evaluator),
@@ -199,7 +199,7 @@ async fn invalid_box_is_not_cached_and_retries_preserve_media_payload() {
         state: &state,
         questions: &questions,
         assets: Some(&assets),
-        long_context: true,
+        long_context: crate::tools::judgment::LongContext::Always,
     };
     for calls in [2, 1] {
         let error = evaluator
@@ -267,7 +267,7 @@ async fn a_media_group_the_provider_window_rejects_is_split_until_each_part_fits
                     state: &state,
                     questions: &questions,
                     assets: Some(&assets),
-                    long_context: false,
+                    long_context: crate::tools::judgment::LongContext::Never,
                 },
                 None,
                 &budget,
@@ -306,7 +306,7 @@ async fn a_media_group_the_provider_window_rejects_is_split_until_each_part_fits
                 state: &state,
                 questions: &questions,
                 assets: Some(&assets),
-                long_context: false,
+                long_context: crate::tools::judgment::LongContext::Never,
             },
             None,
             &budget,

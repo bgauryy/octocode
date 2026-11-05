@@ -19,6 +19,8 @@ use crate::{ProviderError, ProviderErrorKind};
 
 mod failure;
 
+pub(super) use failure::{secondary_cooldown, secondary_wait};
+
 /// How a failed attempt may be retried: `wait` is held to the retry limits,
 /// `sleep` is spent before the next attempt.
 struct RetryWait {

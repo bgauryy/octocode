@@ -1,0 +1,28 @@
+# Bans for the local ratchet, `dev.mjs lint:rust` (skills-dev/octocode-dev/scripts/rust-lint.mjs). They are not in
+# clippy.toml, so plain `cargo clippy`, CI and the editor do not see them. Production code only; findings that
+# predate a ban are in clippy-baseline.json, which only shrinks. A site that must stay says why in the code:
+#   #[expect(clippy::disallowed_methods, reason = "...")]
+disallowed-methods = [
+    { path = "alloc::string::String::leak", reason = "leaks per call in a long-lived server process: bind to a local instead" },
+    # Evidence is paged, never trimmed. A truncate that drops rows or lines is a defect.
+    { path = "alloc::vec::Vec::truncate", reason = "does this drop evidence? Page it, or say with #[expect] why nothing is lost" },
+    { path = "alloc::string::String::truncate", reason = "does this drop evidence? Page it, or say with #[expect] why nothing is lost" },
+    # No guessed waits or timeouts: the owning layer's limit or the request deadline decides.
+    { path = "core::time::Duration::from_secs", reason = "a fixed duration: derive it from execution/limits.rs or the request deadline" },
+    { path = "core::time::Duration::from_millis", reason = "a fixed duration: derive it from execution/limits.rs or the request deadline" },
+    { path = "std::thread::sleep", reason = "a guessed wait that blocks a thread: wait on the event, or poll under the cancellation check" },
+    { path = "tokio::time::sleep", reason = "a guessed wait: wait on the event, or under the request deadline" },
+    { path = "tokio::time::timeout", reason = "a fixed timeout: use the request deadline" },
+    # Each new child process is a code-execution and environment-leak question.
+    { path = "std::process::Command::new", reason = "a child process: state its environment and its bound; see engine process_env and tools/bounded_process.rs" },
+    { path = "tokio::process::Command::new", reason = "a child process: state its environment and its bound; see engine process_env and tools/bounded_process.rs" },
+    # One client carries the proxy, trust and redirect policy.
+    { path = "reqwest::Client::new", reason = "build HTTP clients in octocode_io::http" },
+    { path = "reqwest::Client::builder", reason = "build HTTP clients in octocode_io::http" },
+    { path = "reqwest::ClientBuilder::new", reason = "build HTTP clients in octocode_io::http" },
+    # Unbounded reads are the memory-stop crash class; a plain write leaves a torn file on a crash.
+    { path = "std::fs::read", reason = "unbounded: read through the bounded readers in octocode_io" },
+    { path = "std::fs::read_to_string", reason = "unbounded: read through the bounded readers in octocode_io" },
+    { path = "std::fs::write", reason = "not atomic and no file mode: use the atomic or private-file writer" },
+    { path = "std::fs::File::create", reason = "not atomic and no file mode: use the atomic or private-file writer" },
+]

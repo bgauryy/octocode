@@ -47,6 +47,8 @@ const spec = defineCli({
     defineCommand({ name: 'lined', description: 'Lined', schema: z.object({}), run: () => 'ok\n' }),
     defineCommand({ name: 'empty', description: 'Empty', schema: z.object({}), run: () => undefined }),
     defineCommand({ name: 'boom', description: 'Boom', schema: z.object({}), run: () => { throw new Error('boom'); } }),
+    // A thrown string: a command may throw anything, and its text still reaches the user.
+    // oxlint-disable-next-line no-throw-literal
     defineCommand({ name: 'textboom', description: 'Text boom', schema: z.object({}), run: () => { throw 'bad'; } }),
     defineCommand({
       name: 'color',

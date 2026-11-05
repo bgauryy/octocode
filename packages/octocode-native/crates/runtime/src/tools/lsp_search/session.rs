@@ -60,7 +60,13 @@ pub(super) fn discover_server(
             allowed
         }
     };
-    let discovery = execution_config.discovery();
+    let discovery = execution_config.discovery().for_one_request();
+    if discovery.opens_fetched_code(&path, &workspace) {
+        return Err(fail(
+            ErrorCode::Policy,
+            octocode_engine::lsp::config::FETCHED_CODE_REFUSAL,
+        ));
+    }
     let discovered = if root_only {
         default_server_for_workspace_root(&workspace, &discovery)
     } else {
@@ -86,6 +92,8 @@ pub(super) fn discover_server(
         return Err(fail(ErrorCode::ServerUnavailable, &message));
     };
     receipt::apply_rust_context(&mut config, query).map_err(LspFailure::invalid_query)?;
+    let config_notes =
+        octocode_engine::lsp::config::route_problems(&path, Some(&config), &workspace, &discovery);
     let fallback = if root_only {
         typescript_server_fallback_for_workspace_root(&workspace, &discovery)
     } else {
@@ -98,6 +106,7 @@ pub(super) fn discover_server(
         config,
         fallback,
         root_note,
+        config_notes,
     })
 }
 

@@ -6,11 +6,9 @@ import { join } from 'node:path';
 export const suite = { work: '', port: '', engineDir: '' };
 export const counters = { engineCalls: 0, relaunches: 0, engineMs: 0 };
 // The initial page owns a dedicated worker that a replaced browser or target must regain.
-export const fixtureUrl =
-  'data:text/html,' +
-  encodeURIComponent(
-    '<title>cdp-all</title><script>new Worker("data:text/javascript,setInterval(()=>{},1000)")</script>'
-  );
+export const fixtureUrl = `data:text/html,${encodeURIComponent(
+  '<title>cdp-all</title><script>new Worker("data:text/javascript,setInterval(()=>{},1000)")</script>'
+)}`;
 
 export function engine(argv, timeout = 120000) {
   const started = Date.now();
@@ -37,7 +35,7 @@ export function engine(argv, timeout = 120000) {
   });
 }
 export const artifact = (out, name) => {
-  const prefix = '[ARTIFACT] ' + name + ' ',
+  const prefix = `[ARTIFACT] ${name} `,
     line = out.split('\n').find(row => row.startsWith(prefix));
   return line ? line.slice(prefix.length) : null;
 };
@@ -90,7 +88,7 @@ export async function launch(first = false) {
     r.out.split('\n').find(line => line.startsWith('{')) ?? '{}'
   );
   if (r.code !== 0 || info.status !== 'BROWSER_READY')
-    throw Error('Launch failed: ' + r.out);
+    throw Error(`Launch failed: ${r.out}`);
   if (first && info.reused !== false)
     throw Error('Suite needs a fresh isolated browser');
   await ensureWorker();

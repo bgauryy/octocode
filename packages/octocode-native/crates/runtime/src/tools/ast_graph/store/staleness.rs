@@ -3,6 +3,10 @@
 use super::*;
 use octocode_engine::stamp::SourceStamp;
 
+mod scope_proof;
+pub(super) use scope_proof::settled_scope_proof;
+use scope_proof::{file_dirs, scope_proven};
+
 /// Whether the file at `path` still holds the bytes `digest` names, `None`
 /// when it cannot be read. A stamp recorded at ingest that still equals the
 /// file's size and change times proves it without a read (the stamp was
@@ -81,20 +85,7 @@ fn input_stamps<'a>(
     for dir in super::super::freshness::scope_dirs(root, []) {
         stamped(&dir, dir.as_os_str().as_encoded_bytes())?;
     }
-    let mut dirs = BTreeSet::new();
-    for node in &tables.nodes {
-        if node.kind != format::NodeKind::File {
-            continue;
-        }
-        let mut rest = tables.str(node.key);
-        while let Some((dir, _)) = rest.rsplit_once('/') {
-            if !dirs.insert(dir) {
-                break;
-            }
-            rest = dir;
-        }
-    }
-    for dir in dirs {
+    for dir in file_dirs(tables) {
         stamped(&root.join(dir), dir.as_bytes())?;
     }
     for key in keys {
@@ -185,7 +176,10 @@ pub(super) fn scope_files(
     exclude: &[String],
     language_globs: &BTreeMap<String, Vec<String>>,
     extensions: &[String],
+    dir: &mut dyn FnMut(&Path),
 ) -> BTreeSet<String> {
+    #[cfg(test)]
+    SCOPE_WALKS.with(|walks| walks.set(walks.get() + 1));
     let globs = language_globs
         .values()
         .flatten()
@@ -205,6 +199,9 @@ pub(super) fn scope_files(
             .flatten();
     let mut current = BTreeSet::new();
     for entry in crate::tools::pruned_walk(root, []).build().flatten() {
+        if entry.file_type().is_some_and(|kind| kind.is_dir()) {
+            dir(entry.path());
+        }
         if !entry.file_type().is_some_and(|kind| kind.is_file()) {
             continue;
         }
@@ -228,6 +225,12 @@ pub(super) fn scope_files(
         }
     }
     current
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: the source walks this thread's freshness checks and proofs ran.
+    pub(super) static SCOPE_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// One way the tree differs from a snapshot of it.
@@ -319,6 +322,9 @@ fn scope_changes(
     manifest: &Value,
     changes: &[Change],
 ) -> Vec<(String, &'static str)> {
+    if scope_proven(root, tables, manifest) {
+        return Vec::new();
+    }
     let recorded = tables
         .nodes
         .iter()
@@ -343,6 +349,7 @@ fn scope_changes(
         &strings(&manifest["scan"]["exclude"]),
         &globs,
         &strings(&manifest["registryExtensions"]),
+        &mut |_| {},
     );
     let reported = changes
         .iter()

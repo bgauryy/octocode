@@ -63,7 +63,7 @@ test('eight cold CLI processes initialize one database and acquire one lease',as
 test('MCP rejects an oversized frame, ignores blank lines and keeps serving queued requests',async t=>{
  const f=fixture(t),a=joinAgent(f);
  const oversized=JSON.stringify({jsonrpc:'2.0',id:1,method:'ping',params:{pad:'x'.repeat(8*1024*1024)}});
- const input=['',oversized,'   ',JSON.stringify({jsonrpc:'2.0',id:2,method:'ping'})].join('\n')+'\n';
+ const input=`${['',oversized,'   ',JSON.stringify({jsonrpc:'2.0',id:2,method:'ping'})].join('\n')}\n`;
  const result=await start(f,['mcp','--session',a.id],input);assert.equal(result.code,0,result.stderr);
  const rows=result.stdout.trim().split('\n').map((line): JsonRecord=>JSON.parse(line));
  assert.equal(rows.length,2);
@@ -72,7 +72,7 @@ test('MCP rejects an oversized frame, ignores blank lines and keeps serving queu
 });
 test('MCP binds identity and survives malformed frames',async t=>{
  const f=fixture(t),a=joinAgent(f);
- const frames=[null,'INVALID',...[
+ const frames=`${[null,'INVALID',...[
   {jsonrpc:'2.0',id:1,method:'initialize'},
   {jsonrpc:'2.0',id:2,method:'tools/list'},
   {jsonrpc:'2.0',id:3,method:'tools/call',params:{name:'leases',arguments:{type:'acquire',input:{paths:[{path:'file'}],reasoning:'Reserve a fixture path to verify bound identity'}}}},
@@ -80,7 +80,7 @@ test('MCP binds identity and survives malformed frames',async t=>{
   {jsonrpc:'2.0',id:5,method:'tools/call',params:{name:'join',arguments:{name:'hidden',vendor:'bad'}}},
   {jsonrpc:'2.0',id:6,method:'tools/call',params:{name:'documents',arguments:{type:'find',input:{path:'.'}}}},
   {jsonrpc:'2.0',id:7,method:'tools/call',params:{name:'leases',arguments:{type:'list',input:{}}}},
- ].map(frame=>JSON.stringify(frame))].map(v=>v===null?'null':v).join('\n')+'\n';
+ ].map(frame=>JSON.stringify(frame))].map(v=>v===null?'null':v).join('\n')}\n`;
  const result=await start(f,['mcp','--session',a.id],frames);assert.equal(result.code,0,result.stderr);
  const rows=result.stdout.trim().split('\n').map((line): JsonRecord=>JSON.parse(line));
  assert.equal(rows[0].error.code,-32600);assert.equal(rows[1].error.code,-32700);

@@ -37,15 +37,15 @@ fn nul_past_the_head(source: &str) -> String {
     format!("{}\0{}", &source[..at], &source[at + 1..])
 }
 
-/// The offered call that reads on with the same kind of read.
-fn later_page(first: &LocalFetchResult, matches: bool) -> LocalFetchQuery {
-    let next = first.next.as_ref().expect("a later page");
-    [&next.continue_window, &next.read_other_ranges]
-        .into_iter()
-        .flatten()
-        .map(|call| call.query.clone())
-        .find(|query| !matches || !local_fetch_query::match_strings(query).is_empty())
-        .expect("a later page of this read")
+/// The call that reads on.
+fn later_page(first: &LocalFetchResult) -> LocalFetchQuery {
+    first
+        .next
+        .as_ref()
+        .and_then(|next| next.continue_window.as_ref())
+        .expect("a later page")
+        .query
+        .clone()
 }
 
 /// What each kind of later page answers once the file changed, one line per
@@ -80,7 +80,7 @@ fn answers_after_changes(
                 };
                 let first = page(&qj(&file, fields.clone()));
                 assert_eq!(first.error_code, None, "{read}: {:?}", first.error);
-                let next = later_page(&first, *read == "match");
+                let next = later_page(&first);
                 fs::write(&file, changed).expect("change");
                 let answer = page(&next);
                 if answer.error_code != Some(ErrorCode::StaleSnapshot) {

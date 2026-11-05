@@ -11,6 +11,8 @@ pub(crate) struct ClassificationUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub models: BTreeSet<String>,
+    /// What the rest of the walk would bill, at the rate this page measured.
+    pub remaining_input_tokens: u64,
 }
 
 impl ClassificationUsage {
@@ -22,12 +24,22 @@ impl ClassificationUsage {
             unknown_usage_calls: count(self.unknown_usage_calls),
             input_tokens: count(self.input_tokens),
             output_tokens: count(self.output_tokens),
+            remaining_input_tokens_estimate: std::num::NonZeroU64::new(self.remaining_input_tokens),
             models: self
                 .models
                 .iter()
                 .filter_map(|model| model.parse().ok())
                 .collect(),
         }
+    }
+
+    /// The rest of a walk priced at this page's own rate: `judged` characters
+    /// of states and questions billed these tokens, and `rest` remain.
+    pub(crate) fn estimate_rest(&mut self, judged: usize, rest: usize) {
+        self.remaining_input_tokens = u64::try_from(
+            u128::from(self.input_tokens).saturating_mul(rest as u128) / judged.max(1) as u128,
+        )
+        .unwrap_or(u64::MAX);
     }
 
     /// Fold in `calls` provider requests, `known` of which reported their

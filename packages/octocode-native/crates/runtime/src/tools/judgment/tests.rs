@@ -40,6 +40,7 @@ fn response(request: &Request) -> ResponseTemplate {
 }
 
 mod media;
+mod sanitization;
 mod shared;
 mod usage;
 
@@ -113,7 +114,7 @@ async fn noncanonical_provider_answers_are_not_cached() {
             state: &state,
             questions: &questions,
             assets: None,
-            long_context: false,
+            long_context: crate::tools::judgment::LongContext::Never,
         };
         for _ in 0..2 {
             let error = evaluator

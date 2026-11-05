@@ -255,7 +255,14 @@ async fn unsupported_ast_batch_keeps_indices_hints_and_executable_document_recov
     assert_eq!(rows[0]["index"], 0);
     assert_eq!(rows[1]["index"], 1);
     assert_eq!(rows[0]["data"]["errorCode"], "invalidInput");
-    assert!(rows[0]["data"]["hints"][0].is_string());
+    // The error names the field and the allowed values: that is the recovery,
+    // so no repeated hint rides beside it.
+    let message = rows[0]["data"]["error"].as_str().expect("error message");
+    assert!(
+        message.contains("queries.0.operation") && message.contains("allowed: match"),
+        "{message}"
+    );
+    assert!(rows[0]["data"].get("hints").is_none());
     let data = &rows[1]["data"];
     assert_eq!(data["errorCode"], "languageUnsupported");
     assert!(

@@ -16,7 +16,7 @@ use collections::{
 };
 use octocode_engine::digest::JsonFingerprint;
 use octocode_io::cancellation::Cancellation;
-use plan::{Later, PageBudget, PreparedRows, RowPlan};
+use plan::{PageBudget, PreparedRows, RowPlan};
 #[cfg(test)]
 use serde_json::json;
 use serde_json::{Map, Value};
@@ -25,7 +25,6 @@ use skeleton::{continues_chars, enclosing_element, lean_later_context, volatile_
 use slicer::{Open, Slicer};
 
 use super::page_model::{ResponsePageOptions, ResponsePagination};
-use super::result::Remaining;
 
 #[cfg(test)]
 thread_local! {
@@ -48,52 +47,6 @@ struct Placed {
     page: usize,
 }
 
-/// The incomplete envelope warning a page with rows left over leads with:
-/// the query indexes later pages serve first and those they continue.
-fn incomplete_banner(later: &Later) -> Value {
-    let list = |queries: &[usize]| {
-        let noun = if queries.len() == 1 {
-            "query"
-        } else {
-            "queries"
-        };
-        let queries = queries.iter().map(usize::to_string).collect::<Vec<_>>();
-        format!("{noun} {}", queries.join(", "))
-    };
-    let mut banner = String::from("incomplete: later response pages");
-    if !later.unserved.is_empty() {
-        banner.push_str(" serve ");
-        banner.push_str(&list(&later.unserved));
-    }
-    if !later.continued.is_empty() {
-        banner.push_str(if later.unserved.is_empty() {
-            " continue "
-        } else {
-            " and continue "
-        });
-        banner.push_str(&list(&later.continued));
-    }
-    Value::String(banner)
-}
-
-/// The most chars the incomplete banner adds to `skeleton`, an envelope of
-/// rows with query indexes `queries`: a banner naming every query in both
-/// lists (wider than any page's, where each row is in one at most), plus
-/// its `warnings` key when the envelope has none.
-fn incomplete_banner_chars(skeleton: &Map<String, Value>, queries: &[usize]) -> usize {
-    let widest = Later {
-        unserved: queries.to_vec(),
-        continued: queries.to_vec(),
-    };
-    let banner = octocode_engine::json_size::utf16_units(&incomplete_banner(&widest)).unwrap_or(0);
-    match skeleton.get("warnings").and_then(Value::as_array) {
-        Some(warnings) if !warnings.is_empty() => banner + 1,
-        Some(_) => banner,
-        // `"warnings":[…],`
-        None => banner + "\"warnings\":[],".len(),
-    }
-}
-
 /// One page of the [`RowSource`] of `structured`, with no room kept for the
 /// page's `responsePagination` block (the plan tests measure rows alone).
 #[cfg(test)]
@@ -101,7 +54,6 @@ pub(super) fn paginate_rows(
     structured: Map<String, Value>,
     options: &ResponsePageOptions,
     volatile: Vec<Option<Map<String, Value>>>,
-    remaining: &[Vec<Remaining>],
     tool: crate::id::ToolId,
 ) -> (Map<String, Value>, ResponsePagination) {
     let envelope = octocode_engine::digest::fingerprint_json(&structured).expect("envelope");
@@ -116,7 +68,7 @@ pub(super) fn paginate_rows(
         &cancelled,
     )
     .expect("valid source")
-    .page(options, remaining, &|_| 0, &cancelled)
+    .page(options, &|_| 0, &cancelled)
     .expect("valid page")
 }
 
@@ -140,6 +92,7 @@ pub(super) fn paginate_rows(
 /// smaller finished envelope; earlier rows retain the ordinary allowance.
 /// The envelope key of every tool's result rows.
 const ROWS_KEY: &str = "results";
+const RESPONSE_PAGINATION: &str = "responsePagination";
 
 pub(super) struct RowSource {
     /// The envelope without its rows.
@@ -149,6 +102,9 @@ pub(super) struct RowSource {
     volatile: Vec<Option<Map<String, Value>>>,
     budget: usize,
     snapshot: String,
+    /// The call that reads on past the last page: the rows' walks, stated
+    /// as the envelope's one continuation ([`crate::response::continuations::hoist`]).
+    onward: Option<Value>,
 }
 
 impl RowSource {
@@ -170,25 +126,26 @@ impl RowSource {
             _ => Vec::new(),
         };
         volatile.resize(rows.len(), None);
+        let onward = structured
+            .remove(RESPONSE_PAGINATION)
+            .and_then(|mut block| block.get_mut("next").map(Value::take));
         let overhead =
             octocode_engine::json_size::utf16_units(&structured).unwrap_or(0) + ROWS_KEY.len() + 6;
         let total = envelope.utf16_units;
         let snapshot = super::cursor::rows_snapshot(budget, &envelope.digest);
-        let template = |has_more: bool| ResponsePagination {
-            page: total.max(1),
-            total_pages: total.max(1),
-            has_more,
+        let template = |more_pages: bool| ResponsePagination {
+            #[cfg(test)]
+            total_pages: 1,
+            has_more: more_pages || onward.is_some(),
             returned_chars: total,
             snapshot: snapshot.clone(),
-            next_offset: has_more.then_some(total),
+            next_offset: more_pages.then_some(total),
             oversized: None,
-            next: None,
+            next: onward.clone().filter(|_| !more_pages),
         };
-        // Room for the envelope warning a page with rows left over leads with,
-        // and for the pagination block.
+        // Room for the pagination block.
         let prepared = PreparedRows::new(rows, &volatile, tool);
-        let banner = incomplete_banner_chars(&structured, prepared.queries());
-        let row_budget = |reserve: usize| budget.saturating_sub(overhead + banner + reserve).max(1);
+        let row_budget = |reserve: usize| budget.saturating_sub(overhead + reserve).max(1);
         let finished = block(&template(false));
         let widest = block(&template(true));
         // A response whose rows, added up, fit one page beside the block a
@@ -201,7 +158,7 @@ impl RowSource {
             PageBudget {
                 rows: row_budget(block_chars),
                 terminal: Some(budget.saturating_sub(overhead + finished).max(1)),
-                envelope: overhead + banner + block_chars,
+                envelope: overhead + block_chars,
             },
             cancelled,
         )?;
@@ -211,6 +168,7 @@ impl RowSource {
             volatile,
             budget,
             snapshot,
+            onward,
         })
     }
 
@@ -219,7 +177,6 @@ impl RowSource {
     pub(super) fn page(
         &self,
         options: &ResponsePageOptions,
-        remaining: &[Vec<Remaining>],
         block: &dyn Fn(&ResponsePagination) -> usize,
         cancelled: &Cancellation,
     ) -> Result<(Map<String, Value>, ResponsePagination), super::pager::ResponseError> {
@@ -230,23 +187,19 @@ impl RowSource {
         if requested > 0 && (changed || requested >= plan.total_pages) {
             return Err(super::pager::ResponseError::InvalidPage);
         }
-        let selected = plan.build_page(requested, &self.volatile, remaining, cancelled)?;
-        let later = plan.later(requested);
+        let selected = plan.build_page(requested, &self.volatile, cancelled)?;
         structured.insert(ROWS_KEY.into(), Value::Array(selected));
-        if !later.is_empty() {
-            lead_with_incomplete_banner(&mut structured, &later);
-        }
-        let has_more = requested + 1 < plan.total_pages;
+        let more_pages = requested + 1 < plan.total_pages;
         let char_length = octocode_engine::json_size::utf16_units(&structured).unwrap_or(0);
         let mut pagination = ResponsePagination {
-            page: requested + 1,
+            #[cfg(test)]
             total_pages: plan.total_pages,
-            has_more,
+            has_more: more_pages || self.onward.is_some(),
             returned_chars: char_length,
             snapshot: self.snapshot.clone(),
-            next_offset: has_more.then_some(requested + 1),
+            next_offset: more_pages.then_some(requested + 1),
             oversized: None,
-            next: None,
+            next: self.onward.clone().filter(|_| !more_pages),
         };
         // Oversized: the page with its own block still passes the budget, because
         // one fragment could not be divided further.
@@ -256,26 +209,11 @@ impl RowSource {
     }
 }
 
-/// Lead the envelope with the warning naming the queries `later` pages
-/// hold, so a reader meets it before the rows.
-fn lead_with_incomplete_banner(structured: &mut Map<String, Value>, later: &Later) {
-    let banner = incomplete_banner(later);
-    let mut warnings = match structured.shift_remove("warnings") {
-        Some(Value::Array(warnings)) => warnings,
-        _ => Vec::new(),
-    };
-    warnings.push(banner);
-    structured.shift_insert(0, "warnings".into(), Value::Array(warnings));
-}
-
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
 mod lazy_page_tests;
-
-#[cfg(test)]
-mod banner_tests;
 
 impl From<evidence::DependencyError> for super::pager::ResponseError {
     fn from(error: evidence::DependencyError) -> Self {

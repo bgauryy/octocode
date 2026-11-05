@@ -340,8 +340,10 @@ fn value_matches_source(lines: &[&str], line: u32, value: &str) -> bool {
     let hi = line.saturating_add(span).min(lines.len());
     let window = lines[lo - 1..hi].join("\n");
     value.lines().all(|value_line| {
-        let core = crate::security::cut::strip_clip_markers(value_line);
-        core.is_empty() || window.contains(core)
+        // A long line's row shows a secret's place by its placeholder.
+        octocode_engine::security::placeholder_regex()
+            .split(crate::security::cut::strip_clip_markers(value_line))
+            .all(|segment| segment.is_empty() || window.contains(segment))
     })
 }
 

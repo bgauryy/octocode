@@ -131,6 +131,21 @@ impl JsonRpcConnection {
         self.shared.activity.cpu_time()
     }
 
+    /// Whether the server shows progress over a wait of `waited` that began at
+    /// CPU time `before` (see `patience`).
+    pub(crate) fn server_progressed_since(
+        &self,
+        before: Option<tokio::time::Duration>,
+        waited: tokio::time::Duration,
+    ) -> bool {
+        self.shared.activity.progressed_since(before, waited)
+    }
+
+    /// How many diagnostics reports the server has published, for any document.
+    pub(crate) fn push_diagnostics_published(&self) -> u64 {
+        self.shared.push_diagnostics.published()
+    }
+
     /// `false` once the connection has failed (server exited, framing fault,
     /// broken write, or consecutive request timeouts retired it).
     pub(crate) fn is_alive(&self) -> bool {

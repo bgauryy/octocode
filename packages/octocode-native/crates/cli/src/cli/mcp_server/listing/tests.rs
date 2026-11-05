@@ -62,6 +62,37 @@ fn instructions_are_the_one_core_string_without_cli_notes() {
     assert!(!text.contains("<cli>"), "{text}");
 }
 
+/// Every optional tool's block is served exactly when the listing holds that
+/// tool, and the base names none of them.
+#[test]
+fn an_instructions_block_follows_its_listed_tool() {
+    let base = presentation()["instructions"].as_str().expect("base");
+    let text = |available: &[&str]| {
+        let catalog = catalog(available, json!({"selection": true}), json!([]));
+        build(presentation(), &catalog)
+            .expect("listing")
+            .instructions
+    };
+    let optional: Vec<(&str, &str)> = presentation()["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .filter_map(|tool| Some((tool["name"].as_str()?, tool["instructions"].as_str()?)))
+        .collect();
+    assert!(optional.iter().any(|(name, _)| *name == "clasify"));
+    let plain = presentation_tools();
+    let plain: Vec<&str> = plain
+        .iter()
+        .map(String::as_str)
+        .filter(|name| optional.iter().all(|(optional, _)| optional != name))
+        .collect();
+    assert_eq!(text(&plain), base);
+    for (name, block) in &optional {
+        assert!(!base.contains(name), "{name}: {base}");
+        assert_eq!(text(&[plain[0], name]), format!("{base}{block}"), "{name}");
+    }
+}
+
 #[test]
 fn lsp_search_names_the_resolved_language_servers() {
     let catalog = catalog(
@@ -72,7 +103,7 @@ fn lsp_search_names_the_resolved_language_servers() {
     let listing = build(presentation(), &catalog).expect("listing");
     let description = listing.tools[0]["description"].as_str().expect("text");
     assert!(
-        description.contains(" Servers found here: rust, ts/js.</when><workflow>"),
+        description.contains(" Servers found here: rust, ts/js.</when>"),
         "{description}"
     );
 }

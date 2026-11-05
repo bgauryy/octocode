@@ -9,6 +9,7 @@ use serde_json::json;
 mod continuation;
 mod filters;
 mod leads;
+mod memory;
 mod scans;
 
 fn query(root: &std::path::Path, extra: serde_json::Value) -> AstSearchQuerySymbols {

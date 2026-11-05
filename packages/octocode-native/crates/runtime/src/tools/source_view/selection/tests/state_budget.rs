@@ -56,72 +56,46 @@ fn serialized_state_budget_uses_sanitized_content() {
     assert_eq!(project(&text, &windows, &outcome.selected).0, text);
 }
 
+/// A page runs its first chunk whatever its size, and replays with no call.
 #[test]
-fn serialized_state_budget_preserves_all_short_lines_and_replay() {
+fn a_chunk_over_the_page_budget_runs_alone_and_replays() {
     use octocode_contract_types::SelectionStatus;
     let executor = tokio::runtime::Runtime::new().unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let mut runtime = budget_runtime(executor.handle().clone(), calls.clone());
+    runtime.limits.max_chars = 32;
     let text = "x\n".repeat(4_096);
     let query = json!({"classification":{"predicates":["Find x"]}});
-    let (candidates, windows) = chunks(
-        &text,
-        None,
-        None,
-        Path::new("source.txt"),
-        "source.txt",
-        &ContentSecurity::new(),
-        Some(&runtime),
-        None,
-        None,
-    );
+    let split = |prior: Option<&str>| {
+        chunks(
+            &text,
+            None,
+            None,
+            Path::new("source.txt"),
+            "source.txt",
+            &ContentSecurity::new(),
+            Some(&runtime),
+            prior,
+            None,
+        )
+    };
+    let (candidates, windows) = split(None);
     assert_eq!(windows.len(), 4);
-    let first_state_chars = candidates[0]
-        .state
-        .as_ref()
-        .unwrap()
-        .to_string()
-        .chars()
-        .count();
-    assert!(first_state_chars > runtime.limits.max_chars);
-    let skipped = crate::tools::selection::select(
-        Some(&runtime),
-        &query,
-        "source",
-        None,
-        &candidates,
-        None,
-        octocode_contract_types::SelectionUnit::Chunks,
-    )
-    .unwrap_or_else(|_| panic!("budgeted order"));
-    assert_eq!(skipped.receipt.status, SelectionStatus::Partial);
-    assert_eq!(
-        skipped.receipt.reason.as_deref(),
-        Some("candidateStateTooLarge")
-    );
-    assert_eq!(skipped.receipt.selected_items, 0);
-    assert_eq!(calls.load(Ordering::SeqCst), 0);
-    assert_eq!(
-        project(&text, &windows, &skipped.selected),
-        (String::new(), Vec::new())
-    );
-
-    runtime.limits.max_chars = first_state_chars;
-    let partial = crate::tools::selection::select(
-        Some(&runtime),
-        &query,
-        "source",
-        None,
-        &candidates,
-        None,
-        octocode_contract_types::SelectionUnit::Chunks,
-    )
-    .unwrap_or_else(|_| panic!("partial order"));
+    let select = |prior: Option<&str>, candidates: &[crate::tools::selection::Candidate]| {
+        crate::tools::selection::select(
+            Some(&runtime),
+            &query,
+            "source",
+            prior,
+            candidates,
+            None,
+            octocode_contract_types::SelectionUnit::Chunks,
+        )
+        .unwrap_or_else(|_| panic!("budgeted order"))
+    };
+    let partial = select(None, &candidates);
     assert_eq!(partial.receipt.status, SelectionStatus::Partial);
-    assert_eq!(
-        partial.receipt.reason.as_deref(),
-        Some("candidateStateTooLarge")
-    );
+    assert_eq!(partial.receipt.reason.as_deref(), Some("candidateBudget"));
     assert_eq!(partial.receipt.selected_items, 1);
     assert_eq!(partial.receipt.total_items, 4);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -129,44 +103,24 @@ fn serialized_state_budget_preserves_all_short_lines_and_replay() {
         project(&text, &windows, &partial.selected),
         (text[..2_048].to_owned(), (1..=1_024).collect())
     );
-    let (replayed_candidates, _) = chunks(
-        &text,
-        None,
-        None,
-        Path::new("source.txt"),
-        "source.txt",
-        &ContentSecurity::new(),
-        Some(&runtime),
-        Some(&partial.token),
-        None,
-    );
-    let replay = crate::tools::selection::select(
-        Some(&runtime),
-        &query,
-        "source",
-        Some(&partial.token),
-        &replayed_candidates,
-        None,
-        octocode_contract_types::SelectionUnit::Chunks,
-    )
-    .unwrap_or_else(|_| panic!("replay order"));
+    let (replayed, _) = split(Some(&partial.token));
+    let replay = select(Some(&partial.token), &replayed);
     assert_eq!(replay.selected, partial.selected);
     assert_eq!(replay.receipt, partial.receipt);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
+/// Walking the candidate pages of a read reaches every line once, each chunk
+/// judged once; the unfiltered lead reads the same lines with no call.
 #[test]
-fn exhausted_state_budget_withholds_bodies_and_unfiltered_recovers_every_line() {
+fn a_walk_reaches_every_line_and_unfiltered_recovers_them() {
     use crate::execution::cancel::NeverCancel;
     use crate::tools::source_view::SourceFacts;
     let executor = tokio::runtime::Runtime::new().unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let runtime = budget_runtime(executor.handle().clone(), calls.clone());
+    let mut runtime = budget_runtime(executor.handle().clone(), calls.clone());
+    runtime.limits.max_chars = 1;
     let text = "x\n".repeat(4_096);
-    let query: LocalFetchQuery = serde_json::from_value(json!({
-        "path":"source.txt", "ranges":[{"startLine":1,"endLine":4096}], "classification":{"predicates":["Find x"]}
-    }))
-    .unwrap();
     let read = |query: &LocalFetchQuery| {
         crate::tools::source_view::process_fetched_content_selected(
             query,
@@ -179,102 +133,39 @@ fn exhausted_state_budget_withholds_bodies_and_unfiltered_recovers_every_line() 
             Some(&runtime),
         )
     };
-    let selected = read(&query);
-    assert_ne!(selected.status, ReadStatus::Error, "{selected:?}");
-    let receipt = selected.selection.as_ref().expect("receipt");
-    assert_eq!(
-        receipt.status,
-        octocode_contract_types::SelectionStatus::Partial
-    );
-    assert_eq!(receipt.reason.as_deref(), Some("candidateStateTooLarge"));
-    assert_eq!(receipt.unknown_items, 4);
-    assert_eq!(receipt.excluded_items, 0);
-    assert!(selected.content.as_deref().unwrap_or_default().is_empty());
-    let mut query = selected
-        .next
-        .expect("recovery")
-        .unfiltered
-        .expect("unfiltered")
-        .query;
-    assert!(!local_fetch_query::has_classification(&query));
-    assert!(local_fetch_query::selection(&query).is_none());
-    let mut contents = String::new();
+    let mut query: LocalFetchQuery = serde_json::from_value(json!({
+        "path":"source.txt", "ranges":[{"startLine":1,"endLine":4096}],
+        "classification":{"predicates":["Find x"]}
+    }))
+    .unwrap();
     let mut pages = 0;
+    let mut unfiltered = None;
+    loop {
+        let page = read(&query);
+        assert_ne!(page.status, ReadStatus::Error, "{page:?}");
+        pages += 1;
+        assert!(pages < 10, "the walk ends");
+        let Some(next) = page.next else { break };
+        unfiltered = unfiltered.or(next.unfiltered);
+        match next.next_candidate_page {
+            Some(call) => query = call.query,
+            None => break,
+        }
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), pages);
+    let mut query = unfiltered.expect("whole view").query;
+    let judged = calls.load(Ordering::SeqCst);
+    let mut contents = String::new();
     loop {
         let result = read(&query);
-        assert_ne!(result.status, ReadStatus::Error, "{result:?}");
-        assert!(result.selection.is_none());
         contents.push_str(result.content.as_deref().unwrap_or_default());
-        pages += 1;
-        assert!(pages < 50, "unfiltered recovery must make progress");
         let Some(next) = result.next.and_then(|next| next.continue_window) else {
             break;
         };
         query = next.query;
     }
-    assert_eq!(contents, text);
-    assert_eq!(calls.load(Ordering::SeqCst), 0);
-}
-
-#[test]
-fn oversized_line_terminates_selection_and_unfiltered_recovers_all_bytes() {
-    use crate::execution::cancel::NeverCancel;
-    use crate::tools::source_view::SourceFacts;
-    let executor = tokio::runtime::Runtime::new().unwrap();
-    for surrounding in [false, true] {
-        let calls = Arc::new(AtomicUsize::new(0));
-        let mut runtime = budget_runtime(executor.handle().clone(), calls.clone());
-        runtime.limits = crate::execution::RuntimeLimits::DEFAULT.selection;
-        let large_line = format!("{}\n", "x".repeat(140_000));
-        let text = if surrounding {
-            format!("first evidence\n{large_line}second evidence\n")
-        } else {
-            large_line
-        };
-        let query: LocalFetchQuery = serde_json::from_value(json!({
-            "path":"source.txt",
-            "classification":{"predicates":["Find evidence"]}
-        }))
-        .unwrap();
-        let read = |query: &LocalFetchQuery| {
-            crate::tools::source_view::process_fetched_content_selected(
-                query,
-                text.as_bytes(),
-                Path::new("source.txt"),
-                "source.txt",
-                &SourceFacts::default(),
-                &ContentSecurity::new(),
-                &NeverCancel,
-                Some(&runtime),
-            )
-        };
-        let selected = read(&query);
-        assert_ne!(selected.status, ReadStatus::Error, "{selected:?}");
-        let receipt = selected.selection.as_ref().expect("receipt");
-        assert_eq!(receipt.unknown_items, 1);
-        assert_eq!(receipt.excluded_items, 0);
-        assert_eq!(receipt.selected_items, if surrounding { 2 } else { 0 });
-        assert_eq!(receipt.reason.as_deref(), Some("candidateStateTooLarge"));
-        let next = selected.next.expect("raw recovery");
-        assert!(next.next_candidate_page.is_none());
-        let mut query = next.unfiltered.expect("whole view").query;
-        let mut recovered = String::new();
-        let mut pages = 0;
-        loop {
-            let page = read(&query);
-            assert_ne!(page.status, ReadStatus::Error, "{page:?}");
-            assert!(page.selection.is_none());
-            recovered.push_str(page.content.as_deref().unwrap_or_default());
-            pages += 1;
-            assert!(pages < 50, "raw recovery makes progress");
-            let Some(next) = page.next.and_then(|next| next.continue_window) else {
-                break;
-            };
-            query = next.query;
-        }
-        assert_eq!(recovered, text);
-        assert_eq!(calls.load(Ordering::SeqCst), usize::from(surrounding));
-    }
+    assert_eq!(contents.len(), text.len());
+    assert_eq!(calls.load(Ordering::SeqCst), judged, "no inference");
 }
 
 #[test]

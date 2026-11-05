@@ -302,3 +302,61 @@ fn plan_4_typed_this_field_calls_are_member_calls_not_local_matches() {
         "typed member call must not match the local fn: {got:?}"
     );
 }
+
+/// A function taken as a value has no call site, so a ratio of 1.0 over the
+/// sites there are still says nothing of it: every answer that shows the
+/// ratio says so.
+#[test]
+fn a_full_ratio_does_not_read_as_every_use_linked() {
+    let dir = fixture();
+    write_under(
+        &dir,
+        "app/src",
+        &[(
+            "values.ts",
+            "export function target() { return 1; }\nexport function direct() { return target(); }\nexport const held = target;\n",
+        )],
+    );
+    let built = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(built.class, ExitClass::Success);
+    let says_values = |warning: &serde_json::Value| {
+        warning
+            .as_str()
+            .is_some_and(|w| w.contains("taken as a value"))
+    };
+    assert!(
+        built.value["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(says_values),
+        "{}",
+        built.value
+    );
+    let callers = ask(
+        dir.0.as_path(),
+        "callers",
+        Some("src/values.ts#target"),
+        |_| {},
+    );
+    assert_eq!(
+        callers.value["coverage"]["linkage"]["ratio"], 1.0,
+        "{}",
+        callers.value
+    );
+    assert!(
+        says_values(&callers.value["coverage"]["warning"]),
+        "{}",
+        callers.value
+    );
+    let stats = ask(dir.0.as_path(), "stats", None, |_| {});
+    assert!(
+        stats.value["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(says_values),
+        "{}",
+        stats.value
+    );
+}

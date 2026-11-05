@@ -182,8 +182,8 @@ fn a_scoped_search_follows_a_parent_outside_its_root() {
                 .source_snapshot
                 .expect("snapshot");
             assert!(
-                manifest::get(&snapshot, &policy.identity()).is_none(),
-                "{test_code} {scope}: the verdicts are not proved"
+                manifest::get(&snapshot, &policy.identity()).is_some(),
+                "{test_code} {scope}: what the verdicts read proves them"
             );
             let next = ls_query(
                 serde_json::json!({"snapshot": snapshot, "page": 2}),
@@ -231,4 +231,125 @@ fn a_search_with_no_test_code_filter_keeps_its_scan() {
         );
         search_in(&next, &policy, &security, Some(6_000)).expect("page 2");
     }
+}
+
+/// A new file that mounts the searched one by `#[path]` moves it across the
+/// line, though no file the search read changed: the pages go stale.
+#[test]
+fn a_scoped_search_follows_a_file_that_appears_and_mounts_it() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    module_beside_its_parent(root.path(), OPEN);
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({"path": root.path().join("src/sub/a.rs").to_string_lossy(), "matchString": ["needle"], "testCode": "exclude"}),
+        None,
+    );
+    let snapshot = search_in(&request, &policy, &security, Some(6_000))
+        .expect("page 1")
+        .source_snapshot
+        .expect("snapshot");
+    let next = ls_query(
+        serde_json::json!({"snapshot": snapshot, "page": 2}),
+        Some(&request),
+    );
+    search_in(&next, &policy, &security, Some(6_000)).expect("page 2");
+    fs::write(
+        root.path().join("src/sub/added.rs"),
+        "#[cfg(test)]\n#[path = \"a.rs\"]\nmod renamed;\n",
+    )
+    .expect("added");
+    let failed = search_in(&next, &policy, &security, Some(6_000)).expect_err("a new mount");
+    assert_eq!(
+        failed.code,
+        octocode_contract_types::ErrorCode::StaleSnapshot,
+        "{}",
+        failed.message
+    );
+}
+
+/// Each side of a file past the parse limit stays on its side, and nothing is
+/// left to warn about.
+#[test]
+fn a_file_too_large_to_parse_is_split_at_its_test_items() {
+    let padding = "// padding\n".repeat(octocode_engine::signatures::MAX_PARSE_SIZE / 11 + 1);
+    let big = format!(
+        "pub fn needle_run() {{}}\n{padding}#[cfg(test)]\nmod tests {{\n    fn needle_test() {{}}\n}}\n"
+    );
+    let test_line = padding.lines().count() + 4;
+    for (test_code, line) in [("only", test_line), ("exclude", 1)] {
+        let body = search_fixture(
+            &[("src/big.rs", big.as_str())],
+            ls_query(
+                serde_json::json!({"matchString":["needle"],"testCode":test_code}),
+                None,
+            ),
+        );
+        assert_eq!(hits(&body), [format!("src/big.rs:{line}")], "{test_code}");
+        assert_eq!(body["testCodeExcluded"]["lines"], 1, "{test_code}");
+        assert!(body.get("isPartial").is_none(), "{test_code}");
+    }
+}
+
+/// A parent no read can admit leaves its modules unproven, and the row says so.
+#[test]
+fn a_parent_that_cannot_be_read_leaves_the_row_partial() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    let parent = module_beside_its_parent(root.path(), OPEN);
+    let over = u64::try_from(octocode_engine::memory::MEMORY.limit()).expect("limit") + 1;
+    fs::File::options()
+        .write(true)
+        .open(&parent)
+        .and_then(|file| file.set_len(over))
+        .expect("sparse parent");
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({"path": root.path().join("src/sub").to_string_lossy(), "matchString": ["needle"], "testCode": "exclude", "view": "files"}),
+        None,
+    );
+    let body = search_in(&request, &policy, &security, None)
+        .expect("search")
+        .to_row()
+        .expect("serialize");
+    assert_eq!(body["isPartial"], true, "{body}");
+    assert!(
+        body.to_string().contains("testCode verdict"),
+        "names why: {body}"
+    );
+}
+
+/// A file only a `#[path]` mounts under test costs a walk nothing until its
+/// verdict shows: read, then left out by its hits, and left out of a listing of
+/// files without any. One with no hits is not counted among those left out.
+#[test]
+fn a_path_mounted_file_is_decided_when_its_verdict_shows() {
+    const FILES: [(&str, &str); 5] = [
+        ("src/lib.rs", "pub fn open() {}\n"),
+        (
+            "src/fixtures.rs",
+            "#[cfg(test)]\n#[path = \"hit_x.rs\"]\nmod hit;\n#[cfg(test)]\n#[path = \"quiet_x.rs\"]\nmod quiet;\n",
+        ),
+        ("src/hit_x.rs", "fn needle() {}\n"),
+        ("src/quiet_x.rs", "fn other() {}\n"),
+        ("src/prod.rs", "fn needle() {}\n"),
+    ];
+    let search = |test_code: &str, view: &str| {
+        search_fixture(
+            &FILES,
+            ls_query(
+                serde_json::json!({"matchString":["needle"],"testCode":test_code,"view":view}),
+                None,
+            ),
+        )
+    };
+    let exclude = search("exclude", "files");
+    assert_eq!(listed(&exclude), ["src/prod.rs"], "{exclude}");
+    assert_eq!(exclude["testCodeExcluded"]["files"], 1, "{exclude}");
+    let only = search("only", "files");
+    assert_eq!(listed(&only), ["src/hit_x.rs"], "{only}");
+    let without = search("exclude", "filesWithout");
+    assert_eq!(
+        listed(&without),
+        ["src/fixtures.rs", "src/lib.rs"],
+        "{without}"
+    );
 }

@@ -59,3 +59,26 @@ fn a_file_with_no_key_block_is_not_touched() {
         "{out}"
     );
 }
+
+/// A string cut from a private JWK has nothing of `kty` in it: the object it
+/// came from says what it is. Its public members stay readable.
+#[test]
+fn no_row_shows_a_private_member_of_a_jwk() {
+    let scalar = "Fake0Scalar9Not4Real8Value7Long6Enough5Xy";
+    let public = "Public0Coordinate9Stays8Readable7Always6Ab";
+    let root = Fixture::new();
+    let path = root.write(
+        "k.ts",
+        format!(
+            "export const k = {{\n  kty: \"EC\",\n  x: \"{public}\",\n  d: \"{scalar}\",\n}};\n"
+        ),
+    );
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":path,"rule":{"kind":"string"}}),
+    )
+    .expect("match");
+    let shown = out.to_string();
+    assert!(!shown.contains(scalar), "{shown}");
+    assert!(shown.contains(public), "{shown}");
+}

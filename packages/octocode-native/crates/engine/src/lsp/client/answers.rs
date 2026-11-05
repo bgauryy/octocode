@@ -28,3 +28,20 @@ impl<'de> Deserialize<'de> for ProviderAnswers {
         })
     }
 }
+
+impl super::NativeLspClient {
+    /// Drop the answers this response recorded: documents opened since changed
+    /// what an index-backed server answers, so a recorded answer no longer
+    /// stands for asking. Outside a response scope there is nothing to drop.
+    pub fn forget_recorded_answers(&self) {
+        let _ = super::RESPONSE_SCOPE.try_with(|scope| {
+            if let Some(answers) = scope.borrow().answers.as_ref() {
+                answers
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .0
+                    .clear();
+            }
+        });
+    }
+}

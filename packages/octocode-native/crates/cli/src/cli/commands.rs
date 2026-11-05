@@ -158,13 +158,13 @@ pub(super) enum Command {
     Tool(ToolCommand),
 
     // ── System commands ──────────────────────────────────────────────────────
-    /// List tools or a tool's query fields; --view full lists every tool's fields.
+    /// List tools or a tool's query fields; --view full lists every tool's fields, --view output a tool's output meanings.
     #[command(long_about = SCHEMA_HELP)]
     Schema {
         /// Tool name, e.g. `localSearch`. Omit to list every enabled tool.
         tool: Option<String>,
-        /// View: query (default for a tool) or variants; full for the catalog.
-        #[arg(long, value_parser = ["query", "variants", "full"])]
+        /// View: query (default for a tool), variants or output; full for the catalog; flow for the tool-flow guide.
+        #[arg(long, value_parser = ["query", "variants", "output", "full", "flow"])]
         view: Option<String>,
         /// Narrow the query view to one branch by a const field, e.g. `operation=symbols`.
         #[arg(long, value_name = "FIELD=VALUE", requires = "tool")]
@@ -226,7 +226,9 @@ const SCHEMA_HELP: &str =
   octocode schema <tool> --select operation=symbols
                                           one operation's query schema
   octocode schema <tool> --view variants  required fields and examples
+  octocode schema <tool> --view output    what output fields and reasons mean
   octocode schema --view full             fields, instructions and grammars
+  octocode schema --view flow             which tool, how little to ask for, recovery
 
 JSON: indented on a terminal, one line on a pipe.";
 

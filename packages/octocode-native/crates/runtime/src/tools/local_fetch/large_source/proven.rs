@@ -5,12 +5,15 @@
 //! match page reads its source once plus the bytes around its windows.
 
 use super::Streamed;
-use super::held::{Want, WindowLines};
+use super::held::{InLine, Want, WindowLines};
+use super::masks::{Judged, judge};
 use super::stream::{seek, streamed};
 use crate::execution::cancel::CancellationCheck;
 use crate::security::KeyBlockState;
+use octocode_engine::security::{Named, SourceNames};
 use octocode_engine::stamp::SourceStamp;
 use std::io::Read;
+use std::sync::OnceLock;
 
 /// Source bytes between checkpoints: what a window may re-read before its
 /// first line. Sizes the work, never the result.
@@ -57,6 +60,21 @@ pub(super) struct Proof {
     /// The settle clock before `stamp`: a write after it cannot be told from
     /// the stamp unless the stamp is older than it by the settle window.
     started: std::time::SystemTime,
+    /// What the source spells that only its structure can judge.
+    names: SourceNames,
+    /// Places inside long lines a later read can start from, and those lines.
+    in_lines: Vec<InLine>,
+    long_lines: Vec<LongLineExtent>,
+    line_at: u64,
+    next_in_line: u64,
+}
+
+/// A line longer than [`CHECKPOINT_BYTES`] that no key block replaces: its number
+/// and its bytes, so a read need not reach its end to know them.
+#[derive(Clone, Copy)]
+struct LongLineExtent {
+    line: usize,
+    bytes: usize,
 }
 
 /// What one whole pass over a source holds once it ended.
@@ -67,8 +85,13 @@ pub(super) struct Pass {
 }
 
 impl Proof {
-    /// A pass over `file` that also holds the windows of `wants`.
-    pub(super) fn new(file: &std::fs::File, wants: &[Want]) -> Result<Self, String> {
+    /// A pass over `file`, the source at `path`, that also holds the windows of
+    /// `wants`.
+    pub(super) fn new(
+        file: &std::fs::File,
+        path: &std::path::Path,
+        wants: &[Want],
+    ) -> Result<Self, String> {
         let started = octocode_engine::stamp::settle_clock();
         Ok(Self {
             hasher: octocode_engine::digest::HashWriter::default(),
@@ -84,12 +107,18 @@ impl Proof {
             }],
             stamp: stamp(file)?,
             started,
+            names: SourceNames::for_path(&path.to_string_lossy()),
+            in_lines: Vec::new(),
+            long_lines: Vec::new(),
+            line_at: 0,
+            next_in_line: 0,
         })
     }
 
     /// Take the source's next `bytes`.
     pub(super) fn feed(&mut self, bytes: &[u8]) {
         self.hasher.update(bytes);
+        self.names.feed(bytes);
         let mut rest = bytes;
         while !rest.is_empty() {
             let (piece, newline) = split_line(rest);
@@ -97,8 +126,15 @@ impl Proof {
             self.offset += piece.len() as u64;
             self.pending = !newline;
             self.lines.push(piece, self.line);
+            if !newline
+                && self.offset - self.line_at >= CHECKPOINT_BYTES
+                && self.offset >= self.next_in_line
+            {
+                self.in_lines.push(self.lines.in_line(self.line));
+                self.next_in_line = self.offset + CHECKPOINT_BYTES;
+            }
             if newline {
-                self.lines.finish(self.line);
+                self.close_line();
                 self.line += 1;
                 if self.offset >= self.next {
                     self.checkpoints.push(Checkpoint {
@@ -112,10 +148,22 @@ impl Proof {
         }
     }
 
+    fn close_line(&mut self) {
+        let hidden = self.lines.finish(self.line);
+        let bytes = self.offset - self.line_at;
+        if bytes > CHECKPOINT_BYTES && !hidden {
+            self.long_lines.push(LongLineExtent {
+                line: self.line,
+                bytes: octocode_engine::num::saturating_usize(bytes),
+            });
+        }
+        self.line_at = self.offset;
+    }
+
     /// The pass once the source ended.
     pub(super) fn finish(mut self) -> Pass {
         if self.pending {
-            self.lines.finish(self.line);
+            self.close_line();
         }
         Pass {
             proven: Proven {
@@ -123,6 +171,10 @@ impl Proof {
                 checkpoints: self.checkpoints,
                 stamp: self.stamp,
                 started: self.started,
+                named: self.names.finish(),
+                judged: OnceLock::new(),
+                in_lines: self.in_lines,
+                long_lines: self.long_lines,
             },
             lines: self.lines,
             total_lines: if self.pending {
@@ -131,6 +183,20 @@ impl Proof {
                 self.line - 1
             },
         }
+    }
+}
+
+impl Pass {
+    /// Hide what the source's structure says is secret in the windows this pass
+    /// holds: only now, with every byte seen, is that known.
+    pub(super) fn mask_windows(
+        &mut self,
+        file: &std::fs::File,
+        cancel: &impl CancellationCheck,
+    ) -> Result<(), String> {
+        let judged = self.proven.judged(file, cancel)?;
+        self.lines.mask(judged);
+        Ok(())
     }
 }
 
@@ -149,9 +215,28 @@ pub(super) struct Proven {
     checkpoints: Vec<Checkpoint>,
     stamp: Stamp,
     pub(super) started: std::time::SystemTime,
+    named: Named,
+    /// What the source's structure says is secret: walked at most once, when a
+    /// window is first shown of a source that names something.
+    judged: OnceLock<Judged>,
+    in_lines: Vec<InLine>,
+    long_lines: Vec<LongLineExtent>,
 }
 
 impl Proven {
+    fn judged(
+        &self,
+        file: &std::fs::File,
+        cancel: &impl CancellationCheck,
+    ) -> Result<&Judged, String> {
+        if let Some(judged) = self.judged.get() {
+            return Ok(judged);
+        }
+        let budget = octocode_engine::memory::MEMORY.limit();
+        let judged = judge(file, self.named, &self.digest, budget, cancel)?;
+        Ok(self.judged.get_or_init(|| judged))
+    }
+
     /// Whether `file` still has the stamp this pass started from, and `meta`
     /// saw that same state.
     pub(super) fn unchanged(&self, file: &std::fs::File, meta: &std::fs::Metadata) -> bool {
@@ -160,7 +245,11 @@ impl Proven {
 
     /// About how many bytes this proof holds.
     pub(super) fn weight(&self) -> usize {
-        self.digest.len() + self.checkpoints.len() * std::mem::size_of::<Checkpoint>()
+        self.digest.len()
+            + self.checkpoints.len() * std::mem::size_of::<Checkpoint>()
+            + self.judged.get().map_or(0, Judged::weight)
+            + self.in_lines.iter().map(InLine::weight).sum::<usize>()
+            + self.long_lines.len() * std::mem::size_of::<LongLineExtent>()
     }
 
     /// The checkpoint to skip ahead to from `line` (a line start): the
@@ -181,6 +270,17 @@ impl Proven {
         self.checkpoints.get(at.checked_sub(1)?).copied()
     }
 
+    /// The last place inside `want`'s line whose bytes before it the window skips.
+    fn in_line_before(&self, want: &Want) -> Option<&InLine> {
+        let at = self.in_lines.partition_point(|point| {
+            point.line < want.first
+                || (point.line == want.first && point.offset - point.line_at <= want.from)
+        });
+        self.in_lines
+            .get(at.checked_sub(1)?)
+            .filter(|point| point.line == want.first)
+    }
+
     /// The windows of `wants` from the proved source `file` with
     /// `total_lines` lines: each run of wanted lines is read from the
     /// checkpoint before it. The handle must still have the stamp it had when
@@ -192,16 +292,34 @@ impl Proven {
         total_lines: usize,
         cancel: &impl CancellationCheck,
     ) -> Result<Vec<Streamed>, String> {
+        let judged = self.judged(file, cancel)?;
         let last = wants.iter().map(|want| want.last).max().unwrap_or(0);
         let mut lines = WindowLines::new(wants, KeyBlockState::default());
         let (mut line, mut at, mut pending) = (1usize, 0u64, false);
         let mut buffer = vec![0u8; READ_BYTES];
         seek(file, 0)?;
+        // One window of one long line: from the nearest place before its bytes, and
+        // no further than it holds.
+        let long_line = match wants {
+            [want] if want.first == want.last => self
+                .long_lines
+                .iter()
+                .find(|long| long.line == want.first)
+                .copied(),
+            _ => None,
+        };
+        if let (Some(_), [want]) = (long_line, wants)
+            && let Some(point) = self.in_line_before(want)
+        {
+            seek(file, point.offset as u64)?;
+            lines.resume(point);
+            (line, at, pending) = (point.line, point.offset as u64, true);
+        }
         'read: while line <= last {
             if !pending && let Some(point) = self.ahead(wants, line).filter(|p| p.offset > at) {
                 seek(file, point.offset)?;
                 (line, at) = (point.line, point.offset);
-                lines.restart(point.block);
+                lines.restart(point.block, point.offset);
             }
             cancel.check()?;
             let read = (&mut &*file)
@@ -218,6 +336,11 @@ impl Proven {
                 at += piece.len() as u64;
                 pending = !newline;
                 lines.push(piece, line);
+                if let Some(long) = long_line.filter(|_| lines.windows_full()) {
+                    lines.close_known(long.line, long.bytes);
+                    pending = false;
+                    break 'read;
+                }
                 if newline {
                     lines.finish(line);
                     line += 1;
@@ -235,6 +358,7 @@ impl Proven {
         if stamp(file)? != self.stamp {
             return Err("the source changed while it was read; read it again".to_owned());
         }
+        lines.mask(judged);
         Ok(streamed(lines, &self.digest, total_lines, false))
     }
 }

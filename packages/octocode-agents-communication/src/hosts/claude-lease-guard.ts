@@ -33,9 +33,9 @@ function configuration(values: Values) {
   if (process.platform === 'win32') throw Error('This config preview requires a POSIX command shell');
   const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
   const command = [process.execPath, fileURLToPath(import.meta.url), ...Object.keys(options).flatMap(key => [`--${key}`, values[key]])].map(quote).join(' ');
-  process.stderr.write(JSON.stringify({type: 'leaseGuard', vendor: 'claude', configured: false,
+  process.stderr.write(`${JSON.stringify({type: 'leaseGuard', vendor: 'claude', configured: false,
     supportedOperations: Object.keys(EDIT_TOOLS), advisory: true,
-    reason: 'Preview only: merge these synchronous hooks into the intended session. Bash/MCP/custom tools and OS writes are not fenced.'}) + '\n');
+    reason: 'Preview only: merge these synchronous hooks into the intended session. Bash/MCP/custom tools and OS writes are not fenced.'})}\n`);
   return {hooks: {PreToolUse: [{matcher: `^(${Object.keys(EDIT_TOOLS).join('|')})$`, hooks: [{type: 'command', command, timeout: 10}]}]}};
 }
 async function guard(values: Values) {
@@ -56,10 +56,10 @@ try {
   const result = values.help
     ? {usage: 'node claude-lease-guard.js [--config] --binary ABSOLUTE_CLI --workspace ABSOLUTE_REPO --database ABSOLUTE_DB --session DB_ID --host-session CLAUDE_ID', coverage: 'PreToolUse Write/Edit/MultiEdit/NotebookEdit only; raw CLI needs no Node. Config is a preview and writes no settings.'}
     : values.config ? configuration(values) : await guard(values);
-  process.stdout.write(JSON.stringify(result) + '\n');
+  process.stdout.write(`${JSON.stringify(result)}\n`);
 } catch {
   if (process.argv.includes('--config')) {
     process.stderr.write('Invalid lease guard configuration. Use --help for required absolute paths and session bindings.\n');
     process.exitCode = 1;
-  } else process.stdout.write(JSON.stringify(deny('File edit blocked because live lease ownership or the host binding could not be verified.')) + '\n');
+  } else process.stdout.write(`${JSON.stringify(deny('File edit blocked because live lease ownership or the host binding could not be verified.'))}\n`);
 }

@@ -8,3 +8,4 @@ pub(crate) mod key_formats;
 pub(crate) mod marker_lines;
 mod marker_precheck;
 mod sanitization;
+mod structured;

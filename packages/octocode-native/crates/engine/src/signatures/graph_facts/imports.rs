@@ -62,6 +62,7 @@ pub(super) fn collect_rust_module(
             scope: scope.clone(),
             inline,
             path,
+            test_path: rust.context.attributes.test_path.clone(),
             unsupported,
         });
         if !inline {

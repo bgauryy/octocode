@@ -19,6 +19,7 @@ use oxc_ast::ast::*;
 use super::js_oxc_calls::{dotted_expression_name, ts_type_name, unwrap_expr};
 use super::js_oxc_shared::property_key_name;
 
+mod aliases;
 mod class_fields;
 mod object_types;
 mod return_shapes;
@@ -32,6 +33,8 @@ struct Binding {
     ty: Option<String>,
     /// Written with a type annotation: reassignment cannot change it.
     declared: bool,
+    /// `const f = ns.g`: what a call of the name calls.
+    alias: Option<String>,
 }
 
 pub(super) struct ReceiverScopes {
@@ -41,6 +44,8 @@ pub(super) struct ReceiverScopes {
     this_fields: Vec<Option<Fields>>,
     /// Set by a class instance method for its own function.
     method_pending: bool,
+    /// The declarators being read belong to a `const`.
+    in_const: bool,
     /// The file's object types, for destructured parameters.
     object_types: ObjectTypes,
     /// The objects the file's own functions return, for destructured calls.
@@ -53,6 +58,7 @@ impl Default for ReceiverScopes {
             scopes: vec![HashMap::new()],
             this_fields: vec![None],
             method_pending: false,
+            in_const: false,
             object_types: ObjectTypes::default(),
             return_shapes: ReturnShapes::default(),
         }
@@ -107,6 +113,17 @@ impl ReceiverScopes {
     }
 
     pub(super) fn bind_declarator(&mut self, it: &VariableDeclarator) {
+        let alias = self.const_alias(it);
+        self.bind_typed(it);
+        if let (Some(alias), BindingPattern::BindingIdentifier(name), Some(scope)) =
+            (alias, &it.id, self.scopes.last_mut())
+            && let Some(binding) = scope.get_mut(name.name.as_str())
+        {
+            binding.alias = Some(alias);
+        }
+    }
+
+    fn bind_typed(&mut self, it: &VariableDeclarator) {
         if let (BindingPattern::ObjectPattern(object), None) = (&it.id, &it.type_annotation)
             && let Some(fields) = self.returned_shape(it.init.as_ref())
         {
@@ -259,7 +276,11 @@ impl ReceiverScopes {
         if let BindingPattern::BindingIdentifier(identifier) = pattern {
             scope.insert(
                 identifier.name.as_str().to_owned(),
-                Binding { ty, declared },
+                Binding {
+                    ty,
+                    declared,
+                    alias: None,
+                },
             );
             return;
         }
@@ -271,6 +292,7 @@ impl ReceiverScopes {
                 Binding {
                     ty: None,
                     declared: true,
+                    alias: None,
                 },
             );
         }

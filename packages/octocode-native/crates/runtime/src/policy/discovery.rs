@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 mod admission;
 #[cfg(test)]
@@ -65,6 +65,7 @@ pub(crate) const CREDENTIAL_FILE_NAMES: &[&str] = &[
     "secrets.yaml",
     "secrets.yml",
     "credentials.json",
+    ".credentials.json",
     "credentials.yaml",
     "credentials.yml",
     "auth.json",
@@ -82,6 +83,9 @@ pub(crate) const CREDENTIAL_FILE_NAMES: &[&str] = &[
     "id_ed25519",
     "keyfile",
     "keyfile.json",
+    // The key beside Octocode's encrypted `credentials.json`: the extension
+    // rule needs a stem, so this bare name would slip past it.
+    ".key",
     "gcloud-service-key.json",
     "firebase-adminsdk.json",
     "google-services.json",
@@ -228,6 +232,25 @@ pub(crate) fn is_sensitive_path(path: &Path, kind: EntryKind) -> bool {
         || (kind != EntryKind::Dir && is_sensitive_file(&aliases))
 }
 
+/// [`is_sensitive_path`] of a file a repository names by `path`, the rule the
+/// classification egress applies whatever the source. The path is rooted, as a
+/// local one is, so a location named by a fragment (`.config/gh/`) matches at
+/// the repository root too, and read as GitHub reads it (`./.env`, `a/../.env`).
+pub(crate) fn is_sensitive_repository_file(path: &str) -> bool {
+    let inside = octocode_engine::text::lexical(Path::new(path));
+    is_sensitive_path(&Path::new("/").join(inside), EntryKind::File)
+}
+
+/// `path` as a case-insensitive filesystem compares it ([`folded`]).
+pub(crate) fn folded_path(path: &Path) -> PathBuf {
+    PathBuf::from(folded(&octocode_engine::text::slash_path(path)).into_owned())
+}
+
+/// Whether `path` is or lies in a sensitive directory, which no setting lifts.
+pub(crate) fn is_in_sensitive_directory(path: &Path) -> bool {
+    sensitive_directory(&octocode_engine::text::slash_path(path)).is_some()
+}
+
 /// [`is_sensitive_path`] of an entry named `name` under a directory the check
 /// already cleared: only the name can add a reason. `None` when the whole path
 /// must tell: a name that can complete a credential location
@@ -263,12 +286,13 @@ fn sensitive_directory(aliases: &str) -> Option<&'static str> {
         })
 }
 
-/// Recovery for a path the security policy withholds: no flag or setting
-/// lifts it, so a retry or a respelling cannot succeed.
-pub(crate) const WITHHELD_HINT: &str = "Do not retry or respell: the security path policy withholds this path; no flag or config lifts it.";
+/// Recovery for a path the security policy withholds: no query field lifts it,
+/// so a retry or a respelling cannot succeed.
+pub(crate) const WITHHELD_HINT: &str = "Do not retry or respell: the security path policy withholds this path, and no query field lifts it.";
 
-/// The error message for a requested path the security policy withholds:
-/// what it matched, and that nothing lifts it.
+/// The error message for a requested path the security policy withholds: what
+/// it matched, and what can lift it. A credential file name depends on the
+/// user's configuration and the tool; a sensitive directory never opens.
 pub(crate) fn withheld_message(display: &str, path: &Path) -> String {
     let aliases = octocode_engine::text::slash_path(path);
     let matched = match sensitive_directory(&aliases) {
@@ -276,7 +300,11 @@ pub(crate) fn withheld_message(display: &str, path: &Path) -> String {
             "a `.git` file, the pointer a submodule or worktree keeps to its repository".to_owned()
         }
         Some(dir) => format!("a `{}/` directory", dir.trim_end_matches('/')),
-        None => "a credential file name".to_owned(),
+        None => {
+            return format!(
+                "Path '{display}' is withheld by the security path policy (a credential file name): this tool does not read it under the user's configuration."
+            );
+        }
     };
     format!(
         "Path '{display}' is withheld by the security path policy ({matched}): no local tool reads it, and no flag or config setting lifts it."

@@ -65,7 +65,7 @@ pub(crate) fn capture(
         budget: octocode_io::budget::RequestBudget::new(
             context.deadline,
             context.cancellation.clone(),
-            fetch::MAX_BODY_BYTES,
+            dispatcher.text_capture_limit(),
         ),
     };
     let redaction = Redaction {

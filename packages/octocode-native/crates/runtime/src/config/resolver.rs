@@ -271,6 +271,15 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
         }
     };
     diagnostics.extend(unknown_tool_names(&resolved, &source_path));
+    // Diagnostics are data returned to tools and printed before an output
+    // envelope exists. Scrub once here for both JSON and startup stderr;
+    // source_path remains the exact filesystem locator.
+    for diagnostic in &mut diagnostics {
+        diagnostic.message = crate::security::scrub_error_text(&diagnostic.message);
+        if let Some(field) = &mut diagnostic.field_path {
+            *field = crate::security::scrub_error_text(field);
+        }
+    }
     let token = resolve_env_token(&effective);
     let config_path =
         (global_state != LayerState::Absent).then(|| input.config_file.path().clone());
@@ -297,6 +306,15 @@ pub(crate) fn get_config_value(resolved: &ResolvedConfig, path: &str) -> Option<
 }
 pub fn is_persistent_storage_enabled(resolved: &ResolvedConfig) -> bool {
     resolved.storage.mode == StorageMode::Persistent
+}
+
+/// Whether results of local reads may be saved to disk. Under
+/// `security.credentialFiles: allow` a row can hold what redaction left of a
+/// credential file, so those results stay in memory; provider answers, clones
+/// and graph snapshots hold none and follow `storage.mode`.
+pub fn saves_local_results(resolved: &ResolvedConfig) -> bool {
+    is_persistent_storage_enabled(resolved)
+        && resolved.security.credential_files == CredentialFilesPolicy::Withhold
 }
 
 #[cfg(test)]

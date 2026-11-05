@@ -21,6 +21,9 @@ pub(super) struct Walked {
     pub(super) rows_digest: std::sync::OnceLock<String>,
     /// The page cut its first page made, with what it was cut for.
     page_cut: std::sync::OnceLock<(PageCut, Vec<Range<usize>>)>,
+    /// The proof of the directories and rule files of a listing kept whole
+    /// ([`super::windows`]), which its pages share instead of `walked_dirs`.
+    pub(super) dirs: Option<octocode_engine::stamp::Proof>,
 }
 
 /// Everything beside its rows that a walk's page cut depends on.
@@ -37,7 +40,61 @@ pub(super) struct PageCut {
     pub(super) limit: Option<usize>,
 }
 
+/// What proves a listing beyond its rows and directories: what a `testCode` scope,
+/// a metadata filter or a replay read, and what the windows before a kept cursor read.
+#[derive(Clone, Default)]
+pub(super) enum Verdicts {
+    #[default]
+    Unscoped,
+    Proved(octocode_engine::stamp::Proof),
+    /// No proof could be taken, so the rows are not kept.
+    Unproved,
+}
+
+impl Verdicts {
+    /// The verdicts of a walk: what a `testCode` scope read, the entries it
+    /// `evaluated`, and what the windows `earlier` read. `watched` is false when
+    /// something it read has no proof: a scope's read, or a filter no stamp shows
+    /// the change of.
+    pub(super) fn of(
+        scoped: Option<octocode_engine::stamp::Proof>,
+        evaluated: Vec<octocode_engine::types::EvaluatedEntry>,
+        earlier: Option<&octocode_engine::stamp::Proof>,
+        watched: bool,
+    ) -> Self {
+        if !watched {
+            return Self::Unproved;
+        }
+        let Some(taken) = evaluated
+            .into_iter()
+            .map(|entry| Some((entry.path, entry.stamp?)))
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Self::Unproved;
+        };
+        if scoped.is_none() && taken.is_empty() && earlier.is_none() {
+            return Self::Unscoped;
+        }
+        let proof = scoped
+            .unwrap_or_default()
+            .with_taken(octocode_engine::stamp::Link::Itself, taken);
+        Self::Proved(match earlier {
+            Some(earlier) => proof.with(earlier),
+            None => proof,
+        })
+    }
+
+    /// The bytes its proof holds.
+    fn weight(&self) -> usize {
+        match self {
+            Self::Proved(proof) => proof.weight(),
+            Self::Unscoped | Self::Unproved => 0,
+        }
+    }
+}
+
 /// What a listing walk saw beside its rows.
+#[derive(Clone)]
 pub(super) struct WalkMeta {
     /// Listing rows before this window's end (`scanOffset` plus the rows
     /// this window took): where `next.nextPage` resumes.
@@ -61,8 +118,15 @@ pub(super) struct WalkMeta {
     pub(super) walked_dirs: Vec<octocode_engine::types::WalkedDir>,
     /// The walk read no row's metadata, so no row has a stamp to watch.
     pub(super) names_only: bool,
-    /// Entries a `testCode` scope left out of the window (`None` unscoped).
-    pub(super) test_code_excluded: Option<octocode_engine::types::TestCodeExcluded>,
+    /// What a `testCode` scope left of the window (`None` unscoped).
+    pub(super) test_code: Option<super::walk_policy::TestCodeWindow>,
+    pub(super) verdicts: Verdicts,
+    /// What the rows before this window hash to, when the query pinned them
+    /// ([`super::windows`]).
+    pub(super) pinned_before: Option<String>,
+    /// The listing through this window when it runs past one
+    /// ([`super::windows`]): what its pages and next window pin.
+    pub(super) pins_through: Option<String>,
 }
 
 impl Walked {
@@ -73,15 +137,31 @@ impl Walked {
         root: &std::path::Path,
         paths: &crate::policy::path::PathPolicy,
     ) -> Option<octocode_engine::stamp::Proof> {
-        let listed = if self.meta.names_only {
-            Vec::new()
-        } else {
+        let listed = memo::row_stamps(
+            self.meta.names_only,
             self.rows
                 .iter()
-                .map(|row| Some((row.source.clone(), row.stamp?)))
-                .collect::<Option<Vec<_>>>()?
-        };
-        memo::walk_proof(root, paths, &self.meta.walked_dirs, listed)
+                .map(|row| (row.source.as_path(), row.stamp)),
+        )?;
+        if let Some(dirs) = &self.dirs {
+            return Some(if listed.is_empty() {
+                dirs.clone()
+            } else {
+                dirs.clone()
+                    .with_taken(octocode_engine::stamp::Link::Itself, listed)
+            });
+        }
+        let walked = memo::walk_proof(root, paths, &self.meta.walked_dirs, listed)?;
+        match &self.meta.verdicts {
+            Verdicts::Unscoped => Some(walked),
+            Verdicts::Proved(verdicts) => Some(walked.with(verdicts)),
+            Verdicts::Unproved => None,
+        }
+    }
+
+    /// Whether [`Self::proof`] is the listing's own, which it already weighs.
+    pub(super) fn shares_proof(&self) -> bool {
+        self.dirs.is_some() && self.rows.iter().all(|row| row.stamp.is_none())
     }
 
     /// The row ranges of each page under `cut`. The cut of a walk's first
@@ -110,7 +190,6 @@ impl Walked {
     /// The heap this walk holds: the capacity of its row table and of every
     /// string in it, and what it keeps beside the rows.
     pub(super) fn weight(&self) -> usize {
-        let meta = &self.meta;
         let row = |row: &Row| {
             row.dir.capacity()
                 + row.entry.capacity()
@@ -119,6 +198,21 @@ impl Walked {
                 + row.name.capacity()
                 + row.source.capacity()
         };
+        let cut = self.page_cut.get().map_or(0, |(cut, pages)| {
+            cut.prefix.capacity() + pages.capacity() * size_of::<Range<usize>>()
+        });
+        size_of::<Self>()
+            + self.rows.capacity() * size_of::<Row>()
+            + self.rows.iter().map(row).sum::<usize>()
+            + self.meta.weight()
+            + self.rows_digest.get().map_or(0, String::capacity)
+            + cut
+    }
+}
+
+impl WalkMeta {
+    /// The heap this holds.
+    pub(super) fn weight(&self) -> usize {
         let dir = |dir: &octocode_engine::types::WalkedDir| {
             dir.path.capacity()
                 + dir.ignore_files.capacity() * size_of::<(std::path::PathBuf, bool)>()
@@ -132,20 +226,13 @@ impl Walked {
             names.capacity() * size_of::<String>()
                 + names.iter().map(String::capacity).sum::<usize>()
         };
-        let cut = self.page_cut.get().map_or(0, |(cut, pages)| {
-            cut.prefix.capacity() + pages.capacity() * size_of::<Range<usize>>()
-        });
-        size_of::<Self>()
-            + self.rows.capacity() * size_of::<Row>()
-            + self.rows.iter().map(row).sum::<usize>()
-            + meta.walked_dirs.capacity() * size_of::<octocode_engine::types::WalkedDir>()
-            + meta.walked_dirs.iter().map(dir).sum::<usize>()
-            + names(&meta.uncovered.ignored)
-            + names(&meta.uncovered.hidden)
-            + names(&meta.uncovered.pruned)
-            + meta.time_cut.as_ref().map_or(0, String::capacity)
-            + self.rows_digest.get().map_or(0, String::capacity)
-            + cut
+        self.walked_dirs.capacity() * size_of::<octocode_engine::types::WalkedDir>()
+            + self.walked_dirs.iter().map(dir).sum::<usize>()
+            + names(&self.uncovered.ignored)
+            + names(&self.uncovered.hidden)
+            + names(&self.uncovered.pruned)
+            + self.time_cut.as_ref().map_or(0, String::capacity)
+            + self.verdicts.weight()
     }
 }
 
@@ -163,19 +250,7 @@ impl Walked {
         names_only: bool,
     ) -> Self {
         let offset = scan_offset.min(available);
-        // A non-directory row is a file; bytes are regular files' (a
-        // symlink's own length is no content).
-        let (mut files, mut dirs, mut bytes) = (0, 0, 0_u64);
-        for row in &rows {
-            match row.kind {
-                EntryKind::Directory => dirs += 1,
-                EntryKind::Symlink => files += 1,
-                EntryKind::File => {
-                    files += 1;
-                    bytes += u64::try_from(row.size).unwrap_or(0);
-                }
-            }
-        }
+        let (files, dirs, bytes) = counts(&rows);
         let meta = WalkMeta {
             covered: offset + rows.len(),
             available,
@@ -199,13 +274,40 @@ impl Walked {
                 native.walk_position,
                 (native.skipped, native.permission_denied),
             ),
-            test_code_excluded: None,
+            test_code: None,
+            verdicts: Verdicts::Unscoped,
+            pinned_before: None,
+            pins_through: None,
         };
+        Self::of(rows, meta, None)
+    }
+
+    /// This window's `rows`, cut from a listing kept whole with `listing` beside
+    /// its rows, proved by its directories (`dirs`) and these rows.
+    pub(super) fn served(
+        rows: Vec<Row>,
+        listing: &WalkMeta,
+        scan_offset: usize,
+        dirs: octocode_engine::stamp::Proof,
+    ) -> Self {
+        let (files, folders, bytes) = counts(&rows);
+        let meta = WalkMeta {
+            covered: scan_offset.min(listing.available) + rows.len(),
+            files,
+            dirs: folders,
+            bytes: (!listing.names_only).then_some(bytes),
+            ..listing.clone()
+        };
+        Self::of(rows, meta, Some(dirs))
+    }
+
+    fn of(rows: Vec<Row>, meta: WalkMeta, dirs: Option<octocode_engine::stamp::Proof>) -> Self {
         Self {
             rows,
             meta,
             rows_digest: std::sync::OnceLock::new(),
             page_cut: std::sync::OnceLock::new(),
+            dirs,
         }
     }
 
@@ -250,8 +352,26 @@ impl Walked {
             scan_offset,
             covered: meta.covered,
             snapshot,
+            pins_through: meta.pins_through.clone(),
         }
     }
+}
+
+/// Files, directories and file bytes of `rows`: a non-directory row is a file;
+/// bytes are regular files' (a symlink's own length is no content).
+fn counts(rows: &[Row]) -> (usize, usize, u64) {
+    let (mut files, mut dirs, mut bytes) = (0, 0, 0_u64);
+    for row in rows {
+        match row.kind {
+            EntryKind::Directory => dirs += 1,
+            EntryKind::Symlink => files += 1,
+            EntryKind::File => {
+                files += 1;
+                bytes += u64::try_from(row.size).unwrap_or(0);
+            }
+        }
+    }
+    (files, dirs, bytes)
 }
 
 #[cfg(test)]

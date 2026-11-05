@@ -39,6 +39,13 @@ pattern!(
     r"<([A-Za-z0-9_.\-]+)>\s*([^<]*?)\s*</([A-Za-z0-9_.\-]+)>"
 );
 pattern!(reference, r"\$\{([^}]+)\}");
+// `ComparableVersion`'s prerelease qualifiers and their one-letter aliases
+// (which need a digit right after them, so `-b` alone is not a beta), plus the
+// pre-final words it does not know, which it would order after a final release.
+pattern!(
+    prerelease,
+    r"(?i)(?:^|[^a-z])(?:(?:alpha|beta|milestone|rc|cr|snapshot|pre|preview|dev|ea|eap|nightly)(?:[^a-z]|$)|[abm][0-9])"
+);
 
 /// The bounded set of `<tag>value</tag>` fields extracted from
 /// `maven-metadata.xml`. Unknown tags return `None` (the `regex` crate has

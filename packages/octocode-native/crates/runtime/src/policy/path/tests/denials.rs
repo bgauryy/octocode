@@ -254,7 +254,7 @@ fn outside_denial_names_the_allowed_roots_redacted_once_each() {
     assert_eq!(denied.code, PolicyErrorCode::OutsideAllowedRoots);
     assert_eq!(
         denied.message,
-        "Path '/nowhere/at/all.txt' is outside allowed directories (allowed: ., ~/.octocode)"
+        "Path '/nowhere/at/all.txt' is outside allowed directories. Use a path relative to the workspace root, or absolute inside it: structureSearch path \".\" lists the root. Also readable: ~/.octocode."
     );
     std::fs::remove_dir_all(workspace).expect("remove workspace fixture");
     std::fs::remove_dir_all(home).expect("remove home fixture");

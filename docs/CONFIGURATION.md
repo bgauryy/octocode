@@ -69,7 +69,7 @@ TAVILY_API_KEY=tvly-example
 {"mcpServers":{"octocode":{"command":"npx","args":["-y","octocode-mcp@latest"],"env":{"OCTOCODE_BETA":"true"}}}}
 ```
 
-**Language servers** are set in `~/.octocode/lsp-servers.json`, which maps an extension to a server: `{"languageServers":{".ts":{"command":"tsgo","args":["--lsp","-stdio"],"languageId":"typescript"}}}`.
+**Language servers** are set in `~/.octocode/lsp-servers.json`, which maps an extension to a server: `{"languageServers":{".ts":{"command":"tsgo","args":["--lsp","-stdio"],"languageId":"typescript"}}}`. Check it with `npx octocode lsp-server status`, which reports every problem and exits 1 on one; a wrong entry costs only itself, and `lspSearch` repeats the problem on the rows it changes. Add `--live` to start the servers.
 
 ### Change the classification host
 
@@ -104,7 +104,7 @@ Check it with `npx octocode auth status --json`. Login, refresh and GitHub Enter
 
 ## Tool availability: CLI and MCP
 
-The CLI always has all 16 tools. MCP starts with 12 and adds the rest when you opt in. These choices never relax file, credential or network protections.
+The CLI has 15 tools, plus `clasify` with a classification key and `securityCheck` with its opt-in. MCP starts with 12 and adds the rest when you opt in. These choices never relax file, credential or network protections.
 
 | Tools | In MCP | Needs when called |
 |---|---|---|
@@ -113,8 +113,11 @@ The CLI always has all 16 tools. MCP starts with 12 and adds the rest when you o
 | `graphBuild`, `graphQuery` | `local.beta: true` | Authorized paths |
 | `clasify` | A classification key | A working key |
 | `ghCloneRepo` | `tools.enableClone: true` | Git, repository access, persistent storage |
+| `securityCheck` | `tools.enableSecurityCheck: true`, on the CLI too | Sends package names and versions to [OSV](SECURITY.md#advisory-egress) |
 
 `tools.enabled` is a strict allowlist and `tools.disabled` removes names from it. Neither bypasses an opt-in above.
+
+Without a classification key, both surfaces leave out `clasify`, the `classification` fields and their instructions. Calling `octocode clasify` anyway answers `missingConfiguration` with where to get a key.
 
 ## All settings and defaults
 
@@ -129,16 +132,19 @@ The CLI always has all 16 tools. MCP starts with 12 and adds the rest when you o
 | `local.beta` | `OCTOCODE_BETA` | boolean | `false` | no | no | Expose graphBuild and graphQuery through MCP. CLI tools remain available without this opt-in. Restart MCP after changing this setting. |
 | `local.allowedPaths` | `ALLOWED_PATHS` | list | `[]` | no | no | Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME). The environment value is a comma-separated list. |
 | `local.workspaceRoot` | `WORKSPACE_ROOT` | path | `the working directory` | no | no | Optional absolute or home-relative workspace root. |
-| `tools.enabled` | `TOOLS_TO_RUN` | list | `unset (every tool)` | no | yes | Strict MCP tool allowlist; other MCP prerequisites still apply. CLI exposes every tool in the build. |
-| `tools.disabled` | `DISABLE_TOOLS` | list | `unset (none)` | no | yes | Tools removed from MCP discovery and admission. CLI exposes every tool in the build. |
+| `tools.enabled` | `TOOLS_TO_RUN` | list | `unset (every tool)` | no | yes | Strict MCP tool allowlist; other MCP prerequisites still apply. The CLI ignores this list. |
+| `tools.disabled` | `DISABLE_TOOLS` | list | `unset (none)` | no | yes | Tools removed from MCP discovery and admission. The CLI ignores this list. |
 | `tools.enableClone` | `OCTOCODE_ENABLE_CLONE` | boolean | `false` | no | only `false` | Expose ghCloneRepo through MCP. CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting. |
+| `tools.enableSecurityCheck` | `OCTOCODE_SECURITY_CHECKS` | boolean | `false` | no | only `false` | Expose securityCheck on MCP and the CLI: it asks OSV (api.osv.dev, operated by Google) about packages, sending each public package name and version it checks. Off, the tool is absent from both surfaces and sends nothing. Home-only, so a repository can turn it off but cannot turn it on. |
 | `network.allowPrivateRegistry` | `OCTOCODE_ALLOW_PRIVATE_REGISTRY` | boolean | `false` | no | no | Allow private, loopback, or link-local artifact registries. Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries. |
 | `lsp.autoInstall` | `OCTOCODE_LSP_AUTO_INSTALL` | prompt \| off \| auto | `prompt` | no | no | Whether `octocode lsp-server install` may download a managed language server: prompt (ask), off, or auto. |
 | `lsp.trustProjectConfig` | `OCTOCODE_TRUST_PROJECT_LSP_CONFIG` | boolean | `false` | no | no | Trust a project .octocode/lsp-servers.json. Security-sensitive: a trusted project config can launch server binaries. |
+| `lsp.trustFetchedCode` | `OCTOCODE_LSP_TRUST_FETCHED_CODE` | boolean | `false` | no | only `false` | Let lspSearch start language servers on code Octocode fetched: ghCloneRepo and ghStructure materialize checkouts and URL captures under its home. Off by default, because a language server can run code from the repository it opens; text, AST and graph tools read that code without running anything. Security-sensitive: turning it on lets a repository you fetched run code on this machine when lspSearch opens it. Home-only, so a repository cannot turn it on. |
 | `lsp.prewarm` | `OCTOCODE_LSP_PREWARM` | targeted \| all \| off | `targeted` | no | yes | Language-server prewarm: targeted starts the server an offered lspSearch call names once the session has run an lspSearch; all warms it from the start, also warms the file a read or search names and, at MCP initialize, the workspace's top three languages; off disables it. Each start indexes a whole project, so a first lspSearch under targeted can take seconds in exchange for no server in a session that never calls one. |
 | `output.redactEmails` | `OCTOCODE_REDACT_EMAILS` | boolean | `false` | no | only `true` | Mask email addresses such as GitHub commit authors. |
+| `security.credentialFiles` | `OCTOCODE_CREDENTIAL_FILES` | withhold \| allow | `withhold` | no | only `withhold` | Whether local read and search tools may read files named like credentials (.env, credentials.json, *.pem): withhold them, or allow them in the workspace and allowed paths so results match ripgrep. Secret values stay redacted. Sensitive directories such as .ssh and .git, the Octocode home, and files and dot directories directly in your home stay withheld. Graph snapshots, clasify and classification never read these files, and allow keeps saved local results in memory, so a cursor ends with its process. Security-sensitive: redaction recognizes secret formats, so a secret in no known format can appear in results. Home-only, so a repository cannot turn it on. |
 | `storage.mode` | `OCTOCODE_STORAGE_MODE` | persistent \| memory | `persistent` | no | only `memory` | Persistent saves continuation state and provider answers to disk; memory retains them only in the current runtime. Fresh local requests recompute results; GitHub and registry answers repeat as their origin allows. Explicit graph snapshots are outputs; interrupted extraction checkpoints follow this setting. |
-| `classification.api` | `OCTOCODE_CLASSIFICATION_API` | key | `unset (classification off)`; [get a key](https://docs.typesafe.ai/introduction) | yes | yes | Classification provider API key. A nonblank value exposes clasify and read-tool classifiers in MCP; CLI always exposes clasify and checks the key when invoked. Discovery makes no provider request. Credential values are omitted from resolved configuration and diagnostics. |
+| `classification.api` | `OCTOCODE_CLASSIFICATION_API` | key | `unset (classification off)`; [get a key](https://docs.typesafe.ai/introduction) | yes | yes | Classification provider API key. A nonblank value exposes clasify and read-tool classifiers in MCP and the CLI; without one, a CLI clasify call answers where to get a key. Discovery makes no provider request. Credential values are omitted from resolved configuration and diagnostics. |
 | `classification.apiHost` | `OCTOCODE_CLASSIFICATION_API_HOST` | url | `https://api.typesafe.ai` | no | no | Classification provider API root, for a proxy, gateway or compatible provider that serves the same API. Calls require HTTPS except on loopback, and an API root with no path. Home-only, so a repository cannot redirect your key. |
 | `classification.model` | `OCTOCODE_CLASSIFICATION_MODEL` | string | `jev-latest` | no | yes | Classification model for read-tool classifiers and clasify; a clasify row's model overrides it. Pin an exact model (for example jev-1.13.0) for reproducible results; an alias can change between fresh evaluations. |
 | — | `TAVILY_API_KEY` | key | `unset`; [get a key](https://app.tavily.com/) | yes | yes | Tavily search API credential used by the octocode-brainstorming skill. |

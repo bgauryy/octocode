@@ -2,8 +2,8 @@
 
 use super::*;
 
-/// References past the importer cap: walking `pagination.next.nextPage` then
-/// row `next.nextPage` reaches every importer file in exactly one window,
+/// References past the importer cap: walking `next.nextPage` then
+/// `next.nextImporterWindow` reaches every importer file in exactly one window,
 /// lists every row once (a recovered row in another window's file waits for
 /// that window), and only importer page 1 lists the anchor's own answer.
 /// A changed candidate list stales both a window's entry and its later
@@ -96,7 +96,7 @@ fn importer_pages_reach_every_reference_exactly_once() {
         // location page alike; the restart has no importer cursor.
         let entry = continuations
             .iter()
-            .find(|(name, _)| name == "nextPage")
+            .find(|(name, _)| name == "nextImporterWindow")
             .map(|(_, row)| row.clone())
             .expect("a window entry");
         let inside = continuations
@@ -187,6 +187,62 @@ fn importer_pages_reach_every_caller_exactly_once() {
     });
 }
 
+/// `next.nextPage` alone is the documented walk: it reads every location of one
+/// window, each once, and `pagination.next` is gone. Where it ends, the row says
+/// the scan is partial and offers the next window under its own name.
+#[test]
+fn next_page_alone_reads_every_location_of_a_window() {
+    if !require_node() {
+        return;
+    }
+    let (_dir, root, execution) = importer_fixture();
+    tokio::runtime::Runtime::new().expect("rt").block_on(async {
+        let pool = fake_server_pool();
+        let start = serde_json::json!({
+            "operation": "references", "path": root.join("a.ts").to_string_lossy(),
+            "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy()
+        });
+        let (pages, _) = walk_pages(&pool, &root, &execution, start.clone(), Some(2000)).await;
+        let mut window_one = pages
+            .iter()
+            .filter(|page| page.importer_page == 1)
+            .flat_map(|page| reference_rows(&page.row))
+            .collect::<Vec<_>>();
+        window_one.sort();
+
+        let paths = crate::tools::test_support::workspace_policy(&root);
+        let (mut query, mut read, mut calls) = (start, Vec::new(), 0);
+        let last = loop {
+            let row = crate::tools::lsp_search::execute(
+                serde_json::from_value(query).expect("query"),
+                &crate::execution::cancel::NeverCancel,
+                &pool,
+                &paths,
+                &execution,
+                Some(2000),
+                crate::tools::lsp_search::test_answers(),
+            )
+            .await
+            .expect("page");
+            calls += 1;
+            assert!(row.pointer("/pagination/next").is_none(), "{row}");
+            read.extend(reference_rows(&row));
+            let Some(next) = next_row(&row, "nextPage") else {
+                break row;
+            };
+            assert_eq!(row["pagination"]["hasMore"], true, "{row}");
+            query = next;
+        };
+        assert!(calls > 1, "the window spans location pages");
+        read.sort();
+        assert_eq!(read, window_one, "every location of the window, each once");
+        assert_eq!(last["pagination"]["hasMore"], false, "{last}");
+        assert_eq!(last["isPartial"], true, "{last}");
+        assert_eq!(last["coverage"]["importerScan"], "capped", "{last}");
+        assert!(next_row(&last, "nextImporterWindow").is_some(), "{last}");
+    });
+}
+
 /// Every location page of a window with windows left leads to the next
 /// window, and every one of those leads is the same continuation: a reader
 /// that follows the lead from each page enters each window exactly once.
@@ -212,7 +268,7 @@ fn every_page_of_a_window_offers_one_lead_to_the_next_window() {
             assert!(rows.len() > 1, "window {window} spans location pages");
             let leads = rows
                 .iter()
-                .map(|row| next_row(row, "nextPage"))
+                .map(|row| next_row(row, "nextImporterWindow"))
                 .collect::<Vec<_>>();
             if window == 3 {
                 assert!(
@@ -233,7 +289,7 @@ fn every_page_of_a_window_offers_one_lead_to_the_next_window() {
         }
         let mut entries = Vec::new();
         for (name, call) in &continuations {
-            if name == "nextPage" && !entries.contains(&call) {
+            if name == "nextImporterWindow" && !entries.contains(&call) {
                 entries.push(call);
             }
         }

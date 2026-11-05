@@ -38,7 +38,6 @@ fn page_planning_reserves_the_issued_handle_width() {
                 paging: true,
                 ..Default::default()
             },
-            remaining: Vec::new(),
         },
         &octocode_io::cancellation::Cancellation::new(),
     )
@@ -327,5 +326,7 @@ fn extending_saved_response_pages_retains_earlier_source_work() {
     assert!(registry.open(ToolId::LocalFetch, &next, [1; 32]).is_ok());
 }
 
+#[cfg(unix)]
+mod evidence_bodies;
 mod handles;
 mod turns;

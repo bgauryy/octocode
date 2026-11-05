@@ -197,7 +197,7 @@ interface Metadata {
 }
 
 export function metadata(db: Database): Metadata {
-  const pragma = (name: string): SQLOutputValue | undefined => db.value('PRAGMA ' + name);
+  const pragma = (name: string): SQLOutputValue | undefined => db.value(`PRAGMA ${name}`);
   return { applicationId: integer(pragma('application_id'), 'application_id'), schemaVersion: integer(pragma('user_version'), 'user_version'), sqliteVersion: sqliteVersion().join('.'), journalMode: text(pragma('journal_mode') ?? null, 'journal_mode') };
 }
 

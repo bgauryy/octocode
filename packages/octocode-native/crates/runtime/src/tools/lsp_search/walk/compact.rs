@@ -300,12 +300,16 @@ fn call_row(
         .map(|(_, files)| files.len())
         .sum::<usize>()
         > 1;
-    if let Some(detail) = node
+    let written = node
         .get("detail")
         .and_then(Value::as_str)
         .filter(|detail| detail_adds(detail, node))
-        .filter(|detail| shared_name || !detail.contains('('))
-    {
+        .filter(|detail| shared_name || !detail.contains('('));
+    let signature = node
+        .get(super::public::SIGNATURE)
+        .and_then(Value::as_str)
+        .filter(|_| shared_name);
+    if let Some(detail) = super::public::signed_detail(written, signature) {
         // One line per call row: a multi-line signature's whitespace runs
         // collapse to single spaces.
         row.insert(

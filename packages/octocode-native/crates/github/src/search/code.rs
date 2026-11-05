@@ -33,10 +33,11 @@ impl GitHubTransport {
     ) -> Result<usize, ProviderError> {
         let mut unanswered = 0;
         for request in requests {
-            let specs = super::read::search_requests(
+            let specs = self.search_requests(
                 |page, per_page| self.code_search_spec(request, page, per_page),
                 request.page,
                 request.per_page,
+                context,
             )?;
             if !specs.iter().all(|spec| self.answers_unasked(spec, context)) {
                 unanswered += 1;

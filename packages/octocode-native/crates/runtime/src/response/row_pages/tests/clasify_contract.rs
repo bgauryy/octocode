@@ -61,7 +61,7 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
     let (mut definitions, mut next_calls) = (0, 0);
     for page in 0..plan.total_pages {
         for row in plan
-            .build_page(page, &[None], &[], &Cancellation::new())
+            .build_page(page, &[None], &Cancellation::new())
             .expect("valid build_page")
         {
             let data = &row["data"];

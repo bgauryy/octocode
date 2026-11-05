@@ -66,7 +66,6 @@ fn a_streamed_match_read_serves_every_hit_once_across_pages() {
         pages += 1;
         assert!(pages < 100, "runaway paging");
         if let Some(next) = page.next {
-            queue.extend(next.read_other_ranges.map(|read| read.query));
             queue.extend(next.continue_window.map(|read| read.query));
         }
     }

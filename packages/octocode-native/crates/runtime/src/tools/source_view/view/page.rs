@@ -124,9 +124,16 @@ pub(super) fn page_result(
     {
         warnings.push(KEY_BLOCK_NOTE.into());
     }
+    let blanked = source_redactions > 0
+        && pg
+            .text
+            .lines()
+            .zip(page_lines(&pg, ext.source_lines.as_deref(), view.mode))
+            .any(|(text, line)| text.trim().is_empty() && source.redactions_on([line]) > 0);
     warn_redacted(
         &pg.text,
         scanned.redacted,
+        blanked,
         scanned.redactions + source_redactions,
         &mut warnings,
     );
@@ -184,7 +191,15 @@ pub(super) fn page_result(
         matched_lines,
         match_keys,
         blocks,
-        selected_match_count: ext.count,
+        // Under a classifier the row counts what it kept, as its receipt does:
+        // the hits it judged are `selection.totalItems`.
+        selected_match_count: selection_outcome
+            .map(|chosen| {
+                octocode_engine::num::saturating_usize(
+                    u64::try_from(chosen.outcome.receipt.selected_items).unwrap_or_default(),
+                )
+            })
+            .or(ext.count),
         modified: (view.mode != Some(ReadView::Symbols))
             .then(|| facts.modified.clone())
             .flatten(),
@@ -246,7 +261,7 @@ fn budget_cut_hint(
         && pagination.length < limit)
         .then(|| {
             format!(
-                "This page holds {}, short of limit {limit}: the response budget sized it, no line is lost; next.nextPage reads on, and a larger responseChars lengthens the page.",
+                "This page holds {}, short of limit {limit}: the response budget sized it, no line is lost; next reads on, and a larger responseChars lengthens the page.",
                 octocode_engine::text::counted(pagination.length, "line", "lines")
             )
         })

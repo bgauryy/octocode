@@ -24,9 +24,9 @@ function readCatalog(): Catalog {
 export async function renderCatalogTypes(): Promise<string> {
   const catalog = readCatalog();
   const inputs = catalog.commands.filter(command => command.inputSchema);
-  const inputName = (name: string): string => pascal(name) + 'Input';
-  const resultName = (name: string): string => pascal(name) + 'Result';
-  const dataName = (type: string): string => pascal(type) + 'Data';
+  const inputName = (name: string): string => `${pascal(name)}Input`;
+  const resultName = (name: string): string => `${pascal(name)}Result`;
+  const dataName = (type: string): string => `${pascal(type)}Data`;
   const definitions: Record<string, unknown> = { ...catalog.$defs };
   for (const command of inputs) definitions[inputName(command.name)] = command.name === 'record' ? { ...command.inputSchema, oneOf: recordVariants(catalog.recordTypes) } : command.inputSchema;
   for (const command of catalog.commands) {

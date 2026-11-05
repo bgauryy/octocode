@@ -148,7 +148,8 @@ impl ServerHandler for Handler {
         _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
-        let mut result = ListResourcesResult::with_all_items(resources::list());
+        let tools = self.tools.iter().map(|tool| tool.name.as_ref());
+        let mut result = ListResourcesResult::with_all_items(resources::list(tools));
         result.meta = self.response_meta(&context);
         Ok(result)
     }

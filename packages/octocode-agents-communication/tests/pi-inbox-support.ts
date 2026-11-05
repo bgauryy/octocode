@@ -18,7 +18,7 @@ export function fixture(t: TestContext) {
  const run=jsonCall(binary,workspace,database);
  const ledger: JsonRecord[]=[],sent: Sent[]=[]; let persist=true,disk=true;
  const sessionFile=join(workspace,'pi-session.jsonl');
- const flush=()=>{if(disk)writeFileSync(sessionFile,[JSON.stringify({type:'session',id:'pi-test'}),...ledger.map((e: JsonRecord)=>JSON.stringify(e))].join('\n')+'\n');};
+ const flush=()=>{if(disk)writeFileSync(sessionFile,`${[JSON.stringify({type:'session',id:'pi-test'}),...ledger.map((e: JsonRecord)=>JSON.stringify(e))].join('\n')}\n`);};
  const {host: pi,handlers,tools}=fakePi((message,options)=>{sent.push({message,options});if(persist){ledger.push({type:'custom_message',...message});flush();}});
  const ctx: PiContext={cwd:workspace,sessionManager:{getSessionId:()=> 'pi-test',getSessionFile:()=>sessionFile,getEntries:()=>ledger}};
  const fire=async (name: string,event: JsonRecord={},context: PiContext=ctx)=>handlers.get(name)?.(event,context);

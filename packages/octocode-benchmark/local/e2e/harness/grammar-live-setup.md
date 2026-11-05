@@ -6,7 +6,7 @@ Run from the repository root with the built CLI and MCP launchers:
 OCTOCODE_LIVE=1 npx -y -p node@24.15.0 node packages/octocode-benchmark/local/e2e/harness/grammar-live.mjs
 ```
 
-The runtime grammar catalog selects every owned extension. Every selected file must have an installed server; unavailable servers fail the run. Optional positional arguments select language names or extensions for diagnosis, for example `Go Java cs` or `sbt`. Unknown selections fail. `OCTOCODE_LIVE_KEEP=1` retains the temporary fixture directory named in the JSON result.
+The runtime grammar catalog selects every owned extension. A selected file with no installed server is a `SKIP` line naming it, and the run ends `INCOMPLETE` (exit 3) rather than passing. Optional positional arguments select language names or extensions for diagnosis, for example `Go Java cs` or `sbt`. Unknown selections fail. `OCTOCODE_LIVE_KEEP=1` retains the temporary fixture directory named in the JSON result.
 
 Results are written to `local/e2e/results/grammar-live.json`. Preserve that file before another run. It contains the native binary hash, contract fingerprint, full CLI/MCP responses and executable page walks, server discovery, fixture sources, and build command output. Definition and reference results must match independently derived source positions and canonical file identity exactly, including all declaration/reference rows and Unicode columns. A successful process or an empty semantic response does not satisfy the oracle.
 

@@ -111,7 +111,7 @@ test('Claude bounded action batch leaves excess passive mail available without a
 
 test('OpenCode rejects malformed vendor IDs at attachment time before any message is staged', t => {
   const f = fixture(t);
-  for (const vendorSession of ['bad', 'ses_', 'ses_x/../../config', 'ses_x?query', 'ses_x#fragment', 'ses_' + 'x'.repeat(256)]) {
+  for (const vendorSession of ['bad', 'ses_', 'ses_x/../../config', 'ses_x?query', 'ses_x#fragment', `ses_${'x'.repeat(256)}`]) {
     assert.throws(() => f.call('attach', { transport: 'opencode', endpoint: 'http://127.0.0.1:4096', vendorSession }, f.b.id));
   }
   assert.equal(only(f.db.prepare('SELECT count(*) AS n FROM attachments').get()).n, 0);

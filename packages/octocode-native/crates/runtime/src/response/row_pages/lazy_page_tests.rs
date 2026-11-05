@@ -61,13 +61,12 @@ fn walk_as(
         structured.clone(),
         &options(length, 0, None),
         Vec::new(),
-        &[],
         tool,
     );
     (0..first.total_pages)
         .map(|offset| {
             let request = options(length, offset, Some(first.snapshot.clone()));
-            paginate_rows(structured.clone(), &request, Vec::new(), &[], tool)
+            paginate_rows(structured.clone(), &request, Vec::new(), tool)
         })
         .collect()
 }

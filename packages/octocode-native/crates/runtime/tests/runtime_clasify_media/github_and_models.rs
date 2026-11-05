@@ -8,6 +8,63 @@ use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+/// An image asset passes the same name rule as any other GitHub source: the
+/// row is refused before any fetch, and an ordinary image in the call is judged.
+#[tokio::test]
+async fn a_credential_named_github_image_is_withheld_before_any_fetch() {
+    use crate::runtime_clasify::github_withheld::{MARKER, contents_reads, files_holding, github};
+    let server = provider().await;
+    let github = github().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/octo/demo/contents/photo.png"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!({"type":"file",
+            "encoding":"base64","content":STANDARD.encode(png()),"size":png().len(),
+            "sha":"2".repeat(40),"path":"photo.png"})),
+        )
+        .with_priority(1)
+        .mount(&github)
+        .await;
+    let workspace = Workspace::new();
+    let image = |file: &str| {
+        let mut query = row("unused");
+        query["assets"]["image_a"]["source"] = json!({"tool":"ghGetFileContent",
+            "query":{"owner":"octo","repo":"demo","path":file}});
+        query
+    };
+    for allow in ["withhold", "allow"] {
+        let runtime = runtime(
+            &workspace,
+            &server,
+            &[
+                ("GITHUB_API_URL", format!("{}/api/v3", github.uri())),
+                ("OCTOCODE_CREDENTIAL_FILES", allow.to_owned()),
+            ],
+        );
+        for file in [".Env.Prod", "KEY.PEM", "a/.ssh/config", "server.pem"] {
+            let out = clasify(&runtime, vec![image(file), image("photo.png")]).await;
+            assert_eq!(
+                out["results"][0]["data"]["errorCode"], "pathPolicyDenied",
+                "{file}: {out}"
+            );
+            assert!(
+                out["results"][1]["data"].get("answers").is_some(),
+                "{file}: {out}"
+            );
+        }
+        runtime.close().await;
+    }
+    let reads = contents_reads(&github).await;
+    assert!(reads.iter().all(|read| read.contains("photo")), "{reads:?}");
+    assert!(
+        requests(&server)
+            .await
+            .iter()
+            .all(|request| !String::from_utf8_lossy(&request.body).contains(MARKER))
+    );
+    assert_eq!(files_holding(&workspace.home, MARKER), Vec::<String>::new());
+}
+
 #[tokio::test]
 async fn github_image_resolves_the_commit_and_pins_its_capture() {
     let server = provider().await;

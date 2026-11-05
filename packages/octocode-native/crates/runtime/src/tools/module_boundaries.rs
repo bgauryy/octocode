@@ -47,9 +47,10 @@ const LAYERS: &[&[&str]] = &[
 ];
 
 /// `octocode-engine`'s top-level modules, lowest layer first: shared
-/// vocabulary and text below the DTOs (`types`), the DTOs below the search,
-/// parse and graph-fact engines, and those below the language-server pool,
-/// structural matching, redaction and fact scans that compose them.
+/// vocabulary and text below the DTOs (`types`), the DTOs below the parse and
+/// graph-fact engines, those below redaction, redaction below the text search
+/// that judges a long line while it holds it, and all of them below the
+/// language-server pool, structural matching and fact scans that compose them.
 const ENGINE_LAYERS: &[&[&str]] = &[
     &[
         "cpu",
@@ -67,8 +68,10 @@ const ENGINE_LAYERS: &[&[&str]] = &[
     &["text"],
     &["error", "graph"],
     &["minify", "process", "types"],
-    &["search", "signatures"],
-    &["fact_scan", "lsp", "security", "structural"],
+    &["signatures"],
+    &["security"],
+    &["search"],
+    &["fact_scan", "lsp", "structural"],
 ];
 
 /// Whether `path` is mounted only for tests: it, or a module above it, is

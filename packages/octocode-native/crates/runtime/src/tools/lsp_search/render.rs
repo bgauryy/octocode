@@ -96,6 +96,22 @@ pub(super) fn document_symbol_rows(page: &[Value], all: &[Value]) -> Vec<Value> 
     crate::response::symbol_outline::declaration_rows(&objects)
 }
 
+/// The name a query anchors on in a server's label, and the label when it
+/// says more: jdtls labels a method with its signature (`useIt(Port) : String`).
+/// Any other label is its own name.
+pub(super) fn label_name(label: &str) -> (&str, Option<&str>) {
+    match label.split_once('(') {
+        Some((name, _))
+            if !name.is_empty()
+                && name != "operator"
+                && name.chars().all(octocode_engine::text::is_ident_char) =>
+        {
+            (name, Some(label))
+        }
+        _ => (label, None),
+    }
+}
+
 /// typescript-language-server reports a `type X = …` alias as a variable
 /// (LSP has no alias kind). Name each such symbol `type` when its declaring
 /// line says so; nested symbols are walked too.
@@ -179,7 +195,7 @@ impl<'a> Pages<'a> {
 }
 
 /// The page a continuation asks for next, and the snapshot that pins it. The
-/// cursor rides `pagination.next.nextPage` (see
+/// cursor rides `next.nextPage` (see
 /// [`super::failure::offer_next_page`]).
 pub(super) struct NextPage {
     pub(super) page: usize,

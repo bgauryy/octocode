@@ -340,7 +340,7 @@ fn each_failure_code_gets_its_own_tip_naming_retry_and_the_fallback() {
         rpc(-32601, "method not found"),
         LspFailure::overdue("no answer".into()),
     ];
-    for failure in &failures {
+    for failure in &failures[1..] {
         let text = tip(failure, &serde_json::Value::Null);
         assert_ne!(text, generic, "{failure:?}");
     }
@@ -355,17 +355,16 @@ fn each_failure_code_gets_its_own_tip_naming_retry_and_the_fallback() {
             assert!(text.contains(word), "{word}: {text}");
         }
     }
-    let invalid = tip(&failures[0], &serde_json::Value::Null);
-    // A rejected input reads the same on every tool (and every surface:
-    // no CLI-only command).
-    let shared = crate::response::rows::error_code_hint(
-        crate::id::ToolId::LocalSearch.output(),
-        ErrorCode::InvalidInput,
-        &serde_json::Value::Null,
-    )
-    .expect("shared invalid-input tip");
-    assert_eq!(invalid, shared, "{invalid}");
-    assert!(!invalid.contains("Retry once"), "{invalid}");
+    // The error names the field; a rejected input carries no recovery text.
+    assert_eq!(failures[0].code, ErrorCode::InvalidInput);
+    assert_eq!(
+        crate::response::rows::error_code_hint(
+            crate::id::ToolId::LspSearch.output(),
+            failures[0].code,
+            &serde_json::Value::Null,
+        ),
+        None
+    );
 }
 
 #[test]

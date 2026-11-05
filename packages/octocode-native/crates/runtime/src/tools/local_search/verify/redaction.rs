@@ -329,9 +329,9 @@ pub(super) fn redact_key_block_lines<'a>(
         .zip(&redact)
         .map(|(value_line, redact)| {
             if *redact {
-                placeholder.as_str()
+                crate::security::hide_key_line(value_line)
             } else {
-                value_line
+                (*value_line).to_owned()
             }
         })
         .collect::<Vec<_>>()

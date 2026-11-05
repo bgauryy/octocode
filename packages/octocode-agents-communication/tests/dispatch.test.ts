@@ -211,7 +211,7 @@ test('listen resumes an identity that expired while suspended and owns delivery 
 test('large inbox pages are compact and lossless with executable continuations', t => {
   const f = fixture(t), expected: JsonRecord[] = [];
   for (let i = 0; i < 18; i++) {
-    const body = `Evidence ${i}: ` + 'quoted " Unicode 🙂 evidence. '.repeat(80);
+    const body = `Evidence ${i}: ${'quoted " Unicode 🙂 evidence. '.repeat(80)}`;
     expected.push({id:f.call('send_message', {parts: [{ text: body }], to:f.b.id,},f.a.id).id,body});
   }
   const actual: JsonRecord[] = [];

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fails if tracked files contain machine-specific paths or dev junk. Read-only.
 set -uo pipefail
-cd "$(git rev-parse --show-toplevel)"
+cd "$(git rev-parse --show-toplevel)" || exit 1
 fail=0
 check() { # check <title> <output>
   [ -z "$2" ] && return

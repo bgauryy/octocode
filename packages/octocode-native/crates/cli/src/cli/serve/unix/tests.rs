@@ -3,7 +3,7 @@ use super::daemon::*;
 use super::identity::*;
 use super::sockets::*;
 use super::*;
-use crate::cli::Printed;
+use crate::cli::output::Printed;
 use crate::cli::serve::runs_on_server;
 use octocode_native::id::ToolId;
 use serde_json::{Value, json};

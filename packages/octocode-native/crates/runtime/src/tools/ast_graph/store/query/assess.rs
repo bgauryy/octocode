@@ -125,8 +125,13 @@ impl Query<'_> {
             entries.push(g.key(file).to_owned());
         }
         let entries = (!entries.is_empty()).then_some(entries.as_slice());
+        let stopped = || self.cancel.check().is_err();
         let report =
-            super::super::detect::run(&g.t, &detectors, scan_root, entries).map_err(invalid)?;
+            super::super::detect::kept_run(&g.id, &g.t, &detectors, scan_root, entries, &stopped);
+        self.cancel
+            .check()
+            .map_err(|message| GraphOutput::error(ErrorCode::Cancelled, message))?;
+        let report = report.map_err(invalid)?;
         let min_tier = options.min_tier.unwrap_or(DEFAULT_MIN_TIER);
         let keep = |f: &&super::super::detect::Finding| {
             options.min_score.is_none_or(|min| f.score >= min) && f.tier >= min_tier
@@ -250,8 +255,13 @@ impl Query<'_> {
             detectors,
             base_root.is_dir().then_some(base_root.as_path()),
             entries,
-        )
-        .map_err(|message| GraphOutput::error(ErrorCode::InvalidInput, message))?;
+            &|| self.cancel.check().is_err(),
+        );
+        self.cancel
+            .check()
+            .map_err(|message| GraphOutput::error(ErrorCode::Cancelled, message))?;
+        let before =
+            before.map_err(|message| GraphOutput::error(ErrorCode::InvalidInput, message))?;
         let old = before
             .findings
             .iter()

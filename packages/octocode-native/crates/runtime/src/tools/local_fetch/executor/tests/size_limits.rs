@@ -183,3 +183,106 @@ fn at_limit_plain_read_is_allowed() {
     assert_eq!(result.status, ReadStatus::Success);
     assert_eq!(result.error_code, None);
 }
+
+/// A manifest's value, fake.
+const MANIFEST_VALUE: &str = "c2VjcmV0LXZhbHVlLW9mLXRoZS1maXh0dXJl";
+
+/// A Kubernetes Secret as `kubectl` orders one, its data lines from its kind,
+/// in `pad` lines of `line` and blanks up to `size` bytes when `size` is set.
+fn manifest(names_kind: bool, line: &[u8], pad: usize, size: Option<usize>) -> Vec<u8> {
+    let mut text = format!("{{\n\"data\":{{\n\"k\":\"{MANIFEST_VALUE}\"\n}},\n").into_bytes();
+    let tail: &[u8] = if names_kind {
+        b"\"kind\":\"Secret\"\n}\n"
+    } else {
+        b"\"kind\":\"Other\"\n}\n"
+    };
+    let lines = size.map_or(pad, |size| (size - text.len() - tail.len()) / line.len());
+    for _ in 0..lines {
+        text.extend_from_slice(line);
+    }
+    if let Some(size) = size {
+        text.resize(size - tail.len(), b' ');
+    }
+    text.extend_from_slice(tail);
+    text
+}
+
+/// The reads a source is asked for: whole, by a range of its value's line, and
+/// by a match on that line.
+fn reads(path: &std::path::Path, dir: &std::path::Path) -> Vec<LocalFetchResult> {
+    [
+        q(path),
+        qj(
+            path,
+            serde_json::json!({"ranges":[{"startLine":1,"endLine":5}]}),
+        ),
+        qj(path, serde_json::json!({"matchString":["\"k\""]})),
+    ]
+    .iter()
+    .map(|query| {
+        execute_local_fetch(
+            query,
+            &Paths(dir.to_path_buf()),
+            &crate::security::ContentSecurity::new(),
+            &NeverCancel,
+            None,
+            None,
+        )
+    })
+    .collect()
+}
+
+/// Every source read whole is judged whole: the read and the scanner stop at
+/// one size, so no source reads line by line for lying between two of them.
+#[test]
+fn a_secret_is_hidden_up_to_the_last_byte_a_source_reads_whole() {
+    let temp = Fixture::new();
+    let path = temp.0.join("dump.json");
+    for size in [10_000_001, MAX_SOURCE_BYTES as usize] {
+        let text = manifest(true, b"ordinary words\n", 0, Some(size));
+        assert_eq!(text.len(), size);
+        fs::write(&path, &text).expect("write");
+        for row in reads(&path, &temp.0) {
+            assert_ne!(row.status, ReadStatus::Error, "{size}: {:?}", row.error);
+            assert!(
+                !serde_json::to_string(&row)
+                    .expect("row")
+                    .contains(MANIFEST_VALUE),
+                "{size}"
+            );
+        }
+    }
+    assert_eq!(MAX_SOURCE_BYTES, 10 * 1024 * 1024);
+    assert_eq!(
+        MAX_SOURCE_BYTES,
+        octocode_engine::security::MAX_CONTENT_SIZE as u64
+    );
+}
+
+/// Decoding can grow a source past what a read holds at once, after it was read
+/// whole. It is judged as any other: what its object says hides the value, and every
+/// way of reading it shows the rest.
+#[test]
+fn a_source_grown_past_the_bound_is_judged_as_any_other() {
+    let temp = Fixture::new();
+    let path = temp.0.join("dump.json");
+    let mut latin1 = vec![b'\xe9'; 79];
+    latin1.push(b'\n');
+    let pad = (MAX_SOURCE_BYTES as usize - 1024) / latin1.len();
+    let text = manifest(true, &latin1, pad, None);
+    assert!(text.len() as u64 <= MAX_SOURCE_BYTES);
+    fs::write(&path, &text).expect("write");
+    for row in reads(&path, &temp.0) {
+        assert_ne!(row.status, ReadStatus::Error, "{:?}", row.error);
+        assert!(
+            !serde_json::to_string(&row)
+                .expect("row")
+                .contains(MANIFEST_VALUE)
+        );
+    }
+    // The same size naming no object reads the same.
+    fs::write(&path, manifest(false, &latin1, pad, None)).expect("write");
+    for row in reads(&path, &temp.0) {
+        assert_eq!(row.status, ReadStatus::Success, "{:?}", row.error);
+    }
+}

@@ -62,22 +62,23 @@ test('section acceptance requires exact UTF-8 source coverage, unique cells, and
   }
 });
 
-test('terminal memory plan requests enough room and rejects incomplete display evidence', async () => {
+test('a memory plan is judged whole, with enough room to show it all', async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-memory-plan-oracle-'));
   try {
     for (const hasMore of [false, true]) {
+      const sent = [];
       const checks = await memorySectionsChecks({
         cwd, q: query => ({ queries: [query] }),
         cliCall: async (tool, input, options) => {
           assert.equal(tool, 'clasify');
           assert.equal(input.responseChars, 50_000);
           assert.equal(options.env.OCTOCODE_STORAGE_MODE, 'memory');
-          return { status: 5, json: { responsePagination: { hasMore }, results: [{ index: 0, status: 'error', data: {
-            errorCode: 'classificationContextUnavailable', error: 'The plan cannot resume.',
-            resources: { local: { sections: Array.from({ length: 70 }, () => ({})), coverage: { unassessed: 70 } } },
+          sent.push(input);
+          return { status: 0, json: { responsePagination: { hasMore }, results: [{ index: 0, data: {
+            resources: { local: { sections: Array.from({ length: 70 }, () => ({ answers: { evidence: { status: 'answered' } } })) } },
           } }] } };
         },
-      }, 'cli', { sent: [] });
+      }, 'cli', { sent });
       assert.equal(checks[0][1], !hasMore);
     }
   } finally { fs.rmSync(cwd, { recursive: true, force: true }); }

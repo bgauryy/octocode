@@ -65,7 +65,7 @@ pub(crate) fn receipt_kind(tool: ToolId) -> Option<(SelectionScope, SelectionUni
         ToolId::LocalSearch | ToolId::LocalFetch | ToolId::GhGetFileContent => {
             Some((SelectionScope::SelectedView, SelectionUnit::Chunks))
         }
-        ToolId::GhSearchCode => Some((SelectionScope::ProviderPage, SelectionUnit::Files)),
+        ToolId::GhSearchCode => Some((SelectionScope::ProviderPage, SelectionUnit::Hits)),
         _ => None,
     }
 }
@@ -188,7 +188,7 @@ mod tests {
         assert!(rows[0]["data"].get("selection").is_none());
         assert!(rows[1]["data"].get("selection").is_none());
         assert_eq!(rows[2]["data"]["selection"]["scope"], "providerPage");
-        assert_eq!(rows[2]["data"]["selection"]["unit"], "files");
+        assert_eq!(rows[2]["data"]["selection"]["unit"], "hits");
         assert_eq!(rows[3]["data"]["selection"], existing);
     }
 
@@ -236,12 +236,12 @@ mod tests {
         }
         assert_eq!(
             receipt_kind(ToolId::GhSearchCode),
-            Some((SelectionScope::ProviderPage, SelectionUnit::Files))
+            Some((SelectionScope::ProviderPage, SelectionUnit::Hits))
         );
         assert_eq!(receipt_kind(ToolId::GhSearchRepo), None);
         let receipt = unavailable(
             SelectionScope::ProviderPage,
-            SelectionUnit::Files,
+            SelectionUnit::Hits,
             2,
             "sourceUnavailable",
         );

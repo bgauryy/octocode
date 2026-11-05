@@ -11,6 +11,8 @@ pub(crate) struct RawMatch {
     pub(crate) line_text: String,
     pub(crate) line_number: u32,
     pub(crate) column: u32,
+    /// The hit's byte in its line, when `line_text` is only a window of the line.
+    pub(crate) windowed_at: Option<u32>,
 }
 
 pub(crate) struct FileEntry {
@@ -144,7 +146,9 @@ pub(crate) fn assemble_file(
                 line: m.line_number,
                 last_line,
                 column: m.column,
-                byte_offset: utf16_to_byte_offset(&m.line_text, m.column),
+                byte_offset: m
+                    .windowed_at
+                    .unwrap_or_else(|| utf16_to_byte_offset(&m.line_text, m.column)),
                 value,
                 value_digest,
                 count: None,

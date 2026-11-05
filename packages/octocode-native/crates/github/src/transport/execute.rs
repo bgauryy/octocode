@@ -1,22 +1,18 @@
-//! One logical request on the transport: REST and GraphQL execution with
-//! the circuit breaker's per-operation failure accounting.
-use octocode_io::{
-    budget::{BudgetStop, pause},
-    retry::header_u64,
-};
+//! One logical request on the transport, with the circuit breaker's
+//! per-operation failure accounting.
 use reqwest::header::HeaderValue;
 use serde::Deserialize;
-use serde_json::Value;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use url::Url;
 
 use super::attempts::Attempts;
 use super::evidence::{answer_of, page_of, request_key};
 use super::{
-    GitHubTransport, GraphQlError, GraphQlPage, HttpMethod, RequestContext, RequestSpec,
-    ResponsePage, Reuse, SavedAnswer, worth_keeping,
+    GitHubTransport, HttpMethod, RequestContext, RequestSpec, ResponsePage, Reuse, SavedAnswer,
+    worth_keeping,
 };
-use crate::budget::{CircuitCause, GitHubResource, now_ms, rate_limited_error};
-use crate::{Partition, ProviderError, ProviderErrorKind, RateLimit};
+use crate::budget::{CircuitCause, GitHubResource, now_ms};
+use crate::{Partition, ProviderError, ProviderErrorKind};
 
 /// How long a GitHub search answer stands in for asking again. GitHub's search
 /// endpoints send no validator (`ETag`, `Last-Modified`) and no lifetime, so no
@@ -27,9 +23,9 @@ use crate::{Partition, ProviderError, ProviderErrorKind, RateLimit};
 pub(crate) const SEARCH_REUSE_WINDOW: Duration = Duration::from_secs(300);
 
 /// A page, and whether the origin sent it just now.
-struct Obtained {
-    page: ResponsePage,
-    from_origin: bool,
+pub(super) struct Obtained {
+    pub(super) page: ResponsePage,
+    pub(super) from_origin: bool,
 }
 
 /// A saved answer found for a request, and how to put it back.
@@ -52,106 +48,23 @@ fn is_partial(page: &ResponsePage) -> bool {
         || serde_json::from_slice::<Search>(&page.body).is_ok_and(|page| page.incomplete_results)
 }
 
+/// Whether a REST `url` reads one pull request or something under it: what the
+/// lifetime GitHub states there is about.
+fn names_pull_request(url: &Url) -> bool {
+    let Some(segments) = url.path_segments() else {
+        return false;
+    };
+    let segments = segments.collect::<Vec<_>>();
+    let Some(at) = segments.iter().position(|segment| *segment == "repos") else {
+        return false;
+    };
+    matches!(
+        segments.get(at + 3..).unwrap_or_default(),
+        ["pulls", number, ..] if number.bytes().all(|byte| byte.is_ascii_digit())
+    )
+}
+
 impl GitHubTransport {
-    pub async fn execute_graphql(
-        &self,
-        query: &str,
-        variables: Value,
-        context: &RequestContext,
-    ) -> Result<GraphQlPage, ProviderError> {
-        let spec = RequestSpec::graphql(
-            self.endpoint.graphql(),
-            serde_json::json!({ "query": query, "variables": variables }),
-        );
-        self.graphql(spec, context).await
-    }
-
-    /// [`Self::execute_graphql`] for a query bound to a commit: its answer
-    /// cannot change, so a kept one answers it.
-    pub(crate) async fn execute_pinned_graphql(
-        &self,
-        query: &str,
-        variables: Value,
-        context: &RequestContext,
-    ) -> Result<GraphQlPage, ProviderError> {
-        let spec = RequestSpec::graphql(
-            self.endpoint.graphql(),
-            serde_json::json!({ "query": query, "variables": variables }),
-        )
-        .pinned_to_commit();
-        self.graphql(spec, context).await
-    }
-
-    async fn graphql(
-        &self,
-        spec: RequestSpec,
-        context: &RequestContext,
-    ) -> Result<GraphQlPage, ProviderError> {
-        // One physical-attempt budget for the whole operation: HTTP retries
-        // inside `execute_counted` and the semantic retries below share it.
-        let mut attempt: u8 = 0;
-        loop {
-            let Obtained { page, from_origin } = self
-                .execute_counted(spec.clone(), context, &mut attempt)
-                .await?;
-            let parsed: GraphQlPage = serde_json::from_slice(&page.body).map_err(|_| {
-                context.journal.forget(&spec);
-                ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub GraphQL response")
-            })?;
-            // An answer with errors is a failure a later ask may not repeat:
-            // it is never evidence a continuation replays, or kept.
-            if !parsed.errors.is_empty() {
-                context.journal.forget(&spec);
-            } else if from_origin && spec.is_pinned() {
-                self.keep(&spec, &page, context);
-            }
-            if parsed.errors.iter().any(GraphQlError::is_rate_limited) {
-                // GraphQL primary limit arrives as HTTP 200 + errors[].type.
-                let state = self.key_state(context.resolved_credential());
-                let reset = header_u64(&page.headers, "x-ratelimit-reset")
-                    .unwrap_or_else(|| now_ms() / 1000 + 60);
-                state.exhaust(GitHubResource::Graphql.bucket(), reset);
-                let wait = self.budget.config().reset_wait(reset);
-                if attempt + 1 < self.retry.max_attempts
-                    && Instant::now() + wait < context.budget.admission_deadline()
-                {
-                    attempt += 1;
-                    continue;
-                }
-                return Err(rate_limited_error(
-                    "GitHub GraphQL rate limit exceeded",
-                    RateLimit {
-                        remaining: Some(0),
-                        reset_epoch_seconds: Some(reset),
-                        retry_after_seconds: Some(crate::budget::ceil_secs(wait)),
-                        resource: Some(GitHubResource::Graphql.bucket().into()),
-                    },
-                ));
-            }
-            if parsed.errors.iter().any(GraphQlError::is_transient) {
-                // Octokit plugin-retry treats this GraphQL failure as a 500.
-                if attempt + 1 < self.retry.max_attempts {
-                    let delay = self.retry.backoff().next_delay(u32::from(attempt));
-                    if pause(
-                        delay,
-                        context.budget.effective_deadline(),
-                        &context.budget.cancellation,
-                    )
-                    .await
-                    .is_ok()
-                    {
-                        attempt += 1;
-                        continue;
-                    }
-                    if context.budget.cancellation.is_cancelled() {
-                        return Err(BudgetStop::Cancelled.into());
-                    }
-                }
-            }
-            return Ok(parsed);
-        }
-    }
-
     /// One logical request: its attempts count one failure toward the
     /// circuit breaker, however many retries it took.
     pub async fn execute(
@@ -161,8 +74,11 @@ impl GitHubTransport {
     ) -> Result<ResponsePage, ProviderError> {
         let Obtained { page, from_origin } =
             self.execute_counted(spec.clone(), context, &mut 0).await?;
-        if from_origin && matches!(spec.method, HttpMethod::Get) {
-            self.keep(&spec, &page, context);
+        if matches!(spec.method, HttpMethod::Get) {
+            if from_origin {
+                self.keep(&spec, &page, context);
+            }
+            self.learn_pull_request_lifetime(&spec, &page, context);
         }
         Ok(page)
     }
@@ -170,7 +86,7 @@ impl GitHubTransport {
     /// [`Self::execute`] drawing on `attempt`, the physical-attempt count of
     /// an enclosing logical operation: its sends and an outer semantic retry
     /// share one `max_attempts` budget.
-    async fn execute_counted(
+    pub(super) async fn execute_counted(
         &self,
         spec: RequestSpec,
         context: &RequestContext,
@@ -187,11 +103,11 @@ impl GitHubTransport {
         let mut sent = spec.clone();
         if let Some(saved) = &saved {
             match &saved.reuse {
-                Reuse::Pinned | Reuse::Fresh => {
+                Reuse::Pinned | Reuse::Fresh | Reuse::Window => {
                     context.check()?;
                     let page = page_of(&saved.saved.answer);
                     context.journal.record_page(&spec, &page);
-                    if saved.reuse == Reuse::Fresh {
+                    if saved.reuse == Reuse::Window {
                         context.record_reused(saved.saved.observed_ms);
                     }
                     return Ok(Obtained {
@@ -287,7 +203,7 @@ impl GitHubTransport {
     /// reaches GitHub and meets that limit there.
     fn saved(&self, spec: &RequestSpec, context: &RequestContext) -> Option<Saved> {
         let store = self.answers.as_ref()?;
-        if !matches!(spec.method, HttpMethod::Get) && !spec.is_pinned() {
+        if !matches!(spec.method, HttpMethod::Get) && !spec.keeps_graphql_answer() {
             return None;
         }
         let scope = self.answer_scope(context)?;
@@ -296,7 +212,7 @@ impl GitHubTransport {
         if saved.answer.body.len() > context.budget.max_body_bytes {
             return None;
         }
-        let reuse = saved.reuse(spec.is_pinned(), self.reuse_window(spec), now_ms());
+        let reuse = saved.reuse(spec.is_pinned(), self.reuse_window(spec, context), now_ms());
         Some(Saved {
             scope,
             request,
@@ -309,15 +225,15 @@ impl GitHubTransport {
     /// continuation's journal or a saved answer that needs no asking.
     pub(crate) fn answers_unasked(&self, spec: &RequestSpec, context: &RequestContext) -> bool {
         context.journal_answers(spec)
-            || self
-                .saved(spec, context)
-                .is_some_and(|saved| matches!(saved.reuse, Reuse::Pinned | Reuse::Fresh))
+            || self.saved(spec, context).is_some_and(|saved| {
+                matches!(saved.reuse, Reuse::Pinned | Reuse::Fresh | Reuse::Window)
+            })
     }
 
     /// Keep `page`, the origin's answer to `spec`, when something can later
     /// vouch for it. A partial answer (GitHub says some results are missing,
     /// or SAML withheld some) is worth asking again and is never kept.
-    fn keep(&self, spec: &RequestSpec, page: &ResponsePage, context: &RequestContext) {
+    pub(super) fn keep(&self, spec: &RequestSpec, page: &ResponsePage, context: &RequestContext) {
         let Some(store) = &self.answers else {
             return;
         };
@@ -331,7 +247,11 @@ impl GitHubTransport {
         let Some(answer) = answer_of(&request, page) else {
             return;
         };
-        if worth_keeping(&answer.headers, spec.is_pinned(), self.reuse_window(spec)) {
+        if worth_keeping(
+            &answer.headers,
+            spec.is_pinned(),
+            self.reuse_window(spec, context),
+        ) {
             store.save(
                 &scope,
                 &request,
@@ -357,13 +277,38 @@ impl GitHubTransport {
         )
     }
 
-    /// How long an answer `spec` gets with no validator or lifetime may stand.
-    fn reuse_window(&self, spec: &RequestSpec) -> Option<Duration> {
-        matches!(
-            self.endpoint.resource(&spec.url),
-            GitHubResource::Search | GitHubResource::CodeSearch
-        )
-        .then_some(SEARCH_REUSE_WINDOW)
+    /// How long an answer `spec` gets with no validator or lifetime may stand:
+    /// a search's chosen window; for a read of a pull request, what GitHub
+    /// states for that pull request over REST, once this key has seen it.
+    fn reuse_window(&self, spec: &RequestSpec, context: &RequestContext) -> Option<Duration> {
+        match self.endpoint.resource(&spec.url) {
+            GitHubResource::Search | GitHubResource::CodeSearch => Some(SEARCH_REUSE_WINDOW),
+            _ if spec.reads_pull_request => self
+                .key_state(context.resolved_credential())
+                .pull_request_lifetime(),
+            _ => None,
+        }
+    }
+
+    /// Note the `max-age` GitHub stated for this REST read of a pull request:
+    /// the window a read of one by a route with no validator gets. No stated
+    /// lifetime is a fact too: it allows no window.
+    fn learn_pull_request_lifetime(
+        &self,
+        spec: &RequestSpec,
+        page: &ResponsePage,
+        context: &RequestContext,
+    ) {
+        if page.status != 200 || !names_pull_request(&spec.url) {
+            return;
+        }
+        let Some(answer) = answer_of(&request_key(spec), page) else {
+            return;
+        };
+        self.key_state(context.resolved_credential())
+            .learn_pull_request_max_age(
+                super::saved::stated_max_age(&answer.headers).unwrap_or_default(),
+            );
     }
 
     /// The attempts of one request; `failed` is the circuit-breaker cause of

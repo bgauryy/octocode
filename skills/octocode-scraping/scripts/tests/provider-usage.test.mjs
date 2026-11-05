@@ -45,7 +45,7 @@ globalThis.fetch = async (url, init) => {
   }
   assert.equal(JSON.parse(run('success').stdout).creditsRemaining, 123);
   assert.equal(JSON.parse(run('http').stdout).status, 403);
-  assert.equal(JSON.parse(run('long').stdout).detail, 'evidence '.repeat(100)+'[REDACTED] final detail');
+  assert.equal(JSON.parse(run('long').stdout).detail, `${'evidence '.repeat(100)}[REDACTED] final detail`);
   for (const name of ['null', 'scalar', 'array', 'malformed']) {
     assert.equal(JSON.parse(run(name).stdout).error.code, 'invalidResponse', name);
   }

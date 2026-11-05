@@ -1,3 +1,4 @@
+use super::rust_source::{first_gated_byte, module_name};
 use super::*;
 use crate::tools::test_support::{Fixture, workspace_policy};
 use octocode_engine::types::TestCodeExcluded;
@@ -107,7 +108,7 @@ fn a_listing_keeps_whole_entries_on_its_side() {
 /// touch, and is safe on any text.
 #[test]
 fn the_text_check_starts_where_a_gate_can_first_reach() {
-    let from = |content: &str| super::first_gated_byte(content);
+    let from = |content: &str| first_gated_byte(content);
     assert_eq!(from("mod a;\nmod b;\n"), None);
     assert_eq!(from("#[cfg(unix)]\nmod a;\n"), None);
     assert_eq!(from("#[cfg_attr(test, allow(unused))]\nmod a;\n"), None);

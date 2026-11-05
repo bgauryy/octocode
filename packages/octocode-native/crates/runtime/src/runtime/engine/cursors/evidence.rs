@@ -10,11 +10,25 @@
 //! ([`ContentSecurity::seal_output`]) on every page it answers. Memory
 //! pressure, idle expiry or a restart drop it, and its request then reaches
 //! GitHub again.
-use crate::cache::{CacheKey, Store};
-use crate::providers::saved_answers::gate_keeps;
+//!
+//! A retained body the saved answers also hold is one file with two hard links
+//! ([`Store::link`]): evidence keeps its snapshot through a refresh, the idle
+//! drop or the eviction of that saved answer, and the other way around.
+use crate::cache::{CacheKey, Disk, Store};
+use crate::providers::saved_answers::{body_digest, body_key, gate_keeps};
 use crate::security::ContentSecurity;
-use octocode_github::ProviderEvidence;
+use octocode_github::{AnswerBody, ProviderEvidence};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::sync::Arc;
+
+/// Retained evidence: the bodies at `linked`'s answer indexes are left out and
+/// named by digest. Whole or absent, as one stored entry always was.
+#[derive(Deserialize, Serialize)]
+pub(super) struct Sealed {
+    evidence: ProviderEvidence,
+    linked: BTreeMap<usize, String>,
+}
 
 /// What one call's continuations own, split by [`gate_keeps`].
 pub(super) struct Owned {
@@ -65,49 +79,96 @@ pub(super) fn owned(evidence: ProviderEvidence) -> Option<Owned> {
 /// identity of the call that observed it, by its content digest.
 pub(super) fn key(policy: &str, identity: Option<&str>, digest: &str) -> CacheKey {
     CacheKey {
-        namespace: "continuation-provider-evidence-v1".into(),
+        namespace: "continuation-provider-evidence-v2".into(),
         scope: format!("{policy}\n{}", identity.unwrap_or_default()),
         resource: digest.into(),
     }
 }
 
 /// Retain `owned`. Evidence a store refuses costs its continuation a fresh
-/// read only.
+/// read only. A body a saved answer holds in `answers` is linked, not copied.
 pub(super) fn retain(
-    sealed: &Store<ProviderEvidence>,
+    sealed: &Store<Sealed>,
     held: &Store<ProviderEvidence>,
+    answers: Option<&Disk>,
     key: CacheKey,
     owned: Owned,
 ) {
-    for (store, evidence) in [(held, owned.held), (sealed, owned.sealed)] {
-        if !evidence.is_empty() {
-            let bytes = evidence.bytes();
-            store.put_confirmed(
-                key.clone(),
-                evidence,
-                bytes,
-                crate::cache::CONTINUATION_RETENTION,
-            );
+    if !owned.held.is_empty() {
+        let bytes = owned.held.bytes();
+        held.put_confirmed(
+            key.clone(),
+            owned.held,
+            bytes,
+            crate::cache::CONTINUATION_RETENTION,
+        );
+    }
+    let mut evidence = owned.sealed;
+    if evidence.is_empty() {
+        return;
+    }
+    let linked = answers.map_or_else(BTreeMap::new, |answers| {
+        link_bodies(sealed, answers, &mut evidence)
+    });
+    let bytes = evidence.bytes();
+    sealed.put_confirmed(
+        key,
+        Sealed { evidence, linked },
+        bytes,
+        crate::cache::CONTINUATION_RETENTION,
+    );
+}
+
+fn link_bodies(
+    sealed: &Store<Sealed>,
+    answers: &Disk,
+    evidence: &mut ProviderEvidence,
+) -> BTreeMap<usize, String> {
+    let mut linked = BTreeMap::new();
+    for (index, answer) in evidence.answers.iter_mut().enumerate() {
+        if answer.body.is_empty() {
+            continue;
+        }
+        let digest = body_digest(&answer.body);
+        if sealed.link(answers, &body_key(&digest)) {
+            answer.body = AnswerBody::default();
+            linked.insert(index, digest);
         }
     }
+    linked
+}
+
+/// The evidence `kept` stored, with every linked body exactly as it was.
+fn whole(store: &Store<Sealed>, kept: &Sealed) -> Option<ProviderEvidence> {
+    let mut evidence = kept.evidence.clone();
+    for (index, digest) in &kept.linked {
+        let bytes = store.read_link(&body_key(digest))?;
+        let body = AnswerBody::from(String::from_utf8(bytes).ok()?);
+        if body_digest(&body) != *digest {
+            return None;
+        }
+        evidence.answers.get_mut(*index)?.body = body;
+    }
+    Some(evidence)
 }
 
 /// The evidence retained under `key`, sealed and held together.
 pub(super) fn open(
-    sealed: &Store<ProviderEvidence>,
+    sealed: &Store<Sealed>,
     held: &Store<ProviderEvidence>,
     key: &CacheKey,
 ) -> Option<Arc<ProviderEvidence>> {
-    let saved = sealed.get(key).map(|cached| cached.value);
+    let saved = sealed
+        .get(key)
+        .and_then(|cached| whole(sealed, &cached.value));
     let Some(held) = held.get(key).map(|cached| cached.value) else {
-        return saved;
+        return saved.map(Arc::new);
     };
-    let Some(saved) = saved else {
+    let Some(mut saved) = saved else {
         return Some(held);
     };
-    let mut whole = (*saved).clone();
-    whole.answers.extend(held.answers.iter().cloned());
-    Some(Arc::new(whole))
+    saved.answers.extend(held.answers.iter().cloned());
+    Some(Arc::new(saved))
 }
 
 #[cfg(test)]
@@ -188,7 +249,7 @@ mod tests {
             request: request.into(),
             status: 200,
             headers: vec![("content-type".into(), "application/json".into())],
-            body,
+            body: body.into(),
             next: None,
             not_found: None,
         }
@@ -268,8 +329,7 @@ mod tests {
     fn held_answers_never_reach_the_persistent_store() {
         let dir = tempfile::tempdir().expect("store");
         let config = crate::cache::CacheConfig::derived();
-        let sealed_store: Store<ProviderEvidence> =
-            Store::new(config.clone(), Some(dir.path().to_owned()));
+        let sealed_store: Store<Sealed> = Store::new(config.clone(), Some(dir.path().to_owned()));
         let held_store: Store<ProviderEvidence> = Store::new(config.clone(), None);
         let secret = format!("token = \"ghp_{}\"\n", "a1B2c3D4e5F6".repeat(3));
         let clean = answer("GET /clean", "fn main() {}\n".into());
@@ -280,7 +340,7 @@ mod tests {
         })
         .expect("owned");
         let key = key("policy", Some("identity"), &owned.digest);
-        retain(&sealed_store, &held_store, key.clone(), owned);
+        retain(&sealed_store, &held_store, None, key.clone(), owned);
         let whole = open(&sealed_store, &held_store, &key).expect("whole");
         assert_eq!(whole.answers, vec![clean.clone(), raw]);
         let restarted: Store<ProviderEvidence> = Store::new(config, None);

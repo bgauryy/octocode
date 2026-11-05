@@ -54,6 +54,9 @@ impl GitHubServices {
             }
             GitHubTool::GhStructure => {
                 let query = typed!(GhStructureQuery);
+                if !self.persistent && materializes(&query) {
+                    return Ok(materialize_refused());
+                }
                 tool_row(gh_structure::run(&self.provider, &query, request, &self.home).await)
             }
             GitHubTool::GhGetFileContent => {
@@ -92,10 +95,7 @@ impl GitHubServices {
                         .await
                     {
                         // The row states its own `status` (an empty page).
-                        Ok(output) => DomainResult {
-                            remaining: output.remaining,
-                            ..crate::runtime::dispatch::value_result(output.data)
-                        },
+                        Ok(output) => crate::runtime::dispatch::value_result(output.data),
                         Err(failure) => tool_row(Err(failure)),
                     }
                 }
@@ -177,4 +177,21 @@ impl GitHubServices {
             Err(failure) => history_search_error(failure),
         })
     }
+}
+
+/// Whether a listing asks to write its files under the home.
+fn materializes(query: &GhStructureQuery) -> bool {
+    matches!(query, GhStructureQuery::Tree(tree) if tree.materialize == Some(true))
+}
+
+/// Materialize is an execution prerequisite on storage, as clone is, refused
+/// before any provider work. The same listing without it needs no storage.
+fn materialize_refused() -> DomainResult {
+    DomainResult::provider(
+        ErrorCode::PersistentStorageDisabled,
+        "materialize writes files under the home, and storage.mode is memory. List without materialize and read files with ghGetFileContent, or set storage.mode=\"persistent\" or OCTOCODE_STORAGE_MODE=persistent.".to_owned(),
+        Vec::new(),
+        None,
+        Upstream::default(),
+    )
 }

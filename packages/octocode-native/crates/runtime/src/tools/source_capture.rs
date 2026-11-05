@@ -6,7 +6,7 @@
 //!
 //! A selection is captured whole or not at all: every content page the
 //! reader returns is followed (each pinned to the first page's file snapshot
-//! or commit), and a selection larger than the state limit fails instead of
+//! or commit), and a selection larger than a capture holds fails instead of
 //! being judged from its first part.
 pub(crate) mod assets;
 mod page;
@@ -83,6 +83,8 @@ pub(crate) struct Captured {
     /// An executable read of exactly the captured selection, at the same
     /// snapshot or commit.
     pub read: Value,
+    /// Characters that read returns.
+    pub read_chars: usize,
     /// Provenance a read lead cannot carry (a URL capture).
     pub source: Option<Value>,
 }
@@ -90,22 +92,37 @@ pub(crate) struct Captured {
 /// How a source selection too large for one state is judged in parts.
 pub(crate) const IN_PARTS_HINT: &str = "Judge it in parts: narrower ranges, one query row per part, or operation:\"sections\" with the source under resources.";
 
-/// `what` exceeds the `max_chars` state limit. Its recovery: the
-/// long-context limit when the row is under it, then `in_parts`.
+/// `what` is more text than one capture holds in memory, whose limit stands
+/// whatever the provider would judge.
 pub(crate) fn too_large(max_chars: usize, what: &str, in_parts: &str) -> ClassificationError {
-    let long = crate::id::clasify_policy::MAX_LONG_CONTEXT_STATE_CHARS;
-    let mut hints = Vec::new();
-    if max_chars < long {
-        hints.push(format!(
-            "Retry with longContext:true for a {long}-character state limit."
-        ));
-    }
-    hints.push(in_parts.to_owned());
-    ClassificationError::with_hints(
+    ClassificationError::new(
         ErrorCode::ClassificationContextTooLarge,
-        format!("{what} exceeds the {max_chars}-character state limit; nothing was judged."),
-        hints,
+        format!(
+            "{what} exceeds the {max_chars}-character limit of one capture; nothing was judged."
+        ),
+        in_parts,
     )
+}
+
+/// The refusal of a GitHub source whose name the classification egress
+/// withholds: the code a local capture meets, before any fetch, so no copy is
+/// cached. Only the provider is refused: its read, without classification,
+/// sends nothing to one and stays the route to the file.
+pub(crate) fn withheld_github_source(query: &Value) -> Option<ClassificationError> {
+    let path = query["path"].as_str()?;
+    crate::policy::discovery::is_sensitive_repository_file(path).then(|| ClassificationError {
+        leads: vec![(
+            "read".to_owned(),
+            read_lead(ToolId::GhGetFileContent, query, None),
+        )],
+        ..ClassificationError::new(
+            ErrorCode::PathPolicyDenied,
+            format!(
+                "Path '{path}' is withheld from classification by the security path policy (a credential file name or directory): nothing was fetched or sent to the provider, and no flag or config setting lifts it."
+            ),
+            "A ghGetFileContent read without classification returns this file redacted and sends nothing to a provider.",
+        )
+    })
 }
 
 /// Capture `source` (`{tool, query}` or `{url}`) completely, up to
@@ -145,6 +162,7 @@ pub(crate) fn capture(
         id == ToolId::GhGetFileContent,
     )?;
     Ok(Captured {
+        read_chars: text.chars().count(),
         state: json!({ "source": identity(id, &source["query"], pin.as_deref()), "text": text }),
         read: read_lead(id, &source["query"], pin.as_deref()),
         source: None,

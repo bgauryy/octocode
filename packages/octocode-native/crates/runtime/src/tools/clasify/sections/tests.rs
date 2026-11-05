@@ -1,4 +1,3 @@
-use super::assess::{pending_cost, settle_unsupported};
 use super::emit::{answered_cell, emit, terminal_saved};
 use super::*;
 use crate::cache::CacheConfig;
@@ -99,9 +98,11 @@ fn partial_cells_are_held_until_the_complete_section_emits_exactly_once() {
         "an absent count is 0"
     );
     let third = emit(&mut session, &usage, None);
-    assert!(
-        third["resources"].get("resource").is_none(),
-        "an unchanged resource row is not repeated: {third}"
+    // Nothing new to say: the contract still needs a resource, with no sections.
+    assert_eq!(
+        third["resources"]["resource"]["sections"],
+        json!([]),
+        "{third}"
     );
 }
 
@@ -282,39 +283,19 @@ fn work_token_is_bounded_and_does_not_accept_arbitrary_plan_keys() {
 }
 
 #[test]
-fn permanently_unsupported_cells_are_settled_before_lifetime_preflight() {
-    let mut session = session();
-    let limits = SelectionLimits {
-        max_candidates: 1,
-        max_chars: 1,
-        timeout: Duration::from_secs(1),
-    };
-    assert_eq!(settle_unsupported(&mut session, limits), 1);
-    assert_eq!(pending_cost(&session), (0, 0));
-    let output = emit(&mut session, &ClassificationUsage::default(), None);
-    let answers = &output["resources"]["resource"]["sections"][0]["answers"];
-    assert_eq!(answers["a"]["status"], "answered");
-    assert_eq!(answers["b"]["status"], "unsupported");
-    assert_eq!(
-        answers["b"]["error"]["errorCode"],
-        "classificationContextTooLarge"
+fn a_page_takes_its_first_unit_whatever_its_size_and_stops_at_its_budget() {
+    let budget = Budget::new(SelectionLimits { max_chars: 9 });
+    assert!(!budget.has_admissions());
+    assert!(budget.admit(50, false), "the first unit always runs");
+    assert!(!budget.admit(1, false), "the next page takes the rest");
+    assert!(
+        budget.admit(1, true),
+        "a runtime with no next page takes all"
     );
-    assert!(output.get("error").is_none());
-    assert!(output.get("next").is_none());
-}
-
-#[test]
-fn admission_is_shared_and_never_skips_an_over_budget_unit_then_loops() {
-    let budget = Budget::new(SelectionLimits {
-        max_candidates: 2,
-        max_chars: 9,
-        timeout: Duration::from_secs(1),
-    });
-    budget.deadline(Instant::now() + Duration::from_secs(2));
-    assert!(budget.admit(5));
-    assert!(!budget.admit(5));
-    assert!(budget.admit(4));
-    assert!(!budget.admit(0));
+    let budget = Budget::new(SelectionLimits { max_chars: 9 });
+    assert!(budget.admit(5, false));
+    assert!(budget.admit(4, false));
+    assert!(!budget.admit(1, false));
 }
 
 #[test]

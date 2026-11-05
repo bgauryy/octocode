@@ -34,6 +34,100 @@ fn schema_catalog_lists_enabled_tools_with_discoverable_fields() {
     }
 }
 
+/// The catalog, its instructions and the read tools' fields follow the key:
+/// the same gate MCP serves.
+#[test]
+fn schema_lists_clasify_and_classification_only_with_a_key() {
+    let workspace = Workspace::new();
+    let run = |key: Option<&str>, args: &[&str]| {
+        let mut command = workspace.cli();
+        if let Some(key) = key {
+            command.env("OCTOCODE_CLASSIFICATION_API", key);
+        }
+        let output = command.args(args).output().expect("schema");
+        assert!(output.status.success(), "{args:?}: {}", stdout(&output));
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).expect("JSON")
+    };
+    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    let scout = presentation["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .find(|tool| tool["name"] == "clasify")
+        .and_then(|tool| tool["instructions"].as_str())
+        .expect("clasify block");
+    let contract_tools = octocode_native::id::ToolId::ALL.len();
+    for (key, listed) in [
+        (None, false),
+        (Some("  "), false),
+        (Some("fixture-key"), true),
+    ] {
+        let compact = run(key, &["schema"]);
+        let full = run(key, &["schema", "--view", "full"]);
+        for catalog in [&compact, &full] {
+            let tools = catalog["tools"].as_array().expect("tools");
+            let names: Vec<_> = tools
+                .iter()
+                .filter_map(|tool| tool["name"].as_str())
+                .collect();
+            assert_eq!(names.contains(&"clasify"), listed, "{key:?}: {names:?}");
+            assert_eq!(catalog["toolCount"], tools.len(), "{key:?}");
+            // securityCheck has its own setting, off here.
+            assert_eq!(
+                tools.len(),
+                contract_tools - 1 - usize::from(!listed),
+                "{key:?}: {names:?}"
+            );
+        }
+        let text = full["instructions"].as_str().expect("instructions");
+        assert_eq!(text.contains(scout), listed, "{key:?}");
+        assert_eq!(text.contains("clasify"), listed, "{key:?}: {text}");
+        assert_eq!(text.contains("classification"), listed, "{key:?}: {text}");
+        let fields = serde_json::to_string(&full["tools"]).expect("tools text");
+        assert_eq!(fields.contains("classification"), listed, "{key:?}");
+        let local = run(key, &["schema", "localSearch"]);
+        assert_eq!(
+            local["querySchema"]["properties"]
+                .get("classification")
+                .is_some(),
+            listed,
+            "{key:?}"
+        );
+    }
+}
+
+/// The guide the CLI catalog points to, whole, as the skill's own file.
+#[test]
+fn schema_flow_prints_the_tool_flow_guide() {
+    let workspace = Workspace::new();
+    let flow = workspace
+        .cli()
+        .args(["schema", "--view", "flow"])
+        .output()
+        .expect("flow");
+    assert!(flow.status.success(), "{}", stderr(&flow));
+    let skill = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../../skills/octocode-research/references/tool-flow.md");
+    assert_eq!(
+        stdout(&flow),
+        std::fs::read_to_string(skill).expect("skill file")
+    );
+    let output = workspace
+        .cli()
+        .args(["schema", "--view", "full"])
+        .output()
+        .expect("catalog");
+    let catalog: serde_json::Value = serde_json::from_slice(&output.stdout).expect("JSON");
+    let text = catalog["instructions"].as_str().expect("instructions");
+    assert!(!text.contains("octocode://"), "{text}");
+    let bad = workspace
+        .cli()
+        .args(["schema", "localSearch", "--view", "flow"])
+        .output()
+        .expect("tool flow");
+    assert_eq!(exit_code(&bad), Some(2), "{}", stdout(&bad));
+}
+
 #[test]
 fn schema_views_and_help_examples_are_usable_without_node() {
     let workspace = Workspace::new();
@@ -58,9 +152,12 @@ fn schema_views_and_help_examples_are_usable_without_node() {
         selected["querySchema"]["properties"]["symbolFilter"].is_object(),
         "{selected}"
     );
+    // A named tool's view stays readable: it says what would enable it.
+    let clasify = query(&["schema", "clasify"]);
+    assert_eq!(clasify["availability"]["enabled"], false, "{clasify}");
     assert_eq!(
-        query(&["schema", "clasify"])["availability"]["enabled"],
-        true
+        clasify["availability"]["envVar"], "OCTOCODE_CLASSIFICATION_API",
+        "{clasify}"
     );
     for args in [
         vec!["schema", "unknownTool"],

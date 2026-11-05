@@ -1,6 +1,16 @@
 use super::detector;
-use super::detector::{CONTENT_SIZE_LIMIT_PLACEHOLDER, MAX_CONTENT_SIZE, Scope};
+use super::detector::Scope;
 use super::types::SanitizationResult;
+
+/// Redact JSON member values whose surrounding object identifies a secret.
+/// Raw text leaves still need their normal source-aware scan. Returns the
+/// removed values so a caller can also hide copies elsewhere in the data.
+pub fn sanitize_structure(
+    value: &mut serde_json::Value,
+) -> crate::error::Result<Vec<(String, String)>> {
+    let hidden = guarded(|| detector::structured::matches(value))??;
+    Ok(detector::structured::apply(value, hidden))
+}
 
 pub fn sanitize_content<'a>(
     content: &'a str,
@@ -30,12 +40,7 @@ pub fn sanitize_stored_leaf(
 }
 
 fn redact_leaf(content: &str, scope: Scope<'_>) -> crate::error::Result<Option<String>> {
-    guarded(|| {
-        if content.len() > MAX_CONTENT_SIZE {
-            return Some(CONTENT_SIZE_LIMIT_PLACEHOLDER.to_owned());
-        }
-        detector::redact(content, scope).map(|result| result.sanitized)
-    })
+    guarded(|| detector::redact(content, scope).map(|result| result.sanitized))
 }
 
 fn sanitize_in<'a>(
@@ -43,18 +48,6 @@ fn sanitize_in<'a>(
     scope: Scope<'_>,
 ) -> crate::error::Result<SanitizationResult<'a>> {
     guarded(|| {
-        // Redact oversized content before running any pattern detector.
-        if content.len() > MAX_CONTENT_SIZE {
-            return SanitizationResult {
-                content: CONTENT_SIZE_LIMIT_PLACEHOLDER.into(),
-                has_secrets: true,
-                secrets_detected: vec!["content-size-exceeded".to_string()],
-                warnings: vec![format!(
-                    "Content exceeds {} byte limit — redacted for safety",
-                    MAX_CONTENT_SIZE
-                )],
-            };
-        }
         let Some(result) = detector::redact(content, scope) else {
             return SanitizationResult {
                 content: content.into(),
@@ -92,17 +85,6 @@ mod tests {
         assert_eq!(result.content.as_ptr(), content.as_ptr());
         assert_eq!(result.content, content);
         assert!(!result.has_secrets);
-    }
-
-    #[test]
-    fn sanitize_content_redacts_oversized_content() {
-        let content = "a".repeat(MAX_CONTENT_SIZE + 1);
-        let result = sanitize_content(&content, None).expect("sanitized");
-
-        assert_eq!(result.content, "[CONTENT-REDACTED-SIZE-LIMIT]");
-        assert!(result.has_secrets);
-        assert_eq!(result.secrets_detected, vec!["content-size-exceeded"]);
-        assert_eq!(result.warnings.len(), 1);
     }
 
     #[test]
@@ -152,11 +134,6 @@ mod tests {
             )
         );
         assert!(!redacted.expect("redacted").contains("ghp_"));
-        let oversized = "a".repeat(MAX_CONTENT_SIZE + 1);
-        assert_eq!(
-            sanitize_leaf(&oversized, None).expect("scanned").as_deref(),
-            Some(CONTENT_SIZE_LIMIT_PLACEHOLDER)
-        );
     }
 
     /// A leaf of a source file is scanned as that language: a YAML-style

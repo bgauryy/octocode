@@ -96,6 +96,7 @@ fn scala_receivers_take_the_declared_type_of_their_term() {
             call("G.flatMapIt", Some("FlatMap.Base"), false),
             call("H.tailRecM", Some("Monad"), false),
             call("monad.first", Some("Monad"), false),
+            call("inner", None, false),
             call("m.second", Some("Applicative"), false),
             call("fa.third", None, true),
             call("xs.map", None, false),

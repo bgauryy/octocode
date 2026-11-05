@@ -5,7 +5,7 @@
 //! ([`classify_sites`]); every other site, and a name the parse holds no
 //! node for, reads the text rule of its own line.
 use super::call_sites::classify_sites;
-use super::call_sites::text_rule::is_call_at;
+use super::call_sites::text_rule::is_call_site;
 use super::failure::LspFailure;
 use super::recovery::{Landing, lands};
 use super::render::uri_to_path;
@@ -57,7 +57,12 @@ pub(super) async fn assign_roles(
             let text = || {
                 if imports_on(line_text(&source.content, &lines, start.line)) {
                     "import"
-                } else if is_call_at(&source.content, &lines, end.line, end.character) {
+                } else if is_call_site(
+                    &source.content,
+                    &lines,
+                    (start.line, start.character),
+                    (end.line, end.character),
+                ) {
                     "call"
                 } else {
                     "reference"

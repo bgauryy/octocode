@@ -234,7 +234,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         // kebab or dotted (`API_KEY`, `client-secret`, `db.password`) or
         // camelCase (`awsSecret`, `clientSecretKey`), optionally quoted as a
         // JSON/YAML key, with `=`, `:=`, `:` or `=>`.
-        regex: r###"(?:\b(?:[A-Za-z0-9]+[_.-])*(?i:secret|password|passwd|passphrase|key|token|credential)s?(?:[_.-][A-Za-z0-9]+)*|\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Key|Token|Credential)s?(?:[A-Z][a-z0-9]*)*)["']?\s*(?:=>|:=|=|:)\s*["'](?P<secret>[^"'\r\n]{16,})["']"###,
+        regex: r###"(?:\b(?:[A-Za-z0-9]+[_.-])*(?i:secret|password|passwd|passphrase|key|token|credential)s?(?:[_.-][A-Za-z0-9]+)*|\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Key|Token|Credential)s?(?:[A-Z][a-z0-9]*)*)["']?\s*(?:=>|:=|=|:)\s*(?:"(?P<secret>(?:\\[^\r\n]|[^"\\\r\n]){16,})"|'(?P<secret_single>(?:\\[^\r\n]|[^'\\\r\n]){16,})')"###,
     },
     SecretPattern {
         name: "dotenvSecretAssignment",

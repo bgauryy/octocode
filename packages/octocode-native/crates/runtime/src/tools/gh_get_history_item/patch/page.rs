@@ -18,7 +18,9 @@ use stream::{PatchStream, window_end};
 /// A page of changed files sharing one patch char window.
 pub(in crate::tools::gh_get_history_item) struct PatchPage {
     pub(in crate::tools::gh_get_history_item) rows: Vec<Value>,
-    /// Files whose patch is not fully delivered yet, in page order.
+    /// Files whose patch is not fully delivered yet, in page order: what the
+    /// packing tests read.
+    #[cfg(test)]
     pub(in crate::tools::gh_get_history_item) unfinished: Vec<String>,
     /// The page-stream `offset` that continues this window; `None` once
     /// every patch on the page is delivered.
@@ -121,10 +123,11 @@ pub(in crate::tools::gh_get_history_item) fn shape_patch_page_reserving(
         offset,
         end,
     };
-    let (rows, unfinished, clipped) = stream.rows(&files);
+    let (rows, _unfinished, clipped) = stream.rows(&files);
     PatchPage {
         rows,
-        unfinished,
+        #[cfg(test)]
+        unfinished: _unfinished,
         cursor,
         stream: stream_window,
         clipped,

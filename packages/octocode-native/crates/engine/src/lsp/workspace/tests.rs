@@ -337,3 +337,5 @@ fn multi_module_projects_root_at_their_top() {
 
 #[cfg(unix)]
 mod includes_memo;
+
+mod project_roots;

@@ -27,20 +27,28 @@ pub(super) async fn service_endpoint(
             .ok_or_else(|| super::super::util::invalid(ArtifactType::Nuget))?,
         ArtifactType::Nuget,
     )?;
-    let preferred = if kind == "RegistrationsBaseUrl" {
-        "RegistrationsBaseUrl/3.6.0"
-    } else {
-        "SearchQueryService/3.5.0"
+    // The version whose data a row relies on, wherever the index lists it: only
+    // the 3.6.0 registrations carry SemVer 2.0 versions, `vulnerabilities` and
+    // `deprecation`, and the index lists the older ones first.
+    let preferred = match kind {
+        "RegistrationsBaseUrl" => Some("RegistrationsBaseUrl/3.6.0"),
+        "SearchQueryService" => Some("SearchQueryService/3.5.0"),
+        _ => None,
     };
-    let selected = resources.iter().find_map(|value| {
-        let row = value.as_object()?;
-        let service_type = row.get("@type")?.as_str()?;
-        (service_type == preferred
-            || service_type == kind
-            || service_type_starts(service_type, kind))
-        .then_some(row)
-    });
-    official_url(selected.and_then(|row| row.get("@id")))
+    let selected = |wanted: &dyn Fn(&str) -> bool| {
+        resources.iter().find_map(|value| {
+            let row = value.as_object()?;
+            wanted(row.get("@type")?.as_str()?).then_some(row)
+        })
+    };
+    let row = preferred
+        .and_then(|preferred| selected(&|service_type| service_type == preferred))
+        .or_else(|| {
+            selected(&|service_type| {
+                service_type == kind || service_type_starts(service_type, kind)
+            })
+        });
+    official_url(row.and_then(|row| row.get("@id")))
 }
 
 fn service_type_starts(service_type: &str, kind: &str) -> bool {

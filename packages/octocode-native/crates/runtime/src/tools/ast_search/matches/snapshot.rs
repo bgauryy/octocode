@@ -87,7 +87,7 @@ pub(super) fn match_snapshot(q: MatchQuery<'_>, scope: &Scope, scan: &Scan) -> S
         .iter()
         .map(|f| (f.path.clone(), f.matches.len()))
         .collect::<Vec<_>>();
-    crate::digest::json_sha256(&json!([
+    let bound = json!([
         // Row shape version (v4: `matchCount`, object rows, 1-based columns); an older cursor
         // restarts instead of mixing shapes across pages.
         MATCH_ROWS_VERSION,
@@ -109,5 +109,10 @@ pub(super) fn match_snapshot(q: MatchQuery<'_>, scope: &Scope, scan: &Scan) -> S
         q.scan_offset(),
         &scan.source_digest,
         ordered
-    ]))
+    ]);
+    // A later window's pages answer for the windows before it too.
+    match &scan.listed_before {
+        Some(before) => crate::digest::json_sha256(&json!([bound, before])),
+        None => crate::digest::json_sha256(&bound),
+    }
 }

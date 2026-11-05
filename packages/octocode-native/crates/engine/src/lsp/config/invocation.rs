@@ -42,7 +42,11 @@ pub(super) fn config_from_spec(
     if spec.language_id == "rust" {
         apply_rust_analyzer_defaults(&mut config);
     } else {
-        apply_server_default_options(&mut config, options.octocode_home.as_deref());
+        apply_server_default_options(
+            &mut config,
+            options.octocode_home.as_deref(),
+            options.index_home(),
+        );
     }
     config
 }

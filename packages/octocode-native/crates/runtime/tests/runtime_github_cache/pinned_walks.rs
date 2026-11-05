@@ -84,7 +84,7 @@ async fn walk_pages(
         );
         let data = row_data(&outcome);
         lines.extend(numbered_lines(data["content"].as_str().expect("content")));
-        pending = data.pointer("/next/nextPage/input").cloned();
+        pending = support::next_input(&outcome.structured_content);
         assert!(inputs.len() < WALKED_LINES, "nonterminating walk");
     }
     (lines, inputs)
@@ -181,7 +181,7 @@ async fn a_walk_past_a_restart_fetches_the_held_file_again_and_completes() {
         .expect("page 1");
     let data = row_data(&outcome);
     let mut lines = numbered_lines(data["content"].as_str().expect("content"));
-    let next = data.pointer("/next/nextPage/input").cloned().expect("next");
+    let next = support::next_input(&outcome.structured_content).expect("next");
     first.close().await;
     assert_eq!(content_reads(&server, "big.rs").await, 1);
 

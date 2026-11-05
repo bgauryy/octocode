@@ -1,7 +1,9 @@
 mod key_blocks;
 mod key_markers;
+use key_blocks::opens_with_body_run;
 pub(crate) use key_blocks::{
-    KeyBlockState, KeyBlockTracker, LineShapeScan, match_window_intersects_key_block,
+    KeyBlockState, KeyBlockTracker, LineShapeScan, hide_key_line, key_line_lead,
+    match_window_intersects_key_block,
 };
 pub(crate) use key_markers::MarkerScan;
 use key_markers::{line_markers, may_hold_key_marker};
@@ -70,7 +72,6 @@ pub(crate) fn redact_private_key_blocks(content: &str) -> (std::borrow::Cow<'_, 
     if !may_hold_key_marker(content) {
         return (content.into(), false);
     }
-    let placeholder = key_fragment_placeholder();
     let mut out = String::with_capacity(content.len());
     let mut block = KeyBlockState::default();
     let mut changed = false;
@@ -80,7 +81,7 @@ pub(crate) fn redact_private_key_blocks(content: &str) -> (std::borrow::Cow<'_, 
         }
         if block.push_line(line) {
             changed = true;
-            out.push_str(&placeholder);
+            out.push_str(&hide_key_line(line));
         } else {
             out.push_str(line);
         }
@@ -145,9 +146,10 @@ fn redact_split_private_key(text: &str, file_path: Option<&Path>) -> Option<Stri
     let redacted: Vec<String> = text
         .lines()
         .map(|line| {
-            if is_private_key_boundary(line) || is_key_body_line(line) {
+            if is_private_key_boundary(line) || is_key_body_line(line) || opens_with_body_run(line)
+            {
                 changed = true;
-                key_fragment_placeholder()
+                hide_key_line(line)
             } else {
                 line.to_owned()
             }
@@ -161,6 +163,32 @@ fn redact_split_private_key(text: &str, file_path: Option<&Path>) -> Option<Stri
         out.push('\n');
     }
     Some(out)
+}
+
+/// 1-based inclusive line ranges of `text` that a row cut from it cannot be
+/// judged alone: its key blocks, and the lines a whole-file scan redacts when it
+/// names a pattern whose context can lie outside any row. Nothing on those lines
+/// tells the output gate what they are.
+pub(crate) fn lines_a_row_cannot_judge(text: &str, path: &Path) -> Vec<(u32, u32)> {
+    use octocode_engine::security::WholeSourcePatterns;
+    let mut lines = private_key_block_line_ranges(text);
+    let spans = WholeSourcePatterns::for_path(&path.to_string_lossy())
+        .is_some_and(|patterns| patterns.named_by(text))
+        || WholeSourcePatterns::any_file().named_by(text);
+    if spans {
+        let scan = ContentSecurity::new().sanitize_text(text, Some(path));
+        lines.extend(
+            text.lines()
+                .zip(scan.content.lines())
+                .enumerate()
+                .filter(|(_, (raw, clean))| raw != clean)
+                .map(|(at, _)| {
+                    let line = octocode_engine::num::saturating_u32(at + 1);
+                    (line, line)
+                }),
+        );
+    }
+    lines
 }
 
 #[derive(Clone, Debug, Default)]
@@ -239,6 +267,38 @@ impl ContentSecurity {
             source_path.map(Path::new),
         )
         .or(redacted)
+    }
+
+    /// A clasify row's own text names no file and leaves for a provider, so it
+    /// is judged as kept text is: whatever a read of some file would redact.
+    /// The fields of `row` that held any.
+    pub(super) fn judge_evidence(
+        &self,
+        row: &mut serde_json::Map<String, serde_json::Value>,
+    ) -> Vec<String> {
+        let mut fields = Vec::new();
+        for field in ["content", "questions", "context"] {
+            let Some(value) = row.get_mut(field) else {
+                continue;
+            };
+            let redacted = super::sanitize_json(value, &mut |text: &str, _: Option<&str>| {
+                Ok::<_, std::convert::Infallible>(self.sanitize_stored_leaf(text, None))
+            })
+            .unwrap_or_else(|never| match never {});
+            if redacted {
+                fields.push(field.to_owned());
+            }
+        }
+        fields
+    }
+
+    /// Text data at an external provider boundary has no trusted source path.
+    /// Structured member context and every file-context pattern apply. Image
+    /// assets and authentication headers are handled separately by their owner.
+    pub(crate) fn sanitize_data(&self, value: &mut serde_json::Value) {
+        let _ = super::sanitize_json(value, &mut |text: &str, _: Option<&str>| {
+            Ok::<_, std::convert::Infallible>(self.sanitize_stored_leaf(text, None))
+        });
     }
 
     fn guard_native<'a>(

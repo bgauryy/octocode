@@ -65,7 +65,7 @@ export async function startServer({ env = {}, replaceEnv = false, cwd = ROOT, en
     const n = ++id;
     const timer = setTimeout(() => {
       if (method !== 'initialize') {
-        server.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: n, reason: 'test request deadline exceeded' } }) + '\n');
+        server.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: n, reason: 'test request deadline exceeded' } })}\n`);
       }
       process.exitCode = 1;
       fail(new Error(`timeout ${method} after ${timeout}ms`));
@@ -73,12 +73,12 @@ export async function startServer({ env = {}, replaceEnv = false, cwd = ROOT, en
       forceTerminate();
     }, timeout);
     pending.set(n, { resolve: message => { clearTimeout(timer); pending.delete(n); resolve(message); }, reject: error => { clearTimeout(timer); pending.delete(n); reject(error); } });
-    server.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: n, method, params }) + '\n');
+    server.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: n, method, params })}\n`);
   });
   let init, tools;
   try {
   init = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'packages/octocode-benchmark/local/e2e', version: '1' } });
-  server.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
+  server.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
   if (init.error) throw new Error(init.error.message);
   const listing = await rpc('tools/list', {});
   if (listing.error || !Array.isArray(listing.result?.tools)) throw new Error('MCP tools/list failed');

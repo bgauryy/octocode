@@ -206,7 +206,7 @@ test('a host hook refuses a context_generation that is not a string instead of c
 
 // --- MCP and vendor frames -----------------------------------------------------------------------------------------
 
-const mcp = (f: Fixture, session: string, frames: string[]): JsonRecord[] => execFileSync(binary, ['mcp', ...f.flags, '--session', session], { input: frames.join('\n') + '\n', encoding: 'utf8' }).trim().split('\n').map((line): JsonRecord => JSON.parse(line));
+const mcp = (f: Fixture, session: string, frames: string[]): JsonRecord[] => execFileSync(binary, ['mcp', ...f.flags, '--session', session], { input: `${frames.join('\n')}\n`, encoding: 'utf8' }).trim().split('\n').map((line): JsonRecord => JSON.parse(line));
 
 test('an integer request id beyond 2^53 is refused, not echoed as a different id', t => {
   const f = fixture(t), session = f.join('agent');
@@ -273,7 +273,7 @@ test('UUID acceptance removes every urn: and uuid: marker, as the previous runti
   assert.equal(runtime.validation.isUuid(`urn:uuid:{${hex}}`), true);
   assert.equal(runtime.validation.isUuid(`urn:urn:${hex}`), true);
   assert.equal(runtime.validation.isUuid(`${hex}00`), false);
-  assert.equal(runtime.validation.isUuid('urn:uuid:' + hex.slice(2)), false);
+  assert.equal(runtime.validation.isUuid(`urn:uuid:${hex.slice(2)}`), false);
 });
 
 test('a view cursor may use the standard base64 alphabet, as the previous runtime decoding accepted', async t => {

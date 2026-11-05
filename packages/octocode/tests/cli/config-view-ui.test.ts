@@ -201,9 +201,7 @@ describe('config view browser app', () => {
       true
     );
     assert.notEqual(
-      view
-        .controls()
-        .find(element => element.textContent === 'Reset')!
+      view.controls().find(element => element.textContent === 'Reset')!
         .disabled,
       true
     );
@@ -221,39 +219,113 @@ describe('config view browser app', () => {
 });
 
 const text = (view: Awaited<ReturnType<typeof browser>>) =>
-  view.controls().map(element => element.textContent).join(' ');
+  view
+    .controls()
+    .map(element => element.textContent)
+    .join(' ');
 
 describe('one page', () => {
   const contract = {
     files,
     settings: [
-      { key: 'lsp.prewarm', type: 'enum', value: 'targeted', values: ['targeted', 'off'], sectionTitle: 'LSP', description: 'Prewarm', displayDefault: 'targeted', env: 'OCTOCODE_LSP_PREWARM', source: 'default', homeValue: null },
-      { key: 'classification.apiHost', type: 'url', value: null, sectionTitle: 'Classification provider', group: 'Classification', description: 'Host', displayDefault: 'https://api.typesafe.ai', source: 'default' },
+      {
+        key: 'lsp.prewarm',
+        type: 'enum',
+        value: 'targeted',
+        values: ['targeted', 'off'],
+        sectionTitle: 'LSP',
+        description: 'Prewarm',
+        displayDefault: 'targeted',
+        env: 'OCTOCODE_LSP_PREWARM',
+        source: 'default',
+        homeValue: null,
+      },
+      {
+        key: 'classification.apiHost',
+        type: 'url',
+        value: null,
+        sectionTitle: 'Classification provider',
+        group: 'Classification',
+        description: 'Host',
+        displayDefault: 'https://api.typesafe.ai',
+        source: 'default',
+      },
     ],
     knownKeys: [
-      { key: 'TAVILY_API_KEY', group: 'Web search', credential: true, description: 'Tavily', writableFrom: 'any', docsUrl: 'https://tavily.example/' },
-      { key: 'TAVILY_BASE_URL', group: 'Web search', credential: false, description: 'Endpoint', default: 'https://api.tavily.example', writableFrom: 'home' },
-      { key: 'OCTOCODE_CLASSIFICATION_API', group: 'Classification', credential: true, description: 'Classification', writableFrom: 'any' },
-      { key: 'HTTPS_PROXY', credential: true, description: 'Proxy', writableFrom: 'process', default: 'unset', source: 'env', value: '[REDACTED-HTTPS_PROXY]' },
-      { key: 'OCTOCODE_CARGO', credential: false, description: 'Cargo', writableFrom: 'home', default: 'cargo on PATH' },
+      {
+        key: 'TAVILY_API_KEY',
+        group: 'Web search',
+        credential: true,
+        description: 'Tavily',
+        writableFrom: 'any',
+        docsUrl: 'https://tavily.example/',
+      },
+      {
+        key: 'TAVILY_BASE_URL',
+        group: 'Web search',
+        credential: false,
+        description: 'Endpoint',
+        default: 'https://api.tavily.example',
+        writableFrom: 'home',
+      },
+      {
+        key: 'OCTOCODE_CLASSIFICATION_API',
+        group: 'Classification',
+        credential: true,
+        description: 'Classification',
+        writableFrom: 'any',
+      },
+      {
+        key: 'HTTPS_PROXY',
+        credential: true,
+        description: 'Proxy',
+        writableFrom: 'process',
+        default: 'unset',
+        source: 'env',
+        value: '[REDACTED-HTTPS_PROXY]',
+      },
+      {
+        key: 'OCTOCODE_CARGO',
+        credential: false,
+        description: 'Cargo',
+        writableFrom: 'home',
+        default: 'cargo on PATH',
+      },
     ],
   };
   it('shows every key, setting and environment variable at once, with no navigation', async () => {
     const view = await browser(contract);
-    for (const name of ['TAVILY_API_KEY', 'TAVILY_BASE_URL', 'OCTOCODE_CLASSIFICATION_API', 'HTTPS_PROXY', 'OCTOCODE_CARGO', 'lsp.prewarm', 'classification.apiHost']) {
+    for (const name of [
+      'TAVILY_API_KEY',
+      'TAVILY_BASE_URL',
+      'OCTOCODE_CLASSIFICATION_API',
+      'HTTPS_PROXY',
+      'OCTOCODE_CARGO',
+      'lsp.prewarm',
+      'classification.apiHost',
+    ]) {
       assert.ok(text(view).includes(name), name);
     }
     assert.deepEqual(
-      view.controls().filter(element => element.className === 'page-section').map(element => element.id),
+      view
+        .controls()
+        .filter(element => element.className === 'page-section')
+        .map(element => element.id),
       ['keys', 'settings', 'environment']
     );
   });
 
   it('lists keys first and keeps a setting with its provider only', async () => {
     const view = await browser(contract);
-    const names = view.controls().filter(element => element.tagName === 'CODE').map(element => element.textContent);
+    const names = view
+      .controls()
+      .filter(element => element.tagName === 'CODE')
+      .map(element => element.textContent);
     assert.equal(names[0], 'TAVILY_API_KEY');
-    assert.equal(names.filter(name => name === 'classification.apiHost').length, 1);
+    assert.equal(
+      names.filter(name => name === 'classification.apiHost').length,
+      1
+    );
   });
 
   it('shows a process-only variable masked, with nowhere to type it', async () => {
@@ -266,7 +338,13 @@ describe('one page', () => {
 
   it('offers Save only after a change', async () => {
     const view = await browser(contract);
-    const save = () => view.controls().filter(element => element.tagName === 'BUTTON' && element.textContent === 'Save');
+    const save = () =>
+      view
+        .controls()
+        .filter(
+          element =>
+            element.tagName === 'BUTTON' && element.textContent === 'Save'
+        );
     assert.ok(save().every(element => element.disabled === true));
     await view.type('TAVILY_API_KEY value', 'typed');
     assert.equal(save().filter(element => element.disabled !== true).length, 1);
@@ -276,13 +354,23 @@ describe('one page', () => {
     const view = await browser(contract);
     await view.type('OCTOCODE_CARGO value', '/typed/cargo');
     await view.type('TAVILY_API_KEY value', 'typed-secret');
-    await view.labelled('TAVILY_API_KEY value')!.parent!.parent!.children.at(-1)!.children[0]!.fire();
+    await view
+      .labelled('TAVILY_API_KEY value')!
+      .parent!.parent!.children.at(-1)!
+      .children[0]!.fire();
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(view.labelled('OCTOCODE_CARGO value')!.value, '/typed/cargo');
     assert.equal(view.labelled('TAVILY_API_KEY value')!.value, '');
-    assert.deepEqual(view.requests.find(request => request.operation === 'setEnv'), {
-      operation: 'setEnv', key: 'TAVILY_API_KEY', scope: 'home', revision: 'he', value: 'typed-secret',
-    });
+    assert.deepEqual(
+      view.requests.find(request => request.operation === 'setEnv'),
+      {
+        operation: 'setEnv',
+        key: 'TAVILY_API_KEY',
+        scope: 'home',
+        revision: 'he',
+        value: 'typed-secret',
+      }
+    );
   });
 
   it('searching keeps a value typed in a row it hides', async () => {

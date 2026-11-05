@@ -61,8 +61,10 @@ export class Element {
   querySelectorAll(selector: string): Element[] {
     const attribute = /^\[([a-z-]+)\]$/.exec(selector)?.[1];
     const all = descendants(this);
-    if (attribute === 'data-dirty') return all.filter(item => item.dataset.dirty);
-    if (attribute) return all.filter(item => item.attributes[attribute] !== undefined);
+    if (attribute === 'data-dirty')
+      return all.filter(item => item.dataset.dirty);
+    if (attribute)
+      return all.filter(item => item.attributes[attribute] !== undefined);
     return [];
   }
   dispatchEvent(event: { type: string }): void {
@@ -192,9 +194,13 @@ export async function browser(
     requests,
     controls: () => descendants(ids.content),
     labelled: (label: string) =>
-      descendants(ids.content).find(element => element.attributes['aria-label'] === label),
+      descendants(ids.content).find(
+        element => element.attributes['aria-label'] === label
+      ),
     type: async (label: string, value: unknown, event = 'input') => {
-      const input = descendants(ids.content).find(element => element.attributes['aria-label'] === label);
+      const input = descendants(ids.content).find(
+        element => element.attributes['aria-label'] === label
+      );
       assert.ok(input, `Missing input ${label}`);
       input.value = value;
       await input.fire(event);

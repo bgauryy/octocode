@@ -95,7 +95,7 @@ for (const row of sourceRows) {
       const scanned = await scanBodyFile(file, counts, tail, overlap);
       tail = scanned.tail;
       if (scanned.matched) firstMatch ??= rel;
-    } catch (error) { invalid('Cannot scan source '+file+': '+error.message); }
+    } catch (error) { invalid(`Cannot scan source ${file}: ${error.message}`); }
   }
   pageTexts.set(row.pageId, {rel:firstMatch || parts[0], counts, url:row.url});
 }

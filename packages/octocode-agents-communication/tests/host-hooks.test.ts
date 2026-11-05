@@ -106,7 +106,7 @@ test('Codex offers deferred mail after a large first binding without changing pe
   const f = fixture(t, 'codex', {workspace, database:join(directory, 'audit.sqlite')});
   const recipient = f.cli('join', {vendor:'codex', name:'codex', vendorSession:'host-fixture'}).id;
   // Every peer row has the same size, so the budgeted directory is large whatever the random ID order.
-  const sender = f.cli('join', {vendor:'raw', name:'s'+'p'.repeat(60), task:'t'.repeat(250)}).id;
+  const sender = f.cli('join', {vendor:'raw', name:`s${'p'.repeat(60)}`, task:'t'.repeat(250)}).id;
   for (let i=0;i<10;i++) f.cli('join', {vendor:'raw', name:String(i)+'p'.repeat(60), task:'t'.repeat(250)});
   const sent = f.cli('send_message', {parts: [{ text: 'x'.repeat(6500) }], to:recipient,},sender);
   const first = f.hook('PostToolUse').hookSpecificOutput.additionalContext;
@@ -308,7 +308,7 @@ for (const vendor of ['claude', 'codex']) {
 
 test('Grok native camelCase payload with compatibility event and slash-suffixed workspace delivers once', t => {
   const f = fixture(t, 'grok');
-  const envelope = { hookEventName: 'session_start', sessionId: 'host-fixture', session_id: 'host-fixture', cwd: f.workspace, workspaceRoot: f.workspace + '/' };
+  const envelope = { hookEventName: 'session_start', sessionId: 'host-fixture', session_id: 'host-fixture', cwd: f.workspace, workspaceRoot: `${f.workspace}/` };
   assert.deepEqual(f.hook('SessionStart', envelope), {});
   const db = new DatabaseSync(f.database); t.after(() => db.close());
   const recipient = only<JsonRecord>(db.prepare('SELECT id FROM sessions WHERE vendor=?').get('grok')).id;

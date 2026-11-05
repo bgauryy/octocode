@@ -2,11 +2,11 @@
 //! after its provider requests.
 use super::emit::{answered_cell, emit, terminal_saved};
 use super::{Budget, Outcome, Runtime, Session, error_value, token};
-use crate::execution::{ExecutionContext, SelectionLimits};
+use crate::execution::ExecutionContext;
 use crate::providers::classification::gate::call_cap;
 use crate::response::result::{Continuation, insert_next};
 use crate::tools::judgment::stats::ClassificationUsage;
-use crate::tools::judgment::{ClassificationError, EvaluationInput, QuestionOutcomes};
+use crate::tools::judgment::{ClassificationError, EvaluationInput, LongContext, QuestionOutcomes};
 use crate::tools::source_capture::SourceReader;
 use futures_util::{StreamExt as _, stream};
 use octocode_contract_types::{
@@ -15,7 +15,8 @@ use octocode_contract_types::{
 };
 use serde_json::json;
 
-pub(super) fn pending_cost(session: &Session) -> (usize, usize) {
+/// Characters of the sections still to judge.
+fn pending_chars(session: &Session) -> (usize, usize) {
     session
         .resources
         .iter()
@@ -26,30 +27,6 @@ pub(super) fn pending_cost(session: &Session) -> (usize, usize) {
         })
 }
 
-pub(super) fn settle_unsupported(session: &mut Session, limits: SelectionLimits) -> usize {
-    let mut settled = 0;
-    for resource in &mut session.resources {
-        for unit in &mut resource.units {
-            if unit.chars > super::super::max_state_chars(session.long_context)
-                || unit.chars > limits.max_chars
-            {
-                let error = error_value(&ClassificationError::new(
-                    ErrorCode::ClassificationContextTooLarge,
-                    "This exact target and its supporting context exceed the serialized state limit.",
-                    "Use the pinned raw reader to inspect the complete target.",
-                ));
-                for cell in &mut unit.cells {
-                    if cell.is_none() {
-                        *cell = Some(json!({"status":"unsupported", "error":error}));
-                        settled += 1;
-                    }
-                }
-            }
-        }
-    }
-    settled
-}
-
 pub(super) fn assess_and_save(
     session: &mut Session,
     ordinal: usize,
@@ -58,20 +35,12 @@ pub(super) fn assess_and_save(
     runtime: Runtime<'_>,
     shared: &Budget,
 ) -> Result<Outcome, ClassificationError> {
-    let evaluator = dispatcher.evaluator();
-    let budget = evaluator.budget(
-        shared.deadline(context.deadline),
-        context.cancellation.clone(),
-    );
-    let gate = evaluator.gate();
-    let questions: Vec<_> = session
-        .keys
-        .iter()
-        .map(|key| session.questions[key].clone())
-        .collect();
     let mut usage = ClassificationUsage::default();
-    let mut settled = settle_unsupported(session, shared.limits);
-    let (admitted, deferred_by_sibling) = admit_units(session, shared);
+    let (admitted, deferred_by_sibling) = admit_units(session, shared, !runtime.can_resume);
+    let judged_chars = admitted
+        .iter()
+        .map(|&[resource, unit]| session.resources[resource].units[unit].chars)
+        .sum::<usize>();
     session.active = admitted.clone();
     if runtime.can_resume
         && !admitted.is_empty()
@@ -104,48 +73,11 @@ pub(super) fn assess_and_save(
                 .collect()
         })
         .collect();
-    let mut results = {
-        let (session, budget, gate, questions) = (&*session, &budget, &gate, &questions);
-        dispatcher.handle().block_on(
-            stream::iter(admitted.iter().zip(&pending).enumerate())
-                .map(|(position, (&[resource, unit], pending))| async move {
-                    let remaining: Vec<_> = pending
-                        .iter()
-                        .map(|&index| questions[index].clone())
-                        .collect();
-                    let state = super::super::rows::contextual_state(
-                        &session.resources[resource].units[unit].state,
-                        session.context.as_deref(),
-                    );
-                    let result = evaluator
-                        .evaluate_questions(
-                            EvaluationInput {
-                                state: &state,
-                                questions: &remaining,
-                                assets: None,
-                                long_context: session.long_context,
-                            },
-                            session.model.as_deref(),
-                            budget,
-                            gate,
-                        )
-                        .await;
-                    (position, result)
-                })
-                .buffer_unordered(call_cap(evaluator.max_concurrency))
-                .collect::<Vec<_>>(),
-        )
-    };
-    results.sort_unstable_by_key(|(position, _)| *position);
-    settled += apply_results(
-        session,
-        &admitted,
-        pending,
-        results.into_iter().map(|(_, result)| result),
-        &mut usage,
-    );
+    let results = judge_units(session, &admitted, &pending, dispatcher, context);
+    let settled = apply_results(session, &admitted, pending, results.into_iter(), &mut usage);
     session.active.clear();
-    let remaining = pending_cost(session).0;
+    let (remaining, remaining_chars) = pending_chars(session);
+    usage.estimate_rest(judged_chars, remaining_chars);
     if remaining > 0 && (!runtime.can_resume || (settled == 0 && !deferred_by_sibling)) {
         return Ok(terminal_saved(
             session,
@@ -215,17 +147,74 @@ pub(super) fn assess_and_save(
     Ok(Outcome { output })
 }
 
+/// Every admitted unit's `pending` questions, judged concurrently under the
+/// call's budget and gate; the answers come in admitted order.
+fn judge_units(
+    session: &Session,
+    admitted: &[[usize; 2]],
+    pending: &[Vec<usize>],
+    dispatcher: &dyn SourceReader,
+    context: &ExecutionContext,
+) -> Vec<QuestionOutcomes> {
+    let evaluator = dispatcher.evaluator();
+    let gate = evaluator.gate();
+    let questions: Vec<_> = session
+        .keys
+        .iter()
+        .map(|key| session.questions[key].clone())
+        .collect();
+    let (gate, questions) = (&gate, &questions);
+    let mut results = dispatcher.handle().block_on(
+        stream::iter(admitted.iter().zip(pending).enumerate())
+            .map(|(position, (&[resource, unit], pending))| async move {
+                let remaining: Vec<_> = pending
+                    .iter()
+                    .map(|&index| questions[index].clone())
+                    .collect();
+                let state = super::super::rows::contextual_state(
+                    &session.resources[resource].units[unit].state,
+                    session.context.as_deref(),
+                );
+                // One request's time starts when it runs; the call's
+                // deadline bounds them all.
+                let budget = evaluator.budget(context.deadline, context.cancellation.clone());
+                let result = evaluator
+                    .evaluate_questions(
+                        EvaluationInput {
+                            state: &state,
+                            questions: &remaining,
+                            assets: None,
+                            long_context: if session.long_context {
+                                LongContext::Always
+                            } else {
+                                LongContext::OnRefusal
+                            },
+                        },
+                        session.model.as_deref(),
+                        &budget,
+                        gate,
+                    )
+                    .await;
+                (position, result)
+            })
+            .buffer_unordered(call_cap(evaluator.max_concurrency))
+            .collect::<Vec<_>>(),
+    );
+    results.sort_unstable_by_key(|(position, _)| *position);
+    results.into_iter().map(|(_, result)| result).collect()
+}
+
 /// The units this batch assesses, as `[resource, unit]`, in plan order
 /// while the shared budget admits them; and whether a sibling's admissions
 /// deferred the whole batch.
-fn admit_units(session: &Session, shared: &Budget) -> (Vec<[usize; 2]>, bool) {
+fn admit_units(session: &Session, shared: &Budget, whole: bool) -> (Vec<[usize; 2]>, bool) {
     let mut admitted = Vec::new();
     for (resource_index, resource) in session.resources.iter().enumerate() {
         for (unit_index, unit) in resource.units.iter().enumerate() {
             if unit.cells.iter().all(Option::is_some) {
                 continue;
             }
-            if !shared.admit(unit.chars) {
+            if !shared.admit(unit.chars, whole) {
                 let deferred_by_sibling = admitted.is_empty() && shared.has_admissions();
                 return (admitted, deferred_by_sibling);
             }

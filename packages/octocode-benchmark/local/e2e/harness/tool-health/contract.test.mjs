@@ -10,6 +10,9 @@ test('caller validation accepts exact public envelopes and rejects private engin
   for (const state of [{ page: 2 }, { registryCursor: 'private-provider-position' }]) {
     assert.notEqual(validateInput('artifactSearch', { queries: [{ ...queries[0], ...state }] }), null);
   }
+  const check = { operation: 'package', ecosystem: 'npm', packageName: 'lodash', version: '4.17.20' };
+  assert.equal(validateInput('securityCheck', { queries: [check] }), null);
+  assert.notEqual(validateInput('securityCheck', { queries: [{ ...check, resume: 'osv-token' }] }), null);
   // The listed schema is one object with each field once; native rejects the
   // mix and names the fix (input-boundaries `cursorWithQueries`, both surfaces).
   // responseChars has a floor, never a ceiling: a large budget is the caller's choice.

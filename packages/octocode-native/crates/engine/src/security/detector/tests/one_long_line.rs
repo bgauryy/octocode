@@ -27,9 +27,92 @@ fn fastest_redact(content: &str) -> std::time::Duration {
 #[test]
 fn tokens_on_one_line_scan_in_linear_time() {
     let (few, many) = (line_of_tokens(4_000), line_of_tokens(32_000));
-    let (few, many) = (fastest_redact(&few), fastest_redact(&many));
-    let ratio = many.as_secs_f64() / few.as_secs_f64().max(f64::EPSILON);
-    assert!(ratio < 24.0, "{few:?} to {many:?}: {ratio:.1}x");
+    // A busy machine can inflate one measurement; a scan that walks back misses
+    // on every one.
+    let mut measured = Vec::new();
+    for _ in 0..3 {
+        let (few, many) = (fastest_redact(&few), fastest_redact(&many));
+        let ratio = many.as_secs_f64() / few.as_secs_f64().max(f64::EPSILON);
+        if ratio < 24.0 {
+            return;
+        }
+        measured.push(format!("{few:?} to {many:?}: {ratio:.1}x"));
+    }
+    panic!("{measured:?}");
+}
+
+/// The measured form of a scan: eight times the input in about eight times the
+/// time. A busy machine can inflate one measurement; a scan that walks back
+/// misses on every one.
+fn assert_scales_linearly(few: &str, many: &str) {
+    let mut measured = Vec::new();
+    for _ in 0..3 {
+        let (few, many) = (fastest_redact(few), fastest_redact(many));
+        let ratio = many.as_secs_f64() / few.as_secs_f64().max(f64::EPSILON);
+        if ratio < 24.0 {
+            return;
+        }
+        measured.push(format!("{few:?} to {many:?}: {ratio:.1}x"));
+    }
+    panic!("{measured:?}");
+}
+
+/// Object nesting costs what its bytes cost: to the end of the deepest object,
+/// back out of it, and with every object left open.
+#[test]
+fn deeply_nested_objects_scan_in_linear_time() {
+    const VALUE: &str = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIz";
+    let nested = |depth: usize| {
+        format!(
+            r#"{{"kind":"Secret",{}"x":1{},"data":{{"k":"{VALUE}"}}}}"#,
+            r#""m":{"#.repeat(depth),
+            "}".repeat(depth)
+        )
+    };
+    let open = |depth: usize| format!(r#"{{"kty":"EC",{}"#, r#""m":{"d":[{"#.repeat(depth));
+    let (few, many) = (nested(40_000), nested(320_000));
+    assert!(
+        !redact(&few, Scope::Pathless)
+            .expect("hidden")
+            .sanitized
+            .contains(VALUE)
+    );
+    assert_scales_linearly(&few, &many);
+    assert_scales_linearly(&open(40_000), &open(320_000));
+}
+
+/// As many mappings as lines, each closing the last, and a block that holds them.
+#[test]
+fn yaml_mappings_scan_in_linear_time() {
+    const VALUE: &str = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIz";
+    let items = |count: usize| {
+        format!(
+            "kind: Secret\nitems:\n{}data:\n  k: {VALUE}\n",
+            "- a: b\n  c:\n    d: e\n".repeat(count)
+        )
+    };
+    let (few, many) = (items(40_000), items(320_000));
+    let scan = |text: &str| {
+        (0..3)
+            .map(|_| {
+                let started = std::time::Instant::now();
+                let found = redact(text, Scope::File("a.yaml")).expect("hidden");
+                assert!(!found.sanitized.contains(VALUE));
+                started.elapsed()
+            })
+            .min()
+            .expect("three runs")
+    };
+    let mut measured = Vec::new();
+    for _ in 0..3 {
+        let (few, many) = (scan(&few), scan(&many));
+        let ratio = many.as_secs_f64() / few.as_secs_f64().max(f64::EPSILON);
+        if ratio < 24.0 {
+            return;
+        }
+        measured.push(format!("{few:?} to {many:?}: {ratio:.1}x"));
+    }
+    panic!("{measured:?}");
 }
 
 /// What the replacement took before it carried the line start forward.
@@ -79,13 +162,9 @@ fn replace_searching_back(
 fn carrying_the_line_start_forward_replaces_as_searching_back_does() {
     use super::sampling::{Lcg, sample};
     let mut rng = Lcg(0xfeed);
-    let keys_seen = |regex: &regex::Regex,
-                     text: &str,
-                     replace_with: &dyn Fn(
-        &regex::Regex,
-        &str,
-        &dyn Fn(&str, &str) -> bool,
-    ) -> String| {
+    type KeyFilter<'a> = &'a dyn Fn(&str, &str) -> bool;
+    type Replacer<'a> = &'a dyn Fn(&regex::Regex, &str, KeyFilter<'_>) -> String;
+    let keys_seen = |regex: &regex::Regex, text: &str, replace_with: Replacer<'_>| {
         let seen = std::cell::RefCell::new(Vec::new());
         let out = replace_with(regex, text, &|key, secret| {
             seen.borrow_mut().push((key.to_owned(), secret.to_owned()));

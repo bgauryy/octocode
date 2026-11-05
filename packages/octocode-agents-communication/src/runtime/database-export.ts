@@ -31,7 +31,7 @@ export async function exportDatabase(source: string, destination: string): Promi
   const initial = lstatSync(source, { bigint: true });
   if (!initial.isFile()) throw new ValidationError('Export source must be a regular database file, not a symlink');
   source = realpath(source, true);
-  const temp = join(parent, '.communication-export-' + randomBytes(6).toString('hex'));
+  const temp = join(parent, `.communication-export-${randomBytes(6).toString('hex')}`);
   checkPathLength(temp);
   const db = openDatabase(source, true, false);
   closeSync(openSync(temp, 'wx', 0o600));

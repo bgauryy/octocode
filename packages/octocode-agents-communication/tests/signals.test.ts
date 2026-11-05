@@ -16,7 +16,7 @@ import { binary, jsonCall, posix, spawn, tempWorkspace, waitFor } from './helper
 const runtime = await import('../dist/runtime.js');
 
 // Read-only "inbox wait" has no output: report readiness only after both signal handlers are installed.
-const GUARD_PROBE = 'data:text/javascript,' + encodeURIComponent(`
+const GUARD_PROBE = `data:text/javascript,${encodeURIComponent(`
   const on = process.on.bind(process);
   process.on = (event, listener) => {
     const result = on(event, listener);
@@ -26,7 +26,7 @@ const GUARD_PROBE = 'data:text/javascript,' + encodeURIComponent(`
     }
     return result;
   };
-`);
+`)}`;
 
 /** A started command: its captured output, when it closed and when it is past the signal guard. */
 interface Started {
@@ -55,7 +55,7 @@ function fixture(t: TestContext) {
     const result: Started = { child, stdout: '', stderr: '', closed, ready: Promise.resolve() };
     child.stdout.on('data', chunk => { result.stdout += chunk; });
     child.stderr.on('data', chunk => { result.stderr += chunk; });
-    result.ready = waitFor(() => (ready === 'stdout' ? result.stdout.includes('\n') : ready === 'guard' ? result.stderr.includes('signal-guard-installed') : ready(result)), { timeout: 20000, message: args[0] + ' did not become ready' });
+    result.ready = waitFor(() => (ready === 'stdout' ? result.stdout.includes('\n') : ready === 'guard' ? result.stderr.includes('signal-guard-installed') : ready(result)), { timeout: 20000, message: `${args[0]} did not become ready` });
     if (input !== null) child.stdin.write(input);
     return result;
   };
@@ -103,7 +103,7 @@ for (const [signal, code] of interruptions) {
 
   test(`${signal} stops the MCP server cleanly with 0`, { skip: !posix }, async t => {
     const f = fixture(t);
-    const command = f.start(['mcp', '--session', f.a], { input: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) + '\n' });
+    const command = f.start(['mcp', '--session', f.a], { input: `${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })}\n` });
     assert.deepEqual(await interrupt(command, signal), { code: 0, signal: null }, command.stderr);
   });
 
@@ -119,7 +119,7 @@ for (const [signal, code] of interruptions) {
     mkdirSync(bin);
     writeFileSync(join(bin, 'claude'), '#!/bin/sh\nwhile true; do sleep 1; done\n');
     chmodSync(join(bin, 'claude'), 0o755);
-    const command = f.start(['run', '--vendor', 'claude', '--model', 'm', '--prompt', 'wait for work'], { extraEnv: { PATH: bin + ':' + process.env.PATH } });
+    const command = f.start(['run', '--vendor', 'claude', '--model', 'm', '--prompt', 'wait for work'], { extraEnv: { PATH: `${bin}:${process.env.PATH}` } });
     assert.deepEqual(await interrupt(command, signal), { code: 0, signal: null }, command.stderr);
   });
 

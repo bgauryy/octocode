@@ -106,6 +106,8 @@ pub(super) fn collect_node_facts(
         acc.typing.observe_assignment(node, ancestors, content);
     } else if kind == "preproc_include" {
         collect_c_include(node, content, line_index, acc);
+    } else if kind == "namespace_alias_definition" {
+        collect_namespace_alias(node, content, acc);
     } else if acc.ext == "cs" && kind == "using_directive" {
         collect_csharp_using(node, content, line_index, acc);
     } else if is_import_node(kind)
@@ -179,7 +181,84 @@ fn collect_call(
     else {
         return;
     };
-    let callee = observation.callee;
+    push_call(
+        observation,
+        node,
+        ancestors,
+        content,
+        line_index,
+        acc,
+        (caller_decl, caller_name),
+    );
+}
+
+/// The `calls` fact and edge of a Scala name that calls a `def` with no
+/// parameter list: no call node spells it.
+#[cfg(feature = "tree-sitter-scala")]
+pub(super) fn collect_parameterless_call(
+    callee: String,
+    node: Node<'_>,
+    ancestors: &[Node<'_>],
+    content: &str,
+    line_index: &NodePositions<'_>,
+    acc: &mut GraphAccumulator,
+    caller: Option<&(String, String)>,
+) {
+    push_call(
+        crate::signatures::calls::SyntaxCall {
+            callee,
+            name_token: Some(node),
+            kind: "calls",
+            binding: crate::graph::GraphCallBinding::SyntaxLookup,
+        },
+        node,
+        ancestors,
+        content,
+        line_index,
+        acc,
+        (
+            caller.map(|(id, _)| id.as_str()),
+            caller.map(|(_, name)| name.as_str()),
+        ),
+    );
+}
+
+/// C++ `namespace al = a::b;`: what `al::` means in the calls after it.
+fn collect_namespace_alias(node: Node<'_>, content: &str, acc: &mut GraphAccumulator) {
+    let mut cursor = node.walk();
+    let named = node.named_children(&mut cursor).collect::<Vec<_>>();
+    if let [alias, .., value] = named.as_slice()
+        && let (Some(alias), Some(value)) = (
+            crate::signatures::nodes::node_text(*alias, content),
+            crate::signatures::nodes::node_text(*value, content),
+        )
+    {
+        acc.namespace_aliases
+            .insert(alias.to_owned(), value.to_owned());
+    }
+}
+
+/// `callee` with a leading namespace alias spelled as the namespace it names.
+fn unaliased(callee: String, acc: &GraphAccumulator) -> String {
+    let Some((head, rest)) = callee.split_once("::") else {
+        return callee;
+    };
+    match acc.namespace_aliases.get(head) {
+        Some(namespace) => format!("{namespace}::{rest}"),
+        None => callee,
+    }
+}
+
+fn push_call(
+    observation: crate::signatures::calls::SyntaxCall<'_>,
+    node: Node<'_>,
+    ancestors: &[Node<'_>],
+    content: &str,
+    line_index: &NodePositions<'_>,
+    acc: &mut GraphAccumulator,
+    (caller_decl, caller_name): (Option<&str>, Option<&str>),
+) {
+    let callee = unaliased(observation.callee, acc);
     let target = callee
         .rsplit(['.', ':'])
         .find(|segment| !segment.is_empty());

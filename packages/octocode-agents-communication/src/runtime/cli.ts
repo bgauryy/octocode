@@ -130,13 +130,13 @@ function parseArguments(argv: readonly string[]): Arguments | 'version' {
     } else if (optionLike(token)) extras.push(token);
     else result.args.push(token);
   }
-  if (extras.length) throw new UsageError('unrecognized arguments: ' + extras.join(' '));
+  if (extras.length) throw new UsageError(`unrecognized arguments: ${extras.join(' ')}`);
   if (result.durationMs !== undefined && result.durationMs < 0) throw new UsageError('--duration-ms must be nonnegative');
   return result;
 }
 
 function emit(context: Context, value: unknown): void {
-  context.write(compact(value) + '\n');
+  context.write(`${compact(value)}\n`);
 }
 
 function output(context: Context, value: unknown): void {
@@ -176,7 +176,7 @@ function arity(values: readonly unknown[], minimum: number, maximum: number): vo
 function delivery(context: Context): DeliveryRuntime {
   return {
     output: value => output(context, value),
-    print: text => context.write(text + '\n'),
+    print: text => context.write(`${text}\n`),
     open: (path, workspace, options) => new Store(path, workspace, options?.readOnly ?? false, options?.create ?? false),
   };
 }
@@ -339,7 +339,7 @@ export async function main(argv: readonly string[], context: Context = processCo
     // A consumer closing the pipe is normal: any dispatch it left staged was already recorded `uncertain`.
     if ((error as NodeJS.ErrnoException | null)?.code === 'EPIPE') return 0;
     const { code, message } = failure(error);
-    process.stderr.write(message + '\n');
+    process.stderr.write(`${message}\n`);
     return code;
   } finally {
     release();

@@ -201,7 +201,7 @@ export async function run(cdp: Session) {
     thirdParty: pageHost
       ? !(
           pageHost === (c.domain || '').replace(/^\./, '') ||
-          pageHost.endsWith('.' + (c.domain || '').replace(/^\./, ''))
+          pageHost.endsWith(`.${(c.domain || '').replace(/^\./, '')}`)
         )
       : null,
   }));

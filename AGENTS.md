@@ -49,6 +49,12 @@ The MCP launcher, CLI launcher and VS Code extension are thin adapters with no t
   and piece of logic.
 - Don't run `git commit` (a background process runs `git add -A` and a person owns commits) or
   `git stash` (it hides other sessions' work; compare with `git show <rev>:<path>`).
+- Stop processes by PID or task ID, never by pattern (`pkill -f`), even for your own run: another
+  session may run the same command.
+- Several sessions may share this tree and one cargo lock. Apply a change with all its callers in
+  one step and keep tests compiling; a break in a file you touched is your first job. Retry a
+  blocked build at most every 3 minutes, and report it after 20. Use the repo's `target/`, not a
+  private one, and don't run `cargo clean` or `cargo fmt --all` while others are building.
 - Communicate in known protocols: issues and tasks in 5W2H, results BLUF with claim–evidence,
   blockers as SBAR, delegation as a task contract with a Definition of Done. Separate facts,
   assumptions and unknowns; never present a guess as a fact. The rest, rated by fit:
@@ -124,6 +130,9 @@ flowchart LR
   `packages/octocode-native/crates/runtime/src/contracts/field-effect-coverage.json`, or confirm it
   inherits its nearest declared ancestor's effect; `tests/field_effect_coverage.rs` fails on an
   unresolved path or a key that names no schema path.
+- `contracts:regen` builds a stale core first. Afterward, confirm new text arrived by searching
+  `packages/octocode-config/contract/` for it (descriptions and instructions are in
+  `cli-presentation.json`): tests still pass on old text.
 - Don't hand-edit `packages/octocode-config/contract/`, and don't
   hand-write wire types (Zod/TypeScript copies or serde query/result structs).
 - The binary embeds the contract it serves, so a stale one means regenerate and rebuild native;

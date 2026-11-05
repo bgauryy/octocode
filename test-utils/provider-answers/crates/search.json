@@ -1,0 +1,178 @@
+{
+ "case": "crates/search",
+ "tool": "artifactSearch",
+ "query": {
+  "operation": "search",
+  "ecosystem": "crates",
+  "keywords": [
+   "regex-syntax"
+  ],
+  "limit": 5
+ },
+ "recordedAt": "2026-11-05",
+ "unread": [
+  "crates[*].created_at",
+  "crates[*].documentation",
+  "crates[*].downloads",
+  "crates[*].homepage",
+  "crates[*].links",
+  "crates[*].recent_downloads",
+  "crates[*].repository",
+  "crates[*].updated_at",
+  "meta"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://crates.io/api/v1/crates?q=regex-syntax&page=1&per_page=5",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:573db0ef5c4f7181c73be3fd80bca8e31b28906bd679021cb0a9a3129fb408e0",
+   "body": {
+    "crates": [
+     {
+      "id": "regex-syntax",
+      "name": "regex-syntax",
+      "updated_at": "2026-06-09T15:00:25.566550Z",
+      "versions": null,
+      "keywords": null,
+      "categories": null,
+      "badges": [],
+      "created_at": "2015-05-27T23:19:16.839117Z",
+      "downloads": 1659034290,
+      "recent_downloads": 351606901,
+      "default_version": "0.8.11",
+      "num_versions": 79,
+      "yanked": false,
+      "max_version": "0.8.11",
+      "newest_version": "0.8.11",
+      "max_stable_version": "0.8.11",
+      "description": "A regular expression parser.",
+      "homepage": "https://github.com/rust-lang/regex/tree/master/regex-syntax",
+      "documentation": "https://docs.rs/regex-syntax",
+      "repository": "https://github.com/rust-lang/regex",
+      "links": {
+       "version_downloads": "/api/v1/crates/regex-syntax/downloads",
+       "versions": "/api/v1/crates/regex-syntax/versions",
+       "owners": "/api/v1/crates/regex-syntax/owners",
+       "owner_team": "/api/v1/crates/regex-syntax/owner_team",
+       "owner_user": "/api/v1/crates/regex-syntax/owner_user",
+       "reverse_dependencies": "/api/v1/crates/regex-syntax/reverse_dependencies"
+      },
+      "exact_match": true,
+      "trustpub_only": false
+     },
+     {
+      "id": "gpui-regex-visualizer",
+      "name": "gpui-regex-visualizer",
+      "updated_at": "2026-10-09T06:05:46.536717Z",
+      "versions": null,
+      "keywords": null,
+      "categories": null,
+      "badges": [],
+      "created_at": "2026-10-09T06:05:46.536717Z",
+      "downloads": 10,
+      "recent_downloads": 10,
+      "default_version": "0.1.0",
+      "num_versions": 1,
+      "yanked": false,
+      "max_version": "0.1.0",
+      "newest_version": "0.1.0",
+      "max_stable_version": "0.1.0",
+      "description": "Regex railroad visualizer built on GPUI Kit: parse a pattern into an AST, lay it out as a railroad diagram, and edit it by clicking nodes.",
+      "homepage": null,
+      "documentation": null,
+      "repository": "https://github.com/LittleGuest/gpui-regex-visualizer",
+      "links": {
+       "version_downloads": "/api/v1/crates/gpui-regex-visualizer/downloads",
+       "versions": "/api/v1/crates/gpui-regex-visualizer/versions",
+       "owners": "/api/v1/crates/gpui-regex-visualizer/owners",
+       "owner_team": "/api/v1/crates/gpui-regex-visualizer/owner_team",
+       "owner_user": "/api/v1/crates/gpui-regex-visualizer/owner_user",
+       "reverse_dependencies": "/api/v1/crates/gpui-regex-visualizer/reverse_dependencies"
+      },
+      "exact_match": false,
+      "trustpub_only": false
+     },
+     {
+      "id": "supply-chain-trust-example-crate-000023",
+      "name": "supply-chain-trust-example-crate-000023",
+      "updated_at": "2025-03-18T05:54:15.059905Z",
+      "versions": null,
+      "keywords": null,
+      "categories": null,
+      "badges": [],
+      "created_at": "2024-11-03T17:01:47.490001Z",
+      "downloads": 1591,
+      "recent_downloads": 2,
+      "default_version": "1.20.2",
+      "num_versions": 2,
+      "yanked": true,
+      "max_version": "0.0.0",
+      "newest_version": "0.0.0",
+      "max_stable_version": null,
+      "description": "An implementation of regular expressions for Rust. This implementation uses\nfinite automata and guarantees linear time matching on all inputs.\n",
+      "homepage": null,
+      "documentation": "https://docs.rs/regex",
+      "repository": null,
+      "links": {
+       "version_downloads": "/api/v1/crates/supply-chain-trust-example-crate-000023/downloads",
+       "versions": "/api/v1/crates/supply-chain-trust-example-crate-000023/versions",
+       "owners": "/api/v1/crates/supply-chain-trust-example-crate-000023/owners",
+       "owner_team": "/api/v1/crates/supply-chain-trust-example-crate-000023/owner_team",
+       "owner_user": "/api/v1/crates/supply-chain-trust-example-crate-000023/owner_user",
+       "reverse_dependencies": "/api/v1/crates/supply-chain-trust-example-crate-000023/reverse_dependencies"
+      },
+      "exact_match": false,
+      "trustpub_only": false
+     },
+     {
+      "id": "supply-chain-trust-crate-000023",
+      "name": "supply-chain-trust-crate-000023",
+      "updated_at": "2025-03-12T14:18:17.722187Z",
+      "versions": null,
+      "keywords": null,
+      "categories": null,
+      "badges": [],
+      "created_at": "2025-03-12T14:18:17.722187Z",
+      "downloads": 727,
+      "recent_downloads": 1,
+      "default_version": "1.11.1",
+      "num_versions": 1,
+      "yanked": true,
+      "max_version": "0.0.0",
+      "newest_version": "0.0.0",
+      "max_stable_version": null,
+      "description": "An implementation of regular expressions for Rust. This implementation uses\nfinite automata and guarantees linear time matching on all inputs.\n",
+      "homepage": null,
+      "documentation": "https://docs.rs/regex",
+      "repository": null,
+      "links": {
+       "version_downloads": "/api/v1/crates/supply-chain-trust-crate-000023/downloads",
+       "versions": "/api/v1/crates/supply-chain-trust-crate-000023/versions",
+       "owners": "/api/v1/crates/supply-chain-trust-crate-000023/owners",
+       "owner_team": "/api/v1/crates/supply-chain-trust-crate-000023/owner_team",
+       "owner_user": "/api/v1/crates/supply-chain-trust-crate-000023/owner_user",
+       "reverse_dependencies": "/api/v1/crates/supply-chain-trust-crate-000023/reverse_dependencies"
+      },
+      "exact_match": false,
+      "trustpub_only": false
+     }
+    ],
+    "meta": {
+     "total": 55,
+     "next_page": "?q=regex-syntax&per_page=5&page=2",
+     "prev_page": null
+    }
+   }
+  }
+ ]
+}

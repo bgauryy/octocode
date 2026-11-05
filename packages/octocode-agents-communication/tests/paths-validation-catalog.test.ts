@@ -76,8 +76,8 @@ test('realpath equals the recorded reference resolve, strict and not', t => {
   const directory = tempWorkspace(t, 'paths-validation-catalog-', { real: true });
   mkdirSync(join(directory, 'a/b'), { recursive: true });
   symlinkSync('a/b', join(directory, 'link'));
-  assert.deepEqual(contract(directory, golden.realpath.cases.map(([path, strict]: [string, boolean]) => paths.realpath(directory + '/' + path, strict))), golden.realpath.expected);
-  assert.throws(() => paths.realpath(directory + '/link/missing', true), { code: 'ENOENT' });
+  assert.deepEqual(contract(directory, golden.realpath.cases.map(([path, strict]: [string, boolean]) => paths.realpath(`${directory}/${path}`, strict))), golden.realpath.expected);
+  assert.throws(() => paths.realpath(`${directory}/link/missing`, true), { code: 'ENOENT' });
 });
 
 // ---- coordination scope --------------------------------------------------------------------------------------------
@@ -108,7 +108,7 @@ test('coordinationScope equals the recorded reference output for plain directori
 test('Git metadata files are bounded, regular and well formed', t => {
   const directory = tempWorkspace(t, 'paths-validation-catalog-', { real: true });
   const file = join(directory, '.git');
-  writeFileSync(file, 'gitdir: ' + 'x'.repeat(5000));
+  writeFileSync(file, `gitdir: ${'x'.repeat(5000)}`);
   assert.throws(() => workspace.metadataPath(file, 'gitdir:'), /exceeds 4096 bytes/);
   writeFileSync(file, 'nonsense');
   assert.throws(() => workspace.metadataPath(file, 'gitdir:'), /Invalid Git workspace metadata/);

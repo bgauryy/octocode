@@ -176,7 +176,7 @@ fn check(root: &Path, shape: &Value, label: &str, tally: &mut Tally) {
         include_hidden: true,
     };
     let (relaxed, cut, _) = with_probe_budget(Duration::from_secs(600), || {
-        probe_walked(lifted, &paths, false, &NeverCancel)
+        probe_walked(lifted, &paths, false, None, &NeverCancel)
     })
     .expect("relaxed walk");
     assert!(!cut, "{label}");

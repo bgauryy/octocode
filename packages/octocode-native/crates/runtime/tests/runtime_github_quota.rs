@@ -87,17 +87,22 @@ async fn a_quota_wait_reports_progress_and_still_returns_the_page() {
 /// Results each extension's mock code search holds.
 const CODE_RESULTS: usize = 12;
 
-/// A mock code search per extension that reports the quota GitHub would:
-/// `rs` leaves one search, `ts` spends the last, and the reset is an hour away.
+/// A mock code search per extension that reports the quota GitHub would: a first
+/// page at a small `limit` leaves plenty, then on GitHub's largest page `rs`
+/// leaves one search, `ts` spends the last, and the reset is an hour away.
 fn quota_spent_code_search(server_reset: u64) -> impl Fn(&str) -> Mock {
     move |extension: &str| {
         struct Quota(&'static str, u64, octocode_github::mock_http::SearchIndex);
         impl wiremock::Respond for Quota {
             fn respond(&self, request: &wiremock::Request) -> ResponseTemplate {
+                let whole = request
+                    .url
+                    .query_pairs()
+                    .any(|(key, value)| key == "per_page" && value == "100");
                 self.2
                     .respond(request)
                     .insert_header("x-ratelimit-limit", "10")
-                    .insert_header("x-ratelimit-remaining", self.0)
+                    .insert_header("x-ratelimit-remaining", if whole { self.0 } else { "9" })
                     .insert_header("x-ratelimit-reset", self.1.to_string().as_str())
                     .insert_header("x-ratelimit-resource", "code_search")
             }
@@ -122,8 +127,8 @@ fn quota_spent_code_search(server_reset: u64) -> impl Fn(&str) -> Mock {
 }
 
 /// A continuation whose searches its journal answers needs no quota: with the
-/// code-search quota spent and its reset past the request deadline, page 2 of
-/// a multi-extension walk (read from the pages page 1 recorded) is served,
+/// code-search quota spent and its reset past the request deadline, page 3 of
+/// a multi-extension walk (read from the pages page 2 recorded) is served,
 /// while a fresh search in the same state is refused before it is sent.
 #[tokio::test]
 async fn a_continuation_the_journal_answers_is_not_refused_for_a_spent_quota() {
@@ -153,14 +158,18 @@ async fn a_continuation_the_journal_answers_is_not_refused_for_a_spent_quota() {
     let data = row_data(&first);
     let next = data["next"]["nextPage"]["input"].clone();
     assert!(next.is_object(), "page 1 offers page 2: {data}");
-    let sent = server.received_requests().await.expect("recorded").len();
     let second = call(&runtime, "ghSearchCode", next).await.expect("page 2");
     let data = row_data(&second);
-    assert!(data["files"].is_array(), "page 2 is served: {data}");
+    let next = data["next"]["nextPage"]["input"].clone();
+    assert!(next.is_object(), "page 2 offers page 3: {data}");
+    let sent = server.received_requests().await.expect("recorded").len();
+    let third = call(&runtime, "ghSearchCode", next).await.expect("page 3");
+    let data = row_data(&third);
+    assert!(data["files"].is_array(), "page 3 is served: {data}");
     assert_eq!(
         server.received_requests().await.expect("recorded").len(),
         sent,
-        "the journal answered page 2: nothing was sent"
+        "the journal answered page 3: nothing was sent"
     );
     let fresh = call(
         &runtime,

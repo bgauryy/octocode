@@ -34,7 +34,7 @@ test('the worker loop stops when its parent changes and runs until the deadline 
 
   const owned = fakeWorker(async () => { polled += 1; await new Promise(resolve => setTimeout(resolve, 20)); return null; });
   await new proxy.Loop(owned, { aborted: false }, timing.monotonic() + 300, process.ppid).run();
-  assert.ok(polled >= 3, 'polled until the deadline: ' + polled);
+  assert.ok(polled >= 3, `polled until the deadline: ${polled}`);
 
   // The stop event fires from inside the third poll, so the loop must end right after it, whatever the machine's speed.
   const stop = { aborted: false };
@@ -75,8 +75,8 @@ test('closing a vendor kills its whole process group, escalating to SIGKILL afte
   const started = performance.now();
   await host.close();
   const elapsed = performance.now() - started;
-  assert.ok(elapsed >= wire.TERMINATE_GRACE_MS * 0.9, 'waited for SIGTERM to be honoured before SIGKILL: ' + elapsed);
-  assert.ok(elapsed < wire.TERMINATE_GRACE_MS * 4, 'killed promptly after the grace period: ' + elapsed);
+  assert.ok(elapsed >= wire.TERMINATE_GRACE_MS * 0.9, `waited for SIGTERM to be honoured before SIGKILL: ${elapsed}`);
+  assert.ok(elapsed < wire.TERMINATE_GRACE_MS * 4, `killed promptly after the grace period: ${elapsed}`);
   await waitFor(() => !alive(child) && !alive(grandchild));
 });
 
@@ -171,7 +171,7 @@ test('a managed codex worker: handshake, first turn, mail delivered between turn
     launcher: { mcp: (args: readonly string[]) => ({ command: 'communication', args: [...args] }), binary: 'communication', piExtension: '' },
   };
   const running = proxy.run({ vendor: 'codex', model: 'gpt-test', prompt: 'Do the task\nwith details', durationMs: 4000, workspace: f.workspace, database: f.file, trace: true }, io);
-  await waitFor(() => output.some(record => record.type === 'turn-completed')).catch(error => { throw new Error(error.message + ' ' + JSON.stringify(output) + ' ' + (existsSync(log) ? readFileSync(log, 'utf8') : 'nolog')); });
+  await waitFor(() => output.some(record => record.type === 'turn-completed')).catch(error => { throw new Error(`${error.message} ${JSON.stringify(output)} ${existsSync(log) ? readFileSync(log, 'utf8') : 'nolog'}`); });
   const ready = output.find(record => record.type === 'ready');
   assert.ok(ready);
   assert.equal(ready.vendor, 'codex');

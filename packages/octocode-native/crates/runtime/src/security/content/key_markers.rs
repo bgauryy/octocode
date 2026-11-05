@@ -4,8 +4,8 @@
 //! on raw bytes is the verdict on the decoded line.
 //!
 //! An armor marker is at least four dashes (RFC 4716 uses four, PEM five),
-//! optional blanks, `BEGIN` or `END`, then a label holding `PRIVATE KEY` before
-//! the next four dashes. The closing dashes may be cut off a line that ends
+//! optional blanks, `BEGIN` or `END`, then a label holding `PRIVATE KEY`,
+//! `SECRET KEY` or `Static key` (OpenVPN's shared key) before the next four dashes. The closing dashes may be cut off a line that ends
 //! right after the label. PuTTY's format has no armor, and its lines are named
 //! at their start instead: `PuTTY-User-Key-File-N:` and `Private-Lines:` open
 //! a block (the second holds the secret half), `Private-MAC:` closes it.
@@ -16,8 +16,11 @@ use memchr::memmem::Finder;
 
 /// The fewest dashes that open or close a marker.
 const RUN: u8 = 4;
-/// `<PRIVATE><blanks><KEY>` matched, as a [`next_phrase`] position.
+/// `<PRIVATE><blanks><KEY>` matched, as a [`next_phrase`] position. Positions
+/// from [`SECRET_AT`] and [`STATIC_AT`] spell the phrase's other first words.
 const PHRASE_DONE: u8 = 11;
+const SECRET_AT: u8 = 12;
+const STATIC_AT: u8 = 17;
 const BYTE_ORDER_MARK: &[u8] = b"\xEF\xBB\xBF";
 
 /// Which edges of a private-key block a line holds.
@@ -101,14 +104,37 @@ fn is_blank(byte: u8) -> bool {
 /// Where the key phrase stands after `byte`, from position `at`.
 fn next_phrase(at: u8, byte: u8) -> u8 {
     const PRIVATE: &[u8] = b"PRIVATE";
+    const SECRET: &[u8] = b"SECRET";
+    const STATIC: &[u8] = b"Static";
     match at {
         PHRASE_DONE => PHRASE_DONE,
         0..=6 if byte == PRIVATE[usize::from(at)] => at + 1,
+        // The last letter of a first word stands where `PRIVATE`'s does.
+        // After `S`, the second letter picks the word.
+        SECRET_AT if byte == b't' => STATIC_AT,
+        SECRET_AT..=16 if byte == SECRET[usize::from(at - SECRET_AT + 1)] => {
+            if at == 16 {
+                7
+            } else {
+                at + 1
+            }
+        }
+        STATIC_AT..=20 if byte == STATIC[usize::from(at - STATIC_AT + 2)] => {
+            if at == 20 {
+                7
+            } else {
+                at + 1
+            }
+        }
         7 | 8 if is_blank(byte) => 8,
-        8 if byte == b'K' => 9,
-        9 if byte == b'E' => 10,
-        10 if byte == b'Y' => PHRASE_DONE,
-        _ => u8::from(byte == b'P'),
+        8 if matches!(byte, b'K' | b'k') => 9,
+        9 if matches!(byte, b'E' | b'e') => 10,
+        10 if matches!(byte, b'Y' | b'y') => PHRASE_DONE,
+        _ => match byte {
+            b'P' => 1,
+            b'S' => SECRET_AT,
+            _ => 0,
+        },
     }
 }
 
@@ -241,6 +267,8 @@ pub(crate) fn line_markers(line: &[u8]) -> Markers {
 /// here, untouched.
 pub(super) fn may_hold_key_marker(content: &str) -> bool {
     content.contains("PRIVATE")
+        || content.contains("SECRET KEY")
+        || content.contains("Static key")
         || content.contains("Private-Lines:")
         || content.contains("PuTTY-User-Key-File-")
 }

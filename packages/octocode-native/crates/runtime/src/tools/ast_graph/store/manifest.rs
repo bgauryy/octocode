@@ -7,6 +7,17 @@ pub(super) fn analysis_current(manifest: &Value) -> bool {
         && manifest["octocodeVersion"] == env!("CARGO_PKG_VERSION")
 }
 
+/// What no linkage ratio counts, however full it reads.
+pub(super) const VALUE_REFERENCES: &str = "Linkage counts call sites only: a function taken as a value (`f := b.Helper`, `this::x`) is no site and has no edge, so a ratio of 1.0 does not mean every use is linked.";
+
+/// `output`'s disclosure of [`VALUE_REFERENCES`], when its `linkage` states a
+/// ratio.
+pub(super) fn disclose_value_references(output: &mut serde_json::Value) {
+    if output["linkage"]["ratio"].is_number() {
+        output["warnings"] = serde_json::json!([VALUE_REFERENCES]);
+    }
+}
+
 /// The manifest's scan record as an answer states it. The manifest keeps
 /// every scan fact for freshness checks; an answer states only those that carry
 /// information (a cut, an exclude, a parser glob): zero counts, empty lists
@@ -39,6 +50,7 @@ pub(super) struct ManifestInput<'a> {
     pub(super) language_globs: &'a BTreeMap<String, Vec<String>>,
     pub(super) inputs: &'a BTreeMap<String, String>,
     pub(super) input_proof: Option<&'a str>,
+    pub(super) scope_proof: Option<&'a Value>,
     pub(super) build_ms: u64,
     pub(super) registry: octocode_engine::signatures::languages::RegistryView<'a>,
     pub(super) registry_identity: &'a str,
@@ -138,6 +150,9 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
     });
     if let Some(proof) = input.input_proof {
         manifest["inputProof"] = json!(proof);
+    }
+    if let Some(proof) = input.scope_proof {
+        manifest["scopeProof"] = proof.clone();
     }
     if !input.language_globs.is_empty() {
         manifest["scan"]["languageGlobs"] = json!(input.language_globs);

@@ -72,6 +72,9 @@ pub(crate) async fn rubygems(
     client: &RegistryClient<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     if let Some(name) = artifact_search_query::package_name(query) {
+        if let Some(wanted) = artifact_search_query::version(query).filter(|v| *v != "latest") {
+            return exact_release(name, wanted, client).await;
+        }
         let url = parse_url(&format!(
             "https://rubygems.org/api/v1/gems/{}.json",
             super::util::encode_component(name)
@@ -147,6 +150,43 @@ pub(crate) async fn rubygems(
         terminal_limit: None,
         registry: None,
     })
+}
+
+/// The gem at `wanted`, from that version's own document. A 404 there says
+/// neither gem nor version is known: the gem's versions list tells them apart.
+async fn exact_release(
+    name: &str,
+    wanted: &str,
+    client: &RegistryClient<'_>,
+) -> Result<ArtifactProviderPage, ArtifactError> {
+    let gem_path = super::util::encode_component(name);
+    let url = parse_url(&format!(
+        "https://rubygems.org/api/v2/rubygems/{gem_path}/versions/{}.json",
+        super::util::encode_component(wanted)
+    ))?;
+    if let Some(response) = client
+        .json(ArtifactType::Rubygems, url, true, None, None, JSON)
+        .await?
+    {
+        return Ok(ArtifactProviderPage::single(gem(object_for(
+            &response,
+            ArtifactType::Rubygems,
+        )?)?));
+    }
+    let listing = parse_url(&format!(
+        "https://rubygems.org/api/v1/versions/{gem_path}.json"
+    ))?;
+    let Some(versions) = client
+        .json(ArtifactType::Rubygems, listing, true, None, None, JSON)
+        .await?
+    else {
+        return Ok(ArtifactProviderPage::empty(Some(0)));
+    };
+    let published = rows(&versions, ArtifactType::Rubygems)?
+        .iter()
+        .filter_map(|row| string(row.get("number")))
+        .collect::<Vec<_>>();
+    Err(super::versions::version_not_found(name, wanted, &published))
 }
 
 #[cfg(test)]

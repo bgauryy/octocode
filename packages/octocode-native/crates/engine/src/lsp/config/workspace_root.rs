@@ -15,16 +15,27 @@ const WORKSPACE_ROOT_MARKERS: &[(&str, &str)] = &[
     ("go.mod", ".go"),
     ("pyproject.toml", ".py"),
     ("setup.py", ".py"),
+    ("setup.cfg", ".py"),
+    ("Pipfile", ".py"),
+    ("pyrightconfig.json", ".py"),
     ("requirements.txt", ".py"),
     ("go.work", ".go"),
     ("compile_commands.json", ".cpp"),
+    ("compile_flags.txt", ".cpp"),
     (".clangd", ".cpp"),
     ("CMakeLists.txt", ".cpp"),
     ("meson.build", ".cpp"),
     ("pom.xml", ".java"),
     ("build.gradle", ".java"),
     ("build.gradle.kts", ".java"),
+    ("settings.gradle", ".java"),
+    ("settings.gradle.kts", ".java"),
     ("build.sbt", ".scala"),
+    ("build.sc", ".scala"),
+    ("build.mill", ".scala"),
+    ("*.sln", ".cs"),
+    ("*.slnx", ".cs"),
+    ("*.csproj", ".cs"),
     ("jsconfig.json", ".js"),
     ("package.json", ".ts"),
 ];
@@ -111,7 +122,7 @@ pub fn workspace_root_languages(workspace_root: &str) -> Vec<&'static str> {
 fn root_markers(root: &Path) -> Vec<&'static str> {
     let mut found = WORKSPACE_ROOT_MARKERS
         .iter()
-        .filter(|(marker, _)| root.join(marker).is_file())
+        .filter(|(marker, _)| crate::lsp::workspace::dir_holds(root, marker))
         .map(|(_, extension)| *extension)
         .collect::<Vec<_>>();
     found.sort_by_key(|extension| !declares_language_workspace(root, js_family(extension)));

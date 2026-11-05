@@ -167,6 +167,17 @@ impl LineShapeScan {
     }
 }
 
+/// Whether `line` opens with a run of base64 only a key's body is that long:
+/// a body line that something cut off, as a hover does (`MIIE…`).
+pub(super) fn opens_with_body_run(line: &str) -> bool {
+    let text = after_line_lead(line.as_bytes());
+    let run = text
+        .iter()
+        .take_while(|byte| byte.is_ascii_alphanumeric() || matches!(**byte, b'+' | b'/' | b'='))
+        .count();
+    run >= BODY_RUN
+}
+
 /// `Name: value` armor header, judged from a line's leading bytes.
 fn is_key_header_prefix(head: &[u8]) -> bool {
     let head = after_line_lead(head);
@@ -250,6 +261,41 @@ impl KeyBlockState {
             scan.finish(line)
         })
     }
+}
+
+/// What a line of a key block shows with only its key's bytes hidden: what comes
+/// before a BEGIN or after an END is not the key, and a body line keeps its
+/// indentation.
+pub(crate) fn hide_key_line(line: &str) -> String {
+    let placeholder = super::key_fragment_placeholder();
+    let begin = line.find("-----BEGIN");
+    let end = line
+        .rfind("-----END")
+        .filter(|at| begin.is_none_or(|begin| begin < *at));
+    let close = end.and_then(|end| {
+        let name = end + "-----END".len();
+        line[name..]
+            .find("-----")
+            .map(|at| name + at + "-----".len())
+    });
+    let lead = String::from_utf8_lossy(key_line_lead(line.as_bytes()));
+    format!(
+        "{lead}{placeholder}{}",
+        close.map_or("", |close| &line[close..])
+    )
+}
+
+/// The bytes of a line of a key block before its key: all that precede a BEGIN, or
+/// an END or a body line's indentation. `head` may be only the line's start.
+pub(crate) fn key_line_lead(head: &[u8]) -> &[u8] {
+    if let Some(at) = head.windows(10).position(|bytes| bytes == b"-----BEGIN") {
+        return &head[..at];
+    }
+    let blanks = head
+        .iter()
+        .take_while(|byte| matches!(byte, b' ' | b'\t'))
+        .count();
+    &head[..blanks]
 }
 
 /// [`private_key_block_line_ranges`] fed one line at a time, so a caller can

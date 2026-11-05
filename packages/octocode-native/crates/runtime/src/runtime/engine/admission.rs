@@ -4,6 +4,7 @@
 
 use super::{RuntimeError, ToolRuntime};
 use crate::contracts;
+use crate::execution::availability::Availability;
 use crate::id::ToolId;
 use crate::response::rows;
 use crate::security::{CheckedQuery, InputPolicy};
@@ -96,19 +97,19 @@ impl ToolRuntime {
                 )
                 .map_err(|error| RuntimeError::new(error.code, error.message))?;
             }
-            if id == ToolId::Clasify
-                && crate::execution::availability::classification_key(&self.config).is_none()
-            {
-                return Err(RuntimeError::new(
-                    ErrorCode::MissingConfiguration,
-                    format!(
-                        "Tool {tool} needs {}. Provider setup: {}",
-                        crate::config::field::CLASSIFICATION_API.display_name(),
-                        self.classification.defaults().docs_url,
-                    ),
-                ));
-            }
             return Ok(id);
+        }
+        // Absent from discovery, yet a direct call is how a user finds the tool.
+        if let Availability::MissingConfiguration(settings) = availability {
+            let setup = settings
+                .iter()
+                .filter_map(|setting| setting.docs_url)
+                .map(|url| format!(" Setup: {url}"))
+                .collect::<String>();
+            return Err(RuntimeError::new(
+                ErrorCode::MissingConfiguration,
+                format!("Tool {tool} is off: {}{setup}", availability.reason_text()),
+            ));
         }
         let reason = availability.reason_text();
         Err(RuntimeError::new(
@@ -169,9 +170,7 @@ impl ToolRuntime {
             }
             let policy = if id.is_clasify() {
                 InputPolicy::ClasifyEvidence {
-                    content_limit: crate::tools::clasify::max_state_chars(
-                        query["longContext"].as_bool() == Some(true),
-                    ),
+                    content_limit: crate::id::clasify_policy::REQUEST_BYTES,
                 }
             } else {
                 InputPolicy::Query

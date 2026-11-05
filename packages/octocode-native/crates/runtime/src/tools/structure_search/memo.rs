@@ -6,6 +6,8 @@
 //! executor then recomputes the snapshot from the submitted query and the
 //! stored rows before serving a page. Those stamps are the ones the walk
 //! read, taken before what they prove, so keeping a walk stats none of them.
+//! A metadata filter's verdicts are watched the same way: every entry it read,
+//! listed or not, since a file's size or time moves no directory's stamp.
 //! The ignore rules the walk applied are watched as astSearch's scan memo
 //! watches them ([`Watch`]): each `.gitignore`/`.ignore` of a directory it
 //! entered, the rule files outside the walk and the repository markers above
@@ -32,6 +34,26 @@ pub(super) struct Seen<'a> {
     pub path: &'a std::path::Path,
     pub size: u64,
     pub modified: Option<SystemTime>,
+}
+
+/// The stamps of `rows` a proof watches. A walk that read metadata stamped every
+/// row, so one without cannot be watched; a walk of names has none to watch,
+/// unless a metadata filter read them to decide.
+pub(super) fn row_stamps<'a>(
+    names_only: bool,
+    rows: impl Iterator<
+        Item = (
+            &'a std::path::Path,
+            Option<octocode_engine::stamp::SourceStamp>,
+        ),
+    >,
+) -> Option<Vec<(std::path::PathBuf, octocode_engine::stamp::SourceStamp)>> {
+    let stamped = |(path, stamp): (&std::path::Path, Option<_>)| Some((path.to_path_buf(), stamp?));
+    if names_only {
+        Some(rows.filter_map(stamped).collect())
+    } else {
+        rows.map(stamped).collect()
+    }
 }
 
 /// The proof of `listed` entries, every directory holding one, the walked
@@ -152,7 +174,12 @@ pub(super) fn put(
     let Some(proof) = walk.proof(root, paths) else {
         return;
     };
-    let bytes = walk.weight() + proof.weight();
+    let bytes = walk.weight()
+        + if walk.shares_proof() {
+            0
+        } else {
+            proof.weight()
+        };
     STORE.put_proven(snapshot, policy, bytes, proof, Arc::clone(walk));
 }
 

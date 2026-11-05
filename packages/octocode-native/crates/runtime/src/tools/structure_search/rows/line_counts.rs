@@ -108,6 +108,80 @@ pub(crate) fn count_lines(
     Ok((lines, cut))
 }
 
+/// Lines of a text with a UTF-16 byte order mark, by code unit: a byte 0x0A or
+/// 0x00 alone says nothing there.
+struct Utf16Lines {
+    big_endian: bool,
+    /// The first byte of a code unit a read split.
+    carried: Option<u8>,
+    /// The mark, the first unit, is no text.
+    units: usize,
+    lines: usize,
+    last_unit: u16,
+}
+
+impl Utf16Lines {
+    fn of(first: &[u8]) -> Option<Self> {
+        let big_endian = match first {
+            [0xff, 0xfe, ..] => false,
+            [0xfe, 0xff, ..] => true,
+            _ => return None,
+        };
+        Some(Self {
+            big_endian,
+            carried: None,
+            units: 0,
+            lines: 0,
+            last_unit: 0,
+        })
+    }
+
+    /// Reads `bytes`; `false` on a NUL code unit, which makes the text binary as
+    /// a read of it does.
+    fn feed(&mut self, bytes: &[u8]) -> bool {
+        let mut rest = bytes;
+        if let (Some(first), Some((second, tail))) = (self.carried, rest.split_first()) {
+            self.carried = None;
+            rest = tail;
+            if !self.unit([first, *second]) {
+                return false;
+            }
+        }
+        let (pairs, odd) = rest.as_chunks::<2>();
+        for pair in pairs {
+            if !self.unit(*pair) {
+                return false;
+            }
+        }
+        if let [odd] = odd {
+            self.carried = Some(*odd);
+        }
+        true
+    }
+
+    fn unit(&mut self, pair: [u8; 2]) -> bool {
+        let unit = if self.big_endian {
+            u16::from_be_bytes(pair)
+        } else {
+            u16::from_le_bytes(pair)
+        };
+        self.units += 1;
+        if self.units == 1 {
+            return true;
+        }
+        self.lines += usize::from(unit == 0x0a);
+        self.last_unit = unit;
+        unit != 0
+    }
+
+    fn finish(self) -> Lines {
+        if self.carried.is_some() {
+            return Lines::Binary;
+        }
+        Lines::Counted(self.lines + usize::from(self.units > 1 && self.last_unit != 0x0a))
+    }
+}
+
 /// The lines of the file at `path`, revalidated against the path policy
 /// right before it is read. `None` for a listed link to a directory: like a
 /// directory it has no lines, and is no failed read.
@@ -137,24 +211,37 @@ fn line_count(
     // Newlines terminate lines; a non-empty final line without one still counts.
     let mut lines = 0_usize;
     let mut last_byte = None;
+    let mut wide = None::<Utf16Lines>;
     loop {
         cancel.check().map_err(ToolError::cancelled)?;
         match file.read(&mut buffer) {
             Ok(0) => {
+                if let Some(wide) = wide {
+                    return Ok(Some(wide.finish()));
+                }
                 return Ok(Some(Lines::Counted(
                     lines + usize::from(last_byte.is_some_and(|b| b != b'\n')),
                 )));
             }
             Ok(bytes) => {
                 let read = &buffer[..bytes];
-                if (last_byte.is_none()
-                    && octocode_engine::text::sniff(read)
-                        == octocode_engine::text::BinaryVerdict::Binary)
-                    || read.contains(&0)
-                {
-                    return Ok(Some(Lines::Binary));
+                if last_byte.is_none() {
+                    if octocode_engine::text::sniff(read)
+                        == octocode_engine::text::BinaryVerdict::Binary
+                    {
+                        return Ok(Some(Lines::Binary));
+                    }
+                    wide = Utf16Lines::of(read);
                 }
-                lines += read.iter().filter(|byte| **byte == b'\n').count();
+                if let Some(wide) = wide.as_mut() {
+                    if !wide.feed(read) {
+                        return Ok(Some(Lines::Binary));
+                    }
+                } else if read.contains(&0) {
+                    return Ok(Some(Lines::Binary));
+                } else {
+                    lines += read.iter().filter(|byte| **byte == b'\n').count();
+                }
                 last_byte = read.last().copied();
             }
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,

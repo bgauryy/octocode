@@ -2,7 +2,6 @@ use super::super::HistoryItemRequest;
 use super::super::filter::*;
 use super::super::inventory::*;
 use super::super::promotion::promote_pr_continuations;
-use super::super::remaining::Remainder;
 use super::super::util::str_at;
 use super::super::window::*;
 use super::hunks::*;

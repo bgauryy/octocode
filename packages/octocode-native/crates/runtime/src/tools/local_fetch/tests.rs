@@ -143,6 +143,7 @@ mod match_misses;
 mod match_patterns;
 mod match_ranges;
 mod match_windows;
+mod next_page_walks;
 mod paging;
 mod paths;
 mod redaction;

@@ -171,7 +171,7 @@ export async function run(cdp: CheckSession) {
       bytes += buf.length;
       const file = join(
         cdp.outputDir,
-        `${stem}${index ? '-' + (index + 1) : ''}.${FORMAT === 'png' ? 'png' : 'jpg'}`
+        `${stem}${index ? `-${index + 1}` : ''}.${FORMAT === 'png' ? 'png' : 'jpg'}`
       );
       writeFileSync(file, buf, { mode: 0o600 });
       tiles.push({

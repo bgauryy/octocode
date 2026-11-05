@@ -79,7 +79,7 @@ class Git {
         try {
           const result = decodeUtf8(Buffer.concat(out));
           // A child killed by a signal has no exit status (null) and its output may be cut short: a failure, never a result.
-          if (status !== 0 || signal !== null) finish(new ValidationError('Git activity failed: ' + truncateCodePoints(Buffer.concat(err).toString('utf8'), 2000)));
+          if (status !== 0 || signal !== null) finish(new ValidationError(`Git activity failed: ${truncateCodePoints(Buffer.concat(err).toString('utf8'), 2000)}`));
           else finish(null, result);
         } catch (error) {
           finish(error as Error);
@@ -114,7 +114,7 @@ class Filter {
       try {
         new RegExp(this.pattern, 'u');
       } catch (error) {
-        throw new ValidationError('Invalid pathRegex: ' + (error as Error).message);
+        throw new ValidationError(`Invalid pathRegex: ${(error as Error).message}`);
       }
     }
     this.since = input.sinceMs ?? (input.withinMs !== undefined ? Math.max(0, at - input.withinMs) : undefined);
@@ -136,7 +136,7 @@ class Filter {
   }
 
   path(path: string): boolean {
-    return (!this.prefix || path === this.prefix || path.startsWith(this.prefix + '/')) && (this.pattern === undefined || this.allowed!.has(path));
+    return (!this.prefix || path === this.prefix || path.startsWith(`${this.prefix}/`)) && (this.pattern === undefined || this.allowed!.has(path));
   }
 
   time(at: number | null): boolean {
@@ -146,7 +146,7 @@ class Filter {
 }
 
 function relative(path: string, scope: string): string | null {
-  return !scope ? path : path.startsWith(scope + '/') ? path.slice(scope.length + 1) : null;
+  return !scope ? path : path.startsWith(`${scope}/`) ? path.slice(scope.length + 1) : null;
 }
 
 function modified(workspace: string, path: string): number | null {
@@ -273,8 +273,8 @@ export async function read(workspacePath: string, input: ActivityInput): Promise
   } else {
     const hasHead = (await git.read(workspace, ['rev-parse', '--revs-only', 'HEAD'])).trim() !== '';
     let raw = '';
-    if (hasHead && view === 'commits') raw = await git.read(workspace, ['log', '-' + String(cap + 1), '--date-order', '-z', '--name-only', '--format=%x00%H%x00%ct%x00%s', '--no-renames', '--no-ext-diff', '--diff-merges=first-parent', '--full-history']);
-    else if (hasHead) raw = await git.read(workspace, ['reflog', 'show', '-' + String(cap + 1), '-z', '--date=unix', '--format=%H%x00%gD%x00%gs', 'HEAD']);
+    if (hasHead && view === 'commits') raw = await git.read(workspace, ['log', `-${String(cap + 1)}`, '--date-order', '-z', '--name-only', '--format=%x00%H%x00%ct%x00%s', '--no-renames', '--no-ext-diff', '--diff-merges=first-parent', '--full-history']);
+    else if (hasHead) raw = await git.read(workspace, ['reflog', 'show', `-${String(cap + 1)}`, '-z', '--date=unix', '--format=%H%x00%gD%x00%gs', 'HEAD']);
     const found = view === 'commits' ? commits(raw, scope, filter, git) : reflog(raw, filter);
     truncated = found.length > cap;
     const scannedRows = found.slice(0, cap);

@@ -18,10 +18,10 @@ test('every installed report skill renders, discovers and rejects invalid report
     const contract = JSON.parse(readFileSync(join(installed, name, 'output.md'), 'utf8').match(/<!-- report-contract (.*?) -->/)[1]);
     const folder = join(root, '.octocode', name);
     mkdirSync(folder, { recursive: true });
-    const smokeFile = new Date().toLocaleDateString('en-CA') + '-smoke.md';
+    const smokeFile = `${new Date().toLocaleDateString('en-CA')}-smoke.md`;
     const input = join(folder, smokeFile), out = join(folder, 'smoke.html');
     const sections = [...contract.required, ...contract.anyOf.map(group => group[0])];
-    const content = `---\nstatus: ${contract.statuses[0]}\nquestion: Does the installed output pipeline work?\n---\n# ${name}\n\nSynthetic pipeline fixture; not a domain-workflow result.\n\n` + sections.map(h => `## ${h}\n\nFixture evidence.\n`).join('\n') + '\n```mermaid\nflowchart LR\nA[Markdown] --> B[HTML]\n```\n';
+    const content = `---\nstatus: ${contract.statuses[0]}\nquestion: Does the installed output pipeline work?\n---\n# ${name}\n\nSynthetic pipeline fixture; not a domain-workflow result.\n\n${sections.map(h => `## ${h}\n\nFixture evidence.\n`).join('\n')}\n\`\`\`mermaid\nflowchart LR\nA[Markdown] --> B[HTML]\n\`\`\`\n`;
     const invoke = args => spawnSync(process.execPath, [join(installed, name, 'scripts/render-report.mjs'), ...args], { cwd: root, encoding: 'utf8', timeout: 15000 });
     writeFileSync(input, content);
     const render = invoke([input, '--out', out, '--json', '--strict']);

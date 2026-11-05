@@ -91,7 +91,7 @@ export const sessionMeta = file =>
       join(
         live.WORK,
         '.octocode/octocode-chrome-devtools/tmp/session-meta',
-        'port-' + live.CDP_PORT,
+        `port-${live.CDP_PORT}`,
         file
       ),
       'utf8'

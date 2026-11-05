@@ -84,7 +84,7 @@ test('Pi confirms a durable receipt in a session ledger larger than 64 MiB, with
  assert.equal(state(),'staged');
  // 70 filler lines of ~1.0 MB (multi-byte text, so a chunk edge can fall inside a character) pass 64 MiB; the receipt is last.
  const filler=JSON.stringify({type:'message',text:'é'.repeat(500000)}),receipt={type:'custom_message',customType:'octocode-peer',details:{session,database:f.database,receipts:items.map(({id,dispatchToken}: JsonRecord)=>({id,dispatchToken}))}};
- writeFileSync(join(f.workspace,'pi-session.jsonl'),[JSON.stringify({type:'session',id:'pi-test'}),...Array(70).fill(filler),JSON.stringify(receipt)].join('\n')+'\n');
+ writeFileSync(join(f.workspace,'pi-session.jsonl'),`${[JSON.stringify({type:'session',id:'pi-test'}),...Array(70).fill(filler),JSON.stringify(receipt)].join('\n')}\n`);
  assert.ok(statSync(join(f.workspace,'pi-session.jsonl')).size>64*1024*1024);
  await f.fire('session_start');
  assert.equal(state(),'submitted');assert.equal(f.sent.filter(s=>s.message.customType==='octocode-peer').length,0);
@@ -162,7 +162,7 @@ for(const replacement of [false,true]) test(`${replacement?'replacement':'shutdo
  const f=fixture(t),marker=join(f.workspace,'joined.json'),release=join(f.workspace,'release'),wrapper=join(f.workspace,'delayed-native.mjs');
  writeFileSync(wrapper,`#!${process.execPath}
 import { execFileSync } from ${JSON.stringify(new URL('./helpers.ts', import.meta.url).href)};import {writeFileSync,renameSync,existsSync} from 'node:fs';
-const out=execFileSync(${JSON.stringify(binary)},process.argv.slice(2),{encoding:'utf8'});if(process.argv[2]==='join'){writeFileSync(${JSON.stringify(marker+'.tmp')},out);renameSync(${JSON.stringify(marker+'.tmp')},${JSON.stringify(marker)});while(!existsSync(${JSON.stringify(release)}))await new Promise(r=>setTimeout(r,5));}process.stdout.write(out);`);chmodSync(wrapper,0o700);
+const out=execFileSync(${JSON.stringify(binary)},process.argv.slice(2),{encoding:'utf8'});if(process.argv[2]==='join'){writeFileSync(${JSON.stringify(`${marker}.tmp`)},out);renameSync(${JSON.stringify(`${marker}.tmp`)},${JSON.stringify(marker)});while(!existsSync(${JSON.stringify(release)}))await new Promise(r=>setTimeout(r,5));}process.stdout.write(out);`);chmodSync(wrapper,0o700);
  const controller=registerPiInbox(f.pi,{binary:wrapper,database:f.database});const starting=f.fire('session_start');
  try {
    const deadline=Date.now()+5000;while(!existsSync(marker)){if(Date.now()>deadline)throw new Error('join did not reach barrier');await new Promise(r=>setTimeout(r,5));}

@@ -15,7 +15,33 @@ pub(super) fn is_text_call(
     range: &LspRange,
 ) -> bool {
     !is_declaration_name(outline, range)
-        && is_call_at(content, lines, range.end.line, range.end.character)
+        && is_call_site(
+            content,
+            lines,
+            (range.start.line, range.start.character),
+            (range.end.line, range.end.character),
+        )
+}
+
+/// The text rule of a site by its range: `(` follows the range, or the name
+/// that starts it, since a server may range an invocation over its arguments
+/// (jdtls). A range of the name alone reads the same either way.
+pub(in crate::tools::lsp_search) fn is_call_site(
+    content: &str,
+    lines: &LineIndex,
+    start: (u32, u32),
+    end: (u32, u32),
+) -> bool {
+    if is_call_at(content, lines, end.0, end.1) {
+        return true;
+    }
+    let at =
+        usize::try_from(lines.position_to_byte(content, start.0, start.1)).unwrap_or(content.len());
+    let name = content.get(at..).map_or(0, |rest| {
+        rest.find(|c: char| !octocode_engine::text::is_ident_char(c))
+            .unwrap_or(rest.len())
+    });
+    name > 0 && opens_call(content, lines, start.0, at + name)
 }
 
 /// The text rule of a file oxc cannot parse: `(` (after optional spaces)
@@ -26,14 +52,19 @@ pub(in crate::tools::lsp_search) fn is_call_at(
     line: u32,
     character: u32,
 ) -> bool {
+    let at =
+        usize::try_from(lines.position_to_byte(content, line, character)).unwrap_or(content.len());
+    opens_call(content, lines, line, at)
+}
+
+/// Whether `(` (after optional spaces) follows byte `at` on `line`.
+fn opens_call(content: &str, lines: &LineIndex, line: u32, at: usize) -> bool {
     let Some(start) = usize::try_from(line)
         .ok()
         .and_then(|line| lines.line_start(line))
     else {
         return false;
     };
-    let at =
-        usize::try_from(lines.position_to_byte(content, line, character)).unwrap_or(content.len());
     let end = usize::try_from(line)
         .ok()
         .and_then(|line| lines.line_start(line + 1))

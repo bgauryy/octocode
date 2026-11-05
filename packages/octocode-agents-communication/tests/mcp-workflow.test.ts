@@ -21,7 +21,7 @@ async function connect(t: TestContext, workspace: string, agentName: string, sel
   const lines = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
   let id = 0;
   const request = async (method: string, params: object = {}): Promise<JsonRecord> => {
-    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params }) + '\n');
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: ++id, method, params })}\n`);
     const line = await lines.next();
     assert.equal(line.done, false, stderr);
     const response: JsonRecord = JSON.parse(line.value);
@@ -32,7 +32,7 @@ async function connect(t: TestContext, workspace: string, agentName: string, sel
   const initialized = await request('initialize', {
     protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'workflow-test', version: '1' },
   });
-  child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
+  child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`);
   const tools: JsonRecord[] = (await request('tools/list')).tools;
   const call = async (name: string, type: string, input: object = {}): Promise<JsonRecord> => {
     const result = await request('tools/call', { name, arguments: { type, input } });

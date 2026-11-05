@@ -38,17 +38,19 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
+mod code_use_memo;
 mod ignored_index;
 mod listing;
 mod paths;
 #[cfg(test)]
 pub(super) mod probe;
+mod question;
 mod reach;
 mod scan;
 mod spelling_index;
 mod text;
 pub(super) use paths::{canonical, canonical_uri, widest_authorized_dir, with_canonical_memo};
-use paths::{explicit_root, family_include, search_root};
+pub(super) use question::Question;
 use scan::{Fingerprint, fingerprint, scan_text};
 pub(super) use scan::{IgnoredMentions, same_file, written_since};
 pub(super) use text::imports_in_code;
@@ -95,6 +97,8 @@ struct TextScan {
     symbol: String,
     /// Canonical paths; `None` when the scan failed.
     files: Option<Arc<BTreeSet<String>>>,
+    /// Canonical paths of the markup files it found ([`Scope::markup`]).
+    markup: Arc<BTreeSet<String>>,
 }
 
 pub(super) struct Scope {
@@ -106,12 +110,24 @@ pub(super) struct Scope {
     pub(super) narrowed: bool,
     /// Family globs (`*.ts`, …); empty means every file.
     pub(super) include: Vec<String>,
+    /// Neither a repository nor a workspace manifest says where this project
+    /// ends, so the scan stopped at the server's root: a module beside it is out
+    /// of sight, and an answer naming no use cannot speak for it.
+    pub(super) unbounded: bool,
+    /// This request has no finished index behind it: text chose which files the
+    /// server could read, so its answer is partial.
+    opened_by_text: std::sync::atomic::AtomicBool,
+    /// Globs of the markup the same scan reads, whose imports the anchor's
+    /// server does not see (`importers::flag_markup_importers`).
+    markup: Vec<String>,
     /// The language server's workspace root (canonical), whose ignored
     /// files the server may still compile; `None` when unknown.
     server_root: Option<PathBuf>,
     text: Mutex<Option<TextScan>>,
     /// This request's one scope walk, once made ([`Self::walked`]).
     walked: Mutex<Option<Walked>>,
+    /// What the request asks for ([`Self::asks`]).
+    question: std::sync::OnceLock<Question>,
     /// Canonical files the language server's answer covers (listed, or
     /// verified as importers), recorded by the operation.
     answered: Mutex<BTreeSet<String>>,
@@ -135,9 +151,13 @@ impl Scope {
         Self {
             root,
             narrowed: false,
+            unbounded: false,
+            opened_by_text: std::sync::atomic::AtomicBool::new(false),
             include,
+            markup: Vec::new(),
             server_root: None,
             text: Mutex::new(None),
+            question: std::sync::OnceLock::new(),
             walked: Mutex::new(None),
             answered: Mutex::new(BTreeSet::new()),
             code_uses: Arc::new(Mutex::new(HashMap::new())),
@@ -151,36 +171,24 @@ impl Scope {
     /// position. When it starts a declaration, that declaration's reach
     /// bounds which scanned files could reference it.
     pub(super) fn anchor_site(&self, path: &str, line: u32, character: u32) {
-        if let Ok(mut slot) = self.site.lock() {
-            *slot = Some(reach::Site {
-                path: path.to_owned(),
-                line,
-                character,
-            });
-        }
+        *self
+            .site
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(reach::Site {
+            path: path.to_owned(),
+            line,
+            character,
+        });
     }
 
-    /// The scope of a request anchored at `anchor` (a file or, for a
-    /// workspace-root query, a directory), under the request's explicit
-    /// `workspace_root` when it holds the anchor.
-    pub(super) fn resolve(
-        anchor: &str,
-        server_root: &str,
-        workspace_root: Option<&str>,
-        policy: &PathPolicy,
-        language_id: Option<&str>,
-    ) -> Self {
-        let anchor_path = Path::new(anchor);
-        let wide = search_root(anchor_path, server_root, policy);
-        let explicit = workspace_root.and_then(|root| explicit_root(anchor_path, root, policy));
-        let mut scope = Self::new(
-            explicit.clone().unwrap_or_else(|| wide.clone()),
-            family_include(language_id, anchor_path),
-        );
-        scope.narrowed =
-            explicit.is_some_and(|root| root != wide && Path::new(&root).starts_with(&wide));
-        scope.server_root = std::fs::canonicalize(server_root).ok();
-        scope
+    pub(super) fn mark_opened_by_text(&self) {
+        self.opened_by_text
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(super) fn opened_by_text(&self) -> bool {
+        self.opened_by_text
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Whether this request already walked its scope.
@@ -214,9 +222,10 @@ impl Scope {
             observed,
             fingerprint: self.walk_fingerprint(observed, cancel).await?,
         };
-        if let Ok(mut slot) = self.walked.lock() {
-            *slot = Some(walked.clone());
-        }
+        *self
+            .walked
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(walked.clone());
         Ok(walked)
     }
 
@@ -261,9 +270,10 @@ impl Scope {
 
     /// Record files (paths or `file://` uris) the server's answer covers.
     pub(super) fn answer(&self, files: impl IntoIterator<Item = impl AsRef<str>>) {
-        if let Ok(mut answered) = self.answered.lock() {
-            answered.extend(files.into_iter().map(|file| canonical_uri(file.as_ref())));
-        }
+        self.answered
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .extend(files.into_iter().map(|file| canonical_uri(file.as_ref())));
     }
 
     /// Record the zero-based lines of the anchor file the whole answer (every
@@ -274,11 +284,13 @@ impl Scope {
         line: u32,
         lines: impl IntoIterator<Item = u32>,
     ) {
-        if let Ok(mut slot) = self.anchor_lines.lock() {
-            let mut covered = lines.into_iter().collect::<BTreeSet<_>>();
-            covered.insert(line);
-            *slot = Some((canonical_uri(anchor), covered));
-        }
+        let mut covered = lines.into_iter().collect::<BTreeSet<_>>();
+        covered.insert(line);
+        *self
+            .anchor_lines
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((canonical_uri(anchor), covered));
     }
 
     /// The anchor file (canonical) when it uses `symbol` in code on a line

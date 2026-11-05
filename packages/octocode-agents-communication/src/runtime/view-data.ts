@@ -18,7 +18,7 @@ const QUERIES: Record<string, readonly [string, string, boolean]> = {
   session: ['SELECT s.*,s.expiresAt>?2 AS active FROM sessions s WHERE s.workspace=?1', 'id', false],
   message: ['SELECT m.*,m.expiresAt-m.ttlMs AS createdAt,s.name AS senderName,s.vendor AS senderVendor,t.name AS targetName,t.vendor AS targetVendor,(SELECT count(*) FROM deliveries d WHERE d.message=m.id AND d.acknowledgedAt IS NULL) AS pending,(SELECT count(*) FROM deliveries d WHERE d.message=m.id) AS recipients FROM messages m JOIN sessions s ON s.id=m.sender LEFT JOIN sessions t ON t.id=m.target WHERE s.workspace=?1 AND ?2>0', 'sender', false],
   lease: ['SELECT l.id,l.workspace,l.path,l.kind,l.owner,s.name AS ownerName,l.reasoning,l.acquiredAt,l.refreshedAt,l.expiresAt FROM leases l JOIN sessions s ON s.id=l.owner WHERE l.workspace=?1 AND s.workspace=?1 AND l.expiresAt>?2 AND s.expiresAt>?2', 'owner', false],
-  records: [RECORD_SELECT + ' WHERE r.path=?1 AND ?2>0', '[from]', false],
+  records: [`${RECORD_SELECT} WHERE r.path=?1 AND ?2>0`, '[from]', false],
   delivery: ["SELECT CAST(d.message AS TEXT)||':'||d.recipient AS id,d.*,s.name AS recipientName FROM deliveries d JOIN sessions s ON s.id=d.recipient WHERE s.workspace=?1 AND ?2>0", 'recipient', true],
   dispatch: ["SELECT CAST(d.message AS TEXT)||':'||d.recipient AS id,d.message,d.recipient,s.name AS recipientName,d.transport,d.state,d.attemptedAt,d.submittedAt,d.error FROM dispatches d JOIN sessions s ON s.id=d.recipient WHERE s.workspace=?1 AND ?2>0", 'recipient', true],
   document: ['SELECT d.id,d.name,a.[from] AS session,s.name AS agentName,a.timestamp AS at,a.data FROM documents d JOIN records a ON a.id=d.id JOIN sessions s ON s.id=a.[from] WHERE d.workspace=?1 AND s.workspace=?1 AND ?2>0', 'session', false],

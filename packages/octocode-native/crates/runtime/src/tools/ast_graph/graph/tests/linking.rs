@@ -90,6 +90,7 @@ fn link_file_keeps_heritage_and_call_kinds() {
         cargo_crates: &super::super::CargoCrates::default(),
         ctx: &super::super::ResolveContext::default(),
         packages: &Default::default(),
+        js_modules: &crate::tools::ast_graph::js_paths::ModulesByName::new([]),
     };
     super::super::link_file(
         &mut built,

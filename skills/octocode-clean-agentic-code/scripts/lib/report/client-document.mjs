@@ -1,7 +1,6 @@
 // Page view: the library listing, document decoration (headings, chips, links, code blocks),
 // and the cited-sources rail. Inlined into the page via Function#toString: it may use only ctx
 // and browser globals.
-/* oxlint-disable unicorn/consistent-function-scoping -- helpers must stay inside the serialized view */
 // oxlint-disable-next-line max-lines-per-function -- serialized whole via Function#toString
 export function documentView(ctx) {
   const { kit, $, $$, esc, slugify, decode, href, resolvePath, editorUrl, copy, files, byPath, siteTitle, diagramLabel } = ctx;
@@ -65,7 +64,7 @@ export function documentView(ctx) {
       h.append(a);
     });
     $('#toc').innerHTML = toc.join('') || '<p class="muted">No sections</p>';
-    $('#mobile-toc').innerHTML = toc.length ? '<summary>On this page</summary><nav aria-label="Page sections">' + toc.join('') + '</nav>' : '';
+    $('#mobile-toc').innerHTML = toc.length ? `<summary>On this page</summary><nav aria-label="Page sections">${toc.join('')}</nav>` : '';
     $('#mobile-toc').hidden = !toc.length;
   }
 
@@ -196,9 +195,9 @@ export function documentView(ctx) {
     $('#tab-sources').textContent = sourceList.length ? `Sources (${sourceList.length})` : 'Sources';
     if (!sourceList.length) { $('#sources').innerHTML = '<p class="muted">This document cites no links or workspace files.</p>'; return; }
     const order = [...groups.keys()].toSorted((a, b) => rank(a) - rank(b) || a.localeCompare(b));
-    $('#sources').innerHTML = '<button type="button" class="linkbtn" data-act="copy-sources">Copy list as Markdown</button>'
-      + order.map((g) => `<div class="src-group"><h3>${esc(g)} <small>${groups.get(g).size}</small></h3>${[...groups.get(g).values()].map((s) => `<a href="#" class="src" data-jump="${esc(s.ids[0])}" title="${esc(s.key)}"><span class="src-label">${esc(s.label)}</span>`
-        + `${s.kind === 'web' && s.label !== s.key ? `<span class="src-url">${esc(s.key.replace(/^https?:\/\/(www\.)?/, ''))}</span>` : ''}${s.ids.length > 1 ? `<span class="src-count">cited ${s.ids.length} times</span>` : ''}</a>`).join('')}</div>`).join('');
+    $('#sources').innerHTML = `<button type="button" class="linkbtn" data-act="copy-sources">Copy list as Markdown</button>${
+       order.map((g) => `<div class="src-group"><h3>${esc(g)} <small>${groups.get(g).size}</small></h3>${[...groups.get(g).values()].map((s) => `<a href="#" class="src" data-jump="${esc(s.ids[0])}" title="${esc(s.key)}"><span class="src-label">${esc(s.label)}</span>`
+        + `${s.kind === 'web' && s.label !== s.key ? `<span class="src-url">${esc(s.key.replace(/^https?:\/\/(www\.)?/, ''))}</span>` : ''}${s.ids.length > 1 ? `<span class="src-count">cited ${s.ids.length} times</span>` : ''}</a>`).join('')}</div>`).join('')}`;
   }
 
   return { renderLibrary, decorate, sources: () => sourceList };

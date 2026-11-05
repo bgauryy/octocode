@@ -8,18 +8,15 @@ use crate::tools::selection::{
 use octocode_contract_types::ErrorCode;
 use std::time::{Duration, Instant};
 
-/// A selection runtime judging with `judge` on `handle`, within `timeout`
-/// (the judge's timeout and the request's deadline).
+/// A selection runtime judging with `judge` on `handle`, within the request
+/// deadline `timeout`.
 pub(crate) fn runtime(
     judge: impl SelectionJudge + 'static,
     handle: tokio::runtime::Handle,
     timeout: Duration,
 ) -> Runtime {
     Runtime {
-        limits: crate::execution::SelectionLimits {
-            timeout,
-            ..crate::execution::RuntimeLimits::DEFAULT.selection
-        },
+        limits: crate::execution::RuntimeLimits::DEFAULT.selection,
         available: true,
         judge: std::sync::Arc::new(judge),
         handle,
@@ -81,10 +78,11 @@ impl SelectionJudge for WordJudge {
             .admitted
             .iter()
             .map(|&ordinal| {
+                // A hit is judged by its own line, whatever its window holds.
                 let text = call.candidates[ordinal]
                     .state
                     .as_ref()
-                    .map(serde_json::Value::to_string)
+                    .map(|state| state.get("target").unwrap_or(state).to_string())
                     .unwrap_or_default();
                 let decision = if text.contains("keep") {
                     Decision::Selected

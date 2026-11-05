@@ -43,7 +43,7 @@ net.createServer(socket => {
 });
 setInterval(() => { if (received && fs.existsSync(release)) finish(); }, 20);
 `);
-  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
   writeFileSync(join(bin, 'claude'), `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(program)} "$@"\n`, {mode:0o755});
   const env: NodeJS.ProcessEnv = {...process.env, PATH:bin, CLAUDE_FIXTURE_CAPTURE:capture, CLAUDE_FIXTURE_RELEASE:release, CLAUDE_FIXTURE_MODE:mode};
   delete env.NODE_TEST_CONTEXT;

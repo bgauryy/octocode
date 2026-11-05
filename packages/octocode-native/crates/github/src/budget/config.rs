@@ -96,7 +96,8 @@ impl Group {
 }
 
 /// Executor tuning. [`ExecutorConfig::octokit`] mirrors
-/// `@octokit/plugin-throttling`; tests shrink the timings.
+/// `@octokit/plugin-throttling`, except on purpose for GraphQL spacing; tests
+/// shrink the timings.
 #[derive(Clone, Debug)]
 pub struct ExecutorConfig {
     pub global_concurrency: usize,
@@ -120,7 +121,12 @@ impl ExecutorConfig {
             global_concurrency: 10,
             git_concurrency: 2,
             quota_pacing: true,
-            graphql_spacing: Duration::from_millis(1000),
+            // Octokit queues all GraphQL on its write limiter because it cannot
+            // tell a query from a mutation. GitHub asks for a second between
+            // mutative requests only, and this transport sends no mutation
+            // (`transport/graphql.rs` refuses one): reads stay serial in their
+            // lane, unspaced, with the secondary-limit cooldown behind them.
+            graphql_spacing: Duration::ZERO,
             write_spacing: Duration::from_millis(1000),
             reset_grace: Duration::from_secs(1),
             secondary_default: Duration::from_secs(60),

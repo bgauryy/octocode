@@ -8,6 +8,7 @@ mod document_sync;
 mod memory_cap;
 mod open_document_set;
 mod open_readiness;
+mod parse_waits;
 #[cfg(any(unix, windows))]
 mod process_environment;
 mod process_lifecycle;

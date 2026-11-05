@@ -159,6 +159,7 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
         {
             let incoming = IncomingRecovery {
                 anchor,
+                roots: &roots,
                 scope,
                 recovery,
                 depth,
@@ -199,7 +200,7 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
         failures.append(&mut walk.failures);
     }
     let (mut items, failures) = expansion_outcome(items, failures)?;
-    let mut excluded = None;
+    let mut excluded = crate::tools::lsp_search::test_scope::ScopeLeft::default();
     if lsp_search_query::op(query) == Op::Callers {
         excluded = crate::tools::lsp_search::test_scope::retain_callers(query, paths, &mut items);
         production_first(&mut items, &scope.root);

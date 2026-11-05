@@ -66,7 +66,7 @@ export async function call(name, input) {
     bytes: Buffer.byteLength(serialized),
   };
   session.records.push(row);
-  appendFileSync(session.trace, JSON.stringify(row) + '\n');
+  appendFileSync(session.trace, `${JSON.stringify(row)}\n`);
   if (error) throw new Error(error.message);
   return response;
 }

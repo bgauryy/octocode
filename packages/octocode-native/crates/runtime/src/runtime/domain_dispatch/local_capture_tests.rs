@@ -33,3 +33,31 @@ fn a_missing_capture_preserves_the_readers_executable_recovery() {
         "recovery must read an existing source: {read}"
     );
 }
+
+/// What a classifier sends to its provider comes through the egress policy, so
+/// `security.credentialFiles: allow` never opens a credential file to it.
+#[test]
+fn a_classifier_capture_stays_withheld_when_credential_files_are_allowed() {
+    let root = tempfile::tempdir().expect("root");
+    std::fs::write(root.path().join(".env"), "A=1\n").expect("write");
+    let allowed = crate::policy::path::PathPolicy::new(crate::policy::path::PathPolicyConfig {
+        workspace_root: Some(root.path().to_path_buf()),
+        allow_credential_files: true,
+        ..Default::default()
+    })
+    .expect("policy");
+    let query = serde_json::from_value(serde_json::json!({"path":".env"})).expect("query");
+    let cancel = crate::execution::cancel::NeverCancel;
+    assert!(crate::tools::local_fetch::capture_text(&query, &allowed, &cancel).is_ok());
+    let Err(failed) = crate::tools::local_fetch::capture_text(
+        &query,
+        &allowed.withholding_credentials(),
+        &cancel,
+    ) else {
+        panic!("a classifier capture must not read a credential file");
+    };
+    assert_eq!(
+        local_capture_failure(failed).code,
+        ErrorCode::PathPolicyDenied
+    );
+}

@@ -44,6 +44,7 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
         for work in [
             SavedWork::ToolResume { index: Some(0) },
             SavedWork::ResponsePage {
+                rows: None,
                 cursor: Cursor {
                     key: [1; 32],
                     digest: [2; 32],

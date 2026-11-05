@@ -55,7 +55,7 @@ fn history_b_patch_walk_hops_carry_no_response_page_knobs() {
         let mut out = json!({"pullRequests":[{"contentPagination":{
             "patches":{"hasMore":true,"nextOffset":900}
         }}]});
-        promote_pr_continuations(&mut out, &query, &Remainder::default());
+        promote_pr_continuations(&mut out, &query);
         pr_page(&out, "patches")["input"].clone()
     };
     for hop in [
@@ -103,7 +103,7 @@ fn history_b_patch_walk_hops_carry_no_response_page_knobs() {
         let mut out = json!({"pullRequests":[{"contentPagination":{
             "files":{"hasMore":true,"nextPage":2}
         }}]});
-        promote_pr_continuations(&mut out, &query, &Remainder::default());
+        promote_pr_continuations(&mut out, &query);
         pr_page(&out, "files")["input"].clone()
     };
     let walk = file_page(json!(["patches"]), Some(31_000));
@@ -240,9 +240,7 @@ fn patch_hops_are_the_same_file_page_at_the_stream_cursor() {
     let mut out = json!({"pullRequests":[{"contentPagination":{
         "patches":{"hasMore":true,"nextOffset":900}
     }}]});
-    let mut remainder = Remainder::default();
-    remainder.unfinished_patches(2);
-    let notes = promote_pr_continuations(&mut out, &query, &remainder);
+    promote_pr_continuations(&mut out, &query);
     let hop = &pr_page(&out, "patches")["input"]["queries"][0];
     assert!(hop.get("queries").is_none(), "{hop}");
     assert!(hop.get("content").is_none(), "{hop}");
@@ -253,13 +251,6 @@ fn patch_hops_are_the_same_file_page_at_the_stream_cursor() {
     assert_eq!(hop["include"], json!(["src/**"]), "{hop}");
     assert_eq!(hop["page"], 2, "{hop}");
     assert_eq!(hop["offset"], 900, "{hop}");
-    assert_eq!(
-        notes,
-        [crate::response::result::Remaining {
-            page: "nextPage".into(),
-            left: "2 unfinished patches".into()
-        }]
-    );
     crate::contracts::validate_built_query("ghGetHistoryItem", hop.clone())
         .expect("the patch continuation is a valid ghGetHistoryItem query");
 }
@@ -277,7 +268,7 @@ fn the_next_file_page_follows_the_last_patch_window() {
         "patches":{"hasMore":true,"nextOffset":900},
         "files":{"hasMore":true,"nextPage":2}
     }}]});
-    promote_pr_continuations(&mut open, &query, &Remainder::default());
+    promote_pr_continuations(&mut open, &query);
     assert!(pr_page(&open, "patches").is_object(), "{open}");
     assert!(pr_page(&open, "files").is_null(), "{open}");
 
@@ -289,7 +280,7 @@ fn the_next_file_page_follows_the_last_patch_window() {
     let mut last = json!({"pullRequests":[{"contentPagination":{
         "files":{"hasMore":true,"nextPage":2}
     }}]});
-    promote_pr_continuations(&mut last, &hop, &Remainder::default());
+    promote_pr_continuations(&mut last, &hop);
     assert!(pr_page(&last, "files").is_object(), "{last}");
     assert!(pr_page(&last, "patches").is_null(), "{last}");
     let page = &pr_page(&last, "files")["input"]["queries"][0];

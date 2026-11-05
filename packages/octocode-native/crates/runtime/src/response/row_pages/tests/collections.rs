@@ -41,7 +41,7 @@ fn declared_nested_collections_preserve_atomic_answers_and_shared_definitions() 
     let mut next_calls = 0;
     for page in 0..plan.total_pages {
         for row in plan
-            .build_page(page, &[None], &[], &Cancellation::new())
+            .build_page(page, &[None], &Cancellation::new())
             .expect("valid build_page")
         {
             definitions += usize::from(row["data"].get("questions").is_some());
@@ -97,7 +97,7 @@ fn declared_collections_leave_a_single_oversized_answer_whole() {
     .expect("valid plan");
     assert_eq!(plan.total_pages, 1);
     let rows = plan
-        .build_page(0, &[None], &[], &Cancellation::new())
+        .build_page(0, &[None], &Cancellation::new())
         .expect("valid build_page");
     assert_eq!(
         rows[0]["data"]["resources"]["r"]["sections"][0]["answers"]["q"],
@@ -129,7 +129,7 @@ fn large_resource_identity_does_not_force_one_page_per_small_answer() {
     .expect("valid plan");
     assert_eq!(plan.total_pages, 1);
     let rows = plan
-        .build_page(0, &[None], &[], &Cancellation::new())
+        .build_page(0, &[None], &Cancellation::new())
         .expect("valid build_page");
     assert_eq!(
         rows[0]["data"]["resources"]["r"]["sections"][0]["answers"],
@@ -163,7 +163,7 @@ fn answer_fragments_continue_their_only_section() {
     let mut fragments = 0;
     for page in 0..plan.total_pages {
         for row in plan
-            .build_page(page, &[None], &[], &Cancellation::new())
+            .build_page(page, &[None], &Cancellation::new())
             .expect("valid build_page")
         {
             if fragments > 0 {

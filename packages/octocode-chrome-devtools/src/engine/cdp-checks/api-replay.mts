@@ -90,7 +90,7 @@ try {
     };
     const dir = resolve('.octocode/octocode-chrome-devtools/tmp/api-responses');
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    responseFile = join(dir, randomUUID() + '.json');
+    responseFile = join(dir, `${randomUUID()}.json`);
     writeFileSync(responseFile, JSON.stringify(payload), { mode: 0o600 });
   }
   if (typeof payload.text !== 'string' || !payload.response)

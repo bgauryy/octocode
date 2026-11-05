@@ -42,7 +42,7 @@ test('Codex requests have an absolute deadline even while a frame arrives slowly
     socket.once('data', request => {
       const key = request.toString().match(/sec-websocket-key: (.+)\r\n/i)?.[1];
       assert.ok(key, 'the upgrade request carries a websocket key');
-      const accept = createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+      const accept = createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
       socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
       const payload = Buffer.from(JSON.stringify({ id: 1, result: { padding: 'x'.repeat(1000) } }));
       const header = Buffer.alloc(4); header[0] = 0x81; header[1] = 126; header.writeUInt16BE(payload.length, 2); socket.write(header);

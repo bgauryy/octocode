@@ -1,5 +1,6 @@
-//! What an empty answer can claim. A server that has not finished loading may
-//! answer "nothing here" about a name it simply has not reached, and the
+//! What an answer with no use in it can claim (empty, or only the declaration
+//! it can see). A server that has not finished loading may answer "nothing
+//! here" about a name it simply has not reached, and the
 //! readiness waits cannot rule that out: a settle window ends whether or not
 //! the load has begun (on a loaded machine Metals announced its first progress
 //! 2-5 s after `initialized`, past both settles, then answered `[]`).
@@ -7,8 +8,8 @@
 //! So an empty answer is judged when it arrives, by what the server shows:
 //! an open `$/progress` token, progress that began since the question was
 //! asked, or a process tree still working. Only a server that shows none of
-//! these has reached a state where the answer means absence. Answers with
-//! locations claim no absence and wait for nothing.
+//! these has reached a state where the answer means absence. Answers that
+//! list a use claim no absence and wait for nothing.
 
 use super::status::RESUME_REWAIT_MS;
 use super::{NativeLspClient, OPEN_READY_TIMEOUT_MS, RESPONSE_SCOPE};
@@ -138,7 +139,7 @@ impl NativeLspClient {
 
     /// The load outlasted the budget. The readiness state stays as it is: a
     /// server with a long-lived token still answers what it can, and only an
-    /// empty answer waits.
+    /// answer with no use in it waits.
     fn still_loading(&self, began: Instant) -> EmptyAnswer {
         self.record_wait(super::waits::WaitKind::Indexing, began);
         self.inner.load_outlasted.store(true, Ordering::Release);

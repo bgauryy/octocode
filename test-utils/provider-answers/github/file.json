@@ -1,0 +1,109 @@
+{
+ "case": "github/file",
+ "tool": "ghGetFileContent",
+ "query": {
+  "owner": "octocat",
+  "repo": "Hello-World",
+  "path": "README",
+  "ref": "master"
+ },
+ "recordedAt": "2026-11-05",
+ "unread": [
+  "data.repository.object.history.nodes[*].author.name"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/repos/octocat/Hello-World/commits/master",
+    "accept": "application/vnd.github.sha"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "private, max-age=60, s-maxage=60"
+    ],
+    [
+     "content-type",
+     "application/vnd.github.sha; charset=utf-8"
+    ],
+    [
+     "etag",
+     "\"7fd1a60b01f91b314f59955a4e4d4e80d8edf11d\""
+    ]
+   ],
+   "digest": "sha256:14c00b5abdbd44acbb58983de2d9364919962364349d2359aece6cb4c8ed6ac6",
+   "body": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/repos/octocat/Hello-World/contents/README?ref=7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+    "accept": "application/vnd.github.raw"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "private, max-age=60, s-maxage=60"
+    ],
+    [
+     "content-type",
+     "application/vnd.github.raw; charset=utf-8"
+    ],
+    [
+     "etag",
+     "\"980a0d5f19a64b4b30a87d4206aade58726b60e3\""
+    ]
+   ],
+   "digest": "sha256:03ba204e50d126e4674c005e04d82e84c21366780af1f43bd54a37816b6ab340",
+   "body": "Hello World!\n"
+  },
+  {
+   "request": {
+    "method": "POST",
+    "url": "https://api.github.com/graphql",
+    "accept": "application/vnd.github+json",
+    "body": {
+     "query": "query($owner:String!,$name:String!,$oid:GitObjectID!,$path:String!){repository(owner:$owner,name:$name){object(oid:$oid){...on Commit{history(first:1,path:$path){nodes{committedDate author{name user{login}}}}}}}}",
+     "variables": {
+      "owner": "octocat",
+      "name": "Hello-World",
+      "oid": "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d",
+      "path": "README"
+     }
+    }
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json; charset=utf-8"
+    ]
+   ],
+   "digest": "sha256:b6d6530f2238589e414f05ab63503506d10b805b6251276e0a1e584e8fa646da",
+   "body": {
+    "data": {
+     "repository": {
+      "object": {
+       "history": {
+        "nodes": [
+         {
+          "committedDate": "2011-09-14T04:42:41Z",
+          "author": {
+           "name": "Johnneylee Jack Rollins",
+           "user": {
+            "login": "Spaceghost"
+           }
+          }
+         }
+        ]
+       }
+      }
+     }
+    }
+   }
+  }
+ ]
+}

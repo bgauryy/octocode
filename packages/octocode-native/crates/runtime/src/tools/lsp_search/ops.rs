@@ -35,6 +35,7 @@ use std::collections::HashSet;
 
 mod diagnostics;
 mod hierarchy;
+mod index_answer;
 mod lookups;
 mod references;
 use diagnostics::{RUST_MACRO_NOTE, anchor_diagnostics};
@@ -209,6 +210,9 @@ impl<'a> Operation<'a, '_> {
     }
 }
 
+/// Why a row is partial when a file outside the server's index went unanswered.
+const OUTSIDE_THE_INDEX: &str = "A file the compile database does not list spells this name and was not answered: the server read it with guessed flags, so that use is unproven.";
+
 impl Operation<'_, '_> {
     /// Check the files the text scan found outside the answer for a code
     /// use of the queried name, off the async workers, before a row counts
@@ -223,7 +227,11 @@ impl Operation<'_, '_> {
     /// The operation's row; an empty answer at a position the server could
     /// not analyze is marked partial with that error (see
     /// `failure::mark_anchor_line_errors`).
-    pub(super) async fn run(self) -> Result<Value, LspFailure> {
+    pub(super) async fn run(mut self) -> Result<Value, LspFailure> {
+        let unproven = self.prepare_index_answer().await?;
+        let opened_by_text = self.scope.opened_by_text();
+        let scope = self.scope;
+        let symbol = lsp_search_query::symbol_name(self.query);
         let (client, path, line, cancel, query) =
             (self.client, self.path, self.line, self.cancel, self.query);
         let anchored = !matches!(
@@ -231,6 +239,51 @@ impl Operation<'_, '_> {
             Op::DocumentSymbols | Op::WorkspaceSymbol | Op::Diagnostic
         );
         let mut row = self.answer().await?;
+        if let (false, Some(name)) = (unproven.is_empty(), symbol) {
+            scope.check_code_uses(name, cancel).await?;
+            let missed = scope
+                .text_only_files(name)
+                .is_some_and(|files| files.iter().any(|file| unproven.contains(file.as_str())));
+            if missed {
+                crate::response::paging::mark_partial(
+                    &mut row,
+                    crate::response::paging::PartialReason::ServerUnanswered,
+                    &[OUTSIDE_THE_INDEX.to_owned()],
+                );
+            }
+        }
+        if opened_by_text {
+            let reason = if client.is_indexing() {
+                crate::response::paging::PartialReason::LanguageServerIndexing
+            } else if octocode_engine::lsp::clangd_database::reads_compile_database(
+                client.config(),
+                std::path::Path::new(path)
+                    .parent()
+                    .unwrap_or(std::path::Path::new(path)),
+            ) {
+                crate::response::paging::PartialReason::ServerUnanswered
+            } else {
+                crate::response::paging::PartialReason::NoCompileDatabase
+            };
+            // Text chose the files, whatever they agree on: always partial,
+            // with the text search to compare (core says why, per reason).
+            crate::response::paging::mark_partial(&mut row, reason, &[]);
+            // What that text check found, whichever configuration clangd read.
+            if let Some(name) = symbol.filter(|_| {
+                super::inferred_project::is_incoming(lsp_search_query::operation(query))
+                    && row.pointer("/coverage/textOnlyFiles").is_none()
+            }) {
+                scope.check_code_uses(name, cancel).await?;
+                if let Some(files) = scope.text_only_files(name) {
+                    super::failure::record_text_only(&mut row, scope, name, files.len());
+                }
+            }
+            if let Some(lead) = symbol.and_then(|name| {
+                super::failure::text_search_lead(name, &scope.root, &scope.include, None)
+            }) {
+                crate::response::result::attach_related(&mut row, lead.build());
+            }
+        }
         if anchored {
             let empty = row.get("status").and_then(Value::as_str) == Some("empty");
             let diagnostics = anchor_diagnostics(client, path, cancel, empty).await?;

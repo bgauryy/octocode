@@ -80,6 +80,20 @@ pub(in crate::signatures) fn declaration_under<'t>(
     declaration_given(node, || parent, content)
 }
 
+/// Whether a declaration under `parent` sits at file or namespace scope: a
+/// preprocessor block (an include guard, `#ifdef __cplusplus`) opens no scope.
+fn at_file_scope(mut parent: Option<Node<'_>>) -> bool {
+    while let Some(block) = parent.filter(|block| {
+        matches!(
+            block.kind(),
+            "preproc_ifdef" | "preproc_if" | "preproc_else" | "preproc_elif" | "preproc_elifdef"
+        )
+    }) {
+        parent = block.parent();
+    }
+    parent.is_some_and(|parent| matches!(parent.kind(), "translation_unit" | "declaration_list"))
+}
+
 fn declaration_given<'t>(
     node: Node<'t>,
     parent: impl Fn() -> Option<Node<'t>>,
@@ -138,10 +152,16 @@ fn declaration_given<'t>(
             .child_by_field_name("name")
             .or_else(|| node.child_by_field_name("return_type"))
             .map(|name| ("constant", name)),
-        "val_definition" => node
-            .child_by_field_name("pattern")
-            .filter(|pattern| pattern.kind() == "identifier")
-            .map(|name| ("constant", name)),
+        // A member or top-level `val`; a local one is a value of its block,
+        // as a local of any other grammar is.
+        "val_definition"
+            if !parent()
+                .is_some_and(|parent| matches!(parent.kind(), "block" | "indented_block")) =>
+        {
+            node.child_by_field_name("pattern")
+                .filter(|pattern| pattern.kind() == "identifier")
+                .map(|name| ("constant", name))
+        }
         "preproc_def" | "preproc_function_def" => {
             node.child_by_field_name("name").map(|name| ("macro", name))
         }
@@ -156,18 +176,10 @@ fn declaration_given<'t>(
         }
         // C/C++ prototypes (`void f(void);`, a header's API) and
         // `const`/`constexpr` variables at file or namespace scope.
-        "declaration"
-            if parent().is_some_and(|parent| {
-                matches!(parent.kind(), "translation_unit" | "declaration_list")
-            }) && is_function_prototype(node) =>
-        {
+        "declaration" if at_file_scope(parent()) && is_function_prototype(node) => {
             declarator_name(node).map(|name| ("function", name))
         }
-        "declaration"
-            if parent().is_some_and(|parent| {
-                matches!(parent.kind(), "translation_unit" | "declaration_list")
-            }) && has_const_qualifier(node, content) =>
-        {
+        "declaration" if at_file_scope(parent()) && has_const_qualifier(node, content) => {
             declarator_name(node).map(|name| ("constant", name))
         }
         // Python module-level `NAME = value`.

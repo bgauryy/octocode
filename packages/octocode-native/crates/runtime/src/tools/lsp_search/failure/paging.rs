@@ -108,8 +108,8 @@ impl RequestFailures {
     }
 }
 
-/// `pagination.next.nextPage` for a row that has a page after it: this query at that
-/// page, pinned by its `snapshot`.
+/// `next.nextPage` for a row that has a page after it: this query at that page,
+/// pinned by its `snapshot`.
 pub(in super::super) fn offer_next_page(
     query: &LspSearchQuery,
     row: &mut Value,
@@ -123,7 +123,7 @@ pub(in super::super) fn offer_next_page(
         &json!({"page": next.page, "snapshot": next.snapshot}),
     ) {
         crate::response::result::insert_next(
-            &mut row["pagination"]["next"],
+            &mut row["next"],
             octocode_contract_types::LspSearchChannel::NextPage,
             crate::response::result::Continuation::continued_query(page),
         );

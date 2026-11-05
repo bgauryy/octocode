@@ -1,11 +1,16 @@
 //! The bytes every in-process store holds together.
 use octocode_io::memo::MemoryBudget;
+use std::time::Duration;
 
 /// The bytes every in-process store holds together: each tool's page memo, the
 /// memory tier of every disk store, and what the LSP discovery keeps. Past it
 /// the least recently used entries of all of them go first, and a value larger
 /// than all of it is not kept.
 pub static MEMORY: MemoryBudget = MemoryBudget::new(memory_budget);
+
+/// How long a kept entry stays once nothing reads it, for a memo whose value
+/// can be worked out again: a read restarts it.
+pub const IDLE: Duration = Duration::from_secs(600);
 
 /// The budget's floor: what a host whose memory cannot be read, or a small
 /// one, still gets, so one large scan's continuation stays retained.

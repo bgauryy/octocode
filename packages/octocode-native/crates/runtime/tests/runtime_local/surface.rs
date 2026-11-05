@@ -67,7 +67,17 @@ async fn cli_ignores_discovery_filters_but_mcp_on_cli_host_enforces_them() {
     ] {
         let runtime = workspace.runtime(&env);
         for tool in octocode_native::id::ToolId::ALL {
-            assert!(runtime.is_available(tool.as_str()), "CLI {}", tool.as_str());
+            // Only a required setting decides; no MCP filter touches the CLI.
+            assert_eq!(
+                runtime.is_available(tool.as_str()),
+                !matches!(
+                    tool,
+                    octocode_native::id::ToolId::Clasify
+                        | octocode_native::id::ToolId::SecurityCheck
+                ),
+                "CLI {}",
+                tool.as_str()
+            );
         }
         let read = call(&runtime, "localFetch", json!({"path":source}))
             .await
@@ -188,7 +198,7 @@ async fn runtime_catalog_lists_available_tools() {
     let servers = catalog["lspServers"]
         .as_array()
         .expect("runtime lspSearch server languages");
-    let order = ["ts/js", "py", "rust", "c/c++", "go", "c#", "java"];
+    let order = ["ts/js", "py", "rust", "c/c++", "go", "c#", "java", "scala"];
     let positions: Vec<_> = servers
         .iter()
         .map(|label| {

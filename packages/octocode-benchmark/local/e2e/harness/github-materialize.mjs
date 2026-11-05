@@ -63,7 +63,7 @@ export async function checkMaterialization(ctx) {
     const coldQuery = { ...query, owner: coldRepo.owner, repo: coldRepo.name };
     const pair = await call('ghStructure', { queries: [coldQuery, coldQuery] });
     record(`materialize.concurrentRows.${surface}`, succeeds(pair) && pair.json.results.length === 2, 'identical batch rows must both finish');
-    const manifest = JSON.parse(fs.readFileSync(checkout + '.manifest.json', 'utf8'));
+    const manifest = JSON.parse(fs.readFileSync(`${checkout}.manifest.json`, 'utf8'));
     record(`materialize.manifest.${surface}`, Object.keys(manifest.files).length === 5
       && Object.values(manifest.files).every(identity => Number.isInteger(identity.bytes) && /^[a-f0-9]{64}$/.test(identity.sha256)), 'all five fixture files retain a size and digest');
     record(`materialize.outputContract.${surface}`, !ctx.validateOutput('ghStructure', pair.raw), ctx.validateOutput('ghStructure', pair.raw) ?? '');

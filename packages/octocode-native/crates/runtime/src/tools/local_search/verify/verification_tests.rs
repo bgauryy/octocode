@@ -257,8 +257,9 @@ fn a_stored_digest_binds_the_check_to_the_stored_bytes() {
     assert_eq!(check(Expected::Fresh).0, Verification::Verified);
 }
 
+/// A row of a line too long to keep stands as the search judged it.
 #[test]
-fn a_neighborhood_over_the_retained_budget_fails_closed() {
+fn a_row_of_a_line_past_the_retained_budget_stands() {
     let dir = tempfile::tempdir().expect("fixture");
     let source = dir.path().join("source.txt");
     let giant = "a".repeat(MAX_VERIFY_RETAINED_BYTES + 1);
@@ -276,8 +277,32 @@ fn a_neighborhood_over_the_retained_budget_fails_closed() {
         },
     )
     .expect("not cancelled");
+    assert_eq!(verified, Verification::Verified);
+    assert_eq!(file.matches[0].value, "…aaaa…");
+}
+
+/// Lines the search showed whole that outrun what one row's check keeps fail closed.
+#[test]
+fn a_neighborhood_over_the_retained_budget_fails_closed() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let source = dir.path().join("source.txt");
+    let line = "a".repeat(MAX_VERIFY_RETAINED_BYTES / 2 + 1);
+    std::fs::write(&source, format!("{line}\n{line}\n")).expect("fixture");
+    let mut file = file_with(vec![hit(1, "…aaaa…"), hit(2, "…aaaa…")]);
+    let verified = guard_source_secrets(
+        &mut file,
+        &source,
+        Expected::Fresh,
+        0..10,
+        &ValueCheck {
+            security: &ContentSecurity::new(),
+            match_only: false,
+            cancel: &NeverCancel,
+        },
+    )
+    .expect("not cancelled");
     assert_eq!(verified, Verification::Unverified);
-    assert_eq!(file.matches[0].value, OVERSIZED_PLACEHOLDER);
+    assert_eq!(file.matches[1].value, OVERSIZED_PLACEHOLDER);
 }
 
 #[test]

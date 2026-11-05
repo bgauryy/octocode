@@ -152,6 +152,69 @@ pub(super) fn facts_from_tree(
     })
 }
 
+/// The zero-based lines where [`facts_from_tree`] would name a declaration
+/// `name` in `tree`, without reading the rest of the file: a declaration's name
+/// lies inside its node, so only nodes that spell `name` are entered, and the
+/// walk does the same per-node work. `None` when only the whole walk can tell:
+/// `name` is not one identifier, what declares it depends on code elsewhere in
+/// the file (a GoogleTest include), or a Rust macro body declares it. Which
+/// bodies that walk reads depends on the file's other macros, imports and body
+/// count; it reads no body this one does not, so a body declaring nothing here
+/// declares nothing there.
+pub(crate) fn declared_lines_from_tree(
+    content: &str,
+    file_path: &str,
+    extension: &str,
+    tree: &tree_sitter::Tree,
+    name: &str,
+) -> Option<Vec<usize>> {
+    if name.is_empty() || !name.chars().all(crate::text::is_ident_char) {
+        return None;
+    }
+    let ext = canonical_extension(extension).to_owned();
+    let entry = languages::find_entry(&ext)?
+        .admitted(crate::text::analysis::AnalysisOperation::GraphFacts)?;
+    if matches!(ext.as_str(), "cpp" | "cu") && content.contains("gtest/gtest.h") {
+        return None;
+    }
+    let root = tree.root_node();
+    if ext == "go" && go::package_header(root, content).build_excluded {
+        return Some(Vec::new());
+    }
+    let mut acc = GraphAccumulator::new(file_path, &ext);
+    acc.visibility_adapter = entry.visibility_adapter;
+    acc.export_forwarding_node = entry.export_forwarding_node;
+    acc.js_fallback = js_fallback::is_fallback_lane(&ext);
+    acc.only_spelling = Some(crate::signatures::spelled::Spelled::of(content, name));
+    let positions = NodePositions::new(content);
+    let deadline = crate::signatures::extractor::whole_file_deadline();
+    if !visit_node(root, content, &positions, &mut acc, deadline, &[], None) {
+        return None;
+    }
+    let named = |acc: &GraphAccumulator| {
+        acc.declarations
+            .iter()
+            .filter(|declaration| declaration.name == name)
+            .map(|declaration| declaration.selection_range.start.line as usize)
+            .collect::<Vec<_>>()
+    };
+    let walked = named(&acc);
+    if !acc.macro_bodies.is_empty() {
+        acc.source_templates = crate::text::analysis::SourceTemplates::new(
+            content,
+            crate::text::analysis::Producer::new(format!("tree-sitter-facts:{ext}"), "6"),
+            crate::text::analysis::AnalysisOperation::GraphFacts,
+        )
+        .ok()?;
+        if !visit_macro_bodies(content, &entry.language, &positions, &mut acc, deadline)
+            || named(&acc).len() != walked.len()
+        {
+            return None;
+        }
+    }
+    Some(walked)
+}
+
 fn language_label(ext: &str, language_id: Option<&str>) -> String {
     language_id
         .unwrap_or_else(|| canonical_extension(ext))

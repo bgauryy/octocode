@@ -15,7 +15,18 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "kubernetesSecrets",
         file_context: Some("\\.ya?ml$"),
-        regex: r###"(?im)\bkind:[ \t]*["']?Secret["']?[\s\S]{0,2000}?^[ \t]*(?:data|stringData):[ \t]*\r?\n(?P<secret>(?:[ \t]+[^\s:#]+:[ \t]*\S.*(?:\r?\n|$))+)|^[ \t]*(?:data|stringData):[ \t]*\r?\n(?P<secret_before_kind>(?:[ \t]+[^\s:#]+:[ \t]*\S.*(?:\r?\n|$))+)[\s\S]{0,2000}?\bkind:[ \t]*["']?Secret\b"###,
+        // A text naming the kind. `detector::document` hides the `data` and
+        // `stringData` blocks of the mapping that says so.
+        regex: r###"(?im)\bkind:[ \t]*["']?Secret\b"###,
+    },
+    SecretPattern {
+        name: "kubernetesSecretJson",
+        file_context: None,
+        // A text naming the kind, as `kubectl -o json` writes it or held escaped in
+        // an annotation. It names its own kind beside its data, in the same object,
+        // so no path has to say what it is, and `detector::document` hides that
+        // object's `data` and `stringData`: a ConfigMap beside it in a List stays.
+        regex: r###"\\*"kind\\*"\s*:\s*\\*"Secret\\*""###,
     },
     SecretPattern {
         name: "dockerComposeSecrets",
@@ -89,9 +100,60 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         regex: r###"<key>\s*-----BEGIN[^<]*-----END[^<]*<\/key>"###,
     },
     SecretPattern {
+        name: "secretKeyArmor",
+        file_context: None,
+        // Armors that say `SECRET KEY`, as older PGP tools do, or OpenVPN's
+        // shared key. PGP's `PUBLIC KEY BLOCK` and `AGE ENCRYPTED FILE` are not.
+        regex: r###"-----BEGIN\s+(?:PGP\s+)?SECRET\s+KEY(?:\s+BLOCK)?-----[\s\S]*?-----END\s+(?:PGP\s+)?SECRET\s+KEY(?:\s+BLOCK)?-----|-----BEGIN\s+OpenVPN\s+Static\s+key\s+V\d+-----[\s\S]*?-----END\s+OpenVPN\s+Static\s+key\s+V\d+-----"###,
+    },
+    SecretPattern {
+        name: "urlEncodedPrivateKey",
+        file_context: None,
+        // A private-key armor percent- or form-encoded once or twice, whose one value
+        // runs from BEGIN to where the URL does. A public armor has no such label.
+        regex: r###"(?:-{4,}|(?:%2[dD]){4,}|(?:%252[dD]){4,})(?:%20|%2520|\+)?BEGIN(?:(?:%20|%2520|\+)[A-Za-z0-9]+)*?(?:%20PRIVATE|%2520PRIVATE|\+PRIVATE)(?:%20|%2520|\+)KEY[A-Za-z0-9%+/=_.~-]*"###,
+    },
+    SecretPattern {
+        name: "wireguardPrivateKey",
+        file_context: None,
+        // A key named as a private or preshared one, holding exactly what WireGuard
+        // keys are: 32 bytes of base64. `PublicKey =` is the same shape, under its own name.
+        regex: r###"(?m)^[ \t#;>*/-]*(?:PrivateKey|privateKey|privatekey|private_key|private-key|PRIVATE_KEY|PRIVATEKEY|PresharedKey|presharedKey|presharedkey|preshared_key|preshared-key|PRESHARED_KEY|PRESHAREDKEY)[ \t]*[=:][ \t]*["']?(?P<secret>[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=)["']?[ \t;,]*\r?$"###,
+    },
+    SecretPattern {
+        name: "jwkPrivateMembers",
+        file_context: None,
+        // A text naming a JSON Web Key. `detector::document` hides the private
+        // members of the object with `kty` in it, on either side, and keeps the
+        // public ones.
+        regex: r###"\bkty\\*["']?[ \t\r\n]*:"###,
+    },
+    SecretPattern {
+        name: "minisignSecretKey",
+        file_context: None,
+        // A minisign, rsign or signify secret key: named by its comment, or by the
+        // header its base64 opens with (`Ed` and its KDF and checksum, which a public
+        // key or signature lacks), or base64 of the whole file as Tauri takes it. A
+        // signature's comment says `signature from … secret key`.
+        regex: r###"untrusted comment:[ \t]*(?:[\w.-]+[ \t]+)?(?:(?:un)?encrypted[ \t]+)?secret key[^\r\n\\]*(?:\\n|\r?\n)[ \t]*(?P<secret>[A-Za-z0-9+/]{40,}={0,2})|\b(?:RWRTY0Iy|RWQAAEIy|RWRCSw)[A-Za-z0-9+/]{60,}={0,2}|\bdW50cnVzdGVkIGNvbW1lbnQ6I(?:G1pbmlzaWduIGVuY3J5cHRlZCBzZWNyZXQga2V5|G1pbmlzaWduIHNlY3JldCBrZXk|HNpZ25pZnkgc2VjcmV0IGtleQ|HJzaWduIGVuY3J5cHRlZCBzZWNyZXQga2V5)[A-Za-z0-9+/]*={0,2}"###,
+    },
+    SecretPattern {
+        name: "nostrSecretKey",
+        file_context: None,
+        // Bech32 of a Nostr secret key; the public form is `npub1`.
+        regex: r###"\bnsec1[02-9ac-hj-np-z]{58}\b"###,
+    },
+    SecretPattern {
+        name: "bip32ExtendedPrivateKey",
+        file_context: None,
+        // Base58 of a BIP-32 extended private key; the public forms read `pub`.
+        regex: r###"\b[xyztuvYZUV]prv[1-9A-HJ-NP-Za-km-z]{100,}\b"###,
+    },
+    SecretPattern {
         name: "ageSecretKey",
         file_context: None,
-        regex: r###"\bAGE-SECRET-KEY-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58}\b"###,
+        // X25519 and post-quantum identities, and a plugin's. Recipients read `age1`.
+        regex: r###"\bAGE-SECRET-KEY-(?:PQ-)?1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58,}\b|\bAGE-PLUGIN-[A-Z0-9-]+?-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{20,}\b"###,
     },
     SecretPattern {
         name: "vaultBatchToken",
@@ -111,7 +173,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "base64PrivateKeyContent",
         file_context: None,
-        regex: r###"(?i)\b(?:private[_-]?key|secret[_-]?key)['"]?\s*[:=]\s*["'](?P<secret>[A-Za-z0-9+/]{64,}={0,2})["']"###,
+        regex: r###"(?i)\b(?:priv(?:ate)?[_-]?key|secret[_-]?key)['"]?\s*[:=]\s*["'](?P<secret>[A-Za-z0-9+/]{64,}={0,2})["']"###,
     },
     SecretPattern {
         name: "hexEncodedKey",

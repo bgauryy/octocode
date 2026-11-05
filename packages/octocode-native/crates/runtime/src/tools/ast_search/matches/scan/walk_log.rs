@@ -1,6 +1,6 @@
 //! What a directory scan's walk saw besides the files it parsed: the
-//! directories and ignore inputs a continuation page re-checks, the files
-//! no grammar parses, and the per-extension census of the files it admitted.
+//! directories a continuation page re-checks, the files no grammar parses, and
+//! the per-extension census of the files it admitted.
 use super::super::types::{NamedFiles, Scope};
 use crate::policy::discovery::WalkAdmission;
 use crate::policy::path::PathPolicy;
@@ -8,7 +8,6 @@ use crate::tools::ast_rule::has_extension_in;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::FileType;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 /// The walk's record, filled from its admission callback (on the engine's
@@ -17,15 +16,13 @@ pub(super) struct WalkLog<'a> {
     scope: &'a Scope,
     paths: &'a PathPolicy,
     admission: &'a WalkAdmission<'a>,
-    /// Ignore files take part in the walk (no `includeIgnored`).
-    ignore_rules: bool,
     include_hidden: bool,
     grammars: BTreeSet<String>,
     unparsed: Mutex<NamedFiles>,
     observed: Mutex<BTreeSet<PathBuf>>,
-    external_rules: Mutex<BTreeSet<PathBuf>>,
-    untracked_ignore_dependencies: AtomicBool,
     census: Mutex<BTreeMap<String, usize>>,
+    present: Mutex<BTreeMap<String, usize>>,
+    /// Files already counted: the engine asks again for each file it reads.
     counted: Mutex<HashSet<PathBuf>>,
 }
 
@@ -33,9 +30,8 @@ pub(super) struct WalkLog<'a> {
 pub(super) struct Logged {
     pub(super) unparsed: NamedFiles,
     pub(super) discovery_sources: Vec<PathBuf>,
-    pub(super) ignore_rules: Vec<PathBuf>,
-    pub(super) untracked_ignore_dependencies: bool,
     pub(super) census: BTreeMap<String, usize>,
+    pub(super) present: Option<BTreeMap<String, usize>>,
 }
 
 impl<'a> WalkLog<'a> {
@@ -43,28 +39,18 @@ impl<'a> WalkLog<'a> {
         scope: &'a Scope,
         paths: &'a PathPolicy,
         admission: &'a WalkAdmission<'a>,
-        ignore_rules: bool,
         include_hidden: bool,
     ) -> Self {
-        let external_rules = if ignore_rules {
-            octocode_engine::search::walk::external_ignore_inputs(&scope.canonical)
-                .into_iter()
-                .collect()
-        } else {
-            BTreeSet::new()
-        };
         Self {
             scope,
             paths,
             admission,
-            ignore_rules,
             include_hidden,
             grammars: super::super::scope::structural_extensions(),
             unparsed: Mutex::new(NamedFiles::default()),
             observed: Mutex::new(BTreeSet::new()),
-            external_rules: Mutex::new(external_rules),
-            untracked_ignore_dependencies: AtomicBool::new(false),
             census: Mutex::new(BTreeMap::new()),
+            present: Mutex::new(BTreeMap::new()),
             counted: Mutex::new(HashSet::new()),
         }
     }
@@ -74,12 +60,20 @@ impl<'a> WalkLog<'a> {
     /// reports.
     pub(super) fn admit(&self, path: &Path, file_type: Option<FileType>) -> bool {
         let scope = self.scope;
+        let met = file_type.is_some_and(|kind| kind.is_file()) && self.meet(path);
         // Only a directory or a file of the scanned grammar could have
         // matched, so only those leave absence unproven when the policy
         // withholds them or they are links (the walk follows none).
         // A dot entry out of view (no `hidden`) is neither walked nor
         // disclosed, as structureSearch tree does.
         let in_view = self.include_hidden || !super::super::super::is_dot_entry(path);
+        if met && scope.language.is_some() && self.admission.permits(path, file_type) {
+            crate::tools::ast_rule::count_present(
+                &mut self.present.lock().unwrap_or_else(PoisonError::into_inner),
+                path,
+                &scope.parsers,
+            );
+        }
         if !self.admission.admit(path, file_type, |is_dir| {
             in_view && (is_dir || super::parses(scope, path))
         }) {
@@ -90,7 +84,10 @@ impl<'a> WalkLog<'a> {
             |kind| (kind.is_dir(), kind.is_file()),
         );
         if is_dir {
-            self.watch(path);
+            self.observed
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(path.to_path_buf());
         }
         let unparsed_file = !super::parses(scope, path) && is_file;
         // A file no grammar parses is disclosed, not silently dropped, when
@@ -110,7 +107,7 @@ impl<'a> WalkLog<'a> {
                 );
         }
         let admitted = !unparsed_file;
-        if admitted && is_file {
+        if admitted && met {
             self.count(path);
         }
         // Grammar filtering is not an explicit include override: ignored
@@ -118,39 +115,16 @@ impl<'a> WalkLog<'a> {
         admitted
     }
 
-    /// Watch a walked directory, and the ignore inputs that shape it.
-    fn watch(&self, dir: &Path) {
-        let mut watched = self.observed.lock().unwrap_or_else(PoisonError::into_inner);
-        watched.insert(dir.to_path_buf());
-        if self.ignore_rules {
-            let inputs = crate::tools::page_memo::directory_ignore_inputs(
-                dir,
-                &self.scope.canonical,
-                |ignore| self.admission.permits(ignore, None),
-            );
-            self.external_rules
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .extend(inputs.external);
-            if inputs.untracked {
-                self.untracked_ignore_dependencies
-                    .store(true, Ordering::Relaxed);
-            }
-            watched.extend(inputs.files);
-        }
-    }
-
-    /// Count an admitted file in the census by the parser it reads with.
-    /// The engine asks again for each file it reads: a path counts once.
-    fn count(&self, path: &Path) {
-        if !self
-            .counted
+    /// Whether this is the first the log hears of the file `path`.
+    fn meet(&self, path: &Path) -> bool {
+        self.counted
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(path.to_path_buf())
-        {
-            return;
-        }
+    }
+
+    /// Count an admitted file in the census by the parser it reads with.
+    fn count(&self, path: &Path) {
         let extension = super::parser_extension(self.scope, path);
         *self
             .census
@@ -172,17 +146,15 @@ impl<'a> WalkLog<'a> {
                 .unwrap_or_else(PoisonError::into_inner)
                 .into_iter()
                 .collect(),
-            ignore_rules: self
-                .external_rules
-                .into_inner()
-                .unwrap_or_else(PoisonError::into_inner)
-                .into_iter()
-                .collect(),
-            untracked_ignore_dependencies: self.untracked_ignore_dependencies.into_inner(),
             census: self
                 .census
                 .into_inner()
                 .unwrap_or_else(PoisonError::into_inner),
+            present: self.scope.language.is_some().then(|| {
+                self.present
+                    .into_inner()
+                    .unwrap_or_else(PoisonError::into_inner)
+            }),
         }
     }
 }

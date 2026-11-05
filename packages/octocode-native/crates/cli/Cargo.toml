@@ -10,6 +10,10 @@ autobins = false
 autotests = false
 description = "Command-line hosts for the Octocode runtime"
 
+# No doctests: nextest runs the tests (crates/runtime/Cargo.toml).
+[lib]
+doctest = false
+
 [[bin]]
 name = "octocode"
 path = "src/main.rs"

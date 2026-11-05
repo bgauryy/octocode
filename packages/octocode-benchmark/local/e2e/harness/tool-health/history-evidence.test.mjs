@@ -19,7 +19,7 @@ test('history pagination distinguishes repeated file context from duplicated num
   for (const mode of ['complete', 'duplicate', 'missing', 'changedMetadata', 'unmarkedContext']) {
     const driver = createDriver({ validate: () => null, tools: new Set([tool]), schemaOf: () => schema });
     const report = await driver.explore(tool, { queries: [{}] }, { surface: 'cli', rows: () => historyFileRows, call: async (_tool, input) => ({
-      json: input.cursor ? response(mode === 'duplicate' ? '1\t+first 界\n' + tail : mode === 'missing' ? '' : tail,
+      json: input.cursor ? response(mode === 'duplicate' ? `1\t+first 界\n${tail}` : mode === 'missing' ? '' : tail,
         mode === 'unmarkedContext' ? undefined : Array.from(first).length, false, mode === 'changedMetadata' ? { stat: 'M +2 -1' } : {})
         : response(first, 0, true),
     }) });

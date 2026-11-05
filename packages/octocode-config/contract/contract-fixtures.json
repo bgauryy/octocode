@@ -1567,6 +1567,44 @@
     }
   },
   {
+    "id": "security.package",
+    "tool": "securityCheck",
+    "accepted": true,
+    "input": {
+      "queries": [
+        {
+          "operation": "package",
+          "ecosystem": "npm",
+          "packageName": "lodash",
+          "version": "4.17.20"
+        }
+      ]
+    },
+    "normalized": {
+      "queries": [
+        {
+          "operation": "package",
+          "ecosystem": "npm",
+          "packageName": "lodash",
+          "version": "4.17.20"
+        }
+      ]
+    }
+  },
+  {
+    "id": "security.short-commit",
+    "tool": "securityCheck",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "commit",
+          "commit": "6879efc"
+        }
+      ]
+    }
+  },
+  {
     "id": "artifact.http-registry",
     "tool": "artifactSearch",
     "accepted": true,
@@ -6361,338 +6399,6 @@
     }
   },
   {
-    "id": "clasify.sections-too-many",
-    "tool": "clasify",
-    "accepted": false,
-    "input": {
-      "queries": [
-        {
-          "operation": "sections",
-          "resources": {
-            "r0": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r1": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r2": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r3": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r4": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r5": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r6": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r7": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r8": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r9": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r10": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r11": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r12": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r13": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r14": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r15": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r16": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r17": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r18": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r19": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r20": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r21": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r22": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r23": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r24": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            },
-            "r25": {
-              "tool": "localFetch",
-              "query": {
-                "path": "src/cache.ts",
-                "ranges": [
-                  {
-                    "startLine": 1,
-                    "endLine": 5
-                  }
-                ]
-              }
-            }
-          },
-          "questions": {
-            "relevant": {
-              "type": "noul",
-              "instructions": "Does the text require a restart?"
-            }
-          }
-        }
-      ]
-    }
-  },
-  {
     "id": "clasify.source-raw-only",
     "tool": "clasify",
     "accepted": false,
@@ -7594,6 +7300,50 @@
   {
     "id": "lspSearch.old-snapshot",
     "tool": "lspSearch",
+    "input": {
+      "responseSnapshot": "saved"
+    },
+    "accepted": false
+  },
+  {
+    "id": "securityCheck.resume",
+    "tool": "securityCheck",
+    "input": {
+      "cursor": "returned-cursor"
+    },
+    "accepted": true,
+    "normalized": {
+      "cursor": "returned-cursor"
+    }
+  },
+  {
+    "id": "securityCheck.resume-with-queries",
+    "tool": "securityCheck",
+    "input": {
+      "cursor": "returned-cursor",
+      "queries": [
+        {}
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "securityCheck.bare-row",
+    "tool": "securityCheck",
+    "input": {},
+    "accepted": false
+  },
+  {
+    "id": "securityCheck.empty-batch",
+    "tool": "securityCheck",
+    "input": {
+      "queries": []
+    },
+    "accepted": false
+  },
+  {
+    "id": "securityCheck.old-snapshot",
+    "tool": "securityCheck",
     "input": {
       "responseSnapshot": "saved"
     },

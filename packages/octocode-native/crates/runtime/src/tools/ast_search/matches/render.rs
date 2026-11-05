@@ -140,6 +140,7 @@ pub(super) fn render_match_page(
         ScanCut {
             truncated,
             resume: scan.scan_resume,
+            pin: scan.listed_through.as_deref().unwrap_or_default(),
         },
         more,
         snapshot,
@@ -175,6 +176,11 @@ fn mark_coverage_cuts(out: &mut Value, scan: &Scan, grouped: &Grouped) -> bool {
         || scan.walk_errors.skipped > 0;
     let recovered = grouped.recovered.count > 0;
     let incomplete = scan.truncated || skipped || recovered || grouped.unevaluated_files > 0;
+    let unproven = crate::tools::test_code::unread_note(&scan.test_code_unread);
+    let incomplete = incomplete || unproven.is_some();
+    if let Some(note) = unproven {
+        crate::response::paging::mark_partial(out, PartialReason::FilesUnevaluated, &[note]);
+    }
     for (cut, reason) in [
         (scan.truncated, super::super::scan_window::CUT_REASON),
         (skipped, PartialReason::FilesSkipped),

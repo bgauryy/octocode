@@ -13,6 +13,19 @@ pub(super) fn cfg_requires_test(inner: &str) -> bool {
         .is_some_and(|args| matches!(args.as_slice(), [one] if requires_test(one)))
 }
 
+/// The attribute named `name` a `cfg_attr(predicate, ...)` applies, as written,
+/// when its predicate holds only under test.
+pub(super) fn cfg_attr_under_test<'t>(inner: &'t str, name: &str) -> Option<&'t str> {
+    let args = call_args(inner, "cfg_attr")?;
+    let (predicate, attributes) = args.split_first()?;
+    requires_test(predicate).then_some(())?;
+    attributes.iter().copied().find(|attribute| {
+        attribute
+            .strip_prefix(name)
+            .is_some_and(|rest| rest.trim_start().starts_with('='))
+    })
+}
+
 /// Whether the named `children` of a node include an inner `#![cfg(test)]`.
 pub(super) fn inner_cfg_requires_test_among(children: &[Node<'_>], content: &str) -> bool {
     children.iter().any(|&child| {

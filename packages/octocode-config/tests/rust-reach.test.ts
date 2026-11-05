@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { buildEnforcementContractIr } from '@octocodeai/octocode-core/schema';
 import { NATIVE_CRATES, withDispatchRoots } from '../scripts/tool-contract/rust.ts';
 import { toolNames } from '../scripts/tool-contract/rust-dispatch.ts';
 import {
@@ -12,6 +11,7 @@ import {
   keepReachable,
   nativeIdentifiers,
 } from '../scripts/tool-contract/rust-reach.ts';
+import { contractIr } from './contract-ir.ts';
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -117,10 +117,10 @@ describe('generated Rust reachability', () => {
       .join('\n');
     const roots = withDispatchRoots(
       nativeIdentifiers(NATIVE_CRATES),
-      toolNames(buildEnforcementContractIr().tools)
+      toolNames(contractIr().tools)
     );
     expect(roots.has('LocalFetchQuery')).toBe(true);
     // Nothing is left to drop: every emitted type is reachable from native.
     expect(declared(keepReachable(rust, roots))).toEqual(declared(rust));
-  }, 30_000);
+  });
 });

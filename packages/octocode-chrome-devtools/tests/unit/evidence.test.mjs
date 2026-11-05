@@ -11,7 +11,7 @@ function fixture(fn) {
   writeFileSync(
     file,
     JSON.stringify(
-      Array.from({ length: 15 }, (_, id) => ({ id, value: 'row-' + id }))
+      Array.from({ length: 15 }, (_, id) => ({ id, value: `row-${id}` }))
     )
   );
   const cli = args =>

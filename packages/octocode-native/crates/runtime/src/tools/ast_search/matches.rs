@@ -65,6 +65,13 @@ pub fn execute_match(
     run_match(q, paths, cancel, response_window).map(super::output::finish)
 }
 
+/// A window past the first whose candidates before it are not the ones the
+/// windows before it evaluated: its `scanOffset` counts other files.
+fn window_moved(q: MatchQuery<'_>, scan: &types::Scan) -> bool {
+    q.snapshot()
+        .is_some_and(|pin| q.scan_offset() > 0 && scan.listed_before.as_ref() != Some(&pin))
+}
+
 fn run_match(
     q: MatchQuery<'_>,
     paths: &PathPolicy,
@@ -86,6 +93,11 @@ fn run_match(
         Some(scan) => (scan, octocode_engine::stamp::settle_clock()),
         None => fresh_scan(q, &scope, paths, cancel)?,
     };
+    if !continues && window_moved(q, &scan) {
+        return Ok(crate::response::result::stale_snapshot(
+            crate::response::result::restart_query(ToolId::AstSearch, &q.to_value()),
+        ));
+    }
     let mut scope = scope;
     let grammars = compile_in_grammars(q, &scope, &scan);
     scope.inferred = infer_grammar(q, &scope, &scan, &grammars)?;
@@ -126,6 +138,11 @@ fn run_match(
         &mut grouped.groups[shown],
         budget,
         row_paths,
+        Some(page_rows::PageRows {
+            snapshot: &snapshot,
+            key: &key,
+            proved: !fresh,
+        }),
         cancel,
     ) {
         Ok(incomplete) => {
@@ -152,11 +169,17 @@ fn run_match(
         }
     }
     let shown = file_page(q, &grouped.groups, budget).window;
-    for group in &mut grouped.groups[shown] {
-        if let Some(shown) = group.row["path"].as_str().map(str::to_owned) {
-            key_rows::hide_key_block_rows(group, &row_paths.file(&shown), paths);
-        }
-    }
+    key_rows::hide_page_key_blocks(
+        &mut grouped.groups[shown],
+        (&scan, &scope),
+        row_paths,
+        paths,
+        page_rows::PageRows {
+            snapshot: &snapshot,
+            key: &key,
+            proved: !fresh,
+        },
+    );
     if !scan.truncated
         && q.scan_offset() == 0
         && let Some(error) = inapplicable.rejection()
@@ -172,7 +195,7 @@ fn run_match(
     let gaps = if scope.is_file {
         ScopeGaps::default()
     } else if grouped.total_matches == 0 && grouped.parsed_files == 0 && q.language().is_some() {
-        ScopeGaps::of(q, &scope, paths, states_absence, cancel)
+        ScopeGaps::of(q, &scope, &scan, paths, states_absence, cancel)
     } else {
         // Files of the grammar behind skipped paths are still a reason,
         // beside the pattern's shape or the matches found: whether or not
@@ -205,26 +228,41 @@ fn run_match(
     {
         crate::tools::leads::push_hint(&mut out, hint);
     }
-    if exact_miss_scope && !relation_miss::attach_relation_miss(q, &scope, paths, cancel, &mut out)
-    {
-        match exact_miss(q, &scope, paths, cancel) {
-            Some(miss) => miss.attach(&mut out),
-            None => match kind_broaden(q, &scope, paths, cancel) {
-                Some(lead) => out["calls"]["broadenSearch"] = lead,
-                None => exact_miss::attach_absent_kind(q, &scope, &mut out),
-            },
-        }
+    if exact_miss_scope {
+        explain_miss(q, &scope, paths, cancel, &mut out);
     }
     if fresh
-        && !scan.untracked_ignore_dependencies
-        && crate::tools::test_code::result_may_be_kept(q.test_code())
         && out["calls"]
             .as_object()
             .is_some_and(|next| next.contains_key("nextPage"))
     {
-        remember_scan((snapshot, key), &scope, &scan, started);
+        remember_scan((snapshot, key), &scope, &scan, paths, started);
     }
     Ok(out)
+}
+
+/// What an empty whole scan can say of its rule, the first that applies: its
+/// relation read only a neighbor, its text is another kind's, or its pattern
+/// differs from the declarations the scope holds.
+fn explain_miss(
+    q: MatchQuery<'_>,
+    scope: &types::Scope,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+    out: &mut Value,
+) {
+    if relation_miss::attach_relation_miss(q, scope, paths, cancel, out)
+        || kind_miss::attach_kind_miss(q, scope, paths, cancel, out)
+    {
+        return;
+    }
+    match exact_miss(q, scope, paths, cancel) {
+        Some(miss) => miss.attach(out),
+        None => match kind_broaden(q, scope, paths, cancel) {
+            Some(lead) => out["calls"]["broadenSearch"] = lead,
+            None => exact_miss::attach_absent_kind(q, scope, out),
+        },
+    }
 }
 
 mod continuations;
@@ -232,7 +270,9 @@ mod exact_miss;
 mod gaps;
 mod groups;
 mod key_rows;
+mod kind_miss;
 mod memo;
+mod page_rows;
 mod qualified;
 mod query;
 mod reads;
@@ -266,6 +306,9 @@ mod concurrent_scan_tests;
 
 #[cfg(test)]
 mod demand_tests;
+
+#[cfg(test)]
+mod page_rows_tests;
 
 #[cfg(test)]
 mod unsaid_tests;

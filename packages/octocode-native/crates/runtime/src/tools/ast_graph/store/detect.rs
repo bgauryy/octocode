@@ -39,6 +39,7 @@ mod cycles;
 mod dead_code;
 mod deps;
 mod hubs;
+mod mention_stream;
 mod mention_tokens;
 mod mentions;
 mod primitives;
@@ -153,6 +154,27 @@ impl Finding {
 pub(crate) struct Report {
     pub findings: Vec<Finding>,
     pub summary: Value,
+    /// What proves the report current besides its snapshot; `None` when no
+    /// proof could be taken.
+    proof: Option<octocode_engine::stamp::Proof>,
+}
+
+impl Report {
+    /// About how many bytes it holds.
+    fn weight(&self) -> usize {
+        let json = |value: &Value| octocode_engine::json_size::bytes(value).unwrap_or(usize::MAX);
+        json(&self.summary).saturating_add(
+            self.findings
+                .iter()
+                .map(|finding| {
+                    std::mem::size_of::<Finding>()
+                        .saturating_add(finding.subject.len() + finding.id.len())
+                        .saturating_add(finding.title.len())
+                        .saturating_add(json(&finding.evidence))
+                })
+                .fold(0, usize::saturating_add),
+        )
+    }
 }
 
 fn stable_id(detector: &str, parts: &[&str]) -> String {
@@ -176,6 +198,43 @@ thread_local! {
     pub(crate) static RUNS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+/// [`run`] of the snapshot named `id`, whose tables never change, kept across
+/// calls while what its mention scan read stands.
+pub(crate) fn kept_run(
+    id: &str,
+    t: &GraphTables,
+    only: &[String],
+    root: Option<&std::path::Path>,
+    entries: Option<&[String]>,
+    stopped: &(dyn Fn() -> bool + Sync),
+) -> Result<std::sync::Arc<Report>, String> {
+    static REPORTS: crate::tools::page_memo::PageMemo<crate::tools::page_memo::Proven<Report>> =
+        crate::tools::page_memo::PageMemo::new();
+    let key = crate::digest::json_sha256(&json!([
+        id,
+        root.map(std::path::Path::to_string_lossy),
+        only,
+        entries,
+    ]));
+    if let Some(kept) = REPORTS.current(&key, "") {
+        return Ok(kept);
+    }
+    let report = std::sync::Arc::new(run(t, only, root, entries, stopped)?);
+    if !stopped()
+        && let Some(proof) = &report.proof
+    {
+        let bytes = report.weight().saturating_add(proof.weight());
+        REPORTS.put_proven(
+            key,
+            String::new(),
+            bytes,
+            proof.clone(),
+            std::sync::Arc::clone(&report),
+        );
+    }
+    Ok(report)
+}
+
 /// Runs the selected detectors (all when `only` is empty) and ranks them.
 /// With `root`, dead-code findings are re-tiered by a repo-wide mention scan.
 pub(crate) fn run(
@@ -183,6 +242,7 @@ pub(crate) fn run(
     only: &[String],
     root: Option<&std::path::Path>,
     entries: Option<&[String]>,
+    stopped: &(dyn Fn() -> bool + Sync),
 ) -> Result<Report, String> {
     for name in only {
         if !detector_names().any(|known| known == name) {
@@ -210,8 +270,9 @@ pub(crate) fn run(
     let spread = root.is_some() && wants("test-only");
     c.findings
         .retain(|f| wants(f.detector) || (spread && f.detector == "unreachable-file"));
+    let mut proof = Some(octocode_engine::stamp::Proof::default());
     if let Some(root) = root {
-        tier_dead_code(&c.v, &mut c.findings, root, &mut c.notes);
+        proof = tier_dead_code(&c.v, &mut c.findings, root, stopped);
         spread_mentioned_liveness(&c.v, &mut c.findings);
         c.findings.retain(|f| wants(f.detector));
     } else if c
@@ -263,6 +324,7 @@ pub(crate) fn run(
     Ok(Report {
         findings: merged,
         summary,
+        proof,
     })
 }
 

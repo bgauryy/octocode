@@ -6,6 +6,7 @@ use support::{Workspace, call, row_data, row_status};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
+mod credential_patches;
 mod pinned_walks;
 mod session_repeats;
 

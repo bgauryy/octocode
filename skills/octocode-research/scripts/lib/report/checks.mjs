@@ -89,7 +89,7 @@ export function checkReport(full, meta, body, workspace) {
   if (scratch && meta.status && meta.question)
     return [`${rel.join('/')}: this has a report header but sits in a tmp/ folder, which the catalog skips; save it as .octocode/<skill>/<YYYY-MM-DD>-<slug>.md`];
   if (rel.length < 2 || rel[0] === '..' || !KINDS[rel[0]]) return [];
-  const name = rel.length === 2 ? rel[1] : rel[1] + '/' + rel.slice(2).join('/');
+  const name = rel.length === 2 ? rel[1] : `${rel[1]}/${rel.slice(2).join('/')}`;
   const warnings = [...layoutWarnings(full, rel), ...dateWarnings(full, rel, meta, workspace), ...headerWarnings(meta, workspace), ...contractWarnings(rel[0], meta, body)];
   return warnings.map((w) => `${name}: ${w}`);
 }

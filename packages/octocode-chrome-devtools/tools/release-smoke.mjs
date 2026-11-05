@@ -36,11 +36,9 @@ const stdout = result =>
         ).stdout,
         'utf8'
       );
-const fixtureUrl =
-  'data:text/html,' +
-  encodeURIComponent(
-    '<title>Research fixture</title><label>Query <input id="q"></label><button onclick="document.querySelector(\'output\').textContent=\'Packed pass\'">Go</button><output>Ready</output><p>Source evidence: orbital period 365 days.</p><a href="https://example.com/evidence">Supporting source</a>'
-  );
+const fixtureUrl = `data:text/html,${encodeURIComponent(
+  '<title>Research fixture</title><label>Query <input id="q"></label><button onclick="document.querySelector(\'output\').textContent=\'Packed pass\'">Go</button><output>Ready</output><p>Source evidence: orbital period 365 days.</p><a href="https://example.com/evidence">Supporting source</a>'
+)}`;
 try {
   const pack = spawnSync(
     'npm',

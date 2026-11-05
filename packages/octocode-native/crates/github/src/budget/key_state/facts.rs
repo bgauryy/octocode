@@ -80,6 +80,31 @@ impl KeyState {
             })
     }
 
+    /// Record the `max-age` GitHub stated for a pull request (0: none), mirrored
+    /// so the next process knows it too.
+    pub(crate) fn learn_pull_request_max_age(self: &Arc<Self>, seconds: u64) {
+        {
+            let mut facts = self.facts();
+            if facts
+                .pull_request_max_age
+                .is_some_and(|known| known <= seconds)
+            {
+                return;
+            }
+            facts.pull_request_max_age = Some(seconds);
+        }
+        self.persist();
+    }
+
+    /// How long GitHub says a pull request's REST read stands, once known and
+    /// when it allows reuse.
+    pub(crate) fn pull_request_lifetime(&self) -> Option<Duration> {
+        self.facts()
+            .pull_request_max_age
+            .filter(|seconds| *seconds > 0)
+            .map(Duration::from_secs)
+    }
+
     /// Mark a resource exhausted until `reset` (epoch seconds).
     pub(crate) fn exhaust(self: &Arc<Self>, resource: &str, reset: u64) {
         self.facts().buckets.insert(

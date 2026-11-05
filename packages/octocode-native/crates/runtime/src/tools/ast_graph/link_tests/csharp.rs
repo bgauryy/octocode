@@ -161,3 +161,16 @@ fn interfaces_structs_and_nested_types_bind_their_type() {
         ]
     );
 }
+
+/// A conditional or null-forgiving access on `this` is still `this`.
+#[test]
+fn conditional_access_on_this_binds_the_member() {
+    let temp = fixture(&[(
+        "src/Box.cs",
+        "class Box {\n  void Helper() {}\n  void Maybe() { this?.Helper(); }\n  void Sure() { this!.Helper(); }\n}\n",
+    )]);
+    let root = ingested(&temp);
+    let helper = "src/Box.cs#Box.Helper";
+    assert_eq!(callees(root, "src/Box.cs#Box.Maybe"), [to(helper, "local")]);
+    assert_eq!(callees(root, "src/Box.cs#Box.Sure"), [to(helper, "local")]);
+}

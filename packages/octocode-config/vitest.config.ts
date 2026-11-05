@@ -10,6 +10,7 @@ export default defineConfig({
     hookTimeout: 120_000,
     // Temp home, no credentials, dead proxy, guarded fetch and child processes.
     setupFiles: ['../../test-utils/external-effects-guard.ts'],
+    globalSetup: ['tests/contract-ir.global.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

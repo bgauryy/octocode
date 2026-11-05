@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 mod budget;
 mod costs;
 mod files;
+mod filter_freshness;
 mod ignore;
 mod inputs;
 mod limit;
@@ -31,6 +32,7 @@ mod test_code;
 mod tree;
 mod views;
 mod walk_windows;
+mod window_store;
 
 thread_local! {
     /// A test's walk window in place of the core one, so window cuts are

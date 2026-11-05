@@ -285,7 +285,7 @@ test('executor: navigation discovers a menu before choosing its destination', ()
         steps: [
           {
             op: 'act',
-            ref: ref(current, 'link "' + chosen[0].text + '"'),
+            ref: ref(current, `link "${chosen[0].text}"`),
             action: 'click',
             after: { text: 'Done API' },
           },

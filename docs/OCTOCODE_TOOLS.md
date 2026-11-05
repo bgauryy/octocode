@@ -10,7 +10,7 @@ For a reader who needs each tool's **result behavior**: what a call returns, wha
 | Availability, opt-ins, storage and caches | [Configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) |
 | `classification` and `clasify` | [Classification guide](OCTOCODE_CLASIFY.md) |
 
-The catalog has 16 tools, all listed and enabled in the CLI; MCP exposes a configured subset. Listing a tool does not guarantee its provider or language server is ready; invocation reports those failures.
+The catalog has 16 tools, plus the opt-in `securityCheck`. The CLI lists all of them, except `clasify` without a classification key and `securityCheck` until you turn it on; MCP exposes a configured subset. Listing a tool does not guarantee its provider or language server is ready; invocation reports those failures.
 
 ## How every tool call works
 
@@ -41,10 +41,10 @@ Check row status and partial-coverage facts even when the enclosing request succ
 
 | Key | Pages | Follow |
 |---|---|---|
-| `responsePagination{page,totalPages,hasMore,next}` | One response split across calls (`responseChars`) | `responsePagination.next` first |
+| `responsePagination{hasMore,next}` | The rest of the request: this response's later pages, then every row's walk on one handle | `responsePagination.next` until none remains |
 | `rowPart{part,of}` | One row split across response pages | Read every part before using the row |
-| `pagination{hasMore,…}` | A row's own list | The row's `next.<name>`, such as `next.nextPage` |
-| `contentPagination.<section>` | One `ghGetHistoryItem` collection; `countScope` says what `totalItems` counts | That section's `next.*` |
+| `pagination{hasMore,…}` | A row's own list | `responsePagination.next`, else the row's `next.nextPage` |
+| `contentPagination.<section>` | One `ghGetHistoryItem` collection; `countScope` says what `totalItems` counts | `responsePagination.next`, else that section's `next.nextPage` |
 
 ## Internal, external, and hybrid tools
 
@@ -76,7 +76,7 @@ Use a returned repository identity for code, tree and history calls.
 
 ### `ghSearchCode`
 
-Hits always come from the default-branch index: `ref` re-reads them at that revision and never widens the search. Read continuations reach evidence omitted from the displayed hit window.
+Hits always come from the default-branch index: `ref` re-reads them at that revision and never widens the search. GitHub indexes only files under 384 KB and skips archived repositories and most forks, so `empty` never rules out such a file: read it with `ghGetFileContent` `matchString`, or clone. Read continuations reach evidence omitted from the displayed hit window.
 
 ```json
 {"queries":[{"keywords":["localSearch"],"owner":"bgauryy","repo":"octocode"}]}
@@ -122,10 +122,36 @@ Execution requires persistent storage; MCP exposure has a separate [clone opt-in
 
 ### `artifactSearch`
 
-Provider-native package coordinates remain values, not hidden operation selectors. Results use `packageName` and may offer related source/release reads.
+Provider-native package coordinates remain values, not hidden operation selectors. Results use `packageName` and may offer related source/release reads. Without `version`, `resolve` names the latest stable release; a prerelease only when the registry has nothing else, with a warning (npm: the `latest` dist-tag). PyPI and NuGet rows carry the registry's `advisories`, PyPI and crates.io `yankedReason`. Other registries give no advisory data here, and an empty list does not prove a version clean: a CVE question belongs to [`securityCheck`](#securitycheck).
 
 ```json
 {"queries":[{"ecosystem":"npm","operation":"resolve","packageName":"zod"}]}
+```
+
+### `securityCheck`
+
+Known vulnerabilities, from [OSV](SECURITY.md#advisory-egress). It is off, absent from MCP and the CLI, until you set `OCTOCODE_SECURITY_CHECKS=true` ([setting](CONFIGURATION.md#all-settings-and-defaults)); a repository cannot turn it on.
+
+| `operation` | Takes | Asks |
+|---|---|---|
+| `package` | `ecosystem`, `packageName`, `version` | The public registry confirms it, then OSV at that exact version |
+| `url` | A package page or a purl | As `package`. A repository page names no package and is refused; nothing is sent |
+| `advisory` | `id`, such as `CVE-...` or `GHSA-...` | OSV's whole record, withdrawn ones too |
+| `commit` | A full `commit` hash, optional `repo` | OSV at that hash alone. `repo` is never sent; it only checks the records that return |
+
+A row leads with the answer: `answer` in one sentence, then `affected`, `upgradeTo` (the lowest fixed version clearing every listed advisory, confirmed with OSV at that version) or `upgradeNote` (why none can be named), and `cves`. Each advisory is `id`, `cves`, `summary`, `severity` and its `source`, `fixedIn` and `link`; its `related` calls read every record whole, with details, ranges and references. `sources[]` lists each source asked and its `status`.
+
+| Row | Means |
+|---|---|
+| `affected:true` | OSV matched this version |
+| `status:"empty"`, `advisories:[]` | None known to OSV, after a finished walk. A floor, not proof the version is safe |
+| `versionEvaluated:false` | The registry does not list this version, so OSV was asked about the package only |
+| `commit` with `status:"empty"` | None known to OSV for this commit. OSV answers the same for a commit it does not track, so `affected` is absent |
+| `status:"error"`, no `advisories` key | Not checked: the registry or OSV failed, or the package is not on the public registry |
+| `isPartial:true` | The walk stopped early; `next.nextPage` reads on |
+
+```json
+{"queries":[{"operation":"package","ecosystem":"npm","packageName":"lodash","version":"4.17.20"}]}
 ```
 
 ## Local code tools reference
@@ -170,7 +196,7 @@ Compact reads preserve literal content and source-line citations. YAML compact r
 
 ### `lspSearch`
 
-Fields: `octocode schema lspSearch --view query`. A missing or still-indexing server does not prove absence. A row's `role` is `declaration`, `call`, `import` or `reference`. Follow importer, hierarchy and result continuations.
+Fields: `octocode schema lspSearch --view query`. A missing or still-indexing server does not prove absence. A row's `role` is `declaration`, `call`, `import` or `reference`. `next.nextPage` walks one importer window's locations and `next.nextImporterWindow` enters the next window: follow both, and the other hierarchy continuations, to reach every row.
 
 ```json
 {"queries":[{"line":10,"path":"src/index.ts","symbolName":"run"}]}
@@ -203,7 +229,11 @@ Evaluate supplied `content` or an unread `source`, discover models, or assess se
 
 ### Root selection
 
-Without `workspaceRoot`, the root is the nearest ancestor of the file holding a project marker (`package.json`, `pnpm-workspace.yaml`, `yarn.lock`, `tsconfig.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `requirements.txt`, `pom.xml`, `build.gradle`, `Makefile`, `.git`), even inside `WORKSPACE_ROOT`, widened for Rust to the Cargo workspace root, for TypeScript to the directory of the governing `tsconfig.json`/`jsconfig.json`, for Go to a `go.work` directory above, for Python to a `pyrightconfig.json` (or `pyproject.toml` with `[tool.pyright]` or `[tool.uv.workspace]`) above, and for Java to the Maven parent whose `<modules>` list the module or the Gradle settings that include it; with no marker anywhere, the file's own directory, never the process cwd. An explicit `workspaceRoot` must contain the file. A `workspaceRoot`-only query infers its language from the root's markers (`tsconfig.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `setup.py`, `requirements.txt`, `go.work`, `compile_commands.json`, `.clangd`, `CMakeLists.txt`, `meson.build`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `build.sbt`, `jsconfig.json`, `package.json`).
+Without `workspaceRoot`, the root is the nearest ancestor of the file holding its own language's project file (TypeScript and JavaScript: `tsconfig.json`, `jsconfig.json`, `package.json`, `pnpm-workspace.yaml`, `yarn.lock`; Python: `pyrightconfig.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, `Pipfile`, then `requirements.txt`; Go: `go.mod`; Rust: `Cargo.toml`; Java: `pom.xml`, `build.gradle(.kts)`, `settings.gradle(.kts)`; Scala: `build.sbt`, `build.sc`, `build.mill`; C#: `*.sln`, `*.slnx`, then `*.csproj`; C family: `compile_commands.json`, `build/compile_commands.json`, `compile_flags.txt`, `.clangd`), else its repository (`.git`), else, for the C family, the top of its chain of build files, else the nearest generic marker (`Makefile` or another language's file). A marker of another language or a subdirectory's `Makefile` names no project of this language, even inside `WORKSPACE_ROOT`, widened for Rust to the Cargo workspace root, for TypeScript to the directory of the governing `tsconfig.json`/`jsconfig.json`, for Go to a `go.work` directory above, for Python to a `pyrightconfig.json` (or `pyproject.toml` with `[tool.pyright]` or `[tool.uv.workspace]`) above, and for Java to the Maven parent whose `<modules>` list the module or the Gradle settings that include it; with no marker anywhere, the file's own directory, never the process cwd. An explicit `workspaceRoot` must contain the file. A `workspaceRoot`-only query infers its language from the root's markers (`tsconfig.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `setup.py`, `requirements.txt`, `go.work`, `compile_commands.json`, `.clangd`, `CMakeLists.txt`, `meson.build`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `build.sbt`, `jsconfig.json`, `package.json`).
+
+### Fetched code
+
+No language server starts on code Octocode fetched: a file or `workspaceRoot` that resolves, symlinks followed, into its `ghCloneRepo` or `ghStructure materialize` checkouts or URL captures gets `errorCode:"policy"`, because a server can run code from the repository it opens ([external processes](SECURITY.md#external-processes)). So does a root that holds any of that code, inferred or named: csharp-ls and jdtls enumerate dot directories, so `$HOME` qualifies once something is fetched. Pass a `workspaceRoot` that does not hold it, such as your project under `$HOME`; a root that holds no fetched code keeps its server. Text (`localSearch`) and syntax (`astSearch`, `structureSearch`) tools read that code without running anything, and so do the graph tools (`graphBuild`, `graphQuery`) when Octocode runs from inside that directory: `graphBuild` takes only a path inside the workspace. Prewarm and `lspSearch` leads skip it, and `octocode lsp-server status` reports the refusal. To opt in, set `lsp.trustFetchedCode` (`OCTOCODE_LSP_TRUST_FETCHED_CODE=true`) in your home settings or the process environment; a workspace `.octocoderc` or `.env` cannot. A local checkout keeps its server.
 
 ### Server fidelity and the no-fallback contract
 
@@ -238,7 +268,7 @@ An `lsp-servers.json` entry (format, load order and trust: [lifecycle](../packag
 
 ## Clone and local tools workflow
 
-Clone a verified repository/ref, then use the returned path with localSearch, structureSearch, astSearch or lspSearch. Keep the materialization scope in the claim.
+Clone a verified repository/ref, then use the returned path with localSearch, structureSearch or astSearch; `lspSearch` needs [an opt-in](#fetched-code) there. Keep the materialization scope in the claim.
 
 ### `graphBuild` and `graphQuery`
 

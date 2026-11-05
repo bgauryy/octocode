@@ -13,6 +13,7 @@ pub mod markup;
 pub use js_oxc::call_sites::{EnclosingCallable, ReferenceSite, reference_sites};
 pub(crate) mod node_kinds;
 mod nodes;
+pub(crate) mod spelled;
 mod visibility;
 
 mod js_oxc_arguments;
@@ -44,7 +45,7 @@ pub(crate) mod receiver_fields;
 /// the object it returns (`const { s } = make()`). v18: the JS/TS tree-sitter
 /// lane says it is the fallback, reads `import type`, re-exports, written
 /// `export`s and module-level variables, and leaves other load unknown.
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 18;
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 19;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking
@@ -298,6 +299,21 @@ pub fn extract_graph_facts(
     file_path: &str,
 ) -> Option<crate::graph::GraphFactsDocument> {
     extract_graph_facts_with_metadata_inner(content, file_path).map(|extraction| extraction.facts)
+}
+
+/// The grammar [`extract_graph_facts`] reads a file with when tree-sitter
+/// reads it, with the extension that grammar goes by; `None` when oxc owns
+/// the file or no grammar does.
+pub(crate) fn graph_facts_grammar(
+    content: &str,
+    file_path: &str,
+) -> Option<(&'static languages::LanguageEntry, String)> {
+    if js_oxc::reads(file_path) {
+        return None;
+    }
+    let ext = extension_of(file_path, true, "txt");
+    let grammar = crate::text::file_extension::grammar_extension(content, &ext).to_owned();
+    Some((languages::find_entry(&grammar)?, grammar))
 }
 
 pub mod languages;

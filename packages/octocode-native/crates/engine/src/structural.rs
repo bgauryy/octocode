@@ -17,7 +17,7 @@ mod types;
 
 #[cfg(test)]
 use files::search_files_detailed;
-pub use files::{Rebuilt, file_matches, search_files};
+pub use files::{ListedFiles, Rebuilt, file_matches, search_files};
 pub use octo::{
     COMPILE_FAILED, EXAMPLE_RULE, MATCH_DEADLINE, PARSE_INTERRUPTED, PatternDeclaration,
     QualifiedPattern, RULE_INVALID,

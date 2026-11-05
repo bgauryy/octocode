@@ -148,7 +148,7 @@ impl Coverage {
         }
         if unverified {
             warnings.push(
-                "Some match values are [REDACTED: …] placeholders because their source file changed during the call or could not be re-read to check selected text for secrets. Use localFetch at the returned anchors.".into(),
+                "Some match values are [REDACTED: …] placeholders, each naming why its text could not be checked for secrets: the source is too large around the match, could not be re-read, or changed during the call. Read those lines with localFetch at the returned anchors.".into(),
             );
         }
         // Values are decoded as localFetch decodes the file; say so once.

@@ -322,10 +322,6 @@ pub(crate) struct DeclarationRec {
 pub(crate) struct GraphTables {
     pub sources: sources::SourceTable,
     pub strings: Vec<String>,
-    /// Argument strings a build checked from their typed form when it
-    /// projected them; a redaction that rewrites one takes it out. Empty on
-    /// a read: a reader parses what it is given.
-    pub checked_arguments: std::collections::HashSet<u32>,
     pub nodes: Vec<NodeRec>,
     pub edges: Vec<EdgeRec>,
     pub witnesses: Vec<WitnessRec>,

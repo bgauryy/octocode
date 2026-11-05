@@ -1,0 +1,25 @@
+{
+  "corpus": "6ea1ad094",
+  "platforms": {
+    "darwin-arm64": {
+      "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+      "flows": {
+        "as.match": 111120009,
+        "as.symbols.dir": 1194006723,
+        "gb.io": 1384037373,
+        "gb.io.repeat": 1307611151,
+        "gh.code": 65916093,
+        "gh.pr.bulk": 197317708,
+        "gq.find.io": 20606878,
+        "gq.stats.io": 32797313,
+        "lf.range": 5066299,
+        "lf.symbols": 40076960,
+        "ls.content": 2101052059,
+        "ls.content.p3": 663147334,
+        "ls.miss": 1061331534,
+        "st.files": 474842377,
+        "st.lineCount": 33629250
+      }
+    }
+  }
+}

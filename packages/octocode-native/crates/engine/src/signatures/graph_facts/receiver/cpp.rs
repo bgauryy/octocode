@@ -61,12 +61,29 @@ pub(super) fn cpp_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Bind
     }
 }
 
+/// The type a C++ initializer names: `new T`, `T{}`, or `T()`, whose callee reads
+/// as a type by its capital (`make()` is a call whose result nothing here types).
 pub(super) fn cpp_constructor(value: Node<'_>, content: &str) -> Option<String> {
-    (value.kind() == "new_expression").then_some(())?;
-    clean_type_text(
-        node_text(value.child_by_field_name("type")?, content)?,
-        Lang::Cpp,
-    )
+    let clean = |written: Node<'_>| clean_type_text(node_text(written, content)?, Lang::Cpp);
+    match value.kind() {
+        "new_expression" | "compound_literal_expression" => {
+            clean(value.child_by_field_name("type")?)
+        }
+        "call_expression" => {
+            let function = value.child_by_field_name("function").filter(|function| {
+                matches!(
+                    function.kind(),
+                    "identifier" | "qualified_identifier" | "template_function"
+                )
+            })?;
+            clean(function).filter(|ty| {
+                ty.rsplit("::")
+                    .next()
+                    .is_some_and(|name| name.starts_with(|c: char| c.is_ascii_uppercase()))
+            })
+        }
+        _ => None,
+    }
 }
 
 /// The name a C++ declarator binds, through pointer and reference

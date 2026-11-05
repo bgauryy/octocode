@@ -15,7 +15,7 @@ test('all corpus query lists have stable complete continuations and preserve dis
   const dir = mkdtempSync(join(tmpdir(), 'octo-scrape-pagination-'));
   try {
     for (const folder of ['graph', 'indexes', 'extracts']) mkdirSync(join(dir, folder));
-    const rows = Array.from({length:57},(_,i)=>({pageId:'p'+i,id:'p'+i,kind:'button',_file:'buttons',text:'Docs '+i,href:'https://site.test/docs/'+i,score:i,workflowHint:'docs',workflowType:'docs'}));
+    const rows = Array.from({length:57},(_,i)=>({pageId:`p${i}`,id:`p${i}`,kind:'button',_file:'buttons',text:`Docs ${i}`,href:`https://site.test/docs/${i}`,score:i,workflowHint:'docs',workflowType:'docs'}));
     writeFileSync(join(dir,'page-map.json'),JSON.stringify({pages:rows.map(r=>({...r,url:r.href,files:{textParts:[]}}))}));
     writeFileSync(join(dir,'AGENT_INDEX.json'),JSON.stringify({sessionId:'test',pages:[],warnings:[]}));
     writeFileSync(join(dir,'graph/workflows.json'),JSON.stringify({workflows:rows}));
@@ -23,10 +23,10 @@ test('all corpus query lists have stable complete continuations and preserve dis
     writeFileSync(join(dir,'graph/graph.json'),JSON.stringify({nodes:rows,edges:rows.map((r,i)=>({from:r.id,to:'p0',kind:'navigates_to',label:'same destination',score:i}))}));
     for (const file of ['indexes/top-links.jsonl','extracts/links.jsonl','extracts/elements.jsonl']) writeFileSync(join(dir,file),rows.map(r=>JSON.stringify(r)).join('\n'));
     for (const [script,field] of [['corpus-inspect','pageRows'],['corpus-inspect','workflows'],['corpus-inspect','topLinks'],['graph-navigate','routes'],['graph-navigate','actionNodes'],['dom-find','matches'],['resource-list','resources']]) {
-      let page = invoke(process.execPath,[join(scripts,script+'.mjs'),'--session-dir',dir,'--view',field,'--limit','3']);
+      let page = invoke(process.execPath,[join(scripts,`${script}.mjs`),'--session-dir',dir,'--view',field,'--limit','3']);
       const found = [];
       for (;;) { assert(Buffer.byteLength(JSON.stringify(page)) < 22000); found.push(...page[field]); if (!page.next?.[field]) break; page=invoke(page.next[field].command,page.next[field].args); }
-      assert.equal(found.length,57,script+' '+field); assert.equal(new Set(found.map(r=>r.from ?? r.id ?? r.pageId)).size,57);
+      assert.equal(found.length,57,`${script} ${field}`); assert.equal(new Set(found.map(r=>r.from ?? r.id ?? r.pageId)).size,57);
     }
     const first=invoke(process.execPath,[join(scripts,'dom-find.mjs'),'--session-dir',dir,'--limit','1']);
     writeFileSync(join(dir,'extracts/elements.jsonl'),'{}\n');
@@ -47,7 +47,7 @@ test('oversized query values have reconstructable source pages', () => {
 test('downloaded raw and cleaned text survive configured view sizes and Unicode chunk boundaries', async () => {
   const dir=mkdtempSync(join(tmpdir(),'octo-scrape-retain-'));
   try {
-    const body='<h1>Guide</h1><p>'+('emoji 🧠 and spaces  '.repeat(2000))+'</p>';
+    const body=`<h1>Guide</h1><p>${'emoji 🧠 and spaces  '.repeat(2000)}</p>`;
     const config={outBase:dir,sessionId:'test',mode:'html',provider:'direct',maxRawBytes:100,maxTextBytes:2000,chunkBytes:1000};
     const sessionDir=await initCorpus(config);
     const written=await writePage({sessionDir,config,response:{pageId:'page-001',url:'https://site.test',contentType:'text/html',status:200,body}});
@@ -63,7 +63,7 @@ test('body search reaches later parts and regex pages every hit including zero-w
   try {
     for(const folder of ['text','extracts','graph'])mkdirSync(join(dir,folder));
     writeFileSync(join(dir,'text/first.md'),'unrelated '.repeat(9000));writeFileSync(join(dir,'text/last.md'),'late-needle');
-    writeFileSync(join(dir,'sources.jsonl'),JSON.stringify({pageId:'p1',url:'https://site.test',textParts:['text/first.md','text/last.md']})+'\n');
+    writeFileSync(join(dir,'sources.jsonl'),`${JSON.stringify({pageId:'p1',url:'https://site.test',textParts:['text/first.md','text/last.md']})}\n`);
     writeFileSync(join(dir,'AGENT_INDEX.json'),JSON.stringify({sessionId:'test',pages:[]}));
     const found=invoke(process.execPath,[join(scripts,'corpus-find.mjs'),'--session-dir',dir,'--query','late-needle']);
     assert(found.matches.some(row=>row.pageId==='p1'));
@@ -82,9 +82,9 @@ test('appending a session retains its earlier extracted links', () => {
     const args=[join(scripts,'fetch.mjs'),'--url','https://site.test/first','--provider','direct','--mock-status','200','--mock-content-type','text/html','--mock-body-file',fixture,'--session','append-proof'];
     // Fetch anchors output under the cwd's .octocode; use a private cwd.
     const call=argv=>{const result=spawnSync(process.execPath,argv,{cwd:dir,encoding:'utf8'});assert.equal(result.status,0,result.stdout+result.stderr);return JSON.parse(result.stdout);};
-    const first=call(args); const before=readFileSync(first.sessionDir+'/extracts/links.jsonl','utf8').trim().split('\n');
+    const first=call(args); const before=readFileSync(`${first.sessionDir}/extracts/links.jsonl`,'utf8').trim().split('\n');
     const next=[...args];next[next.indexOf('--url')+1]='https://site.test/second';call([...next,'--append']);
-    const after=readFileSync(first.sessionDir+'/extracts/links.jsonl','utf8').trim().split('\n').map(JSON.parse);
+    const after=readFileSync(`${first.sessionDir}/extracts/links.jsonl`,'utf8').trim().split('\n').map(JSON.parse);
     assert.equal(after.length,before.length*2);assert(after.some(row=>row.pageId==='page-001'));assert(after.some(row=>row.pageId==='page-002'));
   }finally{rmSync(dir,{recursive:true,force:true});}
 });
@@ -94,7 +94,7 @@ test('specialized script results retain every field through bounded source pages
   try {
     mkdirSync(join(dir,'extracts'));writeFileSync(join(dir,'extracts/one.json'),'{}');
     const expected={ok:true,extra:'🧠'.repeat(10000),findings:[{text:'complete'}]};
-    const script=join(dir,'custom.mjs');writeFileSync(script,'export async function run(){return '+JSON.stringify(expected)+';}');
+    const script=join(dir,'custom.mjs');writeFileSync(script,`export async function run(){return ${JSON.stringify(expected)};}`);
     const result=invoke(process.execPath,[join(scripts,'corpus-run.mjs'),'--session-dir',dir,'--script',script]);
     assert(Buffer.byteLength(JSON.stringify(result))<22000);
     let page=invoke(result.script.result.next.continue.command,result.script.result.next.continue.args);const parts=[];

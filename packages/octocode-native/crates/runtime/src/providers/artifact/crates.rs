@@ -38,6 +38,7 @@ fn apply_crate_version(artifact: &mut ArtifactItem, entry: &Value) {
     artifact.version = string(entry.get("num"));
     artifact.published_at = date_prefix(entry.get("created_at"));
     artifact.yanked = (entry.get("yanked") == Some(&Value::Bool(true))).then_some(true);
+    artifact.yanked_reason = artifact.yanked.and(string(entry.get("yank_message")));
     artifact.rust_version = string(entry.get("rust_version"));
     artifact.license = license(entry.get("license")).or(artifact.license.take());
 }

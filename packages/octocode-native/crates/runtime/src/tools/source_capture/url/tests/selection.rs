@@ -167,8 +167,6 @@ fn unsupported_content_is_refused_not_judged() {
         );
     for (path, needle) in [
         ("doc.pdf", "application/pdf"),
-        ("untyped", "untyped"),
-        ("latin1", "iso-8859-1"),
         ("invalid", "UTF-8"),
         ("binary", "binary"),
         ("app", "scripts"),

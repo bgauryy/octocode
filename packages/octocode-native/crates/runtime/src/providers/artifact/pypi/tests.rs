@@ -275,3 +275,54 @@ async fn release_tags_are_checked_for_each_lookup() {
         "one round per lookup"
     );
 }
+
+/// A release's row keeps what PyPI states about its safety: why it was yanked
+/// and its `vulnerabilities`, whole; none listed is `[]`. A response without
+/// the key says nothing, so the row claims nothing.
+#[tokio::test]
+async fn pypi_rows_keep_the_yanked_reason_and_vulnerabilities() {
+    let mut release = pypi_release("2.32.0");
+    release["info"]["yanked"] = json!(true);
+    release["info"]["yanked_reason"] =
+        json!("Yanked due to conflicts with CVE-2024-35195 mitigation");
+    release["vulnerabilities"] = json!([{
+        "aliases": ["CVE-2024-47081", "PYSEC-2026-1872"],
+        "details": "URL parsing issue.",
+        "fixed_in": ["2.32.4"],
+        "id": "GHSA-9hjg-9r4m-mvj7",
+        "link": "https://osv.dev/vulnerability/GHSA-9hjg-9r4m-mvj7",
+        "source": "osv",
+        "summary": null,
+        "withdrawn": null
+    }, {"id": "PYSEC-1", "aliases": [], "fixed_in": [], "withdrawn": "2026-01-02T00:00:00Z"}]);
+    let row = |release: serde_json::Value| async move {
+        let http = RouteHttp::routes(vec![("/pypi/requests/2.32.0/json", release)]);
+        let b = test_budget();
+        let client = RegistryClient::new(&http, &b);
+        let query = versioned(ArtifactType::Pypi, "requests", "2.32.0");
+        let page = pypi(&query, &client).await.expect("pypi");
+        serde_json::to_value(&page.artifacts[0]).expect("row")
+    };
+    let yanked = row(release).await;
+    assert_eq!(yanked["yanked"], true);
+    assert_eq!(
+        yanked["yankedReason"],
+        "Yanked due to conflicts with CVE-2024-35195 mitigation"
+    );
+    assert_eq!(
+        yanked["advisories"],
+        json!([{
+            "id": "GHSA-9hjg-9r4m-mvj7",
+            "aliases": ["CVE-2024-47081", "PYSEC-2026-1872"],
+            "url": "https://osv.dev/vulnerability/GHSA-9hjg-9r4m-mvj7",
+            "details": "URL parsing issue.",
+            "fixedIn": ["2.32.4"]
+        }, {"id": "PYSEC-1", "withdrawn": "2026-01-02T00:00:00Z"}])
+    );
+    let mut clean = pypi_release("2.32.0");
+    clean["vulnerabilities"] = json!([]);
+    assert_eq!(row(clean).await["advisories"], json!([]));
+    let silent = row(pypi_release("2.32.0")).await;
+    assert!(silent.get("advisories").is_none(), "{silent}");
+    assert!(silent.get("yankedReason").is_none(), "{silent}");
+}

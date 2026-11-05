@@ -30,7 +30,7 @@ export async function fixture(fn) {
 export function writeOutputs(directory, logs) {
   const outputs = {};
   for (const [name, value] of Object.entries(logs)) {
-    const file = join(directory, name + '.txt');
+    const file = join(directory, `${name}.txt`);
     writeFileSync(file, value);
     outputs[name] = { file, bytes: Buffer.byteLength(value) };
   }

@@ -39,7 +39,7 @@ define('remaining: streamed binary download progress and exact bytes', [
       cdp(
         'Runtime.evaluate',
         {
-          expression: `location.href=${JSON.stringify(suite.base + '/stream-download')};true`,
+          expression: `location.href=${JSON.stringify(`${suite.base}/stream-download`)};true`,
           returnByValue: true,
         },
         { session: ref(5, '/sessionId') }
@@ -82,7 +82,7 @@ define('remaining: delayed records redirect evidence and hidden searchbox', [
     { op: 'listen', id: 'redirect', event: 'Network.requestWillBeSent' },
     {
       op: 'goto',
-      url: suite.base + '/redirect-owned',
+      url: `${suite.base}/redirect-owned`,
       after: { selector: '.record' },
     },
     { op: 'extract', selector: '.record', fields: ['text'] },
@@ -118,23 +118,23 @@ define('remaining: delayed records redirect evidence and hidden searchbox', [
     hidden: '',
   });
   const redirect = events(r, 'redirect').find(
-    row => row.params.redirectResponse?.url === suite.base + '/redirect-owned'
+    row => row.params.redirectResponse?.url === `${suite.base}/redirect-owned`
   );
   assert.equal(redirect.params.redirectResponse.status, 302);
-  assert.equal(redirect.params.request.url, suite.base + '/ready-late');
+  assert.equal(redirect.params.request.url, `${suite.base}/ready-late`);
 });
 define('remaining: multi-file upload preserves names sizes and content', [
   'DOM.setFileInputFiles',
 ], async () => {
   const files = ['one.txt', 'two.txt'].map((name, index) => {
     const file = join(suite.work, name);
-    writeFileSync(file, 'owned-' + index);
+    writeFileSync(file, `owned-${index}`);
     return file;
   });
   const r = await plan([
     {
       op: 'goto',
-      url: suite.base + '/advanced',
+      url: `${suite.base}/advanced`,
       after: { selector: '#upload' },
     },
     cdp('Runtime.evaluate', {
@@ -167,7 +167,7 @@ define('remaining: closed-shadow protocol discovery exposes exact boundary', [
   const r = await plan([
     {
       op: 'goto',
-      url: suite.base + '/ready-late',
+      url: `${suite.base}/ready-late`,
       after: { selector: '#closed' },
     },
     cdp('DOM.getDocument', { depth: -1, pierce: true }),

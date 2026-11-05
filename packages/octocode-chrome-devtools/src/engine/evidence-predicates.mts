@@ -25,13 +25,10 @@ export const parse = (text: string): unknown =>
  */
 export function toPointer(path: string): string {
   if (!path || path.startsWith('/')) return path;
-  return (
-    '/' +
-    path
-      .split('.')
-      .map(part => part.replace(/~/g, '~0').replace(/\//g, '~1'))
-      .join('/')
-  );
+  return `/${path
+    .split('.')
+    .map(part => part.replace(/~/g, '~0').replace(/\//g, '~1'))
+    .join('/')}`;
 }
 
 const WHERE_EXAMPLE =

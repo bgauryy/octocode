@@ -244,7 +244,12 @@ cargo dev-test -- <filter>                             # the test:rust selection
 `cargo dev-test` (an alias in `.cargo/config.toml`) is the local loop: it
 carries the `test:rust` packages and features, so it reuses that build instead
 of compiling another copy, and libtest runs each test binary in one process.
-`test:rust` stays on nextest; `scripts/rust-tests.cjs` holds the selections and says why.
+`test:rust` stays on nextest, which kills a test stuck past 3 minutes, and every
+gate uses it; `scripts/rust-tests.cjs` holds the selections and says why. In the
+local loop a stuck test shows as libtest's `has been running for over 60 seconds`,
+then `scripts/test-watchdog.cjs` fails the run by the test's name 10 minutes later
+(`OCTOCODE_TEST_STUCK_SECONDS`). `--test-threads=1` prints no such line, so nothing
+guards that run.
 
 ## Constraints
 

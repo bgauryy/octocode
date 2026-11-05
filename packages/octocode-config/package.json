@@ -62,10 +62,11 @@
     "lint:own": "node scripts/generate-config-contract.ts --check",
     "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
     "lint": "yarn lint:own && yarn lint:oxlint",
-    "test": "vitest run --coverage",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:tokens:acceptance": "cd ../.. && node packages/octocode-config/tests/token-precedence.acceptance.mjs",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
-    "verify:own": "yarn lint:own && yarn typecheck && yarn test && yarn build",
+    "verify:own": "yarn lint:own && yarn typecheck && yarn test:coverage && yarn build",
     "verify": "yarn verify:own && yarn lint:oxlint"
   },
   "type": "module",

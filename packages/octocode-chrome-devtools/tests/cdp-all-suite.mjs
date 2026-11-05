@@ -80,7 +80,7 @@ try {
   );
   const queue = domains.flatMap(domain =>
     (domain.commands ?? []).map(command => ({
-      method: domain.domain + '.' + command.name,
+      method: `${domain.domain}.${command.name}`,
       params: params(domain, command),
       stable: !(
         domain.experimental ||
@@ -91,7 +91,7 @@ try {
     }))
   );
   const events = domains.flatMap(domain =>
-    (domain.events ?? []).map(entry => domain.domain + '.' + entry.name)
+    (domain.events ?? []).map(entry => `${domain.domain}.${entry.name}`)
   );
 
   const sweepStarted = Date.now();
@@ -148,7 +148,7 @@ try {
       steps: [
         ...events.map((event, index) => ({
           op: 'listen',
-          id: 'e' + index,
+          id: `e${index}`,
           event,
         })),
         ...enables.map(row => ({ op: 'cdp', method: row.method, params: {} })),
@@ -230,12 +230,10 @@ const file = resolve(
   get('--report', join(tmpdir(), 'octocode-cdp-all-report.json'))
 );
 mkdirSync(dirname(file), { recursive: true });
-writeFileSync(file, JSON.stringify(report, null, 2) + '\n');
-console.log('[ARTIFACT] cdp-all-report.json ' + file);
+writeFileSync(file, `${JSON.stringify(report, null, 2)}\n`);
+console.log(`[ARTIFACT] cdp-all-report.json ${file}`);
 for (const row of report.failures)
-  console.log(
-    'FAIL ' + row.method + ' ' + row.class + ': ' + (row.error ?? '')
-  );
+  console.log(`FAIL ${row.method} ${row.class}: ${row.error ?? ''}`);
 const { methods: _methods, eventRows: _events, failures, ...summary } = report;
 console.log(
   JSON.stringify({ ...summary, failures: failures.map(row => row.method) })

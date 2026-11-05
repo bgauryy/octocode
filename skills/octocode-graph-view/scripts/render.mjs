@@ -73,8 +73,8 @@ export function writeBriefs(D, out, modelPath = join(out, 'model.json')) {
   }
   const full = [...factLines(D, 10), `WEIGHT ${D.metrics.weightRule}`, ...(D.chunks ?? []).map((c) => `CHUNK ${c.path} files=${c.files} ${c.built ? 'built' : `not built${c.error ? `: ${c.error}` : ''}`}`), ...(D.model ? modelLines(D.model) : []), where];
   const brief = join(out, 'brief.txt'), briefFull = join(out, 'brief-full.txt');
-  writeFileSync(briefFull, full.join('\n') + '\n');
-  writeFileSync(brief, [...factLines(D, 3), `Every row, chunk and the weight rule: brief-full.txt. ${where}`].join('\n') + '\n');
+  writeFileSync(briefFull, `${full.join('\n')}\n`);
+  writeFileSync(brief, `${[...factLines(D, 3), `Every row, chunk and the weight rule: brief-full.txt. ${where}`].join('\n')}\n`);
   return { brief, briefFull };
 }
 

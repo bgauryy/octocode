@@ -1,4 +1,9 @@
-//! Importer recovery for TypeScript/JavaScript incoming queries.
+//! Importer recovery for TypeScript/JavaScript and C-family incoming queries.
+//!
+//! clangd answers `references` and call hierarchy from its index. Until its
+//! background index has finished, or without one (no compile database, or the
+//! user turned it off), that index holds only the files opened so far: every
+//! file a request has not opened is silently missing from the answer.
 //!
 //! tsserver answers `references` and call hierarchy from the anchor file's
 //! program. Two common layouts silently drop importers from that answer:
@@ -15,7 +20,7 @@
 //!
 //! Candidates are verified [`MAX_CANDIDATE_FILES`] per request. The sorted
 //! candidate list is cut into windows of that size; `importerPage` picks the
-//! window, and `next.nextPage` (on each of the window's location
+//! window, and `next.nextImporterWindow` (on each of the window's location
 //! pages) carries the candidate digest as its `snapshot`, so every candidate is
 //! verified in exactly one window and a changed list restarts the walk.
 //! Before the list is cut, candidates whose imports name only other modules
@@ -42,10 +47,17 @@ use std::sync::Arc;
 
 mod binding;
 mod coverage;
+mod freshen;
+mod index_proof;
+mod markup;
 mod occurrences;
 mod reach;
 mod search;
 pub(super) use binding::{Binding, binding, identities};
+pub(super) use freshen::{Freshened, freshen_index};
+use index_proof::verify_by_references;
+pub(super) use index_proof::{IndexWindow, SiteProof, index_window};
+pub(super) use markup::flag_markup_importers;
 use occurrences::*;
 pub(super) use occurrences::{CONCURRENT_FILE_VERIFICATIONS, ordered_concurrently};
 use reach::{AnchorModule, read_checked, split_reachable};
@@ -59,14 +71,14 @@ pub(super) const MAX_CANDIDATE_FILES: usize = 24;
 /// Windows one request may verify. A window that holds no verified
 /// importer is followed by the next in the same request (it adds no site),
 /// up to this many windows or [`SKIP_BUDGET`] of wall time;
-/// `next.nextPage` resumes after them.
+/// `next.nextImporterWindow` resumes after them.
 pub(super) const MAX_WINDOWS_PER_REQUEST: usize = 8;
 /// Wall time after which a request that has skipped silent windows stops
 /// skipping and returns its page of the continuing scan: one call stays
 /// within the time of a few windows however slow the server is.
 const SKIP_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
 /// Prefix of a candidate-list digest (the `snapshot` of
-/// `next.nextPage`).
+/// `next.nextImporterWindow`).
 const DIGEST_PREFIX: &str = "lsp-imp:";
 /// Partial reason of a window that leaves later windows unverified.
 pub(super) const CAPPED_REASON: crate::response::paging::PartialReason =
@@ -127,7 +139,7 @@ pub(super) struct Importers {
 
 /// Which importer window a request verifies (`importerPage`, one-based),
 /// and the candidate digest a later window's first location page must
-/// match (`snapshot`, copied from `next.nextPage`).
+/// match (`snapshot`, copied from `next.nextImporterWindow`).
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct WindowRequest<'a> {
     pub(super) page: u32,
@@ -271,15 +283,26 @@ impl Window {
             .map_or(self.page, |index| self.list.page_of(index))
     }
 
+    /// Whether a file (canonical path) is a candidate of any window.
+    pub(super) fn lists(&self, file: &str) -> bool {
+        self.list
+            .items()
+            .binary_search_by(|candidate| candidate.as_str().cmp(file))
+            .is_ok()
+    }
+
     /// Whether a later window remains.
     pub(super) fn more(&self) -> bool {
         self.list.more_after(self.page)
     }
 }
 
-/// True for operations whose answer lists places that point *at* the anchor.
+/// True for operations whose answer lists places that point *at* the anchor,
+/// on a server that answers them only from what it has opened: tsserver's
+/// program, and clangd's dynamic index until a background index covers the file.
 pub(super) fn applies(language_id: Option<&str>, operation: &str) -> bool {
-    octocode_engine::lsp::family::is_typescript_family(language_id)
+    use octocode_engine::lsp::family::{is_c_family, is_typescript_family};
+    (is_typescript_family(language_id) || is_c_family(language_id))
         && matches!(operation, "references" | "callers")
 }
 

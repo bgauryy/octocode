@@ -18,13 +18,16 @@ pub use proof::{Link, Proof, cache_stamp, exists};
 /// records a stamp only for a file untouched for [`SourceStamp::SETTLE`], so
 /// any later write moves its time past the stored one. On Unix the status
 /// change time and inode also change on a write that restores the old
-/// modification time, or on a replace by rename.
+/// modification time, or on a replace by rename. Windows has neither without a
+/// handle per file: its file attributes stand in, so `attrib +r` moves the stamp
+/// though a same-size edit that restores its time does not.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct SourceStamp {
     pub size: u64,
     /// Modification time, nanoseconds since the Unix epoch.
     pub modified_ns: u64,
-    /// Status change time in nanoseconds (Unix), else 0.
+    /// Status change time in nanoseconds (Unix), or the file attributes
+    /// (Windows), else 0.
     pub changed_ns: u64,
     /// Inode number (Unix), else 0.
     pub inode: u64,
@@ -49,7 +52,12 @@ impl SourceStamp {
                 .and_then(|(secs, nanos)| secs.checked_mul(1_000_000_000)?.checked_add(nanos));
             (changed?, meta.ino())
         };
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        let (changed_ns, inode) = {
+            use std::os::windows::fs::MetadataExt as _;
+            (u64::from(meta.file_attributes()), 0)
+        };
+        #[cfg(not(any(unix, windows)))]
         let (changed_ns, inode) = (0, 0);
         Some(Self {
             size: meta.len(),

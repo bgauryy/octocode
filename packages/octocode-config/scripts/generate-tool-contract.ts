@@ -15,15 +15,16 @@
 // is the whole change. Outputs are committed and never hand-edited; `--check`
 // requires cargo-typify to compare the Rust body and fails when any output is stale.
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   buildEnforcementContractIr,
   buildNativeParityFixtures,
   canonicalizeNativeContractIr,
+  type EnforcementContractIr,
 } from '@octocodeai/octocode-core/schema';
 import { buildToolTypesBundle } from './tool-contract/bundle.ts';
+import { isEntryPoint } from './tool-contract/entry-point.ts';
 import { buildCliPresentation } from './tool-contract/presentation.ts';
 import { toolNames } from './tool-contract/rust-dispatch.ts';
 import { renderRust, rustHeader, type Dispatch } from './tool-contract/rust.ts';
@@ -47,13 +48,12 @@ function corePackageVersion(): string {
 }
 
 /** Every generated file except the Rust body, plus the header it must start with. */
-export function generateToolContract(): {
+export function generateToolContract(ir: EnforcementContractIr = buildEnforcementContractIr()): {
   files: Map<string, string>;
   bundleJson: string;
   rustHeader: string;
   dispatch: Dispatch;
 } {
-  const ir = buildEnforcementContractIr();
   const contractJson = canonicalizeNativeContractIr(ir);
   const { fingerprint, bundle } = buildToolTypesBundle(ir);
   const bundleJson = `${JSON.stringify(bundle, null, 2)}\n`;
@@ -68,7 +68,7 @@ export function generateToolContract(): {
     files: new Map([
       [contractFile('tool-contract.json'), contractJson],
       [contractFile('contract-fixtures.json'), `${JSON.stringify(buildNativeParityFixtures(), null, 2)}\n`],
-      [contractFile('cli-presentation.json'), `${JSON.stringify(buildCliPresentation())}\n`],
+      [contractFile('cli-presentation.json'), `${JSON.stringify(buildCliPresentation(ir))}\n`],
       [contractFile('provenance.json'), `${JSON.stringify(provenance, null, 2)}\n`],
       [contractFile('tool-types.schema.json'), bundleJson],
     ]),
@@ -110,12 +110,4 @@ function main(): void {
   }
 }
 
-// argv[1] keeps a symlinked path while import.meta.url is the real path.
-const realOrSelf = (p: string): string => {
-  try {
-    return realpathSync(p);
-  } catch {
-    return resolve(p);
-  }
-};
-if (process.argv[1] && realOrSelf(process.argv[1]) === realOrSelf(fileURLToPath(import.meta.url))) main();
+if (isEntryPoint(process.argv[1], import.meta.url)) main();

@@ -2,14 +2,15 @@
 //! a retried server error, or a final answer, and the wait each allows.
 use bytes::Bytes;
 use reqwest::{StatusCode, header::HeaderMap};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use octocode_io::retry::{classify_status, header_u64, retry_after_delay};
 
 use super::super::response::response_error;
 use super::{Attempts, RetryWait};
 use crate::budget::{
-    CircuitCause, ExecutorConfig, is_primary_rate_limit, is_secondary_rate_limit, now_ms,
+    CircuitCause, ExecutorConfig, GitHubResource, KeyState, is_primary_rate_limit,
+    is_secondary_rate_limit, now_ms,
 };
 use crate::{ProviderError, ProviderErrorKind, RateLimit};
 
@@ -65,25 +66,15 @@ impl Attempts<'_> {
             }
             Failure::Secondary { wait } => {
                 *self.failed = Some(CircuitCause::Secondary);
-                let cooldown_end = now_ms().saturating_add(crate::budget::millis(wait));
-                self.state.cool_down(cooldown_end);
                 error.kind = ProviderErrorKind::RateLimited;
                 error.retryable = true;
                 error.message = "GitHub secondary rate limit exceeded".into();
-                error.rate_limit = Some(Box::new(RateLimit {
-                    remaining: header_u64(headers, "x-ratelimit-remaining"),
-                    // The cooldown end: the primary window reset GitHub
-                    // also sends is unrelated to when a retry can run.
-                    reset_epoch_seconds: Some(cooldown_end.div_ceil(1000)),
-                    retry_after_seconds: Some(crate::budget::ceil_secs(wait)),
-                    resource: Some(
-                        headers
-                            .get("x-ratelimit-resource")
-                            .and_then(|value| value.to_str().ok())
-                            .unwrap_or(resource.bucket())
-                            .into(),
-                    ),
-                }));
+                error.rate_limit = Some(Box::new(secondary_cooldown(
+                    &self.state,
+                    headers,
+                    wait,
+                    resource,
+                )));
                 Some(RetryWait {
                     wait,
                     sleep: Duration::ZERO,
@@ -131,6 +122,46 @@ enum Failure {
 /// The longest provider-requested retry delay honored: a day.
 const MAX_PROVIDER_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// How long a secondary limit answered with `headers` holds: what GitHub says,
+/// else until an exhausted bucket resets, else the documented default.
+pub(in crate::transport) fn secondary_wait(
+    headers: &HeaderMap,
+    config: &ExecutorConfig,
+) -> Duration {
+    let remaining = header_u64(headers, "x-ratelimit-remaining");
+    let reset = header_u64(headers, "x-ratelimit-reset");
+    match (provider_retry_after(headers), remaining, reset) {
+        (Some(requested), _, _) => requested,
+        (None, Some(0), Some(reset)) => config.reset_wait(reset),
+        _ => config.secondary_default,
+    }
+}
+
+/// Start the key's cooldown for a secondary limit, whatever status carried it.
+/// Its `resetEpochSeconds` is the cooldown end: the primary window reset GitHub
+/// also sends is unrelated to when a retry can run.
+pub(in crate::transport) fn secondary_cooldown(
+    state: &Arc<KeyState>,
+    headers: &HeaderMap,
+    wait: Duration,
+    resource: GitHubResource,
+) -> RateLimit {
+    let cooldown_end = now_ms().saturating_add(crate::budget::millis(wait));
+    state.cool_down(cooldown_end);
+    RateLimit {
+        remaining: header_u64(headers, "x-ratelimit-remaining"),
+        reset_epoch_seconds: Some(cooldown_end.div_ceil(1000)),
+        retry_after_seconds: Some(crate::budget::ceil_secs(wait)),
+        resource: Some(
+            headers
+                .get("x-ratelimit-resource")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or(resource.bucket())
+                .into(),
+        ),
+    }
+}
+
 /// `Retry-After` (delta-seconds or HTTP-date) or `retry-after-ms`.
 fn provider_retry_after(headers: &HeaderMap) -> Option<Duration> {
     retry_after_delay(
@@ -153,12 +184,9 @@ fn classify_failure(
     let reset = header_u64(headers, "x-ratelimit-reset");
     let text = String::from_utf8_lossy(body);
     if is_secondary_rate_limit(code, remaining, retry_after, &text) {
-        let wait = match (requested, remaining, reset) {
-            (Some(requested), _, _) => requested,
-            (None, Some(0), Some(reset)) => config.reset_wait(reset),
-            _ => config.secondary_default,
+        return Failure::Secondary {
+            wait: secondary_wait(headers, config),
         };
-        return Failure::Secondary { wait };
     }
     if is_primary_rate_limit(code, remaining, &text) {
         let reset = reset.unwrap_or_else(|| {

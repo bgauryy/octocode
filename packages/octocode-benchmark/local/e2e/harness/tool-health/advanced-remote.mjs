@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { inventoryRows, nextHints, sourceLines, sourceView, structureFiles, rawPatch } from '../responses.mjs';
 import { tokenFor } from './surfaces.mjs';
 import { advancedRegistries } from './advanced-registry.mjs';
+import { advancedSecurityCheck } from './advanced-osv.mjs';
 import { advancedHistoryForms } from './advanced-history.mjs';
 import { addedLines, blobSha } from './mock-model.mjs';
 
@@ -211,7 +212,7 @@ async function readerMatchPages(ctx, surface, out, sources) {
   out.push([`advanced.flow.matchPages.${surface}`, !report.failures.length && equal(rows.flatMap(row => sourceLines(row.data)), expected) && equal(matches, [4, 7, 10, 13, 16, 19, 22]), `${report.responses.length} calls; matched ${matches}`]);
   await exactRead(ctx, surface, out, {
     label: 'oversizedMatchRange', query: { ...query, path: 'flow-long.txt', matchString: ['0:界😀;', '5999:界😀;'], ranges: [{ startLine: 1, endLine: 1 }], contextLines: { before: 100, after: 100 } },
-    expected: sources['flow-long.txt'].split('\n')[0] + '\n', responseChars: 1000,
+    expected: `${sources['flow-long.txt'].split('\n')[0]}\n`, responseChars: 1000,
   });
 }
 
@@ -274,9 +275,9 @@ async function readerPinned(ctx, surface, out, sources) {
 async function readerFlows(ctx) {
   const out = [];
   const sources = {
-    'flow-lines.txt': Array.from({ length: 24 }, (_, index) => `source ${index + 1}: 界😀 café\t${index % 3 === 0 ? 'needle' : 'plain'}`).join('\r\n') + '\r\n',
-    'flow-long.txt': Array.from({ length: 6000 }, (_, index) => `${index}:界😀;`).join('') + '\r\ntail界😀',
-    'flow-data.json': JSON.stringify({ marker: 'literal // text', unicode: '界😀', values: [0, false, null, { nested: 'café' }] }, null, 2) + '\n',
+    'flow-lines.txt': `${Array.from({ length: 24 }, (_, index) => `source ${index + 1}: 界😀 café\t${index % 3 === 0 ? 'needle' : 'plain'}`).join('\r\n')}\r\n`,
+    'flow-long.txt': `${Array.from({ length: 6000 }, (_, index) => `${index}:界😀;`).join('')}\r\ntail界😀`,
+    'flow-data.json': `${JSON.stringify({ marker: 'literal // text', unicode: '界😀', values: [0, false, null, { nested: 'café' }] }, null, 2)}\n`,
     'flow-empty.txt': '',
     'flow-attribution.txt': 'prefix\nsame\nsame\n',
   };
@@ -390,5 +391,5 @@ async function clone(ctx) {
 
 export const ADVANCED_REMOTE = {
   ghSearchRepo: repository, ghSearchCode: code, ghStructure: structure, ghGetFileContent: reader,
-  ghSearchHistory: history, ghGetHistoryItem: historyItem, artifactSearch: artifacts, ghCloneRepo: clone,
+  ghSearchHistory: history, ghGetHistoryItem: historyItem, artifactSearch: artifacts, securityCheck: advancedSecurityCheck, ghCloneRepo: clone,
 };

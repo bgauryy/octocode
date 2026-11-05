@@ -95,3 +95,45 @@ async fn maven_pages_walk_every_row_central_serves_from_its_first() {
         "every request starts at 0"
     );
 }
+
+/// Central's search row names `latestVersion`, which can be a release
+/// candidate. Such a row reads its metadata for the newest stable release, as
+/// an exact lookup does; a stable row spends no extra request.
+#[tokio::test]
+async fn a_discovery_row_names_the_newest_stable_release() {
+    let http = RouteHttp::new()
+        .json(
+            "/solrsearch/select?q=spring&rows=20&start=0&wt=json",
+            json!({"response": {"numFound": 2, "docs": [
+                {"g": "org.springframework", "a": "spring-core", "latestVersion": "7.1.0-RC1"},
+                {"g": "io.netty", "a": "netty-all", "latestVersion": "4.2.20.Final"}
+            ]}}),
+        )
+        .bytes(
+            "/maven2/org/springframework/spring-core/maven-metadata.xml",
+            "<metadata><groupId>org.springframework</groupId><artifactId>spring-core</artifactId>\
+             <versioning><release>7.1.0-RC1</release><versions>\
+             <version>7.0.10</version><version>7.1.0-RC1</version></versions></versioning></metadata>",
+        );
+    let b = test_budget();
+    let client = RegistryClient::new(&http, &b);
+    let query = artifact_query(
+        json!({"operation":"search","ecosystem": ArtifactType::Maven, "keywords": ["spring"], "limit": 20}),
+        None,
+    );
+    let page = maven(&query, &ArtifactProviderState::default(), &client)
+        .await
+        .expect("maven search");
+    let versions = page
+        .artifacts
+        .iter()
+        .map(|row| row.version.as_deref().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(versions, ["7.0.10", "4.2.20.Final"]);
+    let metadata_reads = http
+        .targets()
+        .iter()
+        .filter(|target| target.ends_with("maven-metadata.xml"))
+        .count();
+    assert_eq!(metadata_reads, 1, "{:?}", http.targets());
+}

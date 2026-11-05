@@ -69,7 +69,7 @@ export function createCommunicationCli(): CliSpec {
         for (const [property, name] of transport) {
           delete payload[property]; const value = input[property];
           if (value === undefined || value === false) continue;
-          args.push('--' + name);
+          args.push(`--${name}`);
           if (value !== true) args.push(String(value));
         }
         const hasPayload = !flagOnly.has(descriptor.name) && !descriptor.name.startsWith('schema ');

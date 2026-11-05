@@ -140,3 +140,41 @@ async fn an_empty_owner_search_states_unproven_absence_and_lists_repositories() 
         out.data
     );
 }
+
+/// An empty row's hint names only the leads the row has: a search that offers
+/// `broadenSearch` has no root listing to point at. Either way it names the next
+/// step for what the index may not hold, a read of a known file by matchString.
+#[tokio::test]
+async fn an_empty_hint_names_only_a_lead_the_row_has() {
+    for (row, listed) in [
+        (
+            json!({"owner":"octo","repo":"demo","keywords":["zzqq"],"nameContains":"x"}),
+            false,
+        ),
+        (
+            json!({"owner":"octo","repo":"demo","keywords":["zzqq"]}),
+            true,
+        ),
+    ] {
+        let out = run_empty(row.clone()).await;
+        let hints = out.diagnostics.hints.join(" ");
+        assert_eq!(
+            crate::tools::test_support::checks::find_related_call(
+                &out.data,
+                "ghStructure",
+                |input| input["queries"][0]["operation"] == "tree"
+            )
+            .is_some(),
+            listed,
+            "{row}: {}",
+            out.data
+        );
+        assert_eq!(
+            hints.contains("related[] ghStructure"),
+            listed,
+            "{row}: {hints}"
+        );
+        assert!(hints.contains("unproven absence"), "{row}: {hints}");
+        assert!(hints.contains("matchString"), "{row}: {hints}");
+    }
+}

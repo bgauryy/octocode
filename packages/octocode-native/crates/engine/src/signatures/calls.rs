@@ -59,6 +59,17 @@ impl CallAdapter {
                 &["this", "super"],
                 GraphCallBoundary::ConstructorDelegation,
             )),
+            // A conditional or null-forgiving access reads the same receiver.
+            #[cfg(feature = "tree-sitter-c-sharp")]
+            (Self::CSharp, "invocation_expression") => {
+                let (callee, name_token) = call_callee(node, content)?;
+                Some(SyntaxCall {
+                    callee: callee.replace("?.", ".").replace("!.", "."),
+                    name_token: Some(name_token),
+                    kind: "calls",
+                    binding: GraphCallBinding::SyntaxLookup,
+                })
+            }
             #[cfg(feature = "tree-sitter-c-sharp")]
             (Self::CSharp, "object_creation_expression") => Some(named_construction(node, content)),
             #[cfg(feature = "tree-sitter-c-sharp")]
@@ -107,6 +118,16 @@ impl CallAdapter {
             #[cfg(feature = "tree-sitter-scala")]
             (Self::Scala, "instance_expression") => {
                 (!scala_applied(node)).then(|| scala_construction(node, content))
+            }
+            #[cfg(feature = "tree-sitter-scala")]
+            (Self::Scala, "infix_expression") => {
+                let (callee, name_token) = super::nodes::scala_infix_callee(node, content)?;
+                Some(SyntaxCall {
+                    callee,
+                    name_token: Some(name_token),
+                    kind: "calls",
+                    binding: GraphCallBinding::SyntaxLookup,
+                })
             }
             #[cfg(feature = "tree-sitter-scala")]
             (Self::Scala, "call_expression") => {

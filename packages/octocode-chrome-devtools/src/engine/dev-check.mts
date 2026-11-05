@@ -80,7 +80,7 @@ async function isolatedBrowser(port: string, visible: boolean) {
 
 async function main(argv: string[]) {
   if (argv.includes('--help') || argv.includes('-h')) {
-    process.stdout.write(USAGE + '\n');
+    process.stdout.write(`${USAGE}\n`);
     return 0;
   }
   const { opts, url, port, waitUntil, timeoutMs, idleMs } = options(argv);
@@ -117,11 +117,11 @@ async function main(argv: string[]) {
   }
   const { status: _status, wsUrl: _wsUrl, ...launch } = browser;
   process.stdout.write(
-    JSON.stringify({
+    `${JSON.stringify({
       ...JSON.parse(readFileSync(report, 'utf8')),
       report,
       browser: launch,
-    }) + '\n'
+    })}\n`
   );
   return 0;
 }

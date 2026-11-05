@@ -147,6 +147,10 @@ pub struct LspExecutionConfig {
     /// The runtime's working directory: the invocation directory language
     /// server discovery trusts and searches, whatever the process's is.
     pub invocation_dir: Option<std::path::PathBuf>,
+    /// Whether a server may keep an index under the home (`storage.mode`).
+    pub index_on_disk: bool,
+    /// See [`LspDiscoveryOptions::fetched_code_roots`].
+    pub fetched_code_roots: Vec<std::path::PathBuf>,
     pub(crate) prewarm_state: std::sync::Arc<std::sync::Mutex<prewarm::WarmState>>,
 }
 
@@ -159,6 +163,9 @@ impl LspExecutionConfig {
             env: self.env.clone(),
             octocode_home: self.octocode_home.clone(),
             invocation_dir: self.invocation_dir.clone(),
+            index_on_disk: self.index_on_disk,
+            fetched_code_roots: self.fetched_code_roots.clone(),
+            ..LspDiscoveryOptions::default()
         }
     }
 }
@@ -246,7 +253,11 @@ pub(crate) async fn execute(
             .await?;
             let selected =
                 octocode_engine::lsp::client::RESPONSE_SCOPE.with(|scope| scope.borrow().clone());
-            answers.retain(&mut row, &selected)?;
+            answers.retain(
+                &mut row,
+                &selected,
+                crate::execution::cancel::deadline_of(cancel),
+            )?;
             Ok(row)
         }),
     );

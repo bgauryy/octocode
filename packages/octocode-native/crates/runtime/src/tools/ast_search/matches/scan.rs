@@ -83,10 +83,14 @@ pub(super) fn scan_file(
     }
     // A test-code scope keeps one side of a single file's matches too.
     let mut test_code_excluded = octocode_engine::types::TestCodeExcluded::default();
+    let mut test_code_unread = Vec::new();
+    let mut verdict_inputs = Vec::new();
     if let Some(scoped) = crate::tools::test_code::Scoped::of(q.test_code(), paths) {
         r.matches
             .retain(|matched| scoped.keeps(canonical, matched.start_line));
         test_code_excluded = scoped.excluded();
+        test_code_unread = scoped.unread();
+        verdict_inputs = scoped.watched();
     }
     if let Some(note) =
         super::super::language::cpp_header_note(canonical, q.language().as_deref(), source)
@@ -112,7 +116,9 @@ pub(super) fn scan_file(
         }],
         sources: vec![canonical.clone()],
         source_digest: octocode_engine::digest::sha256(&bytes),
+        ignore_rules: verdict_inputs,
         test_code_excluded,
+        test_code_unread,
         ..Scan::default()
     })
 }
@@ -140,13 +146,7 @@ pub(super) fn scan_directory(
         },
     );
     let ignore_rules = q.include_ignored() != Some(true);
-    let log = WalkLog::new(
-        scope,
-        paths,
-        &admission,
-        ignore_rules,
-        q.include_hidden() == Some(true),
-    );
+    let log = WalkLog::new(scope, paths, &admission, q.include_hidden() == Some(true));
     let projection_failure = std::sync::Mutex::new(None);
     let price = |m: &StructuralDetailedMatch| match match_price(q, m, cancel) {
         Ok(price) => price,
@@ -227,17 +227,27 @@ pub(super) fn scan_directory(
             .map(|file| (file.path.as_str(), file.source_sha256.as_deref())),
     );
     let logged = log.finish();
+    let mut rules = if ignore_rules {
+        octocode_engine::search::walk::external_ignore_inputs(&scope.canonical)
+    } else {
+        Vec::new()
+    };
+    // What a `testCode` scope's verdicts read, a parent module outside this
+    // scope too, proves a kept scan as the ignore rules do.
+    if let Some(scoped) = &scoped {
+        rules.extend(scoped.watched());
+    }
     // Preserve the scan-level coverage signals the group projection drops.
     Ok(Scan {
         sources,
         source_digest,
-        ignore_rules: logged.ignore_rules,
+        ignore_rules: rules,
+        watches_ignore_files: ignore_rules,
         repository_markers: if ignore_rules {
             crate::tools::page_memo::repository_markers(&scope.canonical)
         } else {
             Vec::new()
         },
-        untracked_ignore_dependencies: logged.untracked_ignore_dependencies,
         discovery_sources: logged.discovery_sources,
         files: r
             .files
@@ -256,6 +266,9 @@ pub(super) fn scan_directory(
             .collect(),
         truncated: r.scan_truncated,
         scan_resume: r.scan_resume,
+        listed_before: r.listed_before,
+        listed_through: r.listed_through,
+        earlier_files: r.earlier_files,
         diagnostics: r.diagnostics,
         skips: (r.skipped_unsupported, r.skipped_unreadable, r.skipped_large),
         walk_errors: r.walk_errors,
@@ -263,9 +276,14 @@ pub(super) fn scan_directory(
         withheld: admission.skipped().withheld,
         unparsed: logged.unparsed,
         census: logged.census,
+        present: logged.present,
         test_code_excluded: scoped
             .as_ref()
             .map(crate::tools::test_code::Scoped::excluded)
+            .unwrap_or_default(),
+        test_code_unread: scoped
+            .as_ref()
+            .map(crate::tools::test_code::Scoped::unread)
             .unwrap_or_default(),
     })
 }

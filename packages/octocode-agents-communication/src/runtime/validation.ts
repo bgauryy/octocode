@@ -60,7 +60,7 @@ export function compilePattern(pattern: string): RegExp {
     try {
       compiled = new RegExp(catalogWhitespace(pattern), 'u');
     } catch {
-      throw new ValidationError('Unsupported catalog pattern: ' + pattern);
+      throw new ValidationError(`Unsupported catalog pattern: ${pattern}`);
     }
     patterns.set(pattern, compiled);
   }
@@ -71,8 +71,8 @@ export function checkSchema(schema: unknown): void {
   if (typeof schema === 'boolean') return;
   if (!isObject(schema)) throw new ValidationError('Invalid catalog schema');
   const unknown = Object.keys(schema).filter(key => !KEYWORDS.has(key));
-  if (unknown.length) throw new ValidationError('Unsupported catalog schema keyword: ' + unknown.sort().join(', '));
-  for (const name of Array.isArray(schema.type) ? schema.type : schema.type === undefined ? [] : [schema.type]) if (typeof name !== 'string' || !has(TYPES, name)) throw new ValidationError('Unsupported catalog schema type: ' + String(name));
+  if (unknown.length) throw new ValidationError(`Unsupported catalog schema keyword: ${unknown.sort().join(', ')}`);
+  for (const name of Array.isArray(schema.type) ? schema.type : schema.type === undefined ? [] : [schema.type]) if (typeof name !== 'string' || !has(TYPES, name)) throw new ValidationError(`Unsupported catalog schema type: ${String(name)}`);
   const properties = schema.properties;
   if (isObject(properties)) for (const sub of Object.values(properties)) checkSchema(sub);
   for (const key of ['items', 'additionalProperties', 'not', 'if', 'then', 'else']) if (has(schema, key)) checkSchema(schema[key]!);
@@ -112,7 +112,7 @@ function number(schema: JsonObject, key: string, fallback: number): number {
 
 export function validate(schema: Schema, value: unknown, location = ''): void {
   const fail = (rule: string): never => {
-    throw new ValidationError(truncateCodePoints('Invalid input: ' + (location || 'input') + ' ' + rule, 200));
+    throw new ValidationError(truncateCodePoints(`Invalid input: ${location || 'input'} ${rule}`, 200));
   };
   if (schema === true) return;
   if (schema === false) return fail('is not allowed');
@@ -122,13 +122,13 @@ export function validate(schema: Schema, value: unknown, location = ''): void {
   if (has(schema, 'const') && !jsonEqual(value, schema.const)) fail('does not match required value');
   if (isObject(value)) {
     const missingKey = asArray(schema.required).find(key => !has(value, key as string));
-    if (missingKey !== undefined) fail('is missing required property ' + missingKey);
+    if (missingKey !== undefined) fail(`is missing required property ${String(missingKey)}`);
     const count = Object.keys(value).length;
     if (count < number(schema, 'minProperties', 0) || count > number(schema, 'maxProperties', Infinity)) fail('has invalid property count');
     const properties = isObject(schema.properties) ? schema.properties : {};
     const additional = schema.additionalProperties;
     for (const [key, item] of Object.entries(value)) {
-      const child = location + '/' + key.replaceAll('~', '~0').replaceAll('/', '~1');
+      const child = `${location}/${key.replaceAll('~', '~0').replaceAll('/', '~1')}`;
       if (has(properties, key)) validate(properties[key] as Schema, item, child);
       else if (additional === false) fail('has additional properties');
       else if (isObject(additional)) validate(additional, item, child);
@@ -140,7 +140,7 @@ export function validate(schema: Schema, value: unknown, location = ''): void {
   if (isArray(value)) {
     if (value.length < number(schema, 'minItems', 0) || value.length > number(schema, 'maxItems', Infinity)) fail('has invalid item count');
     if (schema.uniqueItems && value.some((item, index) => value.slice(0, index).some(previous => jsonEqual(item, previous)))) fail('must contain unique items');
-    if (has(schema, 'items')) value.forEach((item, index) => validate(schema.items as Schema, item, location + '/' + index));
+    if (has(schema, 'items')) value.forEach((item, index) => validate(schema.items as Schema, item, `${location}/${index}`));
   }
   if (typeof value === 'string') {
     const length = codePointLength(value);

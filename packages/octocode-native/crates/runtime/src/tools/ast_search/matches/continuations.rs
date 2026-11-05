@@ -20,7 +20,7 @@ pub(super) fn attach_match_continuations(
     scope: &Scope,
     out: &mut Value,
     page_groups: &[Group],
-    cut: ScanCut,
+    cut: ScanCut<'_>,
     more: bool,
     snapshot: &str,
 ) -> Result<(), ToolError> {
@@ -72,7 +72,12 @@ pub(super) fn attach_match_continuations(
         insert_next(
             &mut out["calls"],
             AstSearchChannel::ExpandScan,
-            with(Move::ScanWindow(offset))?,
+            continuation_with(q, Move::ScanWindow(offset), cut.pin).ok_or_else(|| {
+                ToolError::new(
+                    ErrorCode::OutputContractViolation,
+                    "astSearch could not build the scan window's continuation",
+                )
+            })?,
         );
         super::super::scan_window::mark_resumed(out);
     }

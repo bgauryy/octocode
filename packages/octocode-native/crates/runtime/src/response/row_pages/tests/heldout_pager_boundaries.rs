@@ -27,7 +27,7 @@ fn exact_tail_boundary_includes_row_part_without_losing_closure_or_rows() {
     assert!(plan.total_pages > 1);
     let mut seen = Vec::new();
     for page in 0..plan.total_pages {
-        let rows = plan.build_page(page, &[None], &[], &token).unwrap();
+        let rows = plan.build_page(page, &[None], &token).unwrap();
         assert!(!rows.is_empty());
         assert!(
             chars(&json!(rows)) <= budget,
@@ -71,7 +71,7 @@ fn first_only_oversized_context_does_not_enlarge_later_nested_pages() {
     let mut seen = Vec::new();
     let mut descriptions = 0;
     for page in 0..plan.total_pages {
-        let rows = plan.build_page(page, &[None], &[], &token).unwrap();
+        let rows = plan.build_page(page, &[None], &token).unwrap();
         assert!(!rows.is_empty());
         if page == 0 {
             assert!(

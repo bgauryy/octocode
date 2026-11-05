@@ -48,7 +48,9 @@ fn oversized_batch(tool_name: &str, rows: usize) -> Option<ValidationIssue> {
 
 /// The shape issues of `input` for `tool_name`; empty when it is the
 /// envelope of object rows or a saved-response read for canonical validation.
-pub(super) fn envelope_issues(tool_name: &str, input: &Value) -> Vec<ValidationIssue> {
+/// The batch limit bounds what a caller sends; `saved` rows were admitted
+/// already, and a row's walks may fan out past it.
+pub(super) fn envelope_issues(tool_name: &str, input: &Value, saved: bool) -> Vec<ValidationIssue> {
     let issue = |path: Vec<String>, message: String| ValidationIssue {
         rule_id: ENVELOPE_SHAPE.to_owned(),
         path,
@@ -94,7 +96,7 @@ pub(super) fn envelope_issues(tool_name: &str, input: &Value) -> Vec<ValidationI
             received: Some(rows.clone()),
         }];
     };
-    if let Some(issue) = oversized_batch(tool_name, rows.len()) {
+    if !saved && let Some(issue) = oversized_batch(tool_name, rows.len()) {
         return vec![issue];
     }
     rows.iter()

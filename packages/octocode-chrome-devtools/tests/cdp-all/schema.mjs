@@ -6,12 +6,12 @@ export function placeholders(protocol) {
   const types = new Map();
   for (const domain of protocol.domains)
     for (const type of domain.types ?? [])
-      types.set(domain.domain + '.' + type.id, type);
+      types.set(`${domain.domain}.${type.id}`, type);
   const value = (spec, domain, seen) => {
     if (spec.$ref) {
       const ref = spec.$ref.includes('.')
         ? spec.$ref
-        : domain + '.' + spec.$ref;
+        : `${domain}.${spec.$ref}`;
       const type = types.get(ref);
       if (!type || seen.has(ref)) return {};
       return value(type, ref.split('.')[0], new Set([...seen, ref]));

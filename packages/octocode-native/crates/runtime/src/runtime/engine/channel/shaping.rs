@@ -106,13 +106,11 @@ impl ChannelRun {
             context.check()?;
             failure = failure.or(result.failure);
             let row = rows::finish_row(
-                id,
                 index,
                 result.data,
                 result.status,
                 rows::RowParts {
                     diagnostics: result.diagnostics,
-                    remaining: result.remaining,
                 },
             );
             rows.push(row);

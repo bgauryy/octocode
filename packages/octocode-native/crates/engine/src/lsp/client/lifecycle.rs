@@ -58,6 +58,20 @@ impl NativeLspClient {
         // (`memory_watchdog_for`); Windows attaches a Job Object right after
         // spawn; other Unix targets cap the address space before exec.
         let memory_cap = spawn_limits::memory_cap_bytes(self.inner.config.max_memory_mb);
+        crate::lsp::clangd_database::prepare_mirror(&self.inner.config).map_err(|error| {
+            Error::new(format!(
+                "Could not prepare the clangd index directory under the Octocode home: {error}. Set storage.mode to memory to run without an index."
+            ))
+        })?;
+        let _ = self.inner.started_at.set(std::time::SystemTime::now());
+        if crate::lsp::clangd_database::indexes_project(&self.inner.config) {
+            let _ = self
+                .inner
+                .listed_files
+                .set(crate::lsp::clangd_database::listed_files(
+                    &self.inner.config,
+                ));
+        }
         let mut child = server_command(&self.inner.config, memory_cap)
             .await?
             .spawn()

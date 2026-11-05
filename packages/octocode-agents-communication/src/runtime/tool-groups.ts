@@ -29,14 +29,14 @@ export function groupedTools(operations: readonly Tool[], selection?: string | n
   if (selection != null && !profile) {
     groups = selection.split(',');
     if (new Set(groups).size !== groups.length) throw new ValidationError('Duplicate selected tool');
-    for (const name of groups) if (!isTool(name)) throw new ValidationError('Unknown selected tool: ' + name + '; use schema tools');
+    for (const name of groups) if (!isTool(name)) throw new ValidationError(`Unknown selected tool: ${name}; use schema tools`);
   }
   return GROUPS.filter(group => groups.includes(group.name)).flatMap(group => {
     const variants = Object.entries(group.variants).filter(([, operation]) => !profile || profile.includes(operation));
     if (!variants.length) return [];
     const sources = variants.map(([, operation]) => {
       const found = operations.find(tool => tool.name === operation);
-      if (!found) throw new ValidationError('Missing worker operation: ' + operation);
+      if (!found) throw new ValidationError(`Missing worker operation: ${operation}`);
       return found;
     });
     return [{ name: group.name, description: group.description,
@@ -54,7 +54,7 @@ export function operationFor(name: string, type: unknown): Operation {
   const group = GROUPS.find(item => item.name === name);
   if (!group || typeof type !== 'string') throw new ValidationError('Use a discovered tool with {type,input}');
   const operation = Object.entries(group.variants).find(([kind]) => kind === type)?.[1];
-  if (!operation) throw new ValidationError('Unknown type for ' + name + ': ' + type);
+  if (!operation) throw new ValidationError(`Unknown type for ${name}: ${type}`);
   return operation;
 }
 
@@ -63,7 +63,7 @@ export function toolContinuation(candidate: Json): Json {
     for (const group of GROUPS) for (const [type, command] of Object.entries(group.variants)) {
       if (command === candidate.command) return { command: group.name, input: { type, input: candidate.input } };
     }
-    throw new ValidationError('Continuation has no worker tool: ' + candidate.command);
+    throw new ValidationError(`Continuation has no worker tool: ${candidate.command}`);
 }
 
 /** Translate only runtime-owned continuation locations; arbitrary record/document evidence stays untouched. */

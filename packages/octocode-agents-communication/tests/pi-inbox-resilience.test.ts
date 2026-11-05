@@ -31,7 +31,7 @@ test('Pi skips a malformed ledger line, reports it once, and still confirms late
     const { items } = f.run('hook', { format: 'json', deferConfirm: true, consumer: 'pi:pi-test' }, session);
     assert.equal(dispatchState(f, session, message), 'staged');
     const receipt = { type: 'custom_message', customType: 'octocode-peer', details: { session, database: f.database, receipts: items.map(({ id, dispatchToken }: JsonRecord) => ({ id, dispatchToken })) } };
-    writeFileSync(join(f.workspace, 'pi-session.jsonl'), [JSON.stringify({ type: 'session', id: 'pi-test' }), '{"type":"message","text":', 'null', JSON.stringify(receipt)].join('\n') + '\n');
+    writeFileSync(join(f.workspace, 'pi-session.jsonl'), `${[JSON.stringify({ type: 'session', id: 'pi-test' }), '{"type":"message","text":', 'null', JSON.stringify(receipt)].join('\n')}\n`);
     await f.fire('session_start');
     assert.equal(dispatchState(f, session, message), 'submitted');
     assert.equal(errors.mock.calls.filter(call => /malformed Pi ledger/.test(String(call.arguments[0]))).length, 1);

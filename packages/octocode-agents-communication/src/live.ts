@@ -89,7 +89,7 @@ const TRIALS: Record<string, (context: TrialContext) => Promise<TrialOutcome>> =
   },
   async 'paged-read'({ box, worker, sender, nonce, wait }) {
     const receiver = sessionOf(worker);
-    const code = 'CODE-' + randomUUID().slice(0, 8).toUpperCase();
+    const code = `CODE-${randomUUID().slice(0, 8).toUpperCase()}`;
     const filler = Array.from({ length: 600 }, (_, i) => `Line ${i + 1}: routine evidence that does not answer the question.`).join('\n');
     await box.cli('share_document', { name: 'handoff-evidence.md', content: `${filler}\nFinal line: the release code is ${code}.\n`, reasoning: 'Large evidence for a paged read' }, sender);
     const request = messageId(await box.cli('send_message', { to: receiver, parts: [{ text: 'Read the shared document handoff-evidence.md completely (follow every next page) and reply with only the release code stated on its final line.' }], replyRequired: true, reasoning: 'Verify paged evidence reads', key: `${nonce}-request`, wake: 'action' }, sender));
@@ -142,7 +142,7 @@ async function runTrial(flow: string, { pkg, vendor, model, timeout, run, output
     const stem = join(output, `${flow}-${run}`);
     writeFileSync(`${stem}.events.jsonl`, worker?.stdout ?? '');
     writeFileSync(`${stem}.stderr.log`, worker?.stderr ?? '');
-    writeFileSync(`${stem}.json`, JSON.stringify(result, null, 2) + '\n');
+    writeFileSync(`${stem}.json`, `${JSON.stringify(result, null, 2)}\n`);
     rmSync(box.workspace, { recursive: true, force: true });
   }
   return result;
@@ -178,7 +178,7 @@ export async function liveTrials(options: LiveOptions): Promise<TrialsSummary> {
   const vendor = options.vendor || 'claude';
   if (!['codex', 'claude', 'pi'].includes(vendor)) throw new Error('Managed run supports codex, claude, or pi');
   const flows = options.flows ?? Object.keys(TRIALS);
-  if (flows.some(flow => !(flow in TRIALS))) throw new Error('--scenarios must name ' + SCENARIOS.join(', '));
+  if (flows.some(flow => !(flow in TRIALS))) throw new Error(`--scenarios must name ${SCENARIOS.join(', ')}`);
   const runs = Number(options.runs ?? 1), parallel = Number(options.parallel ?? 3), timeout = Number(options.timeout ?? 240000);
   if (!Number.isInteger(runs) || runs < 1) throw new Error('--runs must be a positive integer');
   if (!Number.isInteger(parallel) || parallel < 1) throw new Error('--parallel must be a positive integer');
@@ -195,7 +195,7 @@ export async function liveTrials(options: LiveOptions): Promise<TrialsSummary> {
     for (let job = queue.shift(); job; job = queue.shift()) {
       const value = await runTrial(job.flow, { pkg, vendor, model, timeout, run: job.run, output });
       results.push(value);
-      process.stderr.write(`${job.flow} #${job.run}: ${value.passed ? 'pass' : 'FAIL ' + (value.error || JSON.stringify(value.checks))}\n`);
+      process.stderr.write(`${job.flow} #${job.run}: ${value.passed ? 'pass' : `FAIL ${value.error || JSON.stringify(value.checks)}`}\n`);
     }
   }));
   const byFlow = Object.fromEntries(flows.map(flow => {
@@ -212,7 +212,7 @@ export async function liveTrials(options: LiveOptions): Promise<TrialsSummary> {
     behavioralPassed: Object.values(byFlow).every(flow => flow.passed >= Math.ceil(flow.total * 0.9)),
     passed: Object.values(byFlow).every(flow => flow.passed >= Math.ceil(flow.total * 0.9) && flow.completeErrors === 0 && flow.unknownCompleteResults === 0),
   };
-  writeFileSync(join(output, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
+  writeFileSync(join(output, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
   return summary;
 }
 
@@ -346,7 +346,7 @@ export async function liveSoak(options: LiveOptions): Promise<SoakResult> {
       writeFileSync(join(output, worker.vendor, 'events.jsonl'), worker.stdout);
       writeFileSync(join(output, worker.vendor, 'stderr.log'), worker.stderr);
     }
-    writeFileSync(join(output, 'result.json'), JSON.stringify(result, null, 2) + '\n');
+    writeFileSync(join(output, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
     rmSync(box.workspace, { recursive: true, force: true });
   }
   return result;

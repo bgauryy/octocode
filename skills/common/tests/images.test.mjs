@@ -17,7 +17,7 @@ test('nested report images embed bytes independent of HTML destination; code exa
   writeFileSync(join(root,'nested','report.md'),'# Images\n\n![Evidence](image%20space.png)\n\n```md\n![example](not-real.png)\n```');
   const result=buildReport(root,{workspace:root});
   assert.deepEqual(result.warnings,[]);
-  assert.ok(result.html.includes('data:image/png;base64,'+bytes.toString('base64')));
+  assert.ok(result.html.includes(`data:image/png;base64,${bytes.toString('base64')}`));
   assert.ok(result.html.includes('image%20space.png'));
 });
 test('missing local images warn while remote URLs require no build fetch', t => {
@@ -34,5 +34,5 @@ test('image symlinks cannot embed files outside the workspace', t => {
   writeFileSync(join(root,'report.md'),'# Image\n\n![Linked](link.png)');
   const result=buildReport(join(root,'report.md'),{workspace:root});
   assert.match(result.warnings[0],/inside the workspace/);
-  assert.ok(!result.html.includes('data:image/png;base64,'+Buffer.from('outside').toString('base64')));
+  assert.ok(!result.html.includes(`data:image/png;base64,${Buffer.from('outside').toString('base64')}`));
 });

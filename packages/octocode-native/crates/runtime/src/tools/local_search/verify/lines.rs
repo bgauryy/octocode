@@ -31,6 +31,9 @@ pub(in crate::tools::local_search) struct VerificationLines {
     pub(in crate::tools::local_search) source_wide: bool,
     /// `retained` holds every line of the source.
     pub(in crate::tools::local_search) whole_retained: bool,
+    /// Wanted lines too long to keep whose rows the search itself judged
+    /// ([`octocode_engine::security::LONG_LINE_BYTES`]).
+    pub(in crate::tools::local_search) long_lines: std::collections::BTreeSet<usize>,
 }
 
 /// Stream up to `limit` lines of `reader`, tracking private-key blocks over
@@ -55,6 +58,7 @@ pub(in crate::tools::local_search) fn read_verification_lines(
         unclassified: false,
         source_wide: false,
         whole_retained: across.is_some(),
+        long_lines: std::collections::BTreeSet::new(),
     };
     let limit = if across.is_some() { usize::MAX } else { limit };
     let in_window = |number: usize| windows.iter().any(|&(lo, hi)| lo <= number && number <= hi);
@@ -86,11 +90,17 @@ pub(in crate::tools::local_search) fn read_verification_lines(
                     read.retained.insert(number, text.to_owned());
                 }
             }
-            BoundedLine::Overflow { mentions_key } => {
+            BoundedLine::Overflow {
+                mentions_key,
+                bytes,
+            } => {
                 // Every key boundary contains `PRIVATE KEY`; a long line
                 // without it is an ordinary line for the block state.
                 read.unclassified |= mentions_key;
                 tracker.push("");
+                if wanted && bytes > octocode_engine::security::LONG_LINE_BYTES {
+                    read.long_lines.insert(number);
+                }
                 if std::mem::take(&mut read.whole_retained) {
                     read.retained.retain(|number, _| in_window(*number));
                     read.retained_bytes = read.retained.values().map(String::len).sum();
@@ -106,7 +116,7 @@ pub(in crate::tools::local_search) enum BoundedLine {
     /// The whole line (with its terminator) is in the buffer.
     Whole,
     /// The line exceeded the cap and was consumed without being kept.
-    Overflow { mentions_key: bool },
+    Overflow { mentions_key: bool, bytes: usize },
 }
 
 /// Read one line into `buf` if it fits `cap` bytes; otherwise consume it in
@@ -167,6 +177,7 @@ pub(in crate::tools::local_search) fn read_bounded_line(
         buf.clear();
         BoundedLine::Overflow {
             mentions_key: mentions_key || markers.finish(&[]).any(),
+            bytes: consumed,
         }
     } else {
         BoundedLine::Whole

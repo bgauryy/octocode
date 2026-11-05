@@ -37,7 +37,7 @@ const grandchildOf = (directory: string) => () => existsSync(join(directory, 'gr
  */
 function startWorker(t: TestContext, directory: string, { guarded, stubborn }: { guarded: boolean; stubborn: boolean }) {
   const script = vendorScript(directory, { stubborn });
-  const program = `import(${JSON.stringify('file://' + bundlePath)}).then(({ proxy, wire }) => {
+  const program = `import(${JSON.stringify(`file://${bundlePath}`)}).then(({ proxy, wire }) => {
     const host = new wire.Wire(${JSON.stringify(script)}, [], ${JSON.stringify(directory)}, [], null);
     const guard = ${guarded} ? proxy.watchdog(host.pid) : null;
     process.stdout.write('vendor ' + host.pid + ' ' + (guard ? guard.pid : 'none') + '\\n');
@@ -51,7 +51,7 @@ function startWorker(t: TestContext, directory: string, { guarded, stubborn }: {
       const match = /vendor (\d+) (\d+|none)\n/.exec(text);
       if (match) resolve({ vendor: Number(match[1]), watchdog: match[2] === 'none' ? null : Number(match[2]) });
     });
-    child.once('exit', () => reject(new Error('worker exited early: ' + text)));
+    child.once('exit', () => reject(new Error(`worker exited early: ${text}`)));
   });
   t.after(() => child.kill('SIGKILL'));
   return { child, report };
@@ -150,7 +150,7 @@ test('proxy.run starts the watchdog: a SIGKILLed codex worker leaves no vendor p
   const script = join(directory, 'codex');
   writeFileSync(script, FAKE_CODEX);
   chmodSync(script, 0o755);
-  const program = `import(${JSON.stringify('file://' + bundlePath)}).then(async ({ proxy, store }) => {
+  const program = `import(${JSON.stringify(`file://${bundlePath}`)}).then(async ({ proxy, store }) => {
     const io = {
       output: value => process.stdout.write(JSON.stringify(value) + '\\n'),
       open: (path, workspace, options = {}) => new store.Store(path, workspace, options.readOnly ?? false, options.create ?? false),
@@ -158,7 +158,7 @@ test('proxy.run starts the watchdog: a SIGKILLed codex worker leaves no vendor p
     };
     await proxy.run({ vendor: 'codex', model: 'm', prompt: 'task', durationMs: 120000, workspace: ${JSON.stringify(f.workspace)}, database: ${JSON.stringify(f.file)} }, io);
   });`;
-  const env = { ...process.env, PATH: directory + ':' + process.env.PATH, FAKE_CODEX_PIDFILE: join(directory, 'vendor.pid') };
+  const env = { ...process.env, PATH: `${directory}:${process.env.PATH}`, FAKE_CODEX_PIDFILE: join(directory, 'vendor.pid') };
   const child = spawn(process.execPath, ['--input-type=commonjs', '-e', program], { env, stdio: ['ignore', 'pipe', 'inherit'] });
   t.after(() => child.kill('SIGKILL'));
   let text = '';
@@ -185,7 +185,7 @@ function sleepingVendor(t: TestContext) {
   writeFileSync(join(directory, 'codex'), '#!/bin/sh\nsleep 100\n');
   chmodSync(join(directory, 'codex'), 0o755);
   const saved = process.env.PATH;
-  process.env.PATH = directory + ':' + saved;
+  process.env.PATH = `${directory}:${saved}`;
   t.after(() => { process.env.PATH = saved; });
 }
 

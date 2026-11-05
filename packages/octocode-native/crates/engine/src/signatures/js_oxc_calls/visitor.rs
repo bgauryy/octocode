@@ -87,6 +87,12 @@ impl<'a> VisitJs<'a> for CallCollector<'_, '_> {
         self.receivers.assign(it);
     }
 
+    fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
+        let previous = self.receivers.enter_declaration(it.kind);
+        walk_js::walk_variable_declaration(self, it);
+        self.receivers.leave_declaration(previous);
+    }
+
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
         self.visit_variable_declarator_owned(it);
         self.receivers.bind_declarator(it);
@@ -192,6 +198,7 @@ impl<'a> VisitJs<'a> for CallCollector<'_, '_> {
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         if let Some(name) = callee_name(&it.callee) {
             let receiver_type = self.receivers.receiver_type(&it.callee);
+            let name = self.receivers.call_alias(&it.callee).unwrap_or(name);
             self.push_with_receiver(name, it.span, "calls", receiver_type);
         }
         walk_js::walk_call_expression(self, it);

@@ -96,6 +96,9 @@ function npmPackageRoute(r) {
 function graphqlRoute(r) {
   if (r.method !== 'POST' || (r.p !== '/api/graphql' && r.p !== '/graphql')) return false;
   const { query = '', variables = {} } = JSON.parse(r.body || '{}');
+  const token = /^(?:token|bearer)\s+(.+)$/i.exec(r.headers.authorization ?? '')?.[1];
+  const scripted = r.model.githubResponders.get(token)?.({ ...r, graphql: { query, variables } });
+  if (scripted) { r.send(scripted.status ?? 200, scripted.body, scripted.headers); return true; }
   const answer = graphqlAnswer(r.model, query, variables);
   if (!answer) return false;
   r.send(200, answer);

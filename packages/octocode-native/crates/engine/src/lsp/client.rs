@@ -17,6 +17,7 @@ use tokio::time::Duration;
 mod absence;
 mod lifecycle;
 mod open_documents;
+mod parse_waits;
 mod project_loads;
 mod requests;
 mod server_process;
@@ -29,8 +30,9 @@ mod tests;
 mod waits;
 mod watched;
 
-use open_documents::{MAX_OPEN_DOCUMENTS, OpenDocuments};
 pub use absence::{AskedAt, EmptyAnswer};
+use open_documents::{MAX_OPEN_DOCUMENTS, OpenDocuments};
+pub use crate::lsp::transport::{HealthLevel, ServerHealth};
 pub use requests::LocationRequest;
 pub use snippets::{SNIPPET_CONTENT_WITHHELD, SnippetPathAuthorizer, SnippetReadPolicy};
 pub use waits::ServerWaits;
@@ -86,6 +88,12 @@ struct NativeLspClientInner {
     /// What callers waited on here: the start and the project loads.
     waits: StdMutex<waits::Waits>,
     progress: Arc<ProgressTracker>,
+    /// When this server started: a file changed since is not what it indexed.
+    started_at: std::sync::OnceLock<std::time::SystemTime>,
+    /// The files its compilation database lists, as they were at the start.
+    listed_files: std::sync::OnceLock<
+        std::collections::HashMap<String, crate::lsp::clangd_database::FileState>,
+    >,
     /// One more than the progress begun when the server was last shown idle
     /// (`0`: never), see `absence.rs`.
     idle_at_begin: AtomicU64,
@@ -188,7 +196,7 @@ impl NativeLspClient {
         // Every launch path (discovery, runtime) gets the per-server
         // safe defaults; user-supplied options still win key by key.
         let mut config = config;
-        crate::lsp::config::apply_server_default_options(&mut config, None);
+        crate::lsp::config::apply_server_default_options(&mut config, None, None);
         let project_config = {
             let names = crate::lsp::config::project_config_files(&config.command);
             let fixed = if names.is_empty() {
@@ -210,6 +218,8 @@ impl NativeLspClient {
                 readiness: StdMutex::new(None),
                 waits: StdMutex::default(),
                 progress: ProgressTracker::new(),
+                started_at: std::sync::OnceLock::new(),
+                listed_files: std::sync::OnceLock::new(),
                 idle_at_begin: AtomicU64::new(0),
                 load_outlasted: AtomicBool::new(false),
                 project_loads: StdMutex::default(),

@@ -109,7 +109,7 @@ test('a database failure while storing the reply rolls back both the answer and 
     const timer = setTimeout(() => { lines.off('line', onLine); reject(new Error('MCP response timeout')); }, 10000);
     const onLine = (line: string) => { clearTimeout(timer); resolve(JSON.parse(line)); };
     lines.once('line', onLine);
-    child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: ++sequence, method, params }) + '\n');
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: ++sequence, method, params })}\n`);
   });
   const initialized = await request('initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'rollback-test', version: '1' } });
   assert.deepEqual(initialized.result.capabilities, { tools: {} });
@@ -134,11 +134,11 @@ test('a database failure while storing the reply rolls back both the answer and 
 
 test('MCP exposes the messages family and preserves completion correlation', t => {
   const f = fixture(t);
-  const frames = [
+  const frames = `${[
     { id: 1, method: 'tools/list' },
     { id: 2, method: 'tools/call', params: { name: 'ack', arguments: { message: f.request.id } } },
     { id: 3, method: 'tools/call', params: { name: 'messages', arguments: { type: 'complete', input: f.reply } } },
-  ].map(row => JSON.stringify({ jsonrpc: '2.0', ...row })).join('\n') + '\n';
+  ].map(row => JSON.stringify({ jsonrpc: '2.0', ...row })).join('\n')}\n`;
   const rows = execFileSync(binary, ['mcp', '--tools', 'messages', '--workspace', f.workspace, '--database', f.database, '--session', f.receiver], { input: frames, encoding: 'utf8', timeout: 10000 }).trim().split('\n').map((line): JsonRecord => JSON.parse(line));
   assert.deepEqual(rows[0].result.tools.map((tool: JsonRecord) => tool.name), ['messages']);
   assert.ok(rows[1].error || rows[1].result?.isError, 'the former ack alias is not exposed');

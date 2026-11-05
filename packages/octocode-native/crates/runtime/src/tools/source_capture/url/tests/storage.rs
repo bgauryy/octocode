@@ -24,6 +24,7 @@ impl Home {
             additional_roots: vec![capture_root(&home)],
             include_home: false,
             home_dir: Some(home.clone()),
+            ..Default::default()
         })
         .unwrap();
         Self {
@@ -129,6 +130,7 @@ fn a_capture_directory_outside_the_path_policy_is_refused_before_saving() {
         additional_roots: Vec::new(),
         include_home: false,
         home_dir: Some(home.home.clone()),
+        ..Default::default()
     })
     .unwrap();
     let error = Store::at(capture_root(&home.home), Duration::from_secs(60), &policy)

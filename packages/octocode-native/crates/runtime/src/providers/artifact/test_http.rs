@@ -3,10 +3,14 @@ use super::http::{
     ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse, BodySink,
     StatusFuture,
 };
-use super::release_ref::{ReleaseTags, TagCommitFuture, TagFuture};
+use octocode_contract_types::ErrorCode;
 use octocode_io::budget::RequestBudget;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+pub(crate) mod recorded;
+mod tags;
+pub(crate) use tags::KnownTags;
 
 /// One request as a double received it.
 #[derive(Clone, Debug)]
@@ -44,6 +48,11 @@ pub(crate) struct RouteHttp {
     routes: Vec<Route>,
     otherwise: Option<Vec<u8>>,
     seen: Mutex<Vec<Seen>>,
+    /// The n-th POST's status and body; the last answers every POST after it.
+    posts: Vec<(u16, Vec<u8>)>,
+    /// From this POST on, the transport fails with this code.
+    post_failure: Option<(usize, ErrorCode)>,
+    post_bodies: Mutex<Vec<serde_json::Value>>,
 }
 
 impl RouteHttp {
@@ -112,6 +121,36 @@ impl RouteHttp {
         self
     }
 
+    /// Answers the n-th POST with the n-th `(status, JSON body)`.
+    pub(crate) fn post_sequence(mut self, answers: Vec<(u16, serde_json::Value)>) -> Self {
+        self.posts = answers
+            .into_iter()
+            .map(|(status, body)| (status, serde_json::to_vec(&body).expect("test body")))
+            .collect();
+        self
+    }
+
+    /// Answers every POST with the raw `body`.
+    pub(crate) fn post_raw(mut self, body: impl Into<Vec<u8>>) -> Self {
+        self.posts = vec![(200, body.into())];
+        self
+    }
+
+    /// Fails the POST numbered `from` and every one after it, as the transport
+    /// fails: no HTTP answer.
+    pub(crate) fn post_fails_from(mut self, from: usize, code: ErrorCode) -> Self {
+        self.post_failure = Some((from, code));
+        self
+    }
+
+    /// The JSON body of every POST received, in order.
+    pub(crate) fn post_bodies(&self) -> Vec<serde_json::Value> {
+        self.post_bodies
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
     /// Every request received, in arrival order.
     pub(crate) fn seen(&self) -> Vec<Seen> {
         self.seen
@@ -165,6 +204,53 @@ impl ArtifactHttp for RouteHttp {
                     body: b"{}".to_vec(),
                     headers: Vec::new(),
                 },
+            })
+        })
+    }
+
+    fn post<'a>(
+        &'a self,
+        req: ArtifactHttpRequest,
+        body: Vec<u8>,
+        _budget: &'a RequestBudget,
+    ) -> ArtifactHttpFuture<'a> {
+        self.seen
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(Seen {
+                accept: req.accept,
+                authorized: req.authorization.is_some(),
+                url: req.url,
+            });
+        let number = {
+            let mut bodies = self
+                .post_bodies
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            bodies.push(serde_json::from_slice(&body).expect("a JSON POST body"));
+            bodies.len() - 1
+        };
+        let failure = self
+            .post_failure
+            .filter(|(from, _)| number >= *from)
+            .map(|(_, code)| code);
+        let answer = self
+            .posts
+            .get(number)
+            .or_else(|| self.posts.last())
+            .cloned()
+            .unwrap_or((404, b"{}".to_vec()));
+        Box::pin(async move {
+            if let Some(code) = failure {
+                return Err(super::ArtifactError::new(
+                    code,
+                    "Artifact registry request failed. Retry later.",
+                ));
+            }
+            Ok(ArtifactHttpResponse {
+                status: answer.0,
+                body: answer.1,
+                headers: Vec::new(),
             })
         })
     }
@@ -269,96 +355,6 @@ impl ArtifactHttp for ChunkedHttp {
             }
             Ok(200)
         })
-    }
-}
-
-/// GitHub's answer to every release-ref check: the refs that exist
-/// (`owner/repo@ref`), or one fixed answer (`None`: the check could not run).
-/// Records every check.
-pub(crate) struct KnownTags {
-    answer: Answer,
-    seen: Mutex<Vec<String>>,
-}
-
-enum Answer {
-    Known(Vec<&'static str>),
-    Always(Option<bool>),
-}
-
-impl KnownTags {
-    pub(crate) fn new(known: Vec<&'static str>) -> Self {
-        Self {
-            answer: Answer::Known(known),
-            seen: Mutex::new(Vec::new()),
-        }
-    }
-
-    pub(crate) fn always(exists: Option<bool>) -> Self {
-        Self {
-            answer: Answer::Always(exists),
-            seen: Mutex::new(Vec::new()),
-        }
-    }
-
-    /// Every check, as `owner/repo@ref`, in order.
-    pub(crate) fn seen(&self) -> Vec<String> {
-        self.seen
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
-    }
-}
-
-impl ReleaseTags for KnownTags {
-    /// A known tag `a/b@tag` names `commit-of-tag`; `a/b@tag=<sha>` names `<sha>`.
-    fn tag_commit<'a>(
-        &'a self,
-        owner: &'a str,
-        repo: &'a str,
-        tag: &'a str,
-    ) -> TagCommitFuture<'a> {
-        let name = format!("{owner}/{repo}@{tag}");
-        let named = format!("{name}=");
-        let plain = format!("commit-of-{tag}");
-        let commit = match &self.answer {
-            Answer::Known(known) => Some(known.iter().find_map(|entry| {
-                if *entry == name {
-                    Some(plain.clone())
-                } else {
-                    entry.strip_prefix(named.as_str()).map(str::to_owned)
-                }
-            })),
-            Answer::Always(exists) => exists.map(|exists| exists.then(|| plain.clone())),
-        };
-        self.seen
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(name);
-        Box::pin(async move { commit })
-    }
-
-    fn commit_exists<'a>(
-        &'a self,
-        owner: &'a str,
-        repo: &'a str,
-        commit: &'a str,
-    ) -> TagFuture<'a> {
-        self.known(owner, repo, commit)
-    }
-}
-
-impl KnownTags {
-    fn known<'a>(&'a self, owner: &'a str, repo: &'a str, reference: &'a str) -> TagFuture<'a> {
-        let name = format!("{owner}/{repo}@{reference}");
-        let exists = match &self.answer {
-            Answer::Known(known) => Some(known.contains(&name.as_str())),
-            Answer::Always(exists) => *exists,
-        };
-        self.seen
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(name);
-        Box::pin(async move { exists })
     }
 }
 

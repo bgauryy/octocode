@@ -141,7 +141,7 @@ try {
   await fs.rm(fixture, { recursive: true, force: true });
   await fs.writeFile(
     path.join(base, 'results.json'),
-    JSON.stringify(results, null, 2) + '\n'
+    `${JSON.stringify(results, null, 2)}\n`
   );
 }
 console.log(

@@ -180,7 +180,7 @@ pub(super) async fn issue(
         row["closedBy"] = Value::Array(references.prs.iter().map(|pr| pr.row.clone()).collect());
     }
     let mut out = json!({"issues":[row]});
-    let remaining = promote_issue_continuations(&mut out, query, &remainder);
+    promote_issue_continuations(&mut out, query, &remainder);
     if !want_comments && !later_page {
         attach_comments_read(&mut out, query, &raw);
     }
@@ -198,10 +198,7 @@ pub(super) async fn issue(
             .map(|references| references.prs.as_slice());
         attach_fix_pr(&mut out, query, prs, closed);
     }
-    Ok(ToolData {
-        remaining,
-        ..ToolData::from(out)
-    })
+    Ok(ToolData::from(out))
 }
 
 /// The issue's identity and decision facts: number, title, state, author,

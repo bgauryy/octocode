@@ -117,26 +117,30 @@ pub fn edit_setting(
             _ => std::io::Error::other("Cannot safely write configuration."),
         })
 }
-/// A URL setting without the parts that carry credentials (userinfo, query
-/// values, fragment), so a token embedded in it is never shown. Query keys
-/// stay: they name what is set without revealing it.
+/// A setting's display value: preserve filesystem locators and scrub data.
 pub(super) fn shown(field: &ConfigFieldSpec, value: Option<Value>) -> Option<Value> {
-    if field.kind != ConfigFieldKind::Url {
+    if field.item_path {
         return value;
     }
-    value.map(shown_url)
+    match field.kind {
+        // Filesystem locators are not content. Preserve their exact spelling.
+        ConfigFieldKind::Path => value,
+        ConfigFieldKind::Url => value.map(shown_url),
+        _ => value.map(|value| crate::security::Sanitized::scrubbed(value).into_value()),
+    }
 }
-/// `value` without any credential it embeds; anything but a URL stays as it is.
+/// Hide URL userinfo, query values and fragments, then scrub recognizable
+/// credentials from the remaining URL. Invalid URLs still pass the scanner.
 pub(super) fn shown_url(value: Value) -> Value {
     let Some(mut url) = value.as_str().and_then(|v| url::Url::parse(v).ok()) else {
-        return value;
+        return crate::security::Sanitized::scrubbed(value).into_value();
     };
     let sensitive = !url.username().is_empty()
         || url.password().is_some()
         || url.query().is_some_and(|query| !query.is_empty())
         || url.fragment().is_some();
     if !sensitive {
-        return value;
+        return crate::security::Sanitized::scrubbed(value).into_value();
     }
     let _ = url.set_username("");
     let _ = url.set_password(None);
@@ -149,7 +153,7 @@ pub(super) fn shown_url(value: Value) -> Value {
             .extend_pairs(keys.iter().map(|key| (key.as_str(), "[REDACTED]")));
     }
     url.set_fragment(None);
-    Value::String(url.into())
+    Value::String(crate::security::scrub_error_text(url.as_str()))
 }
 /// Each file degrades on its own: one that cannot be read safely (a symlink,
 /// a device, too large) is reported read-only and never read through.

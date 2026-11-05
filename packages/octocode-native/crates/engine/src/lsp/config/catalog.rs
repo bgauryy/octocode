@@ -79,6 +79,11 @@ fn server_for_file(
     anchor: Option<&Path>,
     native_typescript: bool,
 ) -> Option<LspLanguageServerConfig> {
+    // Before any step below: resolving a server can itself ask a tool that
+    // reads the workspace (`rustup which` honors its `rust-toolchain.toml`).
+    if options.opens_fetched_code(file_path, workspace_root) {
+        return None;
+    }
     let extension = extension_key(file_path)?;
 
     // Assembly has no built-in default server (ARCHITECTURE: it requires trusted
@@ -90,12 +95,24 @@ fn server_for_file(
     let spec = spec_for_extension(&extension);
 
     if let Some(mut config) = user_server_for_extension(&extension, workspace_root, options) {
-        apply_server_default_options(&mut config, options.octocode_home.as_deref());
+        apply_server_default_options(
+            &mut config,
+            options.octocode_home.as_deref(),
+            options.index_home(),
+        );
         return Some(config);
     }
 
     spec.map(|spec| config_from_spec(spec, workspace_root, options, anchor, native_typescript))
 }
+
+/// Every extension with a built-in route, in catalog order; a test keeps it
+/// equal to what [`spec_for_extension`] answers.
+pub const ROUTED_EXTENSIONS: &[&str] = &[
+    ".ts", ".mts", ".cts", ".tsx", ".js", ".mjs", ".cjs", ".jsx", ".py", ".pyi", ".go", ".rs",
+    ".java", ".c", ".h", ".cpp", ".cc", ".cxx", ".hpp", ".hh", ".hxx", ".cu", ".cuh", ".cs",
+    ".scala", ".sc", ".sbt",
+];
 
 /// Short catalog labels and the representative extension that selects each
 /// language's server, in the order agents see them.
@@ -107,9 +124,10 @@ const SERVER_LANGUAGE_LABELS: &[(&str, &str)] = &[
     ("go", ".go"),
     ("c#", ".cs"),
     ("java", ".java"),
+    ("scala", ".scala"),
 ];
 
-/// Labels (`ts/js`, `py`, `rust`, `c/c++`, `go`, `c#`, `java`) of languages
+/// Labels (`ts/js`, `py`, `rust`, `c/c++`, `go`, `c#`, `java`, `scala`) of languages
 /// whose language server resolves to an executable for `workspace_root`,
 /// through the discovery ladder `lspSearch` uses (env overrides, user config,
 /// managed installs, pyright family, octocode's TypeScript server).

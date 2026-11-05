@@ -5,7 +5,7 @@ use super::util::{
     date_prefix, github_slug, object_for, parse_url, repository_url, required, safe_url, string,
 };
 use super::versions::VersionSpec;
-use super::{ArtifactError, ArtifactItem, ArtifactProviderPage};
+use super::{Advisory, ArtifactError, ArtifactItem, ArtifactProviderPage};
 use crate::providers::artifact::query::artifact_search_query;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 use pep440::Specifiers;
@@ -84,6 +84,12 @@ pub(crate) async fn pypi(
         .and_then(|files| files.first())
         .and_then(|file| date_prefix(file.get("upload_time_iso_8601")));
     artifact.yanked = (info.get("yanked") == Some(&Value::Bool(true))).then_some(true);
+    artifact.yanked_reason = artifact.yanked.and(string(info.get("yanked_reason")));
+    // PyPI states these for the release this document describes; `[]` lists none.
+    artifact.advisories = body
+        .get("vulnerabilities")
+        .and_then(Value::as_array)
+        .map(|rows| rows.iter().map(advisory).collect());
     artifact.requires_python = string(info.get("requires_python"));
     // A requirement gated by an extra is optional, not required.
     let (optional, required): (Vec<String>, Vec<String>) = info
@@ -102,6 +108,28 @@ pub(crate) async fn pypi(
         super::release_ref::pin_release_tag(&mut artifact, &name, &version, client).await;
     }
     Ok(ArtifactProviderPage::single(artifact))
+}
+
+/// One entry of a PyPI release's `vulnerabilities`, whole.
+fn advisory(row: &Value) -> Advisory {
+    let strings = |key: &str| {
+        row.get(key)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|value| string(Some(value)))
+            .collect()
+    };
+    Advisory {
+        id: string(row.get("id")),
+        aliases: strings("aliases"),
+        url: string(row.get("link")),
+        severity: None,
+        summary: string(row.get("summary")),
+        details: string(row.get("details")),
+        fixed_in: strings("fixed_in"),
+        withdrawn: string(row.get("withdrawn")),
+    }
 }
 
 /// Whether a PEP 508 requirement applies only with an extra

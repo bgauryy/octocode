@@ -1,5 +1,6 @@
 //! Loading the context: tsconfig paths, workspace manifests, Python roots
 //! and C/C++ include directories.
+use super::workspaces::local_dependencies;
 use super::*;
 
 /// `-I` / `-iquote` directories named by compile_commands.json, rebased to
@@ -63,24 +64,6 @@ pub(super) fn compile_command_include_dirs(
     dirs
 }
 
-/// Package directories above a scan root searched for the root's name.
-pub(super) const MAX_PYTHON_PACKAGE_DEPTH: usize = 16;
-
-/// The dotted package name of `root` when it is a Python package (holds
-/// `__init__.py`): its directory name, prefixed by every enclosing package.
-pub(super) fn enclosing_python_package(root: &Path) -> Option<String> {
-    let is_package =
-        |dir: &Path| dir.join("__init__.py").is_file() || dir.join("__init__.pyi").is_file();
-    let mut names = Vec::new();
-    let mut dir = root;
-    while is_package(dir) && names.len() < MAX_PYTHON_PACKAGE_DEPTH {
-        names.push(dir.file_name()?.to_string_lossy().into_owned());
-        dir = dir.parent()?;
-    }
-    names.reverse();
-    (!names.is_empty()).then(|| names.join("."))
-}
-
 impl ResolveContext {
     pub(crate) fn load(
         root: &Path,
@@ -100,6 +83,7 @@ impl ResolveContext {
         };
         let mut js_dirs = BTreeSet::from([".".to_owned()]);
         let mut py_dirs = BTreeSet::new();
+        let mut py_files = Vec::new();
         let mut all_dirs = BTreeSet::from([".".to_owned()]);
         let mut has_c = false;
         for file in known {
@@ -107,6 +91,9 @@ impl ResolveContext {
             let is_js = linker == super::super::linking::Linker::JsTs;
             let is_py = linker == super::super::linking::Linker::Python;
             has_c |= linker == super::super::linking::Linker::CFamily;
+            if is_py {
+                py_files.push(file);
+            }
             let mut dir = dirname(file);
             loop {
                 if !all_dirs.insert(dir.to_owned()) && !is_js && !is_py {
@@ -133,8 +120,9 @@ impl ResolveContext {
         context.load_ts_configs(&mut reader, &js_dirs);
         context.load_manifests(&reader, &all_dirs);
         context.load_outer_manifest(&reader);
+        context.load_outer_workspaces(&reader);
         if !py_dirs.is_empty() {
-            context.load_python_roots(root, &py_dirs);
+            context.load_python_roots(root, &py_dirs, PythonModules::of(py_files.into_iter()));
         }
         if has_c {
             context.load_include_dirs(root, paths);
@@ -196,6 +184,7 @@ impl ResolveContext {
             let Some(value) = reader.read_json(&reader.root.join(dir).join("package.json")) else {
                 continue;
             };
+            self.local_packages.extend(local_dependencies(&value));
             let manifest = Arc::new(Manifest::parse(dir, &value));
             if let Some(name) = value.get("name").and_then(Value::as_str) {
                 self.packages.insert(name.to_owned(), Arc::clone(&manifest));
@@ -227,6 +216,7 @@ impl ResolveContext {
                 else {
                     return;
                 };
+                self.local_packages.extend(local_dependencies(&value));
                 let offset = octocode_engine::text::slash_path(offset);
                 let manifest = Arc::new(Manifest::parse(".", &value).rebased(&offset));
                 if let Some(name) = value.get("name").and_then(Value::as_str) {
@@ -241,35 +231,6 @@ impl ResolveContext {
                 return;
             }
         }
-    }
-
-    pub(super) fn load_python_roots(&mut self, root: &Path, py_dirs: &BTreeSet<String>) {
-        let mut roots = vec![".".to_owned()];
-        let mut seen = HashSet::from([".".to_owned()]);
-        if root.join("src").is_dir() {
-            roots.push("src".to_owned());
-            seen.insert("src".to_owned());
-        }
-        for dir in py_dirs {
-            if dir == "." {
-                continue;
-            }
-            let directory = root.join(dir);
-            if ["pyproject.toml", "setup.py", "setup.cfg"]
-                .iter()
-                .any(|name| directory.join(name).is_file())
-            {
-                if seen.insert(dir.clone()) {
-                    roots.push(dir.clone());
-                }
-                let src = join(dir, "src");
-                if directory.join("src").is_dir() && seen.insert(src.clone()) {
-                    roots.push(src);
-                }
-            }
-        }
-        self.python_roots = roots;
-        self.python_package = enclosing_python_package(root);
     }
 
     pub(super) fn load_include_dirs(&mut self, root: &Path, paths: &PathPolicy) {

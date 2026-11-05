@@ -1,7 +1,7 @@
 //! What a directory scan can still offer beside its answer: the other
 //! grammars the scope holds and the skipped walks, each with its repair.
 use super::query::MatchQuery;
-use super::types::Scope;
+use super::types::{Scan, Scope};
 use crate::execution::cancel::CancellationCheck;
 use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
@@ -9,6 +9,7 @@ use crate::policy::prune;
 use crate::response::result::ToolError;
 use crate::tools::ast_rule::{
     GlobParsers, GrammarChoice, choose_grammar, compile_check, has_extension_in, present_grammars,
+    rank_grammars,
 };
 use crate::tools::empty_walk::{FileProbe, Globs, Walk, diagnose};
 use serde_json::{Value, json};
@@ -40,12 +41,13 @@ impl ScopeGaps {
     pub(super) fn of(
         q: MatchQuery<'_>,
         scope: &Scope,
+        scan: &Scan,
         paths: &PathPolicy,
         states_absence: bool,
         cancel: &dyn CancellationCheck,
     ) -> Self {
         Self {
-            repair: other_language_repair(q, scope, paths, cancel),
+            repair: other_language_repair(q, scope, scan, paths, cancel),
             skipped: skipped_walk(q, scope, paths, states_absence, cancel),
         }
     }
@@ -93,7 +95,9 @@ pub(super) fn skipped_walk(
         q.exclude().unwrap_or_default(),
     );
     let discovery = paths.discovery_walk();
-    let permits = |path: &std::path::Path| discovery.permits(path);
+    let permits = |path: &std::path::Path, kind: Option<std::fs::FileType>| {
+        discovery.permits_entry(path, kind)
+    };
     let stop = || cancel.check().is_err();
     let keep = |path: &std::path::Path| {
         has_extension_in(path, extensions) || scope.parsers.extension(path).is_some()
@@ -138,33 +142,43 @@ pub(super) fn directory_choice(
     q: MatchQuery<'_>,
     root: &std::path::Path,
     parsers: &GlobParsers,
+    scan: &Scan,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
 ) -> Result<GrammarChoice, ToolError> {
-    let (include, exclude) = (
-        q.include().unwrap_or_default(),
-        q.exclude().unwrap_or_default(),
-    );
-    let prune = prune::walk_names(q.default_excludes(), &include);
-    let discovery = paths.discovery_walk();
-    let present = present_grammars(
-        root,
-        &prune,
-        Walk {
-            ignored: q.include_ignored().unwrap_or(false),
-            hidden: q.include_hidden().unwrap_or(false),
-            default_excludes: q.default_excludes(),
-        },
-        usize::MAX,
-        Globs {
-            include: &include,
-            exclude: &exclude,
-        },
-        parsers,
-        &|path| discovery.permits(path),
-        &|| cancel.check().is_err(),
-    )
-    .map_err(super::super::errors::native_error)?;
+    // The scan's walk took the same rules, so when it met the whole scope (no
+    // window, no depth bound) what it counted is the answer.
+    let present = match &scan.present {
+        Some(present) if !scan.truncated && q.scan_offset() == 0 && q.max_depth().is_none() => {
+            rank_grammars(present.clone())
+        }
+        _ => {
+            let (include, exclude) = (
+                q.include().unwrap_or_default(),
+                q.exclude().unwrap_or_default(),
+            );
+            let prune = prune::walk_names(q.default_excludes(), &include);
+            let discovery = paths.discovery_walk();
+            present_grammars(
+                root,
+                &prune,
+                Walk {
+                    ignored: q.include_ignored().unwrap_or(false),
+                    hidden: q.include_hidden().unwrap_or(false),
+                    default_excludes: q.default_excludes(),
+                },
+                usize::MAX,
+                Globs {
+                    include: &include,
+                    exclude: &exclude,
+                },
+                parsers,
+                &|path, kind| discovery.permits_entry(path, kind),
+                &|| cancel.check().is_err(),
+            )
+            .map_err(super::super::errors::native_error)?
+        }
+    };
     let rule = q.rule();
     Ok(choose_grammar(present.into_iter(), |_, extensions| {
         compile_check(extensions, None, rule.as_ref())
@@ -196,12 +210,13 @@ pub(super) fn language_repair(q: MatchQuery<'_>, languages: &[String]) -> Value 
 pub(super) fn other_language_repair(
     q: MatchQuery<'_>,
     scope: &Scope,
+    scan: &Scan,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
 ) -> Option<Value> {
     let requested = q.language()?;
     let languages =
-        match directory_choice(q, &scope.canonical, &scope.parsers, paths, cancel).ok()? {
+        match directory_choice(q, &scope.canonical, &scope.parsers, scan, paths, cancel).ok()? {
             GrammarChoice::One(language) => vec![language],
             GrammarChoice::Several(languages) => languages,
             GrammarChoice::Invalid | GrammarChoice::Absent => return None,

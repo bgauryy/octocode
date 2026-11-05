@@ -170,6 +170,27 @@ pub(in crate::signatures) fn scala_call_callee<'tree>(
     Some((elide_arguments(&label), spelled))
 }
 
+/// The call an infix application spells: `a m b` calls `a.m`. A symbolic
+/// operator (`1 + 2`) stays no call, like every operator of every grammar.
+#[cfg(feature = "tree-sitter-scala")]
+pub(in crate::signatures) fn scala_infix_callee<'tree>(
+    node: Node<'tree>,
+    content: &str,
+) -> Option<(String, Node<'tree>)> {
+    let operator = node
+        .child_by_field_name("operator")
+        .filter(|operator| operator.kind() == "identifier")?;
+    let method = node_text(operator, content)?;
+    let receiver = node
+        .child_by_field_name("left")
+        .and_then(|left| node_text(left, content))
+        .map(|text| text.split_whitespace().collect::<String>())
+        .and_then(|text| compact_identifier(&text))
+        .filter(|text| text.len() <= 80)
+        .unwrap_or_else(|| "<expr>".to_owned());
+    Some((format!("{receiver}.{method}"), operator))
+}
+
 /// The last name-leaf under `node` (inclusive) spelling `name`: the token a
 /// call edge targets (`run` in `self.run`, `new` in `Self::new`).
 pub(in crate::signatures) fn last_name_leaf<'tree>(

@@ -55,7 +55,7 @@ test('peer expiry generates an update without another peer action', t => {
 test('MCP retries reuse the connection request key; new calls remain distinct', t => {
   const f=fixture(t), a=f.call('join',{name:'sender',vendor:'generic'}), b=f.call('join',{name:'receiver',vendor:'generic'});
   const frame=(id: number,text='Review SQL')=>({jsonrpc:'2.0',id,method:'tools/call',params:{name:'messages',arguments:{type:'send',input:{to:b.id,parts:[{text}],reasoning:'Coordinate review'}}}});
-  const input=[frame(1),frame(1),frame(1,'Changed intent'),frame(2)].map(item=>JSON.stringify(item)).join('\n')+'\n';
+  const input=`${[frame(1),frame(1),frame(1,'Changed intent'),frame(2)].map(item=>JSON.stringify(item)).join('\n')}\n`;
   const rows=execFileSync(binary,['mcp','--workspace',f.workspace,'--database',f.database,'--session',a.id],{encoding:'utf8',input}).trim().split('\n').map((line): JsonRecord=>JSON.parse(line));
   const result=(i: number)=>JSON.parse(rows[i].result.content[0].text);
   assert.equal(result(0).id,result(1).id);assert.equal(rows[2].result.isError,true);

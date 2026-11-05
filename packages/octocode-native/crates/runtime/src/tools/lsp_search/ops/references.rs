@@ -115,11 +115,12 @@ impl Operation<'_, '_> {
                 .filter(|snippet| super::super::scope::canonical_uri(&snippet.uri) == anchor_file)
                 .map(|snippet| snippet.range.start.line),
         );
-        // A later importer page leaves out the anchor's answer (listed on
-        // importer page 1); it still deduplicates this window's rows.
-        if later_window {
-            found.clear();
-        }
+        keep_this_pages_answer(
+            &mut found,
+            importers.as_ref().filter(|_| self.scope.opened_by_text()),
+            &anchor_file,
+            later_window,
+        );
         let recovered = if later_window { Vec::new() } else { recovered };
         let mut found = found
             .drain(..)
@@ -225,6 +226,7 @@ impl Operation<'_, '_> {
             found.extend(extra.into_iter().filter(|snippet| {
                 let site = site_start(snippet);
                 importers.owns(&site.0)
+                    && importers.lists_on_this_page(&site.0)
                     && declared.is_none_or(|declared| !declared.contains(&site))
                     && !importers.binds_elsewhere(&site)
                     && seen.insert(snippet_identity(snippet))
@@ -243,25 +245,30 @@ impl Operation<'_, '_> {
     }
 
     /// The symbol whose importers recovery verifies, when the server may
-    /// have missed importers (TS/JS incoming operations). An `importerPage`
+    /// have missed importers (TS/JS and C-family incoming operations). An `importerPage`
     /// past the first names a window only importer recovery has.
     pub(super) fn importer_symbol(&self) -> Result<Option<String>, LspFailure> {
         let operation = lsp_search_query::operation(self.query);
-        let symbol = (importers::applies(self.language_id, operation) && !self.root_only)
-            .then(|| lsp_search_query::symbol_name(self.query))
-            .flatten()
-            .filter(|name| !name.trim().is_empty())
-            .map(str::to_owned);
+        // An index answers for itself; text recovers only without one.
+        let index_answers = importers::SiteProof::of(self.language_id)
+            == importers::SiteProof::AnchorReferences
+            && !self.scope.opened_by_text();
+        let symbol =
+            (importers::applies(self.language_id, operation) && !self.root_only && !index_answers)
+                .then(|| lsp_search_query::symbol_name(self.query))
+                .flatten()
+                .filter(|name| !name.trim().is_empty())
+                .map(str::to_owned);
         if symbol.is_none() && lsp_search_query::importer_page(self.query) > 1 {
             return Err(LspFailure::invalid_query(
-                "importerPage pages TypeScript/JavaScript importer recovery for references and callers; copy it from that recovery's continuation.",
+                "importerPage pages TypeScript/JavaScript and C-family importer recovery for references and callers; copy it from that recovery's continuation.",
             ));
         }
         Ok(symbol)
     }
 
     /// Verified importer anchors when the server may have missed importers
-    /// (TS/JS incoming operations); `None` when recovery does not apply.
+    /// (TS/JS and C-family incoming operations); `None` when recovery does not apply.
     pub(super) async fn importers(
         &mut self,
         known_files: &HashSet<String>,
@@ -280,10 +287,37 @@ impl Operation<'_, '_> {
                 declaration: self.position(),
                 known_files,
                 window: WindowRequest::of(self.query),
+                proof: importers::SiteProof::of(self.language_id),
+                reads_imports: octocode_engine::lsp::family::is_typescript_family(self.language_id),
             },
         )
         .await
         .map(Some)
+    }
+}
+
+/// What of the anchor's answer this page lists. A later importer page leaves it
+/// out (listed on importer page 1); it still deduplicates that window's rows. An
+/// index-backed server's answer (`index_backed`) holds every window opened so
+/// far, so each page keeps the files of its own window, and the anchor's on the
+/// first page: every file is listed once.
+fn keep_this_pages_answer(
+    found: &mut Vec<octocode_engine::lsp::types::LspCodeSnippet>,
+    index_backed: Option<&Importers>,
+    anchor_file: &str,
+    later_window: bool,
+) {
+    if let Some(importers) = index_backed {
+        found.retain(|snippet| {
+            let file = super::super::scope::canonical_uri(&snippet.uri);
+            if file == anchor_file {
+                !later_window
+            } else {
+                importers.lists_on_this_page(&file)
+            }
+        });
+    } else if later_window {
+        found.clear();
     }
 }
 

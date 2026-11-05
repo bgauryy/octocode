@@ -236,6 +236,9 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
     }
 }
 
+mod held_whole;
+use held_whole::outgrew_the_line_buffer;
+
 /// Per-worker searchers: the walk searcher quits at the first NUL; the prefix
 /// searcher (built on first use) re-searches the NUL-free bytes before it.
 pub(super) struct FileSearcher<'a, M: Matcher> {
@@ -284,6 +287,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
             (self.words, self.terms),
         );
         sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
+        sink.source = Some(path);
         sink.inspect_deferred = self
             .opts
             .inspect_deferred
@@ -291,8 +295,15 @@ impl<M: Matcher> FileSearcher<'_, M> {
             .map(|inspect| (inspect, path));
         // `search_file` reads through this same reader path: memory maps are
         // never used, and multiline reads the whole file under the heap limit.
-        self.searcher
-            .search_reader(self.matcher, &mut tap, &mut sink)?;
+        if let Err(error) = self
+            .searcher
+            .search_reader(self.matcher, &mut tap, &mut sink)
+        {
+            if !outgrew_the_line_buffer(&error) {
+                return Err(error);
+            }
+            return self.search_read_whole(file, path, work);
+        }
         // Only a matched file's header decides its rank.
         let header = |matched: bool| {
             matched
@@ -324,6 +335,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
             (self.words, self.terms),
         );
         prefix_sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
+        prefix_sink.source = Some(path);
         prefix_sink.inspect_deferred = self
             .opts
             .inspect_deferred

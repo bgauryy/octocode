@@ -18,7 +18,8 @@ pub(in crate::tools::lsp_search) async fn sync_document(
 ) -> Result<Option<String>, Exit> {
     if let Some(document) = document {
         let path = target.path.clone();
-        let synced = if lsp_search_query::op(query) == Op::DocumentSymbols {
+        // A building index is no load to wait for: the row says it is partial.
+        let synced = if lsp_search_query::op(query) == Op::DocumentSymbols || client.is_indexing() {
             cancellable(cancel, client.open_document(path, &document.content))
                 .await?
                 .map(|()| None)

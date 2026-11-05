@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use super::{PathPolicy, projected_canonical_root};
+use super::{EntryKind, PathPolicy, projected_canonical_root};
 use crate::policy::{PolicyError, PolicyErrorCode};
 use octocode_engine::text::lexical;
 
@@ -23,11 +23,51 @@ impl PathPolicy {
         }
     }
 
-    /// The allowed roots for a denial, as `redact` shows paths (never an
-    /// absolute home or workspace layout, in any build). The symlink-resolved
-    /// copy `add_root` keeps of a root is the same root, and a root inside
-    /// another allowed root grants nothing more: both are left out, and each
-    /// shown name appears once. Empty when there are no roots.
+    /// The denial of a path outside every root: what works instead, with the
+    /// path built from the rejected one when a tail of it exists in the
+    /// workspace.
+    pub(super) fn outside_roots(&self, input: &Path, absolute: &Path) -> String {
+        let correction = if self.workspace_root.is_none() {
+            String::new()
+        } else {
+            let example = self.workspace_tail(input).map_or_else(
+                || "structureSearch path \".\" lists the root".to_owned(),
+                |tail| format!("\"{tail}\" exists there"),
+            );
+            format!(" Use a path relative to the workspace root, or absolute inside it: {example}.")
+        };
+        format!(
+            "Path '{}' is outside allowed directories.{correction}{}",
+            self.display_requested(input, absolute),
+            self.describe_roots()
+        )
+    }
+
+    /// The longest tail of `input` that names something readable in the
+    /// workspace, as a relative path: a checkout at another location.
+    fn workspace_tail(&self, input: &Path) -> Option<String> {
+        let root = self.workspace_root.as_ref()?;
+        let names = input
+            .components()
+            .filter_map(|part| match part {
+                std::path::Component::Normal(name) => Some(name),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        (0..names.len()).find_map(|skip| {
+            let tail = names[skip..].iter().collect::<std::path::PathBuf>();
+            let real = std::fs::canonicalize(root.join(&tail)).ok()?;
+            (self.allowed(&real) && !self.withholds(&real, EntryKind::stat(&real)))
+                .then(|| tail.to_string_lossy().into_owned())
+        })
+    }
+
+    /// What else is readable, for a denial: configured roots as `redact` shows
+    /// paths (never an absolute home or workspace layout, in any build), and
+    /// what Octocode fetched, which lies under its home. The workspace is
+    /// named by the correction; the symlink-resolved copy `add_root` keeps of
+    /// a root is the same root, and a root inside another allowed root grants
+    /// nothing more: both are left out, and each shown name appears once.
     pub(super) fn describe_roots(&self) -> String {
         let configured = self
             .roots
@@ -41,7 +81,15 @@ impl PathPolicy {
             .map(|(_, root)| root)
             .collect::<Vec<_>>();
         let mut shown: Vec<String> = Vec::new();
+        let mut fetched = false;
         for root in &configured {
+            if self.workspace_root.as_ref() == Some(*root) {
+                continue;
+            }
+            if self.octocode_home.iter().any(|home| root.starts_with(home)) {
+                fetched = true;
+                continue;
+            }
             let nested = configured
                 .iter()
                 .any(|other| other != root && root.starts_with(other));
@@ -50,10 +98,16 @@ impl PathPolicy {
                 shown.push(name);
             }
         }
+        if fetched {
+            shown.push(
+                "Octocode's clones, materialized trees and URL captures, by the localPath they return"
+                    .to_owned(),
+            );
+        }
         if shown.is_empty() {
             return String::new();
         }
-        format!(" (allowed: {})", shown.join(", "))
+        format!(" Also readable: {}.", shown.join("; "))
     }
 
     /// A symlink's resolved target for a denial: as `redact` shows it, and

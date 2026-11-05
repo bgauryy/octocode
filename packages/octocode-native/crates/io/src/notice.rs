@@ -325,8 +325,14 @@ mod tests {
             super::progress_sink().expect("a sink")("waiting 3s");
         }
         assert_eq!(*heard.lock().expect("lines"), ["waiting 3s"]);
-        assert_eq!(quiet.notices(), ["waiting 3s"]);
-        assert!(listening.notices().is_empty());
+        // Another test's notice raised outside every scope reaches these too.
+        let own = |scope: &Scope| {
+            let mut notices = scope.notices();
+            notices.retain(|notice| !notice.starts_with("notice-test-"));
+            notices
+        };
+        assert_eq!(own(&quiet), ["waiting 3s"]);
+        assert!(own(&listening).is_empty());
     }
 
     /// A scope with a progress listener hands it to the code running in it,

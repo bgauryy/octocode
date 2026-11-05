@@ -13,7 +13,7 @@ fn input<'a>(state: &'a Value, questions: &'a [Value]) -> EvaluationInput<'a> {
         state,
         questions,
         assets: None,
-        long_context: false,
+        long_context: crate::tools::judgment::LongContext::Never,
     }
 }
 
@@ -105,7 +105,7 @@ async fn a_different_payload_is_a_different_evaluation() {
     let two_questions = [question(), question()];
     let other_state = json!("y");
     let long = EvaluationInput {
-        long_context: true,
+        long_context: crate::tools::judgment::LongContext::Always,
         ..input(&state, &questions)
     };
     let asks = [

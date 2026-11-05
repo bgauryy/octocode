@@ -40,9 +40,7 @@ fn readiness_timeout_gates_the_slow_indexing_languages() {
     assert_eq!(readiness_timeout(Some("c")), Some(20_000));
     assert_eq!(readiness_timeout(Some("cpp")), Some(20_000));
     assert_eq!(readiness_timeout(Some("cuda")), Some(20_000));
-    // Every built-in server's language waits, objective-c (clangd) and
-    // scala (Metals) included.
-    assert_eq!(readiness_timeout(Some("objective-c")), Some(20_000));
+    // Every built-in server's language waits, scala (Metals) included.
     assert_eq!(readiness_timeout(Some("scala")), Some(120_000));
     // An unknown/unlisted language still opts out of the readiness wait.
     assert_eq!(readiness_timeout(Some("plaintext")), None);

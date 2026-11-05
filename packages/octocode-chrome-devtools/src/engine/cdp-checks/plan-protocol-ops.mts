@@ -24,19 +24,18 @@ export function logQueryContinuation(
 ) {
   log(`[ARTIFACT] ${label} ${file}`);
   log(
-    '[NEXT] ' +
-      JSON.stringify({
-        continue: {
-          command: process.execPath,
-          args: [
-            fileURLToPath(new URL('../artifact-query.mjs', import.meta.url)),
-            '--file',
-            file,
-            '--format',
-            'text',
-          ],
-        },
-      })
+    `[NEXT] ${JSON.stringify({
+      continue: {
+        command: process.execPath,
+        args: [
+          fileURLToPath(new URL('../artifact-query.mjs', import.meta.url)),
+          '--file',
+          file,
+          '--format',
+          'text',
+        ],
+      },
+    })}`
   );
 }
 
@@ -57,7 +56,7 @@ async function readChunks(
     });
     const index = row.chunks ?? 0; // readStream starts the count at 0
     row.chunks = index + 1;
-    writeAll(fd, Buffer.from(JSON.stringify({ index, ...chunk }) + '\n'));
+    writeAll(fd, Buffer.from(`${JSON.stringify({ index, ...chunk })}\n`));
     if (chunk.eof) {
       row.complete = true;
       return;
@@ -118,11 +117,11 @@ function listen(state: PlanState, { step, row, target }: StepContext) {
     writeAll(
       fd,
       Buffer.from(
-        JSON.stringify({
+        `${JSON.stringify({
           at: new Date().toISOString(),
           params,
           sessionId: meta.sessionId ?? null,
-        }) + '\n'
+        })}\n`
       )
     );
     stream.observed++;

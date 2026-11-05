@@ -67,7 +67,7 @@ fn budget_selection_preserves_every_row_across_varied_shapes() {
         for page in 0..source.plan.total_pages {
             for row in source
                 .plan
-                .build_page(page, &volatile, &[], &Cancellation::new())
+                .build_page(page, &volatile, &Cancellation::new())
                 .expect("page")
             {
                 let index = row["index"].as_u64().expect("index") as usize;

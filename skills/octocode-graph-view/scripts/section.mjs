@@ -166,7 +166,7 @@ export async function buildSection(section, { out, jobs = 8, exclude = [], emit 
     const file = join(evidence, `${createHash('sha256').update(JSON.stringify(row)).digest('hex')}.jsonl.gz`);
     const save = (input, response) => {
       // One gzip member per page: concatenated members are one valid gzip stream of JSON lines.
-      appendFileSync(file, gzipSync(JSON.stringify({ input, response }) + '\n'));
+      appendFileSync(file, gzipSync(`${JSON.stringify({ input, response })}\n`));
       const page = response?.results?.[0]?.data ?? {};
       if (stream && STREAMED[row.operation] && page.rows?.length) emit(stream, page.rows, { page: page.pagination?.page ?? 1, total: totalOf(page) });
     };

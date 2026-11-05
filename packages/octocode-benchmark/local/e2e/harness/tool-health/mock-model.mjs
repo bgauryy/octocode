@@ -31,7 +31,7 @@ function readTree(dir) {
 }
 
 /** A file larger than one default read window, so reads continue. */
-const LARGE_GUIDE = Array.from({ length: 1500 }, (_, i) => `Line ${i + 1}: the greeter guide repeats this sentence to fill a long document.`).join('\n') + '\n';
+const LARGE_GUIDE = `${Array.from({ length: 1500 }, (_, i) => `Line ${i + 1}: the greeter guide repeats this sentence to fill a long document.`).join('\n')}\n`;
 
 /** The model: repositories, commits, pull requests, issues, npm packages. */
 export function buildModel(fixtureDir) {
@@ -42,7 +42,7 @@ export function buildModel(fixtureDir) {
   const slices = [paths.slice(0, 2), paths.slice(2, 4), paths.slice(4)];
   slices.forEach((added, i) => {
     const parent = commits.at(-1);
-    const message = `Add ${added.join(', ')}` + (i === 2 ? '\n\nPreserve multiline commit rationale as separate evidence.' : '');
+    const message = `Add ${added.join(', ')}${i === 2 ? '\n\nPreserve multiline commit rationale as separate evidence.' : ''}`;
     commits.push({ oid: sha(`commit ${i} ${message}`), message, date: DATE(i), parent: parent?.oid, added, tree: sha(`tree ${i}`) });
   });
   const head = commits.at(-1);
@@ -78,7 +78,7 @@ export function buildModel(fixtureDir) {
 export function addBulkPullRequest(model, { number = 4, fileCount = 350, hugeLines = 3000 } = {}) {
   const files = {};
   for (let i = 0; i < fileCount; i++) files[`pkg/mod${String(i).padStart(2, '0')}.ts`] = `// healthMarker bulk-${i}\nexport const mod${i} = ${i};\n`;
-  files['pkg/huge.ts'] = Array.from({ length: hugeLines }, (_, i) => `export const huge${i} = ${i}; // healthMarker huge line ${i + 1}`).join('\n') + '\n';
+  files['pkg/huge.ts'] = `${Array.from({ length: hugeLines }, (_, i) => `export const huge${i} = ${i}; // healthMarker huge line ${i + 1}`).join('\n')}\n`;
   const parent = model.head;
   const message = `Add ${fileCount + 1} bulk modules`;
   // `parent` reads through: the git mock rewrites main's commit ids after configureModel.

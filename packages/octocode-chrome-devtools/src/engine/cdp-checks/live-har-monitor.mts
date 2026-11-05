@@ -242,7 +242,7 @@ export async function run(
   const pushEvent = (event: MonitorEvent) => {
     const safeEvent = { at: new Date().toISOString(), ...event };
     events.push(safeEvent);
-    appendFileSync(eventsPath, JSON.stringify(safeEvent) + '\n');
+    appendFileSync(eventsPath, `${JSON.stringify(safeEvent)}\n`);
   };
 
   watchNetwork(cdp, records, pushEvent);

@@ -13,7 +13,7 @@ use crate::tools::lsp_search::call_sites::callers_from_references;
 use crate::tools::lsp_search::cancellable;
 use crate::tools::lsp_search::failure::{LspFailure, RequestFailures};
 use crate::tools::lsp_search::importers::{
-    Anchor, CONCURRENT_FILE_VERIFICATIONS, ImporterSearch, Importers, WindowRequest,
+    Anchor, CONCURRENT_FILE_VERIFICATIONS, ImporterSearch, Importers, SiteProof, WindowRequest,
     ordered_concurrently, verified_anchors,
 };
 use crate::tools::lsp_search::render::into_items;
@@ -74,11 +74,14 @@ pub(in crate::tools::lsp_search) struct ImporterRecovery<'a> {
     pub(in crate::tools::lsp_search) symbol: String,
     pub(in crate::tools::lsp_search) snippet_policy: &'a SnippetReadPolicy,
     pub(in crate::tools::lsp_search) window: WindowRequest<'a>,
+    pub(in crate::tools::lsp_search) proof: SiteProof,
 }
 
 /// Importer recovery of one incoming walk (see [`hierarchy`](super::hierarchy)).
 pub(super) struct IncomingRecovery<'r, 'a> {
     pub(super) anchor: Position<'a>,
+    /// The anchor's own call-hierarchy items.
+    pub(super) roots: &'a [Value],
     pub(super) scope: &'a Scope,
     pub(super) recovery: &'r ImporterRecovery<'a>,
     pub(super) depth: u32,
@@ -123,6 +126,8 @@ impl IncomingRecovery<'_, '_> {
                 declaration: self.anchor,
                 known_files: &answered,
                 window: self.recovery.window,
+                proof: self.recovery.proof,
+                reads_imports: self.recovery.proof == SiteProof::DefinitionChain,
             },
         )
         .await?;
@@ -134,15 +139,40 @@ impl IncomingRecovery<'_, '_> {
             .iter()
             .flat_map(|window| window.foreign().cloned())
             .collect::<HashSet<_>>();
-        if self.recovery.window.page > 1 {
-            // A later importer page leaves out the anchor's answer (listed
-            // on importer page 1): walk from this window's importer roots
-            // only.
-            foreign.extend(answered.iter().cloned());
-            *walk = Walk::new(paths, &[], Expansion::IncomingCalls, self.depth);
+        match self.recovery.proof {
+            // A later importer page leaves out the anchor's answer (listed on
+            // importer page 1): walk from this window's importer roots only.
+            SiteProof::DefinitionChain if self.recovery.window.page > 1 => {
+                foreign.extend(answered.iter().cloned());
+                *walk = Walk::new(paths, &[], Expansion::IncomingCalls, self.depth);
+            }
+            SiteProof::DefinitionChain => {}
+            // An index-backed answer holds every file opened so far, on any
+            // page: each page keeps its own window, and the first page the
+            // anchor's file and the files no window names.
+            SiteProof::AnchorReferences => {
+                if self.recovery.window.page > 1 {
+                    let own = importers
+                        .window
+                        .as_ref()
+                        .map(|window| window.files().into_iter().collect::<HashSet<_>>())
+                        .unwrap_or_default();
+                    foreign.extend(answered.iter().filter(|file| !own.contains(*file)).cloned());
+                }
+                *walk = Walk::new(paths, &[], Expansion::IncomingCalls, self.depth);
+            }
         }
         let mut failures = RequestFailures::default();
-        let extra = importer_roots(client, paths, &importers, cancel, &mut failures).await?;
+        let extra = match self.recovery.proof {
+            SiteProof::DefinitionChain => {
+                importer_roots(client, paths, &importers, cancel, &mut failures).await?
+            }
+            // The index holds the window before the walk starts, so the anchor's
+            // own items answer for it; an item prepared at a call site is another
+            // root of the same symbol (clangd prepares the definition from a call
+            // and the declaration from a header).
+            SiteProof::AnchorReferences => self.roots.to_vec(),
+        };
         walk.add_roots(client, extra, foreign, cancel).await?;
         // Reference-derived callers fill in only files the server's call
         // hierarchy did not answer for at level 1.

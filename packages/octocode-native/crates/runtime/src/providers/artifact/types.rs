@@ -7,6 +7,28 @@ use std::collections::BTreeMap;
 use std::fmt;
 use url::Url;
 
+/// One advisory a registry lists for a version, in the registry's own words.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Advisory {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub fixed_in: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub withdrawn: Option<String>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactItem {
@@ -40,6 +62,13 @@ pub struct ArtifactItem {
     /// Set (true) only when the registry yanked this version.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub yanked: Option<bool>,
+    /// Why the registry says this version was yanked, when it says.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub yanked_reason: Option<String>,
+    /// Advisories the registry lists for this version: empty when it lists
+    /// none, absent when the registry gives no advisory data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub advisories: Option<Vec<Advisory>>,
     /// This version's runtime dependencies as the registry declares them
     /// (`name@range`, a PEP 508 requirement, `name req`): empty when it
     /// declares none, absent when the registry read did not say.
@@ -95,6 +124,10 @@ pub struct ArtifactItem {
     /// states them.
     #[serde(skip)]
     pub unresolved_properties: Vec<String>,
+    /// The registry lists no stable release, so an unversioned lookup named a
+    /// prerelease: the response warns with it.
+    #[serde(skip)]
+    pub only_prerelease: bool,
 }
 
 impl ArtifactItem {
@@ -114,6 +147,8 @@ impl ArtifactItem {
             published_at: None,
             deprecated: None,
             yanked: None,
+            yanked_reason: None,
+            advisories: None,
             dependencies: None,
             optional_dependencies: None,
             peer_dependencies: None,
@@ -128,6 +163,7 @@ impl ArtifactItem {
             tag_differs: None,
             missing_ref: None,
             unresolved_properties: Vec::new(),
+            only_prerelease: false,
         }
     }
 }

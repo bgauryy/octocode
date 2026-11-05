@@ -11,7 +11,7 @@ use crate::tools::gh_get_history_item::pr_menu::{INVENTORY_ALL_PATCHES_FILES, pr
 use crate::tools::gh_get_history_item::pr_sections::{
     CommentSection, shape_pr_comments, shape_pr_commits, shape_pr_reviews,
 };
-use crate::tools::gh_get_history_item::remaining::{BodyWindows, Remainder};
+use crate::tools::gh_get_history_item::remaining::BodyWindows;
 use crate::tools::gh_get_history_item::sections::Section;
 use crate::tools::gh_get_history_item::text::paginate_text;
 use crate::tools::gh_get_history_item::util::map_comments;
@@ -62,7 +62,6 @@ pub(in crate::tools::gh_get_history_item) struct ShapedPr {
     /// The code the page's anchored review comments discuss, ten ranges a read.
     pub(in crate::tools::gh_get_history_item) comment_reads: Vec<Value>,
     /// What the row's pages leave to read beside its public pages.
-    pub(in crate::tools::gh_get_history_item) remainder: Remainder,
     /// Each listed commit's next file page (`continueCommitFiles…`).
     pub(in crate::tools::gh_get_history_item) commit_file_pages: Vec<(String, Value)>,
 }
@@ -86,7 +85,6 @@ pub(super) async fn shape_pr(
     let patches = wants.has(Section::Patches);
     let mut row = pr_metadata(&raw, query);
     let mut pagination = Map::new();
-    let mut remainder = Remainder::default();
     if wants.has(Section::Body) {
         shape_body(&mut row, &mut pagination, &raw, query);
     }
@@ -109,15 +107,8 @@ pub(super) async fn shape_pr(
     let file_outcome = files.map_or_else(FileOutcome::default, |loaded| {
         shape_files_section(&mut row, &mut pagination, loaded, &raw, query, wants, plan)
     });
-    remainder.unfinished_patches(file_outcome.unfinished_patches);
-    let comment_reads = shape_comment_sections(
-        &mut row,
-        &mut pagination,
-        &mut remainder,
-        inline,
-        discussion,
-        query,
-    );
+    let comment_reads =
+        shape_comment_sections(&mut row, &mut pagination, inline, discussion, query);
     let mut review_bodies = BodyWindows::default();
     if let Some(loaded) = reviews {
         shape_pr_reviews(
@@ -129,7 +120,7 @@ pub(super) async fn shape_pr(
             &mut review_bodies,
         );
     }
-    remainder.bodies(Axis::ReviewBody, review_bodies, &mut pagination);
+    review_bodies.attach(Axis::ReviewBody, &mut pagination);
     let mut commit_file_pages = Vec::new();
     if let Some(loaded) = commits {
         let listed = loaded.state.skipped.saturating_add(loaded.items.len());
@@ -173,7 +164,6 @@ pub(super) async fn shape_pr(
         files: file_outcome,
         menu,
         comment_reads,
-        remainder,
         commit_file_pages,
     })
 }
@@ -197,7 +187,6 @@ fn shape_body(
 fn shape_comment_sections(
     row: &mut Value,
     pagination: &mut Map<String, Value>,
-    remainder: &mut Remainder,
     inline: Option<Loaded>,
     discussion: Option<Loaded>,
     query: &HistoryItemRequest,
@@ -219,6 +208,6 @@ fn shape_comment_sections(
             &mut bodies,
         ));
     }
-    remainder.bodies(Axis::CommentBody, bodies, pagination);
+    bodies.attach(Axis::CommentBody, pagination);
     reads
 }

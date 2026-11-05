@@ -73,8 +73,10 @@ fn one_walk_answers_every_relaxed_walk() {
         &["gen", ".cfg", "node_modules/pkg", "src"],
     );
     let admitted = Cell::new(0);
-    let permits = |_: &Path| {
-        admitted.set(admitted.get() + 1);
+    let permits = |_: &Path, kind: Option<std::fs::FileType>| {
+        if kind.is_some_and(|kind| kind.is_file()) {
+            admitted.set(admitted.get() + 1);
+        }
         true
     };
     let keep = |path: &Path| path.extension().is_some_and(|ext| ext == "ts");

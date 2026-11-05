@@ -139,3 +139,84 @@ fn symbols_keep_their_side_of_the_test_code_line() {
         );
     }
 }
+
+/// A file only a `#[path]` mounts under test is read like any other, then left
+/// out by its sites: its matches and its declarations stay on their side.
+#[test]
+fn a_path_mounted_file_is_left_out_by_its_sites() {
+    let root = Fixture::new();
+    root.write("src/lib.rs", "pub fn run() { a.unwrap(); }\n");
+    root.write(
+        "src/fixtures.rs",
+        "#[cfg(test)]\n#[path = \"target_x.rs\"]\nmod target;\n",
+    );
+    root.write("src/target_x.rs", "pub fn gated() { b.unwrap(); }\n");
+    let exclude = unwraps(&root, &root.0, "exclude");
+    assert_eq!(hits(&exclude), ["lib.rs:1"], "{exclude}");
+    assert_eq!(exclude["testCodeExcluded"]["files"], 1, "{exclude}");
+    let only = unwraps(&root, &root.0, "only");
+    assert_eq!(hits(&only), ["target_x.rs:1"], "{only}");
+    let symbols = run(
+        &root.0,
+        json!({"operation":"symbols","path":root.0.join("src"),"testCode":"exclude"}),
+    )
+    .expect("symbols");
+    assert!(
+        !symbols.to_string().contains("gated"),
+        "left out by its declarations: {symbols}"
+    );
+}
+
+/// A match whose verdict needed a parent no read can admit is unproven, and the
+/// row says so instead of counting the module as production.
+#[test]
+fn a_parent_that_cannot_be_read_leaves_the_match_partial() {
+    let root = Fixture::new();
+    let parent = root.write("src/lib.rs", "pub mod sub;\n");
+    let module = root.write("src/sub.rs", "pub fn f() { a.unwrap(); }\n");
+    let over = u64::try_from(octocode_engine::memory::MEMORY.limit()).expect("limit") + 1;
+    std::fs::File::options()
+        .write(true)
+        .open(parent)
+        .and_then(|file| file.set_len(over))
+        .expect("sparse parent");
+    for path in [root.0.as_path(), module.as_path()] {
+        let out = unwraps(&root, path, "exclude");
+        assert_eq!(out["isPartial"], true, "{out}");
+        assert!(out.to_string().contains("testCode verdict"), "{out}");
+    }
+}
+
+/// A directory outline under `testCode` whose verdict needed a parent no read can
+/// admit counts the file as production only with a note: the verdict is unproven,
+/// on the page and with the file it could not read, in either scope.
+#[test]
+fn an_outline_whose_verdict_needed_an_unreadable_parent_says_so() {
+    let root = Fixture::new();
+    root.write("src/module/inner.rs", "pub fn inner() {}\n");
+    let parent = root.write("src/module.rs", "#[cfg(test)]\nmod inner;\n");
+    let over = u64::try_from(octocode_engine::memory::MEMORY.limit()).expect("limit") + 1;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&parent)
+        .and_then(|file| file.set_len(over))
+        .expect("sparse parent");
+    for scope in ["exclude", "only"] {
+        let out = run(
+            &root.0,
+            json!({"operation":"symbols","path":root.0.join("src/module"),"testCode":scope}),
+        )
+        .expect("outline");
+        assert_eq!(out["isPartial"], true, "{scope}: {out}");
+        assert!(
+            out.to_string().contains("testCode verdict"),
+            "{scope}: {out}"
+        );
+        assert!(
+            out["partialReasons"]
+                .to_string()
+                .contains("filesUnevaluated"),
+            "{scope}: {out}"
+        );
+    }
+}

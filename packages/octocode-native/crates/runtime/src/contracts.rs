@@ -49,6 +49,20 @@ pub(crate) fn classification_notice(key: &str) -> &'static str {
         .unwrap_or_default()
 }
 
+/// What a `partialReasons` value means, authored once in core.
+pub(crate) fn partial_reason_meaning(code: &str) -> Option<&'static str> {
+    parsed_contract()
+        .ok()?
+        .get("partialReasons")?
+        .get(code)?
+        .as_str()
+}
+
+/// Every `partialReasons` value and what it means.
+pub fn partial_reasons() -> Option<&'static serde_json::Value> {
+    parsed_contract().ok()?.get("partialReasons")
+}
+
 /// One tool's contract entry (`tools[i]`), parsed on first use from its
 /// build-verified span of the embedded contract. A tool call touches one tool,
 /// so a fresh process parses that entry (~100 KB) instead of the whole
@@ -178,7 +192,7 @@ fn prepare_rows_from(
     input: serde_json::Value,
     saved: bool,
 ) -> Result<Vec<RowValidation>, ContractValidationError> {
-    let issues = prepare::envelope_issues(tool_name, &input);
+    let issues = prepare::envelope_issues(tool_name, &input, saved);
     if !issues.is_empty() {
         return Err(ContractValidationError { issues });
     }
@@ -239,7 +253,7 @@ pub fn prepare_many_and_validate(
     tool_name: &str,
     input: serde_json::Value,
 ) -> Result<Vec<serde_json::Value>, ContractValidationError> {
-    let issues = prepare::envelope_issues(tool_name, &input);
+    let issues = prepare::envelope_issues(tool_name, &input, false);
     if !issues.is_empty() {
         return Err(ContractValidationError { issues });
     }

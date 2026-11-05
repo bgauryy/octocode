@@ -167,6 +167,13 @@ impl Proof {
         self
     }
 
+    /// This proof with everything `other` proves too.
+    #[must_use]
+    pub fn with(mut self, other: &Self) -> Self {
+        Arc::make_mut(&mut self.0).extend(other.0.iter().cloned());
+        self
+    }
+
     /// Nothing stamped was written within the settle window before `started`.
     #[must_use]
     pub fn settled_before(&self, started: SystemTime) -> bool {

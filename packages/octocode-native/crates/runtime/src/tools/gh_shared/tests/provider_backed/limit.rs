@@ -16,20 +16,17 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 /// The small page size the walks use.
 const LIMIT: usize = 2;
 
-/// One search endpoint answering only GitHub's largest page of `rows`.
-async fn mount_search(server: &MockServer, route: &str, rows: &[Value]) {
-    Mock::given(method("GET"))
-        .and(path(route))
-        .and(query_param("page", "1"))
-        .and(query_param(
-            "per_page",
-            octocode_github::MAX_PER_PAGE.to_string(),
-        ))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count": rows.len(), "incomplete_results": false, "items": rows
-        })))
-        .mount(server)
-        .await;
+/// One search endpoint answering only what a walk at `per` rows may ask: its
+/// first page at `per`, and GitHub's largest page after it.
+async fn mount_search(server: &MockServer, route: &str, per: usize, rows: &[Value]) {
+    for size in [per, octocode_github::MAX_PER_PAGE] {
+        Mock::given(method("GET"))
+            .and(path(route))
+            .and(query_param("per_page", size.to_string()))
+            .respond_with(octocode_github::mock_http::SearchIndex(rows.to_vec()))
+            .mount(server)
+            .await;
+    }
 }
 
 /// One REST list endpoint's pages of `rows` at `per` rows a page, each but
@@ -78,7 +75,7 @@ fn commit_item(index: usize) -> Value {
 enum Paging {
     /// A REST list: `per_page = limit`, Link headers.
     List,
-    /// A search read through GitHub's largest page.
+    /// A search: its first page at `limit`, later ones through GitHub's largest.
     Search,
 }
 
@@ -153,7 +150,7 @@ fn cases() -> Vec<Case> {
 
 async fn mount(server: &MockServer, case: &Case, per: usize) {
     match case.paging {
-        Paging::Search => mount_search(server, case.route, &case.rows).await,
+        Paging::Search => mount_search(server, case.route, per, &case.rows).await,
         Paging::List => mount_list(server, case.route, per, &case.rows).await,
     }
 }
@@ -161,7 +158,7 @@ async fn mount(server: &MockServer, case: &Case, per: usize) {
 /// Every page of a `limit: 2` walk holds at most 2 rows, its `nextPage`
 /// carries the same `limit`, and the walk lists each of the 5 rows once,
 /// in provider order. The list mocks answer only `per_page=2`, the search
-/// mocks only GitHub's largest page.
+/// mocks that and GitHub's largest page.
 #[tokio::test]
 async fn a_small_limit_walk_lists_every_row_exactly_once() {
     for case in cases() {
@@ -201,7 +198,7 @@ async fn a_small_limit_walk_lists_every_row_exactly_once() {
 
 /// An omitted `limit` is the page size each tool served before `limit`
 /// existed (50 rows), read from the contract: the list mocks answer only
-/// `per_page=50`, the search mocks only GitHub's largest page.
+/// `per_page=50`, the search mocks that and GitHub's largest page.
 #[tokio::test]
 async fn an_omitted_limit_requests_the_contract_default() {
     assert_eq!(query_limits::gh_search_repo::LIMIT_DEFAULT, 50);

@@ -47,12 +47,18 @@ fn enabled(machine: &Value, name: &str) -> bool {
 const QUERY_COMMAND: &str = "octocode schema <tool> --view query [--select FIELD=VALUE]";
 
 /// The CLI's own notes, after the shared instructions in the full catalog.
-const CLI_INSTRUCTIONS: &str = "<cli>All tools are available; execution checks credentials and prerequisites. MCP exposure: graph tools need OCTOCODE_BETA, clone needs OCTOCODE_ENABLE_CLONE, clasify needs OCTOCODE_CLASSIFICATION_API. Fields: schema <name> --view query. A next.* page still exits 0.</cli>";
+const CLI_INSTRUCTIONS: &str = "<cli>Listed tools are available; execution checks credentials and prerequisites. MCP exposure: graph tools need OCTOCODE_BETA, clone needs OCTOCODE_ENABLE_CLONE. Fields: schema <name> --view query. A next.* page still exits 0.</cli>";
 
-/// Core's one instruction string (embedded through config), served by MCP
+/// Core's instructions (embedded through config) for the tools `available`
+/// says exist: the base, then each such tool's block. Served by MCP
 /// `initialize` and, with the CLI's own notes, by the full catalog.
-pub(super) fn instructions(presentation: &Value) -> &str {
-    presentation["instructions"].as_str().unwrap_or_default()
+pub(super) fn instructions(presentation: &Value, available: impl Fn(&str) -> bool) -> String {
+    let blocks = tools(presentation)
+        .filter(|tool| tool["name"].as_str().is_some_and(&available))
+        .filter_map(|tool| tool["instructions"].as_str());
+    std::iter::once(presentation["instructions"].as_str().unwrap_or_default())
+        .chain(blocks)
+        .collect()
 }
 
 /// Select a core-generated presentation using the runtime's resolved switch.
@@ -64,11 +70,16 @@ pub(super) fn configured_tool<'a>(tool: &'a Value, machine: &Value) -> &'a Value
     }
 }
 
+/// What prints the tool-flow guide: the CLI's reader of the MCP resource.
+const TOOL_FLOW_COMMAND: &str = "octocode schema --view flow";
+
 /// Enabled tools and discovery commands; the full view adds instructions,
 /// the grammar inventory, setup routes and field summaries.
 pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, SchemaError> {
     if view.is_some_and(|view| view != "full") {
-        return Err(usage("Without a tool, only --view full is supported."));
+        return Err(usage(
+            "Without a tool, only --view full or --view flow is supported.",
+        ));
     }
     let presentation = presentation()?;
     let listed: Vec<Value> = tools(presentation)
@@ -99,7 +110,10 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
                 "graph": "octocode graphBuild --help, then octocode graphQuery --help",
             },
         },
-        "instructions": format!("{}\n{CLI_INSTRUCTIONS}", instructions(presentation)),
+        "instructions": format!(
+            "{}\n{CLI_INSTRUCTIONS}",
+            instructions(presentation, |name| enabled(machine, name))
+        ),
     });
     if let Some(grammars) = grammar_instruction(&machine["grammarCapabilities"]) {
         value["grammars"] = Value::String(grammars);
@@ -124,10 +138,29 @@ pub(super) fn catalog(machine: &Value, view: Option<&str>) -> Result<Value, Sche
         value["commands"] = json!({
             "run": "octocode <tool> '<json>' (or --input FILE|-)",
             "query": QUERY_COMMAND,
-            "full": "octocode schema --view full"
+            "full": "octocode schema --view full",
+            "flow": TOOL_FLOW_COMMAND
         });
     }
     Ok(value)
+}
+
+/// What `tool`'s output fields and coverage reasons mean: the reference for
+/// a field an answer holds. A reason also says what it means when it fires.
+fn output_view(tool: &Value) -> Value {
+    json!({
+        "name": tool["name"],
+        "fields": tool["output"],
+        "partialReasons": octocode_native::contracts::partial_reasons(),
+    })
+}
+
+/// [`output_view`] of the tool named `name`, for its MCP resource.
+pub(super) fn output_of(name: &str) -> Option<Value> {
+    let presentation = presentation().ok()?;
+    tools(presentation)
+        .find(|tool| tool["name"] == name)
+        .map(output_view)
 }
 
 /// `octocode schema <tool> [--view] [--select]`.
@@ -146,10 +179,18 @@ pub(super) fn tool_view(
             .join(", ");
         return Err(usage(format!("Unknown tool: {name}. Known tools: {known}")));
     };
+    if view == Some("output") {
+        if select.is_some() {
+            return Err(usage("--select requires the query view and a tool name"));
+        }
+        return Ok(output_view(tool));
+    }
     let configured = configured_tool(tool, machine);
     let view = view.unwrap_or("query");
     if configured["views"].get(view).is_none() {
-        return Err(usage("A tool's views: query (default) or variants."));
+        return Err(usage(
+            "A tool's views: query (default), variants or output.",
+        ));
     }
     let mut value = match select {
         // The query view states the input contract once: its query fields.

@@ -123,7 +123,7 @@ fn files_past_the_scan_window_continue_to_every_entry() {
             let query = &lead["input"]["queries"][0];
             query
                 .get("scanOffset")
-                .filter(|_| query.get("snapshot").is_none())
+                .filter(|_| query.get("page").is_none())
                 .cloned()
         })
         .collect::<Vec<_>>();
@@ -197,6 +197,7 @@ fn a_window_offers_at_most_one_walk_continuation() {
                             scan_offset: 0,
                             covered: requested,
                             snapshot: "a".repeat(64),
+                            pins_through: Some("b".repeat(64)),
                         };
                         let mut out = json!({});
                         cut.finish(&mut out, &files_query(), &mut Vec::new());
@@ -211,7 +212,7 @@ fn a_window_offers_at_most_one_walk_continuation() {
                         let lead = out["next"]
                             .get("nextPage")
                             .map(|lead| &lead["input"]["queries"][0])
-                            .filter(|query| query.get("snapshot").is_none())
+                            .filter(|query| query.get("page").is_none())
                             .map(kind);
                         let expected = cut.walk_lead().map(|lead| match lead {
                             Move::Resume { .. } => "resume",

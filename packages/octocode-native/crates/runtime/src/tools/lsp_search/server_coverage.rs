@@ -38,6 +38,11 @@ use includes::{annotate_includes, record_text_coverage};
 
 pub(super) const DYNAMIC_REASON: crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::DynamicDispatch;
+pub(super) const UNANSWERED_REASON: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::ServerUnanswered;
+/// The server's own status says it is not fully working.
+const HEALTH_REASON: crate::response::paging::PartialReason =
+    crate::response::paging::PartialReason::ServerUnhealthy;
 /// File-level: missing files import the name by a path the server did not
 /// resolve to the anchor's module.
 pub(super) const UNRESOLVED_IMPORT_REASON: crate::response::paging::PartialReason =
@@ -84,8 +89,16 @@ pub(super) fn annotate(
     {
         return;
     }
-    if language_id == Some("rust") {
+    // What the server's project leaves out (cfg, the preprocessor) still spells
+    // the name: said as a count, since a same-named symbol does too.
+    if language_id == Some("rust") || octocode_engine::lsp::family::is_c_family(language_id) {
         record_text_coverage(row, query, scope);
+    }
+    if octocode_engine::lsp::family::is_c_family(language_id) {
+        annotate_c_family_text_only(row, query, scope);
+    }
+    if scope.unbounded && lsp_search_query::op(query) != Op::WorkspaceSymbol && lists_no_use(row) {
+        super::failure::flag_partial(row, query, UNANSWERED_REASON, Some(UNBOUNDED_NOTE), scope);
     }
     match language_id {
         // A workspace symbol is a declaration the server found: no use of it
@@ -107,8 +120,108 @@ pub(super) fn annotate(
             }
             annotate_rust(row, query, server.root, scope, rust.all_features, stopped);
         }
+        // The rest have no signal of their own, and a server that loaded no
+        // project answers empty just like one that found nothing.
+        _ if lacks_signal(language_id) => annotate_unanswered(row, query, scope),
         _ => {}
     }
+}
+
+/// A server that says it is not working (rust-analyzer on a manifest it cannot
+/// load) still answers, often empty, and its protocol calls that settled. On any
+/// operation the row is partial, in the server's own words, and leads to the text.
+pub(super) fn flag_server_health(
+    row: &mut Value,
+    query: &LspSearchQuery,
+    health: Option<octocode_engine::lsp::client::ServerHealth>,
+    scope: &Scope,
+) {
+    let Some(health) = health else {
+        return;
+    };
+    if !row.is_object() || row.get("status").and_then(Value::as_str) == Some("error") {
+        return;
+    }
+    let level = health.level.as_str();
+    let note = match health.message {
+        Some(message) => format!("Language server reports {level}: {message}"),
+        None => format!("Language server reports {level}."),
+    };
+    flag_partial(row, query, HEALTH_REASON, Some(&note), scope);
+}
+
+/// Why an answer naming no use cannot speak for files beyond the server's root.
+const UNBOUNDED_NOTE: &str = "No .git or workspace file says where this project ends, so only the server's root was searched; a module beside it may use this name. Pass workspaceRoot with the folder that holds them.";
+
+/// A file that spells the name in code and is not in the answer may hold another
+/// symbol or disabled code, or a use the index missed: a failed parse, a missing
+/// generated header and a dependent call all read the same. Nothing here can tell
+/// them apart, so the row says it is partial and leads to the text.
+fn annotate_c_family_text_only(row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
+    if lsp_search_query::op(query) == Op::WorkspaceSymbol {
+        return;
+    }
+    let Some(files) = lsp_search_query::symbol_name(query)
+        .filter(|name| !name.trim().is_empty())
+        .and_then(|name| scope.text_only_files(name))
+        .filter(|files| !files.is_empty())
+    else {
+        return;
+    };
+    let note = format!(
+        "{} file(s) spell this name in code but are not in the answer: another symbol, code the preprocessor disabled, or a use the index missed.",
+        files.len()
+    );
+    super::failure::flag_partial(row, query, UNANSWERED_REASON, Some(&note), scope);
+}
+
+/// Whether `row` names no use at all: empty, or rows that are all declarations.
+/// A view without match rows (`view:"files"`) lists its files as uses.
+pub(super) fn lists_no_use(row: &Value) -> bool {
+    if row.get("status").and_then(Value::as_str) == Some("empty") {
+        return true;
+    }
+    let Some(files) = row.get("files").and_then(Value::as_array) else {
+        return false;
+    };
+    !files.is_empty()
+        && files.iter().all(|file| {
+            file["matches"].as_array().is_some_and(|found| {
+                !found.is_empty() && found.iter().all(|hit| hit["role"] == "declaration")
+            })
+        })
+}
+
+/// Whether this language has no coverage signal of its own, so an answer naming
+/// no use must be checked ([`annotate_unanswered`]).
+pub(super) fn lacks_signal(language_id: Option<&str>) -> bool {
+    use octocode_engine::lsp::family::{is_c_family, is_typescript_family};
+    !(is_c_family(language_id)
+        || is_typescript_family(language_id)
+        || matches!(language_id, Some("python" | "rust")))
+}
+
+/// A server that lists no use while files it could not prove are another symbol
+/// spell the name in code may not have loaded them: partial, with the lexical
+/// lead. `page::run_target` has asked the server about each such file, and marked
+/// those whose name resolves elsewhere answered, so a truly unused name stays
+/// clean however common it is.
+fn annotate_unanswered(row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
+    if lsp_search_query::op(query) == Op::WorkspaceSymbol || !lists_no_use(row) {
+        return;
+    }
+    let Some(files) = lsp_search_query::symbol_name(query)
+        .filter(|name| !name.trim().is_empty())
+        .and_then(|name| scope.text_only_files(name))
+        .filter(|files| !files.is_empty())
+    else {
+        return;
+    };
+    let note = format!(
+        "The server lists no use of this name, but {} other file(s) spell it in code: its project may not cover them.",
+        files.len()
+    );
+    super::failure::flag_partial(row, query, UNANSWERED_REASON, Some(&note), scope);
 }
 
 /// Where the server answered: the anchor file and the server's workspace

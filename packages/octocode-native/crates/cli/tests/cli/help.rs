@@ -1,36 +1,43 @@
 use super::*;
 
 #[test]
-fn root_help_lists_all_tools_independent_of_mcp_gates_and_filters() {
+fn root_help_lists_tools_independent_of_mcp_filters_and_clasify_only_with_a_key() {
     let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .env("OCTOCODE_ENABLE_LOCAL", "false")
-        .env("OCTOCODE_BETA", "false")
-        .env("OCTOCODE_ENABLE_CLONE", "false")
-        .env("OCTOCODE_CLASSIFICATION_API", "")
-        .env("TOOLS_TO_RUN", "localFetch")
-        .env("DISABLE_TOOLS", "localFetch,clasify")
-        .arg("--help")
-        .output()
-        .expect("help");
-    assert!(output.status.success());
-    let text = stdout(&output);
-    let tools = octocode_native::id::ToolId::ALL;
-    assert_eq!(tools.len(), 16);
-    for tool in tools {
-        assert!(
-            text.contains(&format!("\n  {} ", tool.as_str())),
-            "missing {}: {text}",
-            tool.as_str()
-        );
+    for key in ["", "fixture-key"] {
+        let output = workspace
+            .cli()
+            .env("OCTOCODE_ENABLE_LOCAL", "false")
+            .env("OCTOCODE_BETA", "false")
+            .env("OCTOCODE_ENABLE_CLONE", "false")
+            .env("OCTOCODE_CLASSIFICATION_API", key)
+            .env("TOOLS_TO_RUN", "localFetch")
+            .env("DISABLE_TOOLS", "localFetch,clasify")
+            .arg("--help")
+            .output()
+            .expect("help");
+        assert!(output.status.success());
+        let text = stdout(&output);
+        for tool in octocode_native::id::ToolId::ALL {
+            assert_eq!(
+                text.contains(&format!("\n  {} ", tool.as_str())),
+                match tool {
+                    octocode_native::id::ToolId::Clasify => !key.is_empty(),
+                    octocode_native::id::ToolId::SecurityCheck => false,
+                    _ => true,
+                },
+                "{key:?} {}: {text}",
+                tool.as_str()
+            );
+        }
     }
+    let output = workspace.cli().arg("--help").output().expect("help");
+    let text = stdout(&output);
     // A CLI agent chooses from this list: it never reads the MCP instructions.
     assert!(
         text.contains("Use to find where a word or pattern occurs"),
         "{text}"
     );
-    assert!(text.contains("references/tool-flow.md"), "{text}");
+    assert!(text.contains("schema --view flow"), "{text}");
     // Each tool retains its canonical JSON input and continuation help.
     let own = workspace
         .cli()

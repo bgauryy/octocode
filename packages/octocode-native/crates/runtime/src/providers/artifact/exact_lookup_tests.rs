@@ -97,3 +97,98 @@ async fn exact_lookups_parse_one_row_per_registry() {
         assert_eq!(item.registry_url, registry_url, "{name}");
     }
 }
+
+/// The p2 document of `symfony/http-kernel`, minified as Packagist serves it.
+fn minified_p2() -> serde_json::Value {
+    json!({"minified": "composer/2.0", "packages": {"symfony/http-kernel": [
+        {"name": "symfony/http-kernel", "version": "v8.1.11", "description": "kept",
+         "license": ["MIT"], "time": "2026-10-01T00:00:00+00:00"},
+        {"version": "v4.4.0", "time": "2019-11-21T00:00:00+00:00"}
+    ]}})
+}
+
+async fn packagist_at(
+    http: &RouteHttp,
+    version: &str,
+) -> Result<ArtifactProviderPage, ArtifactError> {
+    let b = test_budget();
+    let client = RegistryClient::new(http, &b);
+    let q = super::query::versioned(ArtifactType::Packagist, "symfony/http-kernel", version);
+    packagist::packagist(&q, &ArtifactProviderState::default(), &client).await
+}
+
+/// A Packagist row at a named version: spelled with or without its `v`, whole
+/// from a minified document; a version the package lacks names the nearest.
+#[tokio::test]
+async fn packagist_resolves_an_exact_version() {
+    let p2 = "/p2/symfony/http-kernel.json";
+    let http = RouteHttp::new().json(p2, minified_p2());
+    for spelled in ["v4.4.0", "4.4.0"] {
+        let page = packagist_at(&http, spelled).await.expect("release");
+        let item = &page.artifacts[0];
+        assert_eq!(item.version.as_deref(), Some("v4.4.0"), "{spelled}");
+        assert_eq!(item.published_at.as_deref(), Some("2019-11-21"));
+        assert_eq!(item.description.as_deref(), Some("kept"), "inherited");
+    }
+    let error = packagist_at(&http, "9.9.9").await.expect_err("absent");
+    assert_eq!(error.code, ErrorCode::VersionNotFound);
+    assert!(!error.nearest.is_empty(), "{error:?}");
+    // A dev version lives in the `~dev` document.
+    let http = RouteHttp::new().json(p2, minified_p2()).json(
+        "/p2/symfony/http-kernel~dev.json",
+        json!({"packages": {"symfony/http-kernel": [
+            {"name": "symfony/http-kernel", "version": "dev-main"}
+        ]}}),
+    );
+    let page = packagist_at(&http, "dev-main").await.expect("dev");
+    assert_eq!(page.artifacts[0].version.as_deref(), Some("dev-main"));
+    // An unknown package is empty, never a version miss.
+    let missing = RouteHttp::new();
+    let page = packagist_at(&missing, "1.0.0").await.expect("empty");
+    assert!(page.artifacts.is_empty());
+}
+
+async fn rubygems_at(
+    http: &RouteHttp,
+    version: &str,
+) -> Result<ArtifactProviderPage, ArtifactError> {
+    let b = test_budget();
+    let client = RegistryClient::new(http, &b);
+    let q = super::query::versioned(ArtifactType::Rubygems, "rack", version);
+    rubygems::rubygems(&q, &ArtifactProviderState::default(), &client).await
+}
+
+/// A RubyGems row at a named version, from its own document. A miss there says
+/// neither gem nor version is known: the versions list tells them apart.
+#[tokio::test]
+async fn rubygems_resolves_an_exact_version() {
+    let exact = "/api/v2/rubygems/rack/versions/2.2.3.json";
+    let http = RouteHttp::new().json(
+        exact,
+        json!({
+            "name": "rack", "version": "2.2.3", "info": "A modular Ruby webserver interface.",
+            "licenses": ["MIT"], "version_created_at": "2020-06-15T22:25:14.574Z",
+            "source_code_uri": "https://github.com/rack/rack",
+            "dependencies": {"runtime": [{"name": "dep", "requirements": ">= 0"}]}
+        }),
+    );
+    let page = rubygems_at(&http, "2.2.3").await.expect("release");
+    let item = &page.artifacts[0];
+    assert_eq!(item.version.as_deref(), Some("2.2.3"));
+    assert_eq!(item.published_at.as_deref(), Some("2020-06-15"));
+    assert_eq!(item.dependencies, Some(vec!["dep >= 0".to_owned()]));
+    assert_eq!(http.targets(), [exact]);
+    let listed = RouteHttp::new().json(
+        "/api/v1/versions/rack.json",
+        json!([{"number": "3.2.8"}, {"number": "2.2.3"}]),
+    );
+    let error = rubygems_at(&listed, "2.2.4").await.expect_err("absent");
+    assert_eq!(error.code, ErrorCode::VersionNotFound);
+    assert!(
+        error.nearest.iter().any(|near| near == "2.2.3"),
+        "{error:?}"
+    );
+    let missing = RouteHttp::new();
+    let page = rubygems_at(&missing, "1.0.0").await.expect("empty");
+    assert!(page.artifacts.is_empty());
+}

@@ -27,13 +27,28 @@ impl FileLink<'_, '_> {
         })
     }
 
-    /// A bare JS/TS specifier naming project code (alias, workspace package,
-    /// `#`/`@/`/`~/` convention): failing to link it is an internal gap.
+    /// A non-relative specifier that may name project code: failing to link
+    /// it is an internal gap, not proof of a third-party package. That is a JS/TS
+    /// alias, workspace package, `#`/`@/`/`~/` convention or a path a scanned
+    /// file ends in; a Python module the scan or the directories above it spell;
+    /// or a Rust crate a path dependency names, or any when no manifest says.
     pub(super) fn internal_bare(&self, spec: &str) -> bool {
-        self.lang == Linker::JsTs
-            && !spec.starts_with('.')
-            && !spec.starts_with('/')
-            && self.inputs.ctx.is_internal_bare_js(spec, &self.file)
+        if spec.starts_with('.') || spec.starts_with('/') {
+            return false;
+        }
+        match self.lang {
+            Linker::JsTs => {
+                self.inputs.ctx.is_internal_bare_js(spec, &self.file)
+                    || self.inputs.js_modules.named_by(spec).next().is_some()
+            }
+            Linker::Python => self.inputs.ctx.python_may_be_internal(spec),
+            Linker::Rust => spec.split("::").next().is_some_and(|head| {
+                self.inputs
+                    .cargo_crates
+                    .may_name_local_crate(&self.file, head)
+            }),
+            _ => false,
+        }
     }
 
     pub(super) fn resolve(&self, spec: &str, hint: Option<&str>, imported: &str) -> Option<String> {
@@ -152,8 +167,11 @@ impl FileLink<'_, '_> {
             )
         };
         let unsupported = self.lang == Linker::Unsupported;
-        // An unresolved include names a file outside the scan, never a package.
-        let external = if include {
+        // An unresolved include names a file outside the scan, never a package;
+        // a quoted C include is one the project's search path missed.
+        let quoted =
+            self.lang == Linker::CFamily && i.resolution_hint.as_deref() == Some("c-relative");
+        let external = if include || quoted {
             record_resolution(
                 self.b,
                 &self.file,

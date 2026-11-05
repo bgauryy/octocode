@@ -1,6 +1,8 @@
-use super::commands::{run_clean, run_install, run_status};
+use super::commands::{run_clean, run_install};
 use super::download::{download_client, download_error};
 use super::install::install_binary;
+use super::live_check::run_live;
+use super::status::{masked_args, run_status};
 use super::upstream::{Attestation, GitHub, Upstream};
 use super::*;
 use flate2::{Compression, write::GzEncoder};
@@ -249,4 +251,26 @@ fn install_dir_leftovers(root: &std::path::Path) -> Vec<String> {
         .map(|entry| entry.file_name().to_string_lossy().into_owned())
         .filter(|name| name != ".lock")
         .collect()
+}
+
+#[test]
+fn status_masks_secret_named_arguments_in_either_spelling() {
+    let args = [
+        "--token=abc",
+        "--api-key",
+        "abc",
+        "--log=error",
+        "--compile-commands-dir=x",
+    ]
+    .map(str::to_owned);
+    assert_eq!(
+        masked_args(&args),
+        [
+            "--token=***",
+            "--api-key",
+            "***",
+            "--log=error",
+            "--compile-commands-dir=x"
+        ]
+    );
 }

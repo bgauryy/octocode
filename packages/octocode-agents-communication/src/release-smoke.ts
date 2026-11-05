@@ -92,7 +92,7 @@ try {
     { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
     { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'messages', arguments: { type: 'complete', input: { message: sent.id, outcome: 'completed', reply: [{ text: 'Handoff confirmed' }], reasoning: 'Complete the requested check' } } } },
   ];
-  const responses = runRuntime(binary, ['mcp', '--tools', 'agents,messages', ...bindingFlags(workspace, database, b)], { input: frames.map(frame => JSON.stringify(frame)).join('\n') + '\n' }).trim().split('\n').map(parseReply);
+  const responses = runRuntime(binary, ['mcp', '--tools', 'agents,messages', ...bindingFlags(workspace, database, b)], { input: `${frames.map(frame => JSON.stringify(frame)).join('\n')}\n` }).trim().split('\n').map(parseReply);
   assert.equal(responses.length, 3);
   const [initialized, listed, completed] = responses.map((response, index) => object(response.result, `MCP response ${index + 1} result`));
   assert.equal(initialized?.protocolVersion, '2024-11-05');
@@ -141,6 +141,6 @@ try {
   rmSync(temporary, { recursive: true, force: true });
   result.completedAt = new Date().toISOString();
   mkdirSync(dirname(output), { recursive: true });
-  writeFileSync(output, JSON.stringify(result, null, 2) + '\n');
+  writeFileSync(output, `${JSON.stringify(result, null, 2)}\n`);
   console.log(JSON.stringify({ passed: result.passed, target, output, checks: result.checks, restore: result.restore, error: result.error }));
 }

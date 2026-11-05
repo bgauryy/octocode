@@ -321,3 +321,26 @@ async fn crates_exact_versions_read_the_version_record_with_the_same_fields() {
         ]
     );
 }
+
+/// A yanked version's row carries the maintainer's reason when one is stated.
+#[tokio::test]
+async fn a_yanked_crate_version_keeps_its_yank_message() {
+    let mut document = serde_crate_document();
+    document["versions"][1]["yank_message"] = json!("miscompiles on arm");
+    let http = RouteHttp::routes(vec![("/api/v1/crates/serde", document)]);
+    let b = test_budget();
+    let client = RegistryClient::new(&http, &b);
+    let query = versioned(ArtifactType::Crates, "serde", "1.0.200");
+    let page = crates(&query, &ArtifactProviderState::default(), &client)
+        .await
+        .expect("crates");
+    let row = serde_json::to_value(&page.artifacts[0]).expect("row");
+    assert_eq!(row["yanked"], true, "{row}");
+    assert_eq!(row["yankedReason"], "miscompiles on arm", "{row}");
+    let query = versioned(ArtifactType::Crates, "serde", "1.0.100");
+    let page = crates(&query, &ArtifactProviderState::default(), &client)
+        .await
+        .expect("crates");
+    let row = serde_json::to_value(&page.artifacts[0]).expect("row");
+    assert!(row.get("yankedReason").is_none(), "{row}");
+}

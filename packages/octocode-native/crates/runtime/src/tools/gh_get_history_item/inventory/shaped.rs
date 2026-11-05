@@ -18,7 +18,4 @@ pub(in crate::tools::gh_get_history_item) struct ShapedFiles {
     /// Files whose `matchString` context the hunks cut short, with the
     /// new-side windows to read at the head.
     pub(in crate::tools::gh_get_history_item) clipped: Vec<(String, Vec<(usize, usize)>)>,
-    /// Files of the patch window not fully delivered (a working count, never
-    /// an output field).
-    pub(in crate::tools::gh_get_history_item) unfinished_patches: usize,
 }

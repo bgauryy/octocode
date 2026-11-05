@@ -91,7 +91,7 @@ test('current-schema records are idempotent by key and store compact JSON', t =>
   // Stored bytes are the compact JSON of the data in insertion order, with non-ASCII characters unescaped.
   assert.equal(db.value('SELECT data FROM records WHERE key=?', ['k']), '{"z":1,"a":{"y":[1,"é","😀"],"b":null},"name":"ts"}');
   // A paged fetch reaches every row once.
-  for (let index = 0; index < 7; index += 1) records.record(store, id, { type: 'event', data: { name: 'bulk', index }, key: 'bulk' + index });
+  for (let index = 0; index < 7; index += 1) records.record(store, id, { type: 'event', data: { name: 'bulk', index }, key: `bulk${index}` });
   const seen = [];
   let after = 0;
   for (let page = records.fetch(store, id, { limit: 3 }); ; page = records.fetch(store, id, { limit: 3, through: page.through, after })) {

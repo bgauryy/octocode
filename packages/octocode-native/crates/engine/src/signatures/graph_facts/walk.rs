@@ -61,6 +61,13 @@ fn note_name_token(acc: &mut GraphAccumulator, node: Node<'_>, path: &[Node<'_>]
     }
 }
 
+/// Whether a walk that reads only one spelling's spans goes into `child`.
+fn entered(acc: &GraphAccumulator, child: Node<'_>) -> bool {
+    acc.only_spelling
+        .as_ref()
+        .is_none_or(|spelled| spelled.within(child.start_byte(), child.end_byte()))
+}
+
 pub(super) fn visit_node(
     root: Node<'_>,
     content: &str,
@@ -166,6 +173,10 @@ pub(super) fn visit_node(
             );
         }
         path.push(node);
+        #[cfg(feature = "tree-sitter-scala")]
+        if let Some(terms) = scala_terms.as_mut() {
+            terms.collect_parameterless(&path, content, line_index, acc, declarations.last());
+        }
         if acc.calls.len() > calls_before
             && let Some(receivers) = receivers.as_mut()
             && let Some(call) = acc.calls.last_mut()
@@ -209,12 +220,14 @@ pub(super) fn visit_node(
                 children
                     .iter()
                     .zip(contexts)
+                    .filter(|(child, _)| entered(acc, **child))
                     .map(|(child, context)| Frame::Enter(*child, context, depth)),
             );
         } else {
             frames.extend(
                 children
                     .iter()
+                    .filter(|child| entered(acc, **child))
                     .map(|child| Frame::Enter(*child, RustContext::default(), depth)),
             );
         }

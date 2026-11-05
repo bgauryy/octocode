@@ -27,6 +27,8 @@ pub(super) struct Continuation {
     key: String,
     /// Every file the set read or walked, stamped when the set is stored.
     sources: Vec<PathBuf>,
+    /// Each source's stamp as the walk read it, before any read.
+    stamps: Vec<Option<octocode_engine::stamp::SourceStamp>>,
     root: PathBuf,
     /// Before the read: no file written after it is trusted as read.
     started: SystemTime,
@@ -87,6 +89,7 @@ impl Continuation {
                 .iter()
                 .map(|entry| root.join(&entry.relative_path))
                 .collect(),
+            stamps: listing.entries.iter().map(|entry| entry.stamp).collect(),
             root: root.to_path_buf(),
             started,
         }
@@ -102,9 +105,35 @@ impl Continuation {
         Self {
             key: key_of(q, paths, file, &Value::Null),
             sources: vec![file.to_path_buf()],
+            stamps: Vec::new(),
             root: file.to_path_buf(),
             started,
         }
+    }
+
+    /// What the first `count` files of the walk are now
+    /// ([`octocode_engine::structural::ListedFiles`]).
+    fn listed(&self, count: usize) -> String {
+        let mut listed = octocode_engine::structural::ListedFiles::default();
+        for (source, stamp) in self.sources.iter().zip(&self.stamps).take(count) {
+            listed.add(source, *stamp);
+        }
+        listed.hex()
+    }
+
+    /// What the files before `q`'s window are now; `None` for a first window.
+    pub(super) fn listed_before(&self, q: &AstSearchQuerySymbols) -> Option<String> {
+        let offset = ast_search_query_symbols::scan_offset(q) as usize;
+        (offset > 0).then(|| self.listed(offset))
+    }
+
+    /// Bind `set` to the windows around it: its pages answer for the files
+    /// `before` its window, and its resume pins the files through its cut.
+    pub(super) fn bind(&self, set: &mut SymbolSet, before: Option<&str>) {
+        if let Some(before) = before {
+            set.snapshot = crate::digest::json_sha256(&json!([set.snapshot, before]));
+        }
+        set.scan_pin = set.scan_resume.map(|resume| self.listed(resume as usize));
     }
 
     /// The set the first page stored for the snapshot this continuation
@@ -117,9 +146,10 @@ impl Continuation {
     }
 
     /// Keep `set` for the pages after the one being served, when `q` lets a
-    /// result be kept ([`crate::tools::test_code::result_may_be_kept`]).
+    /// result be kept: a filtering scope's walk asks its verdicts again on
+    /// every page anyway, for the key.
     pub(super) fn remember(&self, q: &AstSearchQuerySymbols, set: &Arc<SymbolSet>) {
-        if !crate::tools::test_code::result_may_be_kept(q.test_code) {
+        if crate::tools::test_code::Keep::of(q.test_code).is_some() {
             return;
         }
         SETS.put(
@@ -137,16 +167,9 @@ impl Continuation {
     }
 }
 
-/// About the bytes `set` holds: its rows by the sizes it already keeps, plus
-/// the `path` each directory row carries and pages state once; only what
-/// stands beside the rows is measured.
+/// About the heap `set` holds, what the one process budget weighs a kept result
+/// by: every row, and what stands beside the rows, measured.
 fn weight(set: &SymbolSet) -> usize {
-    let row_paths = set
-        .declarations
-        .iter()
-        .filter_map(|row| row["path"].as_str())
-        .map(str::len)
-        .sum::<usize>();
     let beside_rows = octocode_engine::json_size::bytes_or(
         &(
             &set.references,
@@ -160,10 +183,11 @@ fn weight(set: &SymbolSet) -> usize {
         ),
         usize::MAX,
     );
-    set.sizes
+    set.declarations
         .iter()
+        .map(|row| std::mem::size_of::<Value>() + super::rows::heap_bytes(row))
         .sum::<usize>()
-        .saturating_add(row_paths)
+        .saturating_add(set.sizes.len() * std::mem::size_of::<usize>())
         .saturating_add(beside_rows)
 }
 
@@ -174,8 +198,9 @@ mod tests {
     use crate::tools::ast_search::symbols::{outline::outline_file, select::select};
     use crate::tools::test_support::{Fixture, simple_policy};
 
-    /// The weight tracks what the rows hold when serialized, as the store's
-    /// byte budget expects, with and without the provenance fields.
+    /// The weight tracks the heap the rows hold, at least what they serialize to and
+    /// within what a row table costs, as the store's byte budget expects, with and
+    /// without the provenance fields.
     #[test]
     fn a_stored_set_weighs_about_its_rows() {
         let root = Fixture::new();
@@ -201,7 +226,7 @@ mod tests {
             let rows = serde_json::to_vec(&set.declarations).expect("rows").len();
             let weight = weight(&set);
             assert!(
-                rows <= weight * 2 && weight <= rows * 3,
+                rows <= weight && weight <= rows * 16,
                 "{weight} bytes for {rows} of rows (provenance: {provenance})"
             );
         }

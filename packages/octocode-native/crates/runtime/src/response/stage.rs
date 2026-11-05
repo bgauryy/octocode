@@ -36,7 +36,7 @@ pub(crate) struct Staged {
 
 /// The page-independent half of the stage: selection receipts, line
 /// numbers, output validation (row violations isolated, marking `failure`)
-/// and continuation shaping. Returns the remaining-notes the pager words.
+/// and continuation shaping.
 /// A settled envelope is what a page replay stores, so its later pages are
 /// neither validated nor shaped again.
 pub(crate) fn settle(
@@ -44,7 +44,7 @@ pub(crate) fn settle(
     structured: &mut Sanitized,
     response_query: &Value,
     failure: &mut Option<FailureKind>,
-) -> Result<Vec<Vec<super::result::Remaining>>, ContractValidationError> {
+) -> Result<(), ContractValidationError> {
     structured.edit(|structured| settle_value(tool, structured, response_query, failure))
 }
 
@@ -53,11 +53,10 @@ fn settle_value(
     structured: &mut Value,
     response_query: &Value,
     failure: &mut Option<FailureKind>,
-) -> Result<Vec<Vec<super::result::Remaining>>, ContractValidationError> {
+) -> Result<(), ContractValidationError> {
     crate::response::selection_errors::decorate(tool, structured, response_query);
+    super::notices::explain_codes(structured, "results");
     super::notices::place(structured, "results");
-    // The notes stay with the pager for the pages a split row moves.
-    let remaining = super::pages::take_remaining_notes(structured);
     // Hosts show agents this JSON: source reads carry their line numbers in
     // `content` itself. Numbering precedes validation so an unpaged
     // response is exactly what was checked.
@@ -68,7 +67,7 @@ fn settle_value(
     if isolate_output_rows(tool.as_str(), structured)? && failure.is_none() {
         *failure = Some(FailureKind::Execution);
     }
-    Ok(remaining)
+    Ok(())
 }
 
 /// The page-dependent half of the stage over a [`settle`]d envelope: paging
@@ -77,7 +76,6 @@ fn settle_value(
 /// response that fits one page is never copied.
 pub(crate) fn respond(
     input: StageInput,
-    remaining: Vec<Vec<super::result::Remaining>>,
     keep: Option<&mut Option<Sanitized>>,
     context: &ExecutionContext,
 ) -> Result<Staged, ExecutionError> {
@@ -110,7 +108,6 @@ pub(crate) fn respond(
                     tool,
                     structured: std::mem::take(structured),
                     options,
-                    remaining,
                 },
                 &context.cancellation,
             )?;
@@ -132,7 +129,6 @@ pub(crate) fn respond(
 pub(crate) fn respond_saved(
     input: StageInput,
     envelope: &Sanitized,
-    remaining: &[Vec<super::result::Remaining>],
     pages: &SavedPages,
     context: &ExecutionContext,
 ) -> Result<Staged, ExecutionError> {
@@ -153,7 +149,6 @@ pub(crate) fn respond_saved(
                     tool,
                     structured: Value::Null,
                     options,
-                    remaining: remaining.to_vec(),
                 },
                 envelope,
                 pages,

@@ -28,7 +28,7 @@ export async function observeFrameEvents(
     });
     const task = (async () => {
       for (const domain of domains)
-        await cdp.send(domain + '.enable', {}, sessionId);
+        await cdp.send(`${domain}.enable`, {}, sessionId);
       await cdp.send('Target.setAutoAttach', attachParams(), sessionId);
     })().catch((error: unknown) => {
       const message = errorMessage(error);
@@ -57,7 +57,7 @@ export async function observeFrameEvents(
       };
     },
     async stop() {
-      await Promise.allSettled([...pending]);
+      await Promise.allSettled(pending);
       // Stealth keeps attaching child targets to apply its overrides.
       await cdp
         .send(

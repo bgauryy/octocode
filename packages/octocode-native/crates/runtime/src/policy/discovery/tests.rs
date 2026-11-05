@@ -250,3 +250,56 @@ fn withheld_notice_labels_any_case_of_a_git_file() {
     assert_eq!(withheld.git_files, 1);
     assert!(withheld_message(".GIT", &pointer).contains("a `.git` file"));
 }
+
+/// The key beside Octocode's encrypted `credentials.json` has no stem, so the
+/// extension rule alone would leave it readable by every local tool.
+#[test]
+fn the_bare_key_file_is_a_credential() {
+    assert!(super::is_sensitive_path(
+        Path::new("/h/.octocode/.key"),
+        EntryKind::File
+    ));
+    assert!(super::is_sensitive_path(
+        Path::new("/h/.octocode/.key.bak"),
+        EntryKind::File
+    ));
+    assert!(!super::is_sensitive_path(
+        Path::new("/h/.octocode/.key"),
+        EntryKind::Dir
+    ));
+}
+
+/// A repository names its files from its root: the same rule as a local path,
+/// however the request spells the path.
+#[test]
+fn a_repository_file_passes_the_one_name_rule() {
+    for withheld in [
+        ".env",
+        ".Env.Prod",
+        "KEY.PEM",
+        "deploy/server.pem",
+        ".ssh/config",
+        "a/.SSH/config",
+        "./.env",
+        "a/../.env",
+        "a//.env",
+        ".env/",
+        "../.env",
+        ".config/gh/hosts.yml",
+        "Library/Keychains/login.keychain",
+        "id_rsa.bak",
+        "a\\.ssh\\config",
+    ] {
+        assert!(is_sensitive_repository_file(withheld), "{withheld}");
+    }
+    for kept in [
+        "src/credentials/mod.rs",
+        ".github/workflows/ci.yml",
+        "docs/secrets/readme.md",
+        ".environment/setup.md",
+        "README.md",
+        ".env/../README.md",
+    ] {
+        assert!(!is_sensitive_repository_file(kept), "{kept}");
+    }
+}

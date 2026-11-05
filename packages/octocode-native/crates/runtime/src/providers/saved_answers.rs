@@ -8,9 +8,15 @@
 //! so no credential a provider returned reaches a file; every read of it passes
 //! the output gate on its way out. A kept answer is keyed by the origin and the
 //! exact credential that received it.
-use crate::cache::{CacheClass, CacheConfig, CacheKey, Store};
+//!
+//! A stored answer's body lives apart from it, by content: confirming an answer
+//! rewrites no body, and a continuation's evidence links the same file
+//! ([`crate::cache::Store::link`]). The credential keys the answer that names a
+//! body, so a body is reached only through a credential that received it.
+use crate::cache::{CacheClass, CacheConfig, CacheKey, DiskCodec, Store};
 use crate::security::{ContentSecurity, sanitize_json};
-use octocode_github::{ProviderAnswer, SavedAnswer, SavedAnswers};
+use octocode_github::{AnswerBody, ProviderAnswer, SavedAnswer, SavedAnswers};
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -26,9 +32,44 @@ const UNUSED_RETENTION: CacheClass = CacheClass::Idle {
 
 const NAMESPACE: &str = "provider-answers";
 
+/// A stored answer: its body is left out and named by digest.
+#[derive(Deserialize, Serialize)]
+struct Sealed {
+    saved: SavedAnswer,
+    body: String,
+}
+
+/// A body as its raw text.
+pub(crate) struct BodyCodec;
+
+impl DiskCodec<AnswerBody> for BodyCodec {
+    fn encode(value: &AnswerBody) -> Option<Vec<u8>> {
+        Some(value.as_bytes().to_vec())
+    }
+
+    fn decode(bytes: &[u8]) -> Option<AnswerBody> {
+        std::str::from_utf8(bytes).ok().map(AnswerBody::from)
+    }
+}
+
+/// The content address of a body.
+pub(crate) fn body_digest(body: &AnswerBody) -> String {
+    octocode_engine::digest::sha256(body.as_bytes())
+}
+
+/// Where a body with this digest is stored.
+pub(crate) fn body_key(digest: &str) -> CacheKey {
+    CacheKey {
+        namespace: "provider-answer-bodies".into(),
+        scope: String::new(),
+        resource: digest.into(),
+    }
+}
+
 /// The store behind [`SavedAnswers`].
 pub(crate) struct KeptAnswers {
-    sealed: Store<SavedAnswer>,
+    sealed: Store<Sealed>,
+    bodies: Store<AnswerBody, BodyCodec>,
     held: Store<SavedAnswer>,
     security: ContentSecurity,
 }
@@ -37,7 +78,8 @@ impl KeptAnswers {
     /// `disk: None` keeps everything in this runtime (`storage.mode` memory).
     pub(crate) fn new(disk: Option<PathBuf>) -> Self {
         Self {
-            sealed: Store::new(CacheConfig::derived(), disk),
+            sealed: Store::new(CacheConfig::derived(), disk.clone()),
+            bodies: Store::new(CacheConfig::derived(), disk),
             held: Store::new(CacheConfig::derived(), None),
             security: ContentSecurity::new(),
         }
@@ -50,21 +92,45 @@ impl KeptAnswers {
             resource: request.into(),
         }
     }
+
+    /// The body named `digest`, exactly: a file that no longer holds it is gone.
+    fn body(&self, digest: &str) -> Option<AnswerBody> {
+        let key = body_key(digest);
+        let body = self.bodies.get(&key)?.value;
+        if body_digest(&body) != digest {
+            self.bodies.remove(&key);
+            return None;
+        }
+        Some((*body).clone())
+    }
+
+    fn drop_sealed(&self, key: &CacheKey) {
+        if let Some(kept) = self.sealed.get(key) {
+            self.bodies.remove(&body_key(&kept.value.body));
+        }
+        self.sealed.remove(key);
+    }
 }
 
 impl SavedAnswers for KeptAnswers {
     fn load(&self, scope: &str, request: &str) -> Option<SavedAnswer> {
         let key = Self::key(scope, request);
-        self.held
-            .get(&key)
-            .or_else(|| self.sealed.get(&key))
-            .map(|kept| (*kept.value).clone())
+        if let Some(kept) = self.held.get(&key) {
+            return Some((*kept.value).clone());
+        }
+        let kept = self.sealed.get(&key)?.value;
+        let Some(body) = self.body(&kept.body) else {
+            self.sealed.remove(&key);
+            return None;
+        };
+        let mut saved = kept.saved.clone();
+        saved.answer.body = body;
+        Some(saved)
     }
 
-    fn save(&self, scope: &str, request: &str, saved: SavedAnswer) {
+    fn save(&self, scope: &str, request: &str, mut saved: SavedAnswer) {
         let key = Self::key(scope, request);
         let bytes = saved.answer.request.len()
-            + saved.answer.body.len()
             + saved
                 .answer
                 .headers
@@ -72,20 +138,48 @@ impl SavedAnswers for KeptAnswers {
                 .map(|(name, value)| name.len() + value.len())
                 .sum::<usize>();
         // The other store's older answer must not outlive this one.
-        if gate_keeps(&self.security, &saved.answer) {
-            self.held.remove(&key);
-            self.sealed
-                .put_confirmed(key, saved, bytes, UNUSED_RETENTION);
-        } else {
-            self.sealed.remove(&key);
+        if !gate_keeps(&self.security, &saved.answer) {
+            self.drop_sealed(&key);
+            let bytes = bytes + saved.answer.body.len();
             self.held.put_confirmed(key, saved, bytes, UNUSED_RETENTION);
+            return;
+        }
+        self.held.remove(&key);
+        let digest = body_digest(&saved.answer.body);
+        let stored = body_key(&digest);
+        let replaced = self
+            .sealed
+            .get(&key)
+            .map(|kept| kept.value.body.clone())
+            .filter(|previous| *previous != digest);
+        let body = std::mem::take(&mut saved.answer.body);
+        let length = body.len();
+        if !self.bodies.refresh(&stored)
+            && !self
+                .bodies
+                .put_confirmed(stored, body, length, UNUSED_RETENTION)
+                .1
+        {
+            return;
+        }
+        self.sealed.put_confirmed(
+            key,
+            Sealed {
+                saved,
+                body: digest,
+            },
+            bytes,
+            UNUSED_RETENTION,
+        );
+        if let Some(previous) = replaced {
+            self.bodies.remove(&body_key(&previous));
         }
     }
 
     fn forget(&self, scope: &str, request: &str) {
         let key = Self::key(scope, request);
         self.held.remove(&key);
-        self.sealed.remove(&key);
+        self.drop_sealed(&key);
     }
 }
 
@@ -174,11 +268,16 @@ pub(crate) fn gate_keeps(security: &ContentSecurity, answer: &ProviderAnswer) ->
 /// (GitHub's contents and blob payloads). Reads apply patterns by the file they
 /// name, which an answer need not say (a raw file is only its bytes), so the
 /// judgment applies them whatever the path ([`ContentSecurity::sanitize_stored_leaf`]).
-/// A wrong "no" costs a repeat its request, never a credential on disk.
+/// A wrong "no" costs a repeat its request, never a credential on disk. A file's
+/// raw bytes may parse as JSON, but a read shows them as one text, whose values
+/// are judged beside their keys.
 fn gate_verdict(security: &ContentSecurity, answer: &ProviderAnswer) -> bool {
-    let mut body = serde_json::from_str::<Value>(&answer.body)
-        .unwrap_or_else(|_| Value::String(answer.body.clone()));
-    if !decode_contents(&mut body) {
+    let text = answer.body.as_str();
+    let mut body =
+        serde_json::from_str::<Value>(text).unwrap_or_else(|_| Value::String(text.to_owned()));
+    let file_text = (requested_path(&answer.request).contains("/contents/") && !body.is_string())
+        .then_some(text);
+    if holds_credential_file(&answer.request, &body) || !decode_contents(&mut body) {
         return false;
     }
     let exposed = json!({
@@ -187,6 +286,7 @@ fn gate_verdict(security: &ContentSecurity, answer: &ProviderAnswer) -> bool {
         "headers": answer.headers,
         "next": answer.next,
         "body": body,
+        "fileText": file_text,
     });
     let mut judged = exposed.clone();
     sanitize_json(&mut judged, &mut |text, path| {
@@ -194,6 +294,41 @@ fn gate_verdict(security: &ContentSecurity, answer: &ProviderAnswer) -> bool {
     })
     .unwrap_or_else(|never| match never {});
     judged == exposed
+}
+
+/// Whether `answer` holds a credential-named file's text, which may hold a
+/// secret in no format the gate recognizes: a contents read of that file, a blob
+/// read for it, a code-search page, whose index fragments are text of every file
+/// it lists, or a changed-file list (a commit, a comparison, a pull request's
+/// files) with a patch of one, by its name or a rename's old name. It stays in
+/// this process, as an answer holding a recognized secret does.
+fn holds_credential_file(request: &str, body: &Value) -> bool {
+    let is_withheld = crate::policy::discovery::is_sensitive_repository_file;
+    if octocode_github::requested_file(request).is_some_and(is_withheld) {
+        return true;
+    }
+    let path = requested_path(request);
+    if let Some((_, file)) = path.split_once("/contents/") {
+        return is_withheld(file);
+    }
+    if path.ends_with("/search/code") {
+        return body["items"].as_array().is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| item["path"].as_str().is_some_and(is_withheld))
+        });
+    }
+    body["files"]
+        .as_array()
+        .or_else(|| body.as_array())
+        .is_some_and(|files| {
+            files.iter().any(|file| {
+                file["patch"].is_string()
+                    && ["filename", "previous_filename"]
+                        .iter()
+                        .any(|name| file[*name].as_str().is_some_and(is_withheld))
+            })
+        })
 }
 
 /// The location `METHOD url[?query]…` asks for, with its path's separators as a

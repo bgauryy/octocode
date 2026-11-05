@@ -244,3 +244,76 @@ fn security_limit_is_terminal_but_offers_a_bounded_line_read() {
             .is_some()
     );
 }
+
+/// A Secret's block spans lines, and its placeholder sits on the first: a range
+/// inside the block shows blank lines the source has content on, and says so.
+#[test]
+fn a_range_of_blanked_lines_warns_once() {
+    let t = Fixture::new();
+    let p = t.0.join("k8s.json");
+    let fake = "RmFrZTBWYWx1ZTlOb3Q0UmVhbDhCbG9iN0xvbmc2RW5vdWdo";
+    fs::write(
+        &p,
+        format!(
+            "{{\n  \"apiVersion\": \"v1\",\n  \"data\": {{\n    \"one\": \"{fake}\",\n    \"two\": \"{fake}\",\n    \"three\": \"{fake}\"\n  }},\n  \"kind\": \"Secret\"\n}}\n"
+        ),
+    )
+    .expect("fixture");
+    let paths = Paths(t.0.clone());
+    let scan = crate::security::ContentSecurity::new();
+    let read = |start: usize, end: usize| {
+        fetch_with(
+            &qj(
+                &p,
+                serde_json::json!({"ranges":[{"startLine":start,"endLine":end}]}),
+            ),
+            &paths,
+            &scan,
+        )
+    };
+    let noted = |warnings: &[String]| {
+        warnings
+            .iter()
+            .filter(|warning| warning.starts_with("redactedContent"))
+            .count()
+    };
+    let blanked = read(5, 6);
+    assert_eq!(blanked.content.as_deref(), Some("\n\n"), "{blanked:?}");
+    assert_eq!(noted(&blanked.warnings), 1, "{:?}", blanked.warnings);
+    // A range around the block's end, with text kept beside the blank lines.
+    assert_eq!(noted(&read(6, 8).warnings), 1);
+    // The line that shows the placeholder is counted as before.
+    assert_eq!(noted(&read(3, 3).warnings), 1);
+    // A range holding nothing redacted is the source, with no note.
+    let plain = read(2, 2);
+    assert_eq!(
+        plain.content.as_deref(),
+        Some("  \"apiVersion\": \"v1\",\n")
+    );
+    assert_eq!(noted(&plain.warnings), 0, "{:?}", plain.warnings);
+}
+
+/// A truly blank line of the source beside a redacted one blanks nothing.
+#[test]
+fn a_blank_source_line_beside_a_redaction_is_no_blanked_line() {
+    let t = Fixture::new();
+    let p = t.0.join("a.txt");
+    fs::write(&p, "one\n\nvalue SECRET\nlast\n").expect("fixture");
+    let paths = Paths(t.0.clone());
+    let read = fetch(
+        &qj(
+            &p,
+            serde_json::json!({"ranges":[{"startLine":2,"endLine":2}]}),
+        ),
+        &paths,
+    );
+    assert_eq!(read.content.as_deref(), Some("\n"));
+    assert!(
+        !read
+            .warnings
+            .iter()
+            .any(|w| w.starts_with("redactedContent")),
+        "{:?}",
+        read.warnings
+    );
+}

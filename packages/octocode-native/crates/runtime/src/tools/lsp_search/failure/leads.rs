@@ -69,6 +69,10 @@ pub(in super::super) fn flag_partial(
             if let Some(lead) =
                 text_search_lead(name, &scope.root, &scope.include, lead_files.as_deref())
             {
+                // One text check per row: this one names the files left.
+                if let Some(related) = row.get_mut("related").and_then(Value::as_array_mut) {
+                    related.retain(|call| call["tool"] != "localSearch");
+                }
                 crate::response::result::attach_related(row, lead.build());
             }
         }

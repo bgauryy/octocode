@@ -53,11 +53,11 @@ async function fixture(fn) {
       }
     })
   );
-  const session = await connectCDP('ws://127.0.0.1:' + server.address().port, {
+  const session = await connectCDP(`ws://127.0.0.1:${server.address().port}`, {
     timeoutMs: 1000,
   });
   try {
-    await fn(session, 'ws://127.0.0.1:' + server.address().port);
+    await fn(session, `ws://127.0.0.1:${server.address().port}`);
   } finally {
     session.close();
     for (const socket of server.clients) socket.terminate();

@@ -69,7 +69,7 @@ const files = new Map(
 files.set(
   join(dist, 'engine/chrome-contract.mjs'),
   Buffer.from(
-    Object.entries({
+    `${Object.entries({
       chromeCommands,
       chromeGuideTopics,
       chromeOutputLimits,
@@ -84,7 +84,7 @@ files.set(
       .map(
         ([name, value]) => `export const ${name} = ${JSON.stringify(value)};`
       )
-      .join('\n') + '\n'
+      .join('\n')}\n`
   )
 );
 files.set(join(dist, 'engine/octocode-config.mjs'), readFileSync(config));
@@ -96,7 +96,7 @@ for (const file of walk(skill))
   );
 for (const name of ['cli', 'mcp'])
   files.set(
-    join(dist, name + '.js'),
+    join(dist, `${name}.js`),
     Buffer.from(
       name === 'cli'
         ? "import { main } from './runtime.js';\nexport { spec } from './runtime.js';\nexport const runChromeCli = (args = process.argv.slice(2)) => main(args);\n"

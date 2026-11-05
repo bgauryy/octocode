@@ -260,6 +260,6 @@ try {
     })
   );
 } catch (error) {
-  console.error('[ARTIFACT_QUERY] ' + errorMessage(error));
+  console.error(`[ARTIFACT_QUERY] ${errorMessage(error)}`);
   process.exitCode = 1;
 }

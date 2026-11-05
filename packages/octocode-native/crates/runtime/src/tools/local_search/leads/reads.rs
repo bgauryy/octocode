@@ -24,19 +24,23 @@ impl Found<'_> {
             return None;
         }
         let binary_cut = self.scanned.binary_files.as_deref().unwrap_or_default();
+        // Nor is a source refused whatever part of it is asked.
         let text_file = |file: &&SearchFile| {
             !binary_cut
                 .iter()
                 .any(|cut| std::path::Path::new(cut).ends_with(&file.path))
+                && !crate::tools::source_view::prepare::every_read_refused(&source_of(
+                    self.root, file,
+                ))
         };
         let declared = self.definition.and_then(|definition| {
             self.files
                 .iter()
-                .filter(text_file)
                 .find(|file| {
                     self.output_root.join(&file.path).to_string_lossy()
                         == definition.source.as_str()
                 })
+                .filter(text_file)
                 .zip(Some(definition))
         });
         match declared {

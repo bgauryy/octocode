@@ -220,7 +220,7 @@ if (scriptArg) {
   const digest = createHash('sha256').update(value).digest('hex');
   const directory = resolve(sessionDir || artifactDir, 'indexes', 'script-results');
   await mkdir(directory, { recursive: true });
-  const file = resolve(directory, digest + '.json');
+  const file = resolve(directory, `${digest}.json`);
   await writeFile(file, value);
   scriptEvidence = { file, sha256: digest, next: { continue: { command: process.execPath, args: [fileURLToPath(new URL('./source-query.mjs', import.meta.url)), '--file', file, '--snapshot', digest] } } };
 }

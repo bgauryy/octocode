@@ -143,6 +143,7 @@ pub(super) fn execute_local(
         | ToolId::GhGetHistoryItem
         | ToolId::GhCloneRepo
         | ToolId::ArtifactSearch
+        | ToolId::SecurityCheck
         | ToolId::LspSearch
         | ToolId::Clasify => Err(ExecutionError::UnroutedTool),
     }
@@ -170,10 +171,7 @@ pub(super) fn invalid_query(error: &serde_json::Error) -> DomainResult {
 /// its payload as [`value_result`], keeping the typed notes of what its pages
 /// leave to read.
 pub(crate) fn data_result(data: impl Into<crate::response::result::ToolData>) -> DomainResult {
-    let data = data.into();
-    let mut result = value_result(data.data);
-    result.remaining = data.remaining;
-    result
+    value_result(data.into().data)
 }
 
 /// A tool payload whose own `status` field selects the row status.

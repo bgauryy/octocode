@@ -25,13 +25,18 @@ macro_rules! reference_file {
     };
 }
 
+/// The tool-flow resource; the CLI serves [`TOOL_FLOW`] as `schema --view flow`.
+pub(in crate::cli) const TOOL_FLOW_URI: &str = "octocode://research/tool-flow";
+/// The tool-flow guide, from its one skill source file.
+pub(in crate::cli) const TOOL_FLOW: &str = reference_file!("tool-flow.md");
+
 const REFERENCES: [Reference; 5] = [
     Reference {
-        uri: "octocode://research/tool-flow",
+        uri: TOOL_FLOW_URI,
         name: "tool-flow",
         title: "Octocode research tool flow",
         description: "Read when the next call is unclear: which tool, how little to ask for, when to judge instead of read, how to carry evidence across, recovery and measured cost.",
-        text: reference_file!("tool-flow.md"),
+        text: TOOL_FLOW,
     },
     Reference {
         uri: "octocode://research/octocode-usage.md",
@@ -63,21 +68,37 @@ const REFERENCES: [Reference; 5] = [
     },
 ];
 
-/// Every served reference, for `resources/list`.
-pub(super) fn list() -> Vec<Resource> {
-    REFERENCES
-        .iter()
-        .map(|reference| {
-            Resource::new(reference.uri, reference.name)
-                .with_title(reference.title)
-                .with_description(reference.description)
-                .with_mime_type(MARKDOWN)
-        })
-        .collect()
+/// One tool's output view (`schema <tool> --view output`) as a resource.
+const OUTPUT_VIEW: &str = "octocode://contract/output/";
+
+/// Every served reference and the output view of each listed tool, for
+/// `resources/list`.
+pub(super) fn list<'a>(tools: impl Iterator<Item = &'a str>) -> Vec<Resource> {
+    let references = REFERENCES.iter().map(|reference| {
+        Resource::new(reference.uri, reference.name)
+            .with_title(reference.title)
+            .with_description(reference.description)
+            .with_mime_type(MARKDOWN)
+    });
+    let output_views = tools.map(|tool| {
+        Resource::new(format!("{OUTPUT_VIEW}{tool}"), format!("output-{tool}"))
+            .with_title(format!("{tool} output fields"))
+            .with_description(format!(
+                "What {tool}'s output fields and coverage reasons mean."
+            ))
+            .with_mime_type("application/json")
+    });
+    references.chain(output_views).collect()
 }
 
 /// The contents of one served reference, or `None` for an unknown URI.
 pub(super) fn read(uri: &str) -> Option<ResourceContents> {
+    if let Some(tool) = uri.strip_prefix(OUTPUT_VIEW) {
+        let view = super::super::schema::output_of(tool)?;
+        return Some(
+            ResourceContents::text(view.to_string(), uri).with_mime_type("application/json"),
+        );
+    }
     let reference = REFERENCES.iter().find(|reference| reference.uri == uri)?;
     Some(ResourceContents::text(reference.text, reference.uri).with_mime_type(MARKDOWN))
 }

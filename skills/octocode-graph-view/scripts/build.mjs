@@ -30,7 +30,7 @@ const t0 = Date.now();
 let seq = 0;
 const progress = argv.includes('--progress');
 const emit = (event) => {
-  appendFileSync(join(out, 'events.jsonl'), JSON.stringify({ seq: seq++, t: Date.now() - t0, ...event }) + '\n');
+  appendFileSync(join(out, 'events.jsonl'), `${JSON.stringify({ seq: seq++, t: Date.now() - t0, ...event })}\n`);
   if (progress && ['phase', 'chunk'].includes(event.type)) console.error(`${((Date.now() - t0) / 1000).toFixed(1)}s ${event.type} ${event.id} ${event.state}${event.build ? ` ${event.build}` : ''}${event.error ? `: ${event.error}` : ''}`);
 };
 const D = await runPipeline({ root, out, opts, emit });

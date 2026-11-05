@@ -10,7 +10,9 @@
 //! file the scan did not read.
 
 use super::js_paths::{BUILD_DIRS, is_declaration, probe_js, source_equivalent};
-use super::paths::{climb, dirname, join, join_within_root, normalize};
+use super::paths::{
+    climb, dirname, dirs_above_within_repository, join, join_within_root, normalize,
+};
 use crate::{policy::path::PathPolicy, security::ContentSecurity};
 use octocode_engine::text::lexical;
 use serde_json::Value;
@@ -23,9 +25,12 @@ use std::{
 mod config;
 mod loading;
 mod manifests;
+mod python;
+mod workspaces;
 pub(super) use config::read_config_text;
 use config::*;
 use manifests::*;
+use python::PythonModules;
 
 /// Largest project manifest or config the graph reads.
 const MAX_CONFIG_BYTES: usize = 1_000_000;
@@ -60,6 +65,17 @@ struct PathPattern {
     suffix: String,
     wildcard: bool,
     targets: Vec<String>,
+    /// A target of the pattern lies above the scan root: what it matches is
+    /// project code the scan does not hold.
+    outside_root: bool,
+}
+
+/// A `baseUrl` outside the scan root (`app/` for a scan of `app/src`).
+#[derive(Clone, Debug)]
+struct OuterBase {
+    dir: PathBuf,
+    /// The scan root below it, when it lies above the root (`src`).
+    root_below: Option<String>,
 }
 
 /// Effective aliasing of one tsconfig/jsconfig after `extends`.
@@ -67,6 +83,8 @@ struct PathPattern {
 pub(crate) struct TsPaths {
     /// Scan-root-relative `baseUrl`; `None` when unset or outside the root.
     base_url: Option<String>,
+    /// The `baseUrl` when it lies outside the root.
+    outer_base: Option<OuterBase>,
     patterns: Vec<PathPattern>,
 }
 
@@ -113,11 +131,14 @@ impl TsPaths {
         if pattern.wildcard && pattern.prefix.is_empty() {
             return None;
         }
-        Some(pattern.targets.iter().any(|target| {
-            !target
-                .split('/')
-                .any(|component| component == "node_modules")
-        }))
+        Some(
+            pattern.outside_root
+                || pattern.targets.iter().any(|target| {
+                    !target
+                        .split('/')
+                        .any(|component| component == "node_modules")
+                }),
+        )
     }
 }
 
@@ -150,12 +171,13 @@ pub(crate) struct ResolveContext {
     packages: BTreeMap<String, Arc<Manifest>>,
     /// Package directory → manifest (for `#` imports of the importer).
     manifests: BTreeMap<String, Arc<Manifest>>,
-    /// Python import roots: `.`, `src`, and project roots (pyproject/setup).
-    python_roots: Vec<String>,
-    /// Dotted package name of the scan root itself when the root is a
-    /// package (`django` for a scan of `python/django/`), so absolute
-    /// imports naming it resolve inside the scan.
-    python_package: Option<String>,
+    /// Package names local to the repository though not scanned: a sibling in
+    /// an enclosing workspace, or a `workspace:`, `file:` or `link:` dependency.
+    local_packages: HashSet<String>,
+    /// `(baseUrl outside the scan, specifier)` → it names a file on disk.
+    outer_base_hits: std::sync::Mutex<HashMap<(PathBuf, String), bool>>,
+    /// Python import roots and what could fill them.
+    python: PythonModules,
     /// C/C++ quoted-include search directories after the importer's own.
     include_dirs: Vec<String>,
     /// `-I` directories from compile_commands.json (also for `<...>`).
@@ -265,8 +287,19 @@ impl ResolveContext {
         {
             return Some(found);
         }
-        let base_url = config.and_then(|config| config.base_url.as_deref())?;
-        probe_js(&join_within_root(base_url, spec)?, known)
+        let config = config?;
+        if let Some(below) = config
+            .outer_base
+            .as_ref()
+            .and_then(|base| base.root_below.as_deref())
+            && let Some(local) = spec
+                .strip_prefix(below)
+                .and_then(|rest| rest.strip_prefix('/'))
+            && let Some(found) = probe_js(local, known)
+        {
+            return Some(found);
+        }
+        probe_js(&join_within_root(config.base_url.as_deref()?, spec)?, known)
     }
 
     /// A bare specifier that names project code (alias prefix, workspace
@@ -282,48 +315,24 @@ impl ResolveContext {
         if spec.starts_with('#') || spec.starts_with("@/") || spec.starts_with("~/") {
             return true;
         }
-        split_package(spec).is_some_and(|(package, _)| self.packages.contains_key(package))
+        split_package(spec).is_some_and(|(package, _)| {
+            self.packages.contains_key(package) || self.local_packages.contains(package)
+        }) || self
+            .ts_config_for(importer)
+            .and_then(|config| config.outer_base.as_ref())
+            .is_some_and(|base| self.outer_base_holds(&base.dir, spec))
     }
 
-    /// The scan-root-relative module for an absolute import that names the
-    /// scan root's own package: `django.utils.text` → `utils.text` under a
-    /// scan of `django/`, and `""` for the package itself.
-    pub(crate) fn python_package_local<'s>(&self, spec: &'s str) -> Option<&'s str> {
-        let package = self.python_package.as_deref()?;
-        if spec == package {
-            return Some("");
-        }
-        spec.strip_prefix(package)?.strip_prefix('.')
-    }
-
-    /// Python import roots ordered for `importer`: roots containing the
-    /// importer (deepest first), then the scan root, then the rest.
-    pub(crate) fn python_roots_for(&self, importer: &str) -> Vec<&str> {
-        if self.python_roots.is_empty() {
-            return vec!["."];
-        }
-        let mut containing = self
-            .python_roots
-            .iter()
-            .filter(|root| {
-                root.as_str() != "."
-                    && importer
-                        .strip_prefix(root.as_str())
-                        .is_some_and(|rest| rest.starts_with('/'))
-            })
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        containing.sort_by_key(|root| std::cmp::Reverse(root.len()));
-        let mut ordered = containing;
-        let mut included = ordered.iter().copied().collect::<HashSet<_>>();
-        ordered.push(".");
-        included.insert(".");
-        for root in &self.python_roots {
-            if included.insert(root.as_str()) {
-                ordered.push(root);
-            }
-        }
-        ordered
+    /// Whether `spec` spelled from the `baseUrl` `dir` outside the scan names a
+    /// module file on disk.
+    fn outer_base_holds(&self, dir: &Path, spec: &str) -> bool {
+        let mut hits = self
+            .outer_base_hits
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *hits
+            .entry((dir.to_path_buf(), spec.to_owned()))
+            .or_insert_with(|| super::js_paths::module_on_disk(&dir.join(spec)))
     }
 
     /// Search directories for a C/C++ include after the importer's own

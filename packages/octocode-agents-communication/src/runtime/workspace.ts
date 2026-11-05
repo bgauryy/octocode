@@ -22,9 +22,9 @@ export function metadataPath(path: string, prefix = ''): string {
   }
   if (raw.length > METADATA_LIMIT) throw new ValidationError('Git workspace metadata exceeds 4096 bytes');
   let value = decodeUtf8(raw).replace(/[\r\n]+$/, '');
-  if (prefix && !value.startsWith(prefix)) throw new ValidationError('Invalid Git workspace metadata: ' + path);
+  if (prefix && !value.startsWith(prefix)) throw new ValidationError(`Invalid Git workspace metadata: ${path}`);
   if (prefix) value = value.slice(prefix.length).trimStart();
-  if (!value || value.includes('\n') || value.includes('\r')) throw new ValidationError('Invalid Git workspace metadata: ' + path);
+  if (!value || value.includes('\n') || value.includes('\r')) throw new ValidationError(`Invalid Git workspace metadata: ${path}`);
   return realpath(isAbsolute(value) ? value : dirname(path) + sep + value, true);
 }
 
@@ -36,7 +36,7 @@ export function coordinationScope(workspace: string): string {
     if (lexists(marker)) {
       const gitdir = isDirectory(marker) ? realpath(marker, true) : metadataPath(marker, 'gitdir:');
       const common = existsSync(join(gitdir, 'commondir')) ? metadataPath(join(gitdir, 'commondir')) : gitdir;
-      if (!isFile(join(gitdir, 'HEAD')) || !isDirectory(join(common, 'objects'))) throw new ValidationError('Invalid Git repository metadata: ' + marker);
+      if (!isFile(join(gitdir, 'HEAD')) || !isDirectory(join(common, 'objects'))) throw new ValidationError(`Invalid Git repository metadata: ${marker}`);
       return common;
     }
     if (dirname(root) === root) return resolved;

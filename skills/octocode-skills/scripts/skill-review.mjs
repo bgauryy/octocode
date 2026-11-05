@@ -184,7 +184,7 @@ function checkDocLinks({ dir, texts, add }, path, text) {
   for (const target of localPaths(prose)) {
     if (templated(target)) continue;
     const full = resolve(dirname(join(dir, path)), target);
-    if (!full.startsWith(dir + '/') && full !== dir) continue; // cross-skill handoffs are allowed
+    if (!full.startsWith(`${dir}/`) && full !== dir) continue; // cross-skill handoffs are allowed
     if (!existsSync(full)) add('ERROR', 'missing-path', `${path} references missing ${target}.`);
   }
   const inProse = new Set(supportPaths(prose));
@@ -286,7 +286,7 @@ function selfTestLinks(skill) {
   if (review(skill).findings.length) throw new Error('reference-style route or linked catalog failed');
   writeFileSync(join(skill, 'references/a.md'), '# Guide\n\n## Search the web\n\n## `--manifest` usage\n\n[B](b.md)\n\n[ok](#search-the-web) [ok](#--manifest-usage) [ok](b.md#a)\n');
   writeFileSync(join(skill, 'references/b.md'), '# A\n\n[A](a.md#search-the-web)\n');
-  if (review(skill).findings.length) throw new Error('valid anchors rejected: ' + JSON.stringify(review(skill).findings));
+  if (review(skill).findings.length) throw new Error(`valid anchors rejected: ${JSON.stringify(review(skill).findings)}`);
   writeFileSync(join(skill, 'references/b.md'), '# A\n\n[A](a.md#research-with-current-sources)\n');
   if (!review(skill).findings.some((item) => item.code === 'missing-anchor')) throw new Error('renamed-section anchor was missed');
   writeFileSync(join(skill, 'references/a.md'), '[B](b.md)\n');
@@ -303,7 +303,7 @@ function selfTestContent(skill, source) {
   if (!review(skill).findings.some((item) => item.code === 'description-length')) throw new Error('a multi-line plain description escaped the length check');
   writeFileSync(join(skill, 'README.md'), '# Example\n\n```md\n[link](not-here.md) [anchor](#nowhere)\n```\n\n```bash\nnode scripts/example-tool.mjs\n```\n');
   const fenced = review(skill).findings.filter((item) => item.code !== 'description-length');
-  if (fenced.some((item) => item.level === 'ERROR') || !fenced.some((item) => item.code === 'missing-support-file-in-code')) throw new Error('fenced code was linted as links, or a missing command went unreported: ' + JSON.stringify(fenced));
+  if (fenced.some((item) => item.level === 'ERROR') || !fenced.some((item) => item.code === 'missing-support-file-in-code')) throw new Error(`fenced code was linted as links, or a missing command went unreported: ${JSON.stringify(fenced)}`);
   writeFileSync(join(skill, 'README.md'), '# Example\n\nRuns save to `<workspace>/.octocode/tmp/example/<run>`.\n');
   if (!review(skill).findings.some((item) => item.code === 'output-outside-skill-folder')) throw new Error('a shared .octocode/tmp/ output path was not flagged');
   writeFileSync(join(skill, 'README.md'), '# Example\n\nRuns save to `<workspace>/.octocode/example-skill/tmp/<run>`; a scratch folder such as `.octocode/tmp/` is not a report location.\n');
@@ -338,13 +338,13 @@ function selfTestCollections(dir, skill) {
   const single = join(dir, 'single-skill');
   mkdirSync(single);
   writeFileSync(join(single, 'SKILL.md'), '---\nname: single-skill\ndescription: "Use when one file is enough."\n---\n\n# Single\n\nAnswer inline.\n');
-  if (review(single).findings.length) throw new Error('a single-file skill was rejected: ' + JSON.stringify(review(single).findings));
+  if (review(single).findings.length) throw new Error(`a single-file skill was rejected: ${JSON.stringify(review(single).findings)}`);
   writeFileSync(join(single, 'notes.md'), '# Notes\n');
   if (skillDirs(join(single, 'notes.md'), true)[0] !== join(single, 'notes.md')) throw new Error('non-directory collection root was silently skipped');
   if (!review(single).findings.some((item) => item.code === 'output-missing')) throw new Error('a multi-file skill without output.md passed');
   writeFileSync(join(single, 'output.md'), '# Output\n\nSave under .octocode/single-skill/.\n');
-  writeFileSync(join(single, 'SKILL.md'), readFileSync(join(single, 'SKILL.md'), 'utf8') + '\nSee [output](output.md).\n');
-  if (review(single).findings.length) throw new Error('a multi-file skill with a linked output guide needs no README: ' + JSON.stringify(review(single).findings));
+  writeFileSync(join(single, 'SKILL.md'), `${readFileSync(join(single, 'SKILL.md'), 'utf8')}\nSee [output](output.md).\n`);
+  if (review(single).findings.length) throw new Error(`a multi-file skill with a linked output guide needs no README: ${JSON.stringify(review(single).findings)}`);
 }
 
 function selfTest() {

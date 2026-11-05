@@ -88,7 +88,7 @@ fn within(inner: &ByteRange, outer: &ByteRange) -> bool {
         && inner.end_byte <= outer.end_byte
 }
 
-pub(in crate::tools::ast_graph::store) fn validate(
+pub(super) fn validate(
     tables: &GraphTables,
     reference: u32,
     edge: EdgeKind,
@@ -102,33 +102,22 @@ pub(in crate::tools::ast_graph::store) fn validate(
             Err("non-passes evidence has argument metadata".into())
         };
     }
-    if tables.checked_arguments.contains(&reference) {
-        return Ok(());
-    }
     let evidence: ArgumentEvidence = serde_json::from_str(tables.str(reference))
         .map_err(|_| "passes evidence has invalid argument metadata")?;
-    check(&tables.sources, &evidence, provenance, reason)
-}
-
-/// One argument observation against the source table and the record citing it.
-pub(crate) fn check(
-    sources: &super::sources::SourceTable,
-    evidence: &ArgumentEvidence,
-    provenance: ProvenanceRec,
-    reason: Option<&str>,
-) -> Result<(), String> {
     let range = ByteRange {
         start_byte: provenance.source_start,
         end_byte: provenance.source_end,
     };
     if evidence.recipient.is_empty()
         || range.end_byte == NONE
-        || (sources.same_representation(provenance.source_origin, evidence.recipient_range.origin)
+        || (tables
+            .sources
+            .same_representation(provenance.source_origin, evidence.recipient_range.origin)
             && !within(&range, &evidence.recipient_range.range))
     {
         return Err("passes evidence has invalid recipient or source range".into());
     }
-    sources.check_range(
+    tables.sources.check_range(
         evidence.recipient_range.origin,
         evidence.recipient_range.range.start_byte,
         evidence.recipient_range.range.end_byte,
@@ -140,20 +129,22 @@ pub(crate) fn check(
             blocker,
             ..
         } => {
-            sources.check_range(
+            tables.sources.check_range(
                 selection.origin,
                 selection.range.start_byte,
                 selection.range.end_byte,
             )?;
             if let Some(blocker) = blocker {
-                sources.check_range(
+                tables.sources.check_range(
                     blocker.origin,
                     blocker.range.start_byte,
                     blocker.range.end_byte,
                 )?;
             }
             !target.is_empty()
-                && (!sources.same_representation(provenance.source_origin, selection.origin)
+                && (!tables
+                    .sources
+                    .same_representation(provenance.source_origin, selection.origin)
                     || within(&selection.range, &range))
                 && blocker.as_ref().is_none_or(|r| {
                     r.range.start_byte <= r.range.end_byte && r.range.end_byte != NONE

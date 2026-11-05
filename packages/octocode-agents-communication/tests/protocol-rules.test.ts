@@ -15,7 +15,7 @@ function fixture(t: TestContext) {
   const alice = join_('alice'), bob = join_('bob'), carol = join_('carol');
   const inbox = (session: string) => call('inbox', {}, session).items;
   const mcp = (session: string, calls: JsonRecord[]) => {
-    const frames = calls.map((params, index) => JSON.stringify({ jsonrpc: '2.0', id: index + 1, method: 'tools/call', params })).join('\n') + '\n';
+    const frames = `${calls.map((params, index) => JSON.stringify({ jsonrpc: '2.0', id: index + 1, method: 'tools/call', params })).join('\n')}\n`;
     const out = execFileSync(binary, ['mcp', '--tools', 'messages', '--workspace', workspace, '--database', database, '--session', session], { input: frames, encoding: 'utf8', timeout: 15000 });
     return out.trim().split('\n').map(line => JSON.parse(line));
   };

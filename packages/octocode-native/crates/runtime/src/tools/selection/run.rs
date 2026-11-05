@@ -4,14 +4,12 @@
 use super::plan::{Plan, VERSION, decode};
 use super::{
     Candidate, Decision, Failure, JudgeCall, JudgeFailure, Outcome, ProviderFailure, Runtime,
-    admission,
 };
-use crate::execution::SelectionLimits;
 use crate::tools::judgment::stats::ClassificationUsage;
 use octocode_contract_types::{SelectionFailure, SelectionScope, SelectionStatus, SelectionUnit};
 use serde_json::{Value, json};
 use std::collections::HashSet;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 fn skip_reason(
     runtime: Option<&Runtime>,
@@ -43,12 +41,7 @@ pub(crate) fn needs_candidate_states(
 
 /// Bind assessment semantics, including optional research context. Pagination
 /// cursors are excluded; canonical source identity owns path spelling.
-pub(super) fn binding(
-    query: &Value,
-    source: &str,
-    limits: SelectionLimits,
-    runtime: Option<&Runtime>,
-) -> String {
+pub(super) fn binding(query: &Value, source: &str, runtime: Option<&Runtime>) -> String {
     let mut selected = query.clone();
     if let Some(map) = selected.as_object_mut() {
         for field in super::progress_fields() {
@@ -59,11 +52,7 @@ pub(super) fn binding(
     crate::digest::json_sha256(&octocode_engine::digest::canonical_json(
         json!({
             "version":VERSION, "source":source, "query":selected,
-            "settings":{
-                "available":runtime.is_some_and(|runtime| runtime.available),
-                "maxCandidates":limits.max_candidates, "maxChars":limits.max_chars,
-                "timeoutMs":limits.timeout.as_millis(),
-            },
+            "available":runtime.is_some_and(|runtime| runtime.available),
             "provider":runtime.map(|runtime| runtime.judge.identity()),
         }),
         octocode_engine::digest::Nulls::Drop,
@@ -107,15 +96,7 @@ pub(super) fn select_scoped(
         outcome
     };
     let mut usage = ClassificationUsage::default();
-    let limits = runtime.map_or(
-        SelectionLimits {
-            max_candidates: 0,
-            max_chars: 0,
-            timeout: Duration::ZERO,
-        },
-        |r| r.limits,
-    );
-    let bound = binding(query, source, limits, runtime);
+    let bound = binding(query, source, runtime);
     // A saved plan replays; a token opening a candidate page judges its pool.
     let mut pool = Vec::new();
     if let Some(token) = prior {
@@ -146,50 +127,6 @@ pub(super) fn select_scoped(
         plan.reason = Some(reason.into());
         return Ok(finish(plan, &usage));
     }
-    let mut admitted = Vec::new();
-    let mut chars = 0usize;
-    for ordinal in admission::order(candidates, query, unit)
-        .into_iter()
-        .filter(|&ordinal| plan.in_pool(ordinal))
-    {
-        let candidate = &candidates[ordinal];
-        if admitted.len() == limits.max_candidates {
-            break;
-        }
-        if candidate.fits_budget(limits)
-            && candidate.evidence_chars <= limits.max_chars.saturating_sub(chars)
-        {
-            chars += candidate.evidence_chars;
-            admitted.push(ordinal);
-        }
-    }
-    let eligible = candidates
-        .iter()
-        .enumerate()
-        .filter(|(ordinal, candidate)| candidate.state.is_some() && plan.in_pool(*ordinal))
-        .count();
-    let oversized = candidates.iter().enumerate().any(|(ordinal, candidate)| {
-        plan.in_pool(ordinal)
-            && candidate.state.is_some()
-            && candidate.evidence_chars > limits.max_chars
-    });
-    let omitted_reason = if oversized {
-        "candidateStateTooLarge"
-    } else {
-        match (eligible < pool_size, admitted.len() < eligible) {
-            (true, true) => "candidateEligibilityAndBudget",
-            (true, false) => "candidateIneligible",
-            _ => "candidateBudget",
-        }
-    };
-    plan.mark_unjudged(candidates, &admitted, limits);
-    if admitted.is_empty() {
-        plan.reason = Some(omitted_reason.into());
-        return Ok(finish(plan, &usage));
-    }
-    let Some(runtime) = runtime else {
-        return Ok(finish(plan, &usage));
-    };
     let context = &query["classification"];
     let predicates = context["predicates"]
         .as_array()
@@ -199,6 +136,43 @@ pub(super) fn select_scoped(
         .map(|classifier| classifier.as_str().map(str::to_owned))
         .collect::<Option<Vec<_>>>()
         .ok_or(Failure::Stale)?;
+    let Some(runtime) = runtime else {
+        return Ok(finish(plan, &usage));
+    };
+    // A page charges states and questions in source order until its
+    // checkpoint: the first candidate always runs, and the next page takes the
+    // rest, so nothing is lost to the budget.
+    let question_chars = runtime.judge.question_chars(&predicates);
+    let charge = |candidate: &Candidate| candidate.state_chars().saturating_add(question_chars);
+    let mut admitted = Vec::new();
+    let mut chars = 0usize;
+    for (ordinal, candidate) in candidates.iter().enumerate() {
+        if candidate.state.is_none() || !plan.in_pool(ordinal) {
+            continue;
+        }
+        if !admitted.is_empty()
+            && chars.saturating_add(charge(candidate)) > runtime.limits.max_chars
+        {
+            break;
+        }
+        chars = chars.saturating_add(charge(candidate));
+        admitted.push(ordinal);
+    }
+    let eligible = candidates
+        .iter()
+        .enumerate()
+        .filter(|(ordinal, candidate)| candidate.state.is_some() && plan.in_pool(*ordinal))
+        .count();
+    let omitted_reason = match (eligible < pool_size, admitted.len() < eligible) {
+        (true, true) => "candidateEligibilityAndBudget",
+        (true, false) => "candidateIneligible",
+        _ => "candidateBudget",
+    };
+    plan.mark_unjudged(candidates, &admitted);
+    if admitted.is_empty() {
+        plan.reason = Some(omitted_reason.into());
+        return Ok(finish(plan, &usage));
+    }
     let mut failures = Vec::new();
     let outcomes = runtime.judge.select(JudgeCall {
         failures: &mut failures,
@@ -207,8 +181,9 @@ pub(super) fn select_scoped(
         admitted: &admitted,
         predicates: &predicates,
         research_context: context["context"].as_str(),
-        long_context: context["longContext"].as_bool().unwrap_or(false),
-        limits: runtime.limits,
+        long_context: crate::tools::judgment::LongContext::from_field(
+            context["longContext"].as_bool(),
+        ),
         handle: &runtime.handle,
         context: &runtime.context,
     });
@@ -219,6 +194,12 @@ pub(super) fn select_scoped(
         Ok(outcomes) => {
             record(&mut plan, candidates.len(), &admitted, outcomes, failures);
             plan.settle(admitted.len(), omitted_reason);
+            // The rest of the walk, at the rate this page measured.
+            let rest = plan
+                .unjudged_ordinals()
+                .map(|ordinal| charge(&candidates[ordinal as usize]))
+                .sum::<usize>();
+            usage.estimate_rest(chars, rest);
         }
         Err(JudgeFailure::Unavailable(reason)) => {
             plan.status = SelectionStatus::Unavailable;
@@ -289,6 +270,15 @@ fn record(
         .collect();
     plan.failures.sort_by_key(|failure| failure.candidate);
     plan.failures.dedup_by_key(|failure| failure.candidate);
+    // A provider that could not answer decided nothing: a later page judges
+    // these again, and they are reachable as they are until then.
+    let retried = plan
+        .failures
+        .iter()
+        .filter(|failure| crate::providers::classification::is_transient(failure.error_code))
+        .filter_map(|failure| u32::try_from(failure.candidate).ok())
+        .collect::<Vec<_>>();
+    plan.retry_later(retried.into_iter());
 }
 
 /// The replay token is opaque to output sanitization, so operational

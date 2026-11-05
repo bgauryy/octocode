@@ -261,7 +261,7 @@
           "type": "stringArray",
           "default": null,
           "displayDefault": "unset (every tool)",
-          "description": "Strict MCP tool allowlist; other MCP prerequisites still apply. CLI exposes every tool in the build.",
+          "description": "Strict MCP tool allowlist; other MCP prerequisites still apply. The CLI ignores this list.",
           "env": {
             "name": "TOOLS_TO_RUN"
           }
@@ -270,7 +270,7 @@
           "type": "stringArray",
           "default": null,
           "displayDefault": "unset (none)",
-          "description": "Tools removed from MCP discovery and admission. CLI exposes every tool in the build.",
+          "description": "Tools removed from MCP discovery and admission. The CLI ignores this list.",
           "env": {
             "name": "DISABLE_TOOLS"
           }
@@ -281,6 +281,17 @@
           "description": "Expose ghCloneRepo through MCP. CLI remains available. Clone execution requires persistent storage on both surfaces. Restart MCP after changing this setting.",
           "env": {
             "name": "OCTOCODE_ENABLE_CLONE",
+            "dotenv": "home",
+            "workspaceNarrowsTo": "false"
+          }
+        },
+        "enableSecurityCheck": {
+          "type": "boolean",
+          "default": false,
+          "description": "Expose securityCheck on MCP and the CLI: it asks OSV (api.osv.dev, operated by Google) about packages, sending each public package name and version it checks. Off, the tool is absent from both surfaces and sends nothing.",
+          "notes": "Home-only, so a repository can turn it off but cannot turn it on.",
+          "env": {
+            "name": "OCTOCODE_SECURITY_CHECKS",
             "dotenv": "home",
             "workspaceNarrowsTo": "false"
           }
@@ -328,6 +339,17 @@
             "dotenv": "home"
           }
         },
+        "trustFetchedCode": {
+          "type": "boolean",
+          "default": false,
+          "description": "Let lspSearch start language servers on code Octocode fetched: ghCloneRepo and ghStructure materialize checkouts and URL captures under its home. Off by default, because a language server can run code from the repository it opens; text, AST and graph tools read that code without running anything.",
+          "notes": "Security-sensitive: turning it on lets a repository you fetched run code on this machine when lspSearch opens it. Home-only, so a repository cannot turn it on.",
+          "env": {
+            "name": "OCTOCODE_LSP_TRUST_FETCHED_CODE",
+            "dotenv": "home",
+            "workspaceNarrowsTo": "false"
+          }
+        },
         "prewarm": {
           "type": "enum",
           "values": [
@@ -354,6 +376,27 @@
             "name": "OCTOCODE_REDACT_EMAILS",
             "dotenv": "home",
             "workspaceNarrowsTo": "true"
+          }
+        }
+      }
+    },
+    "security": {
+      "title": "Security",
+      "fields": {
+        "credentialFiles": {
+          "type": "enum",
+          "typeName": "CredentialFilesPolicy",
+          "values": [
+            "withhold",
+            "allow"
+          ],
+          "description": "Whether local read and search tools may read files named like credentials (.env, credentials.json, *.pem): withhold them, or allow them in the workspace and allowed paths so results match ripgrep. Secret values stay redacted. Sensitive directories such as .ssh and .git, the Octocode home, and files and dot directories directly in your home stay withheld. Graph snapshots, clasify and classification never read these files, and allow keeps saved local results in memory, so a cursor ends with its process.",
+          "notes": "Security-sensitive: redaction recognizes secret formats, so a secret in no known format can appear in results. Home-only, so a repository cannot turn it on.",
+          "env": {
+            "name": "OCTOCODE_CREDENTIAL_FILES",
+            "dotenv": "home",
+            "normalize": "lower",
+            "workspaceNarrowsTo": "withhold"
           }
         }
       }
@@ -385,7 +428,7 @@
           "type": "string",
           "default": null,
           "credential": true,
-          "description": "Classification provider API key. A nonblank value exposes clasify and read-tool classifiers in MCP; CLI always exposes clasify and checks the key when invoked. Discovery makes no provider request.",
+          "description": "Classification provider API key. A nonblank value exposes clasify and read-tool classifiers in MCP and the CLI; without one, a CLI clasify call answers where to get a key. Discovery makes no provider request.",
           "env": {
             "name": "OCTOCODE_CLASSIFICATION_API",
             "dotenv": "all",

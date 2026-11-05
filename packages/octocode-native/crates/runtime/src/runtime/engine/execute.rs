@@ -6,6 +6,7 @@ use crate::contracts;
 use crate::id::ToolId;
 use crate::response::outcome::ToolOutcome;
 use crate::response::page_model::ResponsePageOptions;
+use crate::runtime::row_indices::RowOrigin;
 use octocode_contract_types::ErrorCode;
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -117,13 +118,11 @@ impl ToolRuntime {
         let saved = opened.as_ref().map(super::cursors::Opened::member);
         let fresh = saved.is_none();
         let normalized_input = saved.map_or(&input, |member| &member.input);
-        let origin_index = saved.and_then(|member| match &member.work {
-            super::cursors::SavedWork::ToolResume { index }
-            | super::cursors::SavedWork::ResponsePage { index, .. } => *index,
-        });
+        let origin = saved.map_or(RowOrigin::Request, |member| member.work.origin());
         let page = saved.and_then(|member| match &member.work {
             super::cursors::SavedWork::ResponsePage { cursor, .. } => Some(cursor),
-            super::cursors::SavedWork::ToolResume { .. } => None,
+            super::cursors::SavedWork::ToolResume { .. }
+            | super::cursors::SavedWork::Rows { .. } => None,
         });
         let mut options = ResponsePageOptions::deserialize(normalized_input).unwrap_or_default();
         // A saved page whose response is no longer retained re-executes its
@@ -172,10 +171,7 @@ impl ToolRuntime {
                     &tool,
                     mcp,
                     &queries,
-                    &origin_index.map_or_else(
-                        || row_indices.clone(),
-                        |index| vec![index; row_indices.len()],
-                    ),
+                    &origin.indices(&row_indices),
                     admission.github_credential(),
                 );
                 if pinned.as_ref().is_some_and(|cursor| cursor.key != key) {
@@ -205,7 +201,7 @@ impl ToolRuntime {
             queries,
             rejected_rows,
             row_indices,
-            origin_index,
+            origin,
             fresh,
             response_query,
             clasify,
@@ -237,6 +233,7 @@ impl ToolRuntime {
     pub(super) fn dispatcher(&self) -> super::super::domain_dispatch::DomainDispatcher {
         super::super::domain_dispatch::DomainDispatcher {
             paths: self.paths.clone(),
+            egress_paths: std::sync::Arc::new(self.paths.withholding_credentials()),
             security: self.security.clone(),
             github_services: self.github_services.clone(),
             provider_answers: self.provider_answers.clone(),

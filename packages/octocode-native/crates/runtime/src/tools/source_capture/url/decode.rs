@@ -3,9 +3,28 @@ use super::{Reply, extract, stopped};
 use crate::tools::judgment::ClassificationError;
 use octocode_contract_types::ErrorCode;
 
-/// The reply's media type and UTF-8 body. Only HTML, plain text and
-/// Markdown are captured; anything else (binary documents, other charsets)
-/// is unsupported, never judged from a lossy decoding.
+/// Whether `media` is text whatever its name says: any `text/*`, JSON, XML,
+/// JavaScript and their `+json`/`+xml` kin. A body that is not text is still
+/// refused below, by its bytes.
+fn is_text(media: &str) -> bool {
+    media.starts_with("text/")
+        || media.ends_with("+json")
+        || media.ends_with("+xml")
+        || matches!(
+            media,
+            "application/json"
+                | "application/javascript"
+                | "application/x-javascript"
+                | "application/ecmascript"
+                | "application/xml"
+                | "application/yaml"
+                | "application/toml"
+        )
+}
+
+/// The reply's media type and body as text. Text in any declared charset is
+/// captured; anything else (binary documents) is unsupported, never judged
+/// from a lossy decoding.
 pub(super) fn decode(reply: &Reply) -> Result<(String, String), ClassificationError> {
     let content_type = reply.content_type.as_deref().unwrap_or_default();
     let mut parameters = content_type.split(';');
@@ -14,15 +33,8 @@ pub(super) fn decode(reply: &Reply) -> Result<(String, String), ClassificationEr
         .unwrap_or_default()
         .trim()
         .to_ascii_lowercase();
-    if !matches!(media.as_str(), "text/html" | "text/plain" | "text/markdown") {
-        return Err(unsupported(&format!(
-            "The page is {}, not HTML or text.",
-            if media.is_empty() {
-                "untyped"
-            } else {
-                media.as_str()
-            }
-        )));
+    if !media.is_empty() && !is_text(&media) {
+        return Err(unsupported(&format!("The page is {media}, not text.")));
     }
     let charset = parameters.find_map(|parameter| {
         let (name, value) = parameter.split_once('=')?;
@@ -33,9 +45,16 @@ pub(super) fn decode(reply: &Reply) -> Result<(String, String), ClassificationEr
     if let Some(charset) = charset
         && !matches!(charset.as_str(), "utf-8" | "utf8" | "us-ascii")
     {
-        return Err(unsupported(&format!(
-            "The page is encoded as {charset}; only UTF-8 pages are captured."
-        )));
+        let decoded = encoding_rs::Encoding::for_label(charset.as_bytes())
+            .and_then(|encoding| {
+                encoding.decode_without_bom_handling_and_without_replacement(&reply.body)
+            })
+            .ok_or_else(|| {
+                unsupported(&format!(
+                    "The page declares charset {charset}, which does not decode it."
+                ))
+            })?;
+        return Ok((media, decoded.into_owned()));
     }
     // The engine's one source admission: binary refused, a leading BOM
     // dropped, and only Unicode text decoded.
@@ -52,7 +71,7 @@ fn unsupported(message: &str) -> ClassificationError {
     ClassificationError::new(
         ErrorCode::ClassificationContextUnavailable,
         message,
-        "Capture an HTML or text page, or supply the content as content.",
+        "This reader takes text; supply it as content, or as an image under assets.",
     )
 }
 

@@ -125,7 +125,10 @@ pub(crate) struct FileProbe<'a> {
     root: PathBuf,
     deadline: std::time::Instant,
     globs: Globs<'a>,
-    permits: &'a dyn Fn(&Path) -> bool,
+    /// The discovery policy's verdict on each file, by its listing type. Every
+    /// directory on the way is shown to it too, its verdict unused, so a
+    /// discovery walk decides what lies in it from its real path.
+    permits: &'a dyn Fn(&Path, Option<std::fs::FileType>) -> bool,
     keep: &'a dyn Fn(&Path) -> bool,
     /// The request's own walk: the files it reached are not behind anything.
     requested: Option<Walk>,
@@ -137,7 +140,7 @@ pub(crate) struct FileProbe<'a> {
 impl<'a> FileProbe<'a> {
     pub(crate) fn new(
         root: &Path,
-        permits: &'a dyn Fn(&Path) -> bool,
+        permits: &'a dyn Fn(&Path, Option<std::fs::FileType>) -> bool,
         keep: &'a dyn Fn(&Path) -> bool,
     ) -> Self {
         Self {
@@ -193,6 +196,7 @@ impl<'a> FileProbe<'a> {
             let Ok(entry) = entry else { continue };
             let depth = entry.depth();
             if depth == 0 {
+                (self.permits)(entry.path(), entry.file_type());
                 continue;
             }
             if std::time::Instant::now() >= self.deadline || self.stop.is_some_and(|stop| stop()) {
@@ -224,10 +228,13 @@ impl<'a> FileProbe<'a> {
                 bits |= Cause::DefaultExcluded.bit();
             }
             if is_dir {
+                (self.permits)(path, entry.file_type());
                 inherited.push(bits);
                 continue;
             }
-            if !entry.file_type().is_some_and(|kind| kind.is_file()) || !(self.permits)(path) {
+            if !entry.file_type().is_some_and(|kind| kind.is_file())
+                || !(self.permits)(path, entry.file_type())
+            {
                 continue;
             }
             if (self.keep)(path) {

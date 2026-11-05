@@ -1,23 +1,12 @@
 use super::*;
 
-/// A too-large selection names the long-context limit only to a row
-/// under it, and always how to judge the selection in parts.
+/// A selection over one capture's memory says how to judge it in parts.
 #[test]
-fn a_too_large_selection_names_long_context_and_judging_in_parts() {
-    let short = crate::id::clasify_policy::MAX_STATE_CHARS;
-    let long = crate::id::clasify_policy::MAX_LONG_CONTEXT_STATE_CHARS;
-    let error = too_large(short, "The selected source", IN_PARTS_HINT);
+fn a_too_large_selection_says_how_to_judge_it_in_parts() {
+    let error = too_large(1_000, "The selected source", IN_PARTS_HINT);
     assert_eq!(error.code, ErrorCode::ClassificationContextTooLarge);
-    assert!(
-        error.hints[0].contains("longContext:true"),
-        "{:?}",
-        error.hints
-    );
-    assert!(error.hints[0].contains(&long.to_string()));
-    assert_eq!(error.hints[1], IN_PARTS_HINT);
-    assert!(IN_PARTS_HINT.contains("operation:\"sections\""));
-    let error = too_large(long, "The selected source", IN_PARTS_HINT);
     assert_eq!(error.hints, [IN_PARTS_HINT]);
+    assert!(IN_PARTS_HINT.contains("operation:\"sections\""));
     assert!(error.message.starts_with("The selected source exceeds"));
 }
 
@@ -59,4 +48,29 @@ fn a_reader_that_repeats_a_page_fails_without_looping() {
     let error =
         collect_pages(json!({"at": 0}), repeat, 1_000_000, false).expect_err("repeated page");
     assert_eq!(error.code, ErrorCode::ClassificationContextFailed);
+}
+
+/// The GitHub tools that can send a row to a classifier, each passing the name
+/// rule. A GitHub tool that gains `classification` has to pass it too.
+#[test]
+fn only_the_covered_github_tools_take_classification() {
+    let taking = ToolId::ALL
+        .iter()
+        .copied()
+        .filter(|tool| {
+            tool.is_github() && crate::contracts::query_declares(*tool, "classification")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(taking, [ToolId::GhSearchCode, ToolId::GhGetFileContent]);
+}
+
+#[test]
+fn a_withheld_github_source_is_the_local_refusal_with_its_direct_read() {
+    let query = json!({"owner":"o","repo":"r","path":"a/.ssh/config","ref":"main"});
+    let error = withheld_github_source(&query).expect("withheld");
+    assert_eq!(error.code, ErrorCode::PathPolicyDenied);
+    let (name, read) = &error.leads[0];
+    assert_eq!(name, "read");
+    assert_eq!(read["tool"], "ghGetFileContent");
+    assert!(withheld_github_source(&json!({"owner":"o","repo":"r","path":"src/a.rs"})).is_none());
 }

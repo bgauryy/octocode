@@ -32,6 +32,7 @@ mod saved_rows;
 mod snapshots;
 mod source_correspondence;
 mod stale;
+mod stale_scope;
 
 fn fixture() -> Fixture {
     let dir = Fixture::new();

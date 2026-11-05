@@ -104,3 +104,61 @@ fn a_leaf_holding_one_boundary_of_any_format_redacts_its_body() {
     }
     assert!(checked > 10, "{checked}");
 }
+
+/// Armors that say `SECRET KEY` or `Static key` rather than `PRIVATE KEY` open a
+/// block the same way; their public and certificate siblings do not.
+#[test]
+fn secret_and_static_key_armors_open_a_block() {
+    let hex = (0..4)
+        .map(|at| format!("{at}0a1b2c3d4e5f60718293a4b5c6d7e8f"))
+        .collect::<Vec<_>>();
+    for (open, close) in [
+        (
+            "-----BEGIN OpenVPN Static key V1-----",
+            "-----END OpenVPN Static key V1-----",
+        ),
+        (
+            "-----BEGIN PGP SECRET KEY BLOCK-----",
+            "-----END PGP SECRET KEY BLOCK-----",
+        ),
+        ("-----BEGIN SECRET KEY-----", "-----END SECRET KEY-----"),
+    ] {
+        let text = format!("before\n{open}\n{}\n{close}\nafter\n", hex.join("\n"));
+        let (out, changed) = redact_private_key_blocks(&text);
+        assert!(changed, "{open}");
+        assert!(!hex.iter().any(|line| out.contains(line.as_str())), "{out}");
+        assert!(
+            out.starts_with("before\n") && out.ends_with("after\n"),
+            "{out}"
+        );
+    }
+    for (open, close) in [
+        ("-----BEGIN PUBLIC KEY-----", "-----END PUBLIC KEY-----"),
+        (
+            "-----BEGIN PGP PUBLIC KEY BLOCK-----",
+            "-----END PGP PUBLIC KEY BLOCK-----",
+        ),
+        ("-----BEGIN CERTIFICATE-----", "-----END CERTIFICATE-----"),
+        (
+            "-----BEGIN AGE ENCRYPTED FILE-----",
+            "-----END AGE ENCRYPTED FILE-----",
+        ),
+    ] {
+        let text = format!("{open}\n{}\n{close}\n", hex.join("\n"));
+        assert_eq!(redact_private_key_blocks(&text).0, text, "{open}");
+    }
+}
+
+/// Beside a marker that survives, a body line something cut off is still key
+/// text; a line that only holds a long run further along is not.
+#[test]
+fn a_cut_body_line_is_hidden_and_a_line_quoting_a_long_value_is_not() {
+    const BODY: &str = "MIIEpAIBAAKCAQEAfakebodylinefakebodylinefakebodyline00000";
+    let security = ContentSecurity::new();
+    let cut = format!("const k = \"-----BEGIN RSA PRIVATE KEY-----\n{BODY}…\"\n");
+    let shown = security.sanitize_leaf(&cut, None).expect("redacted");
+    assert!(!shown.contains(BODY), "{shown}");
+    let quoted = format!("-----BEGIN RSA PRIVATE KEY-----\nconst sum = \"{BODY}\";\n");
+    let shown = security.sanitize_leaf(&quoted, None).expect("redacted");
+    assert!(shown.contains(BODY), "{shown}");
+}

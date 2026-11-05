@@ -4,6 +4,7 @@ import path from 'node:path';
 import { sourceLines, structureFiles } from '../responses.mjs';
 import { leadsIn } from './calls.mjs';
 import { tokenFor } from './surfaces.mjs';
+import { osvChecks } from './advanced-osv.mjs';
 const equal = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const data = result => result.json?.results?.[0]?.data ?? {};
 const coordinate = (kind, name) => ({ maven: `org.proof:${name}`, go: `example.test/${name}`, packagist: `proof/${name}` })[kind] ?? name;
@@ -23,10 +24,8 @@ async function resolutionChecks(ctx, surface, kind, record) {
     const resolved = artifact(await ctx.call(ctx.q({ ...row, version: kind === 'pypi' ? '>=1,<2' : '^1.0' }), surface));
     record(`${kind}.range`, surface, resolved?.version === '1.2.3' && resolved.optionalDependencies?.length === 1, JSON.stringify(resolved));
   }
-  if (!['packagist', 'rubygems'].includes(kind)) {
-    const exact = artifact(await ctx.call(ctx.q({ ...row, version: version(kind, '1.0.0') }), surface));
-    record(`${kind}.exact`, surface, exact?.version === version(kind, '1.0.0'), JSON.stringify(exact));
-  }
+  const exact = artifact(await ctx.call(ctx.q({ ...row, version: version(kind, '1.0.0') }), surface));
+  record(`${kind}.exact`, surface, exact?.version === version(kind, '1.0.0'), JSON.stringify(exact));
 }
 
 async function searchChecks(ctx, surface, kind, record) {
@@ -184,7 +183,6 @@ function unsupportedRows(ctx) {
     providerCursor: { ...search, registryCursor: 'opaque' }, page: { ...search, page: 2 },
     pypiSearch: { operation: 'search', ecosystem: 'pypi', keywords: ['proof'] },
     foreignRegistry: { operation: 'resolve', ecosystem: 'crates', packageName: 'proof', registryUrl: ctx.mock.url },
-    unversionedRegistry: { operation: 'resolve', ecosystem: 'rubygems', packageName: 'proof', version: '1.0.0' },
     exactOnlyRange: { operation: 'resolve', ecosystem: 'maven', packageName: 'org.proof:proof', version: '^1' } });
 }
 
@@ -224,6 +222,7 @@ export async function advancedRegistries(ctx) {
   }
   await trustStoreChecks(ctx, record);
   await npmChecks(ctx, record);
+  await osvChecks(ctx, record);
   record('routes.closed', 'all', ctx.registry.unhandled.length === 0 && ctx.registry.denied.length === 0, JSON.stringify({ unhandled: ctx.registry.unhandled, denied: ctx.registry.denied }));
   return checks;
 }

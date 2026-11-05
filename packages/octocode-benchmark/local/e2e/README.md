@@ -17,6 +17,7 @@ counts are written under `results/`; `results/summary.json` identifies the suite
 | `transport` | CLI/MCP input rejection; every Unicode source line across opaque pages; fresh CLI process replay; cursor surface binding and mutation rejection |
 | `grammar` | Runtime grammar inventory and every owned extension on CLI and MCP: declarations, call captures, UTF-16 positions, syntax-tree extent, all fetch views, exact source search, file-type filters, structure files/tree, and strict LSP definition/reference protocol fixtures. Complete tiny-page walks and transport parity. |
 | `classification-retry` | Shared requests, retry bounds, usage accounting, persistent versus memory caches, account isolation, and exact judgment identity across fresh CLI processes |
+| `provider-shapes` | Real recorded provider answers (below): every field a provider sends reaches the output or is declared `unread`, and the output meets the published contract |
 | `tool-health` | Every generated contract tool (currently 16) on CLI and MCP: published input/output validation, transport status, malformed admission without provider work, batch behavior, advanced operations and field effects, exact cursor walks, typed related calls and transport parity. The isolated MCP configuration enables graph, clone and classification tools. |
 
 `node skills-dev/octocode-dev/scripts/dev.mjs test:tools` runs every hermetic suite but `grammar`; `test:e2e` runs them all.
@@ -48,6 +49,20 @@ continuations run to completion, with response pages before tool pages; optional
 related-call exploration remains bounded and reports the calls it did not visit.
 Missing explicit top-level `operation` or `view` values fail acceptance for each
 selected tool on each transport; new primary variants therefore require cases.
+
+## Recorded provider answers
+
+`test-utils/provider-answers/<provider>/<case>.json` holds one tool call's real answers, for public packages and repositories only: OSV, NuGet, npm, PyPI, crates.io, Maven, Go, Packagist, RubyGems, GitHub REST and GraphQL. A fixture written by a parser's author holds what the parser reads; these hold what the provider sends. The Rust tests (`RouteHttp::recorded`, `tests/support/recorded.rs`) and this proxy (`tool-health/recorded-answers.mjs`) read the same files.
+
+| Command | What it does |
+|---|---|
+| `run-all.mjs provider-shapes` | Hermetic, in `test:tools`: replays each recording through the built CLI. A provider field that neither reaches the output nor sits in the case's `unread` list fails, by field path |
+| `dev.mjs answers:record [id,...]` | Re-records live, through the same proxy, so it holds exactly what the tool asks. It fails rather than writes when an answer holds the token or a private repository, or when trimming loses a field path or changes what the tool asks next. Keeps `unread` |
+| `dev.mjs answers:record --accept-unread id,...` | Declares a case's current gaps `unread`. Read that diff: it says the tool does not show those fields |
+
+What's stored: method, URL, `accept` and body of the request; `status`, `headers` (`content-type`, `link`, `etag`, `cache-control`, `retry-after` only), `next`, `body` and the raw answer's `digest`. Never a request header or cookie. Personal addresses become `person@example.test`. Long lists keep the items that add a field path, and long text its start. `tool-health/recorded-answers.test.mjs` and the Rust test `no_recording_holds_what_the_secret_detector_redacts` check every file. Add a call in `tool-health/recorded-plan.mjs`.
+
+## Live suites
 
 Real LSP and OS process-tree integration are opt-in:
 

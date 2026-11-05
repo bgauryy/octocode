@@ -16,11 +16,7 @@ use serde_json::{Value, json};
 /// first) earns the lead. `reference` pins the read to a branch or commit.
 pub(super) fn read_top_match(top: &Value, reference: Option<&str>) -> Option<Value> {
     let file = top.as_object()?;
-    let matched = file.get("matches")?.as_array()?.first()?;
-    let anchor = &matched["matchIndices"][0];
-    let start = usize::try_from(anchor["start"].as_u64()?).ok()?;
-    let end = usize::try_from(anchor["end"].as_u64()?).ok()?;
-    let token = crate::content::utf16_slice(matched["value"].as_str()?, start, end)?;
+    let token = highlighted(top)?;
     if token.trim().is_empty() {
         return None;
     }
@@ -38,6 +34,15 @@ pub(super) fn read_top_match(top: &Value, reference: Option<&str>) -> Option<Val
     };
     let read = match_read(&target, Terms::literal(vec![token]), Some((5, 5)), false)?;
     Some(Continuation::related_query(read).build())
+}
+
+/// The text GitHub highlighted in the top file's first fragment.
+fn highlighted(top: &Value) -> Option<String> {
+    let matched = top.get("matches")?.as_array()?.first()?;
+    let anchor = &matched["matchIndices"][0];
+    let start = usize::try_from(anchor["start"].as_u64()?).ok()?;
+    let end = usize::try_from(anchor["end"].as_u64()?).ok()?;
+    crate::content::utf16_slice(matched["value"].as_str()?, start, end)
 }
 
 /// A source file outside tests: the only hit a top-match read is worth.
@@ -145,6 +150,16 @@ pub(super) fn scoped_fragment_read(
     resolution: Option<&Resolution>,
 ) -> Option<Value> {
     let fragment = fragment?;
+    // A highlight names a term the caller searched for. Any other text is what
+    // the index returned, which no row lists.
+    let token = highlighted(fragment)?.to_lowercase();
+    if !query
+        .keywords
+        .iter()
+        .any(|keyword| keyword.to_lowercase().contains(&token))
+    {
+        return None;
+    }
     let branch = match resolution {
         Some(resolution) => match resolution.hits.first() {
             Some((_, super::lines::FileHits::Missing)) => return None,

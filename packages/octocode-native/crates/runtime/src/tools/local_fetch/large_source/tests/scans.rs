@@ -4,7 +4,15 @@ use super::*;
 /// The streamed scan of `text` under `limits`.
 fn streamed(q: &LocalFetchQuery, text: &str, limits: Limits) -> Scan {
     let file = temp(text.as_bytes());
-    scan_with(q, &opened(file.path()), 0, limits, &NeverCancel).expect("scan")
+    scan_with(
+        q,
+        &opened(file.path()),
+        file.path(),
+        0,
+        limits,
+        &NeverCancel,
+    )
+    .expect("scan")
 }
 
 /// The scan counts exactly the hit lines the whole-file matcher selects, and
@@ -78,7 +86,7 @@ fn a_giant_line_is_scanned_within_the_window_bound() {
     let file = temp(text.as_bytes());
     let bound = Limits::of(&q).text_bound();
     assert!(bound < line / 2, "the bound is far below the line");
-    let found = scan(&q, &opened(file.path()), 0, &NeverCancel).expect("scan");
+    let found = scan(&q, &opened(file.path()), file.path(), 0, &NeverCancel).expect("scan");
     assert_eq!((found.count, found.total_lines), (1, 1));
     assert!(
         found.peak <= bound,
@@ -246,15 +254,29 @@ fn a_page_walk_across_the_scan_chunk_edge_reconstructs_every_hit_line_once() {
         pages += 1;
         assert!(pages < 100, "runaway paging");
         if let Some(next) = page.next {
-            for call in [next.continue_window, next.read_other_ranges]
-                .into_iter()
-                .flatten()
-            {
-                pending.push_back(call.query);
-            }
+            pending.extend(next.continue_window.map(|call| call.query));
         }
     }
     assert!(pages > 1, "the walk pages");
     seen.sort_unstable();
     assert_eq!(seen, want, "every hit line served once over {pages} pages");
+}
+
+/// A streamed search answers on raw text as the search does: a hit inside a key
+/// block counts on its line, and the page shows the line redacted.
+#[test]
+fn a_hit_inside_a_key_block_counts_and_its_line_stays_hidden() {
+    let body = "MIIEpQIBAAKCAQEAstreamedBodyLineQWERTYabcdefghijklmnopqrstuvwxyz";
+    let mut text =
+        format!("-----BEGIN RSA PRIVATE KEY-----\n{body}\n-----END RSA PRIVATE KEY-----\n");
+    text.push_str(&format!("{}\n", "p".repeat(79)).repeat(40_000));
+    let file = temp(text.as_bytes());
+    let found = fetch(
+        &file,
+        &query(serde_json::json!({"path":"f","matchString":["streamedBodyLine"]})),
+        Some(20_000),
+    );
+    assert_eq!(found.selected_match_count, Some(1));
+    assert_eq!(found.matched_lines, vec![2]);
+    assert!(!found.content.as_deref().unwrap_or_default().contains(body));
 }

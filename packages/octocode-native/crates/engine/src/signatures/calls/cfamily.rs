@@ -1,7 +1,7 @@
 //! The C++/CUDA callee label: the names a call is looked up by, without the
 //! template arguments that only select a specialization (`f<A, B>(x)` calls
 //! `f`), and with `->` member access written as `.` like every other member
-//! call (`p->run()` is `p.run`).
+//! call (`p->run()` and `(*p).run()` are `p.run`).
 
 use tree_sitter::Node;
 
@@ -47,10 +47,40 @@ fn label<'tree>(node: Node<'tree>, content: &str, depth: u8) -> Option<(String, 
             }
         }
         "field_expression" => {
-            let (field, token) = label(node.child_by_field_name("field")?, content, depth + 1)?;
-            let (receiver, _) = label(node.child_by_field_name("argument")?, content, depth + 1)?;
-            Some((format!("{receiver}.{field}"), token))
+            let field = node.child_by_field_name("field")?;
+            let (name, token) = label(field, content, depth + 1)?;
+            // `p->B::x()` names `B`'s member, as `B::x()` does.
+            if field.kind() == "qualified_identifier" {
+                return Some((name, token));
+            }
+            let receiver = dereferenced(node.child_by_field_name("argument")?, content);
+            let (receiver, _) = label(receiver, content, depth + 1)?;
+            Some((format!("{receiver}.{name}"), token))
         }
         _ => None,
+    }
+}
+
+/// The object a member access reads: `(*p).x` reads `p`, as `p->x` does.
+pub(in crate::signatures) fn dereferenced<'tree>(
+    mut node: Node<'tree>,
+    content: &str,
+) -> Node<'tree> {
+    loop {
+        let inner = match node.kind() {
+            "parenthesized_expression" => node.named_child(0),
+            "pointer_expression"
+                if node
+                    .child_by_field_name("operator")
+                    .is_some_and(|operator| node_text(operator, content) == Some("*")) =>
+            {
+                node.child_by_field_name("argument")
+            }
+            _ => None,
+        };
+        match inner {
+            Some(inner) => node = inner,
+            None => return node,
+        }
     }
 }

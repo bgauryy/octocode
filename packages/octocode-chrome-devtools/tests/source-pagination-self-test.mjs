@@ -56,7 +56,7 @@ function collect(file, format, extra = [], pageLength = '511') {
   }
 }
 try {
-  const text = '\uFEFF' + 'delayed content 😀\n'.repeat(200) + 'x'.repeat(9000),
+  const text = `\uFEFF${'delayed content 😀\n'.repeat(200)}${'x'.repeat(9000)}`,
     textFile = join(root, 'events.jsonl');
   writeFileSync(textFile, text);
   assert.equal(collect(textFile, 'text'), text);
@@ -69,10 +69,9 @@ try {
     collect(escapedFile, 'text', [], '20000'),
     '\u0000'.repeat(25000)
   );
-  const json =
-      '{"console":[{"message":"' +
-      'x'.repeat(12000) +
-      '"}],"a/b":{"~key":900719925474099312345}}',
+  const json = `{"console":[{"message":"${'x'.repeat(
+      12000
+    )}"}],"a/b":{"~key":900719925474099312345}}`,
     jsonFile = join(root, 'capture.json');
   writeFileSync(jsonFile, json);
   assert.equal(collect(jsonFile, 'json'), json);
@@ -91,7 +90,7 @@ try {
   assert.deepEqual(collect(binFile, 'binary'), binary);
   assert.notEqual(call(['--file', binFile, '--format', 'text']).status, 0);
   const first = JSON.parse(call(['--file', textFile, '--length', '10']).stdout);
-  writeFileSync(textFile, text + 'changed');
+  writeFileSync(textFile, `${text}changed`);
   const changed = spawnSync(
     first.next.continue.command,
     first.next.continue.args,

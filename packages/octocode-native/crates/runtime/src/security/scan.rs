@@ -43,23 +43,27 @@ pub(crate) fn redact_lines<'a>(
     source: &'a str,
     path: &Path,
 ) -> Result<(Cow<'a, str>, bool), (ErrorCode, String)> {
-    redact_with(source, false, |text| {
+    redact_with(source, |text| {
         scan.sanitize(text, path).map(|(text, _)| text.into())
     })
 }
 
-/// `whole_only`: line by line cannot judge this source, so a refused whole scan
-/// refuses it.
+/// Whether its lines cannot judge `source`: it names a pattern that spans them.
+pub(crate) fn only_whole_judges(source: &str, path: &Path) -> bool {
+    use octocode_engine::security::WholeSourcePatterns;
+    WholeSourcePatterns::for_path(&path.to_string_lossy())
+        .is_some_and(|patterns| patterns.named_by(source))
+        || WholeSourcePatterns::outruns_a_page(source)
+}
+
 fn redact_with<'a>(
     source: &'a str,
-    whole_only: bool,
     sanitize: impl Fn(&'a str) -> Result<Cow<'a, str>, (ErrorCode, String)>,
 ) -> Result<(Cow<'a, str>, bool), (ErrorCode, String)> {
     let lines = |text: &str| text.split_inclusive('\n').count();
     match sanitize(source) {
         Ok(whole) if whole == source => return Ok((source.into(), false)),
         Ok(whole) if lines(&whole) == lines(source) => return Ok((whole, true)),
-        Err(refusal) if whole_only => return Err(refusal),
         Ok(_) | Err(_) => {}
     }
     let mut out = String::with_capacity(source.len());
@@ -106,6 +110,7 @@ pub(crate) fn sanitize_provider_json(
     super::sanitize_json(value, &mut |text, _| {
         sanitize_provider_text(security, text, path)
     })
+    .map(|_| ())
 }
 
 /// A test scan double that returns every text unchanged.
@@ -125,38 +130,11 @@ impl ContentScan for super::ContentSecurity {
         text: &str,
         path: &Path,
     ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
-        checked_content(self.sanitize_text(text, Some(path)))
-            .map(|text| (text.into_owned(), Vec::new()))
+        Ok((
+            self.sanitize_text(text, Some(path)).content.into_owned(),
+            Vec::new(),
+        ))
     }
-
-    fn redact_source_lines<'a>(
-        &self,
-        source: &'a str,
-        path: &Path,
-    ) -> Result<(Cow<'a, str>, bool), (ErrorCode, String)> {
-        let whole_only =
-            octocode_engine::security::WholeSourcePatterns::for_path(&path.to_string_lossy())
-                .is_some_and(|patterns| patterns.named_by(source));
-        redact_with(source, whole_only, |text| {
-            checked_content(self.sanitize_text(text, Some(path)))
-        })
-    }
-}
-
-fn checked_content<'a>(
-    result: octocode_engine::security::types::SanitizationResult<'a>,
-) -> Result<Cow<'a, str>, (ErrorCode, String)> {
-    if result
-        .secrets_detected
-        .iter()
-        .any(|name| name == "content-size-exceeded")
-    {
-        return Err((
-            ErrorCode::ContentSecurityLimit,
-            "The selected content view exceeds the secret scanner size limit.".into(),
-        ));
-    }
-    Ok(result.content)
 }
 
 #[cfg(test)]
@@ -276,6 +254,48 @@ mod tests {
         let second = scan.redact_source_lines(&text, path).unwrap();
         assert_eq!(first, second);
         assert_eq!(scanner.0.load(Ordering::Relaxed), 2);
+    }
+
+    /// Text past the scanner's limit, as a read of a source that grew when
+    /// decoded hands it over: `line`, then pad words past the limit.
+    fn over_the_limit(line: &str) -> String {
+        let pad = "ordinary words\n";
+        let lines = octocode_engine::security::MAX_CONTENT_SIZE / pad.len() + 1;
+        format!("{line}\n{}", pad.repeat(lines))
+    }
+
+    /// Past what a read holds at once, a source is judged as any other: a value is
+    /// hidden by what its object says, and the text around it stays.
+    #[test]
+    fn past_the_limit_a_source_is_judged_whole() {
+        let security = crate::security::ContentSecurity::new();
+        let path = Path::new("/w/dump.json");
+        for (named, value) in [
+            (
+                "{\"data\":{\"k\":\"c2VjcmV0\"},\"kind\":\"Secret\"}",
+                "c2VjcmV0",
+            ),
+            (
+                "{\"kty\":\"EC\",\"d\":\"c2VjcmV0c2VjcmV0c2VjcmV0\"}",
+                "c2VjcmV0c2VjcmV0c2VjcmV0",
+            ),
+        ] {
+            let text = over_the_limit(named);
+            let (clean, changed) = security.redact_source_lines(&text, path).expect("read");
+            assert!(changed, "{named}");
+            assert!(!clean.contains(value), "{named}");
+            assert!(clean.contains("ordinary words"), "{named}");
+        }
+        for plain in [
+            "{\"SecretName\":\"a\"}",
+            "\"kind\": \"Deployment\"",
+            "plain",
+        ] {
+            let text = over_the_limit(plain);
+            let (clean, changed) = security.redact_source_lines(&text, path).expect("read");
+            assert!(!changed, "{plain}");
+            assert_eq!(clean.len(), text.len(), "{plain}");
+        }
     }
 
     /// A whole scan that changes the line count falls back to line by line,

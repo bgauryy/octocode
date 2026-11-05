@@ -40,7 +40,8 @@ impl Lang {
             "java" => Self::Java,
             "go" => Self::Go,
             "cs" => Self::CSharp,
-            "cpp" => Self::Cpp,
+            // CUDA is C++ with attributes; its `.cu` keeps its own extension.
+            "cpp" | "cu" | "cuh" => Self::Cpp,
             _ => return None,
         })
     }
@@ -165,6 +166,12 @@ impl<'t> ReceiverTypes<'t> {
             function.child_by_field_name("object")?
         } else {
             lang.member_parts(function)?.0
+        };
+        // `(*p).m()` reads `p`, as `p->m()` does.
+        let receiver = if lang == Lang::Cpp {
+            crate::signatures::calls::cfamily::dereferenced(receiver, content)
+        } else {
+            receiver
         };
         // `T(..).m()`, `T::new(..).m()`, `NewT(..).m()`, `new T(..).m()`:
         // the constructed type.

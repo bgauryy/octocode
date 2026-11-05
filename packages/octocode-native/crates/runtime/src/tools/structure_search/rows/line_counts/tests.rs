@@ -94,3 +94,59 @@ fn a_fifo_line_count_is_unreadable_without_blocking() {
         "{counted:?}"
     );
 }
+
+/// UTF-16 text has lines, as a read of it shows: counted in code units, with or
+/// without a final newline, in either byte order. A NUL code unit stays binary.
+#[test]
+fn utf16_text_counts_its_lines() {
+    let root = tempfile::tempdir().expect("root");
+    let paths = crate::tools::test_support::workspace_policy(root.path());
+    let never = &crate::execution::cancel::NeverCancel;
+    let encode = |bom: [u8; 2], units: &[u16], big: bool| {
+        let mut bytes = bom.to_vec();
+        for unit in units {
+            bytes.extend(if big {
+                unit.to_be_bytes()
+            } else {
+                unit.to_le_bytes()
+            });
+        }
+        bytes
+    };
+    let text = |s: &str| s.encode_utf16().collect::<Vec<_>>();
+    for (name, bytes, expected) in [
+        (
+            "le.txt",
+            encode([0xff, 0xfe], &text("one\ntwo\n"), false),
+            Lines::Counted(2),
+        ),
+        (
+            "be.txt",
+            encode([0xfe, 0xff], &text("one\ntwo"), true),
+            Lines::Counted(2),
+        ),
+        // U+010A and U+0A00 hold the byte 0x0A and end no line.
+        (
+            "wide.txt",
+            encode([0xff, 0xfe], &text("\u{10a}\u{a00}\n"), false),
+            Lines::Counted(1),
+        ),
+        (
+            "nul.txt",
+            encode([0xff, 0xfe], &text("a\0b\n"), false),
+            Lines::Binary,
+        ),
+    ] {
+        let file = root.path().join(name);
+        std::fs::write(&file, bytes).expect("file");
+        let (counted, _) =
+            count_lines(&[Some(file.as_path())], &paths, never, None).expect("count");
+        assert_eq!(counted, [Some(expected)], "{name}");
+    }
+    // Past one read buffer, where the BOM is long gone and a code unit may split.
+    let long = encode([0xff, 0xfe], &text(&"line of text\n".repeat(4000)), false);
+    let file = root.path().join("long.txt");
+    std::fs::write(&file, long).expect("file");
+    let (counted, _) = count_lines(&[Some(file.as_path())], &paths, never, None).expect("count");
+    assert_eq!(counted, [Some(Lines::Counted(4000))]);
+}

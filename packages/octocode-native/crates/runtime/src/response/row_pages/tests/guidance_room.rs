@@ -52,7 +52,7 @@ fn parts_before_the_last_fill_the_room_the_continuations_leave_them() {
     let mut delivered = Vec::new();
     for page in 0..plan.total_pages {
         let rows = plan
-            .build_page(page, &[None], &[], &Cancellation::new())
+            .build_page(page, &[None], &Cancellation::new())
             .expect("page");
         for row in &rows {
             let size = octocode_engine::json_size::utf16_units(row).unwrap_or(0);

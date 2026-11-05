@@ -86,6 +86,10 @@ fn call_sites_prefer_calls_one_per_file() {
 fn applies_only_to_ts_js_incoming_operations() {
     assert!(applies(Some("javascript"), "references"));
     assert!(applies(Some("typescript"), "callers"));
+    assert!(applies(Some("c"), "references"));
+    assert!(applies(Some("cpp"), "callers"));
+    assert!(applies(Some("cuda"), "callers"));
+    assert!(!applies(Some("c"), "definition"));
     assert!(!applies(Some("rust"), "references"));
     assert!(!applies(Some("typescript"), "definition"));
     assert!(!applies(None, "references"));

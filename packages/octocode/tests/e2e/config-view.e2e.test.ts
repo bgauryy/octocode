@@ -129,7 +129,7 @@ describe.skipIf(!ready)('config viewer through both CLI entry points', () => {
           body: string,
           overrides: Record<string, string> = {}
         ) =>
-          fetch(view.url.origin + '/api/request', {
+          fetch(`${view.url.origin}/api/request`, {
             method: 'POST',
             headers: { ...headers, ...overrides },
             body,

@@ -54,7 +54,9 @@ pub(super) fn annotate(
     anchor_path: &str,
     scope: &Scope,
 ) {
-    if !octocode_engine::lsp::family::is_typescript_family(language_id)
+    use octocode_engine::lsp::family::{is_c_family, is_typescript_family};
+    let typescript = is_typescript_family(language_id);
+    if !(typescript || is_c_family(language_id))
         || !is_incoming(lsp_search_query::operation(query))
         || !row.is_object()
         || row.get("status").and_then(Value::as_str) == Some("error")
@@ -64,7 +66,7 @@ pub(super) fn annotate(
     // Importer recovery opened and verified every file that mentions the
     // name, so an inferred project no longer hides importers. A window with
     // later windows left was flagged by `Importers::annotate`, which names
-    // the window and its `next.nextPage`.
+    // the window and its `next.nextImporterWindow`.
     let (reason, warning) = match row
         .pointer("/coverage/importerScan")
         .and_then(Value::as_str)
@@ -74,7 +76,7 @@ pub(super) fn annotate(
             FAILED_REASON,
             "Importer recovery could not read, open, or resolve every candidate, or its scan failed. Some importers remain unverified; confirm with a localSearch of the name.".to_owned(),
         ),
-        _ if typescript_project_dir(anchor_dir(Path::new(anchor_path))).is_none() => {
+        _ if typescript && typescript_project_dir(anchor_dir(Path::new(anchor_path))).is_none() => {
             (REASON, INFERRED_WARNING.to_owned())
         }
         _ => return,

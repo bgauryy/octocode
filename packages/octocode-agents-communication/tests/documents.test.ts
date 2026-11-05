@@ -52,11 +52,11 @@ test('document intent is required before filesystem writes and immutable in the 
 
 test('MCP document publication enforces and exposes the canonical intent contract', t => {
   const f = fixture(t), input = { name: 'mcp.md', content: 'Evidence for the path audit.' };
-  const frames = [
+  const frames = `${[
     { jsonrpc: '2.0', id: 1, method: 'tools/list' },
     { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'documents', arguments: { type: 'publish', input } } },
     { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'documents', arguments: { type: 'publish', input: { ...input, reasoning: 'Explain why this path needs review' } } } },
-  ].map(frame => JSON.stringify(frame)).join('\n') + '\n';
+  ].map(frame => JSON.stringify(frame)).join('\n')}\n`;
   const rows = execFileSync(binary, ['mcp', '--workspace', f.workspace, '--database', f.database, '--session', f.a.id], { input: frames, encoding: 'utf8' }).trim().split('\n').map((line): JsonRecord => JSON.parse(line));
   const publish = rows[0].result.tools.find((tool: JsonRecord) => tool.name === 'documents').inputSchema.oneOf.find((branch: JsonRecord) => branch.properties.type.const === 'publish');
   assert.ok(publish.properties.input.required.includes('reasoning'));
@@ -350,7 +350,7 @@ test('Pi bound tools send large document JSON over stdin and retain cancellation
 
 test('targeted document reads cross scan boundaries and reject off-page same-size tampering', t => {
   const f = fixture(t), name = 'window.md';
-  const content = 'a'.repeat(8191) + '🙂β' + 'z'.repeat(1024 * 1024 - 8197);
+  const content = `${'a'.repeat(8191)}🙂β${'z'.repeat(1024 * 1024 - 8197)}`;
   assert.equal(Buffer.byteLength(content), 1024 * 1024);
   f.call('share_document', { name, content }, f.a.id);
   const page = f.call('read_document', { name, offset: 8191, limit: 5 }, f.b.id);

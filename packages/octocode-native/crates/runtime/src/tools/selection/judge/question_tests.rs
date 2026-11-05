@@ -51,20 +51,25 @@ fn majority_policy_uses_named_probability_mass_and_any_all_question_semantics() 
 }
 
 #[test]
-fn optional_research_context_is_in_each_independent_question() {
-    for classifier in [
-        "Does this name the stopping condition?",
-        "Does this show the current default?",
-    ] {
-        let question =
-            compile(classifier, Some(" Explain retry behavior\n")).expect("contextual question");
-        assert_eq!(
-            question["instructions"]["context"],
-            " Explain retry behavior\n"
-        );
-    }
-    let ordinary = compile("Does this name a limit?", None).expect("question");
-    assert!(ordinary["instructions"].get("context").is_none());
+fn a_hit_question_names_its_target_and_a_whole_unit_question_does_not() {
+    let hit = compile("Does this name a limit?", Some("line 14")).expect("question");
+    assert_eq!(hit["instructions"]["target"], "line 14");
+    assert!(
+        hit["instructions"]["question"]
+            .as_str()
+            .unwrap()
+            .contains("target line itself"),
+        "{hit}"
+    );
+    let whole = compile("Does this name a limit?", None).expect("question");
+    assert!(whole["instructions"].get("target").is_none());
+    assert!(
+        whole["instructions"]["question"]
+            .as_str()
+            .unwrap()
+            .contains("this source itself"),
+        "{whole}"
+    );
 }
 
 #[test]

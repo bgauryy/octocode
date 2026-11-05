@@ -20,7 +20,7 @@ pub(super) fn stats(
         Ok(hubs(g, filter, Some(kind), Direction::In, 0..5, cancel)?.rows)
     };
     let m = &g.manifest;
-    Ok(GraphOutput::ok(json!({
+    let mut answer = json!({
         "graph": g.summary(),
         "operation": "stats",
         "octocodeVersion": m["octocodeVersion"],
@@ -40,7 +40,9 @@ pub(super) fn stats(
         "callConfidence": calls.weakest.as_str(),
         "testEdges": "excluded",
         "evidence": m["evidence"],
-    })))
+    });
+    super::super::manifest::disclose_value_references(&mut answer);
+    Ok(GraphOutput::ok(answer))
 }
 
 pub(super) fn degree_counts<'a>(

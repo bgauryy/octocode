@@ -1,7 +1,7 @@
 //! `operation: "compare"`: a comparison's files (past GitHub's cap from the
 //! two trees), its commit page, and the range's identity.
 use super::axis::Axis;
-use super::file_page::{file_page_note, first_page, lead_first};
+use super::file_page::{first_page, lead_first};
 use super::patch_hop::{DiffCursors, attach_diff_continuations};
 use super::pr_menu::{base_public_query, remove_key};
 use super::util::{str_at, usize_at};
@@ -181,10 +181,7 @@ pub(super) async fn compare(
         );
     }
     lead_first(&mut out, leads);
-    Ok(ToolData {
-        remaining: file_page_note(&out),
-        ..ToolData::from(out)
-    })
+    Ok(ToolData::from(out))
 }
 
 /// The same comparison with `baseRef` and `headRef` exchanged, from its first page.

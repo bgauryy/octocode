@@ -102,7 +102,7 @@ fn a_first_page_of_silent_windows_with_more_to_scan_is_not_empty() {
             "{operation}: {first}"
         );
         assert!(
-            first["next"]["nextPage"].is_object(),
+            first["next"]["nextImporterWindow"].is_object(),
             "{operation}: {first}"
         );
         assert!(
@@ -136,7 +136,7 @@ fn a_capped_run_of_silent_windows_is_a_page_of_a_continuing_scan() {
             capped.get("status").is_none(),
             "{operation}: a page of a continuing scan is not an empty result: {capped}"
         );
-        assert!(capped["next"]["nextPage"].is_object(), "{capped}");
+        assert!(capped["next"]["nextImporterWindow"].is_object(), "{capped}");
         assert_eq!(capped["isPartial"], true, "{capped}");
         let said = capped.to_string();
         assert!(
@@ -180,7 +180,7 @@ fn a_silent_first_window_goes_on_to_the_next_in_one_call() {
         assert_eq!(pages.len(), 1, "{operation}: one call");
         let first = &pages[0].row;
         assert!(lists_path(first, "z000.ts"), "{operation}: {first}");
-        assert!(first["next"].get("nextPage").is_none(), "{first}");
+        assert!(first["next"].get("nextImporterWindow").is_none(), "{first}");
         assert!(first.get("isPartial").is_none(), "{operation}: {first}");
     };
     tokio::runtime::Runtime::new()
@@ -221,7 +221,7 @@ fn candidates_importing_another_module_are_checked_without_a_window() {
     let row = &pages[0].row;
     assert!(lists_path(row, "f000.ts"), "{row}");
     assert!(!lists_path(row, "m000.ts"), "{row}");
-    assert!(row["next"].get("nextPage").is_none(), "{row}");
+    assert!(row["next"].get("nextImporterWindow").is_none(), "{row}");
     assert!(row.get("isPartial").is_none(), "{row}");
     assert_eq!(row["coverage"]["importerScan"], "complete", "{row}");
     assert!(

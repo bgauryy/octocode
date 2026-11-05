@@ -43,7 +43,6 @@ async fn immutable_pages_survive_source_removal_and_persistent_restart() {
                 .await
                 .expect("immutable page")
                 .structured_content;
-            assert_eq!(output["responsePagination"]["page"], page);
             assert_eq!(output["responsePagination"]["replayed"], true);
             assert!(output.to_string().contains("captured"));
             collect(&output, &mut lines);

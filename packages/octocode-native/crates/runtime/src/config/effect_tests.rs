@@ -186,3 +186,79 @@ fn trust_project_config_reaches_server_discovery() {
         assert_eq!(settings.discovery().trust_project_config, trusted);
     }
 }
+
+/// `lsp.trustFetchedCode` empties the roots discovery refuses; unset, they are
+/// the directories local tools read fetched code from.
+#[test]
+fn trust_fetched_code_reaches_server_discovery() {
+    let home = tempfile::tempdir().expect("home");
+    let cwd = tempfile::tempdir().expect("cwd");
+    let roots = |rc: Value| {
+        runtime(home.path(), cwd.path(), &rc)
+            .lsp_execution_config()
+            .discovery()
+            .fetched_code_roots
+    };
+    let refused = roots(json!({}));
+    for root in [
+        crate::tools::gh_clone_repo::storage::clones_root(home.path()),
+        crate::tools::gh_structure::materialize::materialize_root(home.path()),
+    ] {
+        assert!(refused.contains(&root), "{root:?} in {refused:?}");
+    }
+    assert!(roots(json!({"lsp":{"trustFetchedCode":true}})).is_empty());
+}
+
+/// `security.credentialFiles: allow` opens credential-named files to local
+/// reads and searches, with secret values still redacted, and keeps saved work
+/// off disk. Graphs and classifier reads never read them.
+#[tokio::test]
+async fn credential_files_setting_opens_local_reads_only() {
+    let home = tempfile::tempdir().expect("home");
+    let cwd = tempfile::tempdir().expect("cwd");
+    let token = format!("ghp_{}", "a1B2c3D4e5".repeat(4));
+    std::fs::write(
+        cwd.path().join(".env"),
+        format!("TOKEN={token}\nneedle=1\n"),
+    )
+    .expect("env");
+    std::fs::write(cwd.path().join("a.ts"), "export const a = 1;\n").expect("source");
+    let run = |rc: Value| {
+        let runtime = runtime(home.path(), cwd.path(), &rc);
+        async move {
+            let fetched = call(&runtime, "localFetch", json!({"path":".env"})).await;
+            let found = call(
+                &runtime,
+                "localSearch",
+                json!({"path":".","matchString":"needle","includeHidden":true}),
+            )
+            .await;
+            let built = call(&runtime, "graphBuild", json!({"path":"."})).await;
+            (
+                fetched.structured_content["results"][0].clone(),
+                found.structured_content["results"][0].clone(),
+                built.structured_content["results"][0].clone(),
+            )
+        }
+    };
+    let (fetched, found, _) = run(json!({"local":{"beta":true}})).await;
+    assert_eq!(
+        fetched["data"]["errorCode"], "pathPolicyDenied",
+        "{fetched}"
+    );
+    assert_eq!(found["data"]["matchCount"], 0, "{found}");
+
+    let (fetched, found, built) =
+        run(json!({"local":{"beta":true},"security":{"credentialFiles":"allow"}})).await;
+    let content = fetched["data"]["content"].as_str().unwrap_or_default();
+    assert!(content.contains("needle=1"), "{fetched}");
+    assert!(
+        !content.contains(&token),
+        "the value stays redacted: {fetched}"
+    );
+    assert_eq!(found["data"]["matchCount"], 1, "{found}");
+    assert_eq!(
+        built["data"]["diagnostics"]["path-policy-withheld"], 1,
+        "a graph never reads them: {built}"
+    );
+}

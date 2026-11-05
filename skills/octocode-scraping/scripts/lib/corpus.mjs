@@ -8,7 +8,7 @@ import { buildSiteGraph, buildUnifiedGraph, buildWorkflowIndex, pageSlices } fro
 import { extractButtonsFromHtml, extractCanonicalFromHtml, extractCodeBlocksFromMarkdown, extractFormsFromHtml, extractHeadings, extractJsonLdFromHtml, extractLinksFromHtml, extractLinksFromMarkdown, extractMetaFromHtml, extractResourcesFromHtml, extractTablesFromHtml, extendedExtractFiles, jsonl } from './extractors.mjs';
 
 async function writeAtomic(file, data, options = {}) {
-  const temporary = file + '.' + randomUUID() + '.tmp';
+  const temporary = `${file}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, data, { mode: 0o600, ...options });
     await rename(temporary, file);
@@ -198,7 +198,7 @@ export async function writePage({ sessionDir, config, response }) {
   // Commit each complete page before fetching another; session indexes can be rebuilt after interruption.
   const pending = join(sessionDir, '.pending');
   await mkdir(pending, { recursive: true });
-  const checkpoint = join(pending, pageId + '.json');
+  const checkpoint = join(pending, `${pageId}.json`);
   await writeAtomic(checkpoint, JSON.stringify(committed));
   return committed;
 }

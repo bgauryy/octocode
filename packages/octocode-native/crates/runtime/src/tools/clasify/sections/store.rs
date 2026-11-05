@@ -5,12 +5,15 @@ use crate::cache::{CacheClass, CacheConfig, CacheKey, Store};
 use crate::execution::ExecutionContext;
 use crate::tools::judgment::ClassificationError;
 use octocode_io::flight::KeyedFlight;
-use serde_json::json;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-/// Frozen assessment plans remain reachable for thirty minutes.
-const SESSION_RETENTION: Duration = Duration::from_secs(30 * 60);
+/// Frozen assessment plans, and the cursors that name them, remain reachable
+/// for thirty minutes after their last use: an agent reads a page's hits before
+/// asking for the next, and a restart would bill the plan again.
+pub(crate) const PLAN_RETENTION: CacheClass = CacheClass::Volatile {
+    ttl: Duration::from_secs(30 * 60),
+};
 
 /// Runtime-owned retention; policy/access identities are supplied by the same
 /// owner as display snapshots, never reconstructed from environment here.
@@ -43,16 +46,15 @@ impl Sessions {
         let Some(disk) = &self.disk else {
             return Ok(None);
         };
-        std::fs::create_dir_all(disk)
+        octocode_io::atomic::create_private_dir_all(disk)
             .map_err(|_| unavailable("The assessment storage directory is unavailable."))?;
+        let path = disk.join(name);
         loop {
-            let file = octocode_io::lock::open_lock_file(&disk.join(name))
-                .map_err(|_| unavailable("The assessment transaction lock is unavailable."))?;
             let wait = context
                 .deadline
                 .saturating_duration_since(Instant::now())
                 .min(Duration::from_millis(100));
-            match octocode_io::lock::lock_within(file, wait, octocode_io::lock::LOCK_POLL) {
+            match octocode_io::lock::lock_path_within(&path, wait, octocode_io::lock::LOCK_POLL) {
                 Ok(lock) => return Ok(Some(lock)),
                 Err(octocode_io::lock::LockError::Busy) => {
                     context.check().map_err(|_| unavailable("The request stopped before the assessment transaction lock was acquired."))?;
@@ -79,10 +81,16 @@ impl Sessions {
         key: &CacheKey,
         context: &ExecutionContext,
     ) -> Result<Option<octocode_io::lock::LockedFile>, ClassificationError> {
-        let digest = crate::digest::json_sha256(&json!([key.namespace, key.scope, key.resource]));
-        // Stable lock files remain after expiry: unlinking one can split waiting
-        // processes across different inodes and let both mutate the same plan.
-        self.process_lock(&format!("assessment-{digest}.lock"), context)
+        // A plan's lock file outlives it only until a scan of the store finds
+        // that, and removes it unheld; a locker checks what it locked.
+        let Some(name) = self
+            .store
+            .entry_lock(key)
+            .and_then(|path| Some(path.file_name()?.to_string_lossy().into_owned()))
+        else {
+            return Ok(None);
+        };
+        self.process_lock(&name, context)
     }
 
     pub(super) fn current(
@@ -109,14 +117,7 @@ impl Sessions {
         };
         let bytes = octocode_engine::json_size::bytes(&session).unwrap_or(usize::MAX);
         self.store
-            .put_confirmed(
-                key,
-                session,
-                bytes,
-                CacheClass::Volatile {
-                    ttl: SESSION_RETENTION,
-                },
-            )
+            .put_until(context.deadline, key, session, bytes, PLAN_RETENTION)
             .1
     }
 }

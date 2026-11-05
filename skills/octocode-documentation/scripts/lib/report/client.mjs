@@ -1,6 +1,5 @@
 // Page behavior. Inlined into the HTML via Function#toString; reads #report-data. The page views
 // (document, widgets, diagrams, search) arrive in `views`, inlined the same way, and share `ctx`.
-/* oxlint-disable unicorn/consistent-function-scoping -- helpers must stay inside the serialized client */
 // oxlint-disable-next-line max-lines-per-function -- serialized whole via Function#toString
 export function client(kit, MERMAID_URL, PANZOOM_URL, views) {
   const { esc, slugify } = kit;
@@ -118,9 +117,9 @@ export function client(kit, MERMAID_URL, PANZOOM_URL, views) {
       if (!groups.has(g)) groups.set(g, []);
       groups.get(g).push(f);
     }
-    $('#nav').innerHTML = `<a href="#/" class="nav-home${current ? '' : ' active'}">Overview</a>`
-      + [...groups].map(([g, list]) => `<div class="nav-group"><h3>${esc(g)}</h3>${list.map((f) => `<a href="${href(f.path)}" class="${f.path === current ? 'active' : ''}"><span>${esc(f.title)}</span>${f.date ? `<small>${esc(f.date)}</small>` : ''}</a>`).join('')}</div>`).join('')
-      + (groups.size ? '' : '<p class="muted">No document matches.</p>');
+    $('#nav').innerHTML = `<a href="#/" class="nav-home${current ? '' : ' active'}">Overview</a>${
+       [...groups].map(([g, list]) => `<div class="nav-group"><h3>${esc(g)}</h3>${list.map((f) => `<a href="${href(f.path)}" class="${f.path === current ? 'active' : ''}"><span>${esc(f.title)}</span>${f.date ? `<small>${esc(f.date)}</small>` : ''}</a>`).join('')}</div>`).join('')
+       }${groups.size ? '' : '<p class="muted">No document matches.</p>'}`;
   }
 
   async function show() {
@@ -145,7 +144,7 @@ export function client(kit, MERMAID_URL, PANZOOM_URL, views) {
         img.addEventListener('error', () => {
           if (img.nextElementSibling?.classList.contains('image-error')) return;
           const note = document.createElement('p'); note.className = 'image-error';
-          note.textContent = 'Image could not load: ' + (img.alt || raw); img.after(note);
+          note.textContent = `Image could not load: ${img.alt || raw}`; img.after(note);
         });
       });
       if (!$('h1', art)) art.insertAdjacentHTML('afterbegin', `<h1>${esc(f.title)}</h1>`);

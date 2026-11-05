@@ -1,4 +1,3 @@
-use super::super::result::Remaining;
 use super::arena::Window;
 use super::evidence::DependencyError;
 use super::{
@@ -27,36 +26,6 @@ pub(super) struct RowPlan {
     delivered: Vec<Vec<String>>,
     placed: Vec<Placed>,
     pub(super) total_pages: usize,
-    /// Each row's query index ([`query_indexes`]).
-    queries: Vec<usize>,
-}
-
-/// The query indexes of the rows a page leaves for later pages, in row
-/// order: rows none of whose parts is on the page or an earlier one, and
-/// rows split across it.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub(super) struct Later {
-    pub(super) unserved: Vec<usize>,
-    pub(super) continued: Vec<usize>,
-}
-
-impl Later {
-    pub(super) fn is_empty(&self) -> bool {
-        self.unserved.is_empty() && self.continued.is_empty()
-    }
-}
-
-/// Each row's query index: the `index` it carries, else its position.
-pub(super) fn query_indexes(rows: &[Value]) -> Vec<usize> {
-    rows.iter()
-        .enumerate()
-        .map(|(position, row)| {
-            row.get("index")
-                .and_then(Value::as_u64)
-                .and_then(|index| usize::try_from(index).ok())
-                .unwrap_or(position)
-        })
-        .collect()
 }
 
 /// The rows of one envelope readied for planning at any row budget: their
@@ -72,7 +41,6 @@ pub(super) struct PreparedRows {
     sizes: Vec<usize>,
     tool: crate::id::ToolId,
     volatile: Vec<Option<Map<String, Value>>>,
-    queries: Vec<usize>,
 }
 
 impl PreparedRows {
@@ -135,7 +103,6 @@ impl PreparedRows {
             .map(|(chars, reserve)| chars + 1 + reserve)
             .collect();
         Self {
-            queries: query_indexes(&rows),
             rows,
             first_fields,
             reserves,
@@ -143,11 +110,6 @@ impl PreparedRows {
             tool,
             volatile: volatile.to_vec(),
         }
-    }
-
-    /// Each row's query index.
-    pub(super) fn queries(&self) -> &[usize] {
-        &self.queries
     }
 
     /// The rows' sizes added up: what they take on a page when none is split.
@@ -189,7 +151,6 @@ impl PreparedRows {
             sizes,
             tool,
             volatile,
-            queries,
         } = self;
         let mut arena = FragmentArena::new(tool);
         let page_context = arena.page_context;
@@ -257,7 +218,6 @@ impl PreparedRows {
             delivered,
             placed,
             total_pages,
-            queries,
         })
     }
 }
@@ -269,7 +229,6 @@ impl RowPlan {
         &self,
         page: usize,
         volatile: &[Option<Map<String, Value>>],
-        remaining: &[Vec<Remaining>],
         cancelled: &Cancellation,
     ) -> Result<Vec<Value>, DependencyError> {
         let mut parts: Vec<&Placed> = self.placed.iter().filter(|p| p.page == page).collect();
@@ -302,11 +261,7 @@ impl RowPlan {
                 {
                     data.extend(fields.clone());
                 }
-                keep_row_next(
-                    &mut value,
-                    PartShare::of(p.part, p.of),
-                    remaining.get(p.row).map_or(&[][..], Vec::as_slice),
-                );
+                keep_row_next(&mut value, PartShare::of(p.part, p.of));
                 let continues = value
                     .as_object_mut()
                     .and_then(|row| row.shift_remove("rowPart"))
@@ -322,32 +277,6 @@ impl RowPlan {
                 Ok(value)
             })
             .collect()
-    }
-
-    /// The rows with a part on a page after `page`, by query index: unserved
-    /// when no part is on `page` or before, else continued.
-    pub(super) fn later(&self, page: usize) -> Later {
-        let rows = self.queries.len();
-        let (mut started, mut pending) = (vec![false; rows], vec![false; rows]);
-        for placed in &self.placed {
-            if placed.page > page {
-                pending[placed.row] = true;
-            } else {
-                started[placed.row] = true;
-            }
-        }
-        let mut later = Later::default();
-        for (row, query) in self.queries.iter().enumerate() {
-            if !pending[row] {
-                continue;
-            }
-            if started[row] {
-                later.continued.push(*query);
-            } else {
-                later.unserved.push(*query);
-            }
-        }
-        later
     }
 }
 

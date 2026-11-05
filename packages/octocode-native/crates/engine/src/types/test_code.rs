@@ -11,7 +11,8 @@ pub type LineSpans = dyn Fn(&std::path::Path) -> std::sync::Arc<Vec<[u32; 2]>> +
 /// Which side of the test-code line a search keeps, and how it tells: a
 /// file is test code whole by where it lies or by its spans; only a file
 /// that may hold test code has its spans read, once, on its first hit (or
-/// when a files-without view would list it).
+/// when a files-without view would list it). A file left unread is settled by
+/// [`Self::unread_test_path`], one with hits by the fuller [`Self::test_path`].
 #[derive(Clone)]
 pub struct TestCodeScope {
     /// Keep only test code (`true`) or only production code (`false`).
@@ -19,6 +20,11 @@ pub struct TestCodeScope {
     /// Whether a file is test code whole by where it lies (its path, or a
     /// test-only mount), decided without reading it.
     pub test_path: std::sync::Arc<PathTest>,
+    /// Whether a file can be left unread as test code: what [`Self::test_path`]
+    /// shows at the cost a walk can pay for a file with no hits. It may miss a
+    /// file `test_path` finds, which is then read and left out by its hits,
+    /// but never names one `test_path` does not.
+    pub unread_test_path: std::sync::Arc<PathTest>,
     /// Whether a file that is not a test path may still hold test code.
     pub may_hold: std::sync::Arc<PathTest>,
     /// A file's 1-based test-only line spans.

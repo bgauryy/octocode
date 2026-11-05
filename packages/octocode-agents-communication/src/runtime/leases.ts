@@ -38,7 +38,7 @@ class Target {
   }
 
   keyArgs(): SqlValue[] {
-    return [this.key, dumps(ancestors(this.key)), this.kind, this.key + '/', this.key + '0'];
+    return [this.key, dumps(ancestors(this.key)), this.kind, `${this.key}/`, `${this.key}0`];
   }
 }
 
@@ -118,7 +118,7 @@ export function locks(host: StoreHost, session: string, input: LocksInput): Comm
     conditions.push("(l.pathKey=? OR (l.kind='tree' AND l.pathKey IN (SELECT value FROM json_each(?))) OR (?='tree' AND l.pathKey>? AND l.pathKey<?))");
     args.push(...target.keyArgs());
   }
-  const rows = query(host.db, 'SELECT l.*,l.expiresAt>?2 AND s.expiresAt>?2 AS active FROM leases l JOIN sessions s ON s.id=l.owner WHERE ' + conditions.join(' AND ') + ' ORDER BY l.id LIMIT 101', args);
+  const rows = query(host.db, `SELECT l.*,l.expiresAt>?2 AND s.expiresAt>?2 AS active FROM leases l JOIN sessions s ON s.id=l.owner WHERE ${conditions.join(' AND ')} ORDER BY l.id LIMIT 101`, args);
   const items = rows.map(row => ({
     id: rowInteger(row, 'id'), workspace: rowText(row, 'workspace'), path: rowText(row, 'path'), kind: leaseKind(rowText(row, 'kind')), owner: rowText(row, 'owner'),
     acquiredAt: rowInteger(row, 'acquiredAt'), refreshedAt: rowInteger(row, 'refreshedAt'), expiresAt: rowInteger(row, 'expiresAt'), reasoning: rowText(row, 'reasoning'),

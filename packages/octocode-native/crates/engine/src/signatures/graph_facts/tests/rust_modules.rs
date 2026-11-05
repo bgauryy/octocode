@@ -44,6 +44,16 @@ fn rust_cfg_and_path_attributes_survive_comments_and_inner_attributes() {
             .iter()
             .all(|module| module["unsupported"] == true)
     );
+    // Under test the attribute names a file, which stays unknown otherwise.
+    let gated = facts(
+        "#[cfg_attr(all(test, unix), allow(dead_code), path = \"t.rs\")] mod child;\n#[cfg_attr(unix, path = \"u.rs\")] mod other;\n#[cfg_attr(test, path = \"not literal\" )] #[path = \"p.rs\"] mod both;",
+        "src/lib.rs",
+    );
+    let modules = gated["modules"].as_array().unwrap();
+    assert_eq!(modules[0]["testPath"], "t.rs");
+    assert_eq!(modules[0]["unsupported"], true);
+    assert_eq!(modules[1].get("testPath"), None);
+    assert_eq!(modules[2]["path"], "p.rs");
     let local = facts(
         "fn f() { mod hidden { #[path = \"child.rs\"] mod child; } }",
         "src/lib.rs",

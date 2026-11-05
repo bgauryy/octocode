@@ -95,7 +95,7 @@ export async function main(argv = process.argv.slice(2)) {
           'Usage: octocode-chrome-devtools /cli <command> --input <file|-> [--json]'
         );
       const command = spec.commands.find(command => command.name === name);
-      if (!command) throw Error('Unknown command ' + name);
+      if (!command) throw Error(`Unknown command ${name}`);
       const input = JSON.parse(readFileSync(path === '-' ? 0 : path, 'utf8'));
       command.schema!.parse(input);
       argv = [
@@ -103,7 +103,7 @@ export async function main(argv = process.argv.slice(2)) {
         ...command.flags
           .filter(flag => Object.hasOwn(input, flag.property))
           .flatMap(flag => [
-            '--' + flag.name,
+            `--${flag.name}`,
             typeof input[flag.property] === 'object'
               ? JSON.stringify(input[flag.property])
               : String(input[flag.property]),
@@ -113,19 +113,19 @@ export async function main(argv = process.argv.slice(2)) {
     }
     const compact = argv.includes('--json');
     return runCli(
-      { ...spec, name: spec.name + ' /cli' },
+      { ...spec, name: `${spec.name} /cli` },
       argv,
       compact
         ? {
             stdout: text =>
               process.stdout.write(
-                JSON.stringify(
+                `${JSON.stringify(
                   JSON.parse(text, (_key, value, context) =>
                     typeof value === 'number' && context?.source
                       ? JSON.rawJSON(context.source)
                       : value
                   )
-                ) + '\n'
+                )}\n`
               ),
             stderr: text => process.stderr.write(text),
           }

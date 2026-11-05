@@ -233,3 +233,26 @@ fn impact_and_drift_pages_reconstruct_their_rows_exactly_once() {
         );
     }
 }
+
+/// A repeat over an unchanged tree answers from the kept report, byte for byte;
+/// a file the mention scan would read runs the detectors again.
+#[test]
+fn a_repeat_over_a_settled_tree_runs_no_detectors() {
+    let dir = issues_fixture();
+    assert_eq!(
+        ingest_fixture(dir.0.as_path(), None).class,
+        ExitClass::Success
+    );
+    octocode_engine::stamp::settle_written_so_far();
+    let issues = || ask(dir.0.as_path(), "issues", None, |_| {});
+    let first = issues();
+    let before = detector_runs();
+    let again = issues();
+    assert_eq!(detector_runs(), before, "the proof holds");
+    assert_eq!(again.value["rows"], first.value["rows"]);
+    assert_eq!(again.value["summary"], first.value["summary"]);
+    dir.write("app/note.md", "nothing new\n");
+    octocode_engine::stamp::settle_written_so_far();
+    issues();
+    assert_eq!(detector_runs(), before + 1, "a listed file was added");
+}

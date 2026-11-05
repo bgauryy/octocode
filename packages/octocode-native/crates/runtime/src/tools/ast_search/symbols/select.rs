@@ -32,6 +32,7 @@ pub(super) fn select(
         pruned,
         walk_errors,
         test_code_excluded,
+        test_code_unread,
     } = outline;
     files.sort_by(|a, b| a.path.cmp(&b.path));
     let mut projection = crate::response::source_evidence::ProjectionBudget::new(
@@ -108,20 +109,22 @@ pub(super) fn select(
                 .and_then(|row| read_lead(canonical, row))
         })
         .flatten();
-    let snapshot = crate::digest::json_sha256(&json!([
+    // Hashed as it serializes: built into one `Value` first, it would copy every
+    // row of the outline to hash it.
+    let snapshot = crate::digest::json_sha256(&(
         canonical.to_string_lossy(),
-        q.parser,
+        &q.parser,
         ast_search_query_symbols::language_globs(q),
-        q.symbol_filter,
+        &q.symbol_filter,
         ast_search_query_symbols::kinds(q),
         ast_search_query_symbols::exclude(q),
         ast_search_query_symbols::scan_offset(q),
-        q.test_code,
+        &q.test_code,
         &declarations,
         &diagnostics,
         truncated,
-        skipped
-    ]));
+        skipped,
+    ));
     // A name search that may be missing declarations (a recovered parse,
     // skipped files) completes with a text search for the same name.
     // An empty name search leads to the name's text as well.
@@ -145,6 +148,7 @@ pub(super) fn select(
         skipped,
         truncated,
         scan_resume,
+        scan_pin: None,
         recovered,
         // One counted entry per cause and rule, as every local walk states it.
         skipped_paths: skipped::skipped_paths(
@@ -158,6 +162,7 @@ pub(super) fn select(
         kinds_left_out,
         directory: per_row_path,
         test_code_excluded,
+        test_code_unread,
         walk_errors,
     })
 }
@@ -311,6 +316,8 @@ pub(crate) struct SymbolSet {
     pub(super) truncated: bool,
     /// Where a scan cut by the time budget resumes (`scanOffset`).
     pub(super) scan_resume: Option<u32>,
+    /// What the resume pins of the files through the cut.
+    pub(super) scan_pin: Option<String>,
     /// A parser recovered from syntax errors: the declarations are a partial
     /// view of the source, not a complete inventory.
     pub(super) recovered: bool,
@@ -325,6 +332,8 @@ pub(crate) struct SymbolSet {
     pub(super) directory: bool,
     /// What a `testCode` scope left out.
     pub(super) test_code_excluded: octocode_engine::types::TestCodeExcluded,
+    /// The files a `testCode` scope's verdict needed and could not read.
+    pub(super) test_code_unread: Vec<std::path::PathBuf>,
     /// Entries the walk could not read, and how many for want of
     /// permission: absence below them is unproven.
     pub(super) walk_errors: (u32, u32),
@@ -349,12 +358,14 @@ impl SymbolSet {
             skipped: 0,
             truncated: true,
             scan_resume: Some(resume),
+            scan_pin: None,
             recovered: false,
             skipped_paths: None,
             suppressed: None,
             kinds_left_out: None,
             directory: true,
             test_code_excluded: Default::default(),
+            test_code_unread: Vec::new(),
             walk_errors: (0, 0),
         }
     }

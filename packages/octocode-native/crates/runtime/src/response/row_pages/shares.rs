@@ -1,4 +1,3 @@
-use super::super::result::Remaining;
 use crate::response::result::{HINTS_KEY, PAGES_KEY};
 use serde_json::{Map, Value, json};
 
@@ -64,27 +63,15 @@ pub(super) fn row_next_chars(row: &Value, share: PartShare) -> usize {
         .sum()
 }
 
-pub(super) fn keep_row_next(value: &mut Value, share: PartShare, notes: &[Remaining]) {
+pub(super) fn keep_row_next(value: &mut Value, share: PartShare) {
     let retain = |slot: Option<&mut Map<String, Value>>| {
         let Some(slot) = slot else {
             return;
         };
-        let mut moved = Vec::new();
         for key in [PAGES_KEY, HINTS_KEY, "related"] {
-            if !share.keeps(key)
-                && let Some(value) = slot.remove(key)
-                && key == PAGES_KEY
-            {
-                moved.extend(
-                    value
-                        .as_object()
-                        .into_iter()
-                        .flat_map(|map| map.keys().cloned()),
-                );
+            if !share.keeps(key) {
+                slot.remove(key);
             }
-        }
-        if share == PartShare::First {
-            super::super::pages::redisclose(slot, notes, &moved);
         }
     };
     retain(value.get_mut("data").and_then(Value::as_object_mut));

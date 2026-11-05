@@ -16,11 +16,11 @@ function fixture(t: TestContext) {
 test('MCP explicit tool selection reduces discovery and refuses hidden tools', t => {
   const f = fixture(t);
   const session = JSON.parse(f.run(['join', '{"name":"reviewer","vendor":"raw"}']).stdout).id;
-  const frames = [
+  const frames = `${[
     { jsonrpc: '2.0', id: 1, method: 'tools/list' },
     { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'agents', arguments: {type: 'list', input: {}} } },
     { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'leases', arguments: {type: 'acquire', input: { paths: [{path: 'blocked'}], reasoning: 'This tool was not selected' }} } },
-  ].map(frame => JSON.stringify(frame)).join('\n') + '\n';
+  ].map(frame => JSON.stringify(frame)).join('\n')}\n`;
   const run = f.run(['mcp', '--tools', 'messages,agents', '--session', session], frames);
   assert.equal(run.status, 0, run.stderr);
   const rows = run.stdout.trim().split('\n').map((line): JsonRecord => JSON.parse(line));

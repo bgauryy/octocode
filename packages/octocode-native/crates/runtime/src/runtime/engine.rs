@@ -108,8 +108,6 @@ pub struct ToolRuntime {
     graph_rows: Arc<crate::tools::ast_graph::store::SavedRows>,
     /// The sandbox workspace root (configured workspaceRoot, else host cwd).
     workspace_root: PathBuf,
-    /// The built-in classification provider.
-    classification: &'static dyn crate::providers::classification::ClassificationProvider,
 }
 
 /// Who makes one call. Both read the same JSON envelope; they differ in

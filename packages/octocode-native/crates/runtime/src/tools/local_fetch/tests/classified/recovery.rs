@@ -92,7 +92,7 @@ fn unknown_and_whole_selection_recovery_reject_source_drift() {
     );
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let mut runtime = selection_runtime(executor.handle().clone());
-    runtime.limits.max_candidates = 1;
+    runtime.limits.max_chars = 1;
     let first = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, Some(&runtime));
     let receipt = first.selection.expect("selection receipt");
     assert_eq!((receipt.selected_items, receipt.unknown_items), (1, 2));

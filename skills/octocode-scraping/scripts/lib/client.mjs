@@ -259,7 +259,7 @@ const realPath = (path) => { try { return realpathSync(path); } catch { return r
 
 const runFailure = (run) => run.error?.message || (run.stderr.match(/\[STEALTH_GATE\][^\n]*/)?.[0]) || run.stderr || 'CDP runner failed';
 const noResultError = (stderr) => (/ERR_ACCESS_DENIED|Access to this API has been restricted/.test(stderr || '')
-  ? 'CDP sandbox ERR_ACCESS_DENIED — the sandbox Permission Model blocked a path. workspace=' + process.cwd() + '. Check the installed Chrome package sandbox read grants.'
+  ? `CDP sandbox ERR_ACCESS_DENIED — the sandbox Permission Model blocked a path. workspace=${process.cwd()}. Check the installed Chrome package sandbox read grants.`
   : (stderr || 'no result from CDP sandbox run').slice(0, 500));
 
 // The page body the run wrote, accepted only from the sandbox tree under the expected name.

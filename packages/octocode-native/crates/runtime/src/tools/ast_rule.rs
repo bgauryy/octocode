@@ -279,7 +279,7 @@ pub(crate) fn present_grammars(
     max_files: usize,
     globs: crate::tools::empty_walk::Globs<'_>,
     parsers: &GlobParsers,
-    permits: &dyn Fn(&std::path::Path) -> bool,
+    permits: &dyn Fn(&std::path::Path, Option<std::fs::FileType>) -> bool,
     stop: &octocode_engine::search::walk::Stop<'_>,
 ) -> Result<Vec<(String, BTreeSet<String>)>, octocode_engine::error::Error> {
     #[cfg(test)]
@@ -291,22 +291,40 @@ pub(crate) fn present_grammars(
             return Err(octocode_engine::error::Error::cancelled());
         }
         let Ok(entry) = entry else { continue };
-        if !entry.file_type().is_some_and(|kind| kind.is_file()) || !permits(entry.path()) {
+        // A directory's verdict prunes nothing here; asking it lets a discovery
+        // walk decide what lies in it from its real path.
+        if entry.file_type().is_some_and(|kind| kind.is_dir()) {
+            permits(entry.path(), entry.file_type());
+            continue;
+        }
+        if !entry.file_type().is_some_and(|kind| kind.is_file())
+            || !permits(entry.path(), entry.file_type())
+        {
             continue;
         }
         files += 1;
         if files > max_files {
             break;
         }
-        let extension = parsers.extension(entry.path()).map_or_else(
-            || octocode_engine::text::extension_of(&entry.path().to_string_lossy(), true, ""),
-            str::to_owned,
-        );
-        if !extension.is_empty() {
-            *seen.entry(extension).or_default() += 1;
-        }
+        count_present(&mut seen, entry.path(), parsers);
     }
     Ok(rank_grammars(seen))
+}
+
+/// Count the file `path` in a grammar census (`extension → files`), by the
+/// grammar `parsers` names for it, else its own extension.
+pub(crate) fn count_present(
+    seen: &mut BTreeMap<String, usize>,
+    path: &std::path::Path,
+    parsers: &GlobParsers,
+) {
+    let extension = parsers.extension(path).map_or_else(
+        || octocode_engine::text::extension_of(&path.to_string_lossy(), true, ""),
+        str::to_owned,
+    );
+    if !extension.is_empty() {
+        *seen.entry(extension).or_default() += 1;
+    }
 }
 
 /// The grammars of a file census (`extension → files`), each with its full

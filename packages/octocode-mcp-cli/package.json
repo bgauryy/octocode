@@ -37,9 +37,10 @@
     "clean": "rm -rf dist/ coverage/",
     "lint:oxlint": "yarn run -T oxlint -c ../../.oxlintrc.json .",
     "lint": "yarn lint:oxlint",
-    "test": "vitest run --coverage",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "yarn run -T tsgo --noEmit -p tsconfig.json",
-    "verify:own": "yarn typecheck && yarn test && yarn build",
+    "verify:own": "yarn typecheck && yarn test:coverage && yarn build",
     "verify": "yarn verify:own && yarn lint:oxlint"
   },
   "dependencies": {

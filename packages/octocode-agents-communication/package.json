@@ -25,7 +25,8 @@
     "lint": "yarn lint:own && yarn lint:oxlint",
     "test": "node src/emit-catalog.ts --check && yarn build && node --test --test-concurrency=4 tests/*.test.ts",
     "test:nightly": "yarn build && node --test tests/nightly/*.test.ts",
-    "verify:own": "yarn lint:own && yarn typecheck && yarn test && node src/release-smoke.ts",
+    "test:package": "yarn build && node --test tests/package/*.test.ts",
+    "verify:own": "yarn lint:own && yarn typecheck && yarn test && yarn test:package && node src/release-smoke.ts",
     "verify": "yarn verify:own && yarn lint:oxlint",
     "prepack": "yarn build"
   },

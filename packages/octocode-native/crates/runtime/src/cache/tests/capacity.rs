@@ -223,3 +223,116 @@ fn immediately_expired_work_is_never_confirmed_in_either_storage_mode() {
         }
     }
 }
+
+/// A repeat holds a link already counted: it restarts the link's lifetime and
+/// leaves the capacity file as it was, so a call that retains many bodies again
+/// rewrites nothing.
+#[test]
+fn linking_again_rewrites_no_capacity() {
+    use std::os::unix::fs::MetadataExt as _;
+    let (answers, retained) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let config = CacheConfig { disk_bytes: 1024 };
+    let source = Store::<String>::new(config.clone(), Some(answers.path().into()));
+    let store = Store::<String>::new(config, Some(retained.path().into()));
+    let body = key("body", "scope");
+    source.put_confirmed(body.clone(), "value".into(), 5, CacheClass::Immutable);
+    let disk = Disk::new(answers.path().into());
+    assert!(store.link(&disk, &body));
+    let capacity = retained.path().join(".capacity");
+    let before = fs::metadata(&capacity).unwrap().ino();
+    assert!(store.link(&disk, &body));
+    assert_eq!(fs::metadata(&capacity).unwrap().ino(), before);
+    assert!(store.read_link(&body).is_some());
+}
+
+/// A link gone since (its idle drop, an eviction) is linked and counted anew.
+#[test]
+fn a_link_gone_is_linked_again() {
+    use crate::cache::disk::LINK_EXTENSION;
+    let (answers, retained) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let config = CacheConfig { disk_bytes: 1024 };
+    let source = Store::<String>::new(config.clone(), Some(answers.path().into()));
+    let store = Store::<String>::new(config, Some(retained.path().into()));
+    let body = key("body", "scope");
+    source.put_confirmed(body.clone(), "value".into(), 5, CacheClass::Immutable);
+    let disk = Disk::new(answers.path().into());
+    assert!(store.link(&disk, &body));
+    for entry in fs::read_dir(retained.path()).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|ext| ext.to_str()) == Some(LINK_EXTENSION) {
+            fs::remove_file(path).unwrap();
+        }
+    }
+    assert_eq!(store.read_link(&body), None);
+    assert!(store.link(&disk, &body));
+    assert!(store.read_link(&body).is_some());
+}
+
+/// A backlog of expired entries costs each write a bounded share of it, and the
+/// next writes finish it, however far the last scan was; none is ever served.
+#[test]
+fn a_write_clears_a_bounded_share_of_expired_entries_and_none_is_served() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    let backlog = 3 * crate::cache::disk::EXPIRED_PER_SCAN;
+    for index in 0..backlog {
+        store.put_confirmed(
+            key(&format!("old{index}"), "x"),
+            "v".into(),
+            1,
+            volatile(60),
+        );
+    }
+    age_disk_entries(dir.path(), 120);
+    let reader = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    // A scan is due: the one that wrote them is this minute's.
+    fs::remove_file(dir.path().join(".capacity")).unwrap();
+    store.put_confirmed(key("new0", "x"), "v".into(), 1, volatile(600));
+    let left = entry_files(dir.path()).len();
+    assert_eq!(
+        left,
+        backlog + 1 - crate::cache::disk::EXPIRED_PER_SCAN,
+        "one write removes one share"
+    );
+    assert!(
+        reader.get(&key("new0", "x")).is_some(),
+        "the entry written stays"
+    );
+    let mut writes = 0;
+    while entry_files(dir.path()).len() > writes + 1 {
+        writes += 1;
+        assert!(writes <= backlog, "the backlog must drain");
+        store.put_confirmed(
+            key(&format!("new{writes}"), "x"),
+            "v".into(),
+            1,
+            volatile(600),
+        );
+    }
+    assert!(writes < backlog, "the writes after it finish the backlog");
+    let live = (0..=writes).filter(|at| reader.get(&key(&format!("new{at}"), "x")).is_some());
+    assert_eq!(live.count(), writes + 1, "no live entry is lost");
+    assert_eq!(entry_files(dir.path()).len(), writes + 1);
+}
+
+/// An expired entry the sweep has not reached yet is never an answer.
+#[test]
+fn an_expired_entry_left_by_the_bound_is_never_served() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    let backlog = 2 * crate::cache::disk::EXPIRED_PER_SCAN;
+    for index in 0..backlog {
+        store.put_confirmed(
+            key(&format!("old{index}"), "x"),
+            "v".into(),
+            1,
+            volatile(60),
+        );
+    }
+    age_disk_entries(dir.path(), 120);
+    fs::remove_file(dir.path().join(".capacity")).unwrap();
+    store.put_confirmed(key("new", "x"), "v".into(), 1, volatile(600));
+    for index in 0..backlog {
+        assert!(store.get(&key(&format!("old{index}"), "x")).is_none());
+    }
+}

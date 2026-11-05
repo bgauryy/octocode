@@ -276,7 +276,6 @@ pub(super) fn shape_pr_files(
             first_unsearched,
             match_dropped,
             clipped: Vec::new(),
-            unfinished_patches: 0,
         };
     }
     // A patch read that does not fit one response lists its page's files
@@ -332,7 +331,6 @@ pub(super) fn shape_pr_files(
         first_unsearched,
         match_dropped,
         clipped: patches.clipped,
-        unfinished_patches: patches.unfinished.len(),
     }
 }
 

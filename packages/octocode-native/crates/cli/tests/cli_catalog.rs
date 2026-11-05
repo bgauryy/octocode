@@ -2,7 +2,8 @@ use crate::support;
 
 use support::Workspace;
 
-/// CLI schemas expose every tool without resolving provider prerequisites.
+/// CLI schemas follow no MCP filter and never ask the provider: only the
+/// classification key decides clasify, and its view names the key to set.
 #[tokio::test]
 async fn schema_availability_is_independent_of_invocation_prerequisites() {
     let server = wiremock::MockServer::start().await;
@@ -32,13 +33,7 @@ async fn schema_availability_is_independent_of_invocation_prerequisites() {
                 serde_json::from_slice(&output.stdout).expect("schema JSON");
             view["availability"].clone()
         };
-        for tool in [
-            "clasify",
-            "localFetch",
-            "graphBuild",
-            "graphQuery",
-            "ghCloneRepo",
-        ] {
+        for tool in ["localFetch", "graphBuild", "graphQuery", "ghCloneRepo"] {
             let available = availability(tool).await;
             assert_eq!(available["enabled"], true, "{tool}: {available}");
             assert!(available.get("envVar").is_none(), "{tool}: {available}");
@@ -47,6 +42,13 @@ async fn schema_availability_is_independent_of_invocation_prerequisites() {
                 "{tool}: {available}"
             );
         }
+        let clasify = availability("clasify").await;
+        assert_eq!(clasify["enabled"], key, "{clasify}");
+        assert_eq!(
+            clasify["envVar"].as_str(),
+            (!key).then_some("OCTOCODE_CLASSIFICATION_API"),
+            "{clasify}"
+        );
     }
     assert!(
         server.received_requests().await.unwrap().is_empty(),

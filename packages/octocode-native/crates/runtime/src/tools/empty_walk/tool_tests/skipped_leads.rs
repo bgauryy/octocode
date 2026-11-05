@@ -2,9 +2,17 @@
 //! nothing behind the skipped paths leads nowhere.
 
 use super::*;
+use crate::tools::empty_walk::with_probe_budget;
+
+/// These judge what a finished probe found; `scope.rs` covers one that ran out.
+const FINISHES: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[test]
 fn a_match_behind_a_skipped_path_is_named_and_its_lead_lifts_only_that() {
+    with_probe_budget(FINISHES, a_match_is_named_on_every_scenario);
+}
+
+fn a_match_is_named_on_every_scenario() {
     for tool in tools() {
         for scenario in SCENARIOS {
             let label = describe(&tool, scenario);
@@ -61,17 +69,19 @@ fn a_match_behind_a_skipped_path_is_named_and_its_lead_lifts_only_that() {
 
 #[test]
 fn nothing_behind_the_skipped_paths_leads_nowhere() {
-    for tool in tools() {
-        for scenario in SCENARIOS {
-            let label = describe(&tool, scenario);
-            let root = repo(scenario, "other.md", "nothing to find\n");
-            let query = (tool.query)(&root.0);
-            let out = (tool.run)(&root.0, &query);
-            assert!(!(tool.found)(&out), "{label}: {out}");
-            assert!(
-                skipped_query(&out).is_none(),
-                "{label}: unneeded skipped-scope search: {out}"
-            );
+    with_probe_budget(FINISHES, || {
+        for tool in tools() {
+            for scenario in SCENARIOS {
+                let label = describe(&tool, scenario);
+                let root = repo(scenario, "other.md", "nothing to find\n");
+                let query = (tool.query)(&root.0);
+                let out = (tool.run)(&root.0, &query);
+                assert!(!(tool.found)(&out), "{label}: {out}");
+                assert!(
+                    skipped_query(&out).is_none(),
+                    "{label}: unneeded skipped-scope search: {out}"
+                );
+            }
         }
-    }
+    });
 }

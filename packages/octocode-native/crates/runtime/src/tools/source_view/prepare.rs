@@ -162,6 +162,28 @@ pub(crate) fn prepared<'a>(
     Ok(Prepared::of(bytes, interior, security))
 }
 
+/// Largest source a window may be streamed from.
+pub(crate) const MAX_STREAM_SOURCE_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// Whether every read of the source at `path` is known to be refused, whatever it
+/// selects: past the streaming ceiling, or UTF-16 past the whole-file ceiling (it
+/// needs a whole-file decode).
+pub(crate) fn every_read_refused(path: &std::path::Path) -> bool {
+    let Ok(meta) = std::fs::metadata(path) else {
+        return false;
+    };
+    if meta.len() > MAX_STREAM_SOURCE_BYTES {
+        return true;
+    }
+    if meta.len() <= octocode_engine::security::MAX_CONTENT_SIZE as u64 {
+        return false;
+    }
+    let mut head = [0_u8; 2];
+    std::fs::File::open(path)
+        .and_then(|mut file| std::io::Read::read_exact(&mut file, &mut head))
+        .is_ok_and(|()| octocode_engine::text::has_utf16_bom(&head))
+}
+
 /// Why `q` selects nothing from `keyed` whatever the secret scan changes: a
 /// pattern that does not compile, or ranges that all start past the end (the
 /// scan keeps the line count). The error is the one extraction gives.
@@ -225,11 +247,12 @@ pub(super) fn prepare_source<'a>(
     let prepared = prepared(bytes, facts.interior, security, cancel).map_err(cancelled)?;
     let key_blocks_redacted = prepared.key_blocks_redacted;
     let scan_refused = |(code, message)| {
-        Box::new(LocalFetchResult::error(
-            local_fetch_query::path(q).to_owned(),
-            code,
-            message,
-        ))
+        let mut result =
+            LocalFetchResult::error(local_fetch_query::path(q).to_owned(), code, message);
+        if code == ErrorCode::ContentSecurityLimit {
+            result.terminal_limit(PartialReason::SecuritySelectedView);
+        }
+        Box::new(result)
     };
     let selects = local_fetch_query::has_matches(q) || local_fetch_query::has_ranges(q);
     if selects && let Some(error) = refusal_before_scan(q, &prepared.keyed) {
@@ -253,9 +276,7 @@ pub(super) fn prepare_source<'a>(
     // range cannot detach a secret value from its identifying source context.
     // Both security passes preserve source line counts. A whole read scans
     // page by page, unless a page cannot show what makes a value secret.
-    let across_lines =
-        octocode_engine::security::WholeSourcePatterns::for_path(&source_path.to_string_lossy())
-            .is_some_and(|patterns| patterns.named_by(&prepared.keyed));
+    let across_lines = crate::security::scan::only_whole_judges(&prepared.keyed, source_path);
     let mut redacted = prepared.key_block_lines;
     let (text, match_redacted) = if selects || across_lines {
         let (text, changed) = security

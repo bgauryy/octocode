@@ -178,12 +178,12 @@ export function shareDocument(host: StoreHost, session: string, value: ShareDocu
   let record = readTransaction(host.db, () => {
     host.known(session, true);
     const found = documentRecord(host, name);
-    if (found === null && supersedes !== undefined && documentRecord(host, supersedes) === null) throw new ValidationError('supersedes must name a published document: ' + supersedes);
+    if (found === null && supersedes !== undefined && documentRecord(host, supersedes) === null) throw new ValidationError(`supersedes must name a published document: ${supersedes}`);
     return found;
   });
   if (record !== null) return sameDocument(record, documentPath(host, record), content, metadata, reasoning, supersedes);
   if (lexists(path)) throw new ValidationError('Unregistered document already exists; preserve it and publish a new name');
-  const temp = join(folder, '.document-' + randomBytes(6).toString('hex'));
+  const temp = join(folder, `.document-${randomBytes(6).toString('hex')}`);
   const descriptor = openSync(temp, 'wx', 0o600);
   try {
     try {
@@ -202,7 +202,7 @@ export function shareDocument(host: StoreHost, session: string, value: ShareDocu
         // Same-directory link publication never exposes a partial file or overwrites.
         linkSync(temp, path);
         linked = true;
-        const created: DocumentData = { name, path: host.coordinationScope !== host.workspace ? path : '.octocode/communication/' + name, author: session, reasoning, bytes: data.length, sha256: sha256(data) };
+        const created: DocumentData = { name, path: host.coordinationScope !== host.workspace ? path : `.octocode/communication/${name}`, author: session, reasoning, bytes: data.length, sha256: sha256(data) };
         if (supersedes !== undefined) created.supersedes = supersedes;
         if (metadata !== null) {
           created.context = { ...metadata, expiresAt: now() + metadata.ttlMs };
@@ -298,7 +298,7 @@ export function readDocument(host: StoreHost, session: string, value: ReadDocume
   const name = documentName(value);
   const record = documentRecord(host, name);
   if (record === null) {
-    const candidates = query(host.db, 'SELECT name FROM documents WHERE workspace IN (SELECT value FROM json_each(?)) AND name>=? AND name<? ORDER BY name LIMIT 5', [dumps(host.sharedWorkspaces()), name + '.', name + '/']);
+    const candidates = query(host.db, 'SELECT name FROM documents WHERE workspace IN (SELECT value FROM json_each(?)) AND name>=? AND name<? ORDER BY name LIMIT 5', [dumps(host.sharedWorkspaces()), `${name}.`, `${name}/`]);
     throw new ValidationError(`Unknown document '${name}' in this repository. Use the exact published document.name, including its extension. Matching names (up to 5): ${compact(candidates.map(row => rowText(row, 'name')))}. Read the document successfully before using its contents.`);
   }
   const offset = value.offset ?? 0;

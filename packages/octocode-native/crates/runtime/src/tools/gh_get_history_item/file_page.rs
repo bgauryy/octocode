@@ -7,12 +7,10 @@ use super::axis::Axis;
 use super::filter::{FileScope, FilteredPage};
 use super::patch_hop::DiffCursors;
 use super::pr_menu::{ChangeSides, change_reads, without_match_string};
-use super::remaining::Remainder;
 use super::util::str_at;
 use crate::response::pages::SpanFacts;
 use crate::response::paging::push_warnings;
 use crate::response::result::Continuation;
-use crate::response::result::Remaining;
 use crate::response::result::wire_query;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_shared::ensure_calls;
@@ -138,16 +136,6 @@ pub(super) fn shape_file_page(
         side_reads,
         without_match,
     }
-}
-
-/// The note of the next changed-file page of a commit or comparison, from
-/// its file page's facts ([`Remainder`]).
-pub(super) fn file_page_note(out: &Value) -> Vec<Remaining> {
-    out.pointer("/contentPagination/files/next/nextPage")
-        .and(out.pointer("/contentPagination/files"))
-        .and_then(|page| Remainder::default().note(Axis::Files, page))
-        .into_iter()
-        .collect()
 }
 
 /// The rows of a filtered file page and their complete patch-stream facts:

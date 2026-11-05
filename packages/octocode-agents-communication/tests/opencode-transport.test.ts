@@ -69,7 +69,7 @@ test('opencode: busy defers, a mismatched receipt or workspace is refused, crede
   await authed.prepare();
   const lastCall = busy.calls.at(-1);
   assert.ok(lastCall);
-  assert.equal(lastCall.authorization, 'Basic ' + Buffer.from('opencode:secret').toString('base64'));
+  assert.equal(lastCall.authorization, `Basic ${Buffer.from('opencode:secret').toString('base64')}`);
   for (const delivery of [first, second, third, authed]) delivery.close();
 });
 

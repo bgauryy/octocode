@@ -10,6 +10,7 @@ import type { TestContext } from 'node:test';
 import type { JsonRecord } from './json-record.ts';
 import { promisify } from 'node:util';
 import assert from 'node:assert/strict';
+import { callInProcess, runsInProcess } from './cli-in-process.ts';
 
 // Every runtime these tests start inherits a private Octocode home: a session on a test database registers itself under
 // the home (docs/DB.md#active-database-registry), and a real home must not see temporary databases.
@@ -71,11 +72,20 @@ export function withFileInput<Options extends { input?: string | NodeJS.ArrayBuf
   }
 }
 
+const inputText = (input: string | NodeJS.ArrayBufferView | undefined): string | undefined =>
+  input === undefined || typeof input === 'string' ? input : Buffer.from(input.buffer, input.byteOffset, input.byteLength).toString('utf8');
+const outputAs = (text: string, encoding: BufferEncoding | 'buffer' | null | undefined): string | NonSharedBuffer =>
+  encoding && encoding !== 'buffer' ? text : Buffer.from(text);
 export function execFileSync(executable: string, args?: readonly string[]): NonSharedBuffer;
 export function execFileSync(executable: string, args: readonly string[] | undefined, options: childProcess.ExecFileSyncOptionsWithStringEncoding): string;
 export function execFileSync(executable: string, args: readonly string[] | undefined, options: childProcess.ExecFileSyncOptionsWithBufferEncoding): NonSharedBuffer;
 export function execFileSync(executable: string, args: readonly string[] | undefined, options?: childProcess.ExecFileSyncOptions): string | NonSharedBuffer;
 export function execFileSync(executable: string, args: readonly string[] = [], options?: childProcess.ExecFileSyncOptions): string | NonSharedBuffer {
+  if (executable === binary && runsInProcess(args, options)) {
+    const call = callInProcess({ root, entry: binary, args, env: options?.env ?? process.env, input: inputText(options?.input) });
+    if (call.status !== 0) throw Object.assign(new Error(`Command failed: ${binary} ${args.join(' ')}\n${call.stderr}`), { status: call.status, signal: null, stdout: outputAs(call.stdout, options?.encoding), stderr: outputAs(call.stderr, options?.encoding) });
+    return outputAs(call.stdout, options?.encoding);
+  }
   const invocation = invocationFor(executable, args);
   return withFileInput(options, resolved => childProcess.execFileSync(invocation.command, invocation.args, resolved));
 }
@@ -84,6 +94,11 @@ export function spawnSync(executable: string, args: readonly string[] | undefine
 export function spawnSync(executable: string, args: readonly string[] | undefined, options: childProcess.SpawnSyncOptionsWithBufferEncoding): childProcess.SpawnSyncReturns<NonSharedBuffer>;
 export function spawnSync(executable: string, args: readonly string[] | undefined, options?: childProcess.SpawnSyncOptions): childProcess.SpawnSyncReturns<string | NonSharedBuffer>;
 export function spawnSync(executable: string, args: readonly string[] = [], options?: childProcess.SpawnSyncOptions): childProcess.SpawnSyncReturns<string | NonSharedBuffer> {
+  if (executable === binary && runsInProcess(args, options)) {
+    const call = callInProcess({ root, entry: binary, args, env: options?.env ?? process.env, input: inputText(options?.input) });
+    const [stdout, stderr] = [outputAs(call.stdout, options?.encoding), outputAs(call.stderr, options?.encoding)];
+    return { pid: 0, status: call.status, signal: null, stdout, stderr, output: [null, stdout, stderr] };
+  }
   const invocation = invocationFor(executable, args);
   return withFileInput(options, resolved => childProcess.spawnSync(invocation.command, invocation.args, resolved));
 }

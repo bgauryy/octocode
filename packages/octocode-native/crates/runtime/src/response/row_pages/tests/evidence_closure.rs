@@ -154,14 +154,14 @@ fn hundred_unit_graph_fragments_fit_and_preserve_all_evidence_lazily() {
     assert!(plan.total_pages > 1);
     assert_eq!(MATERIALIZED.with(std::cell::Cell::get), 0);
     let late = plan
-        .build_page(plan.total_pages - 1, &[None], &[], &Cancellation::new())
+        .build_page(plan.total_pages - 1, &[None], &Cancellation::new())
         .unwrap();
     assert!(!late.is_empty());
     assert_eq!(MATERIALIZED.with(std::cell::Cell::get), late.len());
     let mut seen = Vec::new();
     for page in 0..plan.total_pages {
         let rows = plan
-            .build_page(page, &[None], &[], &Cancellation::new())
+            .build_page(page, &[None], &Cancellation::new())
             .unwrap();
         assert!(
             chars(&json!(rows)) <= 12_000,
@@ -199,7 +199,7 @@ fn shared_descriptor_union_is_charged_once_when_packing_fragments() {
     let mut seen = Vec::new();
     for page in 0..plan.total_pages {
         let rows = plan
-            .build_page(page, &[None], &[], &Cancellation::new())
+            .build_page(page, &[None], &Cancellation::new())
             .unwrap();
         assert!(chars(&json!(rows)) <= budget);
         let mut count = 0;
@@ -268,7 +268,7 @@ fn recursive_joined_neighbors_keep_their_own_closures_before_and_after() {
         let mut seen = Vec::new();
         for page in 0..plan.total_pages {
             let rows = plan
-                .build_page(page, &[None], &[], &Cancellation::new())
+                .build_page(page, &[None], &Cancellation::new())
                 .unwrap();
             assert!(chars(&json!(rows)) <= budget);
             for row in rows {
@@ -315,7 +315,7 @@ fn escaped_keyed_records_preserve_each_origin_and_only_its_descriptor_closure() 
     let mut seen = BTreeMap::<String, Vec<Value>>::new();
     for page in 0..plan.total_pages {
         let rows = plan
-            .build_page(page, &[None], &[], &Cancellation::new())
+            .build_page(page, &[None], &Cancellation::new())
             .unwrap();
         assert!(chars(&json!(rows)) <= 12_000);
         for row in rows {
@@ -351,7 +351,6 @@ fn indivisible_origin_is_complete_and_explicitly_oversized_at_tiny_budget() {
             .clone(),
         &options,
         Vec::new(),
-        &[],
         ToolId::GraphQuery,
     );
     assert_eq!(pagination.total_pages, 1);
@@ -378,7 +377,7 @@ fn artifact_engine_names_are_metadata_without_a_source_catalog() {
     let mut seen = BTreeMap::new();
     for page in 0..plan.total_pages {
         for row in plan
-            .build_page(page, &[None], &[], &Cancellation::new())
+            .build_page(page, &[None], &Cancellation::new())
             .unwrap()
         {
             assert_row_contract(ToolId::ArtifactSearch, &row["data"]);

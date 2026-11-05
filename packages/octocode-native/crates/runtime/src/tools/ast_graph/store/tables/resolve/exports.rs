@@ -211,6 +211,9 @@ pub(crate) struct FileBindings<'a> {
     pub(crate) modules: HashMap<&'a str, Vec<&'a str>>,
     /// Heads bound to third-party or standard packages.
     pub(crate) external: HashSet<String>,
+    /// Names bound by an import that did not link and is no proven package:
+    /// what they call is unknown, not absent.
+    pub(crate) unknown: HashSet<&'a str>,
     /// Files this file imports (scope for ambiguous names).
     pub(crate) imported_files: HashSet<&'a str>,
     /// Rust and Java static glob imports bind names directly, unlike JS
@@ -241,6 +244,7 @@ impl<'a> FileBindings<'a> {
             modules: HashMap::new(),
             wildcards: Vec::new(),
             unknown_wildcard: false,
+            unknown: HashSet::new(),
             star_public_only: language == "python",
             strict_names: HashSet::new(),
             commonjs_locals: HashSet::new(),
@@ -330,6 +334,15 @@ impl<'a> FileBindings<'a> {
                         .external
                         .extend(package_name(&import.specifier, language));
                 }
+                None if links_imports(language) => {
+                    bindings.unknown.extend(module_binding);
+                    if let Some(local) = import.local_name.as_deref().filter(|l| !l.is_empty()) {
+                        bindings.unknown.insert(local);
+                    }
+                    if !import.imported_name.is_empty() && import.imported_name != "*" {
+                        bindings.unknown.insert(import.imported_name.as_str());
+                    }
+                }
                 None => {}
             }
         }
@@ -365,9 +378,18 @@ impl<'a> FileBindings<'a> {
                         .external
                         .extend(package_name(&import.specifier, language));
                 }
+                None if links_imports(language) => {
+                    bindings.unknown.insert(local);
+                }
                 None => {}
             }
         }
         bindings
     }
+}
+
+/// Whether the graph links `language`'s imports to files, so an unlinked one is
+/// a gap; Scala and C# imports are not linked at all.
+fn links_imports(language: &str) -> bool {
+    matches!(ecosystem(language), "npm" | "pypi" | "cargo" | "go") || language == "java"
 }

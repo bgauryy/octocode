@@ -13,7 +13,7 @@ fn pull_request_patch_hops_continue_the_page_stream() {
         assert!(calls < 100, "cursor did not advance");
         let mut row = json!({});
         let mut pagination = Map::new();
-        let shaped = shape_pr_files(
+        let _ = shape_pr_files(
             &mut row,
             &mut pagination,
             files.clone(),
@@ -33,7 +33,6 @@ fn pull_request_patch_hops_continue_the_page_stream() {
             break;
         };
         assert!(patches.get("files").is_none(), "{patches}");
-        assert!(shaped.unfinished_patches > 0, "{patches}");
         let next = patches["nextOffset"].as_u64().unwrap_or(0) as usize;
         assert!(next > offset, "{patches}");
         offset = next;
@@ -52,7 +51,7 @@ fn patch_pagination_counts_unfinished_files_and_continues_the_same_page() {
         json!({"filename":"next.rs","status":"modified","patch":"x"}),
         json!({"filename":"b.rs","status":"modified","patch":"abcdef"}),
     ];
-    let shaped = shape_pr_files(
+    let _ = shape_pr_files(
         &mut row,
         &mut pagination,
         files,
@@ -61,7 +60,6 @@ fn patch_pagination_counts_unfinished_files_and_continues_the_same_page() {
         true,
         None,
     );
-    assert_eq!(shaped.unfinished_patches, 3, "{pagination:?}");
     // The page's patch stream: the window and where it continues.
     assert_eq!(
         pagination["patches"],
@@ -75,7 +73,7 @@ fn patch_pagination_counts_unfinished_files_and_continues_the_same_page() {
     let mut out = json!({"pullRequests":[{"contentPagination":{
         "patches": pagination["patches"].clone()
     }}]});
-    promote_pr_continuations(&mut out, &request, &Remainder::default());
+    promote_pr_continuations(&mut out, &request);
     let next = &out["pullRequests"][0]["contentPagination"]["patches"]["next"]["nextPage"]["input"]
         ["queries"][0];
     assert_eq!(next["sections"], json!(["patches"]), "{out}");

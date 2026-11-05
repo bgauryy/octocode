@@ -136,6 +136,18 @@ impl ConfigReader<'_> {
                 .base_url
                 .as_deref()
                 .and_then(|base| relative_to_root(self.root, base)),
+            outer_base: raw
+                .base_url
+                .as_deref()
+                .filter(|base| relative_to_root(self.root, base).is_none())
+                .map(|base| OuterBase {
+                    dir: base.to_path_buf(),
+                    root_below: self
+                        .root
+                        .strip_prefix(base)
+                        .ok()
+                        .map(|below| normalize(&below.to_string_lossy())),
+                }),
             patterns: Vec::new(),
         };
         if let Some((entries, declared_in)) = &raw.paths {
@@ -148,17 +160,27 @@ impl ConfigReader<'_> {
                     Some((prefix, suffix)) => (prefix.to_owned(), suffix.to_owned(), true),
                     None => (pattern.clone(), String::new(), false),
                 };
-                let targets = targets
+                let (inside, outside): (Vec<_>, Vec<_>) = targets
                     .iter()
                     .filter(|target| target.matches('*').count() <= 1)
-                    .filter_map(|target| relative_to_root(self.root, &lexical(&base.join(target))))
-                    .collect::<Vec<_>>();
-                if !targets.is_empty() {
+                    .map(|target| {
+                        relative_to_root(self.root, &lexical(&base.join(target))).ok_or(target)
+                    })
+                    .partition(Result::is_ok);
+                // A target above the scan is project code the scan cannot
+                // link; one in a hoisted `node_modules` is a dependency.
+                let outside_root = outside
+                    .into_iter()
+                    .filter_map(Result::err)
+                    .any(|target| !target.split('/').any(|part| part == "node_modules"));
+                let targets = inside.into_iter().flatten().collect::<Vec<_>>();
+                if !targets.is_empty() || outside_root {
                     compiled.patterns.push(PathPattern {
                         prefix,
                         suffix,
                         wildcard,
                         targets,
+                        outside_root,
                     });
                 }
             }
@@ -171,7 +193,10 @@ impl ConfigReader<'_> {
             return TsPaths::default();
         };
         let mut compiled = self.compile(&raw);
-        if compiled.patterns.is_empty() && compiled.base_url.is_none() {
+        if compiled.patterns.is_empty()
+            && compiled.base_url.is_none()
+            && compiled.outer_base.is_none()
+        {
             // Solution-style config (`files: []` + references, e.g. Vite's
             // tsconfig.json → tsconfig.app.json): adopt the referenced
             // projects' aliases.
@@ -181,6 +206,9 @@ impl ConfigReader<'_> {
                     compiled.patterns.extend(referenced.patterns);
                     if compiled.base_url.is_none() {
                         compiled.base_url = referenced.base_url;
+                    }
+                    if compiled.outer_base.is_none() {
+                        compiled.outer_base = referenced.outer_base;
                     }
                 }
             }

@@ -123,12 +123,28 @@ fn run_symbols(
     let started = octocode_engine::stamp::settle_clock();
     let walk = walk_directory(q, &p.canonical, (paths, scoped.as_ref()), cancel)?;
     let continuation = Continuation::of(q, paths, &p.canonical, &walk, started);
+    // A window past the first: the files before it are the ones the windows
+    // before it outlined, or its `scanOffset` counts other files.
+    let before = continuation.listed_before(q);
+    if ast_search_query_symbols::page(q) <= 1
+        && before.is_some()
+        && ast_search_query_symbols::snapshot(q).is_some_and(|pin| Some(pin) != before.as_deref())
+    {
+        return Ok(crate::response::result::stale_snapshot(
+            crate::response::result::restart_query(
+                crate::id::ToolId::AstSearch,
+                &crate::response::result::query_row(q, &[]),
+            ),
+        ));
+    }
     let stored = continuation.stored(q);
     let set = match &stored {
         Some(set) => Arc::clone(set),
         None => {
             let outline = outline_walked(q, &p.canonical, (walk, scoped.as_ref()), cancel)?;
-            Arc::new(select(q, &p.canonical, outline, row_paths, cancel)?)
+            let mut set = select(q, &p.canonical, outline, row_paths, cancel)?;
+            continuation.bind(&mut set, before.as_deref());
+            Arc::new(set)
         }
     };
     let mut page = render_page(q, &set, row_paths, response_window, cancel)?;

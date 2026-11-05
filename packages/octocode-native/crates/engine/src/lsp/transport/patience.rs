@@ -173,6 +173,12 @@ impl ServerActivity {
     pub(super) fn cpu_time(&self) -> Option<Duration> {
         self.cpu_clock.as_ref().and_then(|clock| clock())
     }
+
+    /// Whether the server shows progress over a wait of `waited` that began
+    /// at CPU time `before`: the same test a request wait applies.
+    pub(super) fn progressed_since(&self, before: Option<Duration>, waited: Duration) -> bool {
+        cpu_progressed(before, self.cpu_time(), waited) || self.progress.has_active()
+    }
 }
 
 /// `true` when CPU time grew by at least `step / CPU_PROGRESS_DIVISOR`

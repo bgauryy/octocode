@@ -112,6 +112,17 @@ pub(super) fn ingest_with_registry(
         Ok(settled) => settled,
         Err(output) => return output,
     };
+    let extensions =
+        registry.extensions(octocode_engine::text::analysis::AnalysisOperation::GraphFacts);
+    let scope_proof = settled_scope_proof(&built.root, &projection.tables, |dir| {
+        scope_files(
+            &built.root,
+            &options.exclude,
+            &options.language_globs,
+            &extensions,
+            dir,
+        )
+    });
     let argument_coverage = argument_coverage::coverage(&built, &projection.tables);
     // The tables hold everything publication reads of the linked facts, the
     // largest part of a build: they are freed before encoding, keeping only
@@ -137,6 +148,7 @@ pub(super) fn ingest_with_registry(
             argument_coverage: &argument_coverage,
             inputs: &inputs,
             input_proof: input_proof.as_deref(),
+            scope_proof: scope_proof.as_ref(),
             build_ms,
             registry,
             registry_identity: &registry_identity,

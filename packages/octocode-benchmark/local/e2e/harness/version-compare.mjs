@@ -257,7 +257,7 @@ for (const [tool, spec] of Object.entries(CASES)) {
       } catch (e) { rec.cliParity = { error: String(e.message) }; }
     }
     out.checks.push(rec);
-    console.log(`${SIDE} ${tool}/${name}: ${rec.status} ${rec.ms ?? ''}ms ${rec.textChars ?? ''}ch rows=${typeof rec.rows === 'object' ? JSON.stringify(rec.rows) : rec.rows}${rec.content ? ' content=' + JSON.stringify(rec.content) : ''}${rec.pages ? ' pages=' + rec.pages : ''}`);
+    console.log(`${SIDE} ${tool}/${name}: ${rec.status} ${rec.ms ?? ''}ms ${rec.textChars ?? ''}ch rows=${typeof rec.rows === 'object' ? JSON.stringify(rec.rows) : rec.rows}${rec.content ? ` content=${JSON.stringify(rec.content)}` : ''}${rec.pages ? ` pages=${rec.pages}` : ''}`);
   }
 }
 mcp.close();

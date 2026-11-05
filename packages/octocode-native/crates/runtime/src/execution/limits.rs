@@ -26,17 +26,15 @@ pub struct RuntimeLimits {
     pub github_pacing: octocode_github::GitHubPacing,
 }
 
-/// One context selection operation.
+/// One page of classification or one `sections` batch.
 #[derive(Clone, Copy, Debug)]
 pub struct SelectionLimits {
-    /// Complete evidence units assessed; unassessed units stay unknown and
-    /// recoverable.
-    pub max_candidates: usize,
-    /// Total characters of serialized sanitized candidate states, including
-    /// source metadata.
+    /// Characters of states and questions one page sends before it stops and
+    /// shows what it found: the checkpoint that lets a caller see the cost of
+    /// a large walk before paying for it (about 60k input tokens at most). It
+    /// never loses work: a first unit always runs whatever its size, and the
+    /// next page takes the rest.
     pub max_chars: usize,
-    /// Deadline, bounded by the enclosing request deadline.
-    pub timeout: Duration,
 }
 
 impl RuntimeLimits {
@@ -46,11 +44,7 @@ impl RuntimeLimits {
         auto_page_chars: crate::id::DEFAULT_RESPONSE_CHARS,
         capture_ttl: Duration::from_secs(24 * 60 * 60),
         classification_concurrency: 10,
-        selection: SelectionLimits {
-            max_candidates: crate::id::CLASSIFICATION_UNITS_PER_PAGE,
-            max_chars: 131_072,
-            timeout: Duration::from_secs(10),
-        },
+        selection: SelectionLimits { max_chars: 131_072 },
         github_pacing: octocode_github::GitHubPacing::Octokit,
     };
 }
@@ -65,11 +59,11 @@ impl Default for RuntimeLimits {
 mod tests {
     use super::RuntimeLimits;
 
-    /// The automatic page size and the units one classified page judges are
-    /// core's `limits`, read from the embedded contract: a change in core
-    /// changes native behavior, with no native copy of either value.
+    /// The automatic page size is core's `limits`, read from the embedded
+    /// contract: a change in core changes native behavior, with no native
+    /// copy of the value.
     #[test]
-    fn page_and_classification_defaults_are_the_contract_limits() {
+    fn page_default_is_the_contract_limit() {
         let contract: serde_json::Value =
             serde_json::from_str(crate::contracts::contract_json()).expect("embedded contract");
         let limit = |name: &str| {
@@ -81,10 +75,6 @@ mod tests {
         assert_eq!(
             RuntimeLimits::DEFAULT.auto_page_chars,
             limit("defaultResponseChars")
-        );
-        assert_eq!(
-            RuntimeLimits::DEFAULT.selection.max_candidates,
-            limit("classificationUnitsPerPage")
         );
     }
 }

@@ -35,12 +35,18 @@ fn has_inner_cfg(content: &str) -> bool {
 /// test span holds whole lines, so such a `mod` is named no earlier than the
 /// start of that `test` word's line. The first `test` after the first `cfg`
 /// comes no later than any gate's. An inner `cfg` can gate text before it, so
-/// all of the text counts.
+/// all of the text counts. A `cfg_attr` under test gates a `path` it gives the
+/// same way; one giving none mounts nothing.
 pub(super) fn first_gated_byte(content: &str) -> Option<usize> {
     if has_inner_cfg(content) {
         return Some(0);
     }
-    let cfg = word_at(content, "cfg", 0)?;
+    let conditional_path =
+        || word_at(content, "cfg_attr", 0).filter(|_| spells_path_attribute(content.as_bytes()));
+    let cfg = [word_at(content, "cfg", 0), conditional_path()]
+        .into_iter()
+        .flatten()
+        .min()?;
     let test = word_at(content, "test", cfg + "cfg".len())?;
     Some(content[..test].rfind('\n').map_or(0, |newline| newline + 1))
 }
@@ -59,6 +65,60 @@ pub(super) fn word_at(content: &str, word: &str, from: usize) -> Option<usize> {
             !in_word(at.checked_sub(1).and_then(|before| bytes.get(before)))
                 && !in_word(bytes.get(at + word.len()))
         })
+}
+
+/// Whether `content` at or after the char boundary `from` could spell the head
+/// of the module `name`: the keyword `mod`, then `name` or `r#name`, with only
+/// blanks or a comment between them.
+pub(super) fn may_declare_module(content: &str, name: &str, from: usize) -> bool {
+    let mut at = from;
+    while let Some(found) = word_at(content, name, at) {
+        at = found + name.len();
+        let before = content[..found]
+            .strip_suffix("r#")
+            .unwrap_or(&content[..found]);
+        if ends_in_module_keyword(before) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether `before` could end in the keyword `mod` and trivia. A line comment
+/// is never read back to what precedes it, so any such line counts.
+fn ends_in_module_keyword(before: &str) -> bool {
+    let before = before.trim_end();
+    let line = before
+        .rfind('\n')
+        .map_or(before, |newline| &before[newline + 1..]);
+    before.ends_with("*/")
+        || line.contains("//")
+        || before.strip_suffix("mod").is_some_and(|head| {
+            !head
+                .as_bytes()
+                .last()
+                .is_some_and(|byte| *byte == b'_' || byte.is_ascii_alphanumeric())
+        })
+}
+
+/// Whether `content` could give a `mod` a `#[path]`: the word `path` right
+/// after the `[` or `,` an attribute (or a `cfg_attr`) lists it behind, then `=`.
+/// Read as bytes, so most of a directory's files are ruled out unconverted; any
+/// non-ASCII byte beside the word counts as a blank, which can only widen this.
+pub(super) fn spells_path_attribute(content: &[u8]) -> bool {
+    let blank = |byte: &u8| byte.is_ascii_whitespace() || *byte == 0x0b || !byte.is_ascii();
+    let in_word = |byte: Option<&u8>| byte.is_some_and(|b| *b == b'_' || b.is_ascii_alphanumeric());
+    memchr::memmem::find_iter(content, b"path").any(|at| {
+        let end = at + b"path".len();
+        !in_word(at.checked_sub(1).and_then(|before| content.get(before)))
+            && !in_word(content.get(end))
+            && content[..at]
+                .iter()
+                .rev()
+                .find(|byte| !blank(byte))
+                .is_some_and(|byte| matches!(byte, b'[' | b','))
+            && content[end..].iter().find(|byte| !blank(byte)) == Some(&b'=')
+    })
 }
 
 /// `spans` of `content`, or [`WHOLE_FILE`] when one covers every line
@@ -94,9 +154,9 @@ pub(super) fn candidate_dir(path: &Path) -> Option<&Path> {
     }
 }
 
-/// The files that may declare a module of `dir`: its `mod.rs`, the sibling
-/// `<dir>.rs`, and a crate root in it. A file is not its own parent: the
-/// caller leaves out the module it asks about.
+/// The names of the files that may declare a module of `dir`, present or not:
+/// its `mod.rs`, the sibling `<dir>.rs`, and a crate root in it. A file is not
+/// its own parent: the caller leaves out the module it asks about.
 pub(super) fn candidates_in(dir: &Path) -> Vec<PathBuf> {
     let mut candidates = ["mod.rs", "lib.rs", "main.rs"]
         .into_iter()
@@ -105,6 +165,5 @@ pub(super) fn candidates_in(dir: &Path) -> Vec<PathBuf> {
     if let (Some(up), Some(name)) = (dir.parent(), dir.file_name()) {
         candidates.push(up.join(format!("{}.rs", name.to_string_lossy())));
     }
-    candidates.retain(|candidate| candidate.is_file());
     candidates
 }

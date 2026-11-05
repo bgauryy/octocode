@@ -22,7 +22,7 @@ test('switching tabs retains each snapshot and rejects mismatched artifact ident
   });
   try {
     for (const id of ['page-a', 'page-b']) {
-      const artifactPath = join(dir, id + '.json');
+      const artifactPath = join(dir, `${id}.json`);
       writeFileSync(
         artifactPath,
         JSON.stringify({ targetId: id, refs: { e1: { name: id } } })

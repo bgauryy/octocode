@@ -5,9 +5,22 @@ use std::sync::{LazyLock, OnceLock};
 
 mod credential_values;
 
-#[cfg(test)]
 use credential_values::is_identifier_name;
 use credential_values::{KEEPS_NON_CREDENTIAL_VALUES, assigns_a_credential};
+
+mod document;
+mod every_value;
+mod jwk;
+mod long_line;
+mod long_text;
+mod objects;
+mod source_names;
+pub(super) mod structured;
+mod yaml_secret;
+pub use every_value::every_value_spans;
+pub use jwk::hide_members as hide_jwk_members;
+pub use long_line::{LONG_LINE_BYTES, LongLine};
+pub use source_names::{Named, SecretForm, SecretSpan, SecretSpans, SourceNames, SourceWalk};
 
 mod regex_forms;
 
@@ -15,16 +28,15 @@ mod file_context;
 
 use file_context::BARE_SHAPE;
 pub use file_context::WholeSourcePatterns;
+pub use gates::LONGEST_BOUNDED_MATCH;
 
 use regex_forms::pattern_regex_for;
 #[cfg(test)]
 use regex_forms::{ascii_word_boundaries, pattern_regex};
 
-/// Hard cap on content handed to the detector. Content above this is redacted
-/// wholesale rather than scanned, bounding worst-case memory/time.
-pub(crate) const MAX_CONTENT_SIZE: usize = 10_000_000;
-/// Wholesale placeholder emitted when content exceeds `MAX_CONTENT_SIZE`.
-pub(crate) const CONTENT_SIZE_LIMIT_PLACEHOLDER: &str = "[CONTENT-REDACTED-SIZE-LIMIT]";
+/// The largest source a read holds whole, and the text this pass judges pattern by
+/// pattern. A longer one is judged in one pass over its spans ([`long_text`]).
+pub const MAX_CONTENT_SIZE: usize = 10 * 1024 * 1024;
 /// File-context regex of pattern `idx`, compiled on first use: only the
 /// candidates a text reaches compile theirs. `None`: the pattern has no
 /// file-context constraint (always applicable).
@@ -185,8 +197,7 @@ fn prescan_candidates(content: &str) -> PatternSet {
 }
 
 /// Candidates that apply to `scope` ([`should_apply`]), checked before any
-/// pattern regex compiles: a pattern its file context rules out (the
-/// multi-millisecond Kubernetes Secret automaton outside YAML) is never built
+/// pattern regex compiles: a pattern its file context rules out is never built
 /// for that text, so a process pays only for the detectors its output reaches.
 fn applicable_patterns(content: &str, scope: Scope<'_>) -> PatternSet {
     prescan_candidates(content).filter(|idx| should_apply(idx, scope, content))
@@ -346,6 +357,9 @@ pub(crate) struct DetectResult {
 /// `scope` gates file-context patterns (e.g. Kubernetes YAML secrets, `.env`
 /// fine-grained GitHub tokens) so they fire only where they apply.
 pub(crate) fn redact(content: &str, scope: Scope<'_>) -> Option<DetectResult> {
+    if content.len() > MAX_CONTENT_SIZE {
+        return long_text::redact_long(content, scope);
+    }
     let matched = matching_patterns(content, scope);
     if matched.is_empty() {
         return None;
@@ -355,12 +369,14 @@ pub(crate) fn redact(content: &str, scope: Scope<'_>) -> Option<DetectResult> {
     for idx in matched.iter() {
         let current = sanitized.as_deref().unwrap_or(content);
         let keeps_values = KEEPS_NON_CREDENTIAL_VALUES[idx];
-        let result = replace_secrets(
-            pattern_regex_for(idx, current),
-            current,
-            replacement_for(idx),
-            |key, secret| !keeps_values || assigns_a_credential(key, secret),
-        );
+        let result = if let Some(form) = document::Form::of(idx) {
+            form.redact(current, replacement_for(idx))
+        } else {
+            let regex = pattern_regex_for(idx, current);
+            replace_secrets(regex, current, replacement_for(idx), |key, secret| {
+                !keeps_values || assigns_a_credential(key, secret)
+            })
+        };
         if result != current {
             secrets_detected.push(PATTERNS[idx].name.to_string());
             sanitized = Some(result);

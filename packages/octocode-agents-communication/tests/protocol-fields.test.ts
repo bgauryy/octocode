@@ -14,10 +14,10 @@ test('text, JSON and URL message parts preserve order and context across MCP and
     { data: { phase: 'verify', opaque: { constraints: ['read only'], handoff: true } }, mediaType: 'application/json', filename: 'phase.json' },
     { url: 'https://example.invalid/evidence', mediaType: 'text/plain', filename: 'evidence.txt' },
   ];
-  const frames = [
+  const frames = `${[
     { jsonrpc: '2.0', id: 1, method: 'tools/list' },
     { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'messages', arguments: { type: 'send', input: { to: bob, parts, contextId: 'review:api', replyRequired: true, reasoning: 'Hand off evidence' } } } },
-  ].map(frame => JSON.stringify(frame)).join('\n') + '\n';
+  ].map(frame => JSON.stringify(frame)).join('\n')}\n`;
   const run = spawnSync(binary, ['mcp', '--tools', 'messages', '--session', alice, '--workspace', workspace, '--database', database], { input: frames, encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
   const rows = run.stdout.trim().split('\n').map((line): JsonRecord => JSON.parse(line));

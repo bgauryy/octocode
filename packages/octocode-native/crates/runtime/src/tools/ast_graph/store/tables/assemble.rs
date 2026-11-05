@@ -161,7 +161,6 @@ impl<'a> Projector<'a> {
             components,
             entries,
             strings: self.strings.strings,
-            checked_arguments: self.checked_arguments,
             nodes: self.nodes,
             edges: self.edges,
             witnesses: self.witnesses,

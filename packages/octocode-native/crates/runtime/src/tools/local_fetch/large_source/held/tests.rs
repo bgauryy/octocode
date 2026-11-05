@@ -122,7 +122,7 @@ fn a_stream_finds_the_blocks_a_whole_file_read_finds() {
         let placeholder = crate::security::key_fragment_placeholder();
         let replaced = |text: &str| {
             text.lines()
-                .map(|line| line == placeholder)
+                .map(|line| line.contains(&placeholder))
                 .collect::<Vec<_>>()
         };
         assert_eq!(replaced(&window), replaced(&whole), "{}", format.name);

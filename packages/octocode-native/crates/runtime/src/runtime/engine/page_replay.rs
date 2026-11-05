@@ -22,7 +22,6 @@ pub(super) struct PageReplay {
     pub(super) github_identity: Option<String>,
     /// Sealed: a store reloaded from disk passes the output gate again.
     pub(super) structured: Sanitized,
-    pub(super) remaining: Vec<Vec<crate::response::result::Remaining>>,
     pub(super) response_query: Value,
     pub(super) failure: Option<FailureKind>,
     /// The text and page source later reads cut from (rebuilt from
@@ -39,7 +38,7 @@ pub(super) struct PageReplayMemo {
 
 impl PageReplayMemo {
     pub(super) fn new(config: &ConfigOutput, cwd: &std::path::Path) -> Self {
-        let persistent = config::is_persistent_storage_enabled(&config.resolved);
+        let persistent = config::saves_local_results(&config.resolved);
         let policy = replay_policy(config, cwd, ROW_PLAN_VERSION);
         Self {
             store: crate::cache::Store::new(
@@ -67,12 +66,18 @@ impl PageReplayMemo {
             .map(|hit| hit.value)
     }
 
-    pub(super) fn insert(&self, cursor: &Cursor, replay: PageReplay) -> (Arc<PageReplay>, bool) {
+    pub(super) fn insert(
+        &self,
+        cursor: &Cursor,
+        replay: PageReplay,
+        deadline: std::time::Instant,
+    ) -> (Arc<PageReplay>, bool) {
         // The page memo a first read builds holds about one more copy of
         // the envelope (its row plan, bytes or text).
         let weight = octocode_engine::json_size::bytes(&replay)
             .map_or(usize::MAX, |bytes| bytes.saturating_mul(2));
-        self.store.put_confirmed(
+        self.store.put_until(
+            deadline,
             Self::key(cursor, &self.policy),
             replay,
             weight,
@@ -143,7 +148,7 @@ pub(super) fn snapshot_expired(refusal: Refusal, scope: RefusalScope) -> Runtime
             "Unknown or expired cursor: no saved work under it for this tool, configuration and workspace. Saved work expires {lifetime} seconds after its last read and may be evicted; an edited cursor, or one issued under another configuration or workspace, names none here."
         ),
         Refusal::NotRetained => format!(
-            "Unknown or expired cursor: no saved work under it in this runtime. storage.mode is memory, so saved work ends with the runtime that issued it (each CLI call is its own runtime); set storage.mode persistent to resume across CLI calls. Saved work also expires {lifetime} seconds after its last read and may be evicted; an edited cursor names none."
+            "Unknown or expired cursor: no saved work under it in this runtime. storage.mode is memory, or security.credentialFiles is allow, so saved work ends with the runtime that issued it (each CLI call is its own runtime); resuming across CLI calls needs storage.mode persistent with credential files withheld. Saved work also expires {lifetime} seconds after its last read and may be evicted; an edited cursor names none."
         ),
         Refusal::OtherTool => {
             "This cursor was issued to another tool; send it to the tool its emitted call names."

@@ -49,12 +49,13 @@ fn script_bearing_markup_names_are_references() {
         std::fs::write(dir.path().join(name), import).expect("write");
     }
     std::fs::write(dir.path().join("README.md"), "Call run to start.\n").expect("write");
-    let (hits, gaps) = scan_mentions(
+    let hits = scan_mentions(
         dir.path(),
         &BTreeSet::new(),
         &BTreeSet::from(["run".to_owned()]),
-    );
-    assert_eq!(gaps, MentionGaps::default());
+        &|| false,
+    )
+    .expect("scan");
     let mut expected = markup
         .iter()
         .map(|name| format!("{name}:2"))
@@ -117,11 +118,13 @@ fn the_mention_scan_skips_vendored_dirs_and_reads_what_the_graph_builds_from() {
         std::fs::create_dir(dir.path().join(name)).expect("dir");
         std::fs::write(dir.path().join(name).join("app.ts"), "run();\n").expect("write");
     }
-    let (hits, _) = scan_mentions(
+    let hits = scan_mentions(
         dir.path(),
         &BTreeSet::new(),
         &BTreeSet::from(["run".to_owned()]),
-    );
+        &|| false,
+    )
+    .expect("scan");
     assert_eq!(
         hits.references.get("run"),
         Some(&vec!["obj/app.ts:1".to_owned(), "src/app.ts:1".to_owned()])
@@ -132,24 +135,4 @@ fn the_mention_scan_skips_vendored_dirs_and_reads_what_the_graph_builds_from() {
 fn magnitude_is_bounded() {
     assert!((magnitude(0) - 0.6).abs() < 1e-9);
     assert!(magnitude(1_000_000) <= 1.0);
-}
-
-/// A file too long for the mention scan is counted: "no mention" must not
-/// read as "no file names it".
-#[test]
-fn the_mention_scan_counts_the_files_it_did_not_read() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let long = usize::try_from(MENTION_MAX_FILE).expect("fits") + 1;
-    std::fs::write(
-        dir.path().join("big.txt"),
-        format!("run {}", "x".repeat(long)),
-    )
-    .expect("write");
-    let (hits, gaps) = scan_mentions(
-        dir.path(),
-        &BTreeSet::new(),
-        &BTreeSet::from(["run".to_owned()]),
-    );
-    assert_eq!(gaps.oversized, 1);
-    assert_eq!(hits.references.get("run"), None);
 }

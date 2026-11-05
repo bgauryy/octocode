@@ -128,6 +128,18 @@ fn takes_selection(schema: &Value) -> bool {
     })
 }
 
+/// What is wrong with `received`, a bare list longer than a selection's
+/// `include` takes: said of the list sent, which has no reading as an
+/// `include` nobody wrote.
+pub(super) fn selection_overflow(schema: &Value, defs: &Value, received: &Value) -> Option<String> {
+    let schema = super::super::resolve_ref(schema, defs);
+    let length = received.as_array()?.len();
+    let include = super::super::resolve_ref(schema.pointer("/properties/include")?, defs);
+    let maximum = include.get("maxItems")?.as_u64()?;
+    (takes_selection(schema) && u64::try_from(length).is_ok_and(|length| length > maximum))
+        .then(|| format!("Value length {length} exceeds the maximum of {maximum}"))
+}
+
 /// The value `received` means where `schema` takes another type, when it has
 /// one reading: a JSON string's own value, one item as a list, a selection's
 /// values as its `include`, a scalar as
@@ -145,6 +157,9 @@ pub(crate) fn repaired_value(schema: &Value, defs: &Value, received: &Value) -> 
         "object" => {
             if holds_json(received, Value::is_object) {
                 return serde_json::from_str(received.as_str()?).ok();
+            }
+            if selection_overflow(schema, defs, received).is_some() {
+                return None;
             }
             if takes_selection(schema) && !received.is_object() {
                 let values = if received.is_array() {

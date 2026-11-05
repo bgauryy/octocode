@@ -3,7 +3,7 @@
 //! question is its own request. Every answer is validated against its
 //! question before use, and an evaluation succeeds only when every question
 //! has a valid answer.
-use super::{EvaluationInput, Judged, QuestionOutcomes};
+use super::{EvaluationInput, Judged, LongContext, QuestionOutcomes};
 use crate::providers::classification::gate::GateLease;
 use crate::providers::classification::transport::{
     ClassificationError, ReportedUsage, check_budget, check_key, endpoint, post,
@@ -17,20 +17,9 @@ use octocode_io::budget::RequestBudget;
 use secrecy::SecretString;
 use serde_json::Value;
 
-// Serialized-body ceiling only; the provider's context window decides whether
-// a request's tokens fit.
-const MAX_TEXT_REQUEST_BYTES: usize = 4 * 1024 * 1024;
-
-fn max_request_bytes(input: EvaluationInput<'_>) -> usize {
-    if input.assets.is_some() {
-        // Base64 expansion, per-image padding and the existing text allowance.
-        crate::id::clasify_policy::MAX_TOTAL_IMAGE_BYTES.div_ceil(3) * 4
-            + crate::id::clasify_policy::MAX_IMAGE_ASSETS * 4
-            + MAX_TEXT_REQUEST_BYTES
-    } else {
-        MAX_TEXT_REQUEST_BYTES
-    }
-}
+/// The provider's request body limit (`clasify.semanticPolicy.requestBytes`);
+/// its context window, not a byte count, decides whether tokens fit.
+const MAX_REQUEST_BYTES: usize = crate::id::clasify_policy::REQUEST_BYTES;
 
 /// Where and how one evaluation's requests are sent.
 pub(crate) struct Connection<'a> {
@@ -66,7 +55,7 @@ fn grouped(
     let questions: Vec<&Value> = input.questions.iter().collect();
     let request = provider.build(input.state, &questions, model, input.assets);
     let body = serde_json::to_vec(&request).ok()?;
-    (body.len() <= max_request_bytes(input)).then(|| (request, body.into()))
+    (body.len() <= MAX_REQUEST_BYTES).then(|| (request, body.into()))
 }
 
 /// Evaluate questions through the same grouping, transport and validation path.
@@ -77,9 +66,36 @@ pub(crate) async fn answer_questions(
     budget: &RequestBudget,
     gate: &GateLease,
 ) -> QuestionOutcomes {
-    match answer_inner(input, model, connection, budget, gate).await {
+    let outcomes = match answer_inner(input, model, connection, budget, gate).await {
         Ok(outcomes) => outcomes,
         Err(error) => QuestionOutcomes::from_complete(Err(error), input.questions.len()),
+    };
+    let refused = match &outcomes.complete {
+        Err(error)
+            if input.long_context == LongContext::OnRefusal
+                && error.code == ErrorCode::ClassificationStateTooLarge =>
+        {
+            error.provider_calls
+        }
+        _ => return outcomes,
+    };
+    let long = EvaluationInput {
+        long_context: LongContext::Always,
+        ..input
+    };
+    let mut outcomes = match answer_inner(long, model, connection, budget, gate).await {
+        Ok(outcomes) => outcomes,
+        Err(error) => QuestionOutcomes::from_complete(Err(error), input.questions.len()),
+    };
+    add_refused(&mut outcomes, refused);
+    outcomes
+}
+
+/// Requests the provider refused before these outcomes: unbilled, yet sent.
+fn add_refused(outcomes: &mut QuestionOutcomes, calls: u64) {
+    match &mut outcomes.complete {
+        Ok(judged) => judged.provider_calls = judged.provider_calls.saturating_add(calls),
+        Err(error) => error.provider_calls = error.provider_calls.saturating_add(calls),
     }
 }
 
@@ -106,9 +122,12 @@ async fn answer_inner(
         match send(body, input, connection, budget, gate).await {
             Ok((response, calls)) => return grouped_outcomes(&request, &response, calls, provider),
             // The provider's window, not a byte count, decides whether a
-            // group fits: its refusal splits the group into the
-            // per-question requests below.
-            Err(error) if error.code == ErrorCode::ClassificationStateTooLarge => {
+            // group fits: its refusal tries the long window, then splits the
+            // group into the per-question requests below.
+            Err(error)
+                if error.code == ErrorCode::ClassificationStateTooLarge
+                    && input.long_context != LongContext::OnRefusal =>
+            {
                 refused_calls = error.provider_calls;
             }
             Err(error) => return Err(error),
@@ -135,11 +154,11 @@ async fn answer_inner(
             let request = provider.build(single.state, &[question], model, single.assets);
             let body = serde_json::to_vec(&request)
                 .map_err(|_| request_error("Classification request could not be serialized."))?;
-            if body.len() > max_request_bytes(single) {
+            if body.len() > MAX_REQUEST_BYTES {
                 return Err(ClassificationError::new(
                     ErrorCode::ClassificationStateTooLarge,
-                    "One classification request exceeded the configured serialized body limit.",
-                    "Narrow the state, reduce image bytes, or shorten the questions.",
+                    format!("One classification request is over the provider's {MAX_REQUEST_BYTES}-byte body limit; nothing was sent."),
+                    "Split the source with ranges or resources, send fewer images, or shorten the questions.",
                 ));
             }
             let (response, calls) = send(body.into(), single, connection, budget, gate).await?;
@@ -155,10 +174,7 @@ async fn answer_inner(
         .collect::<Vec<_>>()
         .await;
     let mut outcomes = fold_singles(singles, questions.len());
-    match &mut outcomes.complete {
-        Ok(judged) => judged.provider_calls = judged.provider_calls.saturating_add(refused_calls),
-        Err(error) => error.provider_calls = error.provider_calls.saturating_add(refused_calls),
-    }
+    add_refused(&mut outcomes, refused_calls);
     Ok(outcomes)
 }
 
@@ -303,7 +319,7 @@ async fn send(
         body,
         connection
             .provider
-            .headers(input.images(), input.long_context),
+            .headers(input.images(), input.long_context == LongContext::Always),
         connection.key,
         endpoint(
             connection.base_url,

@@ -1,7 +1,7 @@
 //! Static notices are said once. A tool or decorator writes a note that reads
 //! the same on every page and every row of a result under `notices`
 //! ([`crate::response::paging::push_notice`]); a continuation page drops its
-//! notices ([`drop_on_later_page`]), and the stage places each remaining
+//! notices, and the stage places each remaining
 //! notice on the first row that carries it ([`place`]): in `warnings` on a
 //! row with evidence, in `hints.text` on an empty or failed row (where its
 //! guidance goes). No `notices` key reaches a caller.
@@ -9,6 +9,33 @@
 use serde_json::{Map, Value, json};
 
 use crate::response::paging::NOTICES;
+
+/// Each coverage reason a row carries, as a notice saying what it means: core
+/// authors the sentence once, and it is sent only when this response has that
+/// gap ([`place`] says it on the first row that carries it).
+pub(crate) fn explain_codes(structured: &mut Value, rows_key: &str) {
+    let Some(rows) = structured.get_mut(rows_key).and_then(Value::as_array_mut) else {
+        return;
+    };
+    for row in rows {
+        let Some(data) = row.get_mut("data") else {
+            continue;
+        };
+        let codes = data["partialReasons"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .chain(data.pointer("/coverage/reason"))
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        for code in codes {
+            if let Some(meaning) = crate::contracts::partial_reason_meaning(&code) {
+                crate::response::paging::push_notice(data, format!("{code}: {meaning}"));
+            }
+        }
+    }
+}
 
 /// Moves every row's notices to where the row states guidance, keeping
 /// each notice on the first row of the response that carries it.

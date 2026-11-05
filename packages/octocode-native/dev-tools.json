@@ -22,6 +22,7 @@
     { "name": "cargo-hack", "version": "0.6.45", "versionCommand": ["cargo", "hack", "--version"], "use": "check:features" },
     { "name": "cargo-mutants", "version": "27.1.0", "versionCommand": ["cargo", "mutants", "--version"], "use": "mutation testing on changed code" },
     { "name": "bacon", "version": "3.26.0", "versionCommand": ["bacon", "--version"], "use": "edit loop (bacon.toml)" },
+    { "name": "samply", "version": "0.13.1", "versionCommand": ["samply", "--version"], "use": "profile (flamegraph and top frames, macOS and Linux)" },
     { "name": "cargo-fuzz", "version": "0.13.2", "versionCommand": ["cargo", "fuzz", "--version"], "use": "fuzz, fuzz:smoke (fuzz/)" },
     { "name": "cargo-llvm-lines", "version": "0.4.48", "versionCommand": ["cargo", "llvm-lines", "--version"], "use": "llvm-lines (on-demand compile-size investigation)" },
     { "name": "cargo-typify", "version": "0.8.0", "versionCommand": ["cargo", "typify", "--version"], "use": "contract regeneration (AGENTS.md)" },

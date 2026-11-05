@@ -88,6 +88,15 @@ pub(super) fn joined_path(
     }
 }
 
+/// Where a shown file is on disk.
+pub(super) fn source_of(root: &std::path::Path, file: &SearchFile) -> std::path::PathBuf {
+    if root.is_file() {
+        root.to_path_buf()
+    } else {
+        root.join(&file.path)
+    }
+}
+
 /// Hits a handed-off read may cover (each opens a ±6-line window).
 pub(super) const READ_HANDOFF_MAX_HITS: usize = 20;
 
@@ -126,15 +135,10 @@ pub(super) fn read_handoff(
         return None;
     }
     let path = joined_path(query, root, top);
-    let source = if root.is_file() {
-        root.to_path_buf()
-    } else {
-        root.join(&top.path)
-    };
     let windows = hit_windows(
         hits.iter().flat_map(row_lines),
         SearchContext::symmetric(READ_HANDOFF_CONTEXT),
-        crate::tools::line_spans::file_lines(&source),
+        crate::tools::line_spans::file_lines(&source_of(root, top)),
     );
     if windows.len() <= RANGES_MAX_ITEMS {
         return ranges_read(path, &windows);

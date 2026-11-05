@@ -12,6 +12,8 @@
 mod commands;
 mod download;
 mod install;
+mod live_check;
+mod status;
 mod upstream;
 pub(super) use commands::{LspServerCommand, run};
 pub use download::host_allowed;

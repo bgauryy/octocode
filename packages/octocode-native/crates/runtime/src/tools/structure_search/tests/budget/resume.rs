@@ -51,7 +51,8 @@ fn a_time_cut_listing_resumes_exactly_where_it_stopped() {
                 "{operation}: {next}"
             );
             assert!(resumed.get("scanOffset").is_none(), "{next}");
-            assert!(resumed.get("snapshot").is_none(), "{next}");
+            // It pins the rows through the cut: `walkOffset` is only a count.
+            assert!(resumed["snapshot"].is_string(), "{next}");
             query = resumed.clone();
         }
         assert!(windows > 1, "{operation}: the budget never cut the walk");
@@ -132,7 +133,8 @@ fn a_walk_cut_before_the_rows_an_earlier_window_listed_skips_the_rest_after_it()
         let widen = first["next"]["nextPage"]["input"]["queries"][0].clone();
         assert_eq!(widen["scanOffset"], 4, "{operation}: {first}");
         // The next walk is cut after two or three entries, before the four
-        // rows the first window listed.
+        // rows the first window listed; nothing kept spares it.
+        super::super::super::windows::forget(widen["snapshot"].as_str().expect("pinned"));
         let second = within_checked(&root.0, widen, STEP * 5 / 3, &Slow);
         let cut = second["next"]["nextPage"]["input"]["queries"][0].clone();
         let at = cut["walkOffset"].as_u64().expect("resume position");

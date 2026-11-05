@@ -62,28 +62,45 @@ pub(crate) fn scan_query(
         return Err(error);
     }
     let validated = search_root(query, paths)?;
+    let keep = crate::tools::test_code::Keep::of(local_search_query::test_code(query));
+    let verdicts = keep.map(|_| Arc::new(crate::tools::test_code::TestCodeIndex::new(paths)));
     let options = TextSearchOptions {
         terms,
-        test_code: crate::tools::test_code::Keep::of(local_search_query::test_code(query)).map(
-            |keep| {
-                crate::tools::test_code::text_scope(
-                    keep,
-                    Arc::new(crate::tools::test_code::TestCodeIndex::new(paths)),
-                )
-            },
-        ),
+        test_code: keep
+            .zip(verdicts.clone())
+            .map(|(keep, index)| crate::tools::test_code::text_scope(keep, index)),
         ..search_options(query, &validated.canonical)
     };
     check_pattern(query)?;
     let search_options = options.clone();
     let policy_key = paths.identity();
     let ScanOutput {
-        parsed,
+        mut parsed,
         digests,
         skipped,
         stored,
-        walked,
+        mut walked,
     } = scan(query, paths, options, &policy_key, cancel)?;
+    // What a `testCode` scope's verdicts read, a parent module outside this
+    // root too, proves a stored scan as the walk's ignore inputs do, past what
+    // the walk already stamps.
+    if let (Some(walked), Some(verdicts)) = (&mut walked, &verdicts) {
+        let stamped = walked
+            .entries
+            .iter()
+            .collect::<std::collections::HashSet<_>>();
+        let watched = verdicts
+            .watched()
+            .into_iter()
+            .filter(|path| !stamped.contains(path))
+            .collect::<Vec<_>>();
+        walked.rules.extend(watched);
+    }
+    // A verdict that needed a file it could not read is unproven: the row
+    // says so as for any other path it could not read.
+    if let Some(verdicts) = &verdicts {
+        disclose_unread(&mut parsed.stats, &verdicts.unread());
+    }
     // Pages are cut from serialized sizes so a default-layout page, with
     // the row around it, fits one response window. The budget charges the
     // root's spelling a fixed size (`page_windows`), so a continuation that
@@ -125,6 +142,19 @@ pub(crate) fn scan_query(
         policy_key,
         skipped,
     })
+}
+
+/// Counts as failed paths the Rust files a `testCode` verdict could not read.
+fn disclose_unread(
+    stats: &mut octocode_engine::types::TextSearchStats,
+    unread: &[std::path::PathBuf],
+) {
+    let Some(note) = crate::tools::test_code::unread_note(unread) else {
+        return;
+    };
+    let count = octocode_engine::num::saturating_u32(unread.len());
+    stats.error_count = Some(stats.error_count.unwrap_or(0).saturating_add(count));
+    stats.first_error.get_or_insert(note);
 }
 
 /// The search root under the path policy; a missing one is not-found

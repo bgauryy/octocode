@@ -23,12 +23,14 @@ function gateEnv(fieldPath) {
 
 const betaEnv = gateEnv('local.beta');
 const classificationEnv = gateEnv('classification.api');
+const securityCheckEnv = gateEnv('tools.enableSecurityCheck');
 
 function describe(tool) {
   const text = tool.title;
   const requiredEnv = [];
   if (tool.beta) requiredEnv.push(betaEnv);
   if (tool.name === TOOL_NAMES.CLASIFY) requiredEnv.push(classificationEnv);
+  if (tool.name === TOOL_NAMES.SECURITY_CHECK) requiredEnv.push(securityCheckEnv);
   if (!requiredEnv.length) return text;
   const gate = tool.beta ? 'beta' : 'conditional';
   return `${text} (${gate}: requires ${requiredEnv.join(' and ')})`;

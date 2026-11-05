@@ -8,6 +8,11 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+/// A section's target text in the default window.
+const SECTION_CHARS: usize = 8_000;
+/// A section's target text with `longContext:true`.
+const LONG_CONTEXT_SECTION_CHARS: usize = 64_000;
+
 #[derive(Default)]
 pub(super) struct Pool {
     inner: Mutex<Captures>,
@@ -148,9 +153,15 @@ fn prepare(
 ) -> Result<(Value, Vec<Unit>, Option<Value>), ClassificationError> {
     let selected = resource::selected_ranges(&captured.text, &source["query"])?;
     let mut metadata = resource::selection_metadata(captured, source);
-    // Leave room for escaped target text, supporting context and coordinates.
-    // Every original byte remains in a target even when it needs a fragment.
-    let target_chars = super::super::max_state_chars(row.long_context == Some(true)) / 4;
+    // How much text a section holds: its grain, not a limit. Every original
+    // byte remains in a target even when it needs a fragment, and one section
+    // well inside the provider's 32k-token (262k long-context) window leaves
+    // room for its context and questions.
+    let target_chars = if row.long_context == Some(true) {
+        LONG_CONTEXT_SECTION_CHARS
+    } else {
+        SECTION_CHARS
+    };
     let safe = SafeSource::new(&captured.text, &captured.path, dispatcher)?;
     let mut units = Vec::new();
     let mut retained_bytes = octocode_engine::json_size::bytes(&metadata).unwrap_or(usize::MAX);

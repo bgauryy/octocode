@@ -118,7 +118,14 @@ fn sample(field: &ConfigFieldSpec) -> serde_json::Value {
         ConfigFieldKind::Path => json!("/workspace-path"),
         ConfigFieldKind::String => json!("workspace-value"),
         ConfigFieldKind::StringArray => json!(["/workspace-path"]),
-        ConfigFieldKind::Enum => json!(field.values[0]),
+        // A value a workspace may narrow to raises no diagnostic: sample a wider one.
+        ConfigFieldKind::Enum => json!(
+            field
+                .values
+                .iter()
+                .find(|value| !narrows_to(value))
+                .unwrap_or(&field.values[0])
+        ),
     }
 }
 

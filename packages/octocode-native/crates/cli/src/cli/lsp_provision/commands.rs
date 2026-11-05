@@ -1,8 +1,8 @@
+use super::live_check::run_live;
+use super::status::run_status;
 use super::upstream::{GitHub, Upstream};
 use super::{provision_server, uninstall_server};
-use octocode_engine::lsp::config::{
-    LspDiscoveryOptions, default_server_for_file, detect_language_id, is_command_available,
-};
+use octocode_engine::lsp::config::LspDiscoveryOptions;
 use octocode_engine::lsp::managed::{manifest, platform_id, resolve_cached_server};
 use octocode_native::config::LspAutoInstall;
 use octocode_native::runtime::ToolRuntime;
@@ -12,116 +12,6 @@ use std::path::Path;
 /// installs see what `lspSearch` sees.
 pub(super) fn discovery(runtime: &ToolRuntime) -> LspDiscoveryOptions {
     runtime.lsp_execution_config().discovery()
-}
-
-/// Resolve how `file_path`'s language server would launch, through the same
-/// discovery `lspSearch` uses. Without a file, list the managed installs.
-pub(super) fn run_status(
-    discovery: &LspDiscoveryOptions,
-    root: &Path,
-    platform: &str,
-    file_path: Option<&str>,
-    json: bool,
-) -> u8 {
-    let Some(path) = file_path else {
-        let installed: Vec<serde_json::Value> = manifest()
-            .keys()
-            .filter_map(|name| {
-                resolve_cached_server(root, name, platform)
-                    .map(|bin| serde_json::json!({ "name": name, "path": bin }))
-            })
-            .collect();
-        if json {
-            return super::super::write_json(
-                &serde_json::json!({ "managedRoot": root, "installed": installed }),
-            );
-        }
-        println!("LSP status");
-        println!("  managed installs: {}", root.display());
-        for row in &installed {
-            println!(
-                "    {}  {}",
-                row["name"].as_str().unwrap_or_default(),
-                row["path"].as_str().unwrap_or_default()
-            );
-        }
-        println!("  Pass a file path to see how its language server resolves.");
-        return 0;
-    };
-
-    let workspace =
-        octocode_engine::lsp::workspace::resolve_workspace_root_for_file(path.to_owned())
-            .unwrap_or_else(|_| {
-                std::env::current_dir()
-                    .map(|p| p.to_string_lossy().into_owned())
-                    .unwrap_or_else(|_| ".".to_owned())
-            });
-    let language_id = detect_language_id(path);
-    let config = default_server_for_file(path, &workspace, discovery);
-    let (server_available, probe_error) =
-        match config.as_ref().map(|c| is_command_available(&c.command)) {
-            Some(Ok(available)) => (available, None),
-            Some(Err(error)) => (false, Some(error)),
-            None => (false, None),
-        };
-    let server_command: Option<String> = config.map(|c| c.command);
-    let lang = language_id.as_deref().unwrap_or("unknown");
-
-    // A path has a separator or an extension that contains no separator;
-    // anything else is probably a server name passed by mistake.
-    let looks_like_path = path.contains('/') || path.contains('\\') || {
-        path.rfind('.')
-            .is_some_and(|i| i + 1 < path.len() && !path[i + 1..].contains('/'))
-    };
-    let unresolved = !server_available
-        && language_id
-            .as_deref()
-            .is_none_or(|l| l.is_empty() || l == "plaintext");
-
-    if json {
-        return super::super::write_json(&serde_json::json!({
-            "filePath": path,
-            "languageId": lang,
-            "serverAvailable": server_available,
-            "serverCommand": server_command,
-            "probeError": probe_error,
-        }));
-    }
-
-    if unresolved && !looks_like_path {
-        eprintln!(
-            "  '{path}' looks like a server name, not a file. \
-             status resolves a FILE's language \u{2192} server (e.g. src/main.rs); \
-             run `lsp-server list` to see supported servers."
-        );
-    }
-
-    println!("LSP status for {path}");
-    println!("  language:  {lang}");
-    if server_available {
-        let cmd = server_command.as_deref().unwrap_or("unknown");
-        println!("  resolved:  {cmd}");
-    } else {
-        println!("  resolved:  unavailable");
-        if let Some(error) = &probe_error {
-            println!("  Could not check the server command: {error}");
-        }
-        if let Some(lang_id) = &language_id {
-            println!(
-                "  No language server is available for this file (language: {lang_id}). \
-                 Install a matching language server or add an lsp-servers.json entry."
-            );
-            if let Some(hint) = server_command
-                .as_deref()
-                .and_then(octocode_engine::lsp::config::install_hint)
-            {
-                println!("  {hint}");
-            }
-        } else {
-            println!("  Could not determine language for this file.");
-        }
-    }
-    0
 }
 
 /// `octocode lsp-server`: the managed (auto-downloadable) language servers.
@@ -151,10 +41,14 @@ pub(in super::super) enum LspServerCommand {
         #[arg(long)]
         yes: bool,
     },
-    /// Show the server a file (default: the workspace) routes to, and whether it resolves.
+    /// Check the language-server configuration: each `lsp-servers.json`, every route with its
+    /// effective arguments, or one file's route. Exit 1 when a configuration has a problem.
     Status {
         /// File whose language decides the server.
         file: Option<String>,
+        /// Also start the server (with no file, each one that resolves) and complete `initialize`.
+        #[arg(long)]
+        live: bool,
     },
 }
 
@@ -188,8 +82,12 @@ pub(in super::super) async fn run(
         }
         LspServerCommand::Uninstall { names } => run_uninstall(&root, &platform, names, json),
         LspServerCommand::Clean { yes } => run_clean(&root, yes, json),
-        LspServerCommand::Status { file } => {
-            run_status(&discovery, &root, &platform, file.as_deref(), json)
+        LspServerCommand::Status { file, live } => {
+            if live {
+                run_live(&discovery, file.as_deref(), json).await
+            } else {
+                run_status(&discovery, &root, &platform, file.as_deref(), json)
+            }
         }
     }
 }
@@ -312,6 +210,10 @@ pub(super) fn run_clean(root: &Path, yes: bool, json: bool) -> u8 {
     }
     // A missing cache is already clean; any other failure must not be
     // reported as success.
+    // The clangd indexes kept for mirrored databases go with it.
+    if let Some(indexes) = root.parent().map(|home| home.join("lsp-workspaces/clangd")) {
+        let _ = std::fs::remove_dir_all(indexes);
+    }
     if let Err(error) = std::fs::remove_dir_all(root)
         && error.kind() != std::io::ErrorKind::NotFound
     {

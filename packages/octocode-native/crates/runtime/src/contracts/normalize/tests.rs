@@ -110,9 +110,13 @@ fn a_filter_selection_takes_a_bare_list_of_values() {
 
     let input = normalized_input("ghSearchHistory", row(json!({"assignee":["a","b"]})));
     let error = prepare_rows("ghSearchHistory", input).expect_err("two assignees");
-    let shown = format!("{:?}", error.issues);
-    assert!(shown.contains("Value length 2 exceeds the maximum of 1"), "{shown}");
-    assert!(!shown.contains("\"include\", \"0\""), "{shown}");
+    let issue = error.issues.first().expect("an issue");
+    assert_eq!(
+        issue.path,
+        ["queries", "0", "filters", "assignee"],
+        "{issue:?}"
+    );
+    assert_eq!(issue.message, "Value length 2 exceeds the maximum of 1");
 }
 
 /// A row is no selection though it declares `include`: a list or scalar in its

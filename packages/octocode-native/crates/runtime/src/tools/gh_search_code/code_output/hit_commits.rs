@@ -1,5 +1,5 @@
 //! The commits a page's hits are read at, and the line hits read there.
-use super::reads_lines;
+use super::{reads_lines, withheld_row};
 use crate::security::scan::ContentScan;
 use octocode_contract_types::GhSearchCodeQuery;
 use octocode_github::{CodeSearchItem, ProviderError};
@@ -133,6 +133,7 @@ pub(in crate::tools::gh_search_code) async fn resolve_lines(
     let reads = items
         .iter()
         .enumerate()
+        .filter(|(_, row)| !withheld_row(query, row))
         .filter_map(|(index, row)| Some((index, row.get("path")?.as_str()?.to_owned(), None)))
         .collect::<Vec<_>>();
     let (owner, repo) = (
@@ -197,6 +198,9 @@ async fn indexed_lines(
     };
     let mut groups: Vec<(RepoCommit, Vec<Read>)> = Vec::new();
     for (index, row) in items.iter().enumerate() {
+        if withheld_row(query, row) {
+            continue;
+        }
         let (owner, repo, path, commit, blob) = match located(row) {
             Some(found) => found,
             None => match (

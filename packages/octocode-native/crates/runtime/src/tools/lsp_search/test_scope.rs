@@ -2,7 +2,8 @@
 //! one test-code rule every local tool uses ([`crate::tools::test_code`]).
 //! A site is test code by its file (path, test-only mount) or its line (a
 //! Rust `#[cfg(test)]` item); what the scope leaves out is counted as
-//! `testCodeExcluded`, files left out whole and lines otherwise.
+//! `testCodeExcluded`, files left out whole and lines otherwise. A verdict that
+//! needed a file it could not read leaves the row partial.
 
 use super::lsp_search_query;
 use super::render::uri_to_path;
@@ -13,13 +14,20 @@ use octocode_engine::types::TestCodeExcluded;
 use serde_json::Value;
 use std::path::Path;
 
+/// What the scope left out of a row, and the files its verdicts could not read.
+#[derive(Default)]
+pub(super) struct ScopeLeft {
+    pub(super) excluded: Option<TestCodeExcluded>,
+    pub(super) unread: Vec<std::path::PathBuf>,
+}
+
 /// Keep the server locations (`uri`, zero-based `range`) on the side the
-/// query's `testCode` keeps. `None` when nothing was left out.
+/// query's `testCode` keeps.
 pub(super) fn retain_locations(
     query: &LspSearchQuery,
     paths: &PathPolicy,
     locations: &mut Vec<Value>,
-) -> Option<TestCodeExcluded> {
+) -> ScopeLeft {
     retain(query, paths, locations, |location| {
         let path = uri_to_path(location.get("uri")?.as_str()?);
         let line = location.pointer("/range/start/line")?.as_u64()?;
@@ -33,7 +41,7 @@ pub(super) fn retain_callers(
     query: &LspSearchQuery,
     paths: &PathPolicy,
     items: &mut Vec<Value>,
-) -> Option<TestCodeExcluded> {
+) -> ScopeLeft {
     retain(query, paths, items, |item| {
         let caller = item.get("from")?;
         let line = caller
@@ -44,12 +52,20 @@ pub(super) fn retain_callers(
     })
 }
 
-/// State what the scope left out on `row` (`testCodeExcluded`).
-pub(super) fn disclose(row: &mut Value, excluded: Option<TestCodeExcluded>) {
-    if let (Some(excluded), Some(fields)) = (excluded, row.as_object_mut()) {
+/// State what the scope left out on `row` (`testCodeExcluded`), and mark it
+/// partial when a verdict is unproven.
+pub(super) fn disclose(row: &mut Value, left: ScopeLeft) {
+    if let (Some(excluded), Some(fields)) = (left.excluded, row.as_object_mut()) {
         fields.insert(
             "testCodeExcluded".into(),
             serde_json::to_value(excluded).unwrap_or(Value::Null),
+        );
+    }
+    if let Some(note) = crate::tools::test_code::unread_note(&left.unread) {
+        crate::response::paging::mark_partial(
+            row,
+            crate::response::paging::PartialReason::FilesUnevaluated,
+            &[note],
         );
     }
 }
@@ -61,12 +77,17 @@ fn retain(
     paths: &PathPolicy,
     rows: &mut Vec<Value>,
     site: impl Fn(&Value) -> Option<(String, u64)>,
-) -> Option<TestCodeExcluded> {
-    let scope = Scoped::of(lsp_search_query::test_code(query), paths)?;
+) -> ScopeLeft {
+    let Some(scope) = Scoped::of(lsp_search_query::test_code(query), paths) else {
+        return ScopeLeft::default();
+    };
     rows.retain(|row| {
         site(row).is_none_or(|(path, line)| {
             scope.keeps(Path::new(&path), octocode_engine::num::saturating_u32(line))
         })
     });
-    scope.excluded().stated()
+    ScopeLeft {
+        excluded: scope.excluded().stated(),
+        unread: scope.unread(),
+    }
 }

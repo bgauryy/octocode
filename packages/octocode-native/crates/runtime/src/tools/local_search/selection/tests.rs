@@ -21,7 +21,8 @@ fn runtime_with(
         executor.handle().clone(),
         Duration::from_secs(5),
     );
-    runtime.limits.max_candidates = max;
+    // A hit with its one-line state charges about a hundred characters.
+    runtime.limits.max_chars = max * 100;
     runtime
 }
 
@@ -96,14 +97,12 @@ fn span_selection_judges_each_occurrence_without_context() {
     assert_eq!((receipt.selected_items, receipt.excluded_items), (2, 2));
 }
 
+/// A dense file no longer collapses into one unjudgeable group: a page judges
+/// what its budget takes, and the rest stays unknown, reachable and countable.
 #[test]
-fn oversized_unknown_group_does_not_claim_its_hits_were_judged() {
+fn a_search_past_one_page_judges_what_fits_and_offers_the_rest() {
     let root = tempfile::tempdir().expect("fixture");
-    std::fs::write(
-        root.path().join("large.txt"),
-        "needle keep\n".repeat(30_000),
-    )
-    .expect("source");
+    std::fs::write(root.path().join("large.txt"), "needle keep\n".repeat(3_000)).expect("source");
     let result = search(
         root.path(),
         json!({"contextLines":{"before":1,"after":1}}),
@@ -111,21 +110,13 @@ fn oversized_unknown_group_does_not_claim_its_hits_were_judged() {
     )
     .expect("search");
     let receipt = result.selection.as_ref().expect("receipt");
-    assert_eq!(receipt.unknown_items, 1);
-    assert_eq!(receipt.selected_items, 0);
-    assert!(
-        result
-            .warnings
-            .iter()
-            .any(|note| note.contains("1 could not be judged, so none of the 30000 hit rows"))
-    );
-    assert!(
-        result
-            .warnings
-            .iter()
-            .all(|note| !note.contains("judged hit rows"))
-    );
-    assert!(result.next.as_ref().unwrap().get("unfiltered").is_some());
+    assert_eq!(receipt.unit, SelectionUnit::Hits);
+    assert_eq!(receipt.total_items, 3_000);
+    assert!(receipt.selected_items > 0 && receipt.unknown_items > 0);
+    assert_eq!(receipt.selected_items + receipt.unknown_items, 3_000);
+    let next = result.next.as_ref().unwrap();
+    assert!(next.get("nextCandidatePage").is_some());
+    assert!(next.get("unfiltered").is_some());
 }
 
 #[test]
@@ -137,7 +128,7 @@ fn a_selection_that_keeps_no_judged_hit_is_not_absence() {
     assert_eq!((receipt.selected_items, receipt.unknown_items), (0, 0));
     assert!(
         result.warnings.iter().any(|note| note.contains(
-            "every chunk was judged and none passed the questions, so none of the 2 hit rows (1 file) is listed. An empty classified result is not absence: the unfiltered search matched them, and `next.unfiltered` lists them."
+            "every hit was judged and none passed the questions, so none of the 2 hit rows (1 file) is listed. An empty classified result is not absence: the unfiltered search matched them, and `next.unfiltered` lists them."
         )),
         "{:?}",
         result.warnings
@@ -158,7 +149,7 @@ fn each_hit_is_judged_and_counts_describe_the_kept_hits() {
     let root = fixture();
     let result = search(root.path(), json!({}), None).expect("selected search");
     let receipt = result.selection.as_ref().expect("receipt");
-    assert_eq!(receipt.unit, SelectionUnit::Chunks);
+    assert_eq!(receipt.unit, SelectionUnit::Hits);
     assert_eq!(
         (
             receipt.total_items,

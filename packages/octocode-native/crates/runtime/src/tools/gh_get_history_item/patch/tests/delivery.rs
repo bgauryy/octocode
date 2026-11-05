@@ -168,7 +168,7 @@ fn patch_pages_emit_no_placeholder_rows_and_compact_headers() {
     assert_eq!(page.cursor, Some(10));
     let mut row = json!({});
     let mut pagination = Map::new();
-    let shaped = shape_pr_files(
+    let _ = shape_pr_files(
         &mut row,
         &mut pagination,
         files,
@@ -184,7 +184,6 @@ fn patch_pages_emit_no_placeholder_rows_and_compact_headers() {
         json!([{"path":"a.rs","stat":"M +2 -1","patch":"AAAAAAAAAA"}])
     );
     assert_eq!(pagination["patches"]["nextOffset"], 10);
-    assert_eq!(shaped.unfinished_patches, 2);
 }
 
 /// Commit rows use the PR header (`path` + `stat`), and a

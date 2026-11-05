@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 mod columns;
+mod long_line;
 use columns::{SpanColumns, block_text, span_value};
 
 /// Cap on emitted spans per file in only-matching mode, so a pathological
@@ -69,6 +70,8 @@ pub(super) struct CollectSink<'a, M: Matcher> {
     pub(super) test_spans: Option<std::sync::Arc<Vec<[u32; 2]>>>,
     /// Matched lines the scope left out.
     pub(super) test_lines_excluded: u32,
+    /// This file's path, which says what a long line's secrets are.
+    pub(super) source: Option<&'a std::path::Path>,
 }
 
 impl<'a, M: Matcher> CollectSink<'a, M> {
@@ -87,6 +90,7 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
             inspect_deferred: None,
             test_spans: None,
             test_lines_excluded: 0,
+            source: None,
             covered: 0,
             matcher,
             entry: FileEntry::new(),
@@ -205,8 +209,11 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
         let mut count: u32 = 0;
         let mut first_start = None;
         let mut spans = Vec::new();
+        let long_line = long_line::is_long(bytes);
 
-        if self.work.collect_spans {
+        if self.work.collect_spans && long_line {
+            count = self.collect_long_spans(bytes, line_number, &mut first_start)?;
+        } else if self.work.collect_spans {
             let (line_text, not_utf8) = block_text(bytes);
             self.not_utf8 |= not_utf8;
             // Emit one span per submatch with its own UTF-16 column, rather than
@@ -276,7 +283,9 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                     true
                 })
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
-            if self.work.materialize_line {
+            if self.work.materialize_line && long_line {
+                self.long_line_row(bytes, line_number, first_start)?;
+            } else if self.work.materialize_line {
                 let (line_text, not_utf8) = block_text(bytes);
                 self.not_utf8 |= not_utf8;
                 let line_text = strip_trailing_newline(line_text);
@@ -299,6 +308,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                         line_text,
                         line_number,
                         column,
+                        windowed_at: None,
                     });
                 }
             }
@@ -334,6 +344,11 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
 
     fn context(&mut self, _searcher: &Searcher, ctx: &SinkContext<'_>) -> std::io::Result<bool> {
         let line_number = saturating_u32(ctx.line_number().unwrap_or(0));
+        if long_line::is_long(ctx.bytes()) {
+            let value = self.long_line_context(ctx.bytes());
+            self.entry.contexts.insert(line_number, value);
+            return Ok(true);
+        }
         let (line_text, not_utf8) = block_text(ctx.bytes());
         self.not_utf8 |= not_utf8;
         let line_text = strip_trailing_newline(line_text);

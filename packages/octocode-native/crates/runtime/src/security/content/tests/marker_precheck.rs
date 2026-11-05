@@ -8,7 +8,8 @@ fn generated() -> Vec<Vec<u8>> {
 /// The rule written out plainly, for every place a run of dashes can open a
 /// marker: what the scan, with its skips and its pieces, must decide.
 fn plain_markers(line: &[u8]) -> Markers {
-    let phrase = regex::bytes::Regex::new("PRIVATE[ \\t]+KEY").expect("static");
+    static PHRASE: std::sync::LazyLock<regex::bytes::Regex> =
+        std::sync::LazyLock::new(|| regex::bytes::Regex::new("PRIVATE[ \\t]+KEY").expect("static"));
     let mut found = Markers::default();
     for at in (0..line.len()).filter(|&at| line[at..].starts_with(b"----")) {
         let rest = &line[at + 4..];
@@ -22,7 +23,7 @@ fn plain_markers(line: &[u8]) -> Markers {
                 continue;
             };
             let close = label.windows(4).position(|run| run == b"----");
-            let held = phrase.find(&label[..close.unwrap_or(label.len())]);
+            let held = PHRASE.find(&label[..close.unwrap_or(label.len())]);
             let marked = held.is_some_and(|key| {
                 close.is_some()
                     || label[key.end()..]

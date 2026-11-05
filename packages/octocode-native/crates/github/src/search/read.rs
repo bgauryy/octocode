@@ -1,5 +1,6 @@
 //! Search response decoding, preserving partial-organization evidence, and
-//! a caller's page of a search read through GitHub's largest pages.
+//! a caller's page of a search: a first page asks for what it needs, a later one
+//! reads through GitHub's largest pages.
 use super::decode;
 use crate::{GitHubTransport, ProviderError, ProviderErrorKind, RequestContext, RequestSpec};
 use serde::Deserialize;
@@ -23,32 +24,53 @@ fn provider_pages(page: usize, per_page: usize) -> Option<(usize, usize)> {
     (first <= last).then_some((first, last))
 }
 
-/// The requests a read of caller page `page` of `per_page` results can send,
-/// in order ([`GitHubTransport::read_search_page`] stops early at a short
-/// provider page).
-pub(crate) fn search_requests(
-    spec: impl Fn(usize, usize) -> Result<RequestSpec, ProviderError>,
-    page: usize,
-    per_page: usize,
-) -> Result<Vec<RequestSpec>, ProviderError> {
-    let (page, per_page) = (page.max(1), per_page.max(1));
-    match provider_pages(page, per_page) {
-        Some((first, last)) => (first..=last)
-            .map(|provider_page| spec(provider_page, SEARCH_PAGE))
-            .collect(),
-        None => Ok(vec![spec(page, per_page)?]),
-    }
-}
-
 impl GitHubTransport {
-    /// Page `page` of `per_page` results of one search, read through
-    /// GitHub's largest search pages and sliced: the results GitHub's own
-    /// `page`/`per_page` would answer, in the same order, with the first
-    /// read page's totals. `spec` builds the request for one provider page
-    /// (`page`, `per_page`). Every caller page inside one provider page asks
-    /// for it in the same words, so a continuation whose cursor owns that
-    /// answer (the request journal) reads nothing, and a walk at any page
-    /// size costs one search request per 100 results.
+    /// Whether caller page `page` of `per_page` results asks GitHub for exactly
+    /// that page: a first page does, since GitHub's time and bytes grow with the
+    /// page it is asked for and most searches stop there, unless a whole provider
+    /// page already held answers it with nothing sent.
+    fn asks_exact_first_page(
+        &self,
+        spec: &impl Fn(usize, usize) -> Result<RequestSpec, ProviderError>,
+        page: usize,
+        per_page: usize,
+        context: &RequestContext,
+    ) -> Result<bool, ProviderError> {
+        Ok(page == 1
+            && per_page < SEARCH_PAGE
+            && !self.answers_unasked(&spec(1, SEARCH_PAGE)?, context))
+    }
+
+    /// The requests a read of caller page `page` of `per_page` results can send,
+    /// in order ([`Self::read_search_page`] stops early at a short provider page).
+    pub(crate) fn search_requests(
+        &self,
+        spec: impl Fn(usize, usize) -> Result<RequestSpec, ProviderError>,
+        page: usize,
+        per_page: usize,
+        context: &RequestContext,
+    ) -> Result<Vec<RequestSpec>, ProviderError> {
+        let (page, per_page) = (page.max(1), per_page.max(1));
+        if self.asks_exact_first_page(&spec, page, per_page, context)? {
+            return Ok(vec![spec(1, per_page)?]);
+        }
+        match provider_pages(page, per_page) {
+            Some((first, last)) => (first..=last)
+                .map(|provider_page| spec(provider_page, SEARCH_PAGE))
+                .collect(),
+            None => Ok(vec![spec(page, per_page)?]),
+        }
+    }
+
+    /// Page `page` of `per_page` results of one search: the results GitHub's own
+    /// `page`/`per_page` would answer, in the same order, with the first read
+    /// page's totals. A first page asks for itself ([`Self::asks_exact_first_page`]).
+    /// A later one reads through GitHub's largest search pages and slices them.
+    /// `spec` builds the request for one provider page (`page`, `per_page`).
+    /// Every caller page inside one provider page asks for it in the same words,
+    /// so a continuation whose cursor owns that answer (the request journal)
+    /// reads nothing, and a walk at any page size costs one search request per
+    /// 100 results, plus its first page.
     pub(crate) async fn read_search_page<T: for<'de> Deserialize<'de>>(
         &self,
         spec: impl Fn(usize, usize) -> Result<RequestSpec, ProviderError>,
@@ -58,6 +80,9 @@ impl GitHubTransport {
         invalid: &'static str,
     ) -> Result<(T, Vec<u64>), ProviderError> {
         let (page, per_page) = (page.max(1), per_page.max(1));
+        if self.asks_exact_first_page(&spec, page, per_page, context)? {
+            return self.read_search(spec(1, per_page)?, context, invalid).await;
+        }
         let start = (page - 1).saturating_mul(per_page);
         let end = start.saturating_add(per_page);
         let Some((first, last)) = provider_pages(page, per_page) else {

@@ -108,12 +108,6 @@ pub(crate) fn project(
     };
     projector.use_edges(&resolver);
     let calls = projector.call_edges(&resolver, &symbols);
-    if let Some(error) = projector.invalid_argument.take() {
-        return Err(crate::response::result::ToolError::new(
-            octocode_contract_types::ErrorCode::ExecutionFailed,
-            error,
-        ));
-    }
     for (src, dst, line) in unparsed_links {
         projector.push(
             src,
@@ -197,10 +191,6 @@ struct Projector<'a> {
     witnesses: Vec<WitnessRec>,
     unresolved: Vec<UnresolvedRec>,
     declarations: Vec<DeclarationRec>,
-    /// See [`GraphTables::checked_arguments`].
-    checked_arguments: HashSet<u32>,
-    /// The first argument observation the source table refused.
-    invalid_argument: Option<String>,
     file_nodes: BTreeMap<&'a str, u32>,
     roles: HashMap<&'a str, u8>,
     languages: HashMap<&'a str, String>,

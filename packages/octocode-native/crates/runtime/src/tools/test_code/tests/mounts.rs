@@ -4,13 +4,23 @@ use super::*;
 use crate::tools::test_support::{Fixture, workspace_policy};
 use std::cell::RefCell;
 
+mod crate_roots;
+mod forms;
 mod texts;
 
-/// The mount rule with no shortcut: every candidate parent read and parsed.
+/// The mount rule with no shortcut: every Rust file a mount may come from read
+/// and parsed.
 struct EveryParentParsed<'a> {
     index: &'a TestCodeIndex,
     mounted: RefCell<HashMap<PathBuf, bool>>,
-    names: RefCell<HashMap<PathBuf, Arc<Vec<String>>>>,
+    targets: RefCell<HashMap<PathBuf, Arc<Targets>>>,
+}
+
+/// What one file mounts: under a gate, and at all.
+#[derive(Default)]
+struct Targets {
+    gated: Vec<PathBuf>,
+    any: Vec<PathBuf>,
 }
 
 impl<'a> EveryParentParsed<'a> {
@@ -18,7 +28,7 @@ impl<'a> EveryParentParsed<'a> {
         Self {
             index,
             mounted: RefCell::default(),
-            names: RefCell::default(),
+            targets: RefCell::default(),
         }
     }
 
@@ -27,16 +37,21 @@ impl<'a> EveryParentParsed<'a> {
     }
 
     fn mounted_under_test(&self, path: &Path) -> bool {
-        if !TestCodeIndex::may_hold_test_code(path) {
+        if !TestCodeIndex::may_hold_test_code(path) || module_name(path).is_none() {
             return false;
+        }
+        if let Some(under_test) = self.index.crate_target(path) {
+            return under_test;
         }
         if let Some(known) = self.mounted.borrow().get(path) {
             return *known;
         }
-        let mounted = module_name(path).is_some_and(|name| {
-            parents_of(path)
-                .iter()
-                .any(|parent| self.names(parent).contains(&name))
+        self.mounted.borrow_mut().insert(path.to_path_buf(), false);
+        let target = octocode_engine::text::lexical(path);
+        let mounted = self.parents_of(path).iter().any(|parent| {
+            let targets = self.targets(parent);
+            targets.gated.contains(&target)
+                || (targets.any.contains(&target) && self.test_path(parent))
         });
         self.mounted
             .borrow_mut()
@@ -44,50 +59,60 @@ impl<'a> EveryParentParsed<'a> {
         mounted
     }
 
-    fn names(&self, parent: &Path) -> Arc<Vec<String>> {
-        if let Some(known) = self.names.borrow().get(parent) {
+    fn targets(&self, parent: &Path) -> Arc<Targets> {
+        if let Some(known) = self.targets.borrow().get(parent) {
             return Arc::clone(known);
         }
-        let parent_test = self.test_path(parent);
-        let names = self
+        let targets = self
             .index
             .source(parent)
             .and_then(|content| TestCodeIndex::parse(parent, &content))
             .map(|document| {
-                document
-                    .modules
-                    .iter()
-                    .filter(|module| !module.inline && module.scope.is_empty())
-                    .filter(|module| parent_test || in_spans(&document.test_lines, module.line))
-                    .map(|module| module.name.clone())
-                    .collect::<Vec<_>>()
+                let root = self.index.crate_target(parent).is_some();
+                let modules = mount_targets::file_modules(parent, &document.modules, root);
+                Targets {
+                    gated: modules
+                        .iter()
+                        .filter(|mount| {
+                            mount.under_test || in_spans(&document.test_lines, mount.line)
+                        })
+                        .map(|mount| mount.path.clone())
+                        .collect(),
+                    any: modules.into_iter().map(|mount| mount.path).collect(),
+                }
             })
             .unwrap_or_default();
-        let names = Arc::new(names);
-        self.names
+        let targets = Arc::new(targets);
+        self.targets
             .borrow_mut()
-            .insert(parent.to_path_buf(), Arc::clone(&names));
-        names
+            .insert(parent.to_path_buf(), Arc::clone(&targets));
+        targets
     }
-}
 
-/// The files that may declare the module `path` defines.
-fn parents_of(path: &Path) -> Vec<PathBuf> {
-    let dir = path.parent().expect("a parent");
-    let dir = if path.file_stem().is_some_and(|stem| stem == "mod") {
-        dir.parent().expect("a directory above")
-    } else {
-        dir
-    };
-    let mut parents = ["mod.rs", "lib.rs", "main.rs"]
-        .into_iter()
-        .map(|name| dir.join(name))
-        .collect::<Vec<_>>();
-    if let (Some(up), Some(name)) = (dir.parent(), dir.file_name()) {
-        parents.push(up.join(format!("{}.rs", name.to_string_lossy())));
+    /// Every Rust file but `path` in its directory and those above it, up to
+    /// its crate or the workspace, and the sibling file named after each.
+    fn parents_of(&self, path: &Path) -> Vec<PathBuf> {
+        let mut parents = Vec::new();
+        let mut dir = path.parent();
+        while let Some(level) = dir {
+            for entry in std::fs::read_dir(level).expect("listing").flatten() {
+                let file = entry.path();
+                if file.is_file() && TestCodeIndex::may_hold_test_code(&file) && file != path {
+                    parents.push(file);
+                }
+            }
+            if let (Some(up), Some(name)) = (level.parent(), level.file_name()) {
+                let named = up.join(format!("{}.rs", name.to_string_lossy()));
+                if named.is_file() && named != path {
+                    parents.push(named);
+                }
+            }
+            let top = level.join("Cargo.toml").is_file()
+                || self.index.paths.workspace_relative(level).as_deref() == Some(".");
+            dir = if top { None } else { level.parent() };
+        }
+        parents
     }
-    parents.retain(|parent| parent != path && parent.is_file());
-    parents
 }
 
 fn rust_files(root: &Path) -> Vec<PathBuf> {
@@ -111,13 +136,20 @@ fn assert_same_mounts(root: &Path) {
     let policy = workspace_policy(root);
     let (reference, index) = (TestCodeIndex::new(&policy), TestCodeIndex::new(&policy));
     let parsed = EveryParentParsed::new(&reference);
+    let unread = TestCodeIndex::new(&policy);
     for file in rust_files(root) {
+        let verdict = index.test_path(&file);
         assert_eq!(
-            index.test_path(&file),
+            verdict,
             parsed.test_path(&file),
             "{} under:\n{}",
             file.display(),
             std::fs::read_to_string(root.join("src/lib.rs")).unwrap_or_default()
+        );
+        assert!(
+            verdict || !unread.test_path_unread(&file),
+            "left unread as test code, though it is not: {}",
+            file.display()
         );
     }
 }
@@ -186,14 +218,15 @@ fn a_gating_attribute_decides_each_mount_as_the_parse_does() {
         ("#[cfg(any(test, all(test, unix)))]\nmod a;\n", vec!["a"]),
         ("#[cfg(test)]\n// note; see\n/* a;\n*/\nmod a;\n", vec!["a"]),
         ("#[cfg(test)]\n#[doc = \"a;b\"]\nmod a;\n", vec!["a"]),
-        ("#[cfg(test)]\n#[path = \"b.rs\"]\nmod a;\n", vec!["a"]),
-        ("#[path = \"b.rs\"]\n#[cfg(test)]\nmod a;\n", vec!["a"]),
+        ("#[cfg(test)]\n#[path = \"b.rs\"]\nmod a;\n", vec!["b"]),
+        ("#[path = \"b.rs\"]\n#[cfg(test)]\nmod a;\n", vec!["b"]),
         ("#[cfg(unix)]\nmod a;\n", vec![]),
         ("#[cfg(not(test))]\nmod a;\n", vec![]),
         ("#[cfg(any(test, unix))]\nmod a;\n", vec![]),
         ("#[cfg(feature = \"test\")]\nmod a;\n", vec![]),
         ("#[cfg_attr(test, allow(unused))]\nmod a;\n", vec![]),
-        ("#[cfg_attr(test, path = \"b.rs\")]\nmod a;\n", vec![]),
+        ("#[cfg_attr(test, path = \"b.rs\")]\nmod a;\n", vec!["b"]),
+        ("#[cfg_attr(unix, path = \"b.rs\")]\nmod a;\n", vec![]),
         (
             "#![cfg_attr(test, allow(unused))]\nmod a;\nmod b;\n",
             vec![],
@@ -278,4 +311,29 @@ fn a_parent_is_parsed_once_and_only_when_its_text_can_mount() {
         1,
         "no text left the parse anything to find"
     );
+}
+
+/// A walk's verdict on a file it has yet to read opens no sibling of it: a
+/// `#[path]` mount waits for the fuller verdict, which finds it and watches what
+/// it read.
+#[test]
+fn a_path_mount_waits_for_the_verdict_that_needs_it() {
+    let root = Fixture::new();
+    root.write("src/lib.rs", "pub fn f() {}\n");
+    root.write(
+        "src/fixtures.rs",
+        "#[cfg(test)]\n#[path = \"target_x.rs\"]\nmod target;\n",
+    );
+    let target = root.write("src/target_x.rs", "pub fn f() {}\n");
+    let index = TestCodeIndex::new(&workspace_policy(&root.0));
+    let fixtures = |index: &TestCodeIndex| {
+        index
+            .watched()
+            .iter()
+            .any(|path| path.ends_with("fixtures.rs"))
+    };
+    assert!(!index.test_path_unread(&target));
+    assert!(!fixtures(&index));
+    assert!(index.test_path(&target));
+    assert!(fixtures(&index));
 }

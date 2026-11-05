@@ -1,9 +1,10 @@
 use octocode_engine::text::lexical;
 use std::path::{Path, PathBuf};
 
-use super::discovery::{EntryKind, is_sensitive_path, withheld_message};
+use super::discovery::{EntryKind, withheld_message};
 use super::{PolicyError, PolicyErrorCode};
 
+mod credentials;
 mod messages;
 mod output;
 #[cfg(test)]
@@ -20,6 +21,11 @@ pub struct PathPolicyConfig {
     /// The user's home, used for `~` expansion, `~/` redaction and
     /// `include_home`; `None` turns all three off (the runtime always sets it).
     pub home_dir: Option<PathBuf>,
+    /// `security.credentialFiles: allow`: credential file names are not
+    /// withheld, except [`Self::octocode_home`] and files directly in `home_dir`.
+    pub(crate) allow_credential_files: bool,
+    /// Holds Octocode's own credentials, whatever the setting.
+    pub(crate) octocode_home: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -36,6 +42,11 @@ pub struct PathPolicy {
     /// `/private/var`), so canonical paths still display workspace-relative.
     workspace_real: Option<PathBuf>,
     home_dir: Option<PathBuf>,
+    allow_credential_files: bool,
+    /// The Octocode home, lexical and resolved.
+    octocode_home: Vec<PathBuf>,
+    /// The user's home, lexical and resolved.
+    home_forms: Vec<PathBuf>,
 }
 
 impl PathPolicy {
@@ -55,11 +66,25 @@ impl PathPolicy {
             .as_deref()
             .and_then(projected_canonical_root)
             .filter(|real| Some(real) != workspace_root.as_ref());
+        let forms = |home: Option<PathBuf>| -> Vec<PathBuf> {
+            home.map(absolutize)
+                .into_iter()
+                .flat_map(|home| {
+                    let real = projected_canonical_root(&home);
+                    std::iter::once(home).chain(real)
+                })
+                .collect()
+        };
+        let octocode_home = forms(config.octocode_home);
+        let home_forms = forms(home.clone());
         Ok(Self {
             roots,
             workspace_root,
             workspace_real,
             home_dir: home,
+            allow_credential_files: config.allow_credential_files,
+            octocode_home,
+            home_forms,
         })
     }
 
@@ -100,11 +125,7 @@ impl PathPolicy {
                 if projected.as_ref().is_none_or(|path| !self.allowed(path)) {
                     return Err(PolicyError::new(
                         PolicyErrorCode::OutsideAllowedRoots,
-                        format!(
-                            "Path '{}' is outside allowed directories{}",
-                            self.display_requested(input, &absolute),
-                            self.describe_roots()
-                        ),
+                        self.outside_roots(input, &absolute),
                     )
                     .with_path(self.display_requested(input, &absolute)));
                 }
@@ -142,7 +163,7 @@ impl PathPolicy {
                 (
                     PolicyErrorCode::SymlinkEscape,
                     format!(
-                        "Symlink '{}' resolves to {}, outside allowed directories{}",
+                        "Symlink '{}' resolves to {}, outside allowed directories.{}",
                         self.display_requested(input, lexical),
                         self.describe_target(&real),
                         self.describe_roots()
@@ -151,11 +172,7 @@ impl PathPolicy {
             } else {
                 (
                     PolicyErrorCode::OutsideAllowedRoots,
-                    format!(
-                        "Path '{}' is outside allowed directories{}",
-                        self.display_requested(input, lexical),
-                        self.describe_roots()
-                    ),
+                    self.outside_roots(input, lexical),
                 )
             };
             return Err(
@@ -163,14 +180,14 @@ impl PathPolicy {
             );
         }
         // Read time re-checks with the kind on disk (fail-closed when unknown).
-        if is_sensitive_path(lexical, EntryKind::stat(lexical)) {
+        if self.withholds(lexical, EntryKind::stat(lexical)) {
             return Err(PolicyError::new(
                 PolicyErrorCode::IgnoredPath,
                 withheld_message(&self.redact(lexical), lexical),
             )
             .with_path(self.redact(lexical)));
         }
-        if is_sensitive_path(&real, EntryKind::stat(&real)) {
+        if self.withholds(&real, EntryKind::stat(&real)) {
             return Err(PolicyError::new(
                 PolicyErrorCode::IgnoredPath,
                 format!(

@@ -67,6 +67,25 @@ pub fn markup_scripts(content: &str, path: &str, extension: &str) -> MarkupScrip
     scripts
 }
 
+/// Whether `content`, a file of markup kind `extension`, reads `word`: as a
+/// word of a script region, or as a member anywhere (a template expression is
+/// code outside any region). Prose that spells the word does not.
+#[must_use]
+pub fn markup_reads(content: &str, extension: &str, word: &str) -> bool {
+    crate::text::whole_word_starts(content, &format!(".{word}"))
+        .next()
+        .is_some()
+        || script_regions(content, extension)
+            .into_iter()
+            .any(|region| {
+                content.get(region).is_some_and(|script| {
+                    crate::text::whole_word_starts(script, word)
+                        .next()
+                        .is_some()
+                })
+            })
+}
+
 fn mentions_import(text: &str) -> bool {
     text.contains("import") || text.contains("export")
 }

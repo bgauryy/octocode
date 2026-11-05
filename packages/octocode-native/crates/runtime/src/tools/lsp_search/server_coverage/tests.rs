@@ -3,6 +3,7 @@ use serde_json::json;
 
 mod includes;
 mod python;
+mod questions;
 mod rust;
 mod text_leads;
 
@@ -280,4 +281,78 @@ fn gate_detection() {
     assert!(has_feature_gate("#[cfg(all(test, feature = \"x\"))]"));
     assert!(has_feature_gate("#![cfg(feature=\"full\")]"));
     assert!(!has_feature_gate("#[cfg(test)]\nlet feature = 1;"));
+}
+
+/// A row names no use when it is empty or lists only declarations.
+#[test]
+fn a_row_of_declarations_names_no_use() {
+    assert!(lists_no_use(&json!({"status":"empty"})));
+    assert!(lists_no_use(
+        &json!({"files":[{"matches":[{"role":"declaration"}]}]})
+    ));
+    assert!(!lists_no_use(
+        &json!({"files":[{"matches":[{"role":"declaration"},{"role":"call"}]}]})
+    ));
+    // A view without match rows lists its files as uses.
+    assert!(!lists_no_use(
+        &json!({"files":[{"path":"a.go"},{"path":"b.go"}]})
+    ));
+    assert!(!lists_no_use(&json!({"files":[]})));
+    // A caller row has no role: it is a use.
+    assert!(!lists_no_use(
+        &json!({"files":[{"matches":[{"symbolName":"f"}]}]})
+    ));
+}
+
+/// With nothing above the project to say where it ends, an answer naming no use
+/// cannot speak for a module beside it; a row that names a use still stands.
+#[test]
+fn an_unbounded_scope_keeps_a_no_use_answer_partial() {
+    let q = query(json!({"path":"/w/a.go","operation":"callers","symbolName":"F","line":1}));
+    let mut scope = Scope::new("/w".into(), vec!["*.go".into()]);
+    scope.unbounded = true;
+    let run = |mut row: Value| {
+        annotate(
+            &mut row,
+            &q,
+            Some("go"),
+            Server {
+                anchor: "/w/a.go",
+                root: "/w",
+            },
+            &scope,
+        );
+        row
+    };
+    let empty = run(json!({"status":"empty"}));
+    assert_eq!(
+        empty["partialReasons"],
+        json!([UNANSWERED_REASON]),
+        "{empty}"
+    );
+    let used = run(json!({"files":[{"matches":[{"symbolName":"g"}]}]}));
+    assert!(used.get("isPartial").is_none(), "{used}");
+}
+
+/// A C-family row never reads complete while a file spelling the name is
+/// unanswered, and an answered scan leaves it alone.
+#[test]
+fn a_c_family_row_with_an_unanswered_spelling_is_partial() {
+    let q = query(json!({"path":"/w/a.c","operation":"callers","symbolName":"F","line":1}));
+    let scope = Scope::new("/w".into(), vec!["*.c".into()]);
+    let mut row = json!({"files":[{"matches":[{"symbolName":"g"}]}]});
+    annotate(
+        &mut row,
+        &q,
+        Some("c"),
+        Server {
+            anchor: "/w/a.c",
+            root: "/w",
+        },
+        &scope,
+    );
+    assert!(
+        row.get("isPartial").is_none(),
+        "no scan, nothing to say: {row}"
+    );
 }

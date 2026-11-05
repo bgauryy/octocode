@@ -96,11 +96,7 @@ fn fetch_partition_binding_rejects_same_count_legacy_replay() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let calls = Arc::new(AtomicUsize::new(0));
     let runtime = Runtime {
-        limits: SelectionLimits {
-            max_candidates: 64,
-            max_chars: 20_000,
-            timeout: Duration::from_secs(5),
-        },
+        limits: SelectionLimits { max_chars: 20_000 },
         available: true,
         judge: Arc::new(FirstCandidate(calls.clone())),
         handle: executor.handle().clone(),

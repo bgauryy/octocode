@@ -4,6 +4,9 @@ use crate::contracts::{self, ContractValidationError, ValidationIssue};
 use crate::id::ToolId;
 use serde_json::Value;
 
+/// The name of every linear walk (core `continuationChannels`).
+pub(crate) const LINEAR_WALK: &str = "nextPage";
+
 pub(crate) struct Scope<'a> {
     pub is_available: &'a dyn Fn(&str) -> bool,
 }
@@ -114,6 +117,60 @@ fn defect(path: &[&str], message: &str) -> ContractValidationError {
             received: None,
         }],
     }
+}
+
+/// Where the rows of `structured` carry a linear walk: every `next.nextPage`
+/// at a schema-declared call position under `results`.
+pub(crate) fn linear_walks(
+    tool: ToolId,
+    structured: &Value,
+) -> Result<Vec<Vec<String>>, ContractValidationError> {
+    let mut walks = Vec::new();
+    visit_calls(tool, structured, &mut |call, path| {
+        let linear = path.first().is_some_and(|key| key == "results")
+            && path.ends_with(&["next".to_owned(), LINEAR_WALK.to_owned()])
+            && call["kind"] == "continue";
+        if linear {
+            walks.push(path.to_vec());
+        }
+    })?;
+    Ok(walks)
+}
+
+/// The distinct handles of `walks`, in document order: a lead repeated on
+/// several rows is one walk.
+pub(crate) fn walk_handles(structured: &Value, walks: &[Vec<String>]) -> Vec<String> {
+    let mut handles = Vec::new();
+    for walk in walks {
+        if let Some(handle) = structured
+            .pointer(&format!("{}/input/cursor", pointer(walk)))
+            .and_then(Value::as_str)
+            && !handles.iter().any(|known| known == handle)
+        {
+            handles.push(handle.to_owned());
+        }
+    }
+    handles
+}
+
+/// Take `walks` off the rows and state their one continuation, `handle`, as
+/// the response's.
+pub(crate) fn hoist(structured: &mut Value, walks: &[Vec<String>], tool: ToolId, handle: &str) {
+    for walk in walks {
+        remove_at(structured, walk);
+        let parent = &walk[..walk.len() - 1];
+        if structured
+            .pointer(&pointer(parent))
+            .and_then(Value::as_object)
+            .is_some_and(serde_json::Map::is_empty)
+        {
+            remove_at(structured, parent);
+        }
+    }
+    structured["responsePagination"] = serde_json::json!({
+        "hasMore": true,
+        "next": {"kind": "continue", "tool": tool.as_str(), "input": {"cursor": handle}},
+    });
 }
 
 pub fn visit_calls(

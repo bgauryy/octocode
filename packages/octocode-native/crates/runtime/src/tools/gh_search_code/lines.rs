@@ -216,6 +216,7 @@ pub(super) fn scan(
     blob.key_blocks = crate::security::private_key_block_line_ranges(&text);
     if octocode_engine::security::WholeSourcePatterns::for_path(path)
         .is_some_and(|patterns| patterns.named_by(&text))
+        || octocode_engine::security::WholeSourcePatterns::any_file().named_by(&text)
     {
         let Ok((clean, _)) = security.redact_source_lines(&text, Path::new(path)) else {
             return FileHits::Unavailable;

@@ -95,6 +95,7 @@ pub(super) fn scan(
     let mut out = GraphFactsMappedScan {
         kept: result.kept,
         parsed: result.parsed,
+        passed_over: result.passed_over,
         skipped: result.skipped,
         files_skipped: result.files_skipped,
         truncated: walk.was_capped,

@@ -17,9 +17,9 @@ const OMISSION_MARKER_CHARS: usize = 48;
 /// one streamed window read, joined with an omission marker between
 /// non-adjacent spans, as a whole-file read joins them. The page ends at the
 /// first span that does not fit one window page: it holds every span before
-/// it and that span's first page, continued by that span's own pages
-/// (`nextPage`) and one read of every requested range after it
-/// (`readOtherRanges`), so each requested line is on exactly one page.
+/// it and that span's first page. Its `nextPage` reads on from there through
+/// every range after it, so following `nextPage` alone puts each requested
+/// line on exactly one page. A read position belongs to the first span.
 pub(super) fn fetch_ranges(
     q: &LocalFetchQuery,
     source: &Opened<'_>,
@@ -36,8 +36,12 @@ pub(super) fn fetch_ranges(
     );
     let ones = merged
         .iter()
-        .map(|&(start, end)| {
+        .enumerate()
+        .map(|(index, &(start, end))| {
             let mut one = q.clone();
+            if index > 0 {
+                local_fetch_query::set_progress(&mut one, None);
+            }
             local_fetch_query::set_line_span(&mut one, start, end)?;
             let span = window_span(&one);
             Ok::<_, serde_json::Error>((one, span))
@@ -54,18 +58,19 @@ pub(super) fn fetch_ranges(
         }
     };
     // One pass over the file holds every range's window: the digest and
-    // line count are the file's, not the range's.
+    // line count are the file's, not the range's. A proved source reads its
+    // windows as the page reaches them, in growing runs: a page budget often
+    // stops long before the last one.
     let wants = ones.iter().map(|(_, span)| span.want()).collect::<Vec<_>>();
-    let streamed = match source.windows(&wants, cancel) {
-        Ok(streamed) => streamed,
-        Err(error) => {
-            return LocalFetchResult::error(
-                local_fetch_query::path(q).to_owned(),
-                ErrorCode::FileReadFailed,
-                error,
-            );
-        }
-    };
+    let mut held = std::collections::VecDeque::new();
+    let (mut read, mut run) = (
+        0,
+        if source.proven.is_some() {
+            1
+        } else {
+            wants.len()
+        },
+    );
     let mut parts = Vec::with_capacity(merged.len());
     // The span the page stops inside: its range and the calls that read on.
     let mut cut = None;
@@ -83,7 +88,24 @@ pub(super) fn fetch_ranges(
             .max(1)
     });
     let mut around = None;
-    for (index, ((one, span), streamed)) in ones.into_iter().zip(streamed).enumerate() {
+    for (index, (one, span)) in ones.into_iter().enumerate() {
+        if held.is_empty() {
+            let upto = (read + run).min(wants.len());
+            match source.windows(&wants[read..upto], cancel) {
+                Ok(windows) => held.extend(windows),
+                Err(error) => {
+                    return LocalFetchResult::error(
+                        local_fetch_query::path(q).to_owned(),
+                        ErrorCode::FileReadFailed,
+                        error,
+                    );
+                }
+            }
+            (read, run) = (upto, run * 2);
+        }
+        let Some(streamed) = held.pop_front() else {
+            break;
+        };
         let (start, end) = (span.first, span.requested_last);
         let part_share = text_left.map(|left| left + around.unwrap_or(0));
         let mut part = serve_window(
@@ -115,28 +137,16 @@ pub(super) fn fetch_ranges(
         }
         if let Some(mut next) = part.next.take() {
             let after = &merged[index + 1..];
-            if !after.is_empty() {
-                let mut rest = q.clone();
-                local_fetch_query::set_progress(&mut rest, None);
-                if let Err(error) = local_fetch_query::set_line_spans(&mut rest, after) {
-                    return LocalFetchResult::error(
-                        local_fetch_query::path(q).to_owned(),
-                        ErrorCode::ExecutionFailed,
-                        error.to_string(),
-                    );
-                }
-                if let Err(error) =
-                    local_fetch_query::set_snapshot(&mut rest, part.source_sha256.as_deref())
-                {
-                    return LocalFetchResult::error(
-                        local_fetch_query::path(q).to_owned(),
-                        ErrorCode::ExecutionFailed,
-                        error.to_string(),
-                    );
-                }
-                next.read_other_ranges = Some(FetchCall::continued(rest));
+            if !after.is_empty()
+                && let Err(error) = read_on(q, &mut next, after, part.source_sha256.as_deref())
+            {
+                return LocalFetchResult::error(
+                    local_fetch_query::path(q).to_owned(),
+                    ErrorCode::ExecutionFailed,
+                    error,
+                );
             }
-            cut = Some((start, end, next));
+            cut = Some((start, end, !after.is_empty(), next));
             parts.push(part);
             break;
         }
@@ -147,17 +157,45 @@ pub(super) fn fetch_ranges(
         return unsupported(q, len, "no line range was requested.", read_bounded(q));
     };
     join_parts(&mut result, parts);
-    // Each window held its lines; one line says it for all.
-    result.warnings.insert(0, streamed_warning(len));
+    // Each window held its lines; one line says it for all, on the read's
+    // first page.
+    if local_fetch_query::read_progress(q).is_none() {
+        result.warnings.insert(0, streamed_warning(len));
+    }
     result.pagination = None;
-    if let Some((start, end, next)) = cut {
-        result
-            .warnings
-            .push(cut_note(start, end, next.read_other_ranges.is_some()));
+    if let Some((start, end, after, next)) = cut {
+        result.warnings.push(cut_note(start, end, after));
         result.is_partial = Some(true);
         result.next = Some(next);
     }
     result
+}
+
+/// Point `next.nextPage` of a page cut before the ranges `after` at the read of
+/// all that is left: the cut span from where it stopped, then those ranges.
+fn read_on(
+    q: &LocalFetchQuery,
+    next: &mut NextCalls,
+    after: &[(usize, usize)],
+    snapshot: Option<&str>,
+) -> Result<(), String> {
+    let (mut read, mut spans) = match next.continue_window.take() {
+        Some(call) => {
+            let cut = local_fetch_query::line_ranges(&call.query);
+            let spans = cut.iter().map(|range| (range.start, range.end)).collect();
+            (call.query, spans)
+        }
+        None => {
+            let mut read = q.clone();
+            local_fetch_query::set_progress(&mut read, None);
+            (read, Vec::new())
+        }
+    };
+    spans.extend_from_slice(after);
+    local_fetch_query::set_line_spans(&mut read, &spans).map_err(|error| error.to_string())?;
+    local_fetch_query::set_snapshot(&mut read, snapshot).map_err(|error| error.to_string())?;
+    next.continue_window = Some(FetchCall::continued(read));
+    Ok(())
 }
 
 fn join_parts(result: &mut LocalFetchResult, parts: impl Iterator<Item = LocalFetchResult>) {
@@ -202,15 +240,16 @@ fn join_parts(result: &mut LocalFetchResult, parts: impl Iterator<Item = LocalFe
     }
 }
 
-/// The note of a ranges page that ends inside lines `start`-`end`, whose
-/// later ranges (`after`) are read on their own.
+/// The note of a ranges page that ends inside lines `start`-`end`, with
+/// requested ranges `after` them or none.
 fn cut_note(start: usize, end: usize, after: bool) -> String {
-    let after = if after {
-        "; the ranges after it are read on their own"
+    if after {
+        format!(
+            "Lines {start}-{end} need more than one window page: this page ends inside them and next reads on: first the rest of those lines, then the other ranges after them."
+        )
     } else {
-        ""
-    };
-    format!(
-        "Lines {start}-{end} need more than one window page: this page ends inside them and their later pages read that range alone{after}."
-    )
+        format!(
+            "Lines {start}-{end} need more than one window page: this page ends inside them and their later pages read that range alone."
+        )
+    }
 }

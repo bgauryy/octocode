@@ -28,8 +28,8 @@ There are two ways in:
    octocode clasify '{"queries":[{"operation":"evaluate","source":{"tool":"ghGetFileContent","query":{"owner":"vitejs","repo":"vite","path":"packages/vite/src/node/server/middlewares/hostCheck.ts","ref":"b3cb0575aff63004a71301a1ec798aeea2aa05d7"}},"questions":{"host":{"type":"noul","instructions":"Does this code reject an incoming request whose Host header is not in an allowed-hosts list?"}}}]}'
    ```
 
-3. Read the answer (`noul` is P(yes)), then run the `next.read` call it prints when you need to
-   quote the lines.
+3. Read the answer (`noul` is P(yes)). To check a yes, run the `sections` call it offers in
+   `related[]`, then read the lines it names. `next.read` re-reads the whole file.
 
 The MCP server takes the same requests as the CLI.
 
@@ -43,7 +43,7 @@ flowchart TD
     accDescr: Find candidates with exact search, judge them with Jev, read the judged lines, and cite them. Unknown or partial results go back to search; lines that do not confirm the answer go back to judging.
     Q["Research question"] --> F["Find candidates<br/>exact search, paths, globs"]
     F --> J["Judge with Jev<br/>classification or clasify"]
-    J --> R["Read the judged lines<br/>next.read"]
+    J --> R["Read the judged lines<br/>target.lines, ranges"]
     R --> C["Cite path and lines"]
     J -- "unknown or partial" --> F
     R -- "lines do not confirm" --> J
@@ -106,7 +106,9 @@ sequenceDiagram
 - **The reader** is the same one a normal call uses: `localFetch` for local files,
   `ghGetFileContent` for GitHub (pinned to the resolved commit), or an HTTPS `url`. Path, auth
   and network policies apply before anything reaches Jev.
-- **Oversized sources fail explicitly.** Octocode never judges a silently clipped prefix.
+- **Oversized sources fail explicitly.** Octocode never judges a silently clipped prefix. The
+  provider's window decides: Octocode sends the default window, asks for the long-context one only
+  after a refusal, and passes on the provider's refusal of that with a ready `sections` call.
 - **Jev sees only** the captured text, your questions and `context`. It has no conversation
   history and no sibling answers, so each question must stand alone.
 - **No answer cache across requests.** Each fresh request is judged and billed again, so an
@@ -154,21 +156,33 @@ which units reach you.
 ```mermaid
 flowchart TD
     accTitle: How inline classification selects hits
-    accDescr: The search or read runs normally. Each hit with its context lines becomes a unit. Jev judges up to 64 units per page with one call per unit. Units with any predicate over 0.5 on direct evidence are returned; near misses, exclusions and undecided units are counted in the receipt but hidden.
-    T["Search or read runs normally"] --> U["Units: each hit<br/>with its contextLines"]
-    U --> J["Jev judges up to 64 units per page<br/>one call per unit, all predicates"]
+    accDescr: The search or read runs normally. Each search hit is a unit; a read with no search is split into chunks. A file's hits share one Jev request, one question per hit, its context lines in the shared state. A hit with any predicate over 0.5 on direct evidence is returned with its window; near misses, exclusions and undecided hits are counted in the receipt but hidden. A page stops at its budget and the next page takes the rest.
+    T["Search or read runs normally"] --> U["Units: each hit<br/>(a read with no search: chunks)"]
+    U --> J["One request per file<br/>one question per hit, all predicates"]
     J --> K{"Any predicate over 0.5<br/>on direct evidence?"}
-    K -- "yes" --> S["selected<br/>returned to you"]
+    K -- "yes" --> S["selected<br/>returned with its window"]
     K -- "no, near miss or undecided" --> H["excluded, related or unknown<br/>counted in the receipt, hidden"]
+    J -- "page budget reached" --> N["next.nextCandidatePage<br/>judges the rest"]
 ```
 
-The receipt (`selection`) counts every group, and continuations reach the rest:
+**The hit is the unit.** Each hit gets its own verdict: context lines inform it but never pass it, so
+a kept hit's window can show lines that did not pass, and `matchedLines` names the kept hits. The
+hits of one file share one provider request, so the state is sent once; on the frozen fixtures this
+judged every hit right at context 0, ±2 and ±3, at about a third of the tokens of one call per hit.
+A read with no search has no hit to ask about: it is judged in chunks (declarations or line windows),
+each kept whole. `selection.unit` says which.
+
+The receipt (`selection`) counts every unit, and continuations reach the rest:
 
 | Continuation | Use it when |
 |---|---|
-| `next.nextCandidatePage` | More candidates remain to judge |
-| `next.unfilteredUnknown` | The units Jev could not decide might change your claim |
+| `next.nextCandidatePage` | More units remain to judge; `selection.usage.remainingInputTokensEstimate` prices them at this page's rate |
+| `next.unfilteredUnknown` | The units Jev could not decide might change your claim. A search reads the files holding them, a read the exact lines |
 | `next.unfiltered` | You need the whole view, unjudged, for a count or an absence claim |
+
+A provider that cannot answer (slow, overloaded, unreachable) never hides what the search found: the
+hits come back unjudged with a warning naming the cause. If only some requests failed, the page
+keeps the verdicts it got and `next.nextCandidatePage` judges the failed hits again.
 
 > [!IMPORTANT]
 > Jev judges each hit and its `contextLines`, not the whole file. If the property you ask about
@@ -184,8 +198,11 @@ The receipt (`selection`) counts every group, and continuations reach the rest:
 - `content` is literal text or JSON you supply. Paths or URLs inside it are data and are not
   fetched.
 
-Jev judges the captured text against every question. The result holds `answers.<key>`, `usage`
-and `next.read`, which reads exactly the judged selection at its pinned snapshot or commit.
+Jev judges the captured text against every question. The result holds `answers.<key>`, `usage`,
+`next.read` and `readChars`. `next.read` is not a span: it re-reads the whole judged selection at its
+pinned snapshot or commit, and `readChars` says how many characters that is. To check a yes for less,
+run the `sections` call in `related[]`: the same question, with `target.lines` per section. Then read
+only those lines with `ranges` at the same path and ref, or use `matchString` if the answer has a term.
 
 ### clasify sections: map questions across many files
 
@@ -238,7 +255,7 @@ stateDiagram-v2
 | Open → InFlight | The batch's character budget admits the section |
 | InFlight → Answered | Jev returned a typed answer |
 | InFlight → Error | The provider failed, a different model answered, or the process stopped with the outcome unknown |
-| InFlight → Open | The time budget ended before the request was sent; a later batch retries it |
+| InFlight → Open | The call's deadline passed before the request was sent; a later batch retries it |
 | Open → Unassessed | The run ended with work left; `terminalReason` says why |
 
 Coverage counts these states per resource (`answered`, `error`, `unsupported`, `unassessed`),
@@ -300,15 +317,15 @@ sequenceDiagram
 | State | Where | How long | Holds |
 |---|---|---|---|
 | Capture pool | RAM | One call | The sanitized text of each captured source |
-| Plan store | RAM, plus disk with persistent storage | 30 minutes | Section text, the cell matrix, rows in flight, every emitted batch |
-| Saved result pages | The page store | The continuation idle lifetime | Emitted pages, replayed with no inference |
+| Plan store | RAM, plus disk with persistent storage | 30 minutes after its last use | Section text, the cell matrix, rows in flight, every emitted batch |
+| Saved result pages | The page store | The same 30 minutes for `clasify` | Emitted pages and read handles, replayed with no inference |
 | Agent context | The main agent | The conversation | Answers, coverage and read handles only |
 
 - If a process stops while rows are in flight, the next continuation reports those cells as
   errors with an unknown provider outcome. It does not send them again.
 - An answer from a different model than the one the plan started with is refused.
-- With `storage.mode: "memory"`, a CLI call whose plan needs more than one batch is refused
-  before any inference. The default persistent storage and a running MCP server can continue it.
+- With `storage.mode: "memory"`, a CLI call has no next call to continue a plan, so it judges the
+  whole plan in that call. The default persistent storage and a running MCP server page it.
 
 ## Examples
 
@@ -363,7 +380,7 @@ The filled matrix, one row per section, P(yes) per question:
 | `ws` | s1 | 217–374 | **0.94** | 0.07 | 0.05 |
 | `ws` | s2 | 374–473 | 0.06 | 0.08 | 0.05 |
 
-Probabilities can shift by about 0.01 between runs. Read the high-scoring sections with each
+Probabilities shift by about 0.01 between runs on average, up to 0.08 on answers already unsure. Read the high-scoring sections with each
 resource's `read` handle, and follow `next.nextPage` unchanged until no resource reports
 `remainingSections`.
 
@@ -455,9 +472,14 @@ Main-agent tokens; the smallest per corpus is in bold.
   search (15.6k against 4.7k on Vite). Use it to replace reading, not searching.
 - **You need to prove absence.** An answer or an unassessed cell is not a "no"; use exact tools
   or `next.unfiltered`.
-- **The fact is a relation between passages.** Event order and contradictions between documents
-  are often missed with confidence (recall 16/30 for doc contradictions and 5/18 for log order in
-  the 2026-11-04 benchmark, with no false positives), so a low P(yes) clears nothing.
+- **The fact is a relation you cannot name.** Named relations held up on 2026-11-05: 26 of 26 for
+  named events and conflicting values, overall recall 49 of 52. A generic "do any two passages
+  contradict?" missed 2 of 8, and an earlier benchmark's harder fixtures reached 16/30 for doc
+  contradictions and 5/18 for log order. A low P(yes) clears nothing.
+- **The fact depends on a control-flow path, asked plainly.** "Is there a path that returns without
+  unlocking?" read no on real defects (7 of 7 runs, four languages). A `choice` naming the paths
+  ("every return path releases it", "an early return does not", `unknown`) separated all 14
+  defect-and-fixed cases across six kinds of leak, and so did `noul` `criteria` stating both sides.
 
 In agent research runs (5 tasks, 4 runs), agents found every answer with exact search and called
 Jev once. Extra classifier guidance raised their context by 40% with no gain in accuracy, so
@@ -471,7 +493,8 @@ errors and partial receipts tell source, admission, provider and assessment fail
 | You see | Do |
 |---|---|
 | `next.nextPage`, `next.nextCandidatePage` | Run it unchanged: it continues saved work |
-| `next.read`, `resources.<key>.read` | Run it to read exactly the judged selection, pinned |
+| `next.read`, `resources.<key>.read` | Run it to read the whole judged selection, pinned (`readChars` on `evaluate`) |
+| `classificationStateTooLarge`, `classificationContextTooLarge` | Nothing was billed. Run the `sections` call in `related[]`, or split by ranges or rows, each its own call |
 | `related[]` | Optional fresh request; it may widen scope |
 | `unassessed` cells or `terminalReason` | That work was not judged: it is not a "no" |
 | A transient provider failure | Unfiltered evidence may come back with a disclosure; refused credentials and invalid provider answers stay typed failures |
@@ -483,8 +506,9 @@ answer does not show that a source lacks something.
 ## Availability
 
 [Configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) owns CLI/MCP exposure, the
-classification key, blank-key opt-out and MCP tool filters. The CLI always lists `clasify`; MCP
-exposes it when its key is configured and catalog restrictions permit it. Discovery sends no
+classification key, blank-key opt-out and MCP tool filters. Both surfaces list `clasify`, and serve
+its workflows in their instructions, only when its key is configured; MCP catalog restrictions can
+still remove it there. Without a key, `octocode clasify` answers how to set one. Discovery sends no
 provider ping, so a missing credential, a rejected key or a provider outage is reported by the
 call that needs the provider. Source access and storage policies still apply. For credential
 setup, see [Authentication](AUTHENTICATION.md#classification-key-clasify).
@@ -493,19 +517,19 @@ request fields.
 
 ## Limits
 
-| Limit | Value |
-|---|---|
-| Queries per `clasify` call | 5 |
-| Questions per query | 25 |
-| `sections` resources per query | 25 |
-| `choice` options | 255 |
-| `score` levels | 10 (the provider refuses more) |
-| Images per query | 8, at most 8 MB each and 16 MB together |
-| `classification` units judged per page | 64 |
+| Limit | Value | Whose |
+|---|---|---|
+| Queries per `clasify` call | 5 | Every tool's batch shape |
+| `choice` options | 255 | Provider |
+| `score` levels | 2 to 10 | Provider |
+| Image | 16 MiB each, 32 MiB per request, 280 to 1568 px a side | Provider |
+| Request body | 32 MiB | Provider |
+| Context window | 32k tokens per question, 64k per request; 262k with long context | Provider, which refuses unbilled |
+| One capture | The reader's own source limit | Local memory |
+| One page or `sections` batch | About 131,000 characters of states and questions, at least one unit | A cost checkpoint: the next page takes the rest, nothing is lost |
 
-The generated contract and native constants own these values; the runtime also bounds source
-bytes, inference time and retained state. Every limit discloses unassessed work, a continuation
-or a terminal reason. See [fixed internal limits](STORAGE_AND_LIMITS.md#fixed-internal-limits) and the
+Questions, resources, predicates and images have no count of their own: the provider's window and
+local memory decide. See [fixed internal limits](STORAGE_AND_LIMITS.md#fixed-internal-limits) and the
 [data contract](TOOL_DATA_CONTRACT.md#evidence-boundaries).
 
 ## Accuracy scorecard
@@ -530,5 +554,5 @@ matter; screenshots, charts and error popups; obvious design flaws; triaging inc
 
 **Weak at:** counting, totals and maxima (use a script); pixel-level layout (use DOM
 measurements); broad questions like "any bug?" (ask one exact, named fact per question);
-relations such as event order or contradictions between passages; `box` on an absent target (it
+relations you cannot name; a control-flow path asked plainly; `box` on an absent target (it
 still returns a box: ask a `noul` about presence first).

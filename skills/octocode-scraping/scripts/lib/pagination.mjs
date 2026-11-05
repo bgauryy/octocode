@@ -17,7 +17,7 @@ async function corpusSnapshot(files) {
 function oversizedPointer(dir, at, encoded, bytes) {
   const cache = join(dir, 'indexes', 'query-values'); mkdirSync(cache, { recursive: true });
   const rowSnapshot = createHash('sha256').update(encoded).digest('hex');
-  const source = join(cache, rowSnapshot + '.json');
+  const source = join(cache, `${rowSnapshot}.json`);
   if (!existsSync(source)) writeFileSync(source, encoded, { mode: 0o600 });
   return { sourceIndex: at, oversized: true, bytes, next: { continue: { command: process.execPath, args: [fileURLToPath(new URL('../source-query.mjs', import.meta.url)), '--file', source, '--snapshot', rowSnapshot] } } };
 }
@@ -37,9 +37,9 @@ function pageRows(rows, at, { limit, dir, budget }) {
 }
 
 function continuation(args, script, { field, at, snapshot }) {
-  const owned = ['--snapshot', '--view', '--cursor-' + field];
+  const owned = ['--snapshot', '--view', `--cursor-${field}`];
   const filtered = args.filter((_, i) => !owned.includes(args[i]) && !owned.includes(args[i - 1]));
-  return { command: process.execPath, args: [script, ...filtered, '--view', field, '--cursor-' + field, String(at), '--snapshot', snapshot] };
+  return { command: process.execPath, args: [script, ...filtered, '--view', field, `--cursor-${field}`, String(at), '--snapshot', snapshot] };
 }
 
 function pageOptions(args, lists, defaultLimit) {
@@ -55,7 +55,7 @@ async function paginateLists({ lists, files, dir, args, script, defaultLimit }) 
   const next = {}, output = {}, pagination = {}; let budget = 16000;
   for (const [field, rows] of Object.entries(lists)) {
     output[field] = []; if (view && field !== view) continue;
-    const cursor = Number(flagValue(args, '--cursor-' + field, 0)); if (!Number.isSafeInteger(cursor) || cursor < 0 || cursor > rows.length) throw new Error('Invalid cursor');
+    const cursor = Number(flagValue(args, `--cursor-${field}`, 0)); if (!Number.isSafeInteger(cursor) || cursor < 0 || cursor > rows.length) throw new Error('Invalid cursor');
     const paged = pageRows(rows, cursor, { limit, dir, budget });
     output[field] = paged.page; budget = paged.budget;
     pagination[field] = { cursor, returned: output[field].length, total: rows.length };

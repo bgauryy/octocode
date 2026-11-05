@@ -77,3 +77,61 @@ fn imports_are_scoped_to_their_enclosing_declaration() {
     assert_eq!(callees(root, "c/Plain.scala#Plain.q").len(), 1);
     assert_eq!(callees(root, "c/Wild.scala#Wild.w"), []);
 }
+
+/// A local `val` is a value, however it was made: applying it reaches what it
+/// holds, which no syntax names, so the call is no edge to the `val`.
+#[test]
+fn a_local_val_is_no_call_target() {
+    let temp = fixture(&[(
+        "a.scala",
+        "object V {\n  def target(): Int = 1\n}\nclass K {\n  def viaValue(): Int = {\n    val g = V.target _\n    g()\n  }\n}\n",
+    )]);
+    assert_eq!(callees(ingested(&temp), "a.scala#K.viaValue"), []);
+}
+
+/// `a m b` calls `a.m(b)`; `1 + 2` names no declaration.
+#[test]
+fn an_infix_method_is_a_call() {
+    let temp = fixture(&[(
+        "a.scala",
+        "class Box {\n  def helper(n: Int): Int = n\n  def viaThis(): Int = this helper 2\n  def viaParam(b: Box): Int = b helper 3\n  def sum(): Int = 1 + 2\n}\n",
+    )]);
+    let root = ingested(&temp);
+    let helper = "a.scala#Box.helper";
+    assert_eq!(callees(root, "a.scala#Box.viaThis"), [to(helper, "local")]);
+    assert_eq!(
+        callees(root, "a.scala#Box.viaParam"),
+        [to(helper, "receiver-type")]
+    );
+    assert_eq!(callees(root, "a.scala#Box.sum"), []);
+}
+
+/// A `def` without a parameter list is called by naming it; a parameter or a
+/// `val` of that name is read.
+#[test]
+fn naming_a_parameterless_def_is_a_call() {
+    let temp = fixture(&[(
+        "a.scala",
+        "class Box {\n  def noArgs: Int = 2\n  val held: Int = 3\n  def bare(): Int = noArgs\n  def viaThis(): Int = this.noArgs\n  def shadowed(noArgs: Int): Int = noArgs\n  def read(): Int = held\n}\n",
+    )]);
+    let root = ingested(&temp);
+    let def = "a.scala#Box.noArgs";
+    assert_eq!(callees(root, "a.scala#Box.bare"), [to(def, "local")]);
+    assert_eq!(callees(root, "a.scala#Box.viaThis"), [to(def, "local")]);
+    assert_eq!(callees(root, "a.scala#Box.shadowed"), []);
+    assert_eq!(callees(root, "a.scala#Box.read"), []);
+}
+
+/// A call in a local `val`'s initializer belongs to the enclosing `def`: the
+/// `val` is no declaration, as a local of any other grammar is none.
+#[test]
+fn a_call_in_a_local_val_belongs_to_its_def() {
+    let temp = fixture(&[(
+        "a.scala",
+        "class Box {\n  def secret(): Int = 1\n  val field: Int = secret()\n  def run(): Int = {\n    val a = this.secret()\n    a\n  }\n}\n",
+    )]);
+    let root = ingested(&temp);
+    let secret = "a.scala#Box.secret";
+    assert_eq!(callees(root, "a.scala#Box.run"), [to(secret, "local")]);
+    assert_eq!(callees(root, "a.scala#Box.field"), [to(secret, "local")]);
+}

@@ -42,11 +42,28 @@
     ".claude/**"
   ],
   "rules": {
+    // Off after reading a sample of each on 2026-11-05: 341 findings, no real bug. Casts at a checked
+    // boundary, `.sort()` on a fresh array of strings, `require` destructuring, closures that read better in place.
+    "typescript/no-unsafe-type-assertion": "off",
+    "typescript/require-array-sort-compare": "off",
+    "typescript/unbound-method": "off",
+    "unicorn/no-array-sort": "off",
+    "unicorn/no-array-reverse": "off",
+    "unicorn/consistent-function-scoping": "off",
     "max-lines": ["error", { "max": 400, "skipBlankLines": false, "skipComments": false }],
     "max-lines-per-function": ["error", { "max": 80, "skipBlankLines": false, "skipComments": false }],
     "complexity": ["error", { "max": 15 }],
     "max-depth": ["error", { "max": 4 }],
     "max-params": ["error", { "max": 4 }],
+    // Backticks over string joins, and everyday best practices.
+    "prefer-template": "error",
+    "no-useless-concat": "error",
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    "no-else-return": "error",
+    "no-throw-literal": "error",
+    "no-useless-return": "error",
+    "no-lonely-if": "error",
+    "yoda": "error",
     "no-console": "error",
     "no-unused-vars": [
       "error",

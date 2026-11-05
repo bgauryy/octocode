@@ -4,8 +4,21 @@ use super::compact::CALLER_PATH;
 use super::nodes::anchor_range;
 use super::{Expansion, HierarchyEdge};
 use crate::tools::lsp_search::locations::public_range;
-use crate::tools::lsp_search::render::{symbol_kind_name, uri_to_path};
+use crate::tools::lsp_search::render::{label_name, symbol_kind_name, uri_to_path};
 use serde_json::{Value, json};
+
+/// Internal to a walk node: the label a name was cut from, which a public row
+/// states in its `detail` ([`signed_detail`]).
+pub(super) const SIGNATURE: &str = "signature";
+
+/// `detail` and `signature` as the one `detail` a row states.
+pub(super) fn signed_detail(detail: Option<&str>, signature: Option<&str>) -> Option<String> {
+    match (detail, signature) {
+        (Some(detail), Some(signature)) => Some(format!("{detail} {signature}")),
+        (Some(text), None) | (None, Some(text)) => Some(text.to_owned()),
+        (None, None) => None,
+    }
+}
 
 /// Public hierarchy node (`CallHierarchyItem`/`TypeHierarchyItem`): named
 /// kind, `uri`, and a one-based `displayRange` that starts at the symbol
@@ -13,7 +26,16 @@ use serde_json::{Value, json};
 /// server `data` and empty `detail` are dropped.
 fn public_hierarchy_node(node: &Value) -> Value {
     let mut public = serde_json::Map::new();
-    if let Some(name) = node.get("name") {
+    let (name, signature) =
+        node.get("name")
+            .and_then(Value::as_str)
+            .map_or((None, None), |label| {
+                let (name, signature) = label_name(label);
+                (Some(name), signature)
+            });
+    if let Some(name) = name {
+        public.insert("symbolName".into(), json!(name));
+    } else if let Some(name) = node.get("name") {
         public.insert("symbolName".into(), name.clone());
     }
     public.insert("kind".into(), json!(symbol_kind_name(node.get("kind"))));
@@ -23,6 +45,9 @@ fn public_hierarchy_node(node: &Value) -> Value {
         .filter(|detail| !detail.is_empty())
     {
         public.insert("detail".into(), json!(detail));
+    }
+    if let Some(signature) = signature {
+        public.insert(SIGNATURE.into(), json!(signature));
     }
     if let Some(uri) = node.get("uri").and_then(Value::as_str) {
         public.insert("path".into(), json!(uri_to_path(uri)));
@@ -48,7 +73,7 @@ pub(super) fn public_via(node: &Value) -> Value {
             .map(|value| value + 1)
     };
     json!({
-        "symbolName": node.get("name"),
+        "symbolName": node.get("name").and_then(Value::as_str).map(|label| label_name(label).0),
         "path": node.get("uri").and_then(Value::as_str).map(uri_to_path),
         "line": point("line"),
         "character": point("character")
@@ -107,7 +132,18 @@ pub(in crate::tools::lsp_search) fn public_edge(
         }
         Value::Object(call)
     } else {
-        public_hierarchy_node(&edge.node)
+        let mut node = public_hierarchy_node(&edge.node);
+        // Only a call row weighs a signature by the row around it.
+        if let Some(row) = node.as_object_mut()
+            && let Some(signature) = row.remove(SIGNATURE)
+        {
+            let detail = row.get("detail").and_then(Value::as_str);
+            row.insert(
+                "detail".into(),
+                json!(signed_detail(detail, signature.as_str())),
+            );
+        }
+        node
     };
     public["level"] = json!(edge.level);
     if edge.level > 1
@@ -116,4 +152,45 @@ pub(in crate::tools::lsp_search) fn public_edge(
         public["via"] = public_via(parent);
     }
     public
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A label with a signature (jdtls) anchors by its name: the name fed
+    /// back as `symbolName` resolves, and the signature stays in `detail`.
+    #[test]
+    fn a_signature_label_is_named_by_its_identifier() {
+        let at =
+            json!({"start": {"line": 3, "character": 25}, "end": {"line": 3, "character": 30}});
+        let node = |name: &str, detail: Value| {
+            json!({"name": name, "kind": 6, "detail": detail, "uri": "file:///w/Use.java",
+                "range": at, "selectionRange": at})
+        };
+        let java = public_hierarchy_node(&node("useIt(Port) : String", json!("demo.Use")));
+        assert_eq!(java["symbolName"], "useIt", "{java}");
+        assert_eq!(java["detail"], "demo.Use", "{java}");
+        assert_eq!(java[SIGNATURE], "useIt(Port) : String", "{java}");
+        let bare = public_hierarchy_node(&node("read(int)", json!("")));
+        assert_eq!(bare["symbolName"], "read", "{bare}");
+        assert_eq!(bare.get("detail"), None, "{bare}");
+        assert_eq!(bare[SIGNATURE], "read(int)", "{bare}");
+        assert_eq!(
+            public_via(&node("useIt(Port) : String", json!("demo.Use")))["symbolName"],
+            "useIt"
+        );
+        // Any other label is the name it always was.
+        for label in ["read", "operator()", "(*T).Method", "Foo::bar"] {
+            let plain = public_hierarchy_node(&node(label, json!("d")));
+            assert_eq!(plain["symbolName"], label, "{plain}");
+            assert_eq!(plain["detail"], "d", "{plain}");
+        }
+        assert_eq!(
+            signed_detail(Some("demo.Use"), Some("useIt(Port) : String")).as_deref(),
+            Some("demo.Use useIt(Port) : String")
+        );
+        let call = public_hierarchy_node(&node("operator()(int)", json!("")));
+        assert_eq!(call["symbolName"], "operator()(int)", "{call}");
+    }
 }

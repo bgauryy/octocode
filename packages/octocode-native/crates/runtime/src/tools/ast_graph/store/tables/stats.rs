@@ -62,6 +62,11 @@ pub(super) fn unlinked_reason(
         || (!qualifier.is_empty() && !receiver && bindings.external.contains(head))
     {
         "external-package"
+    } else if (qualifier.is_empty() && bindings.unknown.contains(name))
+        || (!qualifier.is_empty() && !receiver && bindings.unknown.contains(head))
+    {
+        // Bound by an import that did not link: nothing says what it is.
+        "other"
     } else if in_repo == 0 {
         // std/builtins/macros/methods of foreign types: nothing to link to.
         "not-declared-in-repo"

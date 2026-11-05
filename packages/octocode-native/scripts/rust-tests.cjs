@@ -23,7 +23,8 @@
  *   (environment, `GitHubBudget::global`, thread-locals) and kills a hung test
  *   (`.config/nextest.toml` slow-timeout). In one shared process two
  *   timing-sensitive tests failed in 1 of 2 libtest runs, so a libtest gate
- *   would be flaky until those are fixed and the suite re-measured.
+ *   would be flaky until those are fixed and the suite re-measured. `cargo dev-test`
+ *   runs under scripts/test-watchdog.cjs, so a hung test fails there too.
  */
 
 const { spawnSync } = require('node:child_process');
@@ -35,19 +36,28 @@ const SELECTIONS = [
   ['--locked', '-p', 'octocode-engine', '--all-features'],
 ];
 
-function cargo(args) {
+function runCargo(args) {
   console.log(`$ cargo ${args.join(' ')}`);
   const { status, error } = spawnSync('cargo', args, { cwd: nodePath.join(__dirname, '..'), stdio: 'inherit' });
   if (error) throw error;
-  if (status !== 0) process.exit(status ?? 1);
+  return status ?? 1;
+}
+
+function cargo(args) {
+  const status = runCargo(args);
+  if (status !== 0) process.exit(status);
 }
 
 // Stale copies of our crates pile up in target/debug; agents run tests more often than builds.
 async function cleanOversizedCache() {
-  const { exceedsSize, NATIVE_DEBUG_LIMIT_BYTES, nativeDebugDir } = await import(
+  const { cargoIsRunning, exceedsSize, NATIVE_DEBUG_LIMIT_BYTES, nativeDebugDir } = await import(
     '../../../skills-dev/octocode-dev/scripts/lib/native-target.mjs'
   );
   if (!exceedsSize(nativeDebugDir(), NATIVE_DEBUG_LIMIT_BYTES)) return;
+  if (cargoIsRunning()) {
+    console.log('rust-tests: native target/debug is over 50 GiB, but another cargo is running, so skipping clean:cache');
+    return;
+  }
   console.log('rust-tests: native target/debug is over 50 GiB, running clean:cache first');
   const { status, error } = spawnSync('yarn', ['clean:cache'], { cwd: nodePath.join(__dirname, '..'), stdio: 'inherit' });
   if (error) throw error;
@@ -62,7 +72,9 @@ async function main() {
     for (const selection of SELECTIONS) cargo(['llvm-cov', 'nextest', '--no-report', ...selection]);
     cargo(['llvm-cov', 'report', ...args.slice(1)]);
   } else if (args.length === 0) {
-    for (const selection of SELECTIONS) cargo(['nextest', 'run', ...selection]);
+    // Every selection reports: a failure in the first must not hide the second's.
+    const failed = SELECTIONS.map(selection => runCargo(['nextest', 'run', ...selection])).find(status => status !== 0);
+    if (failed !== undefined) process.exit(failed);
   } else {
     // A filter matches nothing in one selection and nextest fails it: narrow with `bacon test -- <filter>` or `cargo dev-test -- <filter>`.
     console.error('Usage: rust-tests.cjs [--coverage [cargo llvm-cov report args...]]');

@@ -103,10 +103,10 @@ export async function memorySectionsChecks(ctx, surface, provider) {
     const input = { ...ctx.q({ operation: 'sections', resources: { local: { tool: 'localFetch', query: { path: file } } }, questions: { evidence: noul('Is source evidence available?') } }), responseChars: 50_000 };
     const response = await ctx.cliCall('clasify', input, { env: { OCTOCODE_STORAGE_MODE: 'memory' } });
     const row = response.json?.results?.[0], resource = row?.data.resources.local;
-    return [['sections.memoryPlanFailsWithoutInference', response.status === 5 && row?.status === 'error'
-      && row.data.errorCode === 'classificationContextUnavailable' && typeof row.data.error === 'string'
-      && resource?.sections.length === 70 && resource.coverage.unassessed === 70
+    // No next call can continue a plan in memory: this one judges the whole plan.
+    return [['sections.memoryPlanAnswersWhole', response.status === 0 && !row?.status
+      && resource?.sections.length === 70 && resource.sections.every(section => section.answers.evidence.status === 'answered')
       && response.json.responsePagination?.hasMore !== true
-      && provider.sent.length === before, response.json]];
+      && provider.sent.length > before, response.json]];
   } finally { fs.rmSync(file); }
 }

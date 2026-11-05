@@ -4,6 +4,7 @@ use crate::cache::disk::ENTRY_EXTENSION;
 use std::path::Path;
 mod capacity;
 mod disk;
+mod entry_locks;
 mod memory;
 
 fn key(resource: &str, credential: &str) -> CacheKey {

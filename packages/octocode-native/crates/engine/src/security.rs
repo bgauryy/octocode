@@ -8,7 +8,11 @@ pub(crate) mod patterns;
 pub mod sanitizer;
 pub mod types;
 
-pub use detector::WholeSourcePatterns;
+pub use detector::{
+    LONG_LINE_BYTES, LONGEST_BOUNDED_MATCH, LongLine, MAX_CONTENT_SIZE, Named, SecretForm,
+    SecretSpan, SecretSpans, SourceNames, SourceWalk, WholeSourcePatterns, every_value_spans,
+    hide_jwk_members,
+};
 
 /// Prefix of detector placeholders (`[REDACTED-<NAME>]`).
 pub const REDACTION_PREFIX: &str = "[REDACTED";
@@ -45,13 +49,7 @@ mod placeholder_tests {
         for placeholder in super::patterns::PATTERNS
             .iter()
             .map(|p| super::redaction_placeholder(p.name))
-            .chain(
-                [
-                    super::detector::CONTENT_SIZE_LIMIT_PLACEHOLDER,
-                    super::SANITIZER_FAILURE_PLACEHOLDER,
-                ]
-                .map(str::to_owned),
-            )
+            .chain([super::SANITIZER_FAILURE_PLACEHOLDER].map(str::to_owned))
         {
             assert_eq!(
                 super::placeholder_regex()

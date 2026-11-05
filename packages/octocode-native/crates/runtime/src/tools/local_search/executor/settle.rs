@@ -105,6 +105,7 @@ pub(super) fn settle_row(
         skipped: page.skipped,
         walk_complete: !coverage.walk_cut,
         empty,
+        searched: page.alternates.listed.as_deref(),
     }
     .add_leads(
         &mut stats,

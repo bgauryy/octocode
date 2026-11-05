@@ -1,6 +1,6 @@
-//! The response pager: row-aware pages (`row_pages`) and concatenable
-//! windows of the one JSON envelope, with their executable continuations.
-//! Every surface (CLI JSON, CLI views, MCP) reads the same pages.
+//! The response pager: row-aware pages (`row_pages`) of the one JSON envelope,
+//! with their executable continuations. Every surface (CLI JSON, CLI views,
+//! MCP) reads the same pages.
 
 mod cut;
 mod handles;
@@ -22,10 +22,6 @@ pub(crate) struct ResponseInput {
     pub tool: crate::id::ToolId,
     pub structured: Value,
     pub options: ResponsePageOptions,
-    /// Each result row's remaining-page notes (by position), so a split
-    /// row's parts re-render their disclosure
-    /// ([`super::pages::take_remaining_notes`]).
-    pub remaining: Vec<Vec<super::result::Remaining>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -39,11 +35,7 @@ pub(crate) struct PreparedPage {
 /// page read copies or re-plans the envelope.
 #[derive(Default)]
 pub(crate) struct SavedPages {
-    source: OnceLock<SavedSource>,
-}
-
-enum SavedSource {
-    Rows(Box<RowSource>),
+    source: OnceLock<RowSource>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -55,9 +47,8 @@ pub(crate) enum ResponseError {
     InvalidEvidence(String),
 }
 
-/// The page of `input` its options ask for: whole-row pages (`rows`), a
-/// concatenable window of the serialized envelope (`structured`), else the
-/// envelope unchanged.
+/// The page of `input` its options ask for: whole-row pages, else the envelope
+/// unchanged.
 pub(crate) fn prepare(
     mut input: ResponseInput,
     cancelled: &Cancellation,
@@ -102,9 +93,7 @@ pub(crate) fn prepare_saved(
     if cancelled.is_cancelled() {
         return Err(ResponseError::Cancelled);
     }
-    match source {
-        SavedSource::Rows(rows) => cut_rows(rows, input, cancelled),
-    }
+    cut_rows(source, input, cancelled)
 }
 
 /// The row plan of `structured` at `input`'s page length, without the
@@ -157,21 +146,17 @@ pub(crate) fn content_snapshot(structured: &Value, budget: usize) -> Option<Stri
     ))
 }
 
-/// What a saved read's pages cut from, built from a copy of the saved
-/// envelope: its row plan, else its serialized bytes.
+/// The row plan a saved read's pages cut from, built from a copy of the saved
+/// envelope.
 fn saved_source(
     envelope: &Value,
     input: &ResponseInput,
     cancelled: &Cancellation,
-) -> Result<SavedSource, ResponseError> {
+) -> Result<RowSource, ResponseError> {
     let Value::Object(structured) = envelope else {
         return Err(ResponseError::StructuredContentMustBeObject);
     };
-    Ok(SavedSource::Rows(Box::new(row_source(
-        structured.clone(),
-        input,
-        cancelled,
-    )?)))
+    row_source(structured.clone(), input, cancelled)
 }
 
 fn is_saved_replay(options: &ResponsePageOptions) -> bool {

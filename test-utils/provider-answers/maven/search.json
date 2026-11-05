@@ -1,0 +1,242 @@
+{
+ "case": "maven/search",
+ "tool": "artifactSearch",
+ "query": {
+  "operation": "search",
+  "ecosystem": "maven",
+  "keywords": [
+   "gson"
+  ],
+  "limit": 5
+ },
+ "recordedAt": "2026-11-05",
+ "unread": [
+  "project.artifactId",
+  "project.build",
+  "project.dependencies.dependency[*].groupId",
+  "project.dependencies.dependency[*].optional",
+  "project.dependencies.dependency[*].scope",
+  "project.dependencies.dependency[*].type",
+  "project.dependencies.dependency[*].version",
+  "project.description",
+  "project.developers",
+  "project.groupId",
+  "project.inceptionYear",
+  "project.licenses",
+  "project.modelVersion",
+  "project.name",
+  "project.packaging",
+  "project.parent",
+  "project.profiles",
+  "project.properties",
+  "project.repositories.repository.url",
+  "project.scm",
+  "project.url",
+  "project.version",
+  "response.docs[*].p",
+  "response.docs[*].timestamp",
+  "responseHeader.params.indent",
+  "responseHeader.params.spellcheck",
+  "responseHeader.params.version",
+  "responseHeader.params.wt"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://central.sonatype.com/solrsearch/select?q=gson&rows=5&start=0&wt=json",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:ec6bf1e84a89a6beebd9e7fb224146af61d8f26e0d0ee667f7a251ae04f63664",
+   "body": {
+    "responseHeader": {
+     "status": 0,
+     "QTime": 0,
+     "params": {
+      "q": "gson",
+      "core": "",
+      "indent": "off",
+      "spellcheck": "false",
+      "start": "",
+      "spellcheck.count": "0",
+      "sort": "",
+      "rows": "5",
+      "wt": "json",
+      "version": "None"
+     }
+    },
+    "response": {
+     "numFound": 56,
+     "start": 0,
+     "docs": [
+      {
+       "id": "de.gerdi-project:GSON",
+       "g": "de.gerdi-project",
+       "a": "GSON",
+       "latestVersion": "6.0.6",
+       "repositoryId": "central",
+       "p": "jar",
+       "timestamp": 1574671198000,
+       "versionCount": 0,
+       "ec": []
+      },
+      {
+       "id": "org.mattshoe.shoebox:Kdux.gson",
+       "g": "org.mattshoe.shoebox",
+       "a": "Kdux.gson",
+       "latestVersion": "1.0.6",
+       "repositoryId": "central",
+       "p": "aar",
+       "timestamp": 1725318598000,
+       "versionCount": 0,
+       "ec": []
+      },
+      {
+       "id": "com.commsen.wedeploy:com.commsen.wedeploy.data.mapper.gson",
+       "g": "com.commsen.wedeploy",
+       "a": "com.commsen.wedeploy.data.mapper.gson",
+       "latestVersion": "1.0.0",
+       "repositoryId": "central",
+       "p": "jar",
+       "timestamp": 1503955458000,
+       "versionCount": 0,
+       "ec": []
+      },
+      {
+       "id": "com.liferay:com.liferay.shared.dependencies.gson",
+       "g": "com.liferay",
+       "a": "com.liferay.shared.dependencies.gson",
+       "latestVersion": "6.0.0",
+       "repositoryId": "central",
+       "p": "jar",
+       "timestamp": 1709214902000,
+       "versionCount": 0,
+       "ec": []
+      },
+      {
+       "id": "de.dentrassi.kura.addons:de.dentrassi.kura.addons.camel.gson",
+       "g": "de.dentrassi.kura.addons",
+       "a": "de.dentrassi.kura.addons.camel.gson",
+       "latestVersion": "0.8.3",
+       "repositoryId": "central",
+       "p": "dp",
+       "timestamp": 1633527319000,
+       "versionCount": 0,
+       "ec": []
+      }
+     ]
+    },
+    "spellcheck": {
+     "suggestions": []
+    }
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo1.maven.org/maven2/org/mattshoe/shoebox/Kdux.gson/1.0.6/Kdux.gson-1.0.6.pom",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"b659e9cc75468678f8a952ffd89b7eee\""
+    ]
+   ],
+   "digest": "sha256:a763e699ddfb259ea9f00a7fbf6d8073b8624c7b8452945b2ab6d14c0367de62",
+   "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n  <!-- This module was also published with a richer model, Gradle metadata,  -->\n  <!-- which should be used instead. Do not delete the following line which  -->\n  <!-- is to indicate to Gradle or any Gradle module metadata file consumer  -->\n  <!-- that they should prefer consuming it instead. -->\n  <!-- do_not_remove: published-with-gradle-metadata -->\n  <modelVersion>4.0.0</modelVersion>\n  <groupId>org.mattshoe.shoebox</groupId>\n  <artifactId>Kdux.gson</artifactId>\n  <version>1.0.6</version>\n  <packaging>aar</packaging>\n  <name>Kdux</name>\n  <description>Kdux is a Kotlin-based, platform-agnostic state management library that implements the Redux pattern, \nproviding structured concurrency with built-in coroutine support. It is designed to integrate seamlessly \nwith any Kotlin project, particularly excelling in Android applications using MVI architecture.</description>\n  <url>https://github.com/mattshoe/kdux</url>\n  <inceptionYear>2024</inceptionYear>\n  <licenses>\n    <license>\n      <name>The Apache License, Version 2.0</name>\n      <url>http://www.apache.org/licenses/LICENSE-2.0.txt</url>\n    </license>\n  </licenses>\n  <developers>\n    <developer>\n      <id>mattshoe</id>\n      <name>Matthew Shoemaker</name>\n      <email>person@example.test</email>\n    </developer>\n  </developers>\n  <scm>\n    <connection>scm:git:person@example.test:mattshoe/kdux.git</connection>\n    <developerConnection>scm:git:person@example.test:mattshoe/kdux.git</developerConnection>\n    <url>https://github.com/mattshoe/kdux</url>\n  </scm>\n  <properties>\n    <myProp>value</myProp>\n  </properties>\n  <dependencies>\n    <dependency>\n      <groupId>org.jetbrains.kotlin</groupId>\n      <artifactId>kotlin-stdlib</artifactId>\n      <version>2.0.10-RC2</version>\n      <scope>compile</scope>\n    </dependency>\n    <dependency>\n      <groupId>org.mattshoe.shoebox</groupId>\n      <artifactId>Kdux</artifactId>\n      <version>1.0.6</version>\n      <scope>runtime</scope>\n    </dependency>\n    <dependency>\n      <groupId>com.google.code.gson</groupId>\n      <artifactId>gson</artifactId>\n      <version>2.11.0</version>\n      <scope>runtime</scope>\n    </dependency>\n  </dependencies>\n</project>\n"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo1.maven.org/maven2/com/commsen/wedeploy/com.commsen.wedeploy.data.mapper.gson/1.0.0/com.commsen.wedeploy.data.mapper.gson-1.0.0.pom",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"ee71fac74e0db13c7d92ebf1ff5ab7c2\""
+    ]
+   ],
+   "digest": "sha256:417900cb7ddd3a8e6b50495626b36609ecc8c2e534fb029304801dfb21fce039",
+   "body": "<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n\txsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd\">\n\t<modelVersion>4.0.0</modelVersion>\n\t<parent>\n\t\t<groupId>com.commsen.wedeploy</groupId>\n\t\t<artifactId>parent</artifactId>\n\t\t<version>1.0.0</version>\n\t</parent>\n\n\t<artifactId>com.commsen.wedeploy.data.mapper.gson</artifactId>\n\t<name>WeDeploy Java client :: mapper :: gson</name>\n\t<description>\n\t\tModule provides Gson based implementation of data mapper used by \"WeDeploy Java client :: data\".\n\t</description>\n\n\t<properties>\n\t\t<_.eccentric.modularity.metadata />\n\t\t<site.dir>${project.basedir}/../../../wedeploy-client-site</site.dir>\n\t</properties>\n\n\t<dependencies>\n\t\t<dependency>\n\t\t\t<groupId>com.commsen.wedeploy</groupId>\n\t\t\t<artifactId>com.commsen.wedeploy.client</artifactId>\n\t\t</dependency>\n\t\t<dependency>\n\t\t\t<groupId>com.commsen.em</groupId>\n\t\t\t<artifactId>em.annotations</artifactId>\n\t\t\t<optional>true</optional>\n\t\t</dependency>\n\t\t<dependency>\n\t\t\t<groupId>com.google.code.gson</groupId>\n\t\t\t<artifactId>gson</artifactId>\n\t\t</dependency>\n\t\t<!-- test -->\n\t\t<dependency>\n\t\t\t<groupId>com.commsen.wedeploy</groupId>\n\t\t\t<artifactId>com.commsen.wedeploy.client</artifactId>\n\t\t\t<type>test-jar</type>\n\t\t\t<scope>test</scope>\n\t\t</dependency>\n\t\t<dependency>\n\t\t\t<groupId>junit</groupId>\n\t\t\t<artifactId>junit</artifactId>\n\t\t\t<scope>test</scope>\n\t\t</dependency>\n\t</dependencies>\n\n\t<build>\n\t\t<plugins>\n\t\t\t<plugin>\n\t\t\t\t<groupId>biz.aQute.bnd</groupId>\n\t\t\t\t<artifactId>bnd-baseline-maven-plugin</artifactId>\n\t\t\t</plugin>\n\t\t</plugins>\n\t</build>\n\n</project>"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo1.maven.org/maven2/com/liferay/com.liferay.shared.dependencies.gson/6.0.0/com.liferay.shared.dependencies.gson-6.0.0.pom",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"5d289d456045eb472dd23afd3df3fdab\""
+    ]
+   ],
+   "digest": "sha256:ff2c2d84e6e88798d3f5b8ad2101e9823b532b3642d5c5a47019f398683b045b",
+   "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd\" xmlns=\"http://maven.apache.org/POM/4.0.0\"\n    xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n  <!-- This module was also published with a richer model, Gradle metadata,  -->\n  <!-- which should be used instead. Do not delete the following line which  -->\n  <!-- is to indicate to Gradle or any Gradle module metadata file consumer  -->\n  <!-- that they should prefer consuming it instead. -->\n  <!-- do_not_remove: published-with-gradle-metadata -->\n  <modelVersion>4.0.0</modelVersion>\n  <groupId>com.liferay</groupId>\n  <artifactId>com.liferay.shared.dependencies.gson</artifactId>\n  <version>6.0.0</version>\n  <description>Liferay Shared Dependencies Gson</description>\n  <licenses>\n    <license>\n      <name>LGPL 2.1</name>\n      <url>http://www.gnu.org/licenses/old-licenses/lgpl-2.1.txt</url>\n    </license>\n  </licenses>\n  <developers>\n    <developer>\n      <name>Brian Wing Shun Chan</name>\n      <organization>Liferay, Inc.</organization>\n      <organizationUrl>http://www.liferay.com</organizationUrl>\n    </developer>\n  </developers>\n  <scm>\n    <connection>scm:git:person@example.test:liferay/liferay-portal.git</connection>\n    <developerConnection>scm:git:person@example.test:liferay/liferay-portal.git</developerConnection>\n    <url>http://github.com/liferay/liferay-portal</url>\n  </scm>\n</project>\n"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo1.maven.org/maven2/de/gerdi-project/GSON/6.0.6/GSON-6.0.6.pom",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"96be554a5a8b10acc6f6a35812966893\""
+    ]
+   ],
+   "digest": "sha256:40b4c9edf539849c062a561062335eec724bf7197ee1e2682fd4d911e91c4383",
+   "body": "<project xmlns=\"http://maven.apache.org/POM/4.0.0\"\n\t\t xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n\t\t xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0\n\t\t http://maven.apache.org/xsd/maven-4.0.0.xsd\">\n\t<modelVersion>4.0.0</modelVersion>\n\t<parent>\n\t\t<groupId>de.gerdi-project</groupId>\n\t\t<artifactId>GeRDI-parent</artifactId>\n\t\t<version>4.1.0</version>\n\t</parent>\n\t\n\t<artifactId>GSON</artifactId>\n\t<version>6.0.6</version>\n\t<packaging>jar</packaging>\n\t<name>GSON</name>\n\t<description>This library provides helper functions and common JSON structures using GSON.</description>\n\t<inceptionYear>2017</inceptionYear>\n\n\t<properties>\n\t\t<gson.dependency.version>2.8.5</gson.dependency.version>\n\t\t<jsoup.dependency.version>1.11.3</jsoup.dependency.version>\n\t\t<jts.dependency.version>1.13</jts.dependency.version>\n\t</properties>\n\n\t<profiles>\n\t\t<profile>\n\t\t\t<id>generateConstants</id>\n\t\t\t<activation>\n\t\t\t\t<property>\n\t\t\t\t\t<name>generate</name>\n\t\t\t\t</property>\n\t\t\t</activation>\n\t\t\t<build>\n\t\t\t\t<plugins>\n\t\t\t\t\t<plugin>\n\t\t\t\t\t\t<groupId>org.codehaus.mojo</groupId>\n\t\t\t\t\t\t<artifactId>exec-maven-plugin</artifactId>\n\t\t\t\t\t\t<version>${exec.plugin.version}</version>\n\t\t\t\t\t\t<executions>\n\t\t\t\t\t\t\t<!-- generate classes -->\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>Generate Classes</id>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>java</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t<phase>compile</phase>\n\t\t\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t\t\t<mainClass>de.gerdiproject.generator.research.utils.ResearchGenerator</mainClass>\n\t\t\t\t\t\t\t\t</configuration>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t<!-- format generated classes -->\n\t\t\t\t\t\t\t<execution>\n\t\t\t\t\t\t\t\t<id>Format Code</id>\n\t\t\t\t\t\t\t\t<phase>compile</phase>\n\t\t\t\t\t\t\t\t<goals>\n\t\t\t\t\t\t\t\t\t<goal>exec</goal>\n\t\t\t\t\t\t\t\t</goals>\n\t\t\t\t\t\t\t\t<configuration>\n\t\t\t\t\t\t\t\t\t<executable>${project.build.directory}/harvester-utils/scripts/formatting/astyle-format.${script.extension}</executable>\n\t\t\t\t\t\t\t\t</configuration>\n\t\t\t\t\t\t\t</execution>\n\t\t\t\t\t\t</executions>\n\t\t\t\t\t</plugin>\n\t\t\t\t</plugins>\n\t\t\t</build>\n\t\t</profile>\n\t</profiles>\n\n\t<dependencies>\n\t\t<!-- https://mvnrepository.com/artifact/com.google.code.gson/gson -->\n\t\t<dependency>\n\t\t\t<groupId>com.google.code.gson</groupId>\n\t\t\t<artifactId>gson</artifactId>\n\t\t\t<version>${gson.dependency.version}</version>\n\t\t</dependency>\n\t\t\n\t\t<!-- https://mvnrepository.com/artifact/org.jsoup/jsoup -->\n\t\t<dependency>\n\t\t\t<groupId>org.jsoup</groupId>\n\t\t\t<artifactId>jsoup</artifactId>\n\t\t\t<version>${jsoup.dependency.version}</version>\n\t\t</dependency>\n\t\t\n        <!-- https://mvnrepository.com/artifact/com.vividsolutions/jts -->\n\t\t<dependency>\n\t\t\t<groupId>com.vividsolutions</groupId>\n\t\t\t<artifactId>jts</artifactId>\n\t\t\t<version>${jts.dependency.version}</version>\n\t\t</dependency>\n\t</dependencies>\n\n\t<developers>\n\t\t<developer>\n\t\t\t<name>Robin Weiss</name>\n\t\t\t<email>person@example.test</email>\n\t\t\t<organization>Kiel University</organization>\n\t\t\t<organizationUrl>http://www.uni-kiel.de/index-e.shtml</organizationUrl>\n\t\t</developer>\n\t\t<developer>\n\t\t\t<name>Fidan Limani</name>\n\t\t\t<email>person@example.test</email>\n\t\t\t<organization>ZBW</organization>\n\t\t\t<organizationUrl>https://www.zbw.eu</organizationUrl>\n\t\t</developer>\n\t</developers>\n\n\t<!-- Define Sonatype repository for retrieving SNAPSHOT versions -->\n\t<repositories>\n\t\t<repository>\n\t\t\t<id>Sonatype</id>\n\t\t\t<url>https://oss.sonatype.org/content/repositories/snapshots/</url>\n\t\t</repository>\n\t</repositories>\n</project>\n"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://repo1.maven.org/maven2/de/dentrassi/kura/addons/de.dentrassi.kura.addons.camel.gson/0.8.3/de.dentrassi.kura.addons.camel.gson-0.8.3.pom",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "text/xml"
+    ],
+    [
+     "etag",
+     "\"0d37bd9e6a230a5795886e2f398b29bb\""
+    ]
+   ],
+   "digest": "sha256:8cba9e1094bbb5509f6230789b0010484d78fcacbef7f0873e19d0b7b94d9737",
+   "body": "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project xmlns=\"http://maven.apache.org/POM/4.0.0\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd\">\n    <modelVersion>4.0.0</modelVersion>\n\n    <parent>\n        <groupId>de.dentrassi.kura.addons</groupId>\n        <artifactId>camel</artifactId>\n        <version>0.8.3</version>\n        <relativePath>..</relativePath>\n    </parent>\n\n    <artifactId>de.dentrassi.kura.addons.camel.gson</artifactId>\n\n    <packaging>dp</packaging>\n\n    <dependencies>\n        <dependency>\n            <groupId>org.apache.camel</groupId>\n            <artifactId>camel-gson</artifactId>\n            <version>${camel-version}</version>\n        </dependency>\n        <dependency>\n            <groupId>com.google.code.gson</groupId>\n            <artifactId>gson</artifactId>\n            <version>2.8.8</version>\n        </dependency>\n    </dependencies>\n\n    <build>\n        <plugins>\n            <plugin>\n                <groupId>de.dentrassi.maven</groupId>\n                <artifactId>osgi-dp</artifactId>\n                <extensions>true</extensions>\n            </plugin>\n        </plugins>\n    </build>\n\n</project>\n"
+  }
+ ]
+}

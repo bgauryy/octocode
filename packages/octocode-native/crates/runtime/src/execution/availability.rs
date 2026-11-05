@@ -1,6 +1,7 @@
-//! Tool exposure by surface. CLI exposes every tool in the build; MCP
-//! applies configuration gates. Provider readiness is checked by invocation,
-//! never by discovery. Execution still enforces credentials and security.
+//! Tool exposure by surface. CLI exposes every tool except one whose
+//! [`required_setting`] is unset; MCP adds its configuration gates. Provider
+//! readiness is checked by invocation, never by discovery. Execution still
+//! enforces credentials and security.
 
 use crate::config::{ConfigFieldSpec, ConfigOutput, RuntimeSurface, field};
 use crate::id::ToolId;
@@ -121,18 +122,26 @@ pub fn classification_key(config: &ConfigOutput) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
-/// Settings MCP exposure needs. Family comes from the contract; clone and
-/// clasify add their own prerequisite. Clasify needs a credential;
-/// the credential stays separate, so hiding public clasify never disables
-/// goals on other tools.
+/// The setting a tool does not exist without, on every surface: discovery and
+/// instructions leave the tool out, and a direct CLI call answers what to set.
+/// An optional tool joins by naming its setting here and its
+/// `MCP_TOOL_INSTRUCTIONS` block in core.
+const fn required_setting(id: ToolId) -> Option<&'static ConfigFieldSpec> {
+    match id {
+        ToolId::Clasify => Some(field::CLASSIFICATION_API),
+        ToolId::SecurityCheck => Some(field::TOOLS_ENABLE_SECURITY_CHECK),
+        _ => None,
+    }
+}
+
+/// Settings MCP exposure needs. Family comes from the contract; clone adds its
+/// own opt-in, and [`required_setting`] applies here too. Hiding public clasify
+/// never disables goals on other tools: the credential stays separate.
 fn prerequisites(id: ToolId) -> impl Iterator<Item = &'static ConfigFieldSpec> {
     [
         id.is_local().then_some(field::LOCAL_ENABLED),
-        match id {
-            ToolId::GhCloneRepo => Some(field::TOOLS_ENABLE_CLONE),
-            ToolId::Clasify => Some(field::CLASSIFICATION_API),
-            _ => None,
-        },
+        (id == ToolId::GhCloneRepo).then_some(field::TOOLS_ENABLE_CLONE),
+        required_setting(id),
     ]
     .into_iter()
     .flatten()
@@ -144,13 +153,16 @@ fn is_met(config: &ConfigOutput, setting: &ConfigFieldSpec) -> bool {
         path if path == field::LOCAL_ENABLED.path => resolved.local.enabled,
         path if path == field::LOCAL_BETA.path => resolved.local.beta,
         path if path == field::TOOLS_ENABLE_CLONE.path => resolved.tools.enable_clone,
+        path if path == field::TOOLS_ENABLE_SECURITY_CHECK.path => {
+            resolved.tools.enable_security_check
+        }
         path if path == field::CLASSIFICATION_API.path => classification_key(config).is_some(),
         _ => false,
     }
 }
 
-/// The MCP-only restriction, shared by discovery, admission and emitted leads.
-/// CLI callers retain access to beta tools without opting into MCP exposure.
+/// The MCP restriction, shared by discovery, admission and emitted leads. CLI
+/// callers retain access to beta tools without opting into MCP exposure.
 pub(crate) fn mcp_restriction(config: &ConfigOutput, id: ToolId) -> Option<Availability> {
     let availability = resolve(config, RuntimeSurface::Mcp, id);
     (!availability.is_available()).then_some(availability)
@@ -158,7 +170,11 @@ pub(crate) fn mcp_restriction(config: &ConfigOutput, id: ToolId) -> Option<Avail
 
 fn resolve(config: &ConfigOutput, surface: RuntimeSurface, id: ToolId) -> Availability {
     if surface == RuntimeSurface::Cli {
-        return Availability::Available;
+        return required_setting(id)
+            .filter(|setting| !is_met(config, setting))
+            .map_or(Availability::Available, |setting| {
+                Availability::MissingConfiguration(vec![setting])
+            });
     }
     let tools = &config.resolved.tools;
     let listed = |names: &Option<Vec<String>>| {

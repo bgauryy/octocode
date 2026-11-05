@@ -52,7 +52,8 @@ impl ResponsePageOptions {
 
 #[derive(Clone, Debug)]
 pub(crate) struct ResponsePagination {
-    pub(crate) page: usize,
+    /// How many pages the plan cut (the plan tests walk them by it).
+    #[cfg(test)]
     pub(crate) total_pages: usize,
     pub(crate) has_more: bool,
     pub(crate) returned_chars: usize,

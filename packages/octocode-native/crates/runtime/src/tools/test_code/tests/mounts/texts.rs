@@ -136,6 +136,11 @@ fn every_text_around_a_mount_is_decided_as_the_parse_does() {
         "#[cfg(test)]\nmod inner {\n    mod a;\n}\n",
         "#[cfg(test)] fn f() {} mod a;\n",
         "cfg_if::cfg_if! { if #[cfg(test)] { mod a; } }\n",
+        "#[cfg(test)]\nmod /* c */ a;\n",
+        "#[cfg(test)]\nmod // c\n  a;\n",
+        "#[cfg(test)]\nmod\n// c\n\n  /* d */\n  r#a;\n",
+        "#[cfg(test)]\nuse a;\nmod b;\n",
+        "#[cfg(test)]\nfn a() {}\n",
     ];
     let root = fixture("", &["a", "b", "z"]);
     let whole = root.write("src/whole.rs", "");

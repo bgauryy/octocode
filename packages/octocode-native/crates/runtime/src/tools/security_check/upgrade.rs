@@ -1,0 +1,59 @@
+//! The lowest fixed version that clears every listed advisory, when OSV's data
+//! says so. Each advisory's versions are compared as dotted numbers only; any
+//! other spelling says why no answer exists, rather than guess at an ecosystem's
+//! ordering. OSV then answers at that version, so the claim is its own.
+use super::record::SecurityAdvisory;
+use std::cmp::Ordering;
+
+/// `4.17.21` as numbers, a leading `v` allowed; `None` for any other spelling.
+fn numeric(version: &str) -> Option<Vec<u64>> {
+    version
+        .strip_prefix('v')
+        .unwrap_or(version)
+        .split('.')
+        .map(|part| part.parse().ok())
+        .collect()
+}
+
+fn compare(left: &[u64], right: &[u64]) -> Ordering {
+    let at = |list: &[u64], index: usize| list.get(index).copied().unwrap_or(0);
+    (0..left.len().max(right.len()))
+        .map(|index| at(left, index).cmp(&at(right, index)))
+        .find(|order| order.is_ne())
+        .unwrap_or(Ordering::Equal)
+}
+
+/// The version to try, or why there is none: for each advisory its lowest stated
+/// fix above `current`, and the highest of those. Written as `current` writes
+/// its own version, with or without the `v`.
+pub(super) fn candidate(current: &str, advisories: &[SecurityAdvisory]) -> Result<String, String> {
+    let at = numeric(current).ok_or_else(|| {
+        format!("{current} is not a plain dotted version, so fixed versions were not compared")
+    })?;
+    let mut needed: Option<(Vec<u64>, &str)> = None;
+    for advisory in advisories {
+        let lowest = advisory
+            .fixed_in
+            .iter()
+            .filter_map(|fixed| Some((numeric(fixed)?, fixed.as_str())))
+            .filter(|(numbers, _)| compare(numbers, &at).is_gt())
+            .min_by(|(left, _), (right, _)| compare(left, right))
+            .ok_or_else(|| format!("{} states no fixed version above {current}", advisory.id))?;
+        if needed
+            .as_ref()
+            .is_none_or(|(numbers, _)| compare(&lowest.0, numbers).is_gt())
+        {
+            needed = Some(lowest);
+        }
+    }
+    let (_, version) = needed.ok_or_else(|| "no advisory is listed".to_owned())?;
+    Ok(if current.starts_with('v') && !version.starts_with('v') {
+        format!("v{version}")
+    } else {
+        version.to_owned()
+    })
+}
+
+#[cfg(test)]
+#[path = "upgrade_tests.rs"]
+mod tests;

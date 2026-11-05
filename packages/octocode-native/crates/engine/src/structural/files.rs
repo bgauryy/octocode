@@ -18,12 +18,14 @@ use crate::text::extension_of;
 mod anchors;
 mod counts;
 mod file_scan;
+mod listed;
 mod rebuild;
 mod walk;
 
 use anchors::AnchorFilter;
 use counts::ScanCounts;
 use file_scan::FileScan;
+pub use listed::ListedFiles;
 pub use rebuild::{Rebuilt, file_matches};
 use walk::{Walked, check_root_exists, collect_files};
 
@@ -158,7 +160,19 @@ pub(crate) fn search_files_with_budget(
     let skip = skip_files
         .map_or(0, |n| n as usize)
         .min(candidate_files.len());
-    candidate_files.drain(..skip);
+    // What this window's resume query pinned is what those candidates are now.
+    let mut listed = ListedFiles::default();
+    let listed_before = (skip > 0).then(|| {
+        let stamps = candidate_files[..skip]
+            .par_iter()
+            .map(|file_path| listed::stamp_of(file_path))
+            .collect::<Vec<_>>();
+        for (file_path, stamp) in candidate_files.iter().zip(stamps) {
+            listed.add(file_path, stamp);
+        }
+        listed.hex()
+    });
+    let earlier_files = candidate_files.drain(..skip).collect::<Vec<_>>();
     // Compile one matcher per extension up front (cheap, serial), then read,
     // prefilter, parse and match files in parallel. `collect` keeps candidate
     // order, and the serial fold below rebuilds the same counters.
@@ -197,13 +211,19 @@ pub(crate) fn search_files_with_budget(
     if scan_resume.is_none() && scan_truncated {
         scan_resume = Some(u32::try_from(skip + candidate_files.len()).unwrap_or(u32::MAX));
     }
+    let listed_through = scan_resume.map(|_| {
+        for (file_path, (stamp, _)) in candidate_files.iter().zip(&outcomes) {
+            listed.add(file_path, *stamp);
+        }
+        listed.hex()
+    });
 
     let mut counts = ScanCounts {
         walk_errors: walk_errors.skipped,
         ..ScanCounts::default()
     };
     let mut files = Vec::with_capacity(outcomes.len());
-    for (tally, file) in outcomes.into_iter().flatten() {
+    for (tally, file) in outcomes.into_iter().filter_map(|(_, outcome)| outcome) {
         counts.record(tally);
         files.push(file);
     }
@@ -217,6 +237,9 @@ pub(crate) fn search_files_with_budget(
     Ok(StructuralSearchFilesDetailedResult {
         scan_truncated,
         scan_resume,
+        listed_before,
+        listed_through,
+        earlier_files,
         files,
         total_matches: counts.total_matches,
         parsed_files: counts.parsed_files,
@@ -244,6 +267,9 @@ fn invalid_query_result(
     StructuralSearchFilesDetailedResult {
         scan_truncated: false,
         scan_resume: None,
+        listed_before: None,
+        listed_through: None,
+        earlier_files: Vec::new(),
         files: Vec::new(),
         total_matches: 0,
         parsed_files: 0,

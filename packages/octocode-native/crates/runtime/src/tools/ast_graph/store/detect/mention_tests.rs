@@ -173,15 +173,16 @@ fn the_mention_memo_covers_every_file_it_read() {
     let names = set(&["run"]);
     let stems = BTreeSet::new();
     let settle = octocode_engine::stamp::settle_written_so_far;
-    let references = |scan: &(MentionHits, MentionGaps)| scan.0.references.get("run").cloned();
+    let references = |scan: &MentionHits| scan.references.get("run").cloned();
 
     settle();
-    let first = memoized_mentions(root, &stems, &names);
+    let first = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
     assert_eq!(references(&first), Some(vec!["a.ts:1".to_owned()]));
-    let again = memoized_mentions(root, &stems, &names);
+    let again = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
     assert!(Arc::ptr_eq(&first, &again), "an unchanged tree is one scan");
 
-    let other_keys = memoized_mentions(root, &stems, &set(&["run", "nothing"]));
+    let other_keys =
+        memoized_mentions(root, &stems, &set(&["run", "nothing"]), &|| false).expect("scan");
     assert!(!Arc::ptr_eq(&first, &other_keys), "the keys are in the key");
 
     // Same size, modification time restored: only the status time moves.
@@ -198,13 +199,13 @@ fn the_mention_memo_covers_every_file_it_read() {
         .set_modified(modified)
         .expect("restore mtime");
     settle();
-    let edited = memoized_mentions(root, &stems, &names);
+    let edited = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
     assert!(!Arc::ptr_eq(&first, &edited));
-    assert_eq!(edited.0.words.get("run"), Some(&vec!["b.md:1".to_owned()]));
+    assert_eq!(edited.words.get("run"), Some(&vec!["b.md:1".to_owned()]));
 
     write("c.ts", "run();\n");
     settle();
-    let added = memoized_mentions(root, &stems, &names);
+    let added = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
     assert_eq!(
         references(&added),
         Some(vec!["a.ts:1".to_owned(), "c.ts:1".to_owned()])
@@ -213,12 +214,12 @@ fn the_mention_memo_covers_every_file_it_read() {
     write(".gitignore", "c.ts\n");
     std::fs::create_dir_all(root.join(".git")).expect("git marker");
     settle();
-    let ignored = memoized_mentions(root, &stems, &names);
+    let ignored = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
     assert_eq!(references(&ignored), Some(vec!["a.ts:1".to_owned()]));
 
     std::fs::remove_file(root.join("a.ts")).expect("remove");
     settle();
-    let removed = memoized_mentions(root, &stems, &names);
+    let removed = memoized_mentions(root, &stems, &names, &|| false).expect("scan");
     assert_eq!(references(&removed), None);
 }
 
@@ -230,29 +231,10 @@ fn the_mention_memo_keeps_no_unsettled_scan() {
     std::fs::write(dir.path().join("a.ts"), "run();\n").expect("write");
     let names = set(&["run"]);
     let stems = BTreeSet::new();
-    let first = memoized_mentions(dir.path(), &stems, &names);
-    let second = memoized_mentions(dir.path(), &stems, &names);
+    let first = memoized_mentions(dir.path(), &stems, &names, &|| false).expect("scan");
+    let second = memoized_mentions(dir.path(), &stems, &names, &|| false).expect("scan");
     assert!(!Arc::ptr_eq(&first, &second));
-    assert_eq!(
-        first.0.references.get("run"),
-        second.0.references.get("run")
-    );
-}
-
-/// The gaps travel with the kept scan: a kept answer still says what went
-/// unread.
-#[test]
-fn a_kept_mention_scan_keeps_its_gaps() {
-    let dir = tempfile::tempdir().expect("dir");
-    let long = usize::try_from(MENTION_MAX_FILE).expect("fits") + 1;
-    std::fs::write(dir.path().join("big.txt"), "x".repeat(long)).expect("write");
-    octocode_engine::stamp::settle_written_so_far();
-    let names = set(&["run"]);
-    let stems = BTreeSet::new();
-    let first = memoized_mentions(dir.path(), &stems, &names);
-    let second = memoized_mentions(dir.path(), &stems, &names);
-    assert!(Arc::ptr_eq(&first, &second));
-    assert_eq!(second.1.oversized, 1);
+    assert_eq!(first.references.get("run"), second.references.get("run"));
 }
 
 /// The scan reads past any amount of earlier text: a name in a file that sorts
@@ -269,10 +251,89 @@ fn a_mention_after_much_text_is_still_found() {
         file.set_len(each).expect("size");
     }
     std::fs::write(dir.path().join("zz_late.ts"), "mod.zzOnlyTextMention();\n").expect("late");
-    let (hits, gaps) = scan_mentions(dir.path(), &BTreeSet::new(), &set(&["zzOnlyTextMention"]));
-    assert_eq!(gaps, MentionGaps::default());
+    let hits = scan_mentions(
+        dir.path(),
+        &BTreeSet::new(),
+        &set(&["zzOnlyTextMention"]),
+        &|| false,
+    )
+    .expect("scan");
     assert_eq!(
         hits.references.get("zzOnlyTextMention"),
         Some(&vec!["zz_late.ts:1".to_owned()])
+    );
+}
+
+/// A file of any size is read: a mention past the whole-read size, past
+/// several read windows, in a file with no line break, or at the end of a
+/// token longer than a window, is a mention like any other, at its own line.
+#[test]
+fn a_mention_in_a_large_file_is_found_at_its_line() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let past = 3 * usize::try_from(MENTION_MAX_FILE).expect("fits");
+    let lines = past / "word é word\n".len();
+    std::fs::write(
+        dir.path().join("lines.txt"),
+        format!("{}see mod.run here\n", "word é word\n".repeat(lines)),
+    )
+    .expect("lines");
+    std::fs::write(
+        dir.path().join("one_line.js"),
+        format!("{}run();", "x ".repeat(past / 2)),
+    )
+    .expect("one line");
+    std::fs::write(
+        dir.path().join("token.txt"),
+        format!("{}.run\n", "a".repeat(past)),
+    )
+    .expect("token");
+    let scanned =
+        scan_mentions(dir.path(), &BTreeSet::new(), &set(&["run"]), &|| false).expect("scan");
+    assert_eq!(
+        scanned.references.get("run"),
+        Some(&vec![
+            format!("lines.txt:{}", lines + 1),
+            "one_line.js:1".to_owned(),
+            "token.txt:1".to_owned(),
+        ])
+    );
+}
+
+/// A quote around a token stays beside it across a read window's end: a bare
+/// name as a whole string literal is a stem, however the window falls.
+#[test]
+fn a_quoted_stem_at_a_window_end_is_found() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let window = super::mention_stream::WINDOW;
+    let pad = usize::try_from(MENTION_MAX_FILE).expect("fits");
+    std::fs::write(
+        dir.path().join("big.txt"),
+        format!(
+            "{}{}'worker' next\n",
+            "\n".repeat(pad),
+            " ".repeat(window - 1)
+        ),
+    )
+    .expect("write");
+    let scanned =
+        scan_mentions(dir.path(), &set(&["worker"]), &BTreeSet::new(), &|| false).expect("scan");
+    assert_eq!(
+        scanned.stems.get("worker"),
+        Some(&vec![format!("big.txt:{}", pad + 1)])
+    );
+}
+
+/// A stopped scan is no answer and leaves nothing to reuse.
+#[test]
+fn a_stopped_mention_scan_keeps_nothing() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::write(dir.path().join("a.ts"), "run();\n").expect("write");
+    octocode_engine::stamp::settle_written_so_far();
+    let (stems, names) = (BTreeSet::new(), set(&["run"]));
+    assert!(memoized_mentions(dir.path(), &stems, &names, &|| true).is_none());
+    let scanned = memoized_mentions(dir.path(), &stems, &names, &|| false).expect("scan");
+    assert_eq!(
+        scanned.references.get("run"),
+        Some(&vec!["a.ts:1".to_owned()])
     );
 }

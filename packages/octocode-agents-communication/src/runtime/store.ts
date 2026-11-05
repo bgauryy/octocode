@@ -102,7 +102,7 @@ export class Store implements AttachmentHost, DeliveryApi {
     const taken = sessions.liveNames(this, exclude);
     let candidate = name;
     for (let number = 2; taken.has(candidate); number += 1) {
-      const suffix = '-' + number;
+      const suffix = `-${number}`;
       candidate = truncateCodePoints(name, 256 - suffix.length) + suffix;
     }
     return candidate;
@@ -141,7 +141,7 @@ export class Store implements AttachmentHost, DeliveryApi {
     inbox: (session, input) => {
       if (input.message === undefined) return this.inbox(session, input.after ?? 0);
       this.known(session);
-      return catalog.page(query(this.db, 'SELECT ' + INBOX_COLUMNS + ' WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND m.id=?', [session, now(), input.message]).map(inboxItem), false, 'inbox', input);
+      return catalog.page(query(this.db, `SELECT ${INBOX_COLUMNS} WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND m.id=?`, [session, now(), input.message]).map(inboxItem), false, 'inbox', input);
     },
     join: (_session, input) => sessions.join(this, input),
     resume: (session, input) => sessions.resume(this, session, input),
@@ -170,7 +170,7 @@ export class Store implements AttachmentHost, DeliveryApi {
     this.registration?.touch();
     catalog.command(name, input);
     const handler = this.handlers[name];
-    if (!handler) throw new ValidationError('Unknown operation: ' + name);
+    if (!handler) throw new ValidationError(`Unknown operation: ${name}`);
     return stripNulls(await handler(session, input));
   }
 
@@ -254,7 +254,7 @@ export class Store implements AttachmentHost, DeliveryApi {
     this.known(session);
     const state = `${session}\0${after}\0${this.db.value('PRAGMA data_version')}\0${this.db.value('SELECT total_changes()')}`;
     if (this.idleInbox === state) return { items: [] };
-    const rows = query(this.db, 'SELECT ' + INBOX_COLUMNS + ' WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND d.message>? ORDER BY d.message LIMIT 101', [session, now(), after]);
+    const rows = query(this.db, `SELECT ${INBOX_COLUMNS} WHERE d.recipient=? AND d.acknowledgedAt IS NULL AND m.expiresAt>? AND d.message>? ORDER BY d.message LIMIT 101`, [session, now(), after]);
     const result = catalog.page(rows.map(inboxItem), false, 'inbox', { after });
     this.idleInbox = rows.length ? null : state;
     return result;

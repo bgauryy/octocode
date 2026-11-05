@@ -178,8 +178,7 @@ mod tests {
         );
         assert_eq!(
             payload(&result),
-            json!({"error":"clasify pages by itself","errorCode":"invalidInput",
-                "hints":[crate::response::rows::error_code_hint(ToolId::Clasify.output(), ErrorCode::InvalidInput, &Value::Null).expect("input recovery")]})
+            json!({"error":"clasify pages by itself","errorCode":"invalidInput"})
         );
     }
 

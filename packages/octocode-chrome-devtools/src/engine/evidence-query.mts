@@ -118,7 +118,7 @@ try {
   if (reused) index = JSON.parse(readFileSync(manifestFile, 'utf8'));
   else {
     mkdirSync(dirname(indexDir), { recursive: true, mode: 0o700 });
-    const staging = indexDir + '-' + randomUUID();
+    const staging = `${indexDir}-${randomUUID()}`;
     temporary = staging;
     mkdirSync(staging, { mode: 0o700 });
     const out = openSync(join(staging, 'rows.jsonl'), 'wx', 0o600),
@@ -133,7 +133,7 @@ try {
         ? Object.fromEntries(projection.map(p => [p, pointer(row, p) ?? null]))
         : row;
       const record = { sourceIndex, sourcePointer, value },
-        encoded = Buffer.from(JSON.stringify(record) + '\n');
+        encoded = Buffer.from(`${JSON.stringify(record)}\n`);
       let done = 0;
       while (done < encoded.length)
         done += writeSync(out, encoded, done, encoded.length - done);
@@ -160,7 +160,7 @@ try {
         });
         for await (const text of lines) {
           line++;
-          if (text.trim()) add(parse(text), 'line:' + line);
+          if (text.trim()) add(parse(text), `line:${line}`);
         }
       } else {
         const input = openSync(file, 'r');
@@ -179,7 +179,7 @@ try {
               if (!n) throw new Error('Incomplete source row');
               done += n;
             }
-            add(parse(raw.toString('utf8')), path + '/' + range.index);
+            add(parse(raw.toString('utf8')), `${path}/${range.index}`);
           }
         } finally {
           closeSync(input);
@@ -243,7 +243,7 @@ try {
         length: encodedEntry.readDoubleLE(8),
         sourceIndex,
         sourcePointer:
-          format === 'jsonl' ? 'line:' + sourceLine : path + '/' + sourceIndex,
+          format === 'jsonl' ? `line:${sourceLine}` : `${path}/${sourceIndex}`,
         sha256: encodedEntry.subarray(32).toString('hex'),
       };
       let record: unknown;
@@ -358,7 +358,7 @@ try {
     })
   );
 } catch (error) {
-  console.error('[EVIDENCE_QUERY] ' + errorMessage(error));
+  console.error(`[EVIDENCE_QUERY] ${errorMessage(error)}`);
   process.exitCode = 1;
 } finally {
   if (temporary) rmSync(temporary, { recursive: true, force: true });

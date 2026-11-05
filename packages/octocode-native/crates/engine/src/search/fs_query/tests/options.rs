@@ -99,6 +99,34 @@ fn ignore_rules_are_honored_counted_and_lifted() {
     assert_eq!(ignored, 0);
 }
 
+/// Off Unix there are no mode bits, so these filters are refused; listing every
+/// file as if it had filtered is the wrong answer they replaced. `writable`
+/// has the read-only attribute.
+#[test]
+fn a_platform_without_mode_bits_refuses_permission_filters() {
+    use super::super::compiled::refuse_unprovable_permissions as refuse;
+    let options = |set: fn(&mut FileSystemQueryOptions)| {
+        let mut options = FileSystemQueryOptions::default();
+        set(&mut options);
+        options
+    };
+    for (query, field) in [
+        (
+            options(|o| o.permissions = Some("600".to_owned())),
+            "permissions",
+        ),
+        (options(|o| o.executable = Some(true)), "executable"),
+        (options(|o| o.readable = Some(true)), "readable"),
+    ] {
+        let err = refuse(&query, false).expect_err("refused");
+        assert!(matches!(err.kind(), ErrorKind::InvalidInput), "{err}");
+        assert!(err.to_string().contains(field), "{err}");
+        refuse(&query, true).expect("a platform with mode bits answers it");
+    }
+    refuse(&options(|o| o.writable = Some(true)), false).expect("writable is answerable");
+    refuse(&options(|o| o.readable = Some(false)), false).expect("unset is no filter");
+}
+
 #[test]
 fn rejects_min_depth_greater_than_max_depth() {
     let err = query_file_system_inner(FileSystemQueryOptions {

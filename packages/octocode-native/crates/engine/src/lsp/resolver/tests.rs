@@ -11,5 +11,6 @@ fn fuzzy(name: &str, line_hint: Option<u32>) -> LspFuzzyPosition {
 
 mod anchors;
 mod declarations;
+mod declared_lines;
 mod line_arithmetic;
 mod lines_and_budget;

@@ -24,8 +24,7 @@ pub(crate) mod artifact_type {
 pub(crate) mod artifact_search_query {
     use octocode_contract_types::{
         ArtifactSearchQuery, ArtifactSearchQueryResolve2Ecosystem,
-        ArtifactSearchQueryResolve4Ecosystem, ArtifactSearchQueryResolve5Ecosystem,
-        ArtifactSearchQuerySearch6Ecosystem, ArtifactType,
+        ArtifactSearchQueryResolve4Ecosystem, ArtifactSearchQuerySearch5Ecosystem, ArtifactType,
     };
 
     pub(crate) fn artifact_type(query: &ArtifactSearchQuery) -> ArtifactType {
@@ -39,18 +38,16 @@ pub(crate) mod artifact_search_query {
             ArtifactSearchQuery::Resolve4(query) => match query.ecosystem {
                 ArtifactSearchQueryResolve4Ecosystem::Nuget => ArtifactType::Nuget,
                 ArtifactSearchQueryResolve4Ecosystem::Go => ArtifactType::Go,
+                ArtifactSearchQueryResolve4Ecosystem::Packagist => ArtifactType::Packagist,
+                ArtifactSearchQueryResolve4Ecosystem::Rubygems => ArtifactType::Rubygems,
             },
-            ArtifactSearchQuery::Resolve5(query) => match query.ecosystem {
-                ArtifactSearchQueryResolve5Ecosystem::Packagist => ArtifactType::Packagist,
-                ArtifactSearchQueryResolve5Ecosystem::Rubygems => ArtifactType::Rubygems,
-            },
-            ArtifactSearchQuery::Search6(query) => match query.ecosystem {
-                ArtifactSearchQuerySearch6Ecosystem::Crates => ArtifactType::Crates,
-                ArtifactSearchQuerySearch6Ecosystem::Maven => ArtifactType::Maven,
-                ArtifactSearchQuerySearch6Ecosystem::Nuget => ArtifactType::Nuget,
-                ArtifactSearchQuerySearch6Ecosystem::Go => ArtifactType::Go,
-                ArtifactSearchQuerySearch6Ecosystem::Packagist => ArtifactType::Packagist,
-                ArtifactSearchQuerySearch6Ecosystem::Rubygems => ArtifactType::Rubygems,
+            ArtifactSearchQuery::Search5(query) => match query.ecosystem {
+                ArtifactSearchQuerySearch5Ecosystem::Crates => ArtifactType::Crates,
+                ArtifactSearchQuerySearch5Ecosystem::Maven => ArtifactType::Maven,
+                ArtifactSearchQuerySearch5Ecosystem::Nuget => ArtifactType::Nuget,
+                ArtifactSearchQuerySearch5Ecosystem::Go => ArtifactType::Go,
+                ArtifactSearchQuerySearch5Ecosystem::Packagist => ArtifactType::Packagist,
+                ArtifactSearchQuerySearch5Ecosystem::Rubygems => ArtifactType::Rubygems,
             },
         }
     }
@@ -60,8 +57,7 @@ pub(crate) mod artifact_search_query {
             ArtifactSearchQuery::Resolve2(query) => Some(query.package_name.as_str()),
             ArtifactSearchQuery::Resolve3(query) => Some(query.package_name.as_str()),
             ArtifactSearchQuery::Resolve4(query) => Some(query.package_name.as_str()),
-            ArtifactSearchQuery::Resolve5(query) => Some(query.package_name.as_str()),
-            ArtifactSearchQuery::Search1(_) | ArtifactSearchQuery::Search6(_) => None,
+            ArtifactSearchQuery::Search1(_) | ArtifactSearchQuery::Search5(_) => None,
         }
     }
     pub(crate) fn version(query: &ArtifactSearchQuery) -> Option<&str> {
@@ -70,9 +66,7 @@ pub(crate) mod artifact_search_query {
             ArtifactSearchQuery::Resolve2(query) => query.version.as_deref().map(String::as_str),
             ArtifactSearchQuery::Resolve3(query) => query.version.as_deref().map(String::as_str),
             ArtifactSearchQuery::Resolve4(query) => query.version.as_deref().map(String::as_str),
-            ArtifactSearchQuery::Resolve5(_)
-            | ArtifactSearchQuery::Search1(_)
-            | ArtifactSearchQuery::Search6(_) => None,
+            ArtifactSearchQuery::Search1(_) | ArtifactSearchQuery::Search5(_) => None,
         }
     }
     pub fn registry_url(query: &ArtifactSearchQuery) -> Option<&str> {
@@ -85,7 +79,7 @@ pub(crate) mod artifact_search_query {
     pub(crate) fn page(query: &ArtifactSearchQuery) -> u64 {
         match query {
             ArtifactSearchQuery::Search1(query) => query.page.map_or(1, std::num::NonZero::get),
-            ArtifactSearchQuery::Search6(query) => query.page.map_or(1, std::num::NonZero::get),
+            ArtifactSearchQuery::Search5(query) => query.page.map_or(1, std::num::NonZero::get),
             _ => 1,
         }
     }
@@ -95,7 +89,7 @@ pub(crate) mod artifact_search_query {
             ArtifactSearchQuery::Search1(query) => {
                 (query.page, query.registry_cursor) = (page, None);
             }
-            ArtifactSearchQuery::Search6(query) => {
+            ArtifactSearchQuery::Search5(query) => {
                 (query.page, query.registry_cursor) = (page, None);
             }
             _ => {}
@@ -106,7 +100,7 @@ pub(crate) mod artifact_search_query {
             ArtifactSearchQuery::Search1(query) => {
                 query.registry_cursor.as_deref().map(String::as_str)
             }
-            ArtifactSearchQuery::Search6(query) => {
+            ArtifactSearchQuery::Search5(query) => {
                 query.registry_cursor.as_deref().map(String::as_str)
             }
             _ => None,
@@ -117,7 +111,7 @@ pub(crate) mod artifact_search_query {
             ArtifactSearchQuery::Search1(query) => {
                 query.registry_cursor = cursor.and_then(|text| text.parse().ok());
             }
-            ArtifactSearchQuery::Search6(query) => {
+            ArtifactSearchQuery::Search5(query) => {
                 query.registry_cursor = cursor.and_then(|text| text.parse().ok());
             }
             _ => {}
@@ -130,7 +124,7 @@ pub(crate) mod artifact_search_query {
             ArtifactSearchQuery::Search1(query) => {
                 octocode_engine::num::saturating_usize(query.limit.get())
             }
-            ArtifactSearchQuery::Search6(query) => {
+            ArtifactSearchQuery::Search5(query) => {
                 octocode_engine::num::saturating_usize(query.limit.get())
             }
             _ => crate::contracts::query_limits::artifact_search::search::LIMIT_DEFAULT,
@@ -141,7 +135,7 @@ pub(crate) mod artifact_search_query {
             ArtifactSearchQuery::Search1(query) => {
                 query.keywords.iter().map(ToString::to_string).collect()
             }
-            ArtifactSearchQuery::Search6(query) => {
+            ArtifactSearchQuery::Search5(query) => {
                 query.keywords.iter().map(ToString::to_string).collect()
             }
             _ => Vec::new(),

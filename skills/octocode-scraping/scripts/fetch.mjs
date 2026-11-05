@@ -31,8 +31,8 @@ try {
   if (existsSync(pendingDir)) {
     for (const file of (await readdir(pendingDir)).filter(name => /^page-\d+\.json$/.test(name)).toSorted()) {
       const page = JSON.parse(await readFile(join(pendingDir, file), 'utf8'));
-      if (page.sourceRow?.pageId + '.json' !== file || page.pageMap?.pageId !== page.sourceRow.pageId ||
-          !['links', 'headings', 'elements', 'resources'].every(key => Array.isArray(page[key]))) throw Error('Invalid page checkpoint ' + file);
+      if (`${page.sourceRow?.pageId}.json` !== file || page.pageMap?.pageId !== page.sourceRow.pageId ||
+          !['links', 'headings', 'elements', 'resources'].every(key => Array.isArray(page[key]))) throw Error(`Invalid page checkpoint ${file}`);
       recovered.push(page);
     }
   }

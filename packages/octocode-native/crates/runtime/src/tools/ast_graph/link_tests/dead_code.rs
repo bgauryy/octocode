@@ -134,8 +134,8 @@ fn dependents_list_bare_path_imports_no_config_links() {
     // A dependents answer with none states none.
     let app = ask(root, "dependents", Some("src/app.ts"));
     assert_eq!(app["summary"], Value::Null, "{app}");
-    // Recorded at ingest as a typed diagnostic that names its target; the
-    // import still counts as external.
+    // Recorded at ingest as a typed diagnostic that names its target; a path a
+    // scanned file ends in is no proven package, so it is not counted external.
     let diagnostics = ask(root, "diagnostics", Some("unlinked-path-import"));
     let rows = diagnostics["rows"].as_array().expect("rows");
     assert_eq!(rows.len(), 2, "{diagnostics}");
@@ -145,7 +145,7 @@ fn dependents_list_bare_path_imports_no_config_links() {
         "{diagnostics}"
     );
     assert_eq!(rows[1]["target"], "src/dir/index.ts", "{diagnostics}");
-    assert_eq!(ask(root, "stats", None)["imports"]["external"], 4);
+    assert_eq!(ask(root, "stats", None)["imports"]["external"], 2);
 }
 
 /// The same specifier linked by a tsconfig `baseUrl` is a dependent edge

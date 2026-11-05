@@ -10,6 +10,7 @@ fn assemble(lines: &[(u32, &str, Option<u32>)], context_lines: u32) -> TextSearc
                 line_text: text.to_owned(),
                 line_number,
                 column,
+                windowed_at: None,
             }),
             None => {
                 entry.contexts.insert(line_number, text.to_owned());
@@ -39,6 +40,7 @@ fn a_match_carries_its_byte_offset_in_its_line() {
                     line_text: line.clone(),
                     line_number: 1,
                     column,
+                    windowed_at: None,
                 });
                 entry
             },

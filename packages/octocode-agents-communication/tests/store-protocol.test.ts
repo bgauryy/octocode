@@ -59,12 +59,12 @@ test('Given a database file, when it is replaced or removed, then the bound stor
   const f = fixture(t);
   const id = await f.join('agent');
   const { renameSync, writeFileSync, rmSync } = await import('node:fs');
-  renameSync(f.file, f.file + '.moved');
+  renameSync(f.file, `${f.file}.moved`);
   writeFileSync(f.file, '');
   await refuses(f.call(id, 'binding'), /replaced|no longer a file/);
   rmSync(f.file);
   await refuses(f.call(id, 'binding'), /disappeared/);
-  renameSync(f.file + '.moved', f.file);
+  renameSync(`${f.file}.moved`, f.file);
 });
 
 test('Given an unknown operation or invalid input, when it is called, then it is refused before touching the database', async t => {

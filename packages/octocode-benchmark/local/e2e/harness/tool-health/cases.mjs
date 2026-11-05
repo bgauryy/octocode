@@ -107,7 +107,7 @@ export const CASES = {
   localFetch: {
     budgetMs: LOCAL, workspace: readerWorkspace,
     happy: { query: { path: 'src/greeter.ts' }, fields: ['content', 'totalLines'], rows: data => numbered(data.content), min: 18 },
-    page: { query: { path: 'large.txt' }, lead: 'nextPage', expect: () => Array.from({ length: 1500 }, (_, i) => i + 1) },
+    page: { query: { path: 'large.txt' }, lead: 'responsePagination.next', expect: () => Array.from({ length: 1500 }, (_, i) => i + 1) },
     empty: { query: { path: 'src/greeter.ts', matchString: ['zzzNoSuchText'] } },
     invalid: { query: { path: 'src/greeter.ts', ranges: ['1-4'] } },
     explore: [
@@ -136,7 +136,7 @@ export const CASES = {
   ghGetFileContent: {
     budgetMs: REMOTE,
     happy: { query: { ...repo, path: 'src/greeter.ts' }, fields: ['content', 'totalLines'], rows: data => numbered(data.content), min: 18 },
-    page: { query: { owner: 'octo', repo: 'demo-docs', path: 'guide.txt' }, lead: 'nextPage', expect: ctx => lineNumbers(ctx.mock.model.repos.find(r => r.name === 'demo-docs').files['guide.txt']) },
+    page: { query: { owner: 'octo', repo: 'demo-docs', path: 'guide.txt' }, lead: 'responsePagination.next', expect: ctx => lineNumbers(ctx.mock.model.repos.find(r => r.name === 'demo-docs').files['guide.txt']) },
     empty: { query: { ...repo, path: 'src/greeter.ts', matchString: ['zzzNoSuchText'] } },
     invalid: { query: repo },
     explore: [{ label: 'ranges', query: { ...repo, path: 'src/app.ts', ranges: [{ startLine: 1, endLine: 3 }] } }],
@@ -179,6 +179,14 @@ export const CASES = {
     page: { input: ctx => ({ queries: [{ operation: 'search', ecosystem: 'npm', keywords: ['health'], registryUrl: `${ctx.mock.url}/` }], responseChars: 150 }), lead: 'responsePagination.next', unpaged: { query: ctx => ({ operation: 'search', ecosystem: 'npm', keywords: ['health'], registryUrl: `${ctx.mock.url}/` }) } },
     empty: { query: ctx => ({ operation: 'search', ecosystem: 'npm', keywords: ['zzznosuchpkg'], registryUrl: `${ctx.mock.url}/` }) },
     invalid: { query: { operation: 'resolve', ecosystem: 'npm' } },
+  },
+  securityCheck: {
+    budgetMs: REMOTE,
+    happy: { query: { operation: 'advisory', id: 'GHSA-HAPPY' }, fields: ['advisories'], rows: data => (data.advisories ?? []).map(item => item.id), min: 1, check: data => data.advisories?.[0]?.link?.endsWith('/GHSA-HAPPY') ? null : 'each advisory links its record' },
+    page: { na: 'advisories page through the OSV states in advanced-osv.mjs' },
+    empty: { query: { operation: 'package', ecosystem: 'pypi', packageName: 'proof', version: '1.0.0' } },
+    invalid: { query: { operation: 'package', ecosystem: 'npm' } },
+    explore: [{ label: 'url', query: { operation: 'url', url: 'pkg:pypi/proof@1.0.0' }, class: 'empty' }, { label: 'commit', query: { operation: 'commit', commit: '6879efc2c1596d11a6a6ad296f80063b558d5e0f' }, class: 'empty' }],
   },
   ghCloneRepo: {
     budgetMs: 20000, needs: 'clone',

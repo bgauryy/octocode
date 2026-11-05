@@ -5,9 +5,10 @@
 //! origin's own statement of how long an answer stands. Past that, a validator
 //! (`ETag`, `Last-Modified`) asks whether it still stands: GitHub answers 304
 //! without charging its rate limit. Only an answer with none of these (GitHub
-//! search) falls back to a short window the caller names. That reuse, `max-age`
-//! reuse, and any answer served because the origin rate-limited the asking, are
-//! each disclosed by the time the answer was observed.
+//! search, a GraphQL read) falls back to a short window the caller names. That reuse, and any
+//! answer served because the origin rate-limited the asking, are each disclosed
+//! by the time the answer was observed; reuse within the origin's own `max-age`
+//! is not, since the origin stands behind it.
 use reqwest::header::{HeaderName, IF_MODIFIED_SINCE, IF_NONE_MATCH};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -40,9 +41,13 @@ pub trait SavedAnswers: Send + Sync {
 pub enum Reuse {
     /// Answers as it is: the request names something that cannot change.
     Pinned,
-    /// Answers as it is, within the time the origin (or the caller's window)
-    /// allows; changes since it was observed are not shown.
+    /// Answers as it is, within the lifetime the origin itself stated
+    /// (`max-age`): the origin vouches for it, so nothing is disclosed.
     Fresh,
+    /// Answers as it is, within the caller's window for an answer the origin
+    /// neither dated nor can validate; changes since it was observed are not
+    /// shown, so the reuse is disclosed.
+    Window,
     /// Must be confirmed by the origin with this header first.
     Ask(HeaderName, String),
     /// Cannot answer.
@@ -68,7 +73,7 @@ impl SavedAnswer {
             return Reuse::Ask(name, value);
         }
         if !self.redirected && window.is_some_and(|window| age < window) {
-            return Reuse::Fresh;
+            return Reuse::Window;
         }
         Reuse::Spent
     }
@@ -119,18 +124,23 @@ fn has_directive(headers: &[(String, String)], name: &str) -> bool {
     directives(headers).any(|directive| directive.eq_ignore_ascii_case(name))
 }
 
-/// How long the origin says the answer stands from when it was observed:
-/// `max-age` less the `Age` a shared cache reported.
-fn stated_lifetime(headers: &[(String, String)]) -> Option<Duration> {
+/// The `max-age` an answer states, in seconds, when it allows reuse at all.
+pub(super) fn stated_max_age(headers: &[(String, String)]) -> Option<u64> {
     if has_directive(headers, "no-cache") || has_directive(headers, "no-store") {
         return None;
     }
-    let max_age = directives(headers).find_map(|directive| {
+    directives(headers).find_map(|directive| {
         let (name, value) = directive.split_once('=')?;
         name.trim()
             .eq_ignore_ascii_case("max-age")
             .then(|| value.trim().parse::<u64>().ok())?
-    })?;
+    })
+}
+
+/// How long the origin says the answer stands from when it was observed:
+/// `max-age` less the `Age` a shared cache reported.
+fn stated_lifetime(headers: &[(String, String)]) -> Option<Duration> {
+    let max_age = stated_max_age(headers)?;
     let age = header(headers, "age")
         .and_then(|value| value.trim().parse::<u64>().ok())
         .unwrap_or(0);
@@ -203,7 +213,7 @@ mod tests {
         let bare = [("cache-control", "no-cache")];
         assert_eq!(
             saved(&bare).reuse(false, Some(window), observed + 29_000),
-            Reuse::Fresh
+            Reuse::Window
         );
         assert_eq!(
             saved(&bare).reuse(false, Some(window), observed + 30_000),

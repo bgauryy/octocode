@@ -35,13 +35,13 @@ function start(t: TestContext, f: ReturnType<typeof fixture>, args: string[], en
   }
   return {child, closed, ready};
 }
-const initialize = JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'test',version:'1'}}})+'\n';
+const initialize = `${JSON.stringify({jsonrpc:'2.0',id:1,method:'initialize',params:{protocolVersion:'2024-11-05',capabilities:{},clientInfo:{name:'test',version:'1'}}})}\n`;
 
 test('managed MCP joins once, binds tools, keeps stdout pure and leaves on EOF', async t => {
   const f = fixture(t), worker = start(t,f,['--managed','--name','worker','--vendor','generic','--tools','agents,messages']);
   const ready = await worker.ready();
   assert.equal(ready.delivery,'manual-inbox');assert.equal(ready.automaticWake,false);
-  worker.child.stdin.end(initialize + JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'agents',arguments:{type:'list',input:{}}}})+'\n');
+  worker.child.stdin.end(`${initialize + JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'agents',arguments:{type:'list',input:{}}}})}\n`);
   const result = await worker.closed;assert.equal(result.code,0,result.stderr);
   const frames = result.stdout.trim().split('\n').map((line): JsonRecord => JSON.parse(line));
   assert.equal(frames.length,2);assert.ok(frames.every((frame: JsonRecord)=>frame.jsonrpc==='2.0'));
@@ -102,12 +102,12 @@ test('heartbeat override is a bounded integer and invalid values fail closed bef
 
 test('built entry exposes managed stdio MCP with discovery, calls and EOF cleanup', t => {
   const f=fixture(t);
-  const requests=initialize+[
+  const requests=`${initialize+[
     {method:'notifications/initialized'},
     {id:2,method:'tools/list'},
     {id:3,method:'tools/call',params:{name:'agents',arguments:{type:'status',input:{status:'busy',task:'Verify launcher binding'}}}},
     {id:4,method:'tools/call',params:{name:'messages',arguments:{type:'read',input:{}}}},
-  ].map(frame=>JSON.stringify({jsonrpc:'2.0',...frame})).join('\n')+'\n';
+  ].map(frame=>JSON.stringify({jsonrpc:'2.0',...frame})).join('\n')}\n`;
   const frames=execFileSync(binary,['mcp','--managed','--name','launcher-check','--vendor','generic','--tools','messaging',...f.flags],{input:requests,encoding:'utf8',timeout:10000,stdio:['pipe','pipe','pipe']}).trim().split('\n').map((line): JsonRecord=>JSON.parse(line));
   assert.equal(frames.length,4,'Notifications emit no stdout frame');
   assert.deepEqual(frames[0].result.capabilities,{tools:{}});

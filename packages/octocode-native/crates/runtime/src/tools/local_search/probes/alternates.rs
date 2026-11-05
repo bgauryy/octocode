@@ -55,7 +55,7 @@ pub(in crate::tools::local_search) struct Alternates<'q> {
     /// The request as sent, since a list runs joined and escaped.
     written: &'q LocalSearchQuery,
     /// What an empty scan's walk searched, when its record can serve.
-    listed: Option<Vec<PathBuf>>,
+    pub(in crate::tools::local_search) listed: Option<Vec<PathBuf>>,
     reading: OnceCell<Option<Reading>>,
     /// What the pass of [`Self::case_hint`] found for the regex reading.
     read: Cell<Pass>,
@@ -229,7 +229,8 @@ impl<'q> Alternates<'q> {
         asked
             .iter()
             .map(|options| {
-                let (found, cut, _) = probe_walked((*options).clone(), paths, defaults, cancel)?;
+                let (found, cut, _) =
+                    probe_walked((*options).clone(), paths, defaults, None, cancel)?;
                 Some(Files {
                     count: found.files.len(),
                     cut,

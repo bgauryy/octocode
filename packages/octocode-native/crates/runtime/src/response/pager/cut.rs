@@ -14,11 +14,10 @@ pub(super) fn cut_rows(
 ) -> Result<PreparedPage, ResponseError> {
     let (mut envelope, mut pagination) = source.page(
         &input.options,
-        &input.remaining,
         &|pagination| pagination_block_chars(input, pagination),
         cancelled,
     )?;
-    pagination.next = continuation(input, &pagination);
+    pagination.next = continuation(input, &pagination).or(pagination.next.take());
     if pagination.should_emit() || is_saved_replay(&input.options) {
         // The page is measured once ([`RowSource::page`]): the rendered
         // page is those chars plus the block's entry, so the oversized flag
@@ -68,7 +67,7 @@ pub(super) fn pagination_block_chars(
         saved.replayed = true;
     }
     let mut page = pagination.clone();
-    page.next = build_continuation(input.tool.as_str(), &options, &page);
+    page.next = build_continuation(input.tool.as_str(), &options, &page).or(page.next);
     if !(page.should_emit() || is_saved_replay(&options)) {
         return 0;
     }
@@ -90,8 +89,6 @@ fn pagination_value(
     options: &ResponsePageOptions,
 ) -> Result<Value, ResponseError> {
     let mut value = json!({
-        "page": pagination.page,
-        "totalPages": pagination.total_pages,
         "hasMore": pagination.has_more,
     });
     if let Some(next) = &pagination.next {

@@ -40,8 +40,6 @@ impl<'a> Projector<'a> {
             witnesses: Vec::new(),
             unresolved: Vec::new(),
             declarations: Vec::new(),
-            checked_arguments: HashSet::new(),
-            invalid_argument: None,
             file_nodes: BTreeMap::new(),
             roles: HashMap::new(),
             languages,

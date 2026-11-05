@@ -51,26 +51,23 @@ fn candidates_carry_the_enclosing_declaration() {
     let seen = judge.0.lock().expect("lock").clone();
     let names = seen
         .iter()
-        .map(|state| state["matches"][0]["enclosing"]["symbolName"].clone())
+        .map(|state| state["target"]["enclosing"]["symbolName"].clone())
         .collect::<Vec<_>>();
     assert_eq!(names, [json!("production"), json!("checks_it")], "{seen:?}");
 }
 
-/// A provider that cannot answer (down, overloaded, unreachable) never
-/// withholds a search that succeeded: every hit is shown under an `unavailable` receipt naming
-/// the provider's code, the warning states its error and hint, and the
-/// next page replays that plan without another provider call.
-
+/// Rows keep their source order whatever order paging ranks them in, so a
+/// hit's ordinal does not move between a page and its replay.
 #[test]
-fn snippet_groups_merge_overlapping_or_touching_windows() {
+fn hits_are_ordered_by_source_position() {
     let hit = |line| octocode_engine::types::TextSearchMatch {
-        deferred: None,
         line,
         last_line: None,
         column: 0,
         byte_offset: 0,
         value: String::new(),
-        value_digest: <sha2::Sha256 as sha2::Digest>::digest(b"").into(),
+        deferred: None,
+        value_digest: [0; 32],
         count: None,
         rank: None,
     };
@@ -81,14 +78,7 @@ fn snippet_groups_merge_overlapping_or_touching_windows() {
         matches: vec![hit(20), hit(1), hit(2), hit(9)],
         source: None,
     };
-    assert_eq!(
-        groups(&file, SearchContext::symmetric(0)),
-        [vec![1, 2], vec![3], vec![0]]
-    );
-    assert_eq!(
-        groups(&file, SearchContext::symmetric(3)),
-        [vec![1, 2, 3], vec![0]]
-    );
+    assert_eq!(source_order(&file), [1, 2, 3, 0]);
 }
 
 #[test]

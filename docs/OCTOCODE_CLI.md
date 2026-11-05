@@ -1,6 +1,6 @@
 # Octocode CLI
 
-`octocode` exposes all 16 research tools from the Rust engine used by MCP, plus setup and management commands. Tools use the same input contract on both interfaces. The npm package is a launcher; native owns validation, behavior, output and exit codes.
+`octocode` exposes the research tools of the Rust engine used by MCP, plus setup and management commands. Tools use the same input contract on both interfaces. The npm package is a launcher; native owns validation, behavior, output and exit codes.
 
 ## Quick start
 
@@ -15,7 +15,7 @@ npx -y octocode localFetch '{"queries":[{"path":"src/index.ts","ranges":[{"start
 
 ### Tool commands
 
-Use `octocode <tool> '<JSON envelope>'`. All 16 tools are listed and enabled in the CLI, including `clasify`, `ghCloneRepo`, `graphBuild` and `graphQuery`. MCP catalog filters and opt-ins do not remove CLI commands. A call that needs a missing credential, provider or language server reports that failure at invocation; filesystem policy and storage requirements still apply. See [configuration and MCP availability](CONFIGURATION.md#tool-availability-cli-and-mcp), and the [tools reference](OCTOCODE_TOOLS.md) for each tool's behavior.
+Use `octocode <tool> '<JSON envelope>'`. The CLI lists 15 tools, including `ghCloneRepo`, `graphBuild` and `graphQuery`, plus `clasify` with a classification key and `securityCheck` with `OCTOCODE_SECURITY_CHECKS=true`. MCP catalog filters and opt-ins do not remove CLI commands. Without the key, `octocode clasify` still answers, with `missingConfiguration` and where to get one, and `octocode schema clasify` names the variable to set. A call that needs a missing credential, provider or language server reports that failure at invocation; filesystem policy and storage requirements still apply. See [configuration and MCP availability](CONFIGURATION.md#tool-availability-cli-and-mcp), and the [tools reference](OCTOCODE_TOOLS.md) for each tool's behavior.
 
 Each CLI call starts a new process. For many repeated calls, one long-lived `octocode mcp` session runs the same tools without that per-call startup.
 
@@ -56,9 +56,11 @@ Research inputs are JSON envelopes. Use `--input <file>` for saved requests and 
 octocode schema
 octocode schema localFetch --view query
 octocode schema localFetch --view variants
+octocode schema localFetch --view output   # what its output fields and partialReasons mean
+octocode schema --view flow                # which tool, how little to ask for, recovery
 ```
 
-The CLI catalog lists all tools; the query view describes authored input; the full view includes variants and rules. MCP clients inspect their server's `tools/list` for its configured subset. Defaults are owned by the contract. Discovery never requires copying private progress state.
+The CLI catalog lists the tools available here; the query view describes authored input; the full view includes variants and rules. MCP clients inspect their server's `tools/list` for its configured subset. Defaults are owned by the contract. Discovery never requires copying private progress state.
 
 ### The JSON form
 
@@ -80,7 +82,7 @@ Text mode renders readable evidence on stdout and guidance on stderr, on a termi
 
 ### Reading a JSON result
 
-`results[]` carries the original query `index`, `data` and an exceptional status when relevant. Paging state lives only in the issued cursor; no request sets a page. Complete `responsePagination.next` before the tool-level `next.*` calls. `related[]` starts new work; `hints[]` contains prose. [Data and handoff contract](TOOL_DATA_CONTRACT.md) owns shapes, paths, evidence and continuation semantics.
+`results[]` carries the original query `index`, `data` and an exceptional status when relevant. Paging state lives only in the issued cursor; no request sets a page. Run `responsePagination.next`, else a `next.nextPage`, until neither remains. `related[]` starts new work; `hints[]` contains prose. [Data and handoff contract](TOOL_DATA_CONTRACT.md) owns shapes, paths, evidence and continuation semantics.
 
 ### Errors
 
@@ -125,8 +127,8 @@ octocode graphQuery --json '{"queries":[{"operation":"unresolved","path":".","ta
 
 - `graphBuild` runs in the calling process and prints its progress on stderr;
   `graphQuery` runs on the warm server, so later pages reuse the decoded snapshot.
-- Follow `responsePagination.next`, then `next.nextPage` and the other `next.*`
-  continuations, passing each `input` back unchanged.
+- Follow `responsePagination.next`, else `next.nextPage`, until neither remains, then
+  the other `next.*` continuations you need, passing each `input` back unchanged.
 - `octocode schema graphQuery --view variants` lists every operation's fields.
   Operations, `issues` detectors and tiers, `impact` and recipes:
   [code graph](../packages/octocode-native/docs/engine/CODE_GRAPH.md#agent-graph-tools-cli-and-beta-mcp).
@@ -235,7 +237,9 @@ Keys in `.env` and the credential setting `classification.api` are not encrypted
 
 ```bash
 octocode lsp-server list                 # managed downloads and install status
-octocode lsp-server status src/main.rs   # which language and server a file resolves to
+octocode lsp-server status               # check lsp-servers.json and every route; exit 1 on a problem
+octocode lsp-server status src/main.rs   # one file's server, root and effective arguments
+octocode lsp-server status --live        # also start each server and complete initialize
 octocode lsp-server install rust-analyzer
 octocode lsp-server install --all
 ```

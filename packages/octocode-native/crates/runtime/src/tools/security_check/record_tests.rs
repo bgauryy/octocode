@@ -1,0 +1,273 @@
+//! Each database's record as a row.
+use super::*;
+use crate::providers::artifact::test_http::recorded;
+use serde_json::json;
+
+fn row(record: Value, kind: ArtifactType, name: &str) -> SecurityAdvisory {
+    let names = [name.to_owned()];
+    advisory(&record, &Selection::Named(kind, &names)).expect("record")
+}
+
+#[test]
+fn a_github_record_keeps_its_source_severity_and_ranges() {
+    let source = "https://github.com/github/advisory-database/blob/main/advisories/X.json";
+    let item = row(
+        json!({
+            "id": "GHSA-29mw-wpgm-hmr9", "schema_version": "1.4.0",
+            "aliases": ["CVE-2020-28500"], "summary": "ReDoS", "details": "Whole text.",
+            "published": "2022-01-06T20:30:46Z", "modified": "2025-01-14T18:09:53Z",
+            "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N"}],
+            "database_specific": {"severity": "MODERATE", "cwe_ids": ["CWE-400"],
+                "github_reviewed": true, "nvd_published_at": "2021-02-15T11:15:00Z"},
+            "references": [{"type": "ADVISORY", "url": "https://nvd.nist.gov/x"}],
+            "credits": [{"name": "dropped"}],
+            "affected": [{
+                "package": {"name": "lodash", "ecosystem": "npm", "purl": "pkg:npm/lodash"},
+                "ranges": [{"type": "SEMVER", "events": [{"introduced": "4.0.0"}, {"fixed": "4.17.21"}]}],
+                "database_specific": {"source": source, "last_known_affected_version_range": "<= 4.17.20"}
+            }]
+        }),
+        ArtifactType::Npm,
+        "lodash",
+    );
+    assert_eq!(
+        item.link,
+        "https://osv.dev/vulnerability/GHSA-29mw-wpgm-hmr9"
+    );
+    assert_eq!(item.source.as_deref(), Some(source));
+    assert_eq!(item.severity.as_deref(), Some("moderate"));
+    assert_eq!(item.cwes, ["CWE-400"]);
+    assert_eq!(item.fixed_in, ["4.17.21"]);
+    assert_eq!(item.aliases, ["CVE-2020-28500"]);
+    assert_eq!(
+        item.cvss,
+        [json!({"type": "CVSS_V3", "score": "CVSS:3.1/AV:N"})]
+    );
+    assert_eq!(
+        item.affected,
+        [json!({
+            "packageName": "lodash",
+            "ranges": [{"type": "SEMVER", "events": [{"introduced": "4.0.0"}, {"fixed": "4.17.21"}]}],
+            "databaseSpecific": {"last_known_affected_version_range": "<= 4.17.20"}
+        })]
+    );
+    let printed = serde_json::to_string(&item).expect("row");
+    for dropped in [
+        "github_reviewed",
+        "nvd_published_at",
+        "credits",
+        "schema_version",
+        "purl",
+    ] {
+        assert!(!printed.contains(dropped), "{dropped}: {printed}");
+    }
+}
+
+/// Each source spells severity and its source link its own way.
+#[test]
+fn severity_and_source_read_each_databases_spelling() {
+    let go = row(
+        json!({"id": "GO-1", "database_specific": {"url": "https://pkg.go.dev/vuln/GO-1"},
+            "affected": [{"package": {"name": "golang.org/x/text", "ecosystem": "Go"},
+                "ecosystem_specific": {"imports": [{"path": "golang.org/x/text/language"}]},
+                "ranges": [{"type": "SEMVER", "events": [{"fixed": "0.3.8"}]}]}]}),
+        ArtifactType::Go,
+        "golang.org/x/text",
+    );
+    assert_eq!(go.source.as_deref(), Some("https://pkg.go.dev/vuln/GO-1"));
+    assert_eq!(go.severity, None, "a label is never defaulted");
+    assert_eq!(
+        go.affected[0]["ecosystemSpecific"]["imports"][0]["path"],
+        "golang.org/x/text/language"
+    );
+    let labelled = row(
+        json!({"id": "X", "affected": [{"package": {"name": "a", "ecosystem": "npm"},
+            "ecosystem_specific": {"severity": "HIGH"}}]}),
+        ArtifactType::Npm,
+        "a",
+    );
+    assert_eq!(labelled.severity.as_deref(), Some("high"));
+}
+
+#[test]
+fn a_commit_is_no_fixed_version() {
+    let item = row(
+        json!({"id": "X", "affected": [{"package": {"name": "a", "ecosystem": "npm"}, "ranges": [
+            {"type": "GIT", "repo": "https://example.test/r", "events": [{"fixed": "abc123"}]},
+            {"type": "ECOSYSTEM", "events": [{"fixed": "2.0.0"}]},
+            {"type": "SEMVER", "events": [{"fixed": "2.0.0"}, {"fixed": "3.0.0"}]}
+        ]}]}),
+        ArtifactType::Npm,
+        "a",
+    );
+    assert_eq!(item.fixed_in, ["2.0.0", "3.0.0"]);
+    assert_eq!(
+        item.affected[0]["ranges"][0]["type"], "GIT",
+        "kept in the ranges"
+    );
+    let git_only = row(
+        json!({"id": "X", "affected": [{"package": {"name": "a", "ecosystem": "npm"},
+            "ranges": [{"type": "GIT", "events": [{"fixed": "abc123"}]}]}]}),
+        ArtifactType::Npm,
+        "a",
+    );
+    assert!(git_only.fixed_in.is_empty());
+    assert_eq!(git_only.affected.len(), 1);
+}
+
+#[test]
+fn entries_select_by_the_ecosystems_own_name_rule() {
+    let entry =
+        |name: &str, ecosystem: &str| json!({"package": {"name": name, "ecosystem": ecosystem}});
+    for (kind, stated, osv, asked, own) in [
+        (ArtifactType::Pypi, "PyPI", "PyYAML", "pyyaml", true),
+        (
+            ArtifactType::Pypi,
+            "PyPI",
+            "zope.interface",
+            "Zope-Interface",
+            true,
+        ),
+        (ArtifactType::Pypi, "PyPI", "a__b", "a-b", true),
+        (ArtifactType::Pypi, "PyPI", "ab", "a-b", false),
+        (
+            ArtifactType::Nuget,
+            "NuGet",
+            "Newtonsoft.Json",
+            "newtonsoft.json",
+            true,
+        ),
+        (
+            ArtifactType::Crates,
+            "crates.io",
+            "Foo_Bar",
+            "foo-bar",
+            true,
+        ),
+        (ArtifactType::Npm, "npm", "LODASH", "lodash", false),
+        (ArtifactType::Maven, "Maven", "g:A", "g:a", false),
+        (
+            ArtifactType::Go,
+            "Go",
+            "golang.org/x/Text",
+            "golang.org/x/text",
+            false,
+        ),
+        (ArtifactType::Packagist, "Packagist", "O/R", "o/r", false),
+        (ArtifactType::Rubygems, "RubyGems", "Rack", "rack", false),
+        (ArtifactType::Npm, "PyPI", "lodash", "lodash", false),
+    ] {
+        let names = [asked.to_owned()];
+        assert_eq!(
+            is_own(&entry(osv, stated), &Selection::Named(kind, &names)),
+            own,
+            "{kind:?} {osv} {asked}"
+        );
+    }
+}
+
+/// A record names other packages too: they are disclosed, and a record with no
+/// entry for this package is kept, never dropped.
+#[test]
+fn other_packages_are_disclosed_and_no_record_is_dropped() {
+    let item = row(
+        json!({"id": "X", "affected": [
+            {"package": {"name": "lodash", "ecosystem": "npm"}},
+            {"package": {"name": "lodash-es", "ecosystem": "npm"}},
+            {"package": {"name": "lodash.merge", "ecosystem": "npm"}},
+            {"package": {"name": "lodash-es", "ecosystem": "npm"}}
+        ]}),
+        ArtifactType::Npm,
+        "lodash",
+    );
+    assert_eq!(item.also_affects, ["lodash-es", "lodash.merge"]);
+    let none_own = row(
+        json!({"id": "X", "affected": [{"package": {"name": "other", "ecosystem": "npm"}}]}),
+        ArtifactType::Npm,
+        "lodash",
+    );
+    assert_eq!(none_own.id, "X");
+    assert!(none_own.affected.is_empty());
+    assert_eq!(none_own.also_affects, ["other"]);
+}
+
+#[test]
+fn a_withdrawn_record_keeps_the_field() {
+    let item = row(
+        json!({"id": "X", "withdrawn": "2024-01-01T00:00:00Z"}),
+        ArtifactType::Npm,
+        "a",
+    );
+    assert_eq!(item.withdrawn.as_deref(), Some("2024-01-01T00:00:00Z"));
+}
+
+/// A brief row leads with what decides an upgrade and names none of the record's
+/// internals; the whole record stays one call away.
+#[test]
+fn a_brief_row_states_only_what_decides_an_upgrade() {
+    let item = row(
+        json!({
+            "id": "GHSA-29mw-wpgm-hmr9", "schema_version": "1.4.0",
+            "aliases": ["CVE-2020-28500", "OTHER-1"], "summary": "ReDoS", "details": "Whole text.",
+            "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:N"}],
+            "database_specific": {"severity": "MODERATE"},
+            "affected": [{"package": {"name": "lodash", "ecosystem": "npm"},
+                "database_specific": {"source": "https://example.test/source.json"},
+                "ranges": [{"type": "SEMVER", "events": [{"introduced": "4.0.0"}, {"fixed": "4.17.21"}]}]}]
+        }),
+        ArtifactType::Npm,
+        "lodash",
+    );
+    assert_eq!(
+        item.brief(),
+        json!({
+            "id": "GHSA-29mw-wpgm-hmr9",
+            "cves": ["CVE-2020-28500"],
+            "summary": "ReDoS",
+            "severity": "moderate",
+            "source": "https://example.test/source.json",
+            "fixedIn": ["4.17.21"],
+            "link": "https://osv.dev/vulnerability/GHSA-29mw-wpgm-hmr9",
+        })
+    );
+    // No summary or label: the first line of details, and the vector as published.
+    let bare = row(
+        json!({"id": "PYSEC-1", "details": "\n First line.\nSecond line.",
+            "severity": [{"type": "CVSS_V3", "score": "CVSS:3.1/AV:L"}]}),
+        ArtifactType::Pypi,
+        "x",
+    );
+    assert_eq!(bare.brief()["summary"], "First line.");
+    assert_eq!(bare.brief()["cvss"][0]["score"], "CVSS:3.1/AV:L");
+    assert!(bare.brief().get("severity").is_none());
+}
+
+/// What OSV really sends. A record's whole row holds its vectors and its word.
+#[test]
+fn a_recorded_record_keeps_its_vectors_and_its_word() {
+    let record = recorded::answer("osv/advisory-ghsa", "/v1/vulns/");
+    let item = row(record.clone(), ArtifactType::Npm, "lodash");
+    let vectors = record["severity"].as_array().expect("OSV's severity list");
+    assert!(!vectors.is_empty());
+    assert_eq!(&item.cvss, vectors);
+    let word = record["database_specific"]["severity"]
+        .as_str()
+        .expect("a word");
+    assert_eq!(item.severity.as_deref(), Some(word.to_lowercase().as_str()));
+}
+
+/// A real record with a score and no word: the brief row shows the vector as published.
+#[test]
+fn a_recorded_record_with_no_word_shows_its_vector() {
+    let answer = recorded::answer("osv/package-score-only", "/v1/query");
+    let bare = answer["vulns"]
+        .as_array()
+        .expect("vulns")
+        .iter()
+        .find(|record| {
+            record["severity"].is_array() && record["database_specific"]["severity"].is_null()
+        })
+        .expect("a record with no word");
+    let item = row(bare.clone(), ArtifactType::Pypi, "requests");
+    assert_eq!(&item.brief()["cvss"], &bare["severity"]);
+}

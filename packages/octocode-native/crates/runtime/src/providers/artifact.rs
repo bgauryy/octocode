@@ -19,13 +19,14 @@ mod versions;
 use crate::providers::artifact::query::artifact_search_query;
 use crate::providers::artifact::query::artifact_type;
 pub use http::{ArtifactHttp, SystemArtifactHttp};
+pub(crate) use http::{ArtifactHttpRequest, JSON, rejection_detail};
 pub(crate) use npm::registry::invalid_registry_url;
 pub(crate) use npmrc::npm_authorization;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 pub use release_ref::{ReleaseTag, ReleaseTags, TagCommitFuture, TagFuture};
 pub use types::{
-    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ResolvedNpmRegistry,
-    TerminalLimit,
+    Advisory, ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState,
+    ResolvedNpmRegistry, TerminalLimit,
 };
 pub(crate) use util::{github_repo_dir, github_repository, github_slug, release_ref_in};
 
@@ -64,27 +65,13 @@ pub async fn execute_artifact(
         &state,
         artifact_search_query::page_size(query),
     )?;
-    if artifact_search_query::version(query).is_some()
-        && version_support(artifact_type::as_str(artifact_search_query::artifact_type(
-            query,
-        ))) == "none"
-    {
-        return Err(ArtifactError::new(
-            ErrorCode::CapabilityUnavailable,
-            format!(
-                "{}; {} lookups return the latest release.",
-                version_support_summary(),
-                artifact_type::as_str(artifact_search_query::artifact_type(query))
-            ),
-        ));
-    }
     // An ecosystem that takes exact versions has no range to resolve: a
     // range is refused as such, never looked up as a version.
     if let Some(version) = artifact_search_query::version(query)
         && is_range(version)
     {
         let ecosystem = artifact_type::as_str(artifact_search_query::artifact_type(query));
-        if version_support(ecosystem) == "exact" {
+        if version_support(ecosystem) == Some("exact") {
             return Err(ArtifactError::new(
                 ErrorCode::CapabilityUnavailable,
                 format!(
@@ -258,8 +245,8 @@ fn validate_cursor_state(
 }
 
 /// The contract's `version` capability table (`x-versionSupport` on the
-/// artifactSearch `version` field): ecosystem → `range`, `exact`, or
-/// `none`, in the contract's order.
+/// artifactSearch `version` field): ecosystem → `range` or `exact`, in the
+/// contract's order.
 fn version_table() -> &'static [(String, String)] {
     static TABLE: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
     TABLE.get_or_init(|| {
@@ -282,29 +269,12 @@ fn version_table() -> &'static [(String, String)] {
     })
 }
 
-/// `range`, `exact`, or `none` (also for an ecosystem the table omits).
-fn version_support(ecosystem: &str) -> &'static str {
+/// `range` or `exact`; an ecosystem the table omits takes neither.
+fn version_support(ecosystem: &str) -> Option<&'static str> {
     version_table()
         .iter()
         .find(|(name, _)| name == ecosystem)
-        .map_or("none", |(_, level)| level.as_str())
-}
-
-/// "version takes ranges for npm, pypi, crates and exact versions for …".
-fn version_support_summary() -> String {
-    let list = |level: &str| {
-        version_table()
-            .iter()
-            .filter(|(_, support)| support == level)
-            .map(|(name, _)| name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ")
-    };
-    format!(
-        "version takes ranges for {} and exact versions for {}",
-        list("range"),
-        list("exact")
-    )
+        .map(|(_, level)| level.as_str())
 }
 
 #[cfg(test)]

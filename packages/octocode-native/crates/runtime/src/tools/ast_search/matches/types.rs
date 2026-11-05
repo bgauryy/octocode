@@ -43,6 +43,12 @@ pub(super) struct Scan {
     pub(super) truncated: bool,
     /// Where a time-budget cut resumes (`scanOffset`), in walk order.
     pub(super) scan_resume: Option<u32>,
+    /// What the candidates before this window are now, and through its cut
+    /// ([`octocode_engine::structural::ListedFiles`]).
+    pub(super) listed_before: Option<String>,
+    pub(super) listed_through: Option<String>,
+    /// The candidates before this window: its pages answer for them too.
+    pub(super) earlier_files: Vec<std::path::PathBuf>,
     pub(super) diagnostics: Vec<StructuralDiagnostic>,
     /// Unsupported, unreadable and over-large files skipped.
     pub(super) skips: (u32, u32, u32),
@@ -54,16 +60,16 @@ pub(super) struct Scan {
     pub(super) sources: Vec<std::path::PathBuf>,
     /// Canonical digest of complete source bytes already read by this scan.
     pub(super) source_digest: String,
-    /// Directory and ignore-file metadata observed during discovery, not source reads.
+    /// The directories the walk entered, not source reads.
     pub(super) discovery_sources: Vec<std::path::PathBuf>,
     /// Files outside the walk whose contents decide its ignore rules, and
     /// the repository markers whose presence does (empty when ignore rules
     /// are off): the memo watches them like the walked entries.
     pub(super) ignore_rules: Vec<std::path::PathBuf>,
     pub(super) repository_markers: Vec<std::path::PathBuf>,
-    /// An ignore dependency no stamp can watch (a link, an unreadable
-    /// entry) disables reuse.
-    pub(super) untracked_ignore_dependencies: bool,
+    /// Ignore files take part in the walk: keeping the scan watches those of
+    /// its directories too.
+    pub(super) watches_ignore_files: bool,
     /// Candidate entries the security path policy withheld from the walk.
     pub(super) withheld: crate::policy::discovery::Withheld,
     /// Files the walk passed over because no grammar parses their names.
@@ -71,8 +77,13 @@ pub(super) struct Scan {
     /// Without `parser`: the files the walk admitted, by parser extension
     /// (the census the scope's grammar is inferred from).
     pub(super) census: std::collections::BTreeMap<String, usize>,
+    /// Under `parser`: every file the walk met that the path policy admits, by
+    /// extension, parsed or not (the census of the grammars it could offer).
+    pub(super) present: Option<std::collections::BTreeMap<String, usize>>,
     /// What a `testCode` scope left out.
     pub(super) test_code_excluded: octocode_engine::types::TestCodeExcluded,
+    /// Rust files a `testCode` verdict needed and could not read.
+    pub(super) test_code_unread: Vec<std::path::PathBuf>,
 }
 
 /// Example paths a file-count warning names.
@@ -172,9 +183,11 @@ pub(super) struct Group {
 
 /// How the candidate scan ended early, and where a resume starts.
 #[derive(Clone, Copy)]
-pub(super) struct ScanCut {
+pub(super) struct ScanCut<'a> {
     pub(super) truncated: bool,
     pub(super) resume: Option<u32>,
+    /// What the resume pins of the files through the cut.
+    pub(super) pin: &'a str,
 }
 
 /// Rows per file plus per-file coverage: files that parsed, files whose

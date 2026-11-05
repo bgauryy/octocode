@@ -69,7 +69,7 @@ fn available_server_languages_use_known_labels() {
         crate::lsp::config::available_server_languages(".", &LspDiscoveryOptions::default());
     for label in &first {
         assert!(
-            ["ts/js", "py", "rust", "c/c++", "go", "c#", "java"].contains(label),
+            ["ts/js", "py", "rust", "c/c++", "go", "c#", "java", "scala"].contains(label),
             "{label}"
         );
     }
@@ -246,8 +246,8 @@ fn a_users_clangd_fallback_flags_replace_the_cuda_default() {
         max_memory_mb: None,
         source: Default::default(),
     };
-    crate::lsp::config::apply_server_default_options(&mut config, None);
-    crate::lsp::config::apply_server_default_options(&mut config, None);
+    crate::lsp::config::apply_server_default_options(&mut config, None, None);
+    crate::lsp::config::apply_server_default_options(&mut config, None, None);
     assert_eq!(
         config.initialization_options,
         Some(json!({ "fallbackFlags": ["-xcuda", "--cuda-path=/opt/cuda"] }))

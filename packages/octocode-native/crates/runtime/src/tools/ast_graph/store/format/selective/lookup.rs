@@ -99,6 +99,18 @@ pub(super) fn read_lookup(
     Ok((nodes, degrees))
 }
 
+/// How `a` and `b` compare lowercased, with no copy of an ASCII name, where
+/// lowercasing each byte is what `to_lowercase` does.
+fn lowercase_order(a: &str, b: &str) -> std::cmp::Ordering {
+    if a.is_ascii() && b.is_ascii() {
+        a.bytes()
+            .map(|byte| byte.to_ascii_lowercase())
+            .cmp(b.bytes().map(|byte| byte.to_ascii_lowercase()))
+    } else {
+        a.to_lowercase().cmp(&b.to_lowercase())
+    }
+}
+
 pub(super) fn validate_indexes(t: &GraphTables) -> Result<(), String> {
     let n = t.nodes.len();
     for index in [&t.key_index, &t.name_index] {
@@ -121,8 +133,12 @@ pub(super) fn validate_indexes(t: &GraphTables) -> Result<(), String> {
         .windows(2)
         .all(|p| t.str(t.nodes[p[0] as usize].key) < t.str(t.nodes[p[1] as usize].key))
         || !t.name_index.windows(2).all(|p| {
-            (t.str(t.nodes[p[0] as usize].name).to_lowercase(), p[0])
-                <= (t.str(t.nodes[p[1] as usize].name).to_lowercase(), p[1])
+            lowercase_order(
+                t.str(t.nodes[p[0] as usize].name),
+                t.str(t.nodes[p[1] as usize].name),
+            )
+            .then(p[0].cmp(&p[1]))
+            .is_le()
         })
     {
         return Err("graph lookup indexes are not sorted".into());
@@ -161,4 +177,31 @@ pub(in super::super) fn validate_lookup(
         return Err("graph lookup has trailing data".into());
     }
     validate_indexes(t)
+}
+
+#[cfg(test)]
+mod lowercase_tests {
+    use super::lowercase_order;
+
+    /// The order the index was built in: `to_lowercase` of each name.
+    #[test]
+    fn names_compare_as_their_lowercase_copies_do() {
+        for (a, b) in [
+            ("Alpha", "alpha"),
+            ("alpha", "Beta"),
+            ("a_b", "aB"),
+            ("Z", "a"),
+            ("", "a"),
+            ("Äpfel", "äpfel"),
+            ("İx", "ix"),
+            ("ß", "SS"),
+            ("Σ", "σ"),
+        ] {
+            assert_eq!(
+                lowercase_order(a, b),
+                a.to_lowercase().cmp(&b.to_lowercase()),
+                "{a} {b}"
+            );
+        }
+    }
 }

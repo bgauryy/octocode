@@ -59,7 +59,7 @@ test('managed MCP renews leases while idle, rejects expired identity, and releas
   await waitFor(() => stderr.includes('mcp_ready'), { timeout: 18000, message: 'Managed lifecycle did not reach expected state' });
   const ready = JSON.parse(stderr.trim().split('\n')[0]);
   assert.equal(ready.leases, 'managed');
-  child.stdin.write(JSON.stringify({jsonrpc: '2.0', id: 1, method: 'initialize', params: {}}) + '\n');
+  child.stdin.write(`${JSON.stringify({jsonrpc: '2.0', id: 1, method: 'initialize', params: {}})}\n`);
   await waitFor(() => stdout.includes('\n'), { timeout: 18000, message: 'Managed lifecycle did not reach expected state' });
   assert.match(JSON.parse(stdout.trim()).result.instructions, /renews live owned leases/);
   const live = f.lock('live', 20000), expired = f.lock('expired', 1000);

@@ -91,6 +91,10 @@ impl KeyFacts {
             }
         }
         self.cooldown_until_ms = self.cooldown_until_ms.max(other.cooldown_until_ms);
+        self.pull_request_max_age = match (self.pull_request_max_age, other.pull_request_max_age) {
+            (Some(left), Some(right)) => Some(left.min(right)),
+            (left, right) => left.or(right),
+        };
         let horizon = now_ms.saturating_add(PEER_STAMP_HORIZON_MS);
         for (group, stamp) in other.last_start_ms {
             if stamp > horizon {
@@ -101,8 +105,9 @@ impl KeyFacts {
         }
     }
 
-    /// Only facts that can block or pace a future request are persisted:
-    /// exhausted buckets and the live quota of quota-paced groups.
+    /// Only facts that can block, pace or answer a future request are
+    /// persisted: exhausted buckets, the live quota of quota-paced groups, and
+    /// the lifetime GitHub states for a pull request.
     pub(super) fn blocking_view(&self, now_ms: u64) -> Self {
         Self {
             buckets: self
@@ -125,6 +130,7 @@ impl KeyFacts {
                 .filter(|(_, stamp)| stamp.saturating_add(60_000) > now_ms)
                 .map(|(group, stamp)| (group.clone(), *stamp))
                 .collect(),
+            pull_request_max_age: self.pull_request_max_age,
             circuit_failures: 0,
             circuit_open_until_ms: 0,
             circuit_cause: None,

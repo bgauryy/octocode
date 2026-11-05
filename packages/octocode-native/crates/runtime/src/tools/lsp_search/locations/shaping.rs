@@ -113,6 +113,64 @@ pub(in super::super) async fn apply_context_lines(
     });
 }
 
+/// Hide what `page`'s rows quote of a private-key block or a private member. A
+/// row quotes the file at a server's location, and its lines alone say nothing
+/// of what they are; each file is judged once, whole.
+pub(in super::super) async fn hide_lines_a_row_cannot_judge(
+    page: &mut [Value],
+    sources: &mut SourceCache<'_>,
+) {
+    let mut judged = std::collections::HashMap::<String, Vec<(u32, u32)>>::new();
+    for location in page {
+        let (Some(path), Some(first)) = (
+            location.get("uri").and_then(Value::as_str).map(uri_to_path),
+            location
+                .pointer("/displayRange/startLine")
+                .and_then(Value::as_u64),
+        ) else {
+            continue;
+        };
+        if !judged.contains_key(&path) {
+            let lines = match sources.get(&path).await {
+                Some(source) => crate::security::lines_a_row_cannot_judge(
+                    &source.content,
+                    std::path::Path::new(&path),
+                ),
+                None => Vec::new(),
+            };
+            judged.insert(path.clone(), lines);
+        }
+        let hidden = &judged[&path];
+        let Some(content) = location.get("content").and_then(Value::as_str) else {
+            continue;
+        };
+        if hidden.is_empty() {
+            continue;
+        }
+        let mut line = first;
+        let mut out = String::with_capacity(content.len());
+        for record in content.split_inclusive('\n') {
+            if record.starts_with("… ") && record.contains(" more lines omitted") {
+                out.push_str(record);
+                continue;
+            }
+            if hidden
+                .iter()
+                .any(|&(start, end)| u64::from(start) <= line && line <= u64::from(end))
+            {
+                out.push_str(&crate::security::hide_key_line(
+                    record.trim_end_matches(['\n', '\r']),
+                ));
+                out.push_str(if record.ends_with('\n') { "\n" } else { "" });
+            } else {
+                out.push_str(record);
+            }
+            line += 1;
+        }
+        location["content"] = json!(out);
+    }
+}
+
 /// Partial reason of a row whose declaration body was clipped at
 /// [`MAX_DECLARATION_CONTENT_LINES`].
 pub(super) const DECLARATION_CLIPPED: crate::response::paging::PartialReason =

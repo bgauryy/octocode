@@ -313,6 +313,7 @@ fn a_tsgo_that_fails_to_start_falls_back_to_tsserver_and_says_so() {
         config: config(&root, &missing, None),
         fallback,
         root_note: None,
+        config_notes: Vec::new(),
     };
     tokio::runtime::Runtime::new().expect("rt").block_on(async {
         let pool = LspClientPool::new(LspPoolOptions {

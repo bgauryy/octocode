@@ -8,7 +8,6 @@ fn disjoint_spans_never_spend_candidate_slots_on_omission_markers() {
     let executor = tokio::runtime::Runtime::new().unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let mut runtime = budget_runtime(executor.handle().clone(), calls);
-    runtime.limits.max_candidates = 2;
     runtime.limits.max_chars = 20_000;
     let query = json!({"classification":{"predicates":["Find the selected source"]}});
     for width in [8, 2_047] {
@@ -134,7 +133,7 @@ fn long_line_match_candidates_keep_original_source_coordinates() {
         2
     );
     // One intact source line is one candidate even when it has several hits.
-    runtime.limits.max_candidates = 1;
+    runtime.limits.max_chars = 1;
     let single = read(&query, &runtime);
     let receipt = single.selection.as_ref().expect("selection receipt");
     assert_eq!(receipt.total_items, 1);

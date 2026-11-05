@@ -49,24 +49,38 @@ type KeyChanges = HashMap<String, Option<String>>;
 
 /// `sanitize` gets each string leaf and the file path of its enclosing result,
 /// if any, and must be a pure function of the two: an object key repeated in
-/// the value is handed to it once.
+/// the value is handed to it once. Returns whether any data changed.
 pub(crate) fn sanitize_json<E, R: Rewrite>(
     value: &mut Value,
     sanitize: &mut impl FnMut(&str, Option<&str>) -> Result<R, E>,
-) -> Result<(), E> {
+) -> Result<bool, E> {
     let mut redacted = Vec::new();
+    let mut changed;
+    match octocode_engine::security::sanitizer::sanitize_structure(value) {
+        Ok(removed) => {
+            changed = !removed.is_empty();
+            for (secret, placeholder) in removed {
+                push_value(&secret, &placeholder, &mut redacted);
+            }
+        }
+        Err(_) => {
+            *value = Value::String(octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.into());
+            return Ok(true);
+        }
+    }
     walk(value, None, &mut KeyChanges::new(), &mut |text: &str,
                                                     path: Option<
         &str,
     >| {
         let clean = sanitize(text, path)?.change(text);
         if let Some(clean) = &clean {
+            changed = true;
             redacted_values(text, clean, &mut redacted);
         }
         Ok(clean)
     })?;
     if redacted.is_empty() {
-        return Ok(());
+        return Ok(changed);
     }
     // Longest first, so a value never leaves the tail of a longer one behind.
     redacted.sort_by(|a, b| b.0.len().cmp(&a.0.len()).then_with(|| a.0.cmp(&b.0)));
@@ -83,7 +97,8 @@ pub(crate) fn sanitize_json<E, R: Rewrite>(
             }
         }
         Ok(changed)
-    })
+    })?;
+    Ok(changed)
 }
 
 /// The original values behind each placeholder of `clean`, paired with that

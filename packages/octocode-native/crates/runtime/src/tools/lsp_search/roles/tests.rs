@@ -111,3 +111,67 @@ async fn an_unreadable_source_leaves_its_rows_unclassified() {
         .expect("roles");
     assert!(rows[0].get("role").is_none(), "{}", rows[0]);
 }
+
+/// A server may range a method invocation over its arguments (jdtls): the
+/// name that starts the range is followed by `(`, the range's end is not.
+#[tokio::test(flavor = "current_thread")]
+async fn a_range_over_the_arguments_is_still_a_call() {
+    let root = Fixture::new();
+    let source = "class Use {\n  int useIt() {\n    return Lib.compute(\n      1,\n      2);\n  }\n  int field = Lib.value;\n}\n";
+    let path = root.write("Use.java", source);
+    let uri = octocode_engine::lsp::uri::path_to_uri(&path.to_string_lossy()).expect("uri");
+    let site = |start: (u32, u32), end: (u32, u32)| {
+        json!({"uri": uri, "range": {
+            "start": {"line": start.0, "character": start.1},
+            "end": {"line": end.0, "character": end.1}
+        }})
+    };
+    let mut rows = [
+        site((2, 15), (4, 8)),
+        site((2, 15), (2, 22)),
+        site((6, 18), (6, 23)),
+    ];
+    let paths = workspace_policy(&root.0);
+    assign_roles(&mut rows, &mut SourceCache::new(&paths), &NeverCancel)
+        .await
+        .expect("roles");
+    let roles = rows
+        .iter()
+        .map(|row| row["role"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(roles, [json!("call"), json!("call"), json!("reference")]);
+}
+
+/// A prototype in a header is a declaration, not a call, in every form a C
+/// family header writes it, while a call beside it stays one.
+#[tokio::test(flavor = "current_thread")]
+async fn a_header_prototype_is_a_declaration() {
+    let root = Fixture::new();
+    for (file, source) in [
+        ("plain.h", "int helper(void);\n"),
+        ("extern.h", "extern int helper(void);\n"),
+        ("pointer.h", "char *helper(void);\n"),
+        ("attr.h", "__attribute__((pure)) int helper(void);\n"),
+        ("macro.h", "API_EXPORT int helper(void);\n"),
+        (
+            "guarded.h",
+            "#ifndef X\n#define X\nint helper(int a);\n#endif\n",
+        ),
+        ("cpp.hpp", "namespace n {\nint helper(int a);\n}\n"),
+        (
+            "member.hh",
+            "class K {\n  virtual int helper(int a) = 0;\n};\n",
+        ),
+        ("static.h", "static inline int helper(void) { return 0; }\n"),
+        (
+            "kr.h",
+            "#ifdef __cplusplus\nextern \"C\" {\n#endif\nint helper(void);\n#ifdef __cplusplus\n}\n#endif\n",
+        ),
+    ] {
+        assert_eq!(
+            roles(&root, file, source, &[("helper", 0)]).await,
+            ["declaration"],
+            "{file}: {source}"
+        );
+    }
+}

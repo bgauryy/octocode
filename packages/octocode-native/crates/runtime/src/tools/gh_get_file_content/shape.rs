@@ -127,7 +127,8 @@ fn settle_status(
             "offset must be on a UTF-8 code point boundary",
         ));
     }
-    let match_not_found = content.selected_match_count == Some(0);
+    // A classifier that kept nothing is a judgment, not a term that missed.
+    let match_not_found = content.selected_match_count == Some(0) && content.selection.is_none();
     if match_not_found {
         no_match(content, query, bytes);
     }

@@ -39,8 +39,8 @@ test('test:rust and coverage:rust run the selections, and bacon test jobs repeat
 test('cargo dev-test is the first Rust test selection under libtest', () => {
   const { SELECTIONS } = require('../scripts/rust-tests.cjs');
   const config = readFileSync(join(__dirname, '..', '.cargo', 'config.toml'), 'utf8');
-  const alias = /^dev-test = "test (.+)"$/m.exec(config);
-  assert.ok(alias, 'the dev-test alias is defined');
+  const alias = /^dev-test = "test (.+) --config=target\.'cfg\(all\(\)\)'\.runner=\\"scripts\/test-watchdog\.cjs\\""$/m.exec(config);
+  assert.ok(alias, 'the dev-test alias is defined, with its stuck-test runner');
   assert.deepEqual(alias[1].split(/\s+/), SELECTIONS[0]);
 });
 

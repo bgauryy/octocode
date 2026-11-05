@@ -80,7 +80,7 @@ fn independent_workspaces_under_one_root_each_link() {
 }
 
 /// Rust files no manifest encloses still link their module paths by syntax,
-/// and the snapshot says their crate-name imports stay external.
+/// and the snapshot says what their crate-name imports name stays unknown.
 #[test]
 fn rust_without_a_manifest_links_modules_and_says_so() {
     let dir = git_app(&[

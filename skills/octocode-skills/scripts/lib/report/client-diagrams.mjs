@@ -81,7 +81,7 @@ export function diagramView(ctx) {
     const d = { svg, canvas: svg.parentElement, style: svg.getAttribute('style'), width: view.width || 800, height: view.height || 600 };
     expandedDiagram = d;
     stage.className = 'diagram-stage';
-    stage.style.width = d.width + 'px'; stage.style.height = d.height + 'px';
+    stage.style.width = `${d.width}px`; stage.style.height = `${d.height}px`;
     svg.style.cssText += ';width:100%;height:100%;max-width:none;min-width:0';
     stage.append(svg); box.replaceChildren(stage);
     box.classList.remove('interactive');
@@ -98,7 +98,7 @@ export function diagramView(ctx) {
     d.panzoom = Panzoom(stage, { minScale: 0.02, maxScale: 8, step: 0.2, animate: false });
     d.wheel = (event) => { event.preventDefault(); d.panzoom.zoomWithWheel(event); };
     box.addEventListener('wheel', d.wheel, { passive: false });
-    stage.addEventListener('panzoomchange', () => { $('#diagram-scale').textContent = Math.round(d.panzoom.getScale() * 100) + '%'; });
+    stage.addEventListener('panzoomchange', () => { $('#diagram-scale').textContent = `${Math.round(d.panzoom.getScale() * 100)}%`; });
     d.resize = new ResizeObserver(fitDiagram); d.resize.observe(box);
     $$('#diagram-tools button').forEach(b => b.disabled = false);
     fitDiagram();

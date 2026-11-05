@@ -29,6 +29,7 @@ mod heritage_fallback;
 mod importers;
 mod lifecycle;
 mod receipts;
+mod server_text;
 mod warm_repeat;
 mod workspace_symbols;
 

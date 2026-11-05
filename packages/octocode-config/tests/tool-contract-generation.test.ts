@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { buildEnforcementContractIr } from '@octocodeai/octocode-core/schema';
 import { buildToolTypesBundle } from '../scripts/generate-tool-contract.ts';
+import { contractIr } from './contract-ir.ts';
 
 /** An object row of string properties whose first key is required. */
 const stringRow = (...keys: string[]) => ({
@@ -20,10 +20,10 @@ const read = (path: string): string =>
 
 // The IR and bundle are pure functions of core's tool definitions and cost seconds to build:
 // build them once for every check that reads them. Checks that need a variant copy them.
-let ir: ReturnType<typeof buildEnforcementContractIr>;
+let ir: ReturnType<typeof contractIr>;
 let built: ReturnType<typeof buildToolTypesBundle>;
 beforeAll(() => {
-  ir = buildEnforcementContractIr();
+  ir = contractIr();
   built = buildToolTypesBundle(ir);
 });
 const defsOf = (): Record<string, any> => built.bundle.$defs as Record<string, any>;

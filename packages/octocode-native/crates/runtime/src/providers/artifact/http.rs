@@ -1,4 +1,5 @@
 use super::ArtifactError;
+use octocode_contract_types::ErrorCode;
 use octocode_io::budget::RequestBudget;
 use secrecy::SecretString;
 use std::fmt;
@@ -11,7 +12,7 @@ use url::Url;
 mod client;
 mod system;
 
-pub(crate) use client::RegistryClient;
+pub(crate) use client::{RegistryClient, rejection_detail};
 pub use system::SystemArtifactHttp;
 
 pub(crate) const JSON: &str = "application/json";
@@ -76,6 +77,22 @@ pub trait ArtifactHttp: Send + Sync {
         budget: &'a RequestBudget,
     ) -> ArtifactHttpFuture<'a>;
 
+    /// POSTs a JSON `body` that only reads, so a retry is safe. Only the
+    /// system client and a test's double send one.
+    fn post<'a>(
+        &'a self,
+        _request: ArtifactHttpRequest,
+        _body: Vec<u8>,
+        _budget: &'a RequestBudget,
+    ) -> ArtifactHttpFuture<'a> {
+        Box::pin(async {
+            Err(ArtifactError::new(
+                ErrorCode::ProviderError,
+                "This registry client does not POST.",
+            ))
+        })
+    }
+
     /// Feeds a 2xx body to `sink` as it arrives, until the sink breaks or
     /// the body ends, and returns the answer's status (another status feeds
     /// nothing). By default the whole body is read with [`Self::get`] and
@@ -95,6 +112,9 @@ pub trait ArtifactHttp: Send + Sync {
         })
     }
 }
+
+#[cfg(test)]
+mod post_tests;
 
 #[cfg(test)]
 mod tests;

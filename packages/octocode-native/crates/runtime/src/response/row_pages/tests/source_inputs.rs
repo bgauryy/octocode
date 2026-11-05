@@ -26,7 +26,7 @@ fn section_pages_preserve_source_input_arrays() {
     let mut seen = Vec::new();
     for page in 0..plan.total_pages {
         for row in plan
-            .build_page(page, &[None], &[], &Cancellation::new())
+            .build_page(page, &[None], &Cancellation::new())
             .expect("valid build_page")
         {
             let resource = &row["data"]["resources"]["picked"];

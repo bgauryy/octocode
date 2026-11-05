@@ -186,7 +186,9 @@ async fn ctrl_c_closes_the_request_side_and_drains_the_server() {
     .await;
     assert_eq!(
         drained,
-        Err(Failed::Interrupted(crate::cli::Interrupted::Drained))
+        Err(Failed::Interrupted(
+            crate::cli::tool_call::Interrupted::Drained
+        ))
     );
     assert!(noticed.get(), "the cancel notice is printed");
     assert!(peer.await.expect("peer"), "the server saw only the close");
@@ -205,7 +207,9 @@ async fn ctrl_c_closes_the_request_side_and_drains_the_server() {
     .await;
     assert_eq!(
         forced,
-        Err(Failed::Interrupted(crate::cli::Interrupted::Forced))
+        Err(Failed::Interrupted(
+            crate::cli::tool_call::Interrupted::Forced
+        ))
     );
 }
 

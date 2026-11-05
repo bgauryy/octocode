@@ -24,6 +24,7 @@ impl ToolId {
             | Self::GhCloneRepo
             | Self::GhSearchHistory
             | Self::ArtifactSearch
+            | Self::SecurityCheck
             | Self::Clasify => &SharedOutput,
         }
     }

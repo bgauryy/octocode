@@ -17,7 +17,7 @@ const flags = (input?: Record<string, string | number | boolean | undefined>) =>
       value === false
         ? []
         : [
-            '--' + key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase()),
+            `--${key.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`,
             ...(value === true ? [] : [String(value)]),
           ]
     );
@@ -82,7 +82,7 @@ async function invokeEngine(
     );
     args.push(
       ...entries.flatMap(([key, value]) => [
-        '--' + key.replace(/[A-Z]/g, c => '-' + c.toLowerCase()),
+        `--${key.replace(/[A-Z]/g, c => `-${c.toLowerCase()}`)}`,
         ...(value === true
           ? []
           : [
@@ -104,8 +104,8 @@ async function invokeEngine(
     ['stdout', 'stderr'].map(name => [
       name,
       {
-        file: join(directory, name + '.txt'),
-        fd: openSync(join(directory, name + '.txt'), 'wx', 0o600),
+        file: join(directory, `${name}.txt`),
+        fd: openSync(join(directory, `${name}.txt`), 'wx', 0o600),
         bytes: 0,
       },
     ])

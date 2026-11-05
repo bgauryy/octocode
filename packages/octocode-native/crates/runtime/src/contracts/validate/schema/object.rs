@@ -97,6 +97,18 @@ pub(super) fn validate_object(
     let object = match value {
         Value::Object(object) => object,
         received => {
+            let overflow = (!union::speculative())
+                .then(|| super::super::repair::selection_overflow(schema, &root["$defs"], received))
+                .flatten();
+            if let Some(message) = overflow {
+                return Err(schema_issue(
+                    "schema.size",
+                    path.clone(),
+                    message,
+                    schema,
+                    received,
+                ));
+            }
             // A speculative probe reads only pass/fail: no shape.
             let message = match (!union::speculative())
                 .then(|| object_shape(root, schema, 0))

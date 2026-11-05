@@ -76,9 +76,6 @@ pub(in crate::tools::ast_graph::store) fn redact_secrets(
     }
     for (index, content) in redacted {
         tables.strings[index] = content;
-        if let Ok(index) = u32::try_from(index) {
-            tables.checked_arguments.remove(&index);
-        }
     }
     tables.index();
 }

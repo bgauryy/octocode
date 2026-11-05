@@ -2,16 +2,21 @@
 //! line counts, and the rows it ranks, groups and cuts.
 use super::super::files::{is_traversal, sort_key};
 use super::super::walk_policy::{WalkLeft, WalkPolicy};
-use super::super::walked::Walked;
-use super::super::{Resumes, Walking, end_window, rows, walk_error};
+use super::super::walked::{Verdicts, Walked};
+use super::super::{Resumes, Walking, end_window, rows, walk_error, windows};
 use super::Listing;
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
+use continuing::Continuing;
 use octocode_contract_types::StructureSearchSortAnyOrderBy as SortKey;
 use octocode_engine::num::saturating_u32;
 use octocode_engine::types::{FileKind, FileSystemQueryOptions};
+use test_code_left::TestCodeLeft;
+
+mod continuing;
+mod test_code_left;
 
 /// Walk once: rows ranked by the query's sort and cut to `requested`,
 /// path-ordered rows grouped by directory, directories with their own group
@@ -36,7 +41,7 @@ pub(super) fn walk_listing<Q: Listing>(
     // entries the listing would otherwise show are counted and reported,
     // never silently dropped.
     let include = q.globs().0;
-    let left = WalkLeft::new(paths, root, q.default_excludes(), include);
+    let mut left = WalkLeft::new(paths, root, q.default_excludes(), include);
     let policy = WalkPolicy {
         bound,
         probe: q.filter_probe(root)?,
@@ -44,95 +49,128 @@ pub(super) fn walk_listing<Q: Listing>(
         filtered: q.filtered(),
     };
     let sort = q.sort();
-    // The rows this window ends at: the earlier windows' (`scanOffset`)
-    // and its own `requested`.
-    let window_end = q.scan_offset().saturating_add(requested);
-    // A probe stops at its own entry cap, and a walk-order listing at the
-    // first match past its window (the first matches are final once found);
-    // any other listing walks its whole scope, bounded only by time, so
-    // its sort ranks every entry.
-    let walk_limit = if bound.is_some() {
-        Some(saturating_u32(requested))
-    } else if q.early_exit() {
-        Some(saturating_u32(window_end))
-    } else {
-        None
-    };
+    // A window that continues where the last one stands lists its own rows;
+    // any other walk passes the rows earlier windows listed (`scanOffset`).
+    let carried = walking
+        .budget()
+        .and_then(|_| windows::carried(q, &paths.identity()));
+    if let Some(carried) = &carried {
+        left.carry(&carried.left);
+    }
+    let before = carried.as_ref().map_or(0, |_| q.scan_offset());
+    let passed = q.scan_offset() - before;
+    let window_end = passed.saturating_add(requested);
     let resumes = Resumes {
         identity: q.walk_identity(root),
         paths,
         root,
     };
-    let (resume, window_rows) = resumes.options(walking, q.walk_offset(), window_end);
+    let continuing = Continuing::of(q, root, walking, carried.as_ref(), &resumes);
     let test_code = TestCodeLeft::of(q.test_code(), paths);
-    // A probe only counts entries, and a paths view ranked by name shows
-    // nothing else: neither reads an entry's metadata. Sizes, times and line
-    // counts rank other sorts, and what ranks a page must be watched.
-    let names_only = bound.is_some()
-        || (q.view() == octocode_contract_types::StructureSearchView::Paths
-            && matches!(sort_key(&sort), None | Some(SortKey::Name | SortKey::Path)));
+    if let Some((test_code, carried)) = test_code.as_ref().zip(carried.as_ref()) {
+        test_code.carry(&carried.left.test_code);
+    }
+    let started = octocode_engine::stamp::settle_clock();
+    let names_only = reads_names_only(q, &sort, bound.is_some());
+    let engine = q.engine_options(root);
+    // An access time moves with no stamp to show it, so only a walk tells.
+    let watched = engine.accessed_from.is_none() && engine.accessed_to.is_none();
     let mut native = octocode_engine::search::fs_query::query_file_system(
         FileSystemQueryOptions {
-            resume,
-            window_rows,
+            resume: continuing.resume.clone(),
+            replayed: continuing.replayed(),
+            window_rows: walking.budget().map(|_| saturating_u32(window_end)),
             time_budget: walking.budget(),
             // The callback applies the default prune (`WalkLeft`).
             stop_at_limit: Some(true),
-            skip_entries: Some(q.walk_offset()),
-            limit: walk_limit,
-            lists: test_code.as_ref().map(TestCodeLeft::rule),
+            skip_entries: Some(continuing.walk_offset),
+            limit: walk_limit(q, bound.is_some(), requested, window_end),
+            lists: test_code
+                .as_ref()
+                .map(|left| left.rule(continuing.walk_offset)),
             names_only,
-            ..q.engine_options(root)
+            ..engine
         },
         &|path, file_type, visit| left.admit(&policy, path, file_type, visit),
         &|| cancel.check().is_err(),
     )
     .map_err(|error| walk_error(error, q.path(), cancel))?;
     cancel.check().map_err(ToolError::cancelled)?;
-    // The line sort's key, counted for every file it ranks (a probe only
-    // counts entries and ranks none) within the walk's time budget, measured
-    // from the count's start so a walk that spent its own budget still ranks
-    // what it walked. Counting is part of the walk: a budget spent before
-    // every file is counted cuts the walk at the first uncounted one
-    // ([`cut_walk_before`]), and `next.nextPage` resumes there.
-    let mut lines = if sort_key(&sort) == Some(SortKey::LineCount) && bound.is_none() {
-        let (lines, cut) = rows::count_lines(
-            &native
-                .entries
-                .iter()
-                .map(|e| {
-                    (e.entry_type != FileKind::Directory).then(|| std::path::Path::new(&e.path))
-                })
-                .collect::<Vec<_>>(),
-            paths,
-            cancel,
-            walking
-                .budget()
-                .map(|budget| octocode_engine::scan_budget::walk_now() + budget),
-        )?;
-        if let Some(at) = cut {
-            cut_walk_before(&mut native, at);
-        }
-        lines
-    } else {
-        vec![None; native.entries.len()]
-    };
-    let window = end_window(
-        &mut native,
-        window_end,
-        q.scan_offset(),
-        is_traversal(&sort),
-    );
-    resumes.keep(&mut native, walking);
+    let mut lines = line_counts(&mut native, &sort, paths, cancel, walking)?;
+    let window = end_window(&mut native, window_end, passed, is_traversal(&sort));
     // `end_window` keeps a walk-order prefix: the counts of its entries.
     lines.truncate(native.entries.len());
-    let (rows, available) = rows::window_rows(
+    let mut ranking = rows::Ranking::of(&native.entries, &lines, (root, security), &sort);
+    let available = before + ranking.order().len();
+    // A walk cut by time ranks only what it reached, so it pins nothing.
+    let current = walking.budget().is_some() && native.time_cut.is_none();
+    let continues = current
+        && if q.early_exit() {
+            native.was_capped
+        } else {
+            available > q.scan_offset().saturating_add(requested)
+        };
+    let pins = windows::pins(
+        q,
+        root,
+        (&native.entries, &lines, &ranking),
+        windows::PinnedWalk {
+            passed: continuing.passed_rows(carried.as_ref()),
+            carried: carried.is_some(),
+            listing: walking.budget().is_some(),
+            time_cut: native.time_cut.is_some(),
+            continues,
+        },
+    );
+    let through = pins.pin_through();
+    // What a `testCode` scope's verdicts read, a parent module outside this
+    // root too, what a metadata filter or a replay read of the entries it
+    // judged, and what the windows before a kept cursor read prove a kept listing
+    // as its directories do.
+    let verdicts = verdicts_of(
+        test_code.as_ref().map(|left| left.scoped.proof(started)),
+        std::mem::take(&mut native.evaluated),
+        continuing.kept.as_ref().map(|kept| &kept.proof),
+        watched,
+    );
+    let keepable = !matches!(verdicts, Verdicts::Unproved);
+    resumes.keep(
+        &mut native,
+        walking,
+        (pins.through.as_ref(), names_only, &verdicts),
+    );
+    if let Some(digest) = pins
+        .through
+        .filter(|_| continues && q.early_exit() && keepable)
+    {
+        let test_code = test_code
+            .as_ref()
+            .map_or_else(Vec::new, TestCodeLeft::positions);
+        windows::keep_cursor(
+            q,
+            digest,
+            (paths, root),
+            &mut native,
+            &left,
+            carried.as_ref(),
+            windows::KeptWindow::of(
+                requested + q.scan_offset(),
+                names_only,
+                &verdicts,
+                test_code,
+            ),
+        );
+    }
+    let rows = ranking.rows(
         &native.entries,
         &lines,
         (root, security),
-        &sort,
-        q.scan_offset()..window_end,
+        passed..window_end,
     );
+    if let Some(carried) = &carried {
+        carried.report_with(&mut native);
+    }
+    let entries = std::mem::take(&mut native.entries);
     let mut walk = Walked::finish(
         native,
         rows,
@@ -143,61 +181,97 @@ pub(super) fn walk_listing<Q: Listing>(
         names_only,
     );
     walk.meta.time_window = window;
-    walk.meta.test_code_excluded = test_code.map(|left| left.through(walk.meta.walk_position));
+    walk.meta.pinned_before = pins.before;
+    walk.meta.pins_through.clone_from(&through);
+    walk.meta.verdicts = verdicts;
+    walk.meta.test_code = test_code.map(|left| left.window(walk.meta.walk_position));
+    if let Some(through) = through.filter(|_| continues && !q.early_exit() && keepable) {
+        windows::keep_ranked(
+            (through, &paths.identity()),
+            (paths, root),
+            &mut walk,
+            entries,
+            &lines,
+            ranking.order(),
+        );
+    }
     rows::group(&mut walk.rows, &sort, q.view());
     Ok(walk)
 }
 
-/// A `testCode` scope over a listing walk, and the walk positions of the
-/// entries it left out: a window counts those it covers.
-struct TestCodeLeft {
-    scoped: std::sync::Arc<crate::tools::test_code::Scoped>,
-    left: std::sync::Arc<std::sync::Mutex<Vec<u32>>>,
+/// What a `testCode` scope read, when a proof of it could be taken.
+type ScopeProof = Option<octocode_engine::stamp::Proof>;
+
+/// [`Verdicts::of`] a walk whose `testCode` scope, if any, may have no proof.
+fn verdicts_of(
+    scoped: Option<ScopeProof>,
+    evaluated: Vec<octocode_engine::types::EvaluatedEntry>,
+    earlier: Option<&octocode_engine::stamp::Proof>,
+    watched: bool,
+) -> Verdicts {
+    let proved = !matches!(scoped, Some(None));
+    Verdicts::of(scoped.flatten(), evaluated, earlier, watched && proved)
 }
 
-impl TestCodeLeft {
-    fn of(scope: Option<octocode_contract_types::TestCode>, paths: &PathPolicy) -> Option<Self> {
-        crate::tools::test_code::Scoped::of(scope, paths).map(|scoped| Self {
-            scoped: std::sync::Arc::new(scoped),
-            left: std::sync::Arc::default(),
-        })
-    }
+/// A probe only counts entries, and a paths view ranked by name shows nothing
+/// else: neither reads an entry's metadata. Sizes, times and line counts rank
+/// other sorts, and what ranks a page must be watched.
+fn reads_names_only<Q: Listing>(
+    q: &Q,
+    sort: &octocode_contract_types::StructureSearchSort,
+    probe: bool,
+) -> bool {
+    probe
+        || (q.view() == octocode_contract_types::StructureSearchView::Paths
+            && matches!(sort_key(sort), None | Some(SortKey::Name | SortKey::Path)))
+}
 
-    /// The engine's listing rule: the scope's verdict, recording each entry
-    /// left out by position.
-    fn rule(&self) -> octocode_engine::types::ListsEntry {
-        let (scoped, left) = (
-            std::sync::Arc::clone(&self.scoped),
-            std::sync::Arc::clone(&self.left),
-        );
-        octocode_engine::types::ListsEntry(std::sync::Arc::new(move |path, is_dir, position| {
-            let listed = scoped.lists(path, is_dir);
-            if !listed {
-                left.lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .push(position);
-            }
-            listed
-        }))
+/// A probe stops at its own entry cap, and a walk-order listing at the first
+/// match past its window (the first matches are final once found); any other
+/// listing walks its whole scope, bounded only by time, so its sort ranks every
+/// entry.
+fn walk_limit<Q: Listing>(q: &Q, probe: bool, requested: usize, window_end: usize) -> Option<u32> {
+    if probe {
+        Some(saturating_u32(requested))
+    } else if q.early_exit() {
+        Some(saturating_u32(window_end))
+    } else {
+        None
     }
+}
 
-    /// The entries left out at walk positions through `through`.
-    fn through(self, through: usize) -> octocode_engine::types::TestCodeExcluded {
-        let left = self
-            .left
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        octocode_engine::types::TestCodeExcluded {
-            files: saturating_u32(
-                left.iter()
-                    .filter(|position| {
-                        octocode_engine::num::saturating_usize(**position) <= through
-                    })
-                    .count(),
-            ),
-            lines: 0,
-        }
+/// The line sort's key, counted for every file it ranks (a probe only counts
+/// entries and ranks none) within the walk's time budget, measured from the
+/// count's start so a walk that spent its own budget still ranks what it
+/// walked. Counting is part of the walk: a budget spent before every file is
+/// counted cuts the walk at the first uncounted one ([`cut_walk_before`]), and
+/// `next.nextPage` resumes there.
+fn line_counts(
+    native: &mut octocode_engine::types::FileSystemQueryResult,
+    sort: &octocode_contract_types::StructureSearchSort,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+    walking: Walking<'_>,
+) -> Result<Vec<Option<rows::Lines>>, ToolError> {
+    if sort_key(sort) != Some(SortKey::LineCount) || walking.probe().is_some() {
+        return Ok(vec![None; native.entries.len()]);
     }
+    let (lines, cut) = rows::count_lines(
+        &native
+            .entries
+            .iter()
+            .map(|e| (e.entry_type != FileKind::Directory).then(|| std::path::Path::new(&e.path)))
+            .collect::<Vec<_>>(),
+        paths,
+        cancel,
+        walking
+            .budget()
+            .map(|budget| octocode_engine::scan_budget::walk_now() + budget),
+    )?;
+    if let Some(at) = cut {
+        cut_walk_before(native, at);
+    }
+    Ok(lines)
 }
 
 /// End the walk before `native.entries[at]`, as its time budget does: the

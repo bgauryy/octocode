@@ -137,9 +137,10 @@
     "lint": "yarn lint:own && yarn lint:oxlint",
     "package": "npx -y @vscode/vsce@3.9.2 package --allow-missing-repository --no-dependencies",
     "publish": "npx -y @vscode/vsce@3.9.2 publish",
-    "test": "vitest run --coverage",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "yarn run -T tsgo --noEmit",
-    "verify:own": "yarn lint:own && yarn typecheck && yarn test && yarn build",
+    "verify:own": "yarn lint:own && yarn typecheck && yarn test:coverage && yarn build",
     "verify": "yarn verify:own && yarn lint:oxlint",
     "vscode:prepublish": "yarn build"
   }

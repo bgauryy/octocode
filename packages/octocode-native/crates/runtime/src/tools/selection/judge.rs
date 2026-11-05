@@ -3,13 +3,13 @@
 //! probability policy selects, excludes or leaves it unknown before host output.
 use super::{Decision, JudgeCall, JudgeFailure, Judgments, ProviderError, SelectionJudge};
 use crate::tools::judgment::{
-    ClassificationError, EvaluationInput, Evaluator, shared::Evaluations,
-    stats::ClassificationUsage,
+    ClassificationError, EvaluationInput, Evaluator, stats::ClassificationUsage,
 };
 use futures_util::{StreamExt as _, stream};
 use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
-use std::time::Instant;
+
+mod requests;
 
 const CONTROL_FIELDS: [&str; 8] = [
     "next",
@@ -29,16 +29,20 @@ fn template() -> Option<&'static Value> {
 }
 
 /// A classifier fills the contract template's slot verbatim: the template
-/// (core `classifierTemplate`) judges it as a predicate about the source.
-/// Questions are independent, so each receives the row's classification context.
-fn compile(classifier: &str, context: Option<&str>) -> Option<Value> {
+/// (core `classifierTemplate`) judges it as a predicate about the source, or
+/// about `target` when a question names one line of a shared state.
+fn compile(classifier: &str, target: Option<&str>) -> Option<Value> {
     let template = template()?;
     let slot = template["slot"].as_str()?;
     let mut question = template["question"].clone();
     let instructions = question["instructions"].as_object_mut()?;
     instructions.insert(slot.to_owned(), Value::String(classifier.to_owned()));
-    if let Some(context) = context {
-        instructions.insert("context".into(), json!(context));
+    if let Some(target) = target {
+        instructions.insert("question".into(), template["targetQuestion"].clone());
+        instructions.insert(
+            template["targetSlot"].as_str()?.to_owned(),
+            Value::String(target.to_owned()),
+        );
     }
     Some(question)
 }
@@ -220,89 +224,109 @@ impl SelectionJudge for Evaluator {
         candidate_state(state)
     }
 
+    fn question_chars(&self, predicates: &[String]) -> usize {
+        predicates
+            .iter()
+            .filter_map(|classifier| compile(classifier, Some("line 1")))
+            .map(|question| crate::tools::selection::serialized_chars(&question))
+            .sum()
+    }
+
     fn select(&self, call: JudgeCall<'_>) -> Judgments {
         if !self.is_configured() {
             return Err("classificationUnavailable".into());
         }
         let policy =
             Policy::from_contract().ok_or(JudgeFailure::from("invalidClassificationPolicy"))?;
-        let questions = call
-            .predicates
-            .iter()
-            .map(|classifier| compile(classifier, call.research_context))
-            .collect::<Option<Vec<_>>>()
-            .ok_or(JudgeFailure::from("invalidClassificationRequest"))?;
-        let deadline = (Instant::now() + call.limits.timeout).min(call.context.deadline);
-        let budget = self.budget(deadline, call.context.cancellation.clone());
+        let requests =
+            requests::requests(&call).ok_or(JudgeFailure::from("invalidClassificationRequest"))?;
         let gate = self.gate();
-        // Candidates with identical states are one evaluation.
-        let evaluations = Evaluations::default();
+        let long_context = call.long_context;
+        let context = call.context;
         let outcomes = call.handle.block_on(async {
-            stream::iter(call.admitted.iter().copied())
-                .map(|ordinal| {
-                    let state = call.candidates[ordinal].state.as_ref();
-                    let (budget, gate, questions, evaluations) =
-                        (&budget, &gate, &questions, &evaluations);
+            stream::iter(requests.iter())
+                .map(|request| {
+                    let gate = &gate;
                     async move {
-                        let Some(state) = state else {
-                            return (ordinal, Err(ClassificationError::new(
-                                ErrorCode::CandidateIneligible, "The candidate has no safely prepared state.",
-                                "Use the explicit unfiltered continuation to inspect this evidence.",
-                            )));
-                        };
-                        let compact = provider_state(state);
-                        let judged = self.evaluate_once(evaluations, EvaluationInput {
-                            state: &compact, questions, assets:None, long_context:call.long_context,
-                        }, None, budget, gate).await;
-                        (ordinal, judged)
+                        // One request's time starts when it runs, not when
+                        // the page does; the call's deadline bounds them all.
+                        let budget = self.budget(context.deadline, context.cancellation.clone());
+                        let outcome = self
+                            .evaluate_questions(
+                                EvaluationInput {
+                                    state: &request.state,
+                                    questions: &request.questions,
+                                    assets: None,
+                                    long_context,
+                                },
+                                None,
+                                &budget,
+                                gate,
+                            )
+                            .await;
+                        (request, outcome)
                     }
                 })
-                .buffer_unordered(crate::providers::classification::gate::call_cap(self.max_concurrency))
-                .collect::<Vec<_>>().await
+                .buffer_unordered(crate::providers::classification::gate::call_cap(
+                    self.max_concurrency,
+                ))
+                .collect::<Vec<_>>()
+                .await
         });
         let mut usage = ClassificationUsage::default();
-        let mut decisions = Vec::with_capacity(outcomes.len());
+        let mut decisions = Vec::new();
         // The first provider failure in source order, reported when nothing
-        // answered. A budget stop (the selection's own deadline) is not the
-        // provider's answer: those candidates stay unknown. A paused
-        // provider (the circuit opened by the failures of this very call) is
-        // their consequence, so a failure that caused it comes first.
+        // answered. A paused provider (the circuit opened by the failures of
+        // this very call) is their consequence, so a failure that caused it
+        // comes first. A cancelled call is no answer of the provider's.
         let mut first_failure: Option<((bool, usize), ClassificationError)> = None;
-        for (ordinal, outcome) in outcomes {
-            usage.add(&outcome);
-            let decision = match outcome {
-                Ok(judged) if judged.answers.len() == questions.len() => {
-                    policy.decide(&judged.answers)
-                }
-                Ok(_) => Decision::Unknown,
-                Err(error) => {
-                    let failure = selection_failure(ordinal, &error).ok_or_else(|| {
-                        JudgeFailure::Provider(ProviderError {
-                            code: ErrorCode::InvalidClassificationResponse,
-                            message:
-                                "Provider failure violates the canonical selection error contract."
-                                    .into(),
-                            hints: vec!["Inspect the provider response and retry.".into()],
-                        })
-                    })?;
-                    call.failures.push(failure);
-                    let rank = (error.paused, ordinal);
-                    if !matches!(error.code, ErrorCode::Timeout | ErrorCode::Cancelled)
-                        && first_failure
-                            .as_ref()
-                            .is_none_or(|(first, _)| rank < *first)
-                    {
-                        first_failure = Some((rank, error));
+        let predicates = call.predicates.len();
+        for (request, outcome) in outcomes {
+            usage.add(&outcome.complete);
+            usage.models.extend(outcome.models.iter().cloned());
+            for &(ordinal, first) in &request.slots {
+                let mut answers = Vec::with_capacity(predicates);
+                let mut failure = None;
+                for answer in outcome.answers.iter().skip(first).take(predicates) {
+                    match answer {
+                        Ok(answer) => answers.push(answer.clone()),
+                        Err(error) => failure = failure.or(Some(error)),
                     }
-                    continue;
                 }
-            };
-            decisions.push((ordinal, decision));
+                let Some(error) = failure else {
+                    let decision = if answers.len() == predicates {
+                        policy.decide(&answers)
+                    } else {
+                        Decision::Unknown
+                    };
+                    decisions.push((ordinal, decision));
+                    continue;
+                };
+                let recorded = selection_failure(ordinal, error).ok_or_else(|| {
+                    JudgeFailure::Provider(ProviderError {
+                        code: ErrorCode::InvalidClassificationResponse,
+                        message:
+                            "Provider failure violates the canonical selection error contract."
+                                .into(),
+                        hints: vec!["Inspect the provider response and retry.".into()],
+                    })
+                })?;
+                call.failures.push(recorded);
+                let rank = (error.paused, ordinal);
+                if error.code != ErrorCode::Cancelled
+                    && first_failure
+                        .as_ref()
+                        .is_none_or(|(first, _)| rank < *first)
+                {
+                    first_failure = Some((rank, error.clone()));
+                }
+            }
         }
         *call.usage = usage;
         // A provider that failed every candidate gave no answer at all: its
-        // typed error (credential, quota, transport) is the row's outcome,
-        // never an "unknown" judgment that looks like an honest unsure model.
+        // typed error (credential, quota, transport, too slow) is the row's
+        // outcome, never an "unknown" judgment that looks like an honest
+        // unsure model.
         match first_failure {
             Some((_, error)) if decisions.is_empty() => {
                 Err(JudgeFailure::Provider(ProviderError {

@@ -36,6 +36,17 @@ fn reads_lines(query: &GhSearchCodeQuery) -> bool {
             || picks(query, "matchCount"))
 }
 
+/// Whether a classified page leaves this row's file unread: the egress
+/// withholds its name, so nothing of it may become candidate evidence, and the
+/// path is known before the read that would cache a copy.
+fn withheld_row(query: &GhSearchCodeQuery, row: &Value) -> bool {
+    (query.classification.is_some() || query.selection.is_some())
+        && row
+            .get("path")
+            .and_then(Value::as_str)
+            .is_some_and(crate::policy::discovery::is_sensitive_repository_file)
+}
+
 /// A `fields` pick names `field`.
 fn picks(query: &GhSearchCodeQuery, field: &str) -> bool {
     query.fields.iter().any(|picked| picked.as_str() == field)
@@ -53,9 +64,14 @@ pub(super) fn shape_files(
     let mut top = None;
     if let Some(resolution) = &resolution {
         for (row, (sha, hits)) in items.iter_mut().zip(&resolution.hits) {
+            let unread = withheld_row(query, row);
             let Some(row) = row.as_object_mut() else {
                 continue;
             };
+            if unread {
+                row.insert("lineResolved".into(), json!(false));
+                continue;
+            }
             if !sha.is_empty() {
                 row.insert("commitSha".into(), json!(sha));
             }

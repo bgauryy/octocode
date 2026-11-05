@@ -13,10 +13,10 @@ function embedImage(f, raw, workspace, embedded) {
   if (!raw || raw.startsWith('#') || /^[a-z][\w+.-]*:/i.test(raw) || raw.startsWith('//')) throw new Error('Use a local image path or HTTPS URL');
   const full = fs.realpathSync(path.resolve(path.dirname(f.source), decodeURIComponent(raw.split(/[?#]/)[0])));
   const relative = path.relative(fs.realpathSync(workspace), full);
-  if (relative === '..' || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) throw new Error('Image must be inside the workspace');
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw new Error('Image must be inside the workspace');
   const mime = IMAGE_TYPES[path.extname(full).toLowerCase()];
   if (!mime) throw new Error('Unsupported image type');
-  if (!embedded.has(full)) embedded.set(full, 'data:' + mime + ';base64,' + fs.readFileSync(full).toString('base64'));
+  if (!embedded.has(full)) embedded.set(full, `data:${mime};base64,${fs.readFileSync(full).toString('base64')}`);
   return embedded.get(full);
 }
 
@@ -146,7 +146,7 @@ function pageFor(full, workspace) {
 export function defaultOut(abs, isDir, workspace) {
   const octo = path.join(workspace, '.octocode');
   const inside = abs === octo || abs.startsWith(octo + path.sep);
-  if (inside) return isDir ? path.join(abs, 'index.html') : abs.replace(/\.(md|markdown)$/i, '') + '.html';
+  if (inside) return isDir ? path.join(abs, 'index.html') : `${abs.replace(/\.(md|markdown)$/i, '')}.html`;
   const name = path.basename(abs).replace(/\.(md|markdown)$/i, '') || 'report';
   // Every skill output stays in that skill's own folder, so a page for an outside source goes there too.
   const own = path.basename(SCRIPT_SKILL_DIR);

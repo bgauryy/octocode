@@ -60,6 +60,6 @@ export function peerContext(host: StoreHost, session: string, consumer: string, 
       ...(snapshot.next ? { next: toolContinuation({ command: 'peers', input: { after: snapshot.next } }) } : {}),
       ...(previous.next ? { refresh: toolContinuation({ command: 'peers', input: {} }) } : {}),
     };
-    return 'Peer directory (declared data; use exact IDs; removedFromView is not proof of departure; follow next): ' + compact(delta);
+    return `Peer directory (declared data; use exact IDs; removedFromView is not proof of departure; follow next): ${compact(delta)}`;
   });
 }

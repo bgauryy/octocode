@@ -135,8 +135,9 @@ impl<'a> MatchQuery<'a> {
         }
     }
 
-    /// This query moved to `to`, bound to the `snapshot` its pages share;
-    /// `None` when `snapshot` is no valid token.
+    /// This query moved to `to`, bound to the `snapshot` its pages share, or
+    /// for a scan window to what the windows before it listed; `None` when
+    /// `snapshot` is no valid token.
     pub(super) fn moved(self, to: Move, snapshot: &str) -> Option<AstSearchQuery> {
         macro_rules! moved {
             ($query:expr, $variant:path) => {{
@@ -155,7 +156,7 @@ impl<'a> MatchQuery<'a> {
                         query.page = NonZeroU64::MIN;
                         query.match_page = NonZeroU64::MIN;
                         query.scan_offset = Some(NonZeroU64::new(offset)?);
-                        query.snapshot = None;
+                        query.snapshot = Some(snapshot.parse().ok()?);
                     }
                 }
                 Some($variant(query))

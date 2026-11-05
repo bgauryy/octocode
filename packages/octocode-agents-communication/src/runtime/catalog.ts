@@ -27,7 +27,7 @@ function resolveRefs(value: Json, definitions: JsonObject, refs: readonly string
     if ('$ref' in value) {
       const ref = value.$ref;
       if (typeof ref !== 'string' || !ref.startsWith('#/$defs/') || Object.keys(value).some(key => key !== '$ref' && key !== 'description' && key !== 'default')) throw new ValidationError('Unsupported catalog reference');
-      if (refs.includes(ref)) throw new ValidationError('Circular catalog reference: ' + ref);
+      if (refs.includes(ref)) throw new ValidationError(`Circular catalog reference: ${ref}`);
       const result = resolveRefs(definitions[ref.slice('#/$defs/'.length)]!, definitions, [...refs, ref]) as JsonObject;
       const { $ref: _ref, ...annotations } = value;
       return { ...result, ...annotations };
@@ -59,9 +59,9 @@ function load(): Dump {
   for (const item of commands) if ('inputSchema' in item) validation.checkSchema(item.inputSchema);
   // Every command states what it prints; `schema` carries these, tools/list and `schema <command>` do not.
   const results = asObject(value.results, 'results');
-  for (const name of names) if (!Object.hasOwn(results, name)) throw new ValidationError('Command without a result schema: ' + name);
+  for (const name of names) if (!Object.hasOwn(results, name)) throw new ValidationError(`Command without a result schema: ${name}`);
   for (const [name, schema] of Object.entries(results)) {
-    if (!names.has(name)) throw new ValidationError('Result schema of an unknown command: ' + name);
+    if (!names.has(name)) throw new ValidationError(`Result schema of an unknown command: ${name}`);
     validation.checkSchema(schema);
   }
   for (const tool of asObjects(value.tools, 'tools')) {
@@ -90,8 +90,8 @@ function find(name: string): CommandEntry {
   const dump = load();
   const item = dump.commands.find(command => command.name === name);
   const tool = dump.tools.find(candidate => candidate.name === name);
-  if (tool) return { ...tool, usage: name + ' <json> --session <id>', cliFlags: ['workspace', 'database', 'session'] };
-  if (!item) throw new ValidationError('Unknown command: ' + name + '; use --help');
+  if (tool) return { ...tool, usage: `${name} <json> --session <id>`, cliFlags: ['workspace', 'database', 'session'] };
+  if (!item) throw new ValidationError(`Unknown command: ${name}; use --help`);
   return item;
 }
 
@@ -115,7 +115,7 @@ export function definition(name: string): CommandEntry {
 
 export function recordType(name: string): RecordTypeEntry {
   const item = load().recordTypes.find(type => type.type === name);
-  if (!item) throw new ValidationError('Unknown record type: ' + name);
+  if (!item) throw new ValidationError(`Unknown record type: ${name}`);
   return clone(item);
 }
 
@@ -174,7 +174,7 @@ export function validate(schema: Schema, value: Json): void {
 
 /** The catalog command `name` that takes input, else a validation error. */
 export function commandName(name: string): CommandName {
-  if (!('inputSchema' in find(name))) throw new ValidationError('Command takes no input: ' + name);
+  if (!('inputSchema' in find(name))) throw new ValidationError(`Command takes no input: ${name}`);
   return name as CommandName;
 }
 
@@ -208,8 +208,8 @@ export function command<N extends CommandName>(name: N, value: unknown): Command
 /** A required non-blank string field, bounded like stored text. */
 export function text<K extends string>(value: { readonly [P in K]?: unknown }, key: K): string {
   const result = value[key];
-  if (typeof result !== 'string') throw new ValidationError('Missing string: ' + key);
-  if (isBlank(result)) throw new ValidationError('Invalid ' + key + ': blank');
+  if (typeof result !== 'string') throw new ValidationError(`Missing string: ${key}`);
+  if (isBlank(result)) throw new ValidationError(`Invalid ${key}: blank`);
   length(key, result);
   return result;
 }
@@ -228,7 +228,7 @@ export function selectedTools(selection?: string | null): Dump['tools'] {
 /** Both worker transports and the public CLI validate and dispatch the same typed family call. */
 export function toolCommand(name: string, value: unknown, selection?: string | null): CommandCall {
   const tool = selectedTools(selection).find(candidate => candidate.name === name);
-  if (!tool) throw new ValidationError('Unknown tool: ' + name);
+  if (!tool) throw new ValidationError(`Unknown tool: ${name}`);
   // Validate the discriminator/envelope first, then the selected operation. The equivalent
   // oneOf discovery schema alone would hide actionable field errors behind a union error.
   const { oneOf: _variants, ...envelope } = asObject(tool.inputSchema, 'tool inputSchema');
@@ -245,7 +245,7 @@ export function deliveryBatchLimit(): number {
 
 function indexOf(value: string, needle: string, from = 0): number {
   const index = value.indexOf(needle, from);
-  if (index < 0) throw new ValidationError('Skill instructions lack ' + needle);
+  if (index < 0) throw new ValidationError(`Skill instructions lack ${needle}`);
   return index;
 }
 

@@ -32,8 +32,6 @@ pub(in crate::tools::gh_get_history_item) struct FileOutcome {
     pub(in crate::tools::gh_get_history_item) side_reads: Vec<(&'static str, Value)>,
     /// Files whose `matchString` context the hunks cut short.
     pub(in crate::tools::gh_get_history_item) clipped: Vec<(String, Vec<(usize, usize)>)>,
-    /// Files of the patch window not fully delivered.
-    pub(super) unfinished_patches: usize,
 }
 
 pub(super) fn shape_files_section(
@@ -152,6 +150,5 @@ pub(super) fn shape_files_section(
         merge_read,
         side_reads,
         clipped: shaped.clipped,
-        unfinished_patches: shaped.unfinished_patches,
     }
 }

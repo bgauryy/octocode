@@ -185,7 +185,8 @@ fn a_streamed_yaml_window_shows_no_value_a_secret_could_hold() {
     let value = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIz";
     let filler = format!("# {}\n", "p".repeat(70)).repeat(150_000);
     let fixture = Fixture::new();
-    let text = format!("{filler}kind: Secret\ndata:\n  tls.crt: {value}\n  name: short\n");
+    let text =
+        format!("{filler}kind: Secret\ndata:\n  tls.crt: {value}\nmetadata:\n  name: short\n");
     let path = fixture.write("large.yaml", text);
     let paths = Paths(fixture.0.clone());
     let at = 150_000 + 3;
@@ -204,7 +205,8 @@ fn a_streamed_yaml_window_shows_no_value_a_secret_could_hold() {
         let content = page.content.as_deref().unwrap_or_default();
         assert!(!content.contains(&value[..12]), "{query}: {content}");
     }
-    let range = serde_json::json!({"ranges":[{"startLine":at,"endLine":at + 1}]});
+    // What is not the Secret's stays, on the page beside its block.
+    let range = serde_json::json!({"ranges":[{"startLine":at,"endLine":at + 2}]});
     let page = execute_local_fetch(
         &qj(&path, range),
         &paths,

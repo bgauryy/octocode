@@ -27,7 +27,7 @@ const query = (
   },
 });
 const argumentsFor = (input: any) =>
-  Object.entries(input).flatMap(([key, value]) => ['--' + key, String(value)]);
+  Object.entries(input).flatMap(([key, value]) => [`--${key}`, String(value)]);
 export const readerRoute = (
   args: string[],
   tool: string,

@@ -50,7 +50,7 @@ Call shapes below run over MCP or CLI ([invocation, paging and recovery](referen
 Then read beyond the diff at the same revision:
 
 - **One span:** `ghGetFileContent` with `ref` set to `headSha`, plus `matchString` and `block:true` or `ranges`.
-- **Search, AST or LSP:** when `git rev-parse HEAD` matches `headSha`, use the local checkout. Otherwise materialize: `ghStructure` with `operation:"tree"`, `ref` set to `headSha`, `include`, `materialize:true`, and follow `next.continueMaterialize` until `coverage.state` is `complete`. Use the returned `localPath`. For LSP, include project config and the source tree, then read its `coverage`.
+- **Search, AST or LSP:** when `git rev-parse HEAD` matches `headSha`, use the local checkout. Otherwise materialize: `ghStructure` with `operation:"tree"`, `ref` set to `headSha`, `include`, `materialize:true`, and follow `next.continueMaterialize` until `coverage.state` is `complete`. Use the returned `localPath` for search and AST. `lspSearch` refuses fetched code unless the user set `lsp.trustFetchedCode`; without it, say cross-file identity at that head is unverified.
 - **Never `ghSearchCode` for PR code:** it searches only the default branch, so it cannot see the head.
 - **CI:** with a shell, `gh pr checks <number>`. A result counts only for the head you pinned.
 

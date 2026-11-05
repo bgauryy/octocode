@@ -14,7 +14,7 @@ function fixture(t: TestContext) {
   const call = (command: string, input: Record<string, unknown> = {}, session?: string) => raw(command, withReasoning(command, input), session);
   const join_ = (name: string) => call('join', { name, vendor: 'generic' }).id;
   const db = new DatabaseSync(database); t.after(() => db.close());
-  const holder = (path: string) => db.prepare("SELECT s.name FROM leases l JOIN sessions s ON s.id=l.owner WHERE l.path LIKE ? AND l.expiresAt>?").get('%/' + path, Date.now())?.name;
+  const holder = (path: string) => db.prepare("SELECT s.name FROM leases l JOIN sessions s ON s.id=l.owner WHERE l.path LIKE ? AND l.expiresAt>?").get(`%/${path}`, Date.now())?.name;
   const mail = (session: string): string[] => call('inbox', {}, session).items.map((item: JsonRecord) => messageText(item.parts));
   return { call, join: join_, db, holder, mail, workspace };
 }

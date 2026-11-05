@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 mod evidence;
 mod names;
+mod partial;
 mod recovered;
 mod rows;
 mod scope;

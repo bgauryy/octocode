@@ -34,6 +34,7 @@ pub(super) const ACCEPT_BACKOFF: std::time::Duration = std::time::Duration::from
 
 /// `octocode serve --socket <path>`: answer requests until idle.
 pub(in crate::cli) async fn run(socket: &Path) -> u8 {
+    octocode_engine::memory::MEMORY.sweep_expired_while_running();
     tokio::task::LocalSet::new()
         .run_until(serve(socket.to_owned()))
         .await

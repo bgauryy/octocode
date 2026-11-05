@@ -23,7 +23,7 @@ for (const entry of readdirSync(skillsRoot)) {
     writeFileSync(file,header+sections.map(h=>`## ${h}\n\nEvidence.\n`).join('\n'));
     assert.deepEqual(buildReport(file,{workspace:root}).warnings,[]);
     for (const heading of sections) {
-      writeFileSync(file,header+sections.filter(h=>h!==heading).map(h=>`## ${h}\n\nEvidence.\n`).join('\n')+`\n\n\`\`\`md\n## ${heading}\n\`\`\`\n`);
+      writeFileSync(file,`${header+sections.filter(h=>h!==heading).map(h=>`## ${h}\n\nEvidence.\n`).join('\n')}\n\n\`\`\`md\n## ${heading}\n\`\`\`\n`);
       assert.ok(buildReport(file,{workspace:root}).warnings.some(w=>w.includes(`## ${heading}`)),heading);
     }
   });

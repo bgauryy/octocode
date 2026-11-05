@@ -37,7 +37,7 @@ const [inPath] = validateFlags(
 if (!inPath) throw new Error('An input HAR file is required');
 
 const workspaceOutputBase = octocodeWorkspace();
-const defaultName = basename(inPath).replace(/\.har$/i, '') + '.redacted.har';
+const defaultName = `${basename(inPath).replace(/\.har$/i, '')}.redacted.har`;
 const outPath = resolve(
   getArg('--out') ??
     join(

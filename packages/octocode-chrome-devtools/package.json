@@ -50,7 +50,7 @@
     "verify:own": "yarn build && yarn lint:own && yarn typecheck && yarn test && yarn test:protocol && yarn test:mcp && yarn test:cli && yarn test:cdp-all && yarn test:webmcp && yarn test:package",
     "verify": "yarn verify:own && yarn lint:oxlint",
     "prepack": "yarn build",
-    "test:package": "node tools/release-smoke.mjs",
+    "test:package": "node tests/unit/package.test.mjs && node tools/release-smoke.mjs",
     "format": "prettier --write \"src/**/*.{ts,mts}\" \"tools/**/*.mjs\" \"tests/**/*.mjs\""
   },
   "files": [

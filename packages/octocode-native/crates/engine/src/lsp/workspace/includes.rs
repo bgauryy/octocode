@@ -60,7 +60,8 @@ struct KeptScan {
     scan: Arc<PackageScan>,
 }
 
-/// Scans kept this process, by package, against the one process budget.
+/// Scans kept this process, by package, against the one process budget, each
+/// until [`crate::memory::IDLE`] after its last read.
 static SCANS: Memo<PathBuf, KeptScan> = Memo::new(&crate::memory::MEMORY);
 
 /// Walk `package` and read every one of its `.rs` files (nested packages and
@@ -136,6 +137,7 @@ fn scan_package(package: &Path, stopped: &dyn Fn() -> bool) -> Option<(PackageSc
 /// when `stopped` ended a new one.
 fn package_scan(package: &Path, stopped: &dyn Fn() -> bool) -> Option<Arc<PackageScan>> {
     if let Some(kept) = SCANS.get(package).filter(|kept| kept.value.inputs.holds()) {
+        SCANS.touch(package, crate::memory::IDLE);
         return Some(Arc::clone(&kept.value.scan));
     }
     let started = crate::stamp::settle_clock();
@@ -150,7 +152,7 @@ fn package_scan(package: &Path, stopped: &dyn Fn() -> bool) -> Option<Arc<Packag
                 scan: Arc::clone(&scan),
             },
             weight,
-            None,
+            Some(crate::memory::IDLE),
         );
     }
     Some(scan)

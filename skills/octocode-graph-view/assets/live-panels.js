@@ -74,7 +74,7 @@ function colorLegend(S) {
 function legend() {
   const S = P.S, g = P.graph;
   const folders = colorLegend(S) ?? (g.colorBy === 'group' ? [...S.groupSlot].map(([k, i]) => `<span><i class="c" style="background:var(--s${i})"></i>${esc(k === '.' ? 'root files' : k)}</span>`).join('') + (S.groupSlot.size ? '<span><i class="c" style="background:var(--other)"></i>Other</span>' : '') : `<span class="note">color: ${esc(g.colorBy)} (first seven, then Other)</span>`);
-  const edges = EDGE_KEY.map(([v, l]) => `<span><i class="l" style="border-top:2px solid var(${v})"></i>${l}</span>`).join('') + '<span><i class="l" style="border-top:2px solid var(--e-call);opacity:.35"></i>weak / low confidence</span>';
+  const edges = `${EDGE_KEY.map(([v, l]) => `<span><i class="l" style="border-top:2px solid var(${v})"></i>${l}</span>`).join('')}<span><i class="l" style="border-top:2px solid var(--e-call);opacity:.35"></i>weak / low confidence</span>`;
   const states = '<span><i class="c" style="background:var(--warning)"></i>changed since snapshot</span><span><i class="c" style="background:var(--critical)"></i>missing / line outside file</span><span><i class="c" style="background:var(--acc)"></i>being ingested</span><span><i class="c" style="background:var(--mute);opacity:.6"></i>listed, not parsed</span>';
   const overview = g.overview ? '<div class="row note">overview: one node per community, sized by summed PageRank · click a community to expand it · right-click a file to fold it back</div>' : '';
   $('legend').innerHTML = `<div class="row">${folders}</div><div class="row">${edges}</div><div class="row">${states}</div>${overview}`;

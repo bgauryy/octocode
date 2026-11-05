@@ -232,7 +232,6 @@ fn render_limits(contract: &Value) -> Result<String, Box<dyn Error>> {
     let read_context = limit("defaultReadContextLines")?;
     let clasify_context = limit("clasifyContextLines")?;
     let response_chars = limit("defaultResponseChars")?;
-    let classification_units = limit("classificationUnitsPerPage")?;
     Ok(format!(
         "/// Contract `limits.maxInputArrayItems`: native input-security array ceiling.\n\
          pub const MAX_INPUT_ARRAY_ITEMS: usize = {max_items};\n\n\
@@ -244,10 +243,7 @@ fn render_limits(contract: &Value) -> Result<String, Box<dyn Error>> {
          pub const CLASIFY_CONTEXT_LINES: u32 = {clasify_context};\n\n\
          /// Contract `limits.defaultResponseChars`: characters per response\n\
          /// page when a call sets no `responseChars`.\n\
-         pub const DEFAULT_RESPONSE_CHARS: usize = {response_chars};\n\n\
-         /// Contract `limits.classificationUnitsPerPage`: units one classified\n\
-         /// page judges, one model call each.\n\
-         pub const CLASSIFICATION_UNITS_PER_PAGE: usize = {classification_units};\n\n"
+         pub const DEFAULT_RESPONSE_CHARS: usize = {response_chars};\n\n"
     ))
 }
 

@@ -73,14 +73,7 @@ async fn a_credential_row_is_isolated_and_never_reaches_continuations() {
     let message = rows[1]["data"]["error"].as_str().unwrap_or_default();
     assert!(message.contains("queries.1.matchString"), "{}", rows[1]);
     assert!(message.contains("credential"), "{}", rows[1]);
-    assert_eq!(
-        rows[1]["data"]["hints"],
-        json!([
-            "Input rejected: fix only the field the error names, as its message shows; broadening will not help."
-        ]),
-        "{}",
-        rows[1]
-    );
+    assert!(rows[1]["data"].get("hints").is_none(), "{}", rows[1]);
     assert!(support::checks::leads(&rows[1]).is_empty(), "{}", rows[1]);
     assert_no_rewrite(&outcome.structured_content);
     assert!(!outcome.all_failed);
@@ -108,14 +101,7 @@ async fn a_credential_row_is_isolated_and_never_reaches_continuations() {
         "{}",
         rows[1]
     );
-    assert_eq!(
-        rows[1]["data"]["hints"],
-        json!([
-            "Input rejected: fix only the field the error names, as its message shows; broadening will not help."
-        ]),
-        "{}",
-        rows[1]
-    );
+    assert!(rows[1]["data"].get("hints").is_none(), "{}", rows[1]);
     assert!(support::checks::leads(&rows[1]).is_empty(), "{}", rows[1]);
     assert_no_rewrite(&fetch.structured_content);
     runtime.close().await;

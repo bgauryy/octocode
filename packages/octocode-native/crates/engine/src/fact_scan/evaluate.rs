@@ -2,17 +2,17 @@
 
 use std::{path::Path, sync::Arc};
 
-use rayon::prelude::*;
-
 mod facts;
+mod ordered;
 mod outcome;
 use super::{
     FactsSource, GraphFactsMappedScan, GraphFactsView, GraphScanError, MAX_GRAPH_SOURCE_BYTES,
-    ParserOverride, parser_overrides_with_registry,
+    ParserOverride, ScanHold, parser_overrides_with_registry,
 };
 use crate::search::walk::Stop;
 use crate::stamp::SourceStamp;
 use crate::types::GraphFactsScanOptions;
+use ordered::watch_stop;
 pub use outcome::SOURCE_BUDGET_EXCEEDED;
 use outcome::{GraphFactsScanOutcome, Mapped, mapped_outcome, skipped};
 
@@ -38,7 +38,7 @@ pub(super) fn evaluate_walk<T: Send>(
         keep,
         map,
         stop,
-        budget,
+        (budget, None),
         RegistryView::installed(),
         MapLimits::default(),
     )
@@ -51,7 +51,7 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
     keep: &(dyn Fn(&str) -> bool + Sync),
     map: &(dyn Fn(&GraphFactsView<'_>) -> Option<T> + Sync),
     stop: &Stop<'_>,
-    budget: Option<std::time::Duration>,
+    (budget, hold): (Option<std::time::Duration>, Option<&ScanHold<'_, T>>),
     registry: RegistryView<'_>,
     map_limits: MapLimits,
 ) -> Result<GraphFactsMappedScan<T>, GraphScanError> {
@@ -88,37 +88,44 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
     let mut pacer = crate::scan_budget::ScanPacer::new(budget.filter(|_| timed));
     let mut kept: Vec<(String, T)> = Vec::new();
     let mut skipped = Vec::new();
-    let (mut evaluated, mut parsed) = (0, 0);
+    let (mut evaluated, mut parsed, mut passed_over) = (0, 0, 0);
+    let limit = hold.map_or(usize::MAX, |hold| hold.limit);
+    let mut held = 0_usize;
     let mut scan_resume = None;
     let mut rest = entries.as_slice();
     while !rest.is_empty() {
-        if pacer.spent() {
+        if pacer.spent() || held > limit {
             scan_resume = Some(u32::try_from(skip + evaluated).unwrap_or(u32::MAX));
             break;
         }
-        let (chunk, tail) = rest.split_at(pacer.next_chunk().min(rest.len()));
-        rest = tail;
-        evaluated += chunk.len();
-        pacer.record(chunk.len());
-        for outcome in watch_stop(stop, &stopped, &|| {
-            chunk
-                .par_iter()
-                .map(|entry| {
-                    crate::deep_stack::while_stoppable(&stopped, || evaluator.evaluate(entry))
-                })
-                .collect::<Result<Vec<_>, GraphScanError>>()
-        })?
-        .into_iter()
-        .flatten()
-        {
+        let chunk = &rest[..pacer.next_chunk().min(rest.len())];
+        let outcomes = watch_stop(stop, &stopped, &|| {
+            ordered::weighed_chunk(chunk, (held, limit), hold, |entry| {
+                crate::deep_stack::while_stoppable(&stopped, || evaluator.evaluate(entry))
+            })
+        })?;
+        // Where the running total in walk order passes the limit is a fact of the
+        // files, so a page that scans again stops at the same one; what the workers
+        // finished past it is the next window's.
+        let mut taken = 0;
+        for (weight, outcome) in outcomes {
+            taken += 1;
+            held = held.saturating_add(weight);
             match outcome {
-                GraphFactsScanOutcome::Entry(path, value) => {
+                None => passed_over += 1,
+                Some(GraphFactsScanOutcome::Entry(path, value)) => {
                     parsed += 1;
                     kept.extend(value.map(|value| (path, value)));
                 }
-                GraphFactsScanOutcome::Skipped(diagnostic) => skipped.push(diagnostic),
+                Some(GraphFactsScanOutcome::Skipped(diagnostic)) => skipped.push(diagnostic),
+            }
+            if held > limit {
+                break;
             }
         }
+        rest = &rest[taken..];
+        evaluated += taken;
+        pacer.record(taken);
     }
     // Every cut resumes where it stopped: the walk cap of an unset
     // `max_files`, and a caller's file window.
@@ -133,6 +140,7 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
     Ok(GraphFactsMappedScan {
         kept,
         parsed,
+        passed_over,
         skipped,
         files_skipped,
         truncated,
@@ -368,29 +376,4 @@ impl<T> EntryEvaluator<'_, T> {
             reused: mapped.reused,
         })))
     }
-}
-
-/// Run `work` while a scoped watcher raises `stopped` once `stop` reports the
-/// scan cancelled, so deep-stack jobs of the work stop with the scan.
-fn watch_stop<R>(
-    stop: &Stop<'_>,
-    stopped: &Arc<std::sync::atomic::AtomicBool>,
-    work: &dyn Fn() -> R,
-) -> R {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    let done = AtomicBool::new(false);
-    std::thread::scope(|scope| {
-        scope.spawn(|| {
-            while !done.load(Ordering::Relaxed) {
-                if stop() {
-                    stopped.store(true, Ordering::Relaxed);
-                    return;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(20));
-            }
-        });
-        let result = work();
-        done.store(true, Ordering::Relaxed);
-        result
-    })
 }

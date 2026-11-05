@@ -36,19 +36,10 @@ pub(crate) struct Receipts {
     pub failure: Option<FailureKind>,
 }
 
-/// The largest state one row judges (`clasify.semanticPolicy.maxStateChars`).
-pub(crate) fn max_state_chars(long_context: bool) -> usize {
-    if long_context {
-        crate::id::clasify_policy::MAX_LONG_CONTEXT_STATE_CHARS
-    } else {
-        crate::id::clasify_policy::MAX_STATE_CHARS
-    }
-}
-
 /// One parsed row: its id, the provider model it asks for, its question keys
 /// and provider questions (in key order), and its state or source.
-/// `long_context` is the row's explicit choice; omitted, evaluation picks the
-/// long-context window only when the state needs it.
+/// `long_context` is the row's explicit choice; omitted, evaluation asks for the
+/// long-context window only after the provider refuses the default one.
 struct Row {
     context: Option<String>,
     model: Option<String>,
@@ -85,7 +76,6 @@ pub(crate) fn call(
         return Err(ExecutionError::WorkerFailed);
     }
     let parsed = parse_rows(rows);
-    let budget = evaluator.budget(context.deadline, context.cancellation.clone());
     let gate = evaluator.gate();
     let evaluations = Evaluations::default();
     let section_budget = sections::Budget::new(dispatcher.limits().selection);
@@ -93,8 +83,7 @@ pub(crate) fn call(
         let tasks = parsed
             .iter()
             .map(|row| {
-                let (budget, gate, evaluations, section_budget) =
-                    (&budget, &gate, &evaluations, &section_budget);
+                let (gate, evaluations, section_budget) = (&gate, &evaluations, &section_budget);
                 scope.spawn(move || {
                     let _enter = dispatcher.handle().enter();
                     match &row.input {
@@ -106,9 +95,12 @@ pub(crate) fn call(
                             section_runtime,
                             section_budget,
                         )),
-                        Input::Models => RowOutcome::Models(
-                            dispatcher.handle().block_on(evaluator.models(budget, gate)),
-                        ),
+                        Input::Models => {
+                            RowOutcome::Models(dispatcher.handle().block_on(evaluator.models(
+                                &evaluator.budget(context.deadline, context.cancellation.clone()),
+                                gate,
+                            )))
+                        }
                         Input::Judge(target) => evaluate_row(
                             evaluator,
                             evaluations,
@@ -116,7 +108,6 @@ pub(crate) fn call(
                             target,
                             dispatcher,
                             context,
-                            budget,
                             gate,
                         ),
                     }

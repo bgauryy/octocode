@@ -104,7 +104,7 @@ export function registerBoundTools(pi: PiToolHost, options: BoundToolsOptions): 
             const detail = stderr?.trim() || `Communication ${tool.name} failed (${failure.code ?? failure.name}${failure.signal ? `, ${failure.signal}` : ''})`;
             const retry = retryable
               ? ` Outcome may be unknown; inspect history before retrying unchanged input with key ${JSON.stringify(retryKeyPayload(tool.name, value)?.key)}.` : '';
-            reject(new Error(detail + retry + (output ? '\nOutput captured before failure: ' + output : '')));
+            reject(new Error(detail + retry + (output ? `\nOutput captured before failure: ${output}` : '')));
           });
           // An early exit/abort can close the pipe before a large write finishes.
           child.stdin?.on('error', error => { inputError = error; });

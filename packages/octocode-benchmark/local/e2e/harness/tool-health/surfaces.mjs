@@ -37,7 +37,7 @@ function lspAvailable(fixture, env) {
   return null;
 }
 
-function hermeticEnv(home, mockUrl, live, tmp) {
+export function hermeticEnv(home, mockUrl, live, tmp) {
   const inherited = Object.fromEntries(Object.entries(process.env).filter(([k]) => !ISOLATED_ENV.test(k) && !ISOLATED_NAMES.has(k)));
   for (const [name, directory] of live ? [['RUSTUP_HOME', '.rustup'], ['CARGO_HOME', '.cargo']] : []) {
     const installed = path.join(os.homedir(), directory);
@@ -45,7 +45,7 @@ function hermeticEnv(home, mockUrl, live, tmp) {
   }
   return {
     ...inherited,
-    NODE_ENV: 'test', OCTOCODE_NATIVE_BIN: nativeBinaryPath(),
+    NODE_ENV: 'test', OCTOCODE_NATIVE_BIN: nativeBinaryPath(), OCTOCODE_SECURITY_CHECKS: 'true',
     PATH: [path.join(ROOT, 'node_modules', '.bin'), inherited.PATH].filter(Boolean).join(path.delimiter),
     HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, '.config'), GH_CONFIG_DIR: path.join(home, '.gh'),
     TMPDIR: tmp, TMP: tmp, TEMP: tmp,
@@ -81,14 +81,14 @@ async function mcpCall(server, tool, input) {
  * cases see; `cliArgs`/`cliCall`/`mcpServer`/`mcpCall` run each surface with the
  * tool's own credential; `needs[kind]()` says why a capability is missing (or null).
  */
-export async function startSurfaces(fixture) {
+export async function startSurfaces(fixture, { unmetered = false } = {}) {
   const live = process.env.OCTOCODE_LIVE === '1';
   // macOS Unix sockets have a short path limit; isolate broker sockets as well as HOME.
   const tmp = fs.mkdtempSync(path.join(process.platform === 'darwin' ? '/tmp' : os.tmpdir(), 'octocode-tool-health-'));
   const home = path.join(tmp, 'home');
   fs.mkdirSync(home, { recursive: true });
   const allTokens = contract.tools.flatMap(t => ['cli', 'mcp'].map(s => tokenFor(t.name, s)));
-  const mock = await startMock({ fixtureDir: fixture, tmpDir: tmp, token: allTokens, configureModel: addBulkPullRequest });
+  const mock = await startMock({ fixtureDir: fixture, tmpDir: tmp, token: allTokens, configureModel: addBulkPullRequest, unmetered });
   let registry;
   try { registry = await startRegistryProxy(tmp); }
   catch (error) { await mock.close(); fs.rmSync(tmp, { recursive: true, force: true }); throw error; }
@@ -100,6 +100,7 @@ export async function startSurfaces(fixture) {
   const cliArgs = async (argv, { tool = 'schema', cwd = fixture, extraEnv = {} } = {}) => cliRecord(await spawnCli(argv, { cwd, env: { ...envFor(tool, 'cli'), ...(scenario.getStore()?.surface === 'cli' ? scenario.getStore().env : {}), ...extraEnv } }));
   return {
     ctx: { mock, registry, fixture, tmp },
+    envFor,
     workspace: name => {
       const cwd = path.join(tmp, `workspace-${name}`);
       fs.cpSync(fixture, cwd, { recursive: true });
@@ -111,8 +112,8 @@ export async function startSurfaces(fixture) {
     mcpCall: (server, tool, input) => mcpCall(scenario.getStore()?.server ?? server, tool, input),
     // A scenario owns a fresh credential (its own GitHub quota and classification
     // provider account); the callback receives it to observe that account.
-    scenario: async ({ tool, surface, cwd = fixture, name }, callback) => {
-      const scopedEnv = envFor(`${tool}-${name}-${++scenarioIndex}`, surface);
+    scenario: async ({ tool, surface, cwd = fixture, name, env: overrides }, callback) => {
+      const scopedEnv = { ...envFor(`${tool}-${name}-${++scenarioIndex}`, surface), ...overrides };
       const server = surface === 'mcp' ? await startServer({ cwd, env: scopedEnv, replaceEnv: true, timeoutMs: 60_000 }) : null;
       try { return await scenario.run({ surface, env: scopedEnv, server }, callback, { token: scopedEnv.GITHUB_TOKEN }); }
       finally { server?.close(); }

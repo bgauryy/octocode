@@ -120,14 +120,8 @@ pub(crate) fn error_code_hint(
         code => {
             if let Some(hint) = tool.error_hint(code, query) {
                 hint
-            } else if let Some(hint) = shared_execution_hint(code) {
-                hint
-            } else if crate::id::error_codes::class(code)
-                == crate::id::error_codes::ErrorClass::InvalidInput
-            {
-                "Input rejected: fix only the field the error names, as its message shows; broadening will not help."
             } else {
-                return None;
+                shared_execution_hint(code)?
             }
         }
     })

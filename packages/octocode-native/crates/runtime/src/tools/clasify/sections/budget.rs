@@ -2,7 +2,6 @@
 use super::capture;
 use crate::execution::SelectionLimits;
 use std::sync::Mutex;
-use std::time::Instant;
 
 pub(in crate::tools::clasify) struct Budget {
     pub(super) limits: SelectionLimits,
@@ -14,7 +13,6 @@ pub(in crate::tools::clasify) struct Budget {
 struct Admission {
     units: usize,
     chars: usize,
-    deadline: Option<Instant>,
 }
 
 impl Budget {
@@ -26,16 +24,6 @@ impl Budget {
         }
     }
 
-    pub(super) fn deadline(&self, outer: Instant) -> Instant {
-        let mut admission = self
-            .admission
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *admission
-            .deadline
-            .get_or_insert_with(|| outer.min(Instant::now() + self.limits.timeout))
-    }
-
     pub(super) fn has_admissions(&self) -> bool {
         self.admission
             .lock()
@@ -44,21 +32,22 @@ impl Budget {
             > 0
     }
 
-    pub(super) fn admit(&self, chars: usize) -> bool {
+    /// Whether this call's page takes `chars` more: its first unit always
+    /// runs, whatever its size, and the next page takes what this one does
+    /// not. A runtime with no next page (`whole`) takes everything.
+    pub(super) fn admit(&self, chars: usize, whole: bool) -> bool {
         let mut admission = self
             .admission
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if admission.units >= self.limits.max_candidates
-            || admission.chars.saturating_add(chars) > self.limits.max_chars
-            || admission
-                .deadline
-                .is_some_and(|deadline| Instant::now() >= deadline)
+        if !whole
+            && admission.units > 0
+            && admission.chars.saturating_add(chars) > self.limits.max_chars
         {
             return false;
         }
         admission.units += 1;
-        admission.chars += chars;
+        admission.chars = admission.chars.saturating_add(chars);
         true
     }
 }

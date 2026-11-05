@@ -66,14 +66,6 @@ pub struct NextCalls {
     pub continue_window: Option<FetchCall>,
     #[serde(rename = "readBoundedLines", skip_serializing_if = "Option::is_none")]
     pub read_bounded_lines: Option<FetchCall>,
-    /// The requested `ranges` after the span a streamed multi-range page
-    /// stopped inside (that span reads on through `nextPage`).
-    #[serde(
-        rename = "readOtherRanges",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub read_other_ranges: Option<FetchCall>,
     /// Offset-zero recovery for a page requested past the end of the view.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub restart: Option<FetchCall>,
@@ -149,7 +141,6 @@ impl NextCalls {
         "nextCandidatePage" Page next_candidate_page,
         "nextPage" Page continue_window,
         "readBoundedLines" Current read_bounded_lines,
-        "readOtherRanges" Page read_other_ranges,
         "restart" Current restart,
         "continueBlock" Page continue_block,
         "ignoreCase" Current ignore_case,
@@ -201,12 +192,13 @@ impl NextCalls {
 
     /// Whether a continuation reads evidence this result left unread, as
     /// opposed to paging on (`nextPage`, `continueBlock`: pagination, not
-    /// partial coverage) or an optional lead such as `read`. Other
-    /// continuing reads (unjudged candidates, other ranges) are unread
-    /// evidence. A call of another tool is a lead, never a page.
+    /// partial coverage), an optional lead such as `read`, or `unfiltered`
+    /// (what a finished judgment chose to leave out, which is the request, not a
+    /// gap). Other continuing reads (unjudged candidates, other ranges) are
+    /// unread evidence. A call of another tool is a lead, never a page.
     pub fn leaves_unread(&self) -> bool {
         self.reads().into_iter().any(|(name, _, read)| {
-            !matches!(name, "nextPage" | "continueBlock")
+            !matches!(name, "nextPage" | "continueBlock" | "unfiltered")
                 && read.as_ref().is_some_and(|read| read.continuing)
         }) || self
             .unfiltered_unknown_rest

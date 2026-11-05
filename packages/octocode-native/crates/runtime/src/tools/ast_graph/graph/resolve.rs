@@ -211,6 +211,13 @@ pub(super) fn resolve(
                     .find(|file| known.contains(file));
             }
             resolve_python(local, importer, hint, imported, known, &["."])
+        })
+        .or_else(|| {
+            // The one topmost package of that name, wherever it lies.
+            let parent = ctx
+                .python_package_parent(spec)
+                .filter(|_| hint == Some("python-absolute"))?;
+            resolve_python(spec, importer, hint, imported, known, &[parent])
         });
     }
     if lang == Linker::CFamily {

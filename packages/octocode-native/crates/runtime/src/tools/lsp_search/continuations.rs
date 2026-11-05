@@ -96,7 +96,12 @@ impl ContinuationAnswers {
             },
         ))
     }
-    pub(super) fn retain(&self, row: &mut Value, scope: &ResponseScope) -> Result<(), LspFailure> {
+    pub(super) fn retain(
+        &self,
+        row: &mut Value,
+        scope: &ResponseScope,
+        deadline: std::time::Instant,
+    ) -> Result<(), LspFailure> {
         if row.get("status").and_then(Value::as_str) == Some("error") {
             return Ok(());
         }
@@ -113,7 +118,7 @@ impl ContinuationAnswers {
             )?;
             for path in paths {
                 if let Some(call) = output.pointer_mut(&path) {
-                    self.retain_call(call, &scope.generation, &answers)?;
+                    self.retain_call(call, &scope.generation, &answers, deadline)?;
                 }
             }
         }
@@ -125,6 +130,7 @@ impl ContinuationAnswers {
         value: &mut Value,
         revision: &str,
         answers: &ProviderAnswers,
+        deadline: std::time::Instant,
     ) -> Result<(), LspFailure> {
         if value.get("tool").and_then(Value::as_str) == Some(crate::id::ToolId::LspSearch.as_str())
             && let Some(queries) = value
@@ -157,7 +163,8 @@ impl ContinuationAnswers {
                 let bytes = octocode_engine::json_size::bytes(&selected).unwrap_or(usize::MAX);
                 let retained = self
                     .store
-                    .put_confirmed(
+                    .put_until(
+                        deadline,
                         self.key(&snapshot),
                         selected,
                         bytes,

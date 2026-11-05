@@ -50,6 +50,8 @@ pub(super) struct Found<'a> {
     /// clear this.
     pub(super) walk_complete: bool,
     pub(super) empty: bool,
+    /// What an empty scan's walk searched, when its record can serve.
+    pub(super) searched: Option<&'a [std::path::PathBuf]>,
 }
 
 impl Found<'_> {
@@ -156,8 +158,8 @@ impl Found<'_> {
             && first_disclosure
             && !self.root.is_file()
             && !names_nothing(self.skipped);
-        let tagged =
-            unsearched.then(|| probe_unsearched(query, self.paths, search_options, cancel));
+        let tagged = unsearched
+            .then(|| probe_unsearched(query, self.paths, search_options, self.searched, cancel));
         let unsearched = match tagged {
             Some(tagged) => disclose_unsearched(
                 query,

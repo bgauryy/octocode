@@ -5,7 +5,7 @@
 mod handler;
 mod listing;
 mod progress;
-mod resources;
+pub(super) mod resources;
 
 use handler::Handler;
 use octocode_native::config::RuntimeSurface;
@@ -70,6 +70,7 @@ async fn termination() {
 /// cancel what is in flight and close the runtime, waiting at most the
 /// grace period for it to unwind.
 pub(super) async fn run() -> ! {
+    octocode_engine::memory::MEMORY.sweep_expired_while_running();
     let host = HostOptions {
         surface: RuntimeSurface::Mcp,
         ..HostOptions::default()

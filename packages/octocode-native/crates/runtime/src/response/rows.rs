@@ -2,7 +2,6 @@
 mod envelope;
 mod recovery;
 mod restart;
-use crate::id::ToolId;
 pub use envelope::envelope;
 pub(crate) use recovery::{
     CANCELLED_HINT, GITHUB_AUTH_RECOVERY_HINT, attach_diagnostics, attach_error_hint,
@@ -14,11 +13,9 @@ use serde_json::{Value, json};
 #[derive(Default)]
 pub(crate) struct RowParts {
     pub(crate) diagnostics: crate::response::result::ToolDiagnostics,
-    pub(crate) remaining: Vec<super::result::Remaining>,
 }
 
 pub(crate) fn finish_row(
-    tool: ToolId,
     index: usize,
     data: Value,
     status: Option<&str>,
@@ -26,7 +23,6 @@ pub(crate) fn finish_row(
 ) -> Value {
     let mut row = result_row(index, data, status);
     attach_diagnostics(&mut row, parts.diagnostics);
-    super::pages::note_remaining(&mut row, tool, parts.remaining);
     row
 }
 

@@ -12,7 +12,7 @@ const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-transport-'));
 const isolated = hermeticEnv(process.env, 'transport');
 const env = { ...isolated, OCTOCODE_STORAGE_MODE: 'persistent', OCTOCODE_ENABLE_LOCAL: 'true', WORKSPACE_ROOT: workspace, ALLOWED_PATHS: workspace };
 const expected = Array.from({ length: 1500 }, (_, i) => `line ${i + 1}: immutable 界😀 evidence`);
-fs.writeFileSync(path.join(workspace, 'source.txt'), expected.join('\n') + '\n');
+fs.writeFileSync(path.join(workspace, 'source.txt'), `${expected.join('\n')}\n`);
 let client;
 const cli = async (tool, input) => {
   const run = await spawnCli([tool, JSON.stringify(input), '--json'], { cwd: workspace, env });
@@ -29,6 +29,7 @@ function captureSource(output, actual) {
     }
   }
 }
+const rows = output => JSON.stringify(output?.results);
 const invalid = [
   { tool: 'localSearch', input: { queries: [{ path: '.', matchString: ['line'], serchText: 'line' }] } },
   { tool: 'localFetch', input: { queries: [{ path: 'source.txt', ranges: ['1-3'] }] } },
@@ -46,7 +47,6 @@ try {
   // repaired call answers exactly as the canonical one does.
   const repaired = { queries: [{ path: '.', matchString: 'line' }] };
   const canonical = { queries: [{ path: '.', matchString: ['line'] }] };
-  const rows = output => JSON.stringify(output?.results);
   const [shellRepaired, shellCanonical] = [await cli('localSearch', repaired), await cli('localSearch', canonical)];
   check('cli repairs a string matchString to the one-item list', shellRepaired.code === 0 && shellCanonical.code === 0 && rows(shellRepaired.output) === rows(shellCanonical.output), shellRepaired.text);
   const [mcpRepaired, mcpCanonical] = [await client.raw('localSearch', repaired), await client.raw('localSearch', canonical)];

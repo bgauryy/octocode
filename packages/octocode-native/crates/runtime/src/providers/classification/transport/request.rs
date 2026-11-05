@@ -259,9 +259,18 @@ pub(super) async fn request(
     }
     .await;
     result
-        .map(|body| (body, provider_calls))
+        .map(|mut body| {
+            // Successful replies and model catalogs are untrusted data before
+            // any tool reads or retains them, not just when a host renders them.
+            crate::security::ContentSecurity::new().sanitize_data(&mut body);
+            (body, provider_calls)
+        })
         .map_err(|mut error| {
             error.provider_calls = provider_calls;
+            error.message = crate::security::scrub_error_text(&error.message);
+            for hint in &mut error.hints {
+                *hint = crate::security::scrub_error_text(hint);
+            }
             error
         })
 }

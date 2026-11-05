@@ -22,16 +22,45 @@ impl Scope {
         {
             return Ok(scan);
         }
-        let files = scan_text(&self.root, &self.include, symbol, policy, cancel)
-            .await?
-            .map(Arc::new);
-        if let Ok(mut slot) = self.text.lock() {
-            *slot = Some(TextScan {
-                symbol: symbol.to_owned(),
-                files: files.clone(),
-            });
-        }
+        // One walk reads the family and the markup beside it.
+        let include = [self.include.as_slice(), self.markup.as_slice()].concat();
+        let scanned = scan_text(&self.root, &include, symbol, policy, cancel).await?;
+        let (markup, files) = match scanned {
+            Some(found) => {
+                let (markup, family) = found
+                    .into_iter()
+                    .partition(|file| !self.markup.is_empty() && paths::is_markup(file));
+                (markup, Some(Arc::new(family)))
+            }
+            None => (BTreeSet::new(), None),
+        };
+        *self
+            .text
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(TextScan {
+            symbol: symbol.to_owned(),
+            files: files.clone(),
+            markup: Arc::new(markup),
+        });
         Ok(files)
+    }
+
+    /// The script-bearing markup files this request's text scan of `symbol`
+    /// found ([`Self::text_files`]), which its answer does not cover.
+    pub(in super::super) fn unanswered_markup(&self, symbol: &str) -> Vec<String> {
+        let markup = self
+            .text
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_ref()
+            .filter(|scan| scan.symbol == symbol)
+            .map(|scan| Arc::clone(&scan.markup));
+        markup
+            .iter()
+            .flat_map(|files| files.iter())
+            .filter(|file| !self.is_answered(file))
+            .cloned()
+            .collect()
     }
 
     /// The files this request's text scan of `symbol` found ([`Self::text_files`]);
@@ -161,6 +190,7 @@ impl Scope {
         };
         let (memo, symbol) = (Arc::clone(&self.code_uses), symbol.to_owned());
         let (site, slot) = (self.site(), Arc::clone(&self.reach));
+        let question = self.question.get().copied().unwrap_or_default();
         blocking_cancellable(cancel, move |stopped| {
             let reach = reach_in(&slot, site.as_ref(), &symbol, stopped);
             for file in unanswered {
@@ -175,7 +205,7 @@ impl Scope {
                 {
                     continue;
                 }
-                let found = classify(&symbol, &file, reach.as_deref(), stopped);
+                let found = classify(&symbol, &file, reach.as_deref(), question, stopped);
                 memo.lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .insert(key, found);
@@ -240,6 +270,7 @@ impl Scope {
             symbol,
             file,
             self.reach_of(symbol, &|| false).as_deref(),
+            self.question.get().copied().unwrap_or_default(),
             &|| false,
         );
         self.code_uses
@@ -255,7 +286,8 @@ impl Scope {
 pub(super) enum Use {
     /// In code: a site the server may have missed.
     Code,
-    /// Only in comments or strings.
+    /// Only in comments or strings, or in code that cannot answer the
+    /// question ([`Question`]).
     Mention,
     /// The file cannot reference the anchor's declaration at all.
     OutOfReach,
@@ -274,11 +306,12 @@ fn classify(
     symbol: &str,
     file: &str,
     reach: Option<&reach::Reach>,
+    question: Question,
     stopped: &dyn Fn() -> bool,
 ) -> Use {
     if reach.is_some_and(|reach| !reach.reaches(file, stopped)) {
         Use::OutOfReach
-    } else if uses_in_code(symbol, file) {
+    } else if uses_in_code(symbol, file, question) {
         Use::Code
     } else {
         Use::Mention
@@ -314,15 +347,28 @@ fn code_use_key(symbol: &str, file: &str) -> String {
 }
 
 /// Whether `file` (canonical) uses `symbol` in code, not only in comments
-/// or strings. An unreadable or unparsable file counts as a use.
-fn uses_in_code(symbol: &str, file: &str) -> bool {
-    crate::tools::source::read_bounded(Path::new(file), octocode_engine::signatures::MAX_PARSE_SIZE)
-        .ok()
-        .and_then(|bytes| super::super::source::admitted_text(&bytes).ok())
-        .is_none_or(|text| {
-            octocode_engine::lsp::resolver::code_occurrence_lines(file, &text, symbol)
-                .is_none_or(|lines| !lines.is_empty())
-        })
+/// or strings, in a way that may answer `question`. An unreadable or
+/// unparsable file counts as a use.
+fn uses_in_code(symbol: &str, file: &str, question: Question) -> bool {
+    code_use_memo::kept_or_read(symbol, file, question, || {
+        let bytes = crate::tools::source::read_bounded(
+            Path::new(file),
+            octocode_engine::signatures::MAX_PARSE_SIZE,
+        )
+        .ok()?;
+        let Ok(text) = super::super::source::admitted_text(&bytes) else {
+            return Some(true);
+        };
+        Some(
+            octocode_engine::lsp::resolver::code_occurrences(file, &text, symbol).is_none_or(
+                |occurrences| {
+                    !occurrences.lines.is_empty()
+                        && question.may_answer(symbol, file, &text, &occurrences)
+                },
+            ),
+        )
+    })
+    .unwrap_or(true)
 }
 
 /// Whether `file` (canonical, from the text scan) imports `symbol` by

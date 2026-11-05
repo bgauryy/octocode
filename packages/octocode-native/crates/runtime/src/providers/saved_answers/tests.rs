@@ -85,6 +85,51 @@ fn a_repeat_is_answered_from_the_memo_by_exactly_its_fields() {
     }
 }
 
+/// A raw file that happens to be JSON is one text to a read: a value's context
+/// is its key or a sibling, not in the value itself. An API payload's values
+/// are still judged as values, so `keys_url` beside a URL keeps it on disk.
+#[test]
+fn a_raw_json_file_is_judged_as_the_text_a_read_shows() {
+    let security = ContentSecurity::new();
+    let raw = |path: &str, body: &str| {
+        exposing(
+            &format!("GET https://x/repos/o/r/contents/{path}?ref=main"),
+            "plain",
+            None,
+            body,
+        )
+    };
+    for answer in [
+        raw(
+            "keys%2Fsigning.json",
+            r#"{"kty":"EC","x":"Public0Coordinate9Stays8Readable","d":"Fake0Scalar9Not4Real8Value7Long"}"#,
+        ),
+        raw(
+            "wg.json",
+            r#"{"PrivKey":"Fake0Scalar9Not4Real8Value7LongFake0Scalar9Not4Real8Value7LongFake0"}"#,
+        ),
+        raw(
+            "secret.json",
+            r#"{"data":{"tls.crt":"QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo="},"kind":"Secret"}"#,
+        ),
+    ] {
+        assert!(!gate_verdict(&security, &answer), "{answer:?}");
+    }
+    assert!(gate_verdict(
+        &security,
+        &raw("package.json", r#"{"name":"x","version":"1.0.0"}"#)
+    ));
+    assert!(gate_verdict(
+        &security,
+        &exposing(
+            "GET https://x/repos/o/r",
+            "plain",
+            None,
+            r#"{"keys_url":"https://api.github.com/repos/o/r/keys{/key_id}"}"#,
+        )
+    ));
+}
+
 /// A credential only a path-gated pattern sees, in the raw bytes GitHub
 /// answers a contents request with or in a payload naming its file: the
 /// read redacts it, so it must not be stored. The memoized verdict agrees.
@@ -113,6 +158,8 @@ fn a_path_gated_credential_is_not_stored() {
         raw("config/app.env", &format!("TOKEN={token}\n")),
         raw("notes.txt", &format!("TOKEN={token}\n")),
         raw("db.properties", jdbc),
+        // A blob names no file: its request says which one it was read for.
+        exposing("GET https://x/git/blobs/abc\nraw\n\ndeploy/.env", "plain", None, "QUJDREVGR0hJSktM\n"),
         // A key named only by its file, with no marker in it, spelled as a
         // request encodes a path.
         raw("deploy%2Fid_rsa", "c3BsaXRLZXlCb2R5VHdvQkFCQUJBQkFCQUJBQkFC\n"),
@@ -237,3 +284,5 @@ fn the_oldest_reuse_is_the_one_disclosed() {
         "Answer observed 1970-01-02T00:00:00Z: its origin was not asked again, so later changes are not shown."
     );
 }
+
+mod credential_files;

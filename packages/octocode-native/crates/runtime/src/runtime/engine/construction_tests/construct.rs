@@ -47,7 +47,7 @@ async fn section_fixture(
         ],
     );
     let mut limits = RuntimeLimits::DEFAULT;
-    limits.selection.max_candidates = 1;
+    limits.selection.max_chars = 1;
     let runtime = ToolRuntime::with_limits(runtime.input.clone(), limits).expect("bounded runtime");
     (runtime, server)
 }
@@ -167,14 +167,17 @@ async fn sections_runtime_resumes_replays_and_partitions_access_and_policy() {
 }
 
 #[tokio::test]
-async fn sections_runtime_refuses_changed_sources_and_one_shot_memory_continuations() {
+async fn sections_runtime_refuses_changed_sources_and_a_one_shot_memory_run_judges_its_whole_plan()
+{
     let home = tempfile::tempdir().expect("home");
     let (runtime, server) = section_fixture(home.path(), "memory").await;
     let query = section_query(home.path());
     let one_shot = section_call(&runtime, query.clone(), Channel::Cli, "caller").await;
-    assert!(one_shot.to_string().contains("unassessed"), "{one_shot}");
+    // No next call can continue it, so nothing waits behind a page.
+    assert!(!one_shot.to_string().contains("unassessed"), "{one_shot}");
     assert!(one_shot["results"][0]["data"].get("next").is_none());
-    assert!(server.received_requests().await.unwrap().is_empty());
+    let one_shot_calls = server.received_requests().await.unwrap().len();
+    assert!(one_shot_calls > 0, "{one_shot}");
     let first = section_call(&runtime, query, Channel::Mcp, "caller").await;
     let next = first["results"][0]["data"]["next"]["nextPage"]["input"].clone();
     assert_eq!(
@@ -188,7 +191,10 @@ async fn sections_runtime_refuses_changed_sources_and_one_shot_memory_continuati
     std::fs::write(home.path().join("second.txt"), "Changed source.").expect("change");
     let changed = section_call(&runtime, next, Channel::Mcp, "caller").await;
     assert!(changed.to_string().contains("sourceMismatch"), "{changed}");
-    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    assert_eq!(
+        server.received_requests().await.unwrap().len(),
+        one_shot_calls + 1
+    );
     runtime.close().await;
 }
 

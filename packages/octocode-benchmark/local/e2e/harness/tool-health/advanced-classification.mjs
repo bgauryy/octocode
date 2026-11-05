@@ -233,7 +233,6 @@ function invalidShapes() {
     sourceMinify: { operation: 'evaluate', source: { ...source, query: { ...source.query, minify: true } }, questions: row.questions },
     assetRange: { ...row, assets: { image: { source: { ...source, query: { ...source.query, ranges: [{ startLine: 1, endLine: 2 }] } } } } },
     privateAssessment: { operation: 'sections', assessment: 'not-issued' },
-    tooManyQuestions: { ...row, questions: Object.fromEntries(Array.from({ length: 26 }, (_, i) => [`q${i}`, noul('Is evidence present?')])) },
     emptyChoice: { ...row, questions: { choice: { type: 'choice', criteria: {} } } },
     emptyScore: { ...row, questions: { score: { type: 'score', criteria: [] } } },
     scoreOverflow: { ...row, questions: { score: { type: 'score', criteria: Array(scoreLevelsMaximum() + 1).fill('level') } } },

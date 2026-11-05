@@ -14,7 +14,7 @@ define('advanced: dialog accept preserves event and resumes page', [
   const r = await plan([
     {
       op: 'goto',
-      url: suite.base + '/advanced',
+      url: `${suite.base}/advanced`,
       after: { selector: '#dialogResult' },
     },
     cdp('Page.enable'),
@@ -44,7 +44,7 @@ define('advanced: popup event discovery and owned target cleanup', [
     child = ref(7, '/sessionId');
   const r = await plan(
     [
-      cdp('Target.createTarget', { url: suite.base + '/advanced' }),
+      cdp('Target.createTarget', { url: `${suite.base}/advanced` }),
       cdp('Target.attachToTarget', {
         targetId: ref(1, '/targetId'),
         flatten: true,
@@ -59,7 +59,7 @@ define('advanced: popup event discovery and owned target cleanup', [
       cdp(
         'Runtime.evaluate',
         {
-          expression: `window.open(${JSON.stringify(suite.base + '/popup')},'_blank');true`,
+          expression: `window.open(${JSON.stringify(`${suite.base}/popup`)},'_blank');true`,
           returnByValue: true,
           userGesture: true,
         },
@@ -106,7 +106,7 @@ define('advanced: owned file upload and completed download bytes', [
   const uploaded = await plan([
     {
       op: 'goto',
-      url: suite.base + '/advanced',
+      url: `${suite.base}/advanced`,
       after: { selector: '#upload' },
     },
     cdp('DOM.getDocument'),
@@ -142,7 +142,7 @@ define('advanced: owned file upload and completed download bytes', [
         event: 'Browser.downloadProgress',
         where: { '/state': 'completed' },
       },
-      cdp('Target.createTarget', { url: suite.base + '/advanced' }),
+      cdp('Target.createTarget', { url: `${suite.base}/advanced` }),
       cdp('Target.attachToTarget', {
         targetId: ref(4, '/targetId'),
         flatten: true,

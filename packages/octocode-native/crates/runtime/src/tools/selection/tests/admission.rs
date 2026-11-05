@@ -3,37 +3,6 @@
 use super::*;
 
 #[test]
-fn bounded_chunk_admission_reaches_relevant_evidence_after_the_prefix() {
-    let executor = tokio::runtime::Runtime::new().unwrap();
-    let (mut runtime, calls) = selecting_runtime(&executor);
-    runtime.limits.max_candidates = 2;
-    let mut candidates = (0..100)
-        .map(|_| Candidate::new(Some(json!({"content":"unrelated rendering code"}))))
-        .collect::<Vec<_>>();
-    candidates[75] = Candidate::new(Some(
-        json!({"content":"fn retryConnection() { retry_connection(); }"}),
-    ));
-    candidates[99] = Candidate::new(Some(
-        json!({"content":"fn connectionRetry() { connection_retry(); }"}),
-    ));
-    let query = json!({"classification":{"predicates":["retry connection"]}});
-    let outcome = select_source(&runtime, &query, None, &candidates, SelectionUnit::Chunks)
-        .unwrap_or_else(|_| panic!("selection failed"));
-    assert_eq!(outcome.selected, [75, 99]);
-    assert_eq!(outcome.receipt.unknown_items, 98);
-    let replay = select_source(
-        &runtime,
-        &query,
-        Some(&outcome.token),
-        &candidates,
-        SelectionUnit::Chunks,
-    )
-    .unwrap_or_else(|_| panic!("replay failed"));
-    assert_eq!(replay.selected, outcome.selected);
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
-}
-
-#[test]
 fn inline_usage_is_always_disclosed_and_plan_replay_reports_no_new_spend() {
     struct UsageJudge;
     impl SelectionJudge for UsageJudge {
@@ -54,7 +23,7 @@ fn inline_usage_is_always_disclosed_and_plan_replay_reports_no_new_spend() {
     let query = json!({"classification":{"predicates":["Does this state the fact?"]}});
     let candidates = vec![Candidate::new(Some(json!("the fact")))];
     let run = |query: &Value, token: Option<&str>| {
-        select_source(&runtime, query, token, &candidates, SelectionUnit::Files)
+        select_source(&runtime, query, token, &candidates, SelectionUnit::Hits)
             .ok()
             .expect("selection")
     };
@@ -87,16 +56,16 @@ fn candidate_budget_counts_serialized_characters_in_source_order() {
         &json!({"classification":{"predicates":["find evidence"]}}),
         None,
         &candidates,
-        SelectionUnit::Files,
+        SelectionUnit::Hits,
     )
     .unwrap_or_else(|_| panic!("budgeted order"));
-    assert_eq!(outcome.selected, [0, 2]);
+    // Source order: the page stops at the candidate over its budget, and the
+    // next page takes the rest.
+    assert_eq!(outcome.selected, [0]);
     assert_eq!(outcome.receipt.status, SelectionStatus::Partial);
-    assert_eq!(
-        outcome.receipt.reason.as_deref(),
-        Some("candidateStateTooLarge")
-    );
-    assert_eq!(outcome.receipt.selected_items, 2);
+    assert_eq!(outcome.receipt.reason.as_deref(), Some("candidateBudget"));
+    assert_eq!(outcome.receipt.selected_items, 1);
+    assert_eq!(outcome.unjudged, [1, 2]);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
@@ -110,24 +79,23 @@ fn partial_receipts_distinguish_ineligible_evidence_from_budgets() {
         Candidate::new(None),
     ];
     let query = json!({"classification":{"predicates":["find evidence"]}});
-    let eligible = select_source(&runtime, &query, None, &candidates, SelectionUnit::Files)
+    let eligible = select_source(&runtime, &query, None, &candidates, SelectionUnit::Hits)
         .unwrap_or_else(|_| panic!("partial order"));
     assert_eq!(eligible.selected, [0, 1]);
     assert_eq!(
         eligible.receipt.reason.as_deref(),
         Some("candidateIneligible")
     );
-    runtime.limits.max_candidates = 1;
-    let budgeted = select_source(&runtime, &query, None, &candidates, SelectionUnit::Files)
+    runtime.limits.max_chars = 1;
+    let budgeted = select_source(&runtime, &query, None, &candidates, SelectionUnit::Hits)
         .unwrap_or_else(|_| panic!("budgeted order"));
     assert_eq!(budgeted.selected, [0]);
     assert_eq!(
         budgeted.receipt.reason.as_deref(),
         Some("candidateEligibilityAndBudget")
     );
-    runtime.limits.max_candidates = 64;
     let no_states = [Candidate::new(None), Candidate::new(None)];
-    let skipped = select_source(&runtime, &query, None, &no_states, SelectionUnit::Files)
+    let skipped = select_source(&runtime, &query, None, &no_states, SelectionUnit::Hits)
         .unwrap_or_else(|_| panic!("ineligible order"));
     assert_eq!(skipped.receipt.status, SelectionStatus::Partial);
     assert_eq!(
@@ -159,7 +127,7 @@ fn single_candidate_is_assessed_and_can_be_excluded() {
         &json!({"classification":{"predicates":["find evidence"]}}),
         None,
         &candidate,
-        SelectionUnit::Files,
+        SelectionUnit::Hits,
     )
     .unwrap_or_else(|_| panic!("single candidate should be judged"));
     assert!(outcome.selected.is_empty());
@@ -168,8 +136,10 @@ fn single_candidate_is_assessed_and_can_be_excluded() {
     assert_eq!(outcome.receipt.unknown_items, 0);
 }
 
+/// A candidate larger than a whole page still runs, alone: the provider's own
+/// window decides whether it can be judged.
 #[test]
-fn oversized_candidate_is_terminal_unknown_without_provider_work() {
+fn a_candidate_over_the_page_budget_runs_alone() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let (runtime, calls) = selecting_runtime(&executor);
     let candidates = [Candidate::new(Some(json!({
@@ -183,16 +153,9 @@ fn oversized_candidate_is_terminal_unknown_without_provider_work() {
         SelectionUnit::Chunks,
     )
     .unwrap_or_else(|_| panic!("oversized candidate"));
-    assert!(outcome.next_candidates(ToolId::LocalFetch).is_none());
-    assert!(outcome.unjudged.is_empty());
-    assert_eq!(outcome.receipt.status, SelectionStatus::Partial);
-    assert_eq!(
-        outcome.receipt.reason.as_deref(),
-        Some("candidateStateTooLarge")
-    );
-    assert_eq!(outcome.receipt.unknown_items, 1);
-    assert_eq!(outcome.receipt.excluded_items, 0);
-    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(outcome.selected, [0]);
+    assert_eq!(outcome.receipt.status, SelectionStatus::Complete);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
 #[test]
@@ -205,7 +168,6 @@ fn cancelled_judgment_never_becomes_a_fallback_page() {
         executor.handle().clone(),
         Duration::from_secs(1),
     );
-    runtime.limits.max_candidates = 2;
     runtime.limits.max_chars = 100;
     runtime.context.cancellation = cancellation;
     let candidates = [
@@ -218,7 +180,7 @@ fn cancelled_judgment_never_becomes_a_fallback_page() {
             &json!({"classification":{"predicates":["find evidence"]}}),
             None,
             &candidates,
-            SelectionUnit::Files
+            SelectionUnit::Hits
         ),
         Err(Failure::Cancelled)
     ));

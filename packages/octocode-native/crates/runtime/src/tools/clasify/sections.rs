@@ -14,10 +14,10 @@ mod capture;
 mod emit;
 mod store;
 
-use assess::{assess_and_save, pending_cost, settle_unsupported};
+use assess::assess_and_save;
 pub(super) use budget::Budget;
 use emit::terminal;
-pub(crate) use store::Sessions;
+pub(crate) use store::{PLAN_RETENTION, Sessions};
 
 #[derive(Clone, Copy)]
 pub(crate) struct Runtime<'a> {
@@ -175,6 +175,10 @@ pub(super) fn run(
             }
             return Ok(outcome);
         }
+        if let Some(withheld) = withheld_saved_source(&session) {
+            runtime.sessions.remove(&key, context);
+            return Err(withheld);
+        }
         validate_sources(&session, dispatcher, context)?;
         return assess_and_save(&mut session, ordinal, dispatcher, context, runtime, shared);
     } else {
@@ -191,19 +195,6 @@ pub(super) fn run(
         )
     };
     session.github_identity = dispatcher.retained_github_identity(context)?;
-    settle_unsupported(&mut session, shared.limits);
-    let pending = pending_cost(&session);
-    if !runtime.can_resume
-        && (pending.0 > shared.limits.max_candidates || pending.1 > shared.limits.max_chars)
-    {
-        let reason = "The complete plan requires more than one bounded assessment batch. No inference ran because this runtime ends after the call. Use persistent storage or a long-lived MCP runtime.";
-        let mut outcome = terminal(&mut session, reason, ClassificationUsage::default());
-        let error = unavailable(reason);
-        outcome.output["errorCode"] = json!(error.code);
-        outcome.output["error"] = json!(error.message);
-        outcome.output["hints"] = json!(error.hints);
-        return Ok(outcome);
-    }
     // The batch saves the whole frozen plan before any provider request
     // (and after it), so a fresh plan needs no save of its own.
     let key = runtime.sessions.key(&runtime.access, &session.id);
@@ -222,6 +213,29 @@ fn validate_sources(
         }
     }
     Ok(())
+}
+
+/// A saved plan outlives the binary that made it, and holds its sections' text:
+/// one that holds a file the egress now withholds by name sends nothing more.
+/// A resource refused when planned holds no text, so it stops nothing.
+fn withheld_saved_source(session: &Session) -> Option<ClassificationError> {
+    session
+        .resources
+        .iter()
+        .filter(|resource| !resource.units.is_empty())
+        .map(|resource| &resource.metadata["source"])
+        .filter(|source| source["tool"] == crate::id::ToolId::GhGetFileContent.as_str())
+        .find_map(|source| {
+            let withheld =
+                crate::tools::source_capture::withheld_github_source(&source["query"])?;
+            Some(ClassificationError {
+                message: format!(
+                    "The saved plan holds sections of '{}', which classification withholds by its name: no further section was sent, and the plan was dropped.",
+                    source["query"]["path"].as_str().unwrap_or_default()
+                ),
+                ..withheld
+            })
+        })
 }
 
 fn new_id(input: &Value) -> String {

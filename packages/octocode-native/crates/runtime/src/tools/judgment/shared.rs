@@ -89,7 +89,7 @@ impl Evaluator {
             input.assets,
         );
         let mut hasher = octocode_engine::digest::HashWriter::default();
-        hasher.update([u8::from(input.long_context)]);
+        hasher.update([input.long_context as u8]);
         serde_json::to_writer(&mut hasher, &request).ok()?;
         Some(hasher.finalize())
     }

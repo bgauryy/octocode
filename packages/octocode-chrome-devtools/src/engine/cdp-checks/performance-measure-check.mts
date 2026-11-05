@@ -257,8 +257,9 @@ export async function run(cdp: Session) {
     typeof raw.result.value !== 'object'
   )
     throw new Error(
-      'Performance evaluation unavailable: ' +
-        (raw.exceptionDetails?.text || 'no result')
+      `Performance evaluation unavailable: ${
+        raw.exceptionDetails?.text || 'no result'
+      }`
     );
   const snap: PerfSnapshot = raw.result.value;
   const scored = score(snap, SLOW_RESOURCE_MS);

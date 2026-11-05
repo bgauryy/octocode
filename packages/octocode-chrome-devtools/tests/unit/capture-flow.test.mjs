@@ -29,7 +29,7 @@ test('native Octocode can search the hinted capture scope and fetch exact eviden
       file,
       JSON.stringify({ body: 'Needle in captured web content' }, null, 2)
     );
-    const result = await shape(work, '[ARTIFACT] RESPONSE ' + file);
+    const result = await shape(work, `[ARTIFACT] RESPONSE ${file}`);
     const scope = {
       ...result.search,
       path: result.search.paths[0],
@@ -81,7 +81,7 @@ test('input acknowledgement omits event payloads but keeps exact evidence reacha
     );
     const result = await shape(
       work,
-      '[ARTIFACT] ACTION ' + action + '\n[ARTIFACT] browser-result.json ' + flow
+      `[ARTIFACT] ACTION ${action}\n[ARTIFACT] browser-result.json ${flow}`
     );
     assert.equal(result.flow.steps[0].status, 'complete');
     assert.deepEqual(result.flow.steps[0].condition, {
@@ -119,10 +119,7 @@ test('a completed input without a postcondition returns only an acknowledgement 
     );
     const result = await shape(
       work,
-      '[ARTIFACT] INPUT ' +
-        artifact +
-        '\n[ARTIFACT] browser-result.json ' +
-        flow
+      `[ARTIFACT] INPUT ${artifact}\n[ARTIFACT] browser-result.json ${flow}`
     );
     assert.equal(result.flow.completedSteps, 1);
     assert.deepEqual(result.flow.steps, []);
@@ -137,7 +134,7 @@ test('target inventories expose executable typed continuations through CLI and M
     const file = join(work, 'targets.json');
     const rows = Array.from({ length: 35 }, (_, index) => ({
       id: String(index),
-      title: 'target ' + index,
+      title: `target ${index}`,
     }));
     writeFileSync(file, JSON.stringify(rows));
     const result = await shape(
@@ -213,11 +210,10 @@ test('cdp and protocol plans return the reply value and Chrome error inline', ()
     );
     for (const command of ['cdp', 'protocol']) {
       const result = await shape(
-        mkdtempSync(join(work, command + '-')),
-        '[ARTIFACT] cdp-1.json ' +
-          reply +
-          '\n[ARTIFACT] browser-result.json ' +
-          flow,
+        mkdtempSync(join(work, `${command}-`)),
+        `[ARTIFACT] cdp-1.json ${reply}\n[ARTIFACT] browser-result.json ${
+          flow
+        }`,
         '[CDP_SANDBOX] diagnostic',
         command
       );
@@ -232,10 +228,10 @@ test('stderr is the error only for failures; success diagnostics stay in logs', 
     const artifact = join(work, 'snapshot.json');
     writeFileSync(artifact, '{}');
     for (const exitCode of [0, 2]) {
-      const directory = join(work, 'capture-' + exitCode);
+      const directory = join(work, `capture-${exitCode}`);
       mkdirSync(directory);
       const outputs = writeOutputs(directory, {
-        stdout: '[ARTIFACT] snapshot ' + artifact,
+        stdout: `[ARTIFACT] snapshot ${artifact}`,
         stderr: '[CDP_SANDBOX] diagnostic',
       });
       const result = await captureResult(

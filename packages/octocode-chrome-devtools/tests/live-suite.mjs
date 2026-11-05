@@ -88,8 +88,8 @@ test('events: input action and network captured in one flow', () => {
   const script = join(live.WORK, '.octocode', 'combined.mjs');
   writeFileSync(
     script,
-    `import { run as monitor } from ${JSON.stringify('file://' + join(live.ROOT, 'dist/engine/cdp-checks/live-har-monitor.mjs'))};
-import { run as act } from ${JSON.stringify('file://' + join(live.ROOT, 'dist/engine/cdp-checks/dom-operations-check.mjs'))};
+    `import { run as monitor } from ${JSON.stringify(`file://${join(live.ROOT, 'dist/engine/cdp-checks/live-har-monitor.mjs')}`)};
+import { run as act } from ${JSON.stringify(`file://${join(live.ROOT, 'dist/engine/cdp-checks/dom-operations-check.mjs')}`)};
 export async function run(cdp) { await monitor(cdp, { onReady: () => act(cdp) }); }`
   );
   const result = success(

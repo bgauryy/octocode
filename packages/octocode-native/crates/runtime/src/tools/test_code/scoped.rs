@@ -33,12 +33,12 @@ impl Scoped {
 
     /// Whether the walk reads the entry `path`: a directory always; a file
     /// unless where it lies puts it on the other side (counted, left
-    /// unread).
+    /// unread). One a `#[path]` mounts is read, then left out by its sites.
     pub(crate) fn reads(&self, path: &Path, is_dir: bool) -> bool {
         if is_dir {
             return true;
         }
-        let test = self.index.test_path(path);
+        let test = self.index.test_path_unread(path);
         let read = match self.keep {
             Keep::Production => !test,
             Keep::Test => test || TestCodeIndex::may_hold_test_code(path),
@@ -84,6 +84,25 @@ impl Scoped {
         })
     }
 
+    /// What proves the verdicts so far ([`TestCodeIndex::proof`]).
+    pub(crate) fn proof(
+        &self,
+        started: std::time::SystemTime,
+    ) -> Option<octocode_engine::stamp::Proof> {
+        self.index.proof(started)
+    }
+
+    /// Every path the verdicts so far read or found absent.
+    pub(crate) fn watched(&self) -> Vec<PathBuf> {
+        self.index.watched()
+    }
+
+    /// The Rust files a verdict needed and could not read
+    /// ([`TestCodeIndex::unread`]).
+    pub(crate) fn unread(&self) -> Vec<PathBuf> {
+        self.index.unread()
+    }
+
     /// What the scope left out so far.
     pub(crate) fn excluded(&self) -> TestCodeExcluded {
         let whole = octocode_engine::num::saturating_u32(lock(&self.whole).len());
@@ -102,10 +121,11 @@ pub(crate) fn text_scope(
     keep: Keep,
     index: Arc<TestCodeIndex>,
 ) -> octocode_engine::types::TestCodeScope {
-    let by_path = Arc::clone(&index);
+    let (by_path, unread) = (Arc::clone(&index), Arc::clone(&index));
     octocode_engine::types::TestCodeScope {
         keep_test: keep == Keep::Test,
         test_path: Arc::new(move |path| by_path.test_path(path)),
+        unread_test_path: Arc::new(move |path| unread.test_path_unread(path)),
         may_hold: Arc::new(TestCodeIndex::may_hold_test_code),
         spans: Arc::new(move |path| index.spans(path)),
     }

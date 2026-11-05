@@ -1,7 +1,7 @@
 //! One connection: read the request line, run it, write the reply.
 
 use super::{Daemon, MAX_REQUEST_BYTES};
-use crate::cli::Printed;
+use crate::cli::output::Printed;
 use crate::cli::serve::runs_on_server;
 use crate::cli::serve::unix::frames::{forward, progress_scope};
 use crate::cli::serve::unix::read_line_bounded;

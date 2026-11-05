@@ -49,7 +49,7 @@ fn parts(tool: ToolId, data: &Value, budget: usize) -> Vec<Value> {
         .expect("valid plan");
     (0..plan.total_pages)
         .flat_map(|page| {
-            plan.build_page(page, &[None], &[], &Cancellation::new())
+            plan.build_page(page, &[None], &Cancellation::new())
                 .expect("valid page")
         })
         .collect()

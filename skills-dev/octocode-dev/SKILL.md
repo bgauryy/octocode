@@ -22,6 +22,8 @@ For tool calls see [MCP and CLI usage](references/octocode-usage.md).
 | Building locally | `dev build:dev` for the host. Native `build` also targets the host for release-mode testing. Rebuild affected launchers. |
 | Testing one package or tool | `yarn workspace <pkg> <script>` or, after a local build, `dev test:tools [tool,...]` for CLI and MCP |
 | A skill or documentation changed | `dev skills:check` or `dev docs:verify`, respectively. Run both when both surfaces changed. |
+| Static checks before handing over a change | `dev check`, with a focused test. Rust only: `dev lint:rust` |
+| Finding where a tool flow's CPU goes | `dev profile <tool> '<query>' [--phase repeat]`: see [Development](docs/DEVELOPMENT.md#profiling-a-tool-flow) |
 | Cross-package handoff | `dev verify` and `dev docs:verify` |
 | Any other repository task | `dev --help` lists tasks. Extra arguments pass through to the selected task. For flags, owning script and regression test, use the [script guide](scripts/README.md). |
 

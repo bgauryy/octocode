@@ -1,6 +1,7 @@
 //! Reading configuration: `config list`, `get` and `check`.
 use super::write_json;
 use octocode_native::runtime::ToolRuntime;
+use octocode_native::security::scrub_error_text;
 use serde_json::json;
 
 /// The setting `key` names, by its path or its variable.
@@ -94,16 +95,17 @@ pub fn get(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
     let source = value.map(|_| origin.map_or("env", |origin| origin.scope.as_str()));
     let path = origin.map(|origin| &origin.path);
     let masked = octocode_native::config::is_secret_key(key);
+    let shown_key = scrub_error_text(key);
     let shown = value.map(|value| {
         if masked {
-            octocode_engine::security::redaction_placeholder(key)
+            octocode_engine::security::redaction_placeholder(&shown_key)
         } else {
-            value.to_owned()
+            scrub_error_text(value)
         }
     });
     if json_out {
         let code = write_json(
-            &json!({"key": key, "set": value.is_some(), "value": shown, "source": source, "path": path}),
+            &json!({"key": shown_key, "set": value.is_some(), "value": shown, "source": source, "path": path}),
         );
         if code != 0 {
             return code;
@@ -117,7 +119,7 @@ pub fn get(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
             (true, None) => println!("{shown} (process environment)"),
         }
     } else {
-        eprintln!("{key}: unset");
+        eprintln!("{shown_key}: unset");
     }
     if value.is_some() { 0 } else { 1 }
 }
@@ -143,8 +145,9 @@ pub async fn check(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
     } else {
         None
     };
+    let shown_key = scrub_error_text(key);
     if json_out {
-        let mut value = json!({"key": key, "set": set});
+        let mut value = json!({"key": shown_key, "set": set});
         if let Some(source) = &github_auth {
             value["githubTokenSource"] = json!(source);
         }
@@ -155,9 +158,9 @@ pub async fn check(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
     } else {
         match &github_auth {
             Some(source) => {
-                println!("{key}: unset (GitHub calls use the token from {source})");
+                println!("{shown_key}: unset (GitHub calls use the token from {source})");
             }
-            None => println!("{key}: {}", if set { "set" } else { "unset" }),
+            None => println!("{shown_key}: {}", if set { "set" } else { "unset" }),
         }
     }
     if set { 0 } else { 1 }

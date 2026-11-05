@@ -2,7 +2,6 @@
 //! eligible ordinals the candidate budget left unjudged, and the pool its
 //! candidate page judges from; sealed and compressed, it is the replay token.
 use super::{Candidate, Outcome};
-use crate::execution::SelectionLimits;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use octocode_contract_types::{
     Selection, SelectionFailure, SelectionScope, SelectionStatus, SelectionUnit,
@@ -12,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
 
-/// Version 9 records related (near-miss) ordinals apart from unknown ones.
-pub(super) const VERSION: u8 = 9;
+/// Version 10 lets a failed ordinal also be unjudged, so a later page retries it.
+pub(super) const VERSION: u8 = 10;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(super) struct Plan {
@@ -169,23 +168,36 @@ impl Plan {
         }))
     }
 
-    /// Records deferred ordinals that can fit a fresh page's budget.
-    pub(super) fn mark_unjudged(
-        &mut self,
-        candidates: &[Candidate],
-        admitted: &[usize],
-        limits: SelectionLimits,
-    ) {
+    /// Records the ordinals this page's budget deferred.
+    pub(super) fn mark_unjudged(&mut self, candidates: &[Candidate], admitted: &[usize]) {
         let admitted = admitted.iter().copied().collect::<HashSet<_>>();
+        self.set_unjudged(
+            candidates
+                .iter()
+                .enumerate()
+                .filter(|(ordinal, candidate)| {
+                    candidate.state.is_some()
+                        && !admitted.contains(ordinal)
+                        && self.in_pool(*ordinal)
+                })
+                .map(|(ordinal, _)| saturating_u32(ordinal))
+                .collect(),
+        );
+    }
+
+    /// Adds ordinals a later candidate page should judge again.
+    pub(super) fn retry_later(&mut self, ordinals: impl Iterator<Item = u32>) {
+        let mut all = self.unjudged_ordinals().collect::<Vec<_>>();
+        all.extend(ordinals);
+        all.sort_unstable();
+        all.dedup();
+        self.set_unjudged(all);
+    }
+
+    /// `ordinals` (ascending) as runs.
+    fn set_unjudged(&mut self, ordinals: Vec<u32>) {
         let mut runs: Vec<[u32; 2]> = Vec::new();
-        for (ordinal, candidate) in candidates.iter().enumerate() {
-            if !candidate.fits_budget(limits)
-                || admitted.contains(&ordinal)
-                || !self.in_pool(ordinal)
-            {
-                continue;
-            }
-            let ordinal = saturating_u32(ordinal);
+        for ordinal in ordinals {
             match runs.last_mut() {
                 Some(run) if run[1] == ordinal => run[1] = ordinal.saturating_add(1),
                 _ => runs.push([ordinal, ordinal.saturating_add(1)]),
@@ -242,11 +254,18 @@ impl Plan {
         {
             return false;
         }
+        // A failed ordinal is undecided; it may be unjudged, for a later page.
+        let unjudged = self.unjudged_ordinals().collect::<HashSet<_>>();
+        let mut failed = HashSet::with_capacity(self.failures.len());
         for failure in &self.failures {
             let Ok(ordinal) = u32::try_from(failure.candidate) else {
                 return false;
             };
-            if ordinal >= self.total || !self.in_pool(ordinal as usize) || !seen.insert(ordinal) {
+            if ordinal >= self.total
+                || !self.in_pool(ordinal as usize)
+                || !failed.insert(ordinal)
+                || (seen.contains(&ordinal) && !unjudged.contains(&ordinal))
+            {
                 return false;
             }
         }

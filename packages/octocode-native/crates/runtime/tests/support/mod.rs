@@ -18,6 +18,7 @@ pub mod checks;
 
 mod cursor;
 mod providers;
+pub mod recorded;
 mod workspace;
 
 pub use cursor::assert_cursor_only;
@@ -54,6 +55,20 @@ pub const UNMOCKED_GITHUB_API_URL: &str = "http://127.0.0.1:1/api/v3";
 
 /// One call admitted under `request_id`, as the CLI (`run`: structured JSON)
 /// or the N-API adapter (`run_mcp`: the MCP `CallToolResult`) makes it.
+/// The one call a reader runs next: `responsePagination.next`, else the
+/// `next.nextPage` of a whole response.
+pub fn next_input(output: &Value) -> Option<Value> {
+    output
+        .pointer("/responsePagination/next/input")
+        .or_else(|| {
+            output["results"]
+                .as_array()?
+                .iter()
+                .find_map(|row| row.pointer("/data/next/nextPage/input"))
+        })
+        .cloned()
+}
+
 pub trait Run {
     fn run(
         &self,

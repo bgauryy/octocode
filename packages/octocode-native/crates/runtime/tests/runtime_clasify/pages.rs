@@ -150,10 +150,7 @@ async fn a_selection_past_its_deadline_withholds_bodies_and_recovers() {
     );
     let read = |timeout: std::time::Duration| {
         let limits = octocode_native::execution::RuntimeLimits {
-            selection: octocode_native::execution::SelectionLimits {
-                timeout,
-                ..crate::support::PROVIDER_LIMITS.selection
-            },
+            network_timeout: timeout,
             ..crate::support::PROVIDER_LIMITS
         };
         let runtime = workspace.runtime_with(&provider_env(&server, &[]), limits);
@@ -165,50 +162,23 @@ async fn a_selection_past_its_deadline_withholds_bodies_and_recovers() {
     };
     let (recovery, late) = read(std::time::Duration::from_millis(100)).await;
     let selection = &late["selection"];
-    assert_eq!(selection["status"], "partial", "{late}");
-    assert_eq!(selection["unknownItems"], 1, "{late}");
+    // A provider slower than the request time decides nothing: the read keeps
+    // its evidence, says why, and offers no filter it did not apply.
+    assert_eq!(selection["status"], "unavailable", "{late}");
+    assert_eq!(selection["reason"], "timeout", "{late}");
     assert_eq!(selection["selectedItems"], 0, "{late}");
-    // No static reminder: the receipt and `next.unfiltered` are the
-    // per-call facts; "not proof of absence" is said once, in the
-    // instructions.
-    assert!(late.get("warnings").is_none(), "{late}");
     assert!(
-        !late.to_string().contains("UNKNOWN_SELECTION_SENTINEL"),
+        late["content"]
+            .as_str()
+            .unwrap()
+            .contains("UNKNOWN_SELECTION_SENTINEL"),
         "{late}"
     );
-    let unfiltered = late["next"]["unfiltered"].clone();
-    assert_eq!(unfiltered["tool"], "localFetch", "{late}");
-    let inference_before = sent(&server).await.len();
-    let recovered = recovery
-        .run(
-            "unfiltered".into(),
-            "localFetch".into(),
-            unfiltered["input"].clone(),
-        )
-        .await
-        .expect("unfiltered recovery");
-    assert!(
-        recovered
-            .structured_content
-            .to_string()
-            .contains("UNKNOWN_SELECTION_SENTINEL"),
-        "{}",
-        recovered.structured_content
-    );
-    assert_eq!(
-        sent(&server).await.len(),
-        inference_before,
-        "unfiltered recovery performs no inference"
-    );
+    assert!(late["warnings"].to_string().contains("slow"), "{late}");
     recovery.close().await;
-    // The same read under the constant deadline is judged and selected: the
-    // deadline, not the evidence, left it unknown.
-    let (runtime, judged) = read(
-        octocode_native::execution::RuntimeLimits::DEFAULT
-            .selection
-            .timeout,
-    )
-    .await;
+    // The same read under the runtime's own request time is judged and selected.
+    let (runtime, judged) =
+        read(octocode_native::execution::RuntimeLimits::DEFAULT.network_timeout).await;
     assert_eq!(judged["selection"]["status"], "complete", "{judged}");
     assert_eq!(judged["selection"]["selectedItems"], 1, "{judged}");
     assert!(

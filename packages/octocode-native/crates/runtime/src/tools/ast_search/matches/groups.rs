@@ -1,6 +1,7 @@
 //! Files grouped into match pages: each file's match rows (held, priced
 //! and rebuilt when shown, or listed), cut into its match pages.
 use super::super::RowPaths;
+use super::page_rows::PageRows;
 use super::query::MatchQuery;
 use super::rows::{MatchRow, diag};
 use super::scan::parser_extension;
@@ -69,7 +70,7 @@ pub(super) fn group_files(
                         .iter()
                         .map(|value| super::match_row(q, value, cancel))
                         .collect::<Result<Vec<_>, _>>()?;
-                    match_group(q, path.clone(), rows, budget, row_paths)
+                    match_group(q, path.clone(), &rows, budget, row_paths)
                 }
                 FileMatches::Priced(prices) if !file_list => {
                     priced_group(q, path.clone(), prices, budget, row_paths, index)
@@ -209,7 +210,8 @@ pub(super) enum RebuildError {
 /// finish matching this time (an execution limit) is shown without rows,
 /// as the scan shows a file its limit cut: each such file's diagnostics
 /// are returned. The files parse in parallel (one parse per shown file was
-/// the page's slowest serial step) and are applied in page order.
+/// the page's slowest serial step) and are applied in page order. A file whose
+/// matches span match pages parses once for them all ([`PageRows`]).
 pub(super) fn rebuild_page(
     q: MatchQuery<'_>,
     scope: &Scope,
@@ -217,6 +219,7 @@ pub(super) fn rebuild_page(
     groups: &mut [Group],
     budget: usize,
     row_paths: RowPaths<'_>,
+    page_rows: Option<PageRows<'_>>,
     cancel: &dyn CancellationCheck,
 ) -> Result<Vec<Vec<StructuralDiagnostic>>, RebuildError> {
     let mut priced = groups
@@ -228,14 +231,29 @@ pub(super) fn rebuild_page(
     // test-code line; the rebuild keeps the same ones (it counts nothing).
     let scoped = crate::tools::test_code::Scoped::of(q.test_code(), row_paths.paths);
     let workers = crate::tools::workers::workers(priced.len(), None);
-    let rebuilt = crate::tools::workers::each_parallel(&mut priced, workers, |&mut (_, index)| {
-        rebuild_file(q, scope, &files[index], (scoped.as_ref(), cancel))
-    });
+    let rebuilt =
+        crate::tools::workers::each_parallel(
+            &mut priced,
+            workers,
+            |&mut (_, index)| match page_rows.and_then(|rows| rows.get(&files[index].path)) {
+                Some(rows) => Ok(RebuiltFile::Kept(rows)),
+                None => rebuild_file(q, scope, &files[index], (scoped.as_ref(), cancel)),
+            },
+        );
     let mut incomplete = Vec::new();
     for ((slot, index), outcome) in priced.into_iter().zip(rebuilt) {
         let path = files[index].path.clone();
         groups[slot] = match outcome? {
-            RebuiltFile::Rows(rows) => match_group(q, path, rows, budget, row_paths),
+            RebuiltFile::Kept(rows) => match_group(q, path, &rows, budget, row_paths),
+            RebuiltFile::Rows(rows) => {
+                let group = match_group(q, path.clone(), &rows, budget, row_paths);
+                if group.more_matches
+                    && let Some(page_rows) = page_rows
+                {
+                    page_rows.keep(&path, rows);
+                }
+                group
+            }
             RebuiltFile::Incomplete(diagnostics) => {
                 incomplete.push(diagnostics);
                 unevaluated_group(path)
@@ -248,6 +266,7 @@ pub(super) fn rebuild_page(
 /// One priced file's rows rebuilt from its scanned bytes, or the
 /// diagnostics of a match that did not finish this time.
 enum RebuiltFile {
+    Kept(std::sync::Arc<Vec<MatchRow>>),
     Rows(Vec<MatchRow>),
     Incomplete(Vec<StructuralDiagnostic>),
 }
@@ -266,6 +285,8 @@ fn rebuild_file(
     else {
         return Err(RebuildError::SourceChanged);
     };
+    #[cfg(test)]
+    super::page_rows::rebuilt(source);
     let matches = match octocode_engine::structural::file_matches(
         source,
         &parser_extension(scope, source),
@@ -320,7 +341,7 @@ pub(super) fn unevaluated_group(path: String) -> Group {
 pub(super) fn match_group(
     q: MatchQuery<'_>,
     path: String,
-    rows: Vec<MatchRow>,
+    rows: &[MatchRow],
     budget: usize,
     row_paths: RowPaths<'_>,
 ) -> Group {

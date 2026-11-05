@@ -71,7 +71,6 @@ pub(super) fn tool_row(result: Result<ToolData, GhFailure>) -> DomainResult {
     match result {
         Ok(output) => DomainResult {
             diagnostics: output.diagnostics,
-            remaining: output.remaining,
             ..DomainResult::payload(output.data, output.status)
         },
         Err(failure) => {

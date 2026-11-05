@@ -54,6 +54,12 @@ const TOKEN_BYTES: [bool; 128] = {
     table
 };
 
+/// Whether `byte` may be part of a token: non-ASCII bytes decode to decide,
+/// so a read window never ends inside one.
+pub(super) fn is_token_byte(byte: u8) -> bool {
+    byte >= 0x80 || TOKEN_BYTES[usize::from(byte)]
+}
+
 /// One file's hits: per kind (stems, references, words), per key, its first
 /// line in the file. A token is a run of name and path characters; the scan
 /// walks bytes, since all but a little text is ASCII.

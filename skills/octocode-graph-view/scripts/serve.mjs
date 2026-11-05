@@ -78,7 +78,7 @@ function createLog({ out, persistAll }) {
     const seq = nextSeq++;
     const e = { seq, t: Date.now() - t0, ...(ID_PREFIX[event.type] && !event.id ? { id: `${ID_PREFIX[event.type]}${seq}` } : {}), ...event };
     log.push(e);
-    if (save) appendFileSync(join(out, 'events.jsonl'), JSON.stringify(e) + '\n');
+    if (save) appendFileSync(join(out, 'events.jsonl'), `${JSON.stringify(e)}\n`);
     pending.push(e);
     if (!flushing) { flushing = true; setImmediate(flush); }
     return e;
@@ -108,7 +108,7 @@ function cleanContext(c) {
 // The default transport: one JSON line per message in <out>/chat-inbox.jsonl, for an agent watching that file.
 function inboxTransport(out) {
   const file = join(out, 'chat-inbox.jsonl');
-  return (m) => appendFileSync(file, JSON.stringify({ chat_id: m.id, text: m.text, ...m.context, at: new Date(m.at).toISOString() }) + '\n');
+  return (m) => appendFileSync(file, `${JSON.stringify({ chat_id: m.id, text: m.text, ...m.context, at: new Date(m.at).toISOString() })}\n`);
 }
 
 // User messages and their delivery state (queued -> delivered -> replied, or failed); rebuilt from a replayed log.
@@ -341,7 +341,7 @@ export async function startServer({ root = null, out, opts = defaults(), replay 
   await new Promise((ok, fail) => { server.once('error', fail); server.listen(port || 0, '127.0.0.1', ok); });
   ctx.port = server.address().port;
   const url = `http://127.0.0.1:${ctx.port}/?t=${ctx.token}`;
-  writeFileSync(join(out, 'server.json'), JSON.stringify({ url, token: ctx.token, port: ctx.port, pid: process.pid, out, root: runRoot(ctx) ?? null }) + '\n', { mode: 0o600 });
+  writeFileSync(join(out, 'server.json'), `${JSON.stringify({ url, token: ctx.token, port: ctx.port, pid: process.pid, out, root: runRoot(ctx) ?? null })}\n`, { mode: 0o600 });
   if (open) openBrowser(url);
   // A replay answers queries at once: its data.json loads now (a build loads it when the run writes it).
   void ctx.answers.prime();

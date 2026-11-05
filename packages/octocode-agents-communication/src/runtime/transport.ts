@@ -97,7 +97,7 @@ export async function claude(endpoint: string, session: string, token: string, c
 
 /** Percent-encoding with `+` for spaces (form encoding). */
 function quotePlus(value: string): string {
-  return encodeURIComponent(value).replace(/[!'()*]/g, character => '%' + character.charCodeAt(0).toString(16).toUpperCase()).replaceAll('%20', '+');
+  return encodeURIComponent(value).replace(/[!'()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`).replaceAll('%20', '+');
 }
 
 class OpenCode {
@@ -120,7 +120,7 @@ class OpenCode {
         return code < 32 || (code >= 127 && code <= 159);
       });
       if (!username || username.includes(':') || control || Buffer.byteLength(credentials) > 8192) throw new ValidationError('Invalid OpenCode authentication configuration');
-      this.headers.Authorization = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64');
+      this.headers.Authorization = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
     }
   }
 
@@ -177,7 +177,7 @@ class OpenCode {
   }
 
   async idle(): Promise<boolean> {
-    const session = object(await this.get('/session/' + this.session), 'OpenCode session');
+    const session = object(await this.get(`/session/${this.session}`), 'OpenCode session');
     if (session.id !== this.session || typeof session.directory !== 'string' || !session.directory || realpath(session.directory, true) !== this.workspace) throw new ValidationError('OpenCode session/workspace mismatch; no message submitted');
     const statuses = await this.get('/session/status');
     if (!isObject(statuses)) throw new ValidationError('Invalid OpenCode status map; no message submitted');
@@ -277,7 +277,7 @@ class Grok {
         const rpc = object(JSON.parse(String(frame.payload)), 'Grok ACP payload');
         if ('method' in rpc && 'id' in rpc) await this.sendRpc({ ...refusal(rpc.id), jsonrpc: '2.0' });
         else if (rpc.id === identity) {
-          if ('error' in rpc) throw new Error('Grok ACP request failed: ' + dumps(rpc.error));
+          if ('error' in rpc) throw new Error(`Grok ACP request failed: ${dumps(rpc.error)}`);
           if (!('result' in rpc)) throw new ValidationError('Grok ACP response lacks result');
           return rpc.result;
         }
@@ -332,7 +332,7 @@ export class NativeDelivery {
   private constructor(readonly mode: string, readonly endpoint: string | undefined, readonly session: string | undefined, readonly workspace: string, private readonly backend: Backend) {}
 
   static async open(mode: string, endpoint: string | undefined, session: string | undefined, workspace: string): Promise<NativeDelivery> {
-    if (!(mode in RECEIPTS)) throw new ValidationError('Unknown native transport: ' + mode);
+    if (!(mode in RECEIPTS)) throw new ValidationError(`Unknown native transport: ${mode}`);
     const backend: Backend = mode === 'codex' ? await Codex.open(endpoint!) : mode === 'grok' ? await Grok.open(endpoint!, session!, workspace) : mode === 'opencode' ? new OpenCode(endpoint!, session!, workspace) : null;
     return new NativeDelivery(mode, endpoint, session, workspace, backend);
   }
@@ -349,7 +349,7 @@ export class NativeDelivery {
 
   /** Offers one batch; resolves to the acceptance receipt, or null while Grok's turn completion is awaited through `poll`. */
   async offer(content: string, token: string, action: boolean): Promise<Receipt | null> {
-    if (requiresAction(this.mode) && !action) throw new ValidationError(this.mode + ' cannot inject passive-only context');
+    if (requiresAction(this.mode) && !action) throw new ValidationError(`${this.mode} cannot inject passive-only context`);
     if (this.mode === 'claude') await claude(this.endpoint!, this.session!, token, content);
     else if (this.backend instanceof Codex) await (action ? this.backend.startTurn(this.session!, content) : this.backend.inject(this.session!, content));
     else if (this.backend instanceof OpenCode) await this.backend.submit(content, action);
@@ -366,7 +366,7 @@ export class NativeDelivery {
     if (receipt === null) return null;
     const result: Receipt = { kind: RECEIPTS[this.mode]!, turnRequested: true, stopReason: receipt.stopReason };
     const meta = receipt.meta;
-    const record: RecordUsageInput = { key: 'grok-' + token, scope: 'turn' };
+    const record: RecordUsageInput = { key: `grok-${token}`, scope: 'turn' };
     for (const [field, source] of USAGE_SOURCES) {
       const value = objectOrEmpty(meta.usage)[source];
       if (typeof value === 'number' && Number.isInteger(value) && value >= 0) record[field] = value;

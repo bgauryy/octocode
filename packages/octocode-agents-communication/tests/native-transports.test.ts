@@ -25,8 +25,8 @@ test('capabilities: receipts, passive injection and wake prerequisites per mode'
 });
 
 test('uuid acceptance takes hyphenless, braced and urn forms', () => {
-  for (const value of [SESSION, SESSION.replaceAll('-', ''), `{${SESSION}}`, 'urn:uuid:' + SESSION, SESSION.toUpperCase()]) assert.equal(validation.isUuid(value), true, value);
-  for (const value of ['', 'abc', SESSION + '0', 'g'.repeat(32), 'ses_123']) assert.equal(validation.isUuid(value), false, value);
+  for (const value of [SESSION, SESSION.replaceAll('-', ''), `{${SESSION}}`, `urn:uuid:${SESSION}`, SESSION.toUpperCase()]) assert.equal(validation.isUuid(value), true, value);
+  for (const value of ['', 'abc', `${SESSION}0`, 'g'.repeat(32), 'ses_123']) assert.equal(validation.isUuid(value), false, value);
 });
 
 test('endpoint validation accepts loopback only and refuses credentials, paths and queries', () => {
@@ -40,7 +40,7 @@ test('endpoint validation accepts loopback only and refuses credentials, paths a
   assert.throws(() => nativeIo.validate('raw', 'ws://127.0.0.1:9'), /Raw hooks do not have an endpoint/);
   assert.throws(() => nativeIo.validate('claude'), /requires endpoint/);
   assert.throws(() => nativeIo.validate('claude', 'relative.sock'), /absolute path/);
-  assert.throws(() => nativeIo.validate('claude', '/' + 'x'.repeat(110)), /at most 103 bytes/);
+  assert.throws(() => nativeIo.validate('claude', `/${'x'.repeat(110)}`), /at most 103 bytes/);
   assert.throws(() => nativeIo.validate('nope', 'ws://127.0.0.1:9'), /Unknown native transport/);
   assert.doesNotThrow(() => nativeIo.validate('claude', '/tmp/any.sock'));
   assert.doesNotThrow(() => nativeIo.validate('codex', 'unix:///tmp/codex.sock'));
@@ -171,12 +171,12 @@ test('codex over a Unix socket and a closing peer', { skip: !posix }, async t =>
   const ws = workspace(t);
   const path = join(ws, 'codex.sock');
   await codexServer(t, codexScript(ws), path);
-  const delivery = await transport.NativeDelivery.open('codex', 'unix://' + path, 'thr_1', ws);
+  const delivery = await transport.NativeDelivery.open('codex', `unix://${path}`, 'thr_1', ws);
   t.after(() => delivery.close());
   assert.deepEqual(await delivery.offer('over unix', 'token-3', true), { kind: 'jsonrpc', turnRequested: true });
   const closer = join(ws, 'closer.sock');
   await serve(t, socket => socket.destroy(), closer);
-  await rejects(transport.NativeDelivery.open('codex', 'unix://' + closer, 'thr_1', ws), /./);
+  await rejects(transport.NativeDelivery.open('codex', `unix://${closer}`, 'thr_1', ws), /./);
 });
 
 test('codex rejects a bad upgrade and an oversized frame', async t => {

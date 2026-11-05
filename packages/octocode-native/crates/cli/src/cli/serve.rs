@@ -68,6 +68,7 @@ pub(super) const fn runs_on_server(tool: ToolId) -> bool {
         | ToolId::GhSearchHistory
         | ToolId::GhGetHistoryItem
         | ToolId::ArtifactSearch
+        | ToolId::SecurityCheck
         | ToolId::LocalSearch
         | ToolId::StructureSearch
         | ToolId::AstSearch

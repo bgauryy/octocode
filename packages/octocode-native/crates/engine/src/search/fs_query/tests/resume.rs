@@ -344,3 +344,55 @@ fn a_listing_that_outlasts_the_budget_is_left_whole_to_the_resume() {
         assert_eq!(joined, whole, "resumed by {how}");
     }
 }
+
+/// A replay's reader sees what the entries it passes list now, under the same
+/// filters, in walk order: nothing it hands over is listed or counted.
+#[test]
+fn a_replay_hands_over_what_the_passed_entries_list_now_and_lists_none_of_it() {
+    let root = TmpDir::new();
+    for name in ["a.rs", "b.txt", "c.rs", "d.rs", "e.rs"] {
+        fs::write(root.join(name), "x").expect("file");
+    }
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let reader = std::sync::Arc::clone(&seen);
+    let found = query_file_system_inner(FileSystemQueryOptions {
+        path: root.to_string_lossy().into_owned(),
+        extensions: Some(vec!["rs".to_owned()]),
+        skip_entries: Some(3),
+        replayed: Some(crate::types::ReplayedEntries(std::sync::Arc::new(
+            move |entry: &crate::types::FileSystemEntry| {
+                reader
+                    .lock()
+                    .expect("reader")
+                    .push((entry.name.clone(), entry.walk_position));
+            },
+        ))),
+        ..Default::default()
+    })
+    .expect("query");
+    assert_eq!(
+        *seen.lock().expect("seen"),
+        [("a.rs".to_owned(), 1), ("c.rs".to_owned(), 3)]
+    );
+    let names = found.entries.iter().map(|entry| entry.name.as_str());
+    assert_eq!(names.collect::<Vec<_>>(), ["d.rs", "e.rs"]);
+    assert_eq!(found.total_discovered, 2);
+}
+
+/// With no reader a replay only counts, as it always did: it reads no entry.
+#[test]
+fn a_replay_with_no_reader_keeps_only_counting() {
+    let root = TmpDir::new();
+    for name in ["a.rs", "b.rs", "c.rs"] {
+        fs::write(root.join(name), "x").expect("file");
+    }
+    let found = query_file_system_inner(FileSystemQueryOptions {
+        path: root.to_string_lossy().into_owned(),
+        skip_entries: Some(2),
+        ..Default::default()
+    })
+    .expect("query");
+    assert_eq!(found.entries.len(), 1, "{:?}", found.entries);
+    assert!(found.evaluated.is_empty(), "{:?}", found.evaluated);
+    assert_eq!(found.skipped, 0);
+}

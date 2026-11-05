@@ -34,16 +34,24 @@ pub(crate) fn render_page(
     let page = ast_search_query_symbols::page(q).max(1) as usize;
     let cut = SymbolPage::of(q, set, response_window);
     let unreadable = set.walk_errors.0 > 0;
-    let incomplete = truncated || skipped > 0 || unreadable;
+    let unproven = crate::tools::test_code::unread_note(&set.test_code_unread);
+    let incomplete = truncated || skipped > 0 || unreadable || unproven.is_some();
     let rows = &set.declarations[cut.range.clone()];
     // Every scan cut continues ([`scan_window::expand_scan`]): a cut by the
     // scan time budget resumes after the files this window outlined
     // (`scanOffset`), so it is offered once the window's last page is reached.
     let expand_scan =
         crate::tools::ast_search::scan_window::expand_scan(truncated, set.scan_resume);
-    let mut out = json!({"operation":"symbols","filesScanned":set.files_scanned,"filesSkipped":skipped,"diagnostics":outline_diagnostics(set),"isPartial":cut.more||incomplete||set.recovered});
+    let mut out = json!({"operation":"symbols","filesScanned":set.files_scanned,"filesSkipped":skipped,"diagnostics":outline_diagnostics(set),"isPartial":incomplete||set.recovered});
     if let Some(excluded) = set.test_code_excluded.stated() {
         out["testCodeExcluded"] = json!(excluded);
+    }
+    if let Some(note) = unproven {
+        crate::response::paging::mark_partial(
+            &mut out,
+            crate::response::paging::PartialReason::FilesUnevaluated,
+            &[note],
+        );
     }
     // Each coverage cut names itself, so a partial final page (no `next`)
     // still says why it is partial.
@@ -166,8 +174,7 @@ impl SymbolPage {
 fn outline_diagnostics(set: &SymbolSet) -> Vec<Value> {
     let mut diagnostics = set.diagnostics.clone();
     if set.truncated {
-        let message =
-            "Candidate scan stopped at its time budget; files beyond it were not outlined.";
+        let message = "Candidate scan stopped at its time or memory budget; files beyond it were not outlined.";
         diagnostics.push(json!({"code":"structural.scan.truncated","message":message}));
     }
     if set.skipped > 0 {
@@ -205,7 +212,7 @@ fn attach_symbol_leads(
             let expand = AstSearchQuerySymbols {
                 page: std::num::NonZeroU64::MIN,
                 scan_offset: Some(scan_offset),
-                snapshot: None,
+                snapshot: set.scan_pin.as_deref().and_then(|pin| pin.parse().ok()),
                 ..q.clone()
             };
             insert_next(

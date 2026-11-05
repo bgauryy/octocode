@@ -37,13 +37,14 @@ fn tier_mentioned_file(v: &View, stems: &Mentions, finding: &mut Finding) {
     }
 }
 
-/// Re-tiers dead-code findings with the mention scan.
+/// Re-tiers dead-code findings with the mention scan; what proves that scan
+/// current, `None` when no proof could be taken.
 pub(super) fn tier_dead_code(
     v: &View,
     findings: &mut [Finding],
     root: &std::path::Path,
-    notes: &mut Vec<Value>,
-) {
+    stopped: &(dyn Fn() -> bool + Sync),
+) -> Option<octocode_engine::stamp::Proof> {
     let mut stems = BTreeSet::new();
     let mut names = BTreeSet::new();
     for finding in findings.iter() {
@@ -64,21 +65,10 @@ pub(super) fn tier_dead_code(
         }
     }
     if stems.is_empty() && names.is_empty() {
-        return;
+        return Some(octocode_engine::stamp::Proof::default());
     }
-    let scanned = memoized_mentions(root, &stems, &names);
-    let (hits, gaps) = &*scanned;
-    if gaps.oversized > 0 {
-        let skipped = format!(
-            "mention scan skipped {} over 2 MiB; a mention there is not seen",
-            octocode_engine::text::counted(gaps.oversized, "file", "files")
-        );
-        for (detector, read) in [("unreachable-file", &stems), ("unused-export", &names)] {
-            if !read.is_empty() {
-                notes.push(json!({"detector": detector, "skipped": skipped}));
-            }
-        }
-    }
+    // A stopped scan decides nothing: the request ends with it.
+    let hits = memoized_mentions(root, &stems, &names, stopped)?;
     for finding in findings.iter_mut() {
         match finding.detector {
             "unreachable-file" | "test-only" => tier_mentioned_file(v, &hits.stems, finding),
@@ -113,6 +103,7 @@ pub(super) fn tier_dead_code(
             _ => {}
         }
     }
+    hits.proof.clone()
 }
 
 /// A mentioned unreachable or test-only file (a bundler entry or a loader

@@ -179,7 +179,7 @@ test('standalone copied package works from another cwd; evidence continuations r
     assert.equal(packageJson.bin, './bin/octocode-chrome-devtools.mjs');
     const rows = Array.from({ length: 23 }, (_, id) => ({
         id,
-        text: 'item ' + id,
+        text: `item ${id}`,
       })),
       file = join(cwd, 'rows.json');
     writeFileSync(file, JSON.stringify(rows));
@@ -211,7 +211,7 @@ test('large target inventories stay bounded and every target is reachable', asyn
   const targets = Array.from({ length: 35 }, (_, id) => ({
     id: String(id),
     type: 'page',
-    url: 'http://fixture/' + id,
+    url: `http://fixture/${id}`,
     title: 'evidence'.repeat(id === 0 ? 5000 : 400),
   }));
   const server = createServer((req, res) => {

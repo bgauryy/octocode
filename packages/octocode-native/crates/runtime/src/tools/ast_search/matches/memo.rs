@@ -97,6 +97,7 @@ fn scan_bytes(scan: &Scan) -> usize {
             .sources
             .iter()
             .chain(&scan.discovery_sources)
+            .chain(&scan.earlier_files)
             .map(|path| 64 + path.as_os_str().len())
             .sum::<usize>()
 }
@@ -109,7 +110,7 @@ pub(super) fn stored_scan(
     scope: &Scope,
 ) -> Option<std::sync::Arc<Scan>> {
     let scan = SCANS.get(snapshot, key)?;
-    if !scan.untracked_ignore_dependencies && memo_source_unchanged(scope, &scan) {
+    if memo_source_unchanged(scope, &scan) {
         Some(scan)
     } else {
         SCANS.evict(snapshot);
@@ -138,24 +139,46 @@ pub(super) fn fresh_scan(
 
 /// Keep a fresh scan for the continuation pages of its result, watched for
 /// changes to every source it read.
+///
+/// Only a scan with later pages asks what its directories' ignore files are:
+/// one written since the walk started leaves the proof untaken, so asking after
+/// the walk proves as much. An ignore file no stamp can watch (a link, an
+/// unreadable entry) leaves the scan unkept.
 pub(super) fn remember_scan(
     (snapshot, key): (String, String),
     scope: &Scope,
     scan: &std::sync::Arc<Scan>,
+    paths: &PathPolicy,
     started: std::time::SystemTime,
 ) {
-    let watched = scan
+    let mut watched = scan
         .sources
         .iter()
         .chain(&scan.discovery_sources)
+        .chain(&scan.earlier_files)
         .cloned()
         .collect::<Vec<_>>();
+    let mut rules = scan.ignore_rules.clone();
+    if scan.watches_ignore_files {
+        let discovery = paths.discovery_walk();
+        for dir in &scan.discovery_sources {
+            let inputs =
+                crate::tools::page_memo::directory_ignore_inputs(dir, &scope.canonical, |ignore| {
+                    discovery.permits_entry(ignore, None)
+                });
+            if inputs.untracked {
+                return;
+            }
+            watched.extend(inputs.files);
+            rules.extend(inputs.external);
+        }
+    }
     SCANS.put(
         (snapshot, key),
         crate::tools::page_memo::Watch {
             root: &scope.canonical,
             sources: &watched,
-            rules: &scan.ignore_rules,
+            rules: &rules,
             markers: &scan.repository_markers,
         },
         started,

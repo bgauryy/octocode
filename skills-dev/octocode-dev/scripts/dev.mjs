@@ -15,6 +15,7 @@ const CI_EXCLUDE = ['--exclude', '@octocodeai/octocode-benchmark', '--exclude', 
 const script = (name, ...args) => ['node', [path.join(HERE, name), ...args]];
 const health = (...args) => script('workspace-health.mjs', ...args);
 const yarn = (...args) => ['yarn', args];
+const profile = (name, ...args) => ['python3', ['-I', path.join(HERE, 'profile', name), ...args]];
 // Shared assets have a private workspace; skill folders remain independently installable.
 const skill = (rel, ...args) => ['node', [path.join(ROOT, 'skills', rel), ...args]];
 const skillChecks = () => [
@@ -41,20 +42,25 @@ const TASKS = {
   'build:ci': ['Resolution check, then release build without benchmark or native', [script('prepublish.mjs'), health('run', 'build', '--parallel', ...CI_EXCLUDE)]],
   'build:publish': ['Resolution check, all-platform native build, MCP publish build', [script('prepublish.mjs'), yarn('workspace', '@octocodeai/octocode-native', 'build:all'), yarn('workspace', 'octocode-mcp', 'build')]],
   test: ['Run every workspace test script', [health('run', 'test')]],
-  'test:ci': ['Skill checks, then tests without benchmark or native', () => [...skillChecks(), health('run', 'test', ...CI_EXCLUDE)]],
+  'test:ci': ['Skill checks, then tests without benchmark or native, each under its coverage floors when it declares test:coverage', () => [...skillChecks(), health('run', 'test', '--prefer', 'test:coverage', ...CI_EXCLUDE)]],
   'skills:check': ['Skill lint, shared report viewer, and skill script tests', () => [...skillChecks(), ...SKILLS_COMMON]],
   // Not in test:ci: it drives the built native binary, so CI runs it in its own `e2e` job after build:dev.
   'test:tools': ['End-to-end health of every tool via CLI and MCP, hermetic: harness self-tests, transport and classification retry, then every lead explored (needs build:dev; [tool,...] [--deep])', [
-    ['node', [path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/run-all.mjs'), 'acceptance,transport,classification-retry']],
+    ['node', [path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/run-all.mjs'), 'acceptance,transport,classification-retry,provider-shapes']],
     ['node', [path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/tool-health.mjs')]],
   ]],
   'test:e2e': ['Every hermetic end-to-end suite, grammar battery included: slower than test:tools (needs build:dev; [suite,...])', [
     ['node', [path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/run-all.mjs')]],
   ]],
-  lint: ['File-length and oxlint baselines (the one oxlint run), then every workspace lint:own script', [...BASELINES, health('run', 'lint:own')]],
+  'answers:record': ['Re-record provider answers live, read-only and public (test-utils/provider-answers); [--accept-unread id,...] declares what a tool does not show (needs build:dev; [id,...])', [
+    ['node', [path.join(ROOT, 'packages/octocode-benchmark/local/e2e/harness/provider-answers.mjs'), '--record']],
+  ]],
+  check: ['Fast local static check: baselines, rustfmt, the clippy ratchet, every other workspace lint:own and typecheck, in parallel. No build, no tests: pair it with a focused test', [...BASELINES, yarn('workspace', '@octocodeai/octocode-native', 'fmt:rust:check'), script('rust-lint.mjs'), health('run', 'lint:own', '--parallel', '--exclude', '@octocodeai/octocode-native'), health('run', 'typecheck', '--parallel')]],
+  'lint:rust': ['Local clippy ratchet: plain clippy plus production-only bans and lints, whose old findings may only shrink ([--write], [--adopt])', [script('rust-lint.mjs')]],
+  lint: ['File-length and oxlint baselines (the one oxlint run), then every workspace lint:own script', [...BASELINES, health('run', 'lint:own', '--parallel')]],
   'lint:ci': ['Lint without benchmark or native workspace scripts (the oxlint baseline still covers them)', [...BASELINES, health('run', 'lint:own', ...CI_EXCLUDE)]],
   format: ['Fix the formatting lint checks: every workspace `format` script (prettier --write)', [yarn('workspaces', 'foreach', '-Apt', 'run', 'format')]],
-  typecheck: ['Run every workspace typecheck script', [health('run', 'typecheck')]],
+  typecheck: ['Run every workspace typecheck script', [health('run', 'typecheck', '--parallel')]],
   'typecheck:ci': ['Typecheck without benchmark or native', [health('run', 'typecheck', ...CI_EXCLUDE)]],
   verify: ['Full repo contract: baselines (the one oxlint run), core lint-copy sync, dedupe, docs, per-package verify:own', [...BASELINES, script('core-lint-sync.mjs'), health('verify')]],
   'health:check': ['Required workspace scripts exist', [health('check')]],
@@ -74,6 +80,9 @@ const TASKS = {
   'fuzz:smoke': ['Every libFuzzer target for 60 s on the pinned nightly ([--seconds N] [target...])', [script('rust-quality.mjs', 'fuzz', '--smoke')]],
   fuzz: ['A longer libFuzzer campaign (600 s per target; [--seconds N] [target...])', [script('rust-quality.mjs', 'fuzz')]],
   miri: ['The selected Miri tests on the pinned nightly, with a deadline', [script('rust-quality.mjs', 'miri')]],
+  mutants: ['Mutation test of chosen code, never per commit (-f <file>, --in-diff <diff>, -p <package>; slow: copies the tree and builds it)', [yarn('workspace', '@octocodeai/octocode-native', 'mutants')]],
+  profile: ['Profile one tool flow: instructions, peak memory, flamegraph, top frames (<tool> <query json> [--phase first|repeat|page:N|one], or --flow <id>; --list, --heap, --build)', [profile('profile.py')]],
+  'perf:check': ['Local check: retired instructions of the cheap flows against a per-platform baseline ([--bin PATH]; --write records it)', [profile('perf_check.py')]],
   'llvm-lines': ['LLVM IR lines per generic instantiation of one crate ([package] [--timings])', [script('rust-quality.mjs', 'llvm-lines')]],
 };
 

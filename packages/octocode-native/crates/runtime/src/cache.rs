@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Issued work remains reachable while pages are being consumed.
-pub(crate) const CONTINUATION_IDLE: Duration = Duration::from_secs(600);
+pub(crate) const CONTINUATION_IDLE: Duration = octocode_engine::memory::IDLE;
 pub(crate) const CONTINUATION_RETENTION: CacheClass = CacheClass::Idle {
     ttl: CONTINUATION_IDLE,
 };
@@ -48,7 +48,7 @@ impl Directory {
             Self::GraphRows => home.join("tmp/graph-rows"),
             // Outlives its session, so not under `tmp`. The name carries the
             // layout's version: a bump leaves one directory to delete.
-            Self::ProviderAnswers => home.join("cache/provider-answers-v1"),
+            Self::ProviderAnswers => home.join("cache/provider-answers-v2"),
         }
     }
 }
@@ -202,9 +202,25 @@ impl<V: Send + Sync + 'static, C: DiskCodec<V>> Store<V, C> {
     /// entry heavier than the memory budget, or than the disk budget on disk,
     /// is not stored at all. Returns
     /// the value, shared with the entry, and whether it was retained: a result
-    /// continuation must check this before advertising saved pages.
+    /// continuation must check this before advertising saved pages. A store
+    /// whose lock stays busy refuses it ([`disk::REUSE_LOCK_WAIT`]), so this is
+    /// for what only later reuse reads.
     pub(crate) fn put_confirmed(
         &self,
+        key: CacheKey,
+        value: V,
+        bytes: usize,
+        class: CacheClass,
+    ) -> (Arc<V>, bool) {
+        let deadline = Instant::now() + disk::REUSE_LOCK_WAIT;
+        self.put_until(deadline, key, value, bytes, class)
+    }
+
+    /// [`Self::put_confirmed`] for what its call's answer depends on: a busy
+    /// store is waited out up to `deadline`, the request's own.
+    pub(crate) fn put_until(
+        &self,
+        deadline: Instant,
         key: CacheKey,
         value: V,
         bytes: usize,
@@ -214,7 +230,7 @@ impl<V: Send + Sync + 'static, C: DiskCodec<V>> Store<V, C> {
             return (Arc::new(value), false);
         }
         if let Some(disk) = &self.disk {
-            let saved = disk.write::<V, C>(&key, &value, class, &self.config);
+            let saved = disk.write::<V, C>(&key, &value, class, &self.config, deadline);
             return (Arc::new(value), saved);
         }
         let Some(memory) = &self.memory else {
@@ -238,6 +254,32 @@ impl<V: Send + Sync + 'static, C: DiskCodec<V>> Store<V, C> {
         if let Some(disk) = &self.disk {
             let _ = fs::remove_file(disk.file(key));
         }
+    }
+
+    /// Whether `key` is retained, counting as a use of it.
+    pub(crate) fn refresh(&self, key: &CacheKey) -> bool {
+        match &self.disk {
+            Some(disk) => disk.touch(key),
+            None => self.read_memory(key).is_some(),
+        }
+    }
+
+    /// Give this store its own hard link to the file `source` holds under
+    /// `key` ([`Disk::link`]). False leaves nothing to read back.
+    pub(crate) fn link(&self, source: &Disk, key: &CacheKey) -> bool {
+        self.disk
+            .as_ref()
+            .is_some_and(|disk| disk.link(source, key, &self.config))
+    }
+
+    /// The lock file of `key`'s entry; `None` in memory.
+    pub(crate) fn entry_lock(&self, key: &CacheKey) -> Option<PathBuf> {
+        self.disk.as_ref().map(|disk| disk.entry_lock(key))
+    }
+
+    /// The value bytes of this store's link for `key`.
+    pub(crate) fn read_link(&self, key: &CacheKey) -> Option<Vec<u8>> {
+        self.disk.as_ref()?.read_link(key, &self.config)
     }
 
     pub(crate) fn clear_memory(&self) {

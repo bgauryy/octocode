@@ -193,3 +193,88 @@ fn a_poisoned_lock_is_recovered_not_skipped() {
     memo.remove(&1);
     assert_eq!(memo.contents().0, vec![2]);
 }
+
+/// No call reaches either memo after its inserts: the sweep alone drops what
+/// expired, in every memo on the budget, and the values are really gone.
+#[test]
+fn a_sweep_releases_what_expired_in_every_idle_memo() {
+    let budget = budget!(100);
+    let words = Memo::<&str, String>::new(budget);
+    let numbers = Memo::<u8, u64>::new(budget);
+    let start = Instant::now();
+    let ttl = Some(Duration::from_secs(600));
+    let (word, _) = words.insert_full("old", "w".to_owned(), (), 40, ttl, start);
+    let (number, _) = numbers.insert_full(1, 1, (), 30, ttl, start);
+    let (kept, _) = numbers.insert(2, 2, 7, None);
+    assert_eq!(budget.used(), 77);
+
+    assert_eq!(budget.sweep(start + Duration::from_secs(600)), None);
+
+    assert_eq!(Arc::strong_count(&word), 1, "dropped by the sweep");
+    assert_eq!(Arc::strong_count(&number), 1, "in the other memo too");
+    assert_eq!(Arc::strong_count(&kept), 2, "no lifetime, not swept");
+    assert_eq!(budget.used(), 7);
+    assert_eq!(words.contents(), (vec![], 0));
+    assert_eq!(numbers.contents(), (vec![2], 7));
+}
+
+/// What the sweeper sleeps on: the next deadline, or nothing at all when no
+/// entry can come due.
+#[test]
+fn a_sweep_names_the_next_deadline_and_none_when_nothing_can_come_due() {
+    let budget = budget!(100);
+    let memo = Memo::<&str, u8>::new(budget);
+    let start = Instant::now();
+    assert_eq!(budget.sweep(start), None, "no memo has an entry");
+    memo.insert("forever", 0, 1, None);
+    assert_eq!(budget.sweep(start), None, "no entry has a deadline");
+
+    let soon = Duration::from_secs(5);
+    let later = Duration::from_secs(9);
+    let other = Memo::<u8, u8>::new(budget);
+    memo.insert_full("later", 0, (), 1, Some(later), start);
+    other.insert_full(1, 0, (), 1, Some(soon), start);
+    assert_eq!(budget.sweep(start), Some(start + soon));
+    assert_eq!(budget.used(), 3, "nothing is due yet");
+    assert_eq!(budget.sweep(start + soon), Some(start + later));
+    assert_eq!(budget.used(), 2);
+}
+
+/// A read restarts a value's lifetime: the sweep of its old deadline keeps it,
+/// and next comes due at the new one.
+#[test]
+fn a_touched_entry_outlives_the_sweep_of_its_old_deadline() {
+    let budget = budget!(100);
+    let memo = Memo::<&str, u8>::new(budget);
+    let start = Instant::now();
+    memo.insert_full("paged", 7, (), 1, Some(Duration::from_secs(5)), start);
+    memo.touch("paged", Duration::from_secs(3600));
+
+    let next = budget
+        .sweep(start + Duration::from_secs(6))
+        .expect("still has a deadline");
+
+    assert!(next >= start + Duration::from_secs(3600));
+    assert_eq!(*memo.get("paged").expect("still served").value, 7);
+    assert_eq!(budget.sweep(next), None);
+    assert!(memo.is_empty());
+}
+
+/// The running sweeper, on a real clock: a deadline earlier than the one it
+/// sleeps on wakes it, and nothing touches the memo again.
+#[test]
+fn the_running_sweeper_releases_an_idle_memo_by_itself() {
+    let budget = budget!(100);
+    budget.sweep_expired_while_running();
+    budget.sweep_expired_while_running();
+    let memo = Memo::<&str, u8>::new(budget);
+    let (far, _) = memo.insert("far", 0, 1, Some(Duration::from_secs(3600)));
+    let (near, _) = memo.insert("near", 0, 1, Some(Duration::from_millis(20)));
+    let give_up = Instant::now() + Duration::from_secs(60);
+    while Arc::strong_count(&near) > 1 {
+        assert!(Instant::now() < give_up, "the sweeper never ran");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert_eq!(Arc::strong_count(&far), 2);
+    assert_eq!(budget.used(), 1);
+}

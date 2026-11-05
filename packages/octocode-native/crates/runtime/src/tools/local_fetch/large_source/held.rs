@@ -1,7 +1,8 @@
 //! The requested line windows a streamed source keeps as it passes once.
 
-use super::{MARKER_PREFIX_BYTES, WINDOW_BYTES};
-use crate::security::{KeyBlockState, LineShapeScan, MarkerScan};
+#[cfg(test)]
+use super::WINDOW_BYTES;
+use super::masks::{Judged, cover, cover_every_value};
 
 /// The lines one streamed window asks for.
 #[derive(Clone, Copy)]
@@ -11,6 +12,8 @@ pub(super) struct Want {
     /// Bytes of those lines the window skips before it holds any: a byte
     /// page starts its window behind its own offset ([`super::BYTE_LOOKBEHIND`]).
     pub(super) from: usize,
+    /// Bytes the window holds at most.
+    pub(super) room: usize,
 }
 
 #[cfg(test)]
@@ -20,12 +23,18 @@ impl Want {
             first,
             last,
             from: 0,
+            room: WINDOW_BYTES,
         }
     }
 
     /// A byte page of lines `first..=last` whose window starts at `from`.
     pub(super) fn bytes(first: usize, last: usize, from: usize) -> Self {
-        Self { first, last, from }
+        Self {
+            first,
+            last,
+            from,
+            room: WINDOW_BYTES,
+        }
     }
 }
 
@@ -36,6 +45,16 @@ pub(super) struct WindowStart {
     pub(super) base: usize,
     /// The first line the window holds bytes of.
     pub(super) line: usize,
+    /// It starts inside that line.
+    cut: bool,
+}
+
+/// A stretch of a window that is one run of source bytes, or text of ours.
+struct Run {
+    /// Where it starts in the window.
+    at: usize,
+    /// The source byte it starts at; `None` for a key block's placeholder.
+    source: Option<usize>,
 }
 
 /// The requested lines of one window kept while a source streams past:
@@ -48,6 +67,8 @@ pub(super) struct Held {
     /// Bytes of the requested lines still to skip before the window starts
     /// (moved on to the next character boundary).
     from: usize,
+    /// Bytes `window` holds at most.
+    room: usize,
     pub(super) window: Vec<u8>,
     /// Where `window` starts; `None` while it holds no byte.
     pub(super) start: Option<WindowStart>,
@@ -65,7 +86,16 @@ pub(super) struct Held {
     /// dropped as they pass, until [`Held::finish`] knows whether a key
     /// block replaces it (a placeholder may fit where its raw bytes did not).
     overflow: bool,
-    full: bool,
+    pub(super) full: bool,
+    /// How the window maps onto the source: a key block's placeholder breaks it,
+    /// so there is one run unless the window holds one.
+    runs: Vec<Run>,
+    /// The source byte the last run reaches.
+    run_end: Option<usize>,
+    /// The window holds masks of secret bytes.
+    pub(super) masked: bool,
+    /// Those masks hide every value ([`Judged::EveryValue`]).
+    pub(super) every_value: bool,
 }
 
 impl Held {
@@ -74,6 +104,7 @@ impl Held {
             first: want.first,
             last: want.last,
             from: want.from,
+            room: want.room,
             window: Vec::new(),
             start: None,
             view_pos: 0,
@@ -84,22 +115,68 @@ impl Held {
             cut_line: None,
             overflow: false,
             full: false,
+            runs: Vec::new(),
+            run_end: None,
+            masked: false,
+            every_value: false,
         }
     }
 
-    /// Take one piece of `line` (up to and including its newline, if any).
-    fn push(&mut self, piece: &[u8], line: usize) {
+    /// Take one piece of `line` (up to and including its newline, if any), which
+    /// starts at byte `source` of the source.
+    fn push(&mut self, piece: &[u8], line: usize, source: usize) {
         if !(self.first..=self.last).contains(&line) {
             return;
         }
         let start = self.view_pos;
         self.view_pos += piece.len();
-        self.hold(start, piece, line);
+        self.hold(start, piece, line, Some(source));
     }
 
-    /// Keep `bytes`, which sit at `start` of the requested lines' bytes,
-    /// from the window's first byte on.
-    fn hold(&mut self, start: usize, bytes: &[u8], line: usize) {
+    /// Hide what `judged` says is secret. The window keeps its length, so its
+    /// place in the view stands.
+    fn mask(&mut self, judged: &Judged) {
+        let len = self.window.len();
+        self.masked = match judged {
+            Judged::EveryValue(named) => {
+                let cut = self.start.is_some_and(|start| start.cut);
+                self.every_value = cover_every_value(&mut self.window, cut, *named);
+                self.every_value
+            }
+            Judged::Exact(spans) if spans.is_empty() => false,
+            Judged::Exact(spans) => {
+                let mut masked = false;
+                for (index, run) in self.runs.iter().enumerate() {
+                    let Some(source) = run.source else {
+                        continue;
+                    };
+                    let end = self
+                        .runs
+                        .get(index + 1)
+                        .map_or(len, |next| next.at)
+                        .min(len);
+                    if run.at >= end {
+                        continue;
+                    }
+                    let to_source = source + (end - run.at);
+                    let first = spans.partition_point(|span| span.range.end <= source);
+                    for span in spans[first..]
+                        .iter()
+                        .take_while(|span| span.range.start < to_source)
+                    {
+                        let from = run.at + span.range.start.saturating_sub(source);
+                        let to = (run.at + (span.range.end - source)).min(end);
+                        masked |= cover(&mut self.window, from, to, span.form);
+                    }
+                }
+                masked
+            }
+        };
+    }
+
+    /// Keep `bytes`, which sit at `start` of the requested lines' bytes and at
+    /// byte `source` of the source, from the window's first byte on.
+    fn hold(&mut self, start: usize, bytes: &[u8], line: usize, source: Option<usize>) {
         if self.full || self.overflow {
             return;
         }
@@ -122,10 +199,19 @@ impl Held {
             self.start = Some(WindowStart {
                 base: start + skip,
                 line,
+                cut: start + skip != self.line_view_start,
             });
         }
         let piece = &bytes[skip..];
-        let room = WINDOW_BYTES.saturating_sub(self.window.len());
+        let source = source.map(|source| source + skip);
+        if source.is_none() || source != self.run_end {
+            self.runs.push(Run {
+                at: self.window.len(),
+                source,
+            });
+        }
+        self.run_end = source.map(|source| source + piece.len());
+        let room = self.room.saturating_sub(self.window.len());
         if piece.len() <= room {
             self.window.extend_from_slice(piece);
             return;
@@ -149,17 +235,23 @@ impl Held {
         }
     }
 
-    /// Close `line`, replacing it when it sits `inside` a private-key block.
-    fn finish(&mut self, line: usize, inside: bool) {
+    /// Close `line`, replacing it when it sits `inside` a private-key block, all
+    /// but `lead`, its bytes before the key.
+    fn finish(&mut self, line: usize, inside: bool, lead: &[u8]) {
         if (self.first..=self.last).contains(&line) {
             if inside {
                 // The view counts the placeholder, not the key's bytes; a raw
                 // line that overflowed the window may still fit as one.
-                let placeholder = format!("{}\n", crate::security::key_fragment_placeholder());
+                let placeholder = format!(
+                    "{}{}\n",
+                    String::from_utf8_lossy(lead),
+                    crate::security::key_fragment_placeholder()
+                );
                 self.view_pos = self.line_view_start + placeholder.len();
                 self.overflow = false;
                 if !self.full || self.cut_line == Some(line) {
                     self.window.truncate(self.line_start);
+                    self.runs.retain(|run| run.at < self.line_start);
                     if self.window.is_empty() {
                         self.start = None;
                     }
@@ -167,7 +259,7 @@ impl Held {
                         self.cut_line = None;
                         self.full = false;
                     }
-                    self.hold(self.line_view_start, placeholder.as_bytes(), line);
+                    self.hold(self.line_view_start, placeholder.as_bytes(), line, None);
                     self.key_lines += usize::from(!self.overflow);
                 }
             }
@@ -189,72 +281,8 @@ impl Held {
     }
 }
 
-/// The requested windows kept while a source streams past once, with the
-/// private-key block state over the whole source, whichever side of a
-/// window a block's markers fall on.
-pub(super) struct WindowLines {
-    pub(super) held: Vec<Held>,
-    /// The current line's leading bytes, where a key's named lines and armor
-    /// headers are read.
-    head: Vec<u8>,
-    /// The private-key markers of the current line, over all of it.
-    markers: MarkerScan,
-    /// Private-key block state over the lines closed so far.
-    pub(super) block: KeyBlockState,
-    /// The current line's shape, scanned only while a block is open.
-    shape: LineShapeScan,
-}
-
-impl WindowLines {
-    /// The windows of `wants`, streamed from a line start where the
-    /// private-key block state is `block`.
-    pub(super) fn new(wants: &[Want], block: KeyBlockState) -> Self {
-        Self {
-            held: wants.iter().map(|&want| Held::new(want)).collect(),
-            head: Vec::new(),
-            markers: MarkerScan::default(),
-            block,
-            shape: LineShapeScan::default(),
-        }
-    }
-
-    /// Continue at a later line start where the block state is `block`.
-    pub(super) fn restart(&mut self, block: KeyBlockState) {
-        self.block = block;
-        self.head.clear();
-        self.markers = MarkerScan::default();
-        self.shape = LineShapeScan::default();
-    }
-
-    /// Take one piece of `line` (up to and including its newline, if any).
-    pub(super) fn push(&mut self, piece: &[u8], line: usize) {
-        if self.head.len() < MARKER_PREFIX_BYTES {
-            let take = (MARKER_PREFIX_BYTES - self.head.len()).min(piece.len());
-            self.head.extend_from_slice(&piece[..take]);
-        }
-        self.markers.feed(piece);
-        if self.block.is_open() {
-            self.shape.feed(piece);
-        }
-        for held in &mut self.held {
-            held.push(piece, line);
-        }
-    }
-
-    /// Close `line`: track the private-key block's markers, and replace the
-    /// line in every window it sits in when it is inside a block.
-    pub(super) fn finish(&mut self, line: usize) {
-        let markers = self.markers.finish(&self.head);
-        let (head, shape) = (&self.head, self.shape);
-        let inside = self.block.advance(markers, || shape.finish(head));
-        for held in &mut self.held {
-            held.finish(line, inside);
-        }
-        self.head.clear();
-        self.markers = MarkerScan::default();
-        self.shape = LineShapeScan::default();
-    }
-}
+mod lines;
+pub(super) use lines::{InLine, WindowLines};
 
 #[cfg(test)]
 mod tests;

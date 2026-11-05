@@ -12,7 +12,7 @@ const { ownerLock } = runtime;
 
 /** A separate process that claims the lock, reports `claimed <address>` and holds it until killed. */
 function holder(t: TestContext, database: string, session: string) {
-  const program = `import(${JSON.stringify('file://' + bundlePath)}).then(async ({ ownerLock }) => {
+  const program = `import(${JSON.stringify(`file://${bundlePath}`)}).then(async ({ ownerLock }) => {
     const lock = await ownerLock.claimDeliveryOwner(${JSON.stringify(database)}, ${JSON.stringify(session)});
     process.stdout.write('claimed ' + lock.address + '\\n');
     setInterval(() => undefined, 1000);
@@ -26,7 +26,7 @@ function holder(t: TestContext, database: string, session: string) {
       text += chunk;
       if (text.includes('\n')) text.startsWith('claimed ') ? resolve(text.trim().slice(8)) : reject(new Error(text));
     });
-    exited.then(() => reject(new Error('holder exited: ' + text)));
+    exited.then(() => reject(new Error(`holder exited: ${text}`)));
   });
   return { child, claimed, exited };
 }
@@ -114,7 +114,7 @@ test('the lock disposes asynchronously', async t => {
   if (posix) assert.equal(existsSync(address), false, 'disposal removes the socket');
 });
 
-const sidecarOf = (address: string) => address + '.pid';
+const sidecarOf = (address: string) => `${address}.pid`;
 
 test('the owner records pid, start time and socket inode beside the socket and removes them on release', { skip: !posix }, async t => {
   const database = join(tempWorkspace(t, 'owner-lock-', { real: true }), 'db.sqlite');
@@ -200,7 +200,7 @@ test('an owner that died but is not reaped (zombie) reads dead, a running one re
   const database = join(tempWorkspace(t, 'owner-lock-', { real: true }), 'db.sqlite');
   const lock = await ownerLock.claimDeliveryOwner(database, 's1');
   t.after(() => lock.release());
-  const sidecar = lock.address + '.pid';
+  const sidecar = `${lock.address}.pid`;
   const recorded = JSON.parse(readFileSync(sidecar, 'utf8'));
   const child = await zombie(t);
   writeFileSync(sidecar, JSON.stringify({ pid: child.pid, start: null, ino: recorded.ino }));

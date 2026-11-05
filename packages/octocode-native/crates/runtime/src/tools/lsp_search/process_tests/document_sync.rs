@@ -35,6 +35,7 @@ fn document_symbols_sync_without_the_open_wait_and_diagnostics_keep_it() {
                 config: config(&root, &script, None),
                 fallback: None,
                 root_note: None,
+                config_notes: Vec::new(),
             };
             let mut sources = SourceCache::new(&paths);
             let document = sources.insert(&path, "const a = 1;\n".to_owned());

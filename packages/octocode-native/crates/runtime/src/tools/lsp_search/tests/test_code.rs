@@ -167,13 +167,49 @@ fn callers_test_code_scopes_by_the_calling_symbol() {
     };
     assert_eq!(kept, vec![all[0].clone(), all[2].clone()]);
     assert_eq!(
-        excluded.map(|excluded| (excluded.files, excluded.lines)),
+        excluded
+            .excluded
+            .map(|excluded| (excluded.files, excluded.lines)),
         Some((1, 1))
     );
     let mut only = all.clone();
     super::super::test_scope::retain_callers(&q("only"), &paths, &mut only);
     assert_eq!(lines(&only), [1, 5]);
     let mut every = all.clone();
-    assert!(super::super::test_scope::retain_callers(&q("include"), &paths, &mut every).is_none());
+    assert!(
+        super::super::test_scope::retain_callers(&q("include"), &paths, &mut every)
+            .excluded
+            .is_none()
+    );
     assert_eq!(every, all);
+}
+
+/// A site whose verdict needed a parent no read can admit stays, as production
+/// code, and the row says its verdict is unproven.
+#[test]
+fn a_parent_that_cannot_be_read_leaves_the_row_partial() {
+    let (_dir, root, paths, _) = sites();
+    std::fs::write(root.join("src/sub.rs"), "foo();\n").expect("sub");
+    let over = u64::try_from(octocode_engine::memory::MEMORY.limit()).expect("limit") + 1;
+    std::fs::File::options()
+        .write(true)
+        .open(root.join("src/lib.rs"))
+        .and_then(|file| file.set_len(over))
+        .expect("sparse parent");
+    let uri = octocode_engine::lsp::uri::path_to_uri(&root.join("src/sub.rs").to_string_lossy())
+        .expect("uri");
+    let mut found = vec![serde_json::json!({
+        "uri": uri,
+        "range": {"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 3}}
+    })];
+    let q = query(serde_json::json!({
+        "operation": "references", "path": uri, "symbolName": "foo", "line": 1,
+        "testCode": "exclude"
+    }));
+    let left = super::super::test_scope::retain_locations(&q, &paths, &mut found);
+    assert_eq!(found.len(), 1);
+    let mut row = serde_json::json!({});
+    super::super::test_scope::disclose(&mut row, left);
+    assert_eq!(row["isPartial"], true, "{row}");
+    assert!(row.to_string().contains("testCode verdict"), "{row}");
 }

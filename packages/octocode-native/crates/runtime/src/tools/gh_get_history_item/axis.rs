@@ -103,29 +103,6 @@ impl Axis {
             Self::Body | Self::ReviewBody | Self::Patches | Self::CommentBody => &[],
         }
     }
-
-    /// What a char of a text axis is a char of.
-    pub(super) fn text_label(self) -> Option<&'static str> {
-        Some(match self {
-            Self::Body => "body",
-            Self::ReviewBody => "review body",
-            Self::CommentBody => "comment body",
-            Self::Patches => "patch",
-            _ => return None,
-        })
-    }
-
-    /// What one item of a collection axis is.
-    pub(super) fn noun(self) -> Option<(&'static str, &'static str)> {
-        Some(match self {
-            Self::Files => ("changed file", "changed files"),
-            Self::Comments => ("comment", "comments"),
-            Self::ReviewComments => ("review comment", "review comments"),
-            Self::Reviews => ("review", "reviews"),
-            Self::Commits => ("commit", "commits"),
-            _ => return None,
-        })
-    }
 }
 
 #[cfg(test)]
@@ -133,14 +110,12 @@ mod tests {
     use super::{Axis, Cursor};
 
     /// Every axis parses back from its key; text axes continue an offset,
-    /// collections a page, and only collections count items.
+    /// collections a page.
     #[test]
     fn every_axis_round_trips_and_names_its_cursor() {
         for axis in Axis::ALL {
             assert_eq!(Axis::parse(axis.key()), Some(axis));
             let text = axis.cursor() == Cursor::Offset;
-            assert_eq!(text, axis.text_label().is_some(), "{axis:?}");
-            assert_eq!(text, axis.noun().is_none(), "{axis:?}");
             assert_eq!(text, axis.own_sections().is_empty(), "{axis:?}");
         }
         assert_eq!(Axis::parse("commitFiles"), None);

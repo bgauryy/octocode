@@ -18,7 +18,7 @@ const TOKEN: &str = "ghp_a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8";
 fn policy(tool: ToolId) -> InputPolicy {
     if tool.is_clasify() {
         InputPolicy::ClasifyEvidence {
-            content_limit: crate::tools::clasify::max_state_chars(false),
+            content_limit: crate::id::clasify_policy::REQUEST_BYTES,
         }
     } else {
         InputPolicy::Query

@@ -86,7 +86,7 @@ function assertArchiveFiles(manifest) {
   ])
     assert(
       manifest.files.some(row => row.path === file),
-      file + ' missing'
+      `${file} missing`
     );
   assert(
     !manifest.files.some(

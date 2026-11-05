@@ -58,7 +58,7 @@ fn deeply_nested_symbols_page_every_alias_and_preserve_required_identity() {
     let (mut seen_aliases, mut seen_leaves) = (Vec::new(), Vec::new());
     for page in 0..plan.total_pages {
         for row in plan
-            .build_page(page, &[None], &[], &Cancellation::new())
+            .build_page(page, &[None], &Cancellation::new())
             .expect("valid build_page")
         {
             assert_row_contract(ToolId::AstSearch, &row["data"]);

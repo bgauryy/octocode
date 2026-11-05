@@ -12,9 +12,10 @@
 // the caller's credentials. They run only with OCTOCODE_LIVE=1.
 // Performance and historical benchmark programs run separately.
 //
-// Each suite prints one `PASS <suite>` or `FAIL <suite>` line; the exit code
-// is non-zero when any selected suite fails, errors, times out or reports no
-// checks.
+// Each suite prints one `PASS <suite>`, `FAIL <suite>` or `INCOMPLETE <suite>`
+// line; the exit code is non-zero when any selected suite fails, errors, times out
+// or reports no checks, and 3 when none did but a check was skipped, for a missing
+// credential or server: a skip is never a pass.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -30,6 +31,7 @@ const HERMETIC = {
   grammar: script('grammar'),
   'classification-retry': script('classification-retry'),
   'tool-health': script('tool-health'),
+  'provider-shapes': script('provider-answers'),
 };
 const LIVE_SUITES = { remote: script('remote'), 'grammar-live': script('grammar-live'), 'lsp-importers': script('lsp-importers'), 'process-tree': ['--test', path.join(TESTING, 'harness', 'mcp-client.integration.mjs')] };
 const ALL = { ...HERMETIC, ...LIVE_SUITES };
@@ -48,7 +50,7 @@ function counts(stdout) {
   const passed = (stdout.match(/^PASS /gm) ?? []).length;
   const nodeTest = name => Number(stdout.match(new RegExp(`^ℹ ${name} (\\d+)`, 'm'))?.[1] ?? 0);
   const nodeFailed = (stdout.match(/^✖ .*/gm) ?? []).filter(l => !/failing tests:/.test(l));
-  return { passed: passed + nodeTest('pass'), failed: [...failed, ...nodeFailed.slice(0, nodeTest('fail'))] };
+  return { passed: passed + nodeTest('pass'), failed: [...failed, ...nodeFailed.slice(0, nodeTest('fail'))], skipped: stdout.match(/^SKIP .*/gm) ?? [] };
 }
 
 // Record contention when a language-server check times out during a busy build.
@@ -63,23 +65,25 @@ for (const suite of selected) {
   const started = Date.now();
   const run = spawnSync(process.execPath, ALL[suite], { cwd: TESTING, env: kind === 'hermetic' ? hermeticEnv(process.env, suite) : process.env, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: suiteTimeout, killSignal: 'SIGTERM' });
   fs.writeFileSync(path.join(RESULTS, `${suite}.log`), `${run.stdout ?? ''}\n${run.stderr ?? ''}`);
-  const { passed, failed } = counts(run.stdout ?? '');
+  const { passed, failed, skipped } = counts(run.stdout ?? '');
   const seconds = Math.round((Date.now() - started) / 1000);
   const complete = run.status === 0 && !run.signal && !run.error && passed + failed.length > 0;
   const ok = complete && !failed.length;
-  rows.push({ suite, kind, result: ok ? 'PASS' : 'FAIL', passed, failed: failed.length, seconds, exit: run.status, signal: run.signal, error: run.error?.message });
+  const result = !ok ? 'FAIL' : skipped.length ? 'INCOMPLETE' : 'PASS';
+  rows.push({ suite, kind, result, passed, failed: failed.length, skipped, seconds, exit: run.status, signal: run.signal, error: run.error?.message });
   const why = ok ? '' : complete ? '' : ` — ${run.error?.message ?? (run.signal ? `killed by ${run.signal}` : passed + failed.length ? `exit ${run.status}` : `no checks reported, exit ${run.status}`)}`;
-  console.log(`${ok ? 'PASS' : 'FAIL'} ${suite} [${kind}]: ${passed} passed, ${failed.length} failed (${seconds}s)${why}`);
-  for (const line of failed) console.log(`   ${line.slice(0, 260)}`);
+  console.log(`${result} ${suite} [${kind}]: ${passed} passed, ${failed.length} failed, ${skipped.length} skipped (${seconds}s)${why}`);
+  for (const line of [...failed, ...skipped]) console.log(`   ${line.slice(0, 260)}`);
   if (!ok && !failed.length) console.log(`   see ${path.relative(TESTING, path.join(RESULTS, `${suite}.log`))}`);
 }
-console.table(rows);
+console.table(rows.map(({ skipped, ...row }) => ({ ...row, skipped: skipped.length })));
 const failedSuites = rows.filter(r => r.result === 'FAIL').map(r => r.suite);
 const wallSeconds = Math.round((Date.now() - wallStart) / 1000);
 fs.writeFileSync(path.join(RESULTS, 'summary.json'), JSON.stringify({ at: new Date().toISOString(), live: LIVE, wallSeconds, rows }, null, 2));
-console.log(failedSuites.length ? `FAIL run-all: ${failedSuites.length}/${rows.length} suites failed (${failedSuites.join(', ')}) in ${wallSeconds}s` : `PASS run-all: ${rows.length} suites in ${wallSeconds}s`);
+const incomplete = rows.filter(r => r.result === 'INCOMPLETE').map(r => r.suite);
+console.log(failedSuites.length ? `FAIL run-all: ${failedSuites.length}/${rows.length} suites failed (${failedSuites.join(', ')}) in ${wallSeconds}s` : incomplete.length ? `INCOMPLETE run-all: ${incomplete.length}/${rows.length} suites skipped checks (${incomplete.join(', ')}) in ${wallSeconds}s` : `PASS run-all: ${rows.length} suites in ${wallSeconds}s`);
 const loadPeak = Math.max(loadAtStart, os.loadavg()[0]);
 if (failedSuites.length && loadPeak > OVERSUBSCRIBED) {
   console.log(`NOTE: load average ${loadPeak.toFixed(0)} on ${os.cpus().length} cores: LSP-backed checks (cold lspSearch timeouts) may be affected by CPU contention; retain the failure and rerun on an idle machine.`);
 }
-process.exitCode = failedSuites.length ? 1 : 0;
+process.exitCode = failedSuites.length ? 1 : incomplete.length ? 3 : 0;

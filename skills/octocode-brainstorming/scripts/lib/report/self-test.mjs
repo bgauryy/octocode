@@ -24,7 +24,7 @@ const SAMPLE = [
 
 function widgetChecks(kit, check) {
   const graphInput = {title:'Graph',nodes:[{id:'a',label:'A'},{id:'b',label:'B',url:'https://example.com'}],edges:[{source:'a',target:'b'}]};
-  check('graph links appear in manifest', linksIn('```graph\n'+JSON.stringify(graphInput)+'\n```').includes('https://example.com'));
+  check('graph links appear in manifest', linksIn(`\`\`\`graph\n${JSON.stringify(graphInput)}\n\`\`\``).includes('https://example.com'));
   check('graph data normalized', kit.widget('graph',JSON.stringify(graphInput)).edges[0].label === '');
   const chartInput = {title:'Chart',type:'bar',labels:['One'],series:[{name:'Count',values:[1]}]};
   check('chart data normalized', kit.widget('chart',JSON.stringify(chartInput)).unit === '');
@@ -38,12 +38,12 @@ function widgetChecks(kit, check) {
     { label: 'unsupported chart', kind: 'chart', data: {...chartInput,type:'custom'} },
     { label: 'negative pie', kind: 'chart', data: {...chartInput,type:'pie',series:[{name:'A',values:[-1]}]} },
     { label: 'multiple pie series', kind: 'chart', data: {...chartInput,type:'pie',series:[chartInput.series[0],chartInput.series[0]]} },
-  ]) { let rejected=false; try { kit.widget(kind,JSON.stringify(data)); } catch { rejected=true; } check('rejects '+label,rejected); }
+  ]) { let rejected=false; try { kit.widget(kind,JSON.stringify(data)); } catch { rejected=true; } check(`rejects ${label}`,rejected); }
   check('widget markup escapes embedded HTML',kit.parse('```graph\n{"title":"<script>alert(1)</script>"}\n```').includes('&lt;script&gt;'));
 }
 
 function routeChecks(kit, check) {
-  check('editor file paths cannot become URL fragments or queries', new URL('vscode://file' + kit.encodePath('/docs/a#b?c.md')).hash === '' && new URL('vscode://file' + kit.encodePath('/docs/a#b?c.md')).search === '');
+  check('editor file paths cannot become URL fragments or queries', new URL(`vscode://file${kit.encodePath('/docs/a#b?c.md')}`).hash === '' && new URL(`vscode://file${kit.encodePath('/docs/a#b?c.md')}`).search === '');
   for (const p of ['guide@v2.md', 'My Guide.md', '日本語.md', 'a#b.md', '100%.md']) {
     for (const slug of ['', 'section-2']) {
       const parsed = kit.routeParse(kit.routeHref(p, slug));

@@ -27,7 +27,7 @@ pub use report::{SettingReport, known_env_report, setting_report, setting_report
 #[cfg(test)]
 pub(crate) use resolver::resolve_sections;
 pub(crate) use resolver::{get_config_value, inspector_data};
-pub use resolver::{is_persistent_storage_enabled, resolve_config};
+pub use resolver::{is_persistent_storage_enabled, resolve_config, saves_local_results};
 pub use types::*;
 
 /// Shell directory labels. Runtime scope uses its explicit working directory.

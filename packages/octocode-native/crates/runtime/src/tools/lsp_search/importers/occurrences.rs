@@ -152,6 +152,7 @@ pub(super) async fn verify_occurrences(
     cancel: &dyn CancellationCheck,
     opened: Vec<OpenedFile>,
     declaration: &HashSet<String>,
+    empty_is_unknown: bool,
 ) -> Result<Verified, LspFailure> {
     let policy = sources.policy();
     let missing = proven_missing(policy);
@@ -171,6 +172,7 @@ pub(super) async fn verify_occurrences(
                 file,
                 declaration,
                 &missing,
+                empty_is_unknown,
             )
             .await
         })
@@ -187,6 +189,7 @@ pub(super) async fn verify_occurrences(
                     file,
                     declaration,
                     &missing,
+                    empty_is_unknown,
                 )
                 .await?,
             );
@@ -251,6 +254,7 @@ pub(super) async fn verify_file(
     (file, spots): OpenedFile,
     declaration: &HashSet<String>,
     missing: &(impl Fn(&Path) -> bool + Sync),
+    empty_is_unknown: bool,
 ) -> Result<FileVerdict, LspFailure> {
     let content = match sources.get(&file).await {
         Some(source) => source.content.clone(),
@@ -296,6 +300,16 @@ pub(super) async fn verify_file(
                     unresolved = true;
                     continue;
                 };
+                // A server with no project behind a file answers nothing: that
+                // is no other declaration. A comment says nothing either way.
+                if empty_is_unknown && resolved.is_empty() {
+                    let line = content.lines().nth(spot_line as usize).unwrap_or_default();
+                    let comment = octocode_engine::signatures::is_comment_line(&file, line);
+                    if comment != Some(true) {
+                        unresolved = true;
+                    }
+                    continue;
+                }
                 let verdict = binding(&resolved, &file, declaration, &content, missing);
                 if let Some(id) = named
                     && verdict != Binding::Undecided

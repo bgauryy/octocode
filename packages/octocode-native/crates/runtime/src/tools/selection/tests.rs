@@ -6,7 +6,7 @@ use crate::security::CheckedQuery;
 use crate::tools::test_support::selection_fake;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use octocode_contract_types::ErrorCode;
-use octocode_contract_types::SelectionScope;
+use octocode_contract_types::{SelectionScope, SelectionUnit};
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;

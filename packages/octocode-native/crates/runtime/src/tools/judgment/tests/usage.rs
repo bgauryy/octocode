@@ -31,7 +31,7 @@ async fn failed_split_evaluation_counts_all_completed_usage() {
                 state: &json!("x".repeat(80 * 1024)),
                 questions: &questions,
                 assets: None,
-                long_context: false,
+                long_context: crate::tools::judgment::LongContext::Never,
             },
             None,
             &evaluation_budget(&evaluator),
@@ -73,7 +73,7 @@ async fn concurrent_failed_evaluations_count_each_independent_attempt() {
         state: &state,
         questions: &questions,
         assets: Some(&assets),
-        long_context: false,
+        long_context: crate::tools::judgment::LongContext::Never,
     };
     let (first, second) = tokio::join!(
         evaluator.evaluate_prepared(input, None, &budget, &gate),
@@ -118,7 +118,6 @@ fn selection_preserves_sibling_decisions_and_accounts_for_every_request() {
         executor.handle().clone(),
         Duration::from_secs(10),
     );
-    runtime.limits.max_candidates = 10;
     runtime.limits.max_chars = 32_000;
     let candidates = ["fail", "second", "third"]
         .into_iter()
@@ -131,7 +130,7 @@ fn selection_preserves_sibling_decisions_and_accounts_for_every_request() {
         None,
         &candidates,
         None,
-        octocode_contract_types::SelectionUnit::Files,
+        octocode_contract_types::SelectionUnit::Hits,
     )
     .map_err(|_| "ranking order failed")
     .unwrap();

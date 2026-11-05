@@ -93,11 +93,12 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 
 | Package | Test | Lint / format |
 |---|---|---|
-| native | `test` (`test:scripts` + `test:node` + `test:rust`), `test:rust` alone (nextest), `coverage:rust`, `check:features` | `lint` (`lint:oxlint`, then `lint:own`: clippy `-D warnings`), `fmt:rust`, `fmt:rust:check`, `deny`, `shear` |
-| config | `test`, `check:tool-contract`, `check:config-contract` | `lint` (`lint:own`: config contract check; then `lint:oxlint`; `build` checks the tool contract) |
-| mcp, octocode, vscode, chrome-devtools, claude-plugin, codex-plugin | `test` | `lint` (`lint:own`: prettier `--check` and the package's checks; then `lint:oxlint`), `format` (prettier `--write`) |
+| native | `test` (`test:scripts` + `test:node` + `test:rust`), `test:rust` alone (nextest), `coverage:rust`, `check:features`, `mutants` | `lint` (`lint:oxlint`, then `lint:own`: clippy `-D warnings`), `fmt:rust`, `fmt:rust:check`, `deny`, `shear` |
+| config | `test`, `test:coverage`, `check:tool-contract`, `check:config-contract` | `lint` (`lint:own`: config contract check; then `lint:oxlint`; `build` checks the tool contract) |
+| mcp, octocode, vscode | `test`, `test:coverage` (the floors: `verify:own` and `test:ci` run it) | `lint` (`lint:own`: prettier `--check` and the package's checks; then `lint:oxlint`), `format` (prettier `--write`) |
+| chrome-devtools, claude-plugin, codex-plugin | `test` | `lint` (`lint:own`: prettier `--check` and the package's checks; then `lint:oxlint`), `format` (prettier `--write`) |
 | agents-communication, benchmark | `test` | `lint` (`lint:own`: generated-types check, Python and shell syntax; then `lint:oxlint`) |
-| mcp-cli | `test` | `lint` (`lint:oxlint` only; no `lint:own`) |
+| mcp-cli | `test`, `test:coverage` | `lint` (`lint:oxlint` only; no `lint:own`) |
 
 `$DEV format` runs every workspace `format` script. Every workspace `typecheck` is `tsgo --noEmit` (`@typescript/native-preview`, pinned at the root); native's Rust types are checked by its clippy `lint`.
 
@@ -109,6 +110,35 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 - **TypeScript**: every project extends the root `tsconfig.base.json` (`strict`, `verbatimModuleSyntax`, `isolatedModules`). Typecheck with `tsgo --noEmit`; declarations are still emitted by `tsc` (TypeScript 6) in the packages that publish them.
 
 `$DEV lint`, `lint:ci` and `verify` run both baselines first (the oxlint baseline is their one oxlint run), then each workspace's `lint:own` (`lint`, `lint:ci`) or `verify:own` (`verify`); CI runs `lint:ci` and `typecheck:ci`.
+
+### Local static checks
+
+| Command | What runs | When |
+|---|---|---|
+| `$DEV check` | Both baselines, rustfmt, `lint:rust`, every other workspace's `lint:own`, and every typecheck, with workspaces in parallel. No build, no tests | Before handing over a change, with a focused test (`cargo dev-test -- <filter>`) |
+| `$DEV lint:rust` | Plain clippy, then the ratchet below | After a Rust edit, when `check` is more than you need |
+| `$DEV verify` | Builds, every test, `deny`, `shear`, docs | Cross-package handoff |
+
+**Clippy ratchet** (`scripts/rust-lint.mjs`, local only; CI and `cargo clippy` keep `-D warnings` on `clippy.toml`). It adds production-only lints and bans, passed on the command line and through a config generated under `target/rust-lint/`, so `Cargo.toml` and plain clippy do not change. Bans and their reasons are in `packages/octocode-native/clippy-ratchet.toml`: fixed durations and sleeps, `Vec::truncate`, child processes, HTTP client construction, unbounded `fs::read`, non-atomic `fs::write`. Findings that predate a rule are in `clippy-baseline.json`, counted per crate because the 400-line limit keeps moving code between files. A crate that grows fails and names the files; one that shrinks is stale until `--write`. A site that must stay says why: `#[expect(clippy::disallowed_methods, reason = "...")]`. Tests are not judged by the ratchet.
+
+**Evaluated on 2026-11-05, not adopted** (counts are production findings; reviewed against ruff, uv, oxc and rust-analyzer at their 2026-11-05 heads):
+
+| Check | Findings | Why not |
+|---|---|---|
+| Clippy `pedantic` + `nursery` wholesale | About 8,000 | Style. Lints worth having are picked into the ratchet |
+| `indexing_slicing` | 2,231 | No real bug in the sample; panics are contained per row. `string_slice` covers the Unicode class |
+| `arithmetic_side_effects`, `as_conversions` | 2,147, 784 | Noise. `cast_possible_truncation` has 2 production hits and is in the ratchet |
+| `significant_drop_in_scrutinee`, `significant_drop_tightening` | 7, 32 | All 7 read: no held lock across a blocking body; edition 2024 fixed the `else` case. `await_holding_lock` is already on through `clippy::all`, 0 hits |
+| `iter_over_hash_type` | 11 | 5 read: results are sorted or keyed, order never reaches output |
+| `large_futures` | 29 | Largest 26 KB, no stack risk shown |
+| `let_underscore_must_use`, `map_err_ignore`, `filetype_is_file` | 117, 255, 26 | Deliberate in the sample |
+| `cargo-audit` | 1 beyond `deny` | RUSTSEC-2026-0383 `webpki-root-certs`: in `Cargo.lock`, not in the graph of any shipped target, which `deny` prunes correctly |
+| `cargo-machete` | 8 | All false: `dev-unify` feature and `include!`d generated code; `shear` has them listed with reasons |
+| `ast-grep` rules | 28 literal `.take(N)`, 3 `.lock().unwrap()` | 0.8 s and precise, but no bug in the sample; the source-scan tests hold the rest. Use `astSearch` for one-off audits |
+| Ruff, shellcheck in a gate | 14, 3 | One real bug (a duplicate dict key in `pep440/oracle.py`) over 51 mostly benchmark scripts: run once by hand with `uvx ruff check --select F,B`, `uvx --from shellcheck-py shellcheck` |
+| `semgrep` | Not run | `ast-grep` answers the same patterns without its install or metrics |
+
+**Rules that stay tests:** `module_boundaries` resolves `use` paths and layers, and `no_error_code_is_spelled_as_a_string` reads JSON strings: clippy sees neither. Bans on a named call are the lint's job.
 
 ### Tool health
 
@@ -127,7 +157,7 @@ Run from the repo root. Repo-wide tasks run through `node skills-dev/octocode-de
 
 It is hermetic: a temp `OCTOCODE_HOME`/`HOME`, no user token, fixtures in `packages/octocode-benchmark/local/e2e/fixtures/tool-health/` (or a per-tool temp copy with extra files), and a loopback mock (`harness/tool-health/mock-server.mjs`) for GitHub REST (`GITHUB_API_URL`), git smart HTTP, an npm registry (`registryUrl` with `OCTOCODE_ALLOW_PRIVATE_REGISTRY`) and the classification provider (`OCTOCODE_CLASSIFICATION_API_HOST`). Every proxy variable points at a dead loopback port, so a request that would leave the machine fails the run. Each tool and surface gets its own fake GitHub token and its own MCP server. The runtime paces GitHub searches per token, so all tools run in parallel. `--deep` adds seeds for more operations and allows more leads per seed. Each run reports its measured duration; the schema-derived matrices and scan-window fixture also run through the shared driver. A contract tool without a case fails the run. Cases live in `harness/tool-health/cases.mjs`.
 
-Run it after `build:dev`. CI runs it in the `e2e` job after its own `build:dev`. `$DEV test:e2e` runs every hermetic suite, adding the slower `grammar` battery, which neither `test:tools` nor CI runs. `$DEV verify` runs no end-to-end suite. To run some tools only, pass their names: `$DEV test:tools ghSearchCode,localFetch` (add `--deep` for the wider exploration).
+Run it after `build:dev`. CI runs it in the `e2e` job after its own `build:dev`. `$DEV answers:record` refreshes the recorded provider answers `provider-shapes` replays ([e2e README](../../../packages/octocode-benchmark/local/e2e/README.md#recorded-provider-answers)). `$DEV test:e2e` runs every hermetic suite, adding the slower `grammar` battery, which neither `test:tools` nor CI runs. `$DEV verify` runs no end-to-end suite. To run some tools only, pass their names: `$DEV test:tools ghSearchCode,localFetch` (add `--deep` for the wider exploration).
 
 Each tool prints one line, `PASS`/`FAIL`/`SKIP`, with its total and slowest-call time, call count and checks. A `FAIL` line names the first failing check, for example `FAIL ghSearchCode … — empty.hint.mcp: …`; every failing check is listed at the end. A check name is `<phase>.<what>[.<surface>]`, with phase happy, continuation, walk, explore, facts, empty, invalid, parity, latency or extra. A `SKIP` line states its reason, such as a missing TypeScript language server. Every check, its detail, the explored lead keys and per-call timings are in `packages/octocode-benchmark/local/e2e/results/tool-health.json`. The run exits non-zero on any `FAIL`.
 
@@ -153,13 +183,14 @@ Every tool's version, and the dated nightly the opt-in tools use, is pinned in `
 | cargo-deny | `deny` | `deny.toml` | `verify`; CI |
 | cargo-llvm-cov | `coverage:rust [--html \| --lcov --output-path lcov.info \| --summary-only]` | runs the `test:rust` selections in `target/llvm-cov-target` (about 17 GiB; delete it when done) | before and after test work |
 | cargo-hack | `check:features`: every crate with each feature alone and with none (about 4 min warm) | | after changing `[features]` or `#[cfg(feature)]` code |
-| cargo-mutants | `cargo mutants --in-diff <diff>` or `-f <file>` | `.cargo/mutants.toml` | occasionally, on changed code |
+| cargo-mutants | `$DEV mutants --in-diff <diff>` or `-f <file>` | `.cargo/mutants.toml` | manually, on changed code; it copies the tree and builds it, so never per commit |
+| samply | `$DEV profile` | `[profile.profiling]` | finding where a flow's CPU goes |
 | bacon | `bacon`, `bacon clippy`, `bacon test`, `bacon test-engine` | `bacon.toml` | edit loop |
 | cargo-fuzz (nightly) | `$DEV fuzz:smoke` (60 s per target), `$DEV fuzz` (600 s); `[--seconds N] [--target-dir D] [target...]` | `fuzz/` workspace; bounds in `dev-tools.json` | after changing code a target covers; never CI |
 | Miri (nightly) | `$DEV miri`: the selected tests, deadline 1500 s | `miri` in `dev-tools.json` | after changing `unsafe`, offset or concurrency code they cover |
 | cargo-llvm-lines | `$DEV llvm-lines [package] [--timings]` | builds in `target/llvm-lines` (delete when done) | investigating compile time or binary size; not a gate |
 
-`scripts/rust-tests.cjs` holds the package and feature selections and runs them for `test:rust` and `coverage:rust`; a script test keeps the `bacon.toml` test jobs and the `cargo dev-test` alias equal to them. Library crates set `doctest = false`: nextest runs no doctests, and `shear` fails if one appears.
+`scripts/rust-tests.cjs` holds the package and feature selections and runs them for `test:rust` and `coverage:rust`; a script test keeps the `bacon.toml` test jobs and the `cargo dev-test` alias equal to them. Run `cargo dev-test` from `packages/octocode-native`: its runner, `scripts/test-watchdog.cjs`, fails a test still unfinished 10 minutes after libtest's slow-test line, and its path is relative to that folder. Library crates set `doctest = false`: nextest runs no doctests, and `shear` fails if one appears.
 
 #### Fuzzing, Miri and IR size
 
@@ -167,6 +198,23 @@ Every tool's version, and the dated nightly the opt-in tools use, is pinned in `
 - **Miri**: interprets only the selections in `dev-tools.json`: the `KeyedFlight` thread tests (its `ManuallyDrop` release, eight scheduler seeds) and the `LineIndex` offset tests. Out of reach, recorded there under `unsupported`: the tokio IO driver (`kqueue` on macOS), FFI (libc, Windows, N-API), C libraries (tree-sitter, PCRE2), wall-clock assertions, and the proptests and naive-scan checkpoint test, too slow to interpret (the fuzz target covers them). A test whose loop only needs to be shorter shrinks it under `cfg!(miri)` instead of being skipped. A warm run takes about 30 s.
 - **cargo-llvm-lines**: `--timings` first records `cargo build --timings` for the same package and features. Baseline (engine lib, `--all-features`, 2026-10-23): 788,653 IR lines in 31,986 copies; 43% are `core`/`alloc`/`std` generics, 20% engine code, 10% `oxc_parser`; the largest engine items are serde `Deserialize` visitors of `RawRule`, instantiated once per deserializer. Look there before changing profiles.
 - **Evaluated, not adopted** (2026-10-23): Dylint `non_local_effect_before_unhandled_error` found its calibration positives and stayed quiet on the negatives, but on engine, github and io it reported one false positive (an error recorded and returned as `None`) and gave up on two functions at its work limit, so a separate `rustc-dev` nightly and `--ignore-rust-version` were not worth it. Shuttle schedules only its own primitives: `KeyedFlight` uses std and tokio locks and thread parking, so Shuttle missed a reintroduced drop-order race in 40,000 schedules; Miri caught it in the first wave and real threads within 5,000 waves. It would need a test-only facade over those primitives.
+
+## Profiling a tool flow
+
+One command, macOS and Linux:
+
+```bash
+cargo build --locked --profile profiling -p octocode-cli   # in packages/octocode-native; or pass --build
+$DEV profile localSearch '{"path":"crates","matchString":["fn "]}' --cwd packages/octocode-native --phase repeat
+$DEV profile --flow as.symbols.crates      # a named flow on a frozen corpus; --list shows them
+samply load .octocode/octocode-dev/profile/<run>/profile.json.gz   # the flamegraph
+```
+
+`--phase` picks what is measured: `first` (a fresh MCP server's first call), `repeat`, `page:N`, or `one` (a whole one-shot CLI process). It prints min-of-3 retired instructions and peak footprint measured without a sampler, then samples a server looping that phase, and writes `top.md` (self and inclusive shares by CPU time, for the loop only) beside `counters.json` under `.octocode/octocode-dev/profile/`. Wall time is noise on a shared machine: trust instructions. The Linux paths (`perf stat`, `heaptrack`) have not been run yet.
+
+`--heap` adds what the server still holds after the flow: `malloc_history` on macOS, `heaptrack` on Linux. It shows retained memory, not a transient peak; peak footprint is in the counters. `dhat` is not wired in because it needs a global allocator in the product.
+
+`$DEV perf:check` compares the cheap flows' instructions with `scripts/profile/perf-baseline.json`, on a corpus frozen at one commit, for a quick "did this edit cost more". It uses the same profiling binary. A flow fails past both +10% and +20M instructions; a platform or toolchain with no baseline prints that and passes; a flow past the same limits downward prints `cheaper`, so you can `--write`. It is a local command, not a gate. Flows behind a real language server and real GitHub answers are not in it, and stub GitHub answers show a mechanism, not the cost of a real answer.
 
 ## Development environment variables
 

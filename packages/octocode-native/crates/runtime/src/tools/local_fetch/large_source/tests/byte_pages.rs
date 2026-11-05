@@ -200,7 +200,7 @@ fn byte_pages_with_points_inside_a_key_block_match_a_whole_pass() {
         BYTE_LOOKBEHIND + 1,
         2 * BYTE_LOOKBEHIND + 18,
         total / 2,
-        total - WINDOW_BYTES / 2,
+        total.saturating_sub(WINDOW_BYTES / 2),
         total - 1,
         total,
         total + 9,

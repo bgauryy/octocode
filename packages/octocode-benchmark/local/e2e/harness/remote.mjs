@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { LIVE, checks, spawnCli, startServer, writeResults } from './mcp-client.mjs';
+import { LIVE, checks, clasifyUnavailable, spawnCli, startServer, writeResults } from './mcp-client.mjs';
 import { contract, contractValidators } from './contract.mjs';
 import { nativeBinaryStamp } from './native-binary.mjs';
 import { ROOT } from './paths.mjs';
@@ -11,8 +11,8 @@ import { createDriver, rowsOf, errorCodes } from './tool-health/driver.mjs';
 import { transportProblem } from './tool-health/compare.mjs';
 
 if (!LIVE) throw new Error('Live provider checks require OCTOCODE_LIVE=1');
-const { check, summary } = checks('remote');
-const env = { ...process.env, OCTOCODE_BETA: 'true', OCTOCODE_ENABLE_CLONE: 'true', OCTOCODE_LSP_AUTO_INSTALL: 'off', PATH: `${path.join(ROOT, 'node_modules/.bin')}${path.delimiter}${process.env.PATH}` };
+const { check, skip, summary } = checks('remote');
+const env = { ...process.env, OCTOCODE_BETA: 'true', OCTOCODE_ENABLE_CLONE: 'true', OCTOCODE_SECURITY_CHECKS: 'true', OCTOCODE_LSP_AUTO_INSTALL: 'off', PATH: `${path.join(ROOT, 'node_modules/.bin')}${path.delimiter}${process.env.PATH}` };
 const provenance = { contract: contract.fingerprint, native: nativeBinaryStamp() };
 const { validateInput, validateOutput } = contractValidators();
 const presentation = JSON.parse(fs.readFileSync(path.join(ROOT, 'packages/octocode-config/contract/cli-presentation.json'), 'utf8'));
@@ -20,6 +20,9 @@ const catalog = new Map(contract.tools.map(tool => [tool.name, tool]));
 const driver = createDriver({ validate: validateOutput, validateInput, tools: new Set(catalog.keys()), schemaOf: tool => catalog.get(tool).outputSchema });
 const client = await startServer({ env, timeoutMs: 90_000 });
 const calls = [], exercised = new Set();
+// The paid calls need the owner's key; without it they are skipped, by name, and never pass.
+const noClasify = clasifyUnavailable(client);
+const eligible = contract.tools.filter(tool => !noClasify || tool.name !== 'clasify');
 const data = result => rowsOf(result.json)[0]?.data;
 const repo = { owner: 'octocat', repo: 'Hello-World' };
 const localPath = 'packages/octocode-config/src/home.ts';
@@ -94,8 +97,16 @@ async function publicSourceChecks({ ref, file, lines }) {
   }
 }
 
+/** Every paid call of a run: small public texts and one public image, on both surfaces. */
+async function clasifyChecks() {
+  await exercise('clasify', { operation: 'models' }, d => d?.models?.length > 0 && d.models.some(model => model.default), { label: 'clasify.models' });
+  await exercise('clasify', { operation: 'evaluate', content: 'The color is blue.', questions: { blue: { type: 'noul', instructions: 'Does the text explicitly say the color is blue?' } } }, d => typeof d?.answers?.blue?.noul === 'number' && !!d?.usage, { label: 'clasify.evaluate' });
+  if (publicSource) await publicSourceChecks(publicSource);
+  await exercise('clasify', { operation: 'evaluate', content: { image: 'avatar' }, assets: { avatar: { source: { url: 'https://avatars.githubusercontent.com/u/583231?v=4' } } }, questions: { visible: { type: 'noul', instructions: 'Is a character visible in avatar?' } } }, d => typeof d?.answers?.visible?.noul === 'number' && d?.assets?.avatar?.width >= 280 && fs.statSync(d.assets.avatar.path).size > 0, { label: 'clasify.publicImage' });
+}
+
 try {
-  check('fresh MCP exposes every eligible tool', contract.tools.every(t => client.tools.some(listed => listed.name === t.name)));
+  check('fresh MCP exposes every eligible tool', eligible.every(t => client.tools.some(listed => listed.name === t.name)));
   for (const listed of client.tools) {
     const expected = presentation.tools.find(tool => tool.name === listed.name);
     // JSON key order is irrelevant; compilation validates the actual advertised schema.
@@ -126,11 +137,10 @@ try {
   const built = await exercise('graphBuild', { path: 'packages/octocode-config/src' }, d => typeof d?.id === 'string' && d?.scan?.filesScanned > 0);
   const graph = data(built.cli)?.id;
   if (graph) await exercise('graphQuery', { operation: 'find', path: data(built.cli).root, graph, target: symbol }, d => d?.rows?.some(row => row.name === symbol));
-  await exercise('clasify', { operation: 'models' }, d => d?.models?.length > 0 && d.models.some(model => model.default), { label: 'clasify.models' });
-  await exercise('clasify', { operation: 'evaluate', content: 'The color is blue.', questions: { blue: { type: 'noul', instructions: 'Does the text explicitly say the color is blue?' } } }, d => typeof d?.answers?.blue?.noul === 'number' && !!d?.usage, { label: 'clasify.evaluate' });
-  if (publicSource) await publicSourceChecks(publicSource);
-  await exercise('clasify', { operation: 'evaluate', content: { image: 'avatar' }, assets: { avatar: { source: { url: 'https://avatars.githubusercontent.com/u/583231?v=4' } } }, questions: { visible: { type: 'noul', instructions: 'Is a character visible in avatar?' } } }, d => typeof d?.answers?.visible?.noul === 'number' && d?.assets?.avatar?.width >= 280 && fs.statSync(d.assets.avatar.path).size > 0, { label: 'clasify.publicImage' });
-  for (const tool of contract.tools) {
+  await exercise('securityCheck', { operation: 'advisory', id: 'GHSA-29mw-wpgm-hmr9' }, d => d?.advisories?.some(row => row.id === 'GHSA-29mw-wpgm-hmr9'));
+  if (noClasify) skip('clasify', noClasify);
+  else await clasifyChecks();
+  for (const tool of eligible) {
     for (const surface of ['cli', 'mcp']) {
       const rejected = await call(surface, tool.name, { queries: [], unexpectedField: true });
       check(`${tool.name}.${surface}.rejectsMalformed`, errorCodes(rejected.json).includes('invalidInput') && (surface === 'cli' ? rejected.status === 2 : rejected.isError));
@@ -139,11 +149,14 @@ try {
 } catch (error) {
   check('live execution completes', false, error.stack);
 } finally { client.close(); }
-for (const tool of contract.tools) {
+for (const tool of eligible) {
   for (const surface of ['cli', 'mcp']) check(`${tool.name}.${surface}.covered`, exercised.has(`${tool.name}.${surface}`));
 }
 provenance.stable = !!provenance.native && provenance.native.sha256 === nativeBinaryStamp()?.sha256;
 check('built native artifact unchanged during acceptance', provenance.stable);
+const usage = calls.flatMap(entry => (entry.tool === 'clasify' ? rowsOf(entry.output).map(row => row.data?.usage).filter(Boolean) : []));
+const spend = { calls: usage.length, inputTokens: usage.reduce((sum, row) => sum + (row.input_tokens ?? 0), 0), outputTokens: usage.reduce((sum, row) => sum + (row.output_tokens ?? 0), 0) };
+process.stdout.write(`NOTE [remote] paid classification: ${spend.calls} calls, ${spend.inputTokens} input and ${spend.outputTokens} output tokens\n`);
 const result = summary();
-writeResults('remote', { ...result, provenance, calls, coverage: [...exercised] });
+writeResults('remote', { ...result, provenance, spend, calls, coverage: [...exercised] });
 process.exitCode = result.failed.length ? 1 : 0;

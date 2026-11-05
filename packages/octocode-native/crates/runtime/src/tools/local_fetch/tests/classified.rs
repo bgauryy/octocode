@@ -202,3 +202,77 @@ fn classification_with_compact_or_symbols_is_rejected_before_execution() {
         assert!(crate::contracts::validate_query("localFetch", row).is_err());
     }
 }
+
+/// A row's facts about what a classifier kept agree: the count names the kept
+/// units, not the candidates it judged, and a finished judgment is not partial
+/// because it left something out (`next.unfiltered` is there to see it).
+#[test]
+fn a_classified_read_counts_what_it_kept_and_is_not_partial_for_filtering() {
+    use crate::tools::selection::{Decision, JudgeCall, SelectionJudge};
+    use serde_json::Value;
+
+    struct KeepMarked;
+    impl SelectionJudge for KeepMarked {
+        fn identity(&self) -> Value {
+            serde_json::json!({"backend":"keep-marked"})
+        }
+        fn select(&self, call: JudgeCall<'_>) -> crate::tools::selection::Judgments {
+            Ok(call
+                .admitted
+                .iter()
+                .map(|&ordinal| {
+                    let state = call.candidates[ordinal].state.as_ref().expect("state");
+                    let text = state["target"]["text"].as_str().unwrap_or_default();
+                    let decision = if text.contains("keep") {
+                        Decision::Selected
+                    } else {
+                        Decision::Excluded
+                    };
+                    (ordinal, decision)
+                })
+                .collect())
+        }
+    }
+
+    let temp = Fixture::new();
+    let path = temp.0.join("hits.txt");
+    let source = (0..40)
+        .map(|n| {
+            let mark = if n % 10 == 0 { "keep" } else { "other" };
+            format!("term {mark} {n}\nfiller\nfiller\nfiller\nfiller\nfiller\n")
+        })
+        .collect::<String>();
+    fs::write(&path, source).expect("fixture");
+    let mut query = q(&path);
+    amend(&mut query, serde_json::json!({"matchString":["term"]}));
+    amend(
+        &mut query,
+        serde_json::json!({"classification":{"predicates":["marked keep?"]}}),
+    );
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let runtime = crate::tools::test_support::selection_fake::runtime(
+        KeepMarked,
+        executor.handle().clone(),
+        std::time::Duration::from_secs(5),
+    );
+    let result = execute_local_fetch(
+        &query,
+        &Paths(temp.0.clone()),
+        &Safe,
+        &NeverCancel,
+        None,
+        Some(&runtime),
+    );
+    let receipt = result.selection.as_ref().expect("receipt");
+    assert_eq!(
+        receipt.status,
+        octocode_contract_types::SelectionStatus::Complete
+    );
+    assert!(receipt.selected_items > 0 && receipt.selected_items < receipt.total_items);
+    assert_eq!(
+        result.selected_match_count.map(|count| count as i64),
+        Some(receipt.selected_items),
+        "{result:?}"
+    );
+    assert_eq!(result.is_partial, None, "{result:?}");
+}

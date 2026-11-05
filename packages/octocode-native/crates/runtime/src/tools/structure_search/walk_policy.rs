@@ -7,6 +7,14 @@ use crate::response::result::ToolError;
 use octocode_engine::types::TestCodeExcluded;
 use serde_json::{Value, json};
 
+/// What a `testCode` scope states on a listing window.
+#[derive(Clone)]
+pub(super) struct TestCodeWindow {
+    pub(super) excluded: TestCodeExcluded,
+    /// Rust files a verdict needed and could not read.
+    pub(super) unread: Vec<std::path::PathBuf>,
+}
+
 /// What a listing walk's policy callback leaves out, counted as the walk
 /// runs: entries the path policy withheld, dot entries skipped without
 /// `includeHidden`, and the default-pruned directories. The callback decides
@@ -28,6 +36,38 @@ pub(super) struct WalkLeft<'a> {
     pub(super) root: std::path::PathBuf,
     /// Pruned directories, root-relative, in walk order, by walk position.
     pub(super) pruned: std::sync::Mutex<Vec<(u32, String)>>,
+}
+
+/// What the windows of a walk-order listing left out through where it stands,
+/// which the walk that continues from there reports with its own.
+#[derive(Clone, Default)]
+pub(super) struct LeftSoFar {
+    pub(super) ignored: Vec<String>,
+    withheld: Vec<(u32, std::path::PathBuf)>,
+    hidden: Vec<(u32, String)>,
+    pruned: Vec<(u32, String)>,
+    pub(super) unreadable: (u32, u32),
+    /// The walk positions a `testCode` scope left out.
+    pub(super) test_code: Vec<u32>,
+}
+
+impl LeftSoFar {
+    /// The heap this holds.
+    pub(super) fn weight(&self) -> usize {
+        self.ignored.iter().map(String::capacity).sum::<usize>()
+            + self
+                .withheld
+                .iter()
+                .map(|(_, path)| path.capacity())
+                .sum::<usize>()
+            + self
+                .hidden
+                .iter()
+                .chain(&self.pruned)
+                .map(|(_, name)| name.capacity())
+                .sum::<usize>()
+            + self.test_code.capacity() * std::mem::size_of::<u32>()
+    }
 }
 
 impl<'a> WalkLeft<'a> {
@@ -54,6 +94,44 @@ impl<'a> WalkLeft<'a> {
             hidden: std::sync::Mutex::default(),
             root: root.to_path_buf(),
             pruned: std::sync::Mutex::default(),
+        }
+    }
+
+    /// Report what earlier windows left out along with this walk's.
+    pub(super) fn carry(&mut self, so_far: &LeftSoFar) {
+        *self
+            .withheld
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = so_far.withheld.clone();
+        *self
+            .hidden
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = so_far.hidden.clone();
+        *self
+            .pruned
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = so_far.pruned.clone();
+    }
+
+    /// What the policy left out through walk position `through`; the engine
+    /// counts the rest ([`LeftSoFar::ignored`], [`LeftSoFar::unreadable`]).
+    pub(super) fn so_far(&self, through: u32) -> LeftSoFar {
+        fn through_position<T: Clone>(
+            kept: &std::sync::Mutex<Vec<(u32, T)>>,
+            through: u32,
+        ) -> Vec<(u32, T)> {
+            kept.lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .iter()
+                .filter(|(position, _)| *position <= through)
+                .cloned()
+                .collect()
+        }
+        LeftSoFar {
+            withheld: through_position(&self.withheld, through),
+            hidden: through_position(&self.hidden, through),
+            pruned: through_position(&self.pruned, through),
+            ..LeftSoFar::default()
         }
     }
 
@@ -265,8 +343,17 @@ impl WalkMeta {
         if let Some(bytes) = self.bytes {
             out["summary"]["bytes"] = json!(bytes);
         }
-        if let Some(excluded) = self.test_code_excluded.and_then(TestCodeExcluded::stated) {
-            out["testCodeExcluded"] = serde_json::to_value(excluded).unwrap_or_default();
+        if let Some(window) = &self.test_code {
+            if let Some(excluded) = window.excluded.stated() {
+                out["testCodeExcluded"] = serde_json::to_value(excluded).unwrap_or_default();
+            }
+            if let Some(note) = crate::tools::test_code::unread_note(&window.unread) {
+                crate::response::paging::mark_partial(
+                    out,
+                    crate::response::paging::PartialReason::FilesUnevaluated,
+                    &[note],
+                );
+            }
         }
         let left = &self.uncovered;
         let walked = under(root, Ignored, &left.ignored)

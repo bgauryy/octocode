@@ -225,14 +225,6 @@ impl ToolDiagnostics {
     }
 }
 
-/// A page of a row that leaves a counted rest to read: the page's `next`
-/// name and what is left (`17 more files`), as data.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, serde::Deserialize)]
-pub(crate) struct Remaining {
-    pub page: String,
-    pub left: String,
-}
-
 #[derive(Debug, Serialize)]
 #[serde(transparent)]
 pub(crate) struct ToolData {
@@ -241,12 +233,6 @@ pub(crate) struct ToolData {
     pub diagnostics: ToolDiagnostics,
     #[serde(skip)]
     pub status: Option<&'static str>,
-    /// What the row's pages leave to read, counted by the tool from facts its
-    /// public pagination does not state; never an output field. The response
-    /// stage words a note only for a page a split moved
-    /// ([`crate::response::pages::note_remaining`]).
-    #[serde(skip)]
-    pub remaining: Vec<Remaining>,
 }
 impl From<Value> for ToolData {
     fn from(data: Value) -> Self {
@@ -254,7 +240,6 @@ impl From<Value> for ToolData {
             data,
             diagnostics: ToolDiagnostics::default(),
             status: None,
-            remaining: Vec::new(),
         }
     }
 }

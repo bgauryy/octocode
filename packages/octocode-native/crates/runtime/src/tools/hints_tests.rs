@@ -19,26 +19,18 @@ mod scan;
 const OVERRIDES: &str = "\
 astSearch fileTooLarge: terminalLimit and the findText lead are the whole answer
 astSearch invalidPattern: names the pattern/rule shape and the syntaxTree check
-astSearch languageDirectoryRequired: names parser for a single file
-astSearch languageMismatch: the message names the file's grammar and both repairs
-astSearch languageRequired: names the parser field and example grammars
 astSearch languageUnsupported: names when parser applies, beside the text fallbacks
 astSearch symbolsUnsupported: routes documents to localFetch view:symbols
-ghGetFileContent invalidPattern: the message names the item; the repair lead is the read
 ghGetHistoryItem notFound: the message names the repository, number or refs
 ghSearchRepo notFound: the message names the login; findRepository is the lead
 localFetch fileAccessFailed: a read names one path: list it as a file first
 localFetch invalidPagination: the message names the bad offset
-localFetch invalidPattern: the message names the item; the repair lead is the read
-localFetch notAFile: a directory's tree is its lead; a FIFO or device has nothing to retry
 localSearch fileAccessFailed: no file under the path was readable: broadening reads the same files
 localSearch invalidPattern: names the regexEngine:literal repair for literal text
 lspSearch anchorUnresolved: findSimilar/read leads and per-call notes say it all
 lspSearch capabilityUnavailable: names the advertised operations, or type hierarchy
 lspSearch fileTooLarge: LSP reads whole files: locate a bounded region instead
 lspSearch missingConfiguration: names the server's project files (clangd compile database)
-lspSearch notAFile: lspSearch needs one file: list files to pick it
-lspSearch pathValidationFailed: lspSearch needs one file: list files to pick it
 lspSearch requestFailed: names the retryable flag and the source fallback
 lspSearch serverCrashed: a crash restarts the server; a memory kill repeats
 lspSearch serverUnavailable: depends on operation and path; names the server setup

@@ -24,12 +24,16 @@ mod diagnostics;
 mod directory_roots;
 mod empty_rows;
 mod failures;
+#[cfg(unix)]
+mod fetched_code;
 mod fixtures;
 mod hierarchy;
 mod hierarchy_caps;
 mod limit;
 #[cfg(unix)]
 mod loading_server;
+#[cfg(unix)]
+mod missed_files;
 mod outline;
 mod pagination;
 mod receipts;

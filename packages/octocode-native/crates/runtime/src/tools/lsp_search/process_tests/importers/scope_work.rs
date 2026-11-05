@@ -55,7 +55,7 @@ fn a_one_page_fresh_answer_walks_no_fingerprint() {
     tokio::runtime::Runtime::new().expect("rt").block_on(async {
         let pool = fake_server_pool();
         let (row, work) = counted(&pool, &root, &execution, references(&root), None).await;
-        assert!(row.pointer("/pagination/next").is_none(), "{row}");
+        assert!(row.get("next").is_none(), "{row}");
         assert_eq!(Work::get(&work.walks), 0, "no continuation, no watcher");
         assert_eq!(Work::get(&work.text_scans), 1, "one text scan");
         assert_eq!(Work::get(&work.canonicalized), 1, "the scan's root alone");
@@ -76,12 +76,8 @@ fn each_page_that_needs_the_fingerprint_walks_once() {
         assert_eq!(Work::get(&work.walks), 1, "the issuing page");
         assert_eq!(Work::get(&work.canonicalized), 1, "the scan's root alone");
         assert!(Work::get(&work.stamped) > IMPORTERS);
-        let next = next_row(&first, "nextPage")
-            .or_else(|| {
-                first
-                    .pointer("/pagination/next/nextPage/input/queries/0")
-                    .cloned()
-            })
+        let next = next_row(&first, "nextImporterWindow")
+            .or_else(|| next_row(&first, "nextPage"))
             .expect("a continuation");
         let (_, work) = counted(&pool, &root, &execution, next, Some(2000)).await;
         assert_eq!(Work::get(&work.walks), 1, "the re-proving page");
@@ -108,7 +104,7 @@ fn a_file_written_while_page_one_runs_stales_its_continuation() {
         let pool = fake_server_pool();
         let (first, _) = counted(&pool, &root, &execution, references(&root), Some(2000)).await;
         let next = first
-            .pointer("/pagination/next/nextPage/input/queries/0")
+            .pointer("/next/nextPage/input/queries/0")
             .cloned()
             .expect("a continuation");
         let paths = crate::tools::test_support::workspace_policy(&root);

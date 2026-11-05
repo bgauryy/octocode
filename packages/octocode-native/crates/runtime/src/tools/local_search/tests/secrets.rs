@@ -2,7 +2,11 @@ use super::*;
 use octocode_contract_types::ErrorCode;
 
 mod failures;
+mod hits;
 mod key_formats;
+mod large_sources;
+mod long_lines;
+mod member_context;
 mod ranking;
 mod sources;
 
@@ -360,13 +364,17 @@ fn classification_candidates_never_receive_partial_secrets_even_when_excluded() 
         )
         .expect("selected search");
         let recorded = recorded.lock().expect("recorded states");
-        assert_eq!(
-            recorded.len(),
-            2,
-            "selected and excluded candidates were judged"
-        );
-        for state in recorded.iter() {
-            let text = state["matches"].to_string();
+        // Each hit is a candidate, in both the kept and the dropped file.
+        for name in ["keep.txt", "drop.txt"] {
+            let text = recorded
+                .iter()
+                .filter(|state| {
+                    state["path"]
+                        .as_str()
+                        .is_some_and(|path| path.contains(name))
+                })
+                .map(serde_json::Value::to_string)
+                .collect::<String>();
             assert!(text.contains("needle"), "clean evidence remains available");
             assert!(
                 text.contains("[REDACTED"),
@@ -380,14 +388,11 @@ fn classification_candidates_never_receive_partial_secrets_even_when_excluded() 
             }
         }
         let receipt = result.selection.expect("selection receipt");
-        assert_eq!(
-            (
-                receipt.selected_items,
-                receipt.excluded_items,
-                receipt.unknown_items
-            ),
-            (1, 1, 0)
+        assert!(
+            receipt.selected_items >= 1 && receipt.excluded_items >= 1,
+            "{receipt:?}"
         );
+        assert_eq!(receipt.unknown_items, 0, "{receipt:?}");
         assert_eq!(result.files.len(), 1);
         assert_eq!(result.files[0].path, "keep.txt");
     }

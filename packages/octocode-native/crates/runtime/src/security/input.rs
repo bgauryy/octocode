@@ -196,7 +196,12 @@ impl ContentSecurity {
                 )),
             };
         }
-        let verdict = self.walk_object(&mut object, 0, MAX_STRING_LENGTH, content_limit);
+        let mut verdict = self.walk_object(&mut object, 0, MAX_STRING_LENGTH, content_limit);
+        if content_limit.is_some() {
+            let fields = self.judge_evidence(&mut object);
+            verdict.has_secrets |= !fields.is_empty();
+            verdict.secret_fields.extend(fields);
+        }
         ValidationResult {
             sanitized_params: object,
             verdict,

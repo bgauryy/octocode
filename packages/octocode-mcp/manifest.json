@@ -96,6 +96,10 @@
     {
       "name": "lspSearch",
       "description": "LSP Search"
+    },
+    {
+      "name": "securityCheck",
+      "description": "Security Check (conditional: requires OCTOCODE_SECURITY_CHECKS)"
     }
   ],
   "keywords": [

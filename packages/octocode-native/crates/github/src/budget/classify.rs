@@ -21,6 +21,12 @@ fn mentions_abuse_detection(body: &str) -> bool {
     body.to_ascii_lowercase().contains("abuse detection")
 }
 
+/// Whether an error's message names a secondary limit: what a GraphQL limit
+/// arriving on HTTP 200 has instead of a status.
+pub(crate) fn names_secondary_limit(message: &str) -> bool {
+    mentions_secondary_rate(message) || mentions_abuse_detection(message)
+}
+
 /// GitHub's primary-limit message (`API rate limit exceeded for …`).
 fn mentions_primary_rate(body: &str) -> bool {
     body.to_ascii_lowercase().contains("rate limit exceeded")

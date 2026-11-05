@@ -22,7 +22,7 @@ fn pages(first: &LspSearchQuery, items: &[serde_json::Value], budget: usize) -> 
             .filter_map(|item| item["name"].as_str().map(str::to_owned))
             .collect::<Vec<_>>();
         pages.push(names);
-        let Some(next) = row.pointer("/pagination/next/nextPage/input/queries/0") else {
+        let Some(next) = row.pointer("/next/nextPage/input/queries/0") else {
             break;
         };
         assert_eq!(

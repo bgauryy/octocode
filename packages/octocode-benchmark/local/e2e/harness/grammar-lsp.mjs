@@ -42,6 +42,11 @@ export function configureGrammarLsp(home, cases) {
 export function grammarProtocol(manifest, send, trace) {
   return message => {
     trace(message);
+    // Every real server reports a parse this way; the wait for it is not under test here.
+    if (message.method === 'textDocument/didOpen' || message.method === 'textDocument/didChange') {
+      const { uri, version } = message.params.textDocument;
+      send({ jsonrpc: '2.0', method: 'textDocument/publishDiagnostics', params: { uri, version, diagnostics: [] } });
+    }
     if (message.id === undefined) return;
     let result;
     const params = message.params ?? {};

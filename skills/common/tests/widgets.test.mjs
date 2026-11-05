@@ -9,7 +9,7 @@ function report(t, body) {
   const dir = mkdtempSync(join(tmpdir(), 'report-widgets-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const file = join(dir, 'report.md');
-  writeFileSync(file, '# Example\n\n' + body);
+  writeFileSync(file, `# Example\n\n${body}`);
   return file;
 }
 

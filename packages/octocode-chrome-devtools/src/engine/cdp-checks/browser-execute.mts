@@ -86,7 +86,7 @@ export async function run(connection: CheckSession, input?: unknown) {
   writeFileSync(journalArtifact, '', { mode: 0o600, flag: 'wx' });
   console.log(`[ARTIFACT] STEPS ${journalArtifact}`);
   const journal = (row: StepRow) =>
-    appendFileSync(journalArtifact, JSON.stringify(row) + '\n');
+    appendFileSync(journalArtifact, `${JSON.stringify(row)}\n`);
   let stepDeadline: number | null = null;
   const cdp: CheckSession = {
     ...connection,
@@ -98,7 +98,7 @@ export async function run(connection: CheckSession, input?: unknown) {
         stepDeadline === null ? Infinity : stepDeadline - Date.now();
       if (remaining <= 0)
         return Promise.reject(
-          new Error('Browser step deadline exceeded before ' + method)
+          new Error(`Browser step deadline exceeded before ${method}`)
         );
       return connection.send(method, params, sessionId, {
         timeoutMs: Math.min(plan.commandMs ?? plan.waitMs ?? 8000, remaining),

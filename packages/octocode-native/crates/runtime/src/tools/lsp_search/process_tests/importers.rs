@@ -3,12 +3,15 @@
 
 use super::*;
 
+mod c_family;
 mod call_sites;
 mod identity;
+mod markup;
 mod pages;
 mod per_binding;
 mod recovery;
 mod scope_work;
+mod unanswered;
 mod windows;
 
 /// A TypeScript-like server whose project sees only the anchor file (an
@@ -172,7 +175,7 @@ struct Walked {
 /// Run `start` and every page lead its pages offer (`checks::Walker`: each
 /// call once, each match row once, every output and lead within the
 /// contract). Every page of a window with windows left offers
-/// `next.nextPage`, the same continuation on each: a published
+/// `next.nextImporterWindow`, the same continuation on each: a published
 /// cursor names its content, so a reader follows it once (the test
 /// publisher numbers its cursors, so the walk drops a repeated one here).
 /// Also returns every continuation offered, by name.
@@ -211,10 +214,8 @@ async fn walk_pages(
         .await
         .expect("page");
         assert_ne!(result["status"], "error", "{result}");
-        let page = result
-            .pointer("/pagination/next/nextPage/input/queries/0")
-            .cloned();
-        let importer = next_row(&result, "nextPage");
+        let page = result.pointer("/next/nextPage/input/queries/0").cloned();
+        let importer = next_row(&result, "nextImporterWindow");
         let mut offered = result.clone();
         if let Some(call) = &importer
             && followed.contains(call)
@@ -222,10 +223,10 @@ async fn walk_pages(
                 .get_mut("next")
                 .and_then(serde_json::Value::as_object_mut)
         {
-            next.remove("nextPage");
+            next.remove("nextImporterWindow");
         }
         followed.extend(importer.clone().filter(|call| !followed.contains(call)));
-        for (name, call) in [("locationPage", page), ("nextPage", importer)] {
+        for (name, call) in [("locationPage", page), ("nextImporterWindow", importer)] {
             if let Some(call) = call {
                 continuations.push((name.to_owned(), call));
             }

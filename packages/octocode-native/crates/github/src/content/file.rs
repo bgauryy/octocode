@@ -187,7 +187,8 @@ impl GitHubProvider {
             "blobs",
             sha,
         ])?;
-        let mut spec = RequestSpec::get(blob_url);
+        // The URL names only the bytes: what holds them must know whose they are.
+        let mut spec = RequestSpec::get(blob_url).reading_file(&request.path);
         spec.headers
             .insert(ACCEPT, HeaderValue::from_static(RAW_MEDIA_TYPE));
         let blob = self.transport.execute(spec, context).await?;

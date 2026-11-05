@@ -7,11 +7,20 @@ use serde_json::json;
 use std::ops::Range;
 use std::path::Path;
 
+mod hits;
+pub(super) use hits::{hit_chunks, project_lines};
+
 const TARGET_CHARS: usize = 2_048;
 
 pub(super) struct Chunk {
     bytes: Range<usize>,
     lines: Vec<usize>,
+}
+
+impl Chunk {
+    pub(super) fn lines(&self) -> &[usize] {
+        &self.lines
+    }
 }
 
 /// The candidate chunks of view `text`. `source_lines` maps each view line
@@ -196,10 +205,10 @@ impl Chosen {
         }
     }
 
-    /// The token of `next.nextCandidatePage`, when the budget left chunks
-    /// unjudged.
+    /// The token of `next.nextCandidatePage`, when the budget or a provider
+    /// that could not answer left units unjudged.
     pub(super) fn next_candidates(&self) -> Option<&str> {
-        self.outcome.next_candidates(crate::id::ToolId::LocalFetch)
+        self.outcome.next_candidates()
     }
 
     /// The provider's error when the view is returned unfiltered.
@@ -350,7 +359,7 @@ pub(super) fn project(text: &str, chunks: &[Chunk], order: &[usize]) -> (String,
 }
 
 /// Separates selected chunks that are not adjacent in the source.
-fn unselected_marker(start: usize, end: usize) -> String {
+pub(super) fn unselected_marker(start: usize, end: usize) -> String {
     crate::response::numbered::omission_marker(
         start,
         end,

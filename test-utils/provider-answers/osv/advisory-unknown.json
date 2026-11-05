@@ -1,0 +1,31 @@
+{
+ "case": "osv/advisory-unknown",
+ "tool": "securityCheck",
+ "query": {
+  "operation": "advisory",
+  "id": "GHSA-0000-0000-0000"
+ },
+ "recordedAt": "2026-11-05",
+ "unread": [],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/GHSA-0000-0000-0000",
+    "accept": "application/json"
+   },
+   "status": 404,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:eff9d6063693b72bd0cbba8a64cbc29e0d38b4fb05e86450909fe741c83f9253",
+   "body": {
+    "code": 5,
+    "message": "Vulnerability not found"
+   }
+  }
+ ]
+}

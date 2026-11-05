@@ -122,6 +122,6 @@ try {
     )
   );
 } catch (error) {
-  console.error('[SNAPSHOT_QUERY] ' + errorMessage(error));
+  console.error(`[SNAPSHOT_QUERY] ${errorMessage(error)}`);
   process.exitCode = 1;
 }

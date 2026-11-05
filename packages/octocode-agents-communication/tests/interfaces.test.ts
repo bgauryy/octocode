@@ -41,11 +41,11 @@ test('CLI preserves identities and leases across invocations; default MCP borrow
   const lease = launch(['lock', '--path', 'owned.txt', '--reasoning', 'Protect review edits', ...bound]);
   assert.equal(lease.ok, true);
   assert.equal(launch(['locks', ...bound]).items.length, 1);
-  const input = [
+  const input = `${[
     { jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'test', version: '1' } } },
     { jsonrpc: '2.0', id: 2, method: 'tools/list' },
     { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'leases', arguments: { type: 'list', input: {} } } },
-  ].map(message => JSON.stringify(message)).join('\n') + '\n';
+  ].map(message => JSON.stringify(message)).join('\n')}\n`;
   const output = execFileSync(process.execPath, [entry, '--session', identity.id, '--workspace', workspace, '--database', join(workspace, 'db.sqlite')], { input, encoding: 'utf8', timeout: 10000 }).trim().split('\n').map((line): JsonRecord => JSON.parse(line));
   const reply = (id: number): JsonRecord => {
     const row = output.find(candidate => candidate.id === id);

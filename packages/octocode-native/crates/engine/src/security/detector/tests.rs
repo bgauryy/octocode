@@ -27,6 +27,15 @@ fn assert_no_pattern_matches(result: &DetectResult) {
             .iter()
             .position(|p| p.name == *name)
             .expect("reported pattern must exist in PATTERNS");
+        // Its regex only names a document, and still does: nothing is left to hide.
+        if let Some(form) = document::Form::of(idx) {
+            assert_eq!(
+                form.redact(&result.sanitized, replacement_for(idx)),
+                result.sanitized,
+                "pattern `{name}` still hides something in sanitized output"
+            );
+            continue;
+        }
         assert!(
             !pattern_regex(idx).is_match(&result.sanitized),
             "pattern `{name}` still matches sanitized output — post-condition violated"
@@ -92,11 +101,14 @@ fn b64(text: &str) -> String {
 
 mod ascii_boundaries;
 mod credential_values;
+mod document_forms;
 mod every_pattern;
 mod key_armors;
 mod large_input;
+mod markerless;
 mod one_long_line;
 mod prescan;
 mod regex_forms;
 mod sampling;
 mod scope;
+mod source_names;

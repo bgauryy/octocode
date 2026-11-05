@@ -34,12 +34,17 @@ use crate::signatures::nodes::{declaration, node_text, scala_applied_function};
 mod types;
 use types::{type_parameters, type_text};
 
+mod calls;
+
 #[derive(Clone)]
 enum Term {
     /// Bound by a binder the graph does not declare.
     Value(Option<String>),
     /// A `val`/`def` the graph declares, with its declared type if written.
     Declared(Option<String>),
+    /// A declared `def` with no parameter list: naming it calls it. Its
+    /// declared type if written.
+    Parameterless(Option<String>),
     Object,
     /// A self alias, with the name of the template that declares it.
     SelfAlias(Option<String>),
@@ -75,6 +80,12 @@ impl ScalaTerms {
         content: &str,
     ) -> ScalaCall {
         let mut out = ScalaCall::default();
+        if call.kind() == "infix_expression" {
+            return call
+                .child_by_field_name("left")
+                .filter(|left| left.kind() == "identifier")
+                .map_or(out, |left| self.observe_receiver(left, path, content));
+        }
         let Some(function) = scala_applied_function(call) else {
             return out;
         };
@@ -85,29 +96,11 @@ impl ScalaTerms {
                 out.term_binding = matches!(term, Some(Term::Value(_) | Term::SelfAlias(_)));
             }
             "field_expression" => {
-                let Some(receiver) = function
+                if let Some(receiver) = function
                     .child_by_field_name("value")
                     .filter(|value| value.kind() == "identifier")
-                else {
-                    return out;
-                };
-                let Some(name) = node_text(receiver, content) else {
-                    return out;
-                };
-                match self.lookup(path, name, receiver.start_byte(), content) {
-                    Some(Term::Value(ty) | Term::Declared(ty)) => {
-                        let params = type_parameters(path, content);
-                        out.receiver_type = ty.filter(|ty| {
-                            let head = ty.split('.').next().unwrap_or(ty);
-                            !params.contains(head)
-                        });
-                        out.term_binding = out.receiver_type.is_none();
-                    }
-                    Some(Term::SelfAlias(template)) => {
-                        out.term_binding = template.is_none();
-                        out.self_template = template;
-                    }
-                    Some(Term::Object) | None => {}
+                {
+                    out = self.observe_receiver(receiver, path, content);
                 }
             }
             _ => {}
@@ -291,7 +284,12 @@ fn statements(scope: Node<'_>, block: bool, content: &str, out: &mut Vec<Binder>
                 let ty = parameterless
                     .then(|| type_text(statement.child_by_field_name("return_type"), content))
                     .flatten();
-                (statement.child_by_field_name("name"), term(ty))
+                let term = if declared && parameterless && statement.kind() != "given_definition" {
+                    Term::Parameterless(ty)
+                } else {
+                    term(ty)
+                };
+                (statement.child_by_field_name("name"), term)
             }
             "val_declaration" | "var_declaration" => {
                 let ty = type_text(statement.child_by_field_name("type"), content);

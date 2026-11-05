@@ -67,3 +67,23 @@ fn a_workspace_without_supported_files_starts_nothing() {
     write(&root.join("data/rows.csv"), "a,b\n");
     assert!(workspace_plans(&root, &paths, &execution, super::MAX_PREWARM_KEYS).is_empty());
 }
+
+/// Every prewarm start is planned here: a lead's file, a read or search hit,
+/// and each file of a workspace walk. Fetched code plans none.
+#[test]
+fn fetched_code_plans_no_start() {
+    let dir = crate::tools::test_support::Fixture::new();
+    let root = dir.0.canonicalize().expect("canonical");
+    std::fs::write(root.join("tsconfig.json"), "{}").expect("marker");
+    std::fs::write(root.join("a.ts"), "export const a = 1;\n").expect("source");
+    let paths = crate::tools::test_support::workspace_policy(&root);
+    let open = LspExecutionConfig::default();
+    assert!(plan(&paths, &open, &root.join("a.ts")).is_some());
+    assert!(!workspace_plans(&root, &paths, &open, MAX_PREWARM_KEYS).is_empty());
+    let fetched = LspExecutionConfig {
+        fetched_code_roots: vec![root.clone()],
+        ..LspExecutionConfig::default()
+    };
+    assert!(plan(&paths, &fetched, &root.join("a.ts")).is_none());
+    assert!(workspace_plans(&root, &paths, &fetched, MAX_PREWARM_KEYS).is_empty());
+}

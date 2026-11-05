@@ -261,7 +261,7 @@ impl AnchorModule {
     /// be the symbol under another name), or that `binds` the name from a
     /// module that may relay it; or a bare one that `binds` the name (its
     /// resolution is the project's).
-    fn names(
+    pub(super) fn names(
         &self,
         specifier: &str,
         file: &str,

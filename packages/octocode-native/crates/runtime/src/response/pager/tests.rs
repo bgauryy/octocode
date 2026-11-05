@@ -16,7 +16,6 @@ fn walk_tool(tool: &str, input: &Value, budget: usize) -> Vec<Value> {
                 tool: tool.parse().expect("tool name"),
                 structured: input.clone(),
                 options: options.clone(),
-                remaining: Vec::new(),
             },
             &Cancellation::new(),
         )
@@ -110,7 +109,6 @@ fn unpaged_output_is_unchanged_and_cancellation_never_returns_a_partial_page() {
         tool: crate::id::ToolId::LocalFetch,
         structured: input.clone(),
         options: ResponsePageOptions::default(),
-        remaining: Vec::new(),
     };
     assert_eq!(
         prepare(response.clone(), &Cancellation::new())
@@ -140,7 +138,6 @@ fn immutable_replay_uses_one_plan_and_preserves_provider_facts_once() {
                 tool: crate::id::ToolId::LocalSearch,
                 structured: Value::Null,
                 options: options.clone(),
-                remaining: Vec::new(),
             },
             &input,
             &pages,
@@ -180,7 +177,6 @@ fn mismatched_or_out_of_range_internal_page_locators_are_rejected_without_restar
             tool: crate::id::ToolId::LocalSearch,
             structured: input.clone(),
             options: base.clone(),
-            remaining: Vec::new(),
         },
         &Cancellation::new(),
     )
@@ -207,7 +203,6 @@ fn mismatched_or_out_of_range_internal_page_locators_are_rejected_without_restar
                     tool: crate::id::ToolId::LocalSearch,
                     structured: input.clone(),
                     options,
-                    remaining: Vec::new()
                 },
                 &Cancellation::new()
             ),

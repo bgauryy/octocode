@@ -114,18 +114,10 @@ fn the_query_cursor_is_the_provider_page_token() {
 /// ecosystem level changes one core table, not a native `matches!`.
 #[test]
 fn version_gate_reads_the_contract_capability_table() {
-    assert_eq!(version_support("npm"), "range");
-    assert_eq!(version_support("maven"), "exact");
-    assert_eq!(version_support("go"), "exact");
-    assert_eq!(version_support("packagist"), "none");
-    assert_eq!(version_support("unknown"), "none");
-    let summary = version_support_summary();
-    assert!(
-        summary.contains("ranges for crates, npm, pypi"),
-        "{summary}"
-    );
-    assert!(
-        summary.contains("exact versions for go, maven, nuget"),
-        "{summary}"
-    );
+    assert_eq!(version_support("npm"), Some("range"));
+    assert_eq!(version_support("maven"), Some("exact"));
+    assert_eq!(version_support("go"), Some("exact"));
+    assert_eq!(version_support("packagist"), Some("exact"));
+    assert_eq!(version_support("rubygems"), Some("exact"));
+    assert_eq!(version_support("unknown"), None);
 }

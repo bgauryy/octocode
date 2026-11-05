@@ -3,8 +3,9 @@
 /// A listing rule the caller owns ([`FileSystemQueryOptions::lists`]):
 /// whether the entry `path` (a directory when the flag is set) at walk
 /// position `u32` (as [`FileSystemQueryResult::walk_position`] counts) is
-/// listed. It is asked once per fresh entry, so a resumed window asks only
-/// of its own.
+/// listed. It is asked once per entry the walk evaluates: each fresh entry, and
+/// each replayed one when the caller reads what the replay lists
+/// ([`FileSystemQueryOptions::replayed`]); the position tells them apart.
 #[derive(Clone)]
 pub struct ListsEntry(pub std::sync::Arc<ListsRule>);
 
@@ -14,6 +15,20 @@ pub type ListsRule = dyn Fn(&std::path::Path, bool, u32) -> bool + Send + Sync;
 impl std::fmt::Debug for ListsEntry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ListsEntry")
+    }
+}
+
+/// What the entries a walk replays list now
+/// ([`FileSystemQueryOptions::replayed`]), handed over one by one in walk order.
+#[derive(Clone)]
+pub struct ReplayedEntries(pub std::sync::Arc<ReplayedRows>);
+
+/// The reader a [`ReplayedEntries`] holds.
+pub type ReplayedRows = dyn Fn(&FileSystemEntry) + Send + Sync;
+
+impl std::fmt::Debug for ReplayedEntries {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ReplayedEntries")
     }
 }
 
@@ -94,6 +109,12 @@ pub struct FileSystemQueryOptions {
     /// continues from it and replays nothing; otherwise it is ignored and
     /// the walk replays as above.
     pub resume: Option<crate::types::fs_resume::WalkCursor>,
+    /// Judge the entries `skip_entries` replays as a fresh walk would and hand
+    /// over the ones its filters list, unlisted and uncounted: what a caller
+    /// compares with the rows the earlier walk listed, since a count of entries
+    /// alone does not say the same entries are still there. `None` only counts
+    /// them.
+    pub replayed: Option<ReplayedEntries>,
     /// The caller's last listing rule, asked of an entry every other filter
     /// lists: whether it is listed. It never prunes: the walk still enters
     /// every directory it would enter. `None` lists all.
@@ -154,6 +175,17 @@ impl FileSystemEntry {
     }
 }
 
+/// An entry whose `lstat` decided a listing without showing on a row of it
+/// ([`FileSystemQueryResult::evaluated`]).
+#[derive(Debug, Clone)]
+pub struct EvaluatedEntry {
+    pub path: std::path::PathBuf,
+    /// The freshness stamp of that `lstat`; `None` when it has none to give.
+    pub stamp: Option<crate::stamp::SourceStamp>,
+    /// As [`FileSystemEntry::walk_position`].
+    pub walk_position: u32,
+}
+
 /// A directory the walk entered, as its own listing showed it: what a caller
 /// watching the walk's result needs without a stat per directory.
 #[derive(Debug, Clone)]
@@ -207,6 +239,12 @@ pub struct FileSystemQueryResult {
     pub window_cursor: Option<crate::types::fs_resume::WalkCursor>,
     /// The directories the walk entered, in walk order.
     pub walked_dirs: Vec<WalkedDir>,
+    /// What a caller proving this listing current must watch beside its rows
+    /// and directories: each entry a metadata filter read and left out, and each
+    /// entry a replay listed ([`FileSystemQueryOptions::replayed`]) with an `lstat`
+    /// of its own. A directory the walk entered is left out: it has a
+    /// [`WalkedDir`].
+    pub evaluated: Vec<EvaluatedEntry>,
 }
 
 impl FileSystemQueryResult {
@@ -216,6 +254,8 @@ impl FileSystemQueryResult {
     /// that position, if any.
     pub fn end_at(&mut self, position: u32) {
         self.entries.retain(|entry| entry.walk_position <= position);
+        self.evaluated
+            .retain(|entry| entry.walk_position <= position);
         // A walk cut by time stored every match it found (it stopped before
         // its entry limit), so the entries are the matches.
         self.total_discovered = u32::try_from(self.entries.len()).unwrap_or(u32::MAX);

@@ -291,3 +291,28 @@ fn projection_releases_the_linked_facts_before_redaction() {
     );
     assert!(!projection.tables.nodes.is_empty());
 }
+
+/// Each stored string is judged alone: a value only the line-spanning pattern
+/// catches is redacted, one its parts split across two strings is not, and
+/// clean strings keep their text beside a batch that holds its literal.
+#[test]
+fn redaction_judges_each_string_whatever_the_batch_holds() {
+    let block = "kind: Secret\ndata:\n  tls.crt: QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=\n";
+    let strings = [
+        block,
+        "kind: Secret",
+        "data:\n  tls.crt: QUJD\n",
+        "kind: of clean text",
+    ];
+    let mut tables = super::super::format::GraphTables {
+        strings: strings.iter().map(|text| (*text).to_owned()).collect(),
+        ..Default::default()
+    };
+    super::super::ingest::redact_secrets(&mut tables, &ContentSecurity::new());
+    assert!(
+        !tables.strings[0].contains("QUJDREVGR0hJ"),
+        "{:?}",
+        tables.strings[0]
+    );
+    assert_eq!(tables.strings[1..], strings[1..]);
+}

@@ -254,7 +254,45 @@ fn a_files_without_page_has_no_case_hint() {
     let (_dir, root) = tree();
     write(&root, "a.txt", "XYZ\n");
     write(&root, "b.txt", "XYZ\n");
-    let (row, _, _) = searched(&root, json!({"matchString": ["XYZ"], "view": "filesWithout"}));
-    assert_eq!(row.status, crate::tools::local_search::types::SearchStatus::Empty, "{row:?}");
+    let (row, _, _) = searched(
+        &root,
+        json!({"matchString": ["XYZ"], "view": "filesWithout"}),
+    );
+    assert_eq!(
+        row.status,
+        crate::tools::local_search::types::SearchStatus::Empty,
+        "{row:?}"
+    );
     assert!(!hints(&row).contains("case"), "{row:?}");
+}
+
+/// The check of the skipped paths reads only what the empty walk did not: the
+/// file it searched leaves the check's reach, while what the walk skipped stays
+/// in it, so a match behind a skipped path is still named.
+#[test]
+fn the_skipped_check_reads_only_what_the_walk_did_not() {
+    let (_dir, root) = tree();
+    std::fs::create_dir_all(root.join(".git")).expect("marker");
+    std::fs::write(root.join(".gitignore"), "gen/\n").expect("rules");
+    std::fs::create_dir_all(root.join("gen")).expect("dir");
+    std::fs::write(root.join("seen.txt"), "needle\n").expect("seen");
+    std::fs::write(root.join("gen/hidden.txt"), "needle\n").expect("hidden");
+    let paths = crate::tools::test_support::workspace_policy(&root);
+    let options = crate::tools::local_search::executor::search_options(
+        &query(&root, serde_json::json!({"matchString": ["needle"]})),
+        &root,
+    );
+    let row = query(&root, serde_json::json!({"matchString": ["needle"]}));
+    let searched = [root.join("seen.txt")];
+    let lifted = probe_unsearched(&row, &paths, &options, Some(&searched), &NeverCancel)
+        .unwrap_or_else(|()| panic!("probe"));
+    let found = lifted.tagged.find(
+        Walk {
+            ignored: true,
+            hidden: true,
+            default_excludes: false,
+        },
+        None,
+    );
+    assert_eq!(found.count, 1, "gen/hidden.txt alone");
 }

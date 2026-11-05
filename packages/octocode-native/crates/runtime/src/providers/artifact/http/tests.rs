@@ -306,9 +306,9 @@ mod kept_answers {
         );
     }
 
-    /// The registry's own `max-age` answers unasked, and says so.
+    /// The registry's own `max-age` answers unasked: the origin vouches for it.
     #[tokio::test]
-    async fn a_stated_lifetime_answers_with_nothing_sent_and_is_disclosed() {
+    async fn a_stated_lifetime_answers_with_nothing_sent_and_nothing_to_disclose() {
         let http = Scripted::new(vec![(
             200,
             "{\"v\":1}",
@@ -321,7 +321,7 @@ mod kept_answers {
         let value = read(&http, &answers, &reused, None).await.unwrap().unwrap();
         assert_eq!(value["v"], 1);
         assert_eq!(http.asked().len(), 1);
-        assert!(reused.get().is_some());
+        assert_eq!(reused.get(), None);
     }
 
     #[tokio::test]

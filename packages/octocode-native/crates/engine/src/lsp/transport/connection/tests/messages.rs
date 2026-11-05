@@ -105,6 +105,42 @@ async fn rust_analyzer_server_status_feeds_progress_readiness() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn rust_analyzer_server_status_keeps_its_last_health() {
+    let (client_w, server_r) = duplex(64 * 1024);
+    let (server_w, client_r) = duplex(64 * 1024);
+    let progress = ProgressTracker::new();
+    let _connection =
+        JsonRpcConnection::new(client_r, client_w, context(), Arc::clone(&progress), None);
+    let mut server = Server {
+        reader: BufReader::new(server_r),
+        writer: server_w,
+    };
+    let mut active = progress.subscribe();
+    // The non-quiescent status that follows each one shows it was read.
+    server
+        .send(json!({"jsonrpc":"2.0","method":"experimental/serverStatus","params":{"health":"error","message":"Failed to load workspaces.","quiescent":false}}))
+        .await;
+    tokio::time::timeout(Duration::from_secs(5), active.wait_for(|count| *count == 1))
+        .await
+        .expect("status read")
+        .expect("tracker alive");
+    let reported = progress.health().expect("the failure is kept");
+    assert_eq!(reported.level, crate::lsp::transport::HealthLevel::Error);
+    assert_eq!(
+        reported.message.as_deref(),
+        Some("Failed to load workspaces.")
+    );
+    server
+        .send(json!({"jsonrpc":"2.0","method":"experimental/serverStatus","params":{"health":"ok","quiescent":true}}))
+        .await;
+    tokio::time::timeout(Duration::from_secs(5), active.wait_for(|count| *count == 0))
+        .await
+        .expect("status read")
+        .expect("tracker alive");
+    assert_eq!(progress.health(), None, "ok clears the failure");
+}
+
+#[tokio::test(start_paused = true)]
 async fn connection_is_alive_until_the_server_stream_closes() {
     let (connection, server) = connect();
     assert!(connection.is_alive());

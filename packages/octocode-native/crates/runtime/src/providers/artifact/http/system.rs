@@ -8,7 +8,7 @@ use crate::providers::RuntimeClients;
 use octocode_contract_types::ErrorCode;
 use octocode_io::budget::{BudgetStop, RequestBudget};
 use octocode_io::retry::{Backoff, BodyError, StatusClass};
-use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderValue, USER_AGENT};
+use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderValue, USER_AGENT};
 use secrecy::ExposeSecret;
 use std::fmt;
 use std::net::SocketAddr;
@@ -98,13 +98,20 @@ impl SystemArtifactHttp {
         &self,
         client: &reqwest::Client,
         request: &ArtifactHttpRequest,
+        post: Option<&[u8]>,
         budget: &RequestBudget,
         first: u8,
     ) -> Result<(reqwest::Response, u8), ArtifactError> {
         for attempt in first..=self.retries {
             budget.check().map_err(budget_error)?;
-            let mut builder = client
-                .get(request.url.clone())
+            let builder = match post {
+                Some(body) => client
+                    .post(request.url.clone())
+                    .header(CONTENT_TYPE, super::JSON)
+                    .body(body.to_vec()),
+                None => client.get(request.url.clone()),
+            };
+            let mut builder = builder
                 .header(USER_AGENT, "octocode-rust/1")
                 .header(ACCEPT, request.accept);
             if let Some(authorization) = request.authorization.as_ref() {
@@ -162,53 +169,72 @@ impl SystemArtifactHttp {
     }
 }
 
+impl SystemArtifactHttp {
+    /// The whole answer to one read, GET or read-only POST.
+    async fn fetch(
+        &self,
+        request: ArtifactHttpRequest,
+        post: Option<Vec<u8>>,
+        budget: &RequestBudget,
+    ) -> Result<ArtifactHttpResponse, ArtifactError> {
+        let client = self.client_for(&request)?;
+        let mut first = 0;
+        loop {
+            let (response, attempt) = self
+                .send(&client, &request, post.as_deref(), budget, first)
+                .await?;
+            let status = response.status().as_u16();
+            let headers = FRESHNESS_HEADERS
+                .into_iter()
+                .filter_map(|name| {
+                    let value = response.headers().get(name)?.to_str().ok()?;
+                    Some((name.to_owned(), value.to_owned()))
+                })
+                .collect();
+            match octocode_io::retry::read_bounded(response, budget, budget.max_body_bytes).await {
+                Ok(body) => {
+                    return Ok(ArtifactHttpResponse {
+                        status,
+                        body: body.into(),
+                        headers,
+                    });
+                }
+                Err(BodyError::Stopped(stop)) => return Err(budget_error(stop)),
+                Err(BodyError::TooLarge) => return Err(body_too_large()),
+                Err(BodyError::Decode) => return Err(body_undecodable()),
+                // Every read here is idempotent: a body that breaks off is
+                // retried like a failed connection.
+                Err(BodyError::Transport) => {
+                    if attempt < self.retries
+                        && let Some(delay) = retry_delay(None, attempt, budget)
+                    {
+                        pause(delay, budget).await?;
+                        first = attempt + 1;
+                        continue;
+                    }
+                    return Err(transport_error("body"));
+                }
+            }
+        }
+    }
+}
+
 impl ArtifactHttp for SystemArtifactHttp {
     fn get<'a>(
         &'a self,
         request: ArtifactHttpRequest,
         budget: &'a RequestBudget,
     ) -> ArtifactHttpFuture<'a> {
-        Box::pin(async move {
-            let client = self.client_for(&request)?;
-            let mut first = 0;
-            loop {
-                let (response, attempt) = self.send(&client, &request, budget, first).await?;
-                let status = response.status().as_u16();
-                let headers = FRESHNESS_HEADERS
-                    .into_iter()
-                    .filter_map(|name| {
-                        let value = response.headers().get(name)?.to_str().ok()?;
-                        Some((name.to_owned(), value.to_owned()))
-                    })
-                    .collect();
-                match octocode_io::retry::read_bounded(response, budget, budget.max_body_bytes)
-                    .await
-                {
-                    Ok(body) => {
-                        return Ok(ArtifactHttpResponse {
-                            status,
-                            body: body.into(),
-                            headers,
-                        });
-                    }
-                    Err(BodyError::Stopped(stop)) => return Err(budget_error(stop)),
-                    Err(BodyError::TooLarge) => return Err(body_too_large()),
-                    Err(BodyError::Decode) => return Err(body_undecodable()),
-                    // A registry read is an idempotent GET: a body that
-                    // breaks off is retried like a failed connection.
-                    Err(BodyError::Transport) => {
-                        if attempt < self.retries
-                            && let Some(delay) = retry_delay(None, attempt, budget)
-                        {
-                            pause(delay, budget).await?;
-                            first = attempt + 1;
-                            continue;
-                        }
-                        return Err(transport_error("body"));
-                    }
-                }
-            }
-        })
+        Box::pin(self.fetch(request, None, budget))
+    }
+
+    fn post<'a>(
+        &'a self,
+        request: ArtifactHttpRequest,
+        body: Vec<u8>,
+        budget: &'a RequestBudget,
+    ) -> ArtifactHttpFuture<'a> {
+        Box::pin(self.fetch(request, Some(body), budget))
     }
 
     /// Chunks as they arrive: a sink that found what it reads stops the
@@ -222,7 +248,7 @@ impl ArtifactHttp for SystemArtifactHttp {
     ) -> StatusFuture<'a> {
         Box::pin(async move {
             let client = self.client_for(&request)?;
-            let (mut response, _) = self.send(&client, &request, budget, 0).await?;
+            let (mut response, _) = self.send(&client, &request, None, budget, 0).await?;
             let status = response.status().as_u16();
             if !(200..300).contains(&status) {
                 drain(response, budget).await?;

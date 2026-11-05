@@ -67,7 +67,7 @@ export function dumps(value: unknown, { ensureAscii = true, separators = [', ', 
   const [itemSeparator, keySeparator] = separators;
   const text = (string: string): string => {
     const quoted = JSON.stringify(string);
-    return ensureAscii ? quoted.replace(/[^\x20-\x7e]/g, character => '\\u' + character.charCodeAt(0).toString(16).padStart(4, '0')) : quoted;
+    return ensureAscii ? quoted.replace(/[^\x20-\x7e]/g, character => `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`) : quoted;
   };
   const write = (item: unknown, inArray: boolean): string => {
     if (item === null || (item === undefined && inArray)) return 'null';
@@ -79,11 +79,11 @@ export function dumps(value: unknown, { ensureAscii = true, separators = [', ', 
       case 'object': break;
       default: throw new TypeError(`Object of type ${typeof item} is not JSON serializable`);
     }
-    if (Array.isArray(item)) return '[' + item.map(element => write(element, true)).join(itemSeparator) + ']';
+    if (Array.isArray(item)) return `[${item.map(element => write(element, true)).join(itemSeparator)}]`;
     if (Object.getPrototypeOf(item) !== Object.prototype && Object.getPrototypeOf(item) !== null) throw new TypeError('Object is not JSON serializable');
     const defined = Object.entries(item).filter(([, member]) => member !== undefined);
     const entries = sortKeys ? defined.toSorted(([a], [b]) => compareCodePoints(a, b)) : defined;
-    return '{' + entries.map(([key, member]) => text(key) + keySeparator + write(member, false)).join(itemSeparator) + '}';
+    return `{${entries.map(([key, member]) => text(key) + keySeparator + write(member, false)).join(itemSeparator)}}`;
   };
   if (value === undefined) throw new TypeError('Object of type undefined is not JSON serializable');
   return write(value, false);

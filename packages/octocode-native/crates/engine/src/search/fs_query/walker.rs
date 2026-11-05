@@ -11,7 +11,7 @@ use super::read_ahead::{self, ReadAhead};
 use crate::error::Error;
 use crate::search::walk::{ListedRules, Stop};
 use crate::types::fs_resume::{Child, Frame, WalkCursor, WalkTally};
-use crate::types::{FileSystemEntry, WalkedDir};
+use crate::types::{EvaluatedEntry, FileSystemEntry, WalkedDir};
 
 mod level;
 
@@ -46,6 +46,9 @@ pub(super) struct QueryState {
     pub(super) window_cursor: Option<WalkCursor>,
     /// Directories the walk entered, as their listings showed them.
     pub(super) walked_dirs: Vec<WalkedDir>,
+    /// What decided the listing without showing on one of its rows
+    /// ([`crate::types::FileSystemQueryResult::evaluated`]).
+    pub(super) evaluated: Vec<EvaluatedEntry>,
     /// Directories the walk read, itself or ahead.
     pub(super) directories_read: u32,
     /// The workers reading the walk's next directories, once it read

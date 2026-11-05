@@ -35,8 +35,10 @@ pub(super) async fn read_bounded(
     response: reqwest::Response,
     context: &RequestContext,
 ) -> Result<Bytes, ProviderError> {
+    // A retained answer shares this buffer, so it holds no growth headroom.
     octocode_io::retry::read_bounded(response, &context.budget, context.budget.max_body_bytes)
         .await
+        .map(|body| Bytes::copy_from_slice(&body))
         .map_err(|error| match error {
             // A body that stalls after the headers is bounded by the
             // request deadline too, not only by the outer runtime timeout.

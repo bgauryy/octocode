@@ -1,6 +1,6 @@
 //! NuGet catalog rows: the artifact a catalog entry describes and NuGet version order.
 use super::super::util::{object_for, required, safe_url, string};
-use super::super::{ArtifactError, ArtifactItem};
+use super::super::{Advisory, ArtifactError, ArtifactItem};
 use octocode_contract_types::ArtifactType;
 use serde_json::{Map, Value};
 use std::cmp::Ordering;
@@ -35,6 +35,84 @@ pub(super) fn item(row: &Map<String, Value>) -> Result<ArtifactItem, ArtifactErr
     artifact.repository = repository_url(row.get("repository"))
         .or_else(|| artifact.homepage.clone().filter(|url| is_source_repo(url)));
     Ok(artifact)
+}
+
+/// A search row: its `version` is the newest of everything, since a search asks
+/// with prerelease results on so a prerelease-only package stays findable. The
+/// row's own list, oldest to newest, names the newest stable one when any is.
+pub(super) fn search_item(row: &Map<String, Value>) -> Result<ArtifactItem, ArtifactError> {
+    let mut artifact = item(row)?;
+    let stable = row
+        .get("versions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .rev()
+        .filter_map(|entry| string(entry.get("version")))
+        .find(|version| !is_prerelease(version));
+    if stable.is_some() {
+        artifact.version = stable;
+    }
+    Ok(artifact)
+}
+
+/// Whether a NuGet version carries a prerelease label.
+pub(super) fn is_prerelease(version: &str) -> bool {
+    version.split('+').next().unwrap_or(version).contains('-')
+}
+
+/// What a catalog entry states about a version's safety: its advisories (NuGet
+/// omits an empty list, so none listed is `[]`) and its deprecation.
+pub(super) fn safety_facts(artifact: &mut ArtifactItem, entry: &Map<String, Value>) {
+    artifact.advisories = Some(
+        entry
+            .get("vulnerabilities")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|row| Advisory {
+                url: string(row.get("advisoryUrl")),
+                severity: string(row.get("severity")).map(severity_name),
+                ..Advisory::default()
+            })
+            .collect(),
+    );
+    artifact.deprecated = entry.get("deprecation").and_then(deprecation);
+}
+
+/// A vulnerability's `severity` as NuGet documents its codes; an unknown code
+/// stays as stated.
+fn severity_name(code: String) -> String {
+    match code.as_str() {
+        "0" => "low".to_owned(),
+        "1" => "moderate".to_owned(),
+        "2" => "high".to_owned(),
+        "3" => "critical".to_owned(),
+        _ => code,
+    }
+}
+
+/// A `deprecation` as one message: the maintainer's words, else its reasons,
+/// and the package it names instead.
+fn deprecation(entry: &Value) -> Option<String> {
+    let reasons = entry
+        .get("reasons")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let text = string(entry.get("message")).unwrap_or(reasons);
+    let alternate = entry
+        .get("alternatePackage")
+        .and_then(|package| string(package.get("id")));
+    match (text.is_empty(), alternate) {
+        (false, Some(alternate)) => Some(format!("{text} Alternate package: {alternate}.")),
+        (true, Some(alternate)) => Some(format!("Alternate package: {alternate}.")),
+        (false, None) => Some(text),
+        (true, None) => Some("Deprecated.".to_owned()),
+    }
 }
 
 /// `https://<source host>/<owner>/<repo>…` on a known code host.

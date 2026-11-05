@@ -261,7 +261,7 @@ test('fetch-asset plans without saving, downloads only with --approve, and recor
 
     const manifestPath = join(runDir, 'assets', 'manifest.jsonl');
     const manifest = readFileSync(manifestPath, 'utf8');
-    writeFileSync(manifestPath, 'null\n' + manifest);
+    writeFileSync(manifestPath, `null\n${manifest}`);
     const nullEntry = await run('verify-claims.mjs', ['--ledger', ledger], env);
     assert.equal(nullEntry.json.claims[0].status, 'verified');
     writeFileSync(manifestPath, '{broken json\n');

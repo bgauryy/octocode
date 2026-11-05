@@ -44,16 +44,26 @@ pub(super) struct FileScan<'a> {
 }
 
 impl FileScan<'_> {
-    /// Gate, read, and match one candidate. `None` when path policy denies it.
-    pub(super) fn file(&self, file_path: &Path) -> Result<FileOutcome> {
+    /// Gate, read, and match one candidate, with the stamp read before any of
+    /// that: a write after it moves the stamp past what the scan read. `None`
+    /// outcome when path policy denies it.
+    pub(super) fn file(
+        &self,
+        file_path: &Path,
+    ) -> Result<(Option<crate::stamp::SourceStamp>, FileOutcome)> {
         if (self.stop)() {
             return Err(Error::cancelled());
         }
         // The walk's verdict is older than this read: the entry may have been
         // swapped for a link since, so it is judged again by what it is now.
-        let kind = std::fs::symlink_metadata(file_path)
-            .ok()
-            .map(|metadata| metadata.file_type());
+        let metadata = std::fs::symlink_metadata(file_path).ok();
+        let stamp = metadata.as_ref().and_then(crate::stamp::SourceStamp::of);
+        let kind = metadata.map(|metadata| metadata.file_type());
+        Ok((stamp, self.judged(file_path, kind)?))
+    }
+
+    /// [`Self::file`] of a candidate that is `kind` now.
+    fn judged(&self, file_path: &Path, kind: Option<std::fs::FileType>) -> Result<FileOutcome> {
         if !(self.admit)(file_path, kind) {
             return Ok(None);
         }

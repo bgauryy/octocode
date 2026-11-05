@@ -7,6 +7,7 @@ mod failures;
 mod history_a;
 mod issue_comments;
 mod issue_reads;
+mod pr_repeat_window;
 mod pull_requests;
 mod search;
 

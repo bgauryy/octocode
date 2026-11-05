@@ -96,6 +96,18 @@ pub(super) fn property_warning(artifact: &ArtifactItem) -> Option<String> {
     ))
 }
 
+/// The warning for a row that names a prerelease only because the registry has
+/// no stable release: nothing the caller asked for selected it.
+pub(super) fn prerelease_warning(artifact: &ArtifactItem) -> Option<String> {
+    artifact.only_prerelease.then(|| {
+        format!(
+            "{} {}: the registry lists no stable release, so this is its newest prerelease.",
+            artifact.package_name,
+            artifact.version.as_deref().unwrap_or_default()
+        )
+    })
+}
+
 /// The leads of an exact row whose repository is on GitHub: the
 /// ghStructure tree at the package's directory. A published entry point is
 /// not a source path (a built package names output the repository lacks), so

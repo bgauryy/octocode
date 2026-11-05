@@ -35,7 +35,7 @@ export function mcpInstructions(binding: Binding, managed: boolean, tools: reado
     : 'The external lifecycle owner maintains presence and leases; this connection does not renew or release them.';
   const identity = { session: binding.session, workspace: binding.workspace,
     ...(binding.coordinationScope !== binding.workspace ? { coordinationScope: binding.coordinationScope } : {}), branch: binding.branch };
-  return 'Communication binding: ' + compactAscii(identity) + '.\n\n' + lifecycle
-    + ' No automatic wake or mail push from MCP; external delivery needs a host adapter.\n\n'
-    + workerInstructions(tools);
+  return `Communication binding: ${compactAscii(identity)}.\n\n${lifecycle
+     } No automatic wake or mail push from MCP; external delivery needs a host adapter.\n\n${
+     workerInstructions(tools)}`;
 }

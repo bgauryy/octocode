@@ -97,7 +97,7 @@ const routes = {
   '/inner': (res, { route }) => {
     res.setHeader('content-type', 'text/html');
     res.end(
-      `<!doctype html><title>Owned ${route.pathname.slice(1)}</title><p id="ready">${route.pathname === '/popup' ? 'Popup ready' : 'Inner generation ' + route.searchParams.get('generation')}</p>`
+      `<!doctype html><title>Owned ${route.pathname.slice(1)}</title><p id="ready">${route.pathname === '/popup' ? 'Popup ready' : `Inner generation ${route.searchParams.get('generation')}`}</p>`
     );
   },
   '/popup': (res, context) => routes['/inner'](res, context),
@@ -157,13 +157,13 @@ const auditPage = res => {
 function upgrade(req, socket) {
   const accept = createHash('sha1')
     .update(
-      req.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11'
+      `${req.headers['sec-websocket-key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`
     )
     .digest('base64');
   socket.write(
-    'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' +
-      accept +
-      '\r\n\r\n'
+    `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${
+      accept
+    }\r\n\r\n`
   );
   socket.write(Buffer.concat([Buffer.from([0x81, 5]), Buffer.from('hello')]));
   socket.on('error', async () => {});

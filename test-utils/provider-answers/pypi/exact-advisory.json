@@ -1,0 +1,199 @@
+{
+ "case": "pypi/exact-advisory",
+ "tool": "artifactSearch",
+ "query": {
+  "operation": "resolve",
+  "ecosystem": "pypi",
+  "packageName": "requests",
+  "version": "2.19.0"
+ },
+ "recordedAt": "2026-11-05",
+ "unread": [
+  "info.author",
+  "info.author_email",
+  "info.classifiers",
+  "info.description",
+  "info.release_url",
+  "last_serial",
+  "ownership",
+  "urls[*].core-metadata",
+  "urls[*].digests",
+  "urls[*].filename",
+  "urls[*].md5_digest",
+  "urls[*].packagetype",
+  "urls[*].python_version",
+  "urls[*].size",
+  "urls[*].upload_time",
+  "urls[*].upload_time_iso_8601",
+  "urls[*].url"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://pypi.org/pypi/requests/2.19.0/json",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "max-age=900, public"
+    ],
+    [
+     "content-type",
+     "application/json"
+    ],
+    [
+     "etag",
+     "\"pR0pmwxx2ZI8kNZqDyCK5Q\""
+    ]
+   ],
+   "digest": "sha256:dc734cd1c0e42d52301d20858ac9ffd0fde012ca338eb2f164bee226bba3ff50",
+   "body": {
+    "info": {
+     "author": "Kenneth Reitz",
+     "author_email": "person@example.test",
+     "bugtrack_url": null,
+     "classifiers": [
+      "Development Status :: 5 - Production/Stable",
+      "Programming Language :: Python :: Implementation :: PyPy"
+     ],
+     "description": "Requests: HTTP for Humans\n=========================\n\n.. image:: https://img.shields.io/pypi/v/requests.svg\n    :target: https://pypi.org/project/requests/\n\n.. image:: https://img.shields.io/pypi/l/requests.svg\n    :target: https://pypi.org/project/requests/\n\n.. image:: https://img.shields.io/pypi/pyversions/requests.svg\n    :target: https://pypi.org/project/requests/\n\n.. image:: https://codecov.io/github/requests/requests/coverage.svg?branch=master\n    :target: https://codecov.io/github/requests/requests\n    :alt: codecov.io\n\n.. image:: https://img.shields.io/github/contributors/requests/requests.svg\n    :target: https://github.com/requests/requests/graphs/contributors\n\n.. image:: https://img.shields.io/badge/Say%20Thanks-!-1EAEDB.svg\n    :target: https://saythanks.io/to/kennethreitz\n\nRequests is the only *Non-GMO* HTTP library for Python, safe for human\nconsumption.\n\n.. image:: https://farm5.staticflickr.com/4317/35198386374_1939af3de6_k_d.jpg\n\nBehold, the power of Requests:\n\n.. code-block:: python\n\n    >>> r = requests.get('https://api.github.com/user', auth=('user', 'pass'))\n    >>> r.status_code\n    200\n    >>> r.headers['content-type']\n    'application/json; charset=utf8'\n    ",
+     "description_content_type": "",
+     "docs_url": null,
+     "download_url": "",
+     "downloads": {
+      "last_day": -1,
+      "last_month": -1,
+      "last_week": -1
+     },
+     "dynamic": null,
+     "home_page": "http://python-requests.org",
+     "keywords": "",
+     "license": "Apache 2.0",
+     "license_expression": null,
+     "license_files": null,
+     "maintainer": "",
+     "maintainer_email": "",
+     "name": "requests",
+     "package_url": "https://pypi.org/project/requests/",
+     "platform": "",
+     "project_url": "https://pypi.org/project/requests/",
+     "project_urls": {
+      "Homepage": "http://python-requests.org"
+     },
+     "provides_extra": null,
+     "release_url": "https://pypi.org/project/requests/2.19.0/",
+     "requires_dist": [
+      "chardet (<3.1.0,>=3.0.2)",
+      "win-inet-pton; sys_platform == \"win32\" and (python_version == \"2.7\" or python_version == \"2.6\") and extra == 'socks'"
+     ],
+     "requires_python": ">=2.6, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*",
+     "summary": "Python HTTP for Humans.",
+     "version": "2.19.0",
+     "yanked": false,
+     "yanked_reason": null
+    },
+    "last_serial": 37059094,
+    "ownership": {
+     "organization": null,
+     "roles": [
+      {
+       "role": "Owner",
+       "user": "Lukasa"
+      },
+      {
+       "role": "Owner",
+       "user": "graffatcolmingov"
+      },
+      {
+       "role": "Owner",
+       "user": "nateprewitt"
+      }
+     ]
+    },
+    "urls": [
+     {
+      "comment_text": "",
+      "core-metadata": {
+       "sha256": "d34a14e65ec267f5a1c3a2ac97c242f8250a2c47ce916e71041de7d9913748fb"
+      },
+      "digests": {
+       "blake2b_256": "cc15e1c318dbc20032ffbe5628837ca0de2d5b116ffd1b849c699634010f6a5d",
+       "md5": "1ae2b89f8ea3e4aea8b199987fb2aae9",
+       "sha256": "421cfc8d9dde7d6aff68196420afd86b88c65d77d8da9cf83f4ecad785d7b9d6"
+      },
+      "downloads": -1,
+      "filename": "requests-2.19.0-py2.py3-none-any.whl",
+      "has_sig": false,
+      "md5_digest": "1ae2b89f8ea3e4aea8b199987fb2aae9",
+      "packagetype": "bdist_wheel",
+      "python_version": "py2.py3",
+      "requires_python": ">=2.6, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*",
+      "size": 91865,
+      "upload_time": "2018-06-12T14:46:15",
+      "upload_time_iso_8601": "2018-06-12T14:46:15.289074Z",
+      "url": "https://files.pythonhosted.org/packages/cc/15/e1c318dbc20032ffbe5628837ca0de2d5b116ffd1b849c699634010f6a5d/requests-2.19.0-py2.py3-none-any.whl",
+      "yanked": false,
+      "yanked_reason": null
+     },
+     {
+      "comment_text": "",
+      "core-metadata": false,
+      "digests": {
+       "blake2b_256": "752782da3fa4ea7a8c3526c48eaafe427352ff9c931633b917c2251826a43697",
+       "md5": "8a7844c58d496e9e92481de459830229",
+       "sha256": "cc408268d0e21589bcc2b2c248e42932b8c4d112f499c12c92e99e2178a6134c"
+      },
+      "downloads": -1,
+      "filename": "requests-2.19.0.tar.gz",
+      "has_sig": false,
+      "md5_digest": "8a7844c58d496e9e92481de459830229",
+      "packagetype": "sdist",
+      "python_version": "source",
+      "requires_python": ">=2.6, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*",
+      "size": 130875,
+      "upload_time": "2018-06-12T14:46:17",
+      "upload_time_iso_8601": "2018-06-12T14:46:17.223245Z",
+      "url": "https://files.pythonhosted.org/packages/75/27/82da3fa4ea7a8c3526c48eaafe427352ff9c931633b917c2251826a43697/requests-2.19.0.tar.gz",
+      "yanked": false,
+      "yanked_reason": null
+     }
+    ],
+    "vulnerabilities": [
+     {
+      "aliases": [
+       "CVE-2018-18074",
+       "GHSA-x84v-xcm2-53pg"
+      ],
+      "details": "The Requests package before 2.20.0 for Python sends an HTTP Authorization header to an http URI upon receiving a same-hostname https-to-http redirect, which makes it easier for remote attackers to discover credentials by sniffing the network.",
+      "fixed_in": [
+       "2.20.0"
+      ],
+      "id": "PYSEC-2018-28",
+      "link": "https://osv.dev/vulnerability/PYSEC-2018-28",
+      "source": "osv",
+      "summary": null,
+      "withdrawn": null
+     },
+     {
+      "aliases": [
+       "CVE-2026-25645",
+       "GHSA-gc5v-m9x4-r6x2"
+      ],
+      "details": "Requests is a HTTP library. Prior to version 2.33.0, the `requests.utils.extract_zipped_paths()` utility function uses a predictable filename when extracting files from zip archives into the system temporary directory. If the target file already exists, it is reused without validation. A local attacker with write access to the temp directory could pre-create a malicious file that would be loaded in place of the legitimate one. Standard usage of the Requests library is not affected by this vulnerability. Only applications that call `extract_zipped_paths()` directly are impacted. Starting in version 2.33.0, the library extracts files to a non-deterministic location. If developers are unable to upgrade, they can set `TMPDIR` in their environment to a directory with restricted write access.",
+      "fixed_in": [
+       "2.33.0"
+      ],
+      "id": "PYSEC-2026-2275",
+      "link": "https://osv.dev/vulnerability/PYSEC-2026-2275",
+      "source": "osv",
+      "summary": null,
+      "withdrawn": null
+     }
+    ]
+   }
+  }
+ ]
+}

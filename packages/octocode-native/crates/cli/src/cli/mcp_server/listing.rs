@@ -80,7 +80,7 @@ pub(super) fn build(presentation: &Value, catalog: &Value) -> Result<Listing, St
     }
     Ok(Listing {
         tools,
-        instructions: instructions(presentation).to_owned(),
+        instructions: instructions(presentation, |name| names.contains(&name)),
     })
 }
 

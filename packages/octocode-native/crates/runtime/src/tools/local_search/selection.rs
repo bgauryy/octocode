@@ -1,9 +1,8 @@
-//! classification for localSearch: each snippet group (one hit with its
-//! context window; overlapping or touching windows in a file are one group)
-//! is a candidate, judged before paging. A file stays when any of its groups
-//! is selected and shows only those hits; the counts describe the kept hits,
-//! and the receipt counts groups. Unknown groups stay reachable through a
-//! lead to exactly the files holding them.
+//! classification for localSearch: each hit is a candidate, judged before
+//! paging, its context window informing the verdict. A file stays when any of
+//! its hits is selected and shows only those hits; the counts and the receipt
+//! describe hits. Unknown hits stay reachable through a lead to exactly the
+//! files holding them.
 use super::cursor::stale_snapshot;
 use super::local_search_query;
 use super::verify::{PageScope, Redacted, Withheld, verify_candidate};
@@ -14,7 +13,7 @@ use crate::response::result::query_value;
 use crate::tools::selection::{Candidate, Decision, Failure, Outcome, ProviderError, Runtime};
 use octocode_contract_types::SelectionUnit;
 use octocode_engine::num::saturating_u32;
-use octocode_engine::types::{SearchContext, TextSearchFile, TextSearchResult};
+use octocode_engine::types::{SearchContext, TextSearchFile, TextSearchMatch, TextSearchResult};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
@@ -27,8 +26,8 @@ use accounting::{distinct_lines, recount};
 /// A selected page's plan and what it removed.
 pub(super) struct Selected {
     pub(super) outcome: Outcome,
-    /// Files (root-relative, scan order) holding a group judged unknown,
-    /// one without a state to judge, or one the budget left unjudged.
+    /// Files (root-relative, scan order) holding a hit judged unknown, one
+    /// without a state to judge, or one the budget left unjudged.
     unknown_files: Vec<String>,
     /// Files the scan matched.
     scan_files: usize,
@@ -45,28 +44,67 @@ pub(super) struct Selected {
     provider: Option<ProviderError>,
 }
 
-/// The snippet groups of one file: indices into its `matches`, each group
-/// in line order. Windows `[line - before, line + after]` that overlap or
-/// touch form one group.
-fn groups(file: &TextSearchFile, context: SearchContext) -> Vec<Vec<usize>> {
+/// The rows of `file` in source order, whatever order paging ranks them in:
+/// a hit's ordinal must not move between a page and its replay.
+fn source_order(file: &TextSearchFile) -> Vec<usize> {
     let mut order = (0..file.matches.len()).collect::<Vec<_>>();
     order.sort_by_key(|&i| (file.matches[i].line, file.matches[i].column));
-    let mut groups: Vec<Vec<usize>> = Vec::new();
-    let mut end = 0u32;
-    for index in order {
-        let line = file.matches[index].line;
-        match groups.last_mut() {
-            Some(group) if line.saturating_sub(context.before) <= end.saturating_add(1) => {
-                group.push(index);
-            }
-            _ => groups.push(vec![index]),
-        }
-        end = end.max(line.saturating_add(context.after));
-    }
-    groups
+    order
 }
 
-/// Select snippet groups before paging; a replay requires its bound plan.
+/// The numbered lines a row's `value` holds: its hit and context window, or
+/// the whole value at the hit's line when it is not a plain window (a
+/// redacted row, a grouped row, a match-only span).
+fn window_lines(hit: &TextSearchMatch, context: SearchContext) -> Vec<(u32, &str)> {
+    let lines = hit.value.split('\n').collect::<Vec<_>>();
+    let span = hit
+        .last_line
+        .map_or(1, |last| last.saturating_sub(hit.line).saturating_add(1));
+    let before = context.before.min(hit.line.saturating_sub(1));
+    let start = hit.line.saturating_sub(before);
+    let plain = hit.count.is_none()
+        && hit.line > 0
+        && u32::try_from(lines.len()).is_ok_and(|len| {
+            len >= before.saturating_add(span) && len <= before + span + context.after
+        });
+    if !plain {
+        return vec![(hit.line, hit.value.as_str())];
+    }
+    (start..).zip(lines).collect()
+}
+
+/// What the judge sees of one hit: which line it is about, and the lines that
+/// inform it. Lines already in a window need no copy in the target.
+fn hit_state(
+    path: &str,
+    hit: &TextSearchMatch,
+    context: SearchContext,
+    match_only: bool,
+    enclosing: Option<Value>,
+) -> Value {
+    let window = window_lines(hit, context);
+    let text = window
+        .iter()
+        .find(|(line, _)| *line == hit.line)
+        .map_or(hit.value.as_str(), |(_, text)| *text);
+    let mut target = json!({"line":hit.line, "text":text});
+    if let Some(last) = hit.last_line.filter(|&last| last > hit.line) {
+        target["lastLine"] = json!(last);
+    }
+    if match_only {
+        target["match"] = json!(hit.value);
+    }
+    if let Some(enclosing) = enclosing {
+        target["enclosing"] = enclosing;
+    }
+    let lines = window
+        .iter()
+        .map(|(line, text)| json!([line, text]))
+        .collect::<Vec<_>>();
+    json!({"path":path, "target":target, "lines":lines})
+}
+
+/// Select hits before paging; a replay requires its bound plan.
 pub(super) fn select_hits(
     scope: &PageScope<'_, impl CancellationCheck>,
     parsed: &mut TextSearchResult,
@@ -92,15 +130,12 @@ pub(super) fn select_hits(
     } else {
         SearchContext::default()
     };
-    let file_groups = parsed
-        .files
-        .iter()
-        .map(|file| groups(file, context))
-        .collect::<Vec<_>>();
-    let total = file_groups.iter().map(Vec::len).sum();
+    let match_only = local_search_query::view(query) == local_search_query::View::MatchOnly;
+    let file_hits = parsed.files.iter().map(source_order).collect::<Vec<_>>();
+    let total = file_hits.iter().map(Vec::len).sum();
     let needs_states = crate::tools::selection::needs_candidate_states(runtime, prior, None, total);
     let mut candidates = Vec::with_capacity(total);
-    for (file, groups) in parsed.files.iter_mut().zip(&file_groups) {
+    for (file, hits) in parsed.files.iter_mut().zip(&file_hits) {
         let verified = needs_states && verify_candidate(scope, file, (&mut *redacted, withheld))?;
         // The declaration around each hit (the same `enclosing` a shown row
         // names), so a predicate about scope (test or production code, which
@@ -115,20 +150,14 @@ pub(super) fn select_hits(
                 )
             })
             .flatten();
-        for group in groups {
+        for &index in hits {
+            let hit = &file.matches[index];
             let state = verified.then(|| {
-                json!({"path": file.path, "matches": group.iter().map(|&i| {
-                    let hit = &file.matches[i];
-                    let mut row = json!({"line":hit.line,"value":hit.value});
-                    if let Some(enclosing) = outline
-                        .as_ref()
-                        .and_then(|outline| outline.label(outline.owner(hit.line)?))
-                    {
-                        row["enclosing"] =
-                            json!({"kind":enclosing.kind,"symbolName":enclosing.symbol_name});
-                    }
-                    row
-                }).collect::<Vec<_>>()})
+                let enclosing = outline
+                    .as_ref()
+                    .and_then(|outline| outline.label(outline.owner(hit.line)?))
+                    .map(|enclosing| json!({"kind":enclosing.kind,"symbolName":enclosing.symbol_name}));
+                hit_state(&file.path, hit, context, match_only, enclosing)
             });
             candidates.push(Candidate::new(state));
         }
@@ -146,7 +175,7 @@ pub(super) fn select_hits(
             prior,
             &candidates,
             None,
-            SelectionUnit::Chunks,
+            SelectionUnit::Hits,
         ))
         .map_err(|failure| match failure {
             Failure::Stale => stale_snapshot(query),
@@ -169,37 +198,31 @@ pub(super) fn select_hits(
         decisions[ordinal] = Decision::Excluded;
     }
     let unjudged = outcome.unjudged.iter().copied().collect::<HashSet<_>>();
-    // Unjudged groups are unknown: the unknown lead reads them as they are,
-    // the next candidate page (when its token fits the `selection` field)
-    // judges them.
+    // Unjudged hits are unknown: the unknown lead reads them as they are, the
+    // next candidate page judges them.
     let (mut rows_total, mut rows_before, mut lines_removed) = (0usize, 0usize, 0usize);
     let scan_files = parsed.files.len();
     let (mut files_before, mut unknown_files) = (0usize, Vec::new());
     let mut kept = Vec::with_capacity(parsed.files.len());
     let mut ordinal = 0usize;
-    for (mut file, groups) in std::mem::take(&mut parsed.files)
-        .into_iter()
-        .zip(file_groups)
-    {
+    for (mut file, hits) in std::mem::take(&mut parsed.files).into_iter().zip(file_hits) {
         rows_total += file.matches.len();
         let lines_before = distinct_lines(&file);
         let mut keep = vec![false; file.matches.len()];
         let (mut holds_unknown, mut judged) = (false, false);
-        for group in groups {
-            // A group outside this candidate page's pool was judged (and
-            // shown, or left to its unfiltered route) by an earlier one.
+        for index in hits {
+            // A hit outside this candidate page's pool was judged (and shown,
+            // or left to its unfiltered route) by an earlier one.
             if outcome.considers(ordinal) {
                 if unjudged.contains(&ordinal) {
                     holds_unknown = true;
                 } else {
                     judged = true;
-                    rows_before += group.len();
+                    rows_before += 1;
                     match decisions[ordinal] {
-                        Decision::Selected => group.iter().for_each(|&i| keep[i] = true),
+                        Decision::Selected => keep[index] = true,
                         // Unjudgeable here: shown as found.
-                        Decision::Unknown if unavailable => {
-                            group.iter().for_each(|&i| keep[i] = true);
-                        }
+                        Decision::Unknown if unavailable => keep[index] = true,
                         Decision::Unknown => holds_unknown = true,
                         Decision::Related | Decision::Excluded => {}
                     }

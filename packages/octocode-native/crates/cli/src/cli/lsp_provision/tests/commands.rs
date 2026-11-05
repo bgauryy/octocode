@@ -20,7 +20,7 @@ fn each_flag_belongs_to_one_subcommand() {
     );
     assert!(matches!(
         parse(&["status", "a.rs"]),
-        Ok(LspServerCommand::Status { file: Some(file) }) if file == "a.rs"
+        Ok(LspServerCommand::Status { file: Some(file), .. }) if file == "a.rs"
     ));
 }
 
@@ -75,4 +75,48 @@ fn status_resolves_known_and_unknown_extensions() {
     assert_eq!(status(Some("src/main.rs"), false), 0);
     assert_eq!(status(Some("main.rs"), true), 0);
     assert_eq!(status(Some("file.unknownxyz"), false), 0);
+}
+
+/// `--live` starts the server of the file it names, so fetched code stops it as
+/// it stops `lspSearch`: no start, and the exit says the check did not pass.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_live_check_starts_no_server_on_fetched_code() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("canonical");
+    let marker = root.join("started");
+    let server = root.join("recording-server");
+    std::fs::write(
+        &server,
+        format!(
+            "#!/bin/sh\necho started >> '{}'\nexit 1\n",
+            marker.display()
+        ),
+    )
+    .expect("server");
+    std::fs::set_permissions(&server, std::fs::Permissions::from_mode(0o755)).expect("executable");
+    std::fs::write(
+        root.join("lsp-servers.json"),
+        serde_json::json!({"languageServers":{".rs":{"command":server,"args":[],"languageId":"rust"}}})
+            .to_string(),
+    )
+    .expect("config");
+    let clones = root.join("clones");
+    std::fs::create_dir(&clones).expect("clones");
+    let file = clones.join("a.rs");
+    std::fs::write(&file, "fn a() {}\n").expect("source");
+    let options = |fetched_code_roots| LspDiscoveryOptions {
+        octocode_home: Some(root.clone()),
+        fetched_code_roots,
+        ..LspDiscoveryOptions::default()
+    };
+    let path = file.to_string_lossy().into_owned();
+    assert_eq!(
+        run_live(&options(vec![clones.clone()]), Some(&path), true).await,
+        1
+    );
+    assert!(!marker.exists(), "a server started on fetched code");
+    run_live(&options(Vec::new()), Some(&path), true).await;
+    assert!(marker.exists(), "the opt-in starts it");
 }

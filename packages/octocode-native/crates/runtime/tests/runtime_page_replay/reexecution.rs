@@ -85,7 +85,6 @@ async fn walk(workspace: &Workspace, start: Value, mut before: impl FnMut()) -> 
             .await
             .unwrap_or_else(|error| panic!("page {pages}: {error:?}"))
             .structured_content;
-        assert_eq!(output["responsePagination"]["page"], pages, "{output}");
         assert_eq!(output["responsePagination"]["replayed"], true, "{output}");
         seen.extend(hits(&output));
         next = output.pointer("/responsePagination/next/input").cloned();

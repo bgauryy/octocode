@@ -12,7 +12,7 @@ fn pages(tool: ToolId, data: Value) -> Vec<Value> {
     assert!(plan.total_pages > 1);
     (0..plan.total_pages)
         .flat_map(|page| {
-            plan.build_page(page, &[None], &[], &Cancellation::new())
+            plan.build_page(page, &[None], &Cancellation::new())
                 .expect("valid build_page")
         })
         .map(|row| {

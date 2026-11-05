@@ -187,6 +187,7 @@ pub(super) fn annotate(
     stopped: &dyn Fn() -> bool,
 ) {
     flag_still_loading(result, query, session.open_readiness.as_deref());
+    server_coverage::flag_server_health(result, query, session.client.health(), scope);
     if let Some(reason) = &session.fell_back_from {
         crate::response::paging::push_warnings(
             result,

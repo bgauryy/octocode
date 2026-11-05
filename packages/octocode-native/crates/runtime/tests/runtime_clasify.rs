@@ -8,9 +8,12 @@ use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 mod failures;
 mod gating;
+pub(crate) mod github_withheld;
+mod hits;
 mod judgments;
 mod pages;
 mod readiness;
+mod sanitization;
 mod sources;
 
 /// Answers every question by its own type, as the provider does: Noul 0.9,
@@ -123,4 +126,33 @@ pub(crate) async fn clasify(
         .expect("clasify result")
         .structured_content
         .into_value()
+}
+
+/// `security.credentialFiles: allow` opens credential files to local reads, not
+/// to a provider: the row a clasify source captures goes through the egress
+/// policy, so nothing is sent.
+#[tokio::test]
+async fn a_clasify_source_never_reads_an_allowed_credential_file() {
+    let workspace = crate::support::Workspace::new();
+    workspace.write(".env", "PLAIN=plain_value_kept\n");
+    let server = provider(0).await;
+    let runtime = crate::support::clasify_runtime(
+        &workspace,
+        &server,
+        &[("OCTOCODE_CREDENTIAL_FILES", "allow".to_owned())],
+    );
+    let result = clasify(
+        &runtime,
+        vec![json!({
+            "operation":"evaluate",
+            "source":{"tool":"localFetch","query":{"path":".env"}},
+            "questions":{"a":noul("Is this set?")}
+        })],
+    )
+    .await;
+    assert_eq!(
+        result["results"][0]["data"]["errorCode"], "pathPolicyDenied",
+        "{result}"
+    );
+    assert!(sent(&server).await.is_empty());
 }

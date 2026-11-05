@@ -22,7 +22,9 @@ pub(super) fn resume_query(
     sources: &mut HashMap<String, Option<Source>>,
 ) -> Option<Query> {
     let uri = resume.node.get("uri").and_then(Value::as_str)?;
-    let name = resume.node.get("name").and_then(Value::as_str)?;
+    let (name, _) = crate::tools::lsp_search::render::label_name(
+        resume.node.get("name").and_then(Value::as_str)?,
+    );
     let anchor = anchor_range(&resume.node)?;
     let line = u32::try_from(anchor.pointer("/start/line")?.as_u64()?).ok()?;
     let character = u32::try_from(anchor.pointer("/start/character")?.as_u64()?).ok()?;

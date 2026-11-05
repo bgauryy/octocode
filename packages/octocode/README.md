@@ -31,7 +31,7 @@ npx octocode skill install --all --platform claude --global   # install the Agen
 
 ### Research tools
 
-All 16 tool commands are listed and enabled in the CLI. MCP opt-ins and catalog
+The CLI lists every tool command except `clasify` without a classification key, which then answers where to get one. MCP opt-ins and catalog
 filters do not hide CLI commands; missing credentials or providers fail the
 call that needs them. Path and storage policies still apply. See the
 [configuration matrix](../../docs/CONFIGURATION.md#tool-availability-cli-and-mcp).
@@ -105,8 +105,8 @@ for operation requirements, defaults and snapshot retention.
 | `help [command]` | Help for any command (also `--help`, `-h`). |
 
 Text mode writes readable evidence to stdout and guidance to stderr. `--json`
-returns the structured result. Exit `0` can include remaining pages: follow
-`responsePagination.next` before tool-level `next` calls. The
+returns the structured result. Exit `0` can include remaining pages: run
+`responsePagination.next`, else `next.nextPage`, until neither remains. The
 [CLI guide](../../docs/OCTOCODE_CLI.md#exit-codes) owns exit codes and flags.
 
 This package is a small launcher. npm installs the one native binary package

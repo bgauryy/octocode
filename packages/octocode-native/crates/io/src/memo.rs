@@ -7,6 +7,10 @@
 //! recently used entries of all of them, oldest first, and a value larger
 //! than the whole budget is not kept. A memo sets no limit of its own.
 //!
+//! A read never serves an entry past its deadline. Its memory goes on a read
+//! of its key, the next insertion into its memo, or, in a process that stays
+//! up, [`MemoryBudget::sweep_expired_while_running`].
+//!
 //! Single flight is composed, not built in: a caller that must not run the
 //! same load twice holds a `KeyedFlight` turn ([`crate::flight`]) around its
 //! `get`-then-`insert`.
@@ -65,7 +69,10 @@ impl<K: Hash + Eq + Ord + Clone, V, M> Inner<K, V, M> {
         }
     }
 
-    fn expire(&mut self, now: Instant) {
+    /// Take out what expired at `now`, for the caller to drop after unlocking:
+    /// freeing a large value should not stall a read of this memo.
+    fn expire(&mut self, now: Instant) -> Vec<Entry<V, M>> {
+        let mut expired = Vec::new();
         while self
             .expiry
             .first()
@@ -77,8 +84,10 @@ impl<K: Hash + Eq + Ord + Clone, V, M> Inner<K, V, M> {
             if let Some(entry) = self.entries.pop(&key) {
                 self.weight = self.weight.saturating_sub(entry.weight);
                 self.budget.release(entry.weight);
+                expired.push(entry);
             }
         }
+        expired
     }
 
     fn clear(&mut self) {
@@ -173,16 +182,26 @@ impl<
         let Some((key, mut entry)) = inner.entries.pop_entry(key) else {
             return;
         };
-        if let Some(deadline) = entry.expires_at {
+        let was_due = entry.expires_at;
+        if let Some(deadline) = was_due {
             inner.expiry.remove(&(deadline, key.clone()));
         }
         entry.stored_at = now;
         entry.expires_at = now.checked_add(ttl);
         entry.used = next_use();
-        if let Some(deadline) = entry.expires_at {
+        let due = entry.expires_at;
+        if let Some(deadline) = due {
             inner.expiry.insert((deadline, key.clone()));
         }
         inner.entries.put(key, entry);
+        drop(inner);
+        // A later deadline is found when the old one comes: the usual read
+        // that restarts a lifetime reaches nothing outside this memo.
+        if let Some(deadline) = due
+            && was_due.is_none_or(|was_due| deadline < was_due)
+        {
+            self.budget.note_deadline(deadline);
+        }
     }
 
     /// Store `value` for `key` (replacing any entry) with no metadata.
@@ -215,7 +234,7 @@ impl<
         stored_at: Instant,
     ) -> (Arc<V>, bool) {
         let value = value.into();
-        {
+        let (expired, deadline) = {
             let mut inner = self.lock();
             inner.remove(&key);
             let now = Instant::now();
@@ -224,7 +243,7 @@ impl<
             {
                 return (value, false);
             }
-            inner.expire(now);
+            let expired = inner.expire(now);
             let expires_at = ttl.and_then(|ttl| stored_at.checked_add(ttl));
             if let Some(deadline) = expires_at {
                 inner.expiry.insert((deadline, key.clone()));
@@ -242,8 +261,13 @@ impl<
                     used: next_use(),
                 },
             );
-        }
+            (expired, expires_at)
+        };
+        drop(expired);
         // Outside this memo's lock: reclaiming locks each memo in turn.
+        if let Some(deadline) = deadline {
+            self.budget.note_deadline(deadline);
+        }
         self.budget.reclaim();
         (value, true)
     }
@@ -259,7 +283,7 @@ impl<
         self.lock().clear();
     }
 
-    /// Entries held, expired ones included until touched or another insertion.
+    /// Entries held, expired ones included until they are released.
     pub fn len(&self) -> usize {
         self.lock().entries.len()
     }
@@ -306,6 +330,15 @@ impl<K: Hash + Eq + Ord + Clone + Send, V: Send + Sync, M: Send> Held for Mutex<
         };
         inner.forget(&key, &entry);
         true
+    }
+
+    fn sweep(&self, now: Instant) -> Option<Instant> {
+        let mut inner = self.lock().unwrap_or_else(PoisonError::into_inner);
+        let expired = inner.expire(now);
+        let next = inner.expiry.first().map(|(deadline, _)| *deadline);
+        drop(inner);
+        drop(expired);
+        next
     }
 }
 

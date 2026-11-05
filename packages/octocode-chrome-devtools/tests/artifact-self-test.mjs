@@ -89,7 +89,7 @@ try {
   assert.equal(latest.paths.network, null);
   assert.equal(latest.health.performance, 95);
   const snapshotFile = join(root, 'page snapshot.json');
-  const expectedRefs = Array.from({ length: count }, (_, i) => 'e' + (i + 1));
+  const expectedRefs = Array.from({ length: count }, (_, i) => `e${i + 1}`);
   json(snapshotFile, {
     refs: Object.fromEntries(
       expectedRefs.map(ref => [ref, { role: 'button', name: 'same label' }])
@@ -321,7 +321,7 @@ try {
           {
             requestId,
             request: {
-              url: 'https://example.test/api/data/' + (sessionId || 'page'),
+              url: `https://example.test/api/data/${sessionId || 'page'}`,
               method: 'GET',
             },
             type: 'Fetch',
@@ -346,7 +346,7 @@ try {
     );
     const captured = JSON.parse(readFileSync(join(dir, artifact)));
     const rows = captured.sample || captured.log.entries;
-    assert.equal(rows.length, 2, name + ' must retain both sessions');
+    assert.equal(rows.length, 2, `${name} must retain both sessions`);
     assert.equal(new Set(rows.map(row => row.url || row.request.url)).size, 2);
   }
 } finally {

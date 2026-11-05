@@ -2,7 +2,7 @@
 
 use super::{LspLease, NativeLspClient};
 use crate::error::Result;
-use crate::lsp::transport::{Readiness, STARTUP_SETTLE_MS};
+use crate::lsp::transport::{Readiness, STARTUP_SETTLE_MS, ServerHealth};
 use serde_json::Value;
 use std::sync::{Arc, atomic::Ordering};
 use tokio::time::Duration;
@@ -59,6 +59,92 @@ impl NativeLspClient {
     /// See [`crate::lsp::config::workspace_symbol_limit`].
     pub fn workspace_symbol_limit(&self) -> Option<usize> {
         crate::lsp::config::workspace_symbol_limit(&self.inner.config)
+    }
+
+    /// The configuration this client's server runs under.
+    pub fn config(&self) -> &crate::lsp::types::LspLanguageServerConfig {
+        &self.inner.config
+    }
+
+    /// Whether this server is still building its index: its answers so far may
+    /// miss files. A server with no project index is never building one.
+    pub fn is_indexing(&self) -> bool {
+        crate::lsp::clangd_database::indexes_project(&self.inner.config)
+            && self.inner.progress.has_active()
+    }
+
+    /// What the server says is wrong with it right now: while it does, what it
+    /// answers may be incomplete or wrong.
+    pub fn health(&self) -> Option<ServerHealth> {
+        self.inner.progress.health()
+    }
+
+    /// Whether this server has finished an index of its project: it announced the
+    /// work (clangd does, even reusing shards), shows none open, and wrote shards.
+    /// That speaks only for the files [`Self::index_covers`].
+    pub fn has_finished_index(&self) -> bool {
+        crate::lsp::clangd_database::indexes_project(&self.inner.config)
+            && self.inner.progress.begins() > 0
+            && !self.inner.progress.has_active()
+            && crate::lsp::clangd_database::has_index_shards(&self.inner.config)
+    }
+
+    /// Whether `file` (canonical) differs from when this server started: its index
+    /// holds what the file said then, and clangd does not watch files.
+    pub fn changed_since_start(&self, file: &str) -> bool {
+        use crate::lsp::clangd_database::file_state;
+        match self
+            .inner
+            .listed_files
+            .get()
+            .and_then(|listed| listed.get(file))
+        {
+            Some(state) => file_state(file) != *state,
+            None => {
+                let Some(started) = self.inner.started_at.get() else {
+                    return true;
+                };
+                file_state(file).is_some_and(|(modified, _)| modified > *started)
+            }
+        }
+    }
+
+    /// The listed files that differ from when this server started.
+    pub fn changed_listed_files(&self) -> Vec<String> {
+        use crate::lsp::clangd_database::file_state;
+        self.inner
+            .listed_files
+            .get()
+            .into_iter()
+            .flatten()
+            .filter(|(file, state)| file_state(file) != **state)
+            .map(|(file, _)| file.clone())
+            .collect()
+    }
+
+    /// The names this server's index holds (see `clangd_database::indexed_names`).
+    pub fn indexed_names(&self) -> std::collections::HashSet<String> {
+        crate::lsp::clangd_database::indexed_names(&self.inner.config)
+    }
+
+    /// Whether this server's index holds `file` (canonical) as it is on disk: it
+    /// wrote a shard for that name, the database lists the file (a header reaches
+    /// the index through its includers instead), and it has not changed since.
+    pub fn index_covers(&self, file: &str, indexed: &std::collections::HashSet<String>) -> bool {
+        let path = std::path::Path::new(file);
+        let named = path
+            .file_name()
+            .is_some_and(|name| indexed.contains(&*name.to_string_lossy()));
+        let listed = self
+            .inner
+            .listed_files
+            .get()
+            .is_some_and(|listed| listed.contains_key(file));
+        let header = path.extension().is_some_and(|extension| {
+            ["h", "hh", "hpp", "hxx", "cuh", "inc", "def"]
+                .contains(&&*extension.to_string_lossy().to_lowercase())
+        });
+        named && (listed || header) && !self.changed_since_start(file)
     }
 
     pub fn has_capability(&self, capability: String) -> bool {

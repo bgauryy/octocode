@@ -17,7 +17,6 @@ const COMPILE_DATABASE_HINT: &str = "Generate compile_commands.json for clangd (
 pub(in crate::tools::lsp_search) const NO_COMPILE_DATABASE_REASON:
     crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::NoCompileDatabase;
-const NO_COMPILE_DATABASE_WARNING: &str = "No compile_commands.json, compile_flags.txt, or .clangd was found where clangd looks (its --compile-commands-dir or compilationDatabasePath directory when set, else the file's ancestors). The effective compilation command and indexed scope are unverified; confirm project setup and diagnostics before interpreting missing results.";
 
 /// Record discovered configuration separately from the effective command.
 /// File presence cannot establish command validity or indexed coverage.
@@ -55,13 +54,7 @@ pub(in crate::tools::lsp_search) fn annotate_compile_database(
         row["hints"] = json!([COMPILE_DATABASE_HINT]);
     }
     if empty || is_incoming(lsp_search_query::operation(query)) {
-        flag_partial(
-            row,
-            query,
-            NO_COMPILE_DATABASE_REASON,
-            Some(NO_COMPILE_DATABASE_WARNING),
-            scope,
-        );
+        flag_partial(row, query, NO_COMPILE_DATABASE_REASON, None, scope);
     }
 }
 
@@ -111,12 +104,6 @@ mod tests {
         assert_eq!(
             found["partialReasons"],
             json!([NO_COMPILE_DATABASE_REASON]),
-            "{found}"
-        );
-        assert!(
-            found["warnings"][0]
-                .as_str()
-                .is_some_and(|warning| warning.contains("compile_commands.json")),
             "{found}"
         );
         assert_eq!(

@@ -130,11 +130,22 @@ describe('config view agent install', () => {
     ]);
     const options = view.labelled('Client to add Octocode to')!.children;
     assert.equal(options.length, 2);
-    assert.equal(view.controls().filter(element => element.textContent === 'Install').length, 1);
+    assert.equal(
+      view.controls().filter(element => element.textContent === 'Install')
+        .length,
+      1
+    );
     view.labelled('Client to add Octocode to')!.value = '1';
     await view.click('Install');
-    assert.deepEqual(view.requests.find(request => request.operation === 'setAgent'), {
-      operation: 'setAgent', client: 'windsurf', scope: 'home', revision: 'a4', patch: { method: 'npx' },
-    });
+    assert.deepEqual(
+      view.requests.find(request => request.operation === 'setAgent'),
+      {
+        operation: 'setAgent',
+        client: 'windsurf',
+        scope: 'home',
+        revision: 'a4',
+        patch: { method: 'npx' },
+      }
+    );
   });
 });

@@ -22,7 +22,7 @@ function pullRequestNode(model, repo, pr, variables) {
     commitsCount: { totalCount: 1 }, reviewThreads: { totalCount: pr.reviewComments?.length ?? 0 },
   };
   if (variables.files !== undefined) node.files = connection(variables.files, changed);
-  if (variables.discussion !== undefined) node.commentsConn = connection(variables.discussion, []);
+  if (variables.discussion !== undefined) node.commentsConn = connection(variables.discussion, (pr.comments ?? []).map(comment => ({ databaseId: comment.id, body: comment.body, createdAt: comment.date, updatedAt: comment.date, author: { login: USER.login, __typename: 'User' } })));
   if (variables.reviews !== undefined) node.reviews = connection(variables.reviews, (pr.reviews ?? []).map(review => ({ databaseId: review.id, body: review.body, state: review.state, submittedAt: review.date, author: { login: USER.login, __typename: 'User' }, commit: { oid: pr.head.oid } })), variables.after);
   if (variables.commits !== undefined) {
     const c = pr.head;

@@ -35,6 +35,19 @@ impl Importers {
             .is_none_or(|window| window.verified_owner(file))
     }
 
+    /// Whether a location in `file` (canonical) belongs on this page of an
+    /// index-backed answer, which holds every window opened so far: a candidate
+    /// on its own window's page, any other file on the first page.
+    pub(in super::super) fn lists_on_this_page(&self, file: &str) -> bool {
+        self.window.as_ref().is_none_or(|window| {
+            if window.lists(file) {
+                window.verified_owner(file)
+            } else {
+                window.first <= 1
+            }
+        })
+    }
+
     /// Whether the name at `site` binds another declaration: a verified
     /// importer's answer that lists it does not make it a reference.
     pub(in super::super) fn binds_elsewhere(&self, site: &Site) -> bool {
@@ -213,7 +226,7 @@ impl Importers {
     /// Record the scan on the row's coverage so readers and
     /// `inferred_project::annotate` know importers were checked. A window
     /// with later windows left is partial (not a terminal limit), and every
-    /// location page of it carries `next.nextPage`: the same query
+    /// location page of it carries `next.nextImporterWindow`: the same query
     /// on each page, so the same content-addressed cursor, which a reader
     /// that follows every lead verifies once.
     pub(in super::super) fn annotate(
@@ -273,7 +286,7 @@ impl Importers {
         }
         insert_next(
             &mut row["next"],
-            LspSearchChannel::NextPage,
+            LspSearchChannel::NextImporterWindow,
             Continuation::continued_query(next_importers),
         );
     }

@@ -65,11 +65,11 @@ test('executableArgv invokes script interpreters explicitly like the recorded ou
     return path;
   };
   make('sh-script', '#!/bin/sh\necho hi\n'); make('env-node', '#!/usr/bin/env node\nconsole.log(1)\n'); make('spaced', '#! /usr/bin/env  perl -u\n');
-  make('plain', 'echo no shebang\n'); make('no-newline', '#!/bin/sh'); make('long', '#!' + '/x'.repeat(3000) + '\n'); make('empty-interpreter', '#!\nfoo\n');
+  make('plain', 'echo no shebang\n'); make('no-newline', '#!/bin/sh'); make('long', `#!${'/x'.repeat(3000)}\n`); make('empty-interpreter', '#!\nfoo\n');
   const actual = golden.executableArgv.commands.map((command: string) => wire.executableArgv(expand(directory, command), ['--flag', 'value']));
   assert.deepEqual(contract(directory, actual), golden.executableArgv.expected);
   const onPath = process.env.PATH;
-  process.env.PATH = directory + ':' + onPath;
+  process.env.PATH = `${directory}:${onPath}`;
   try {
     assert.deepEqual(wire.executableArgv('sh-script', ['x']), ['/bin/sh', join(directory, 'sh-script'), 'x']);
   } finally {

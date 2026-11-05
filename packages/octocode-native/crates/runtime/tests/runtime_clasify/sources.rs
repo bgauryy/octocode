@@ -1,12 +1,12 @@
 //! Captured sources: local ranges, multi-page captures, the read lead, oversized sources and GitHub refs.
 
-use super::{clasify, content_row, noul, provider, sent};
+use super::{Typed, clasify, content_row, noul, provider, sent};
 use crate::support::{Run as _, Workspace, clasify_runtime, github_api};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, MockServer, Respond, ResponseTemplate};
 
 #[tokio::test]
 async fn a_local_source_judges_exactly_its_ranges_and_leads_to_the_same_read() {
@@ -184,9 +184,33 @@ async fn an_identical_row_rejudges_a_local_source_after_an_edit() {
     runtime.close().await;
 }
 
+/// A provider that refuses any state over `limit` body bytes in its default
+/// window, and any at all over `long_limit`, as `max_tokens_exceeded`.
+async fn window_provider(limit: usize, long_limit: usize) -> MockServer {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(move |request: &wiremock::Request| {
+            let long = request
+                .headers
+                .get("typesafe-danger-zone-long-context")
+                .is_some();
+            if request.body.len() > if long { long_limit } else { limit } {
+                return ResponseTemplate::new(400)
+                    .set_body_json(json!({"detail":{"error_type":"max_tokens_exceeded"}}));
+            }
+            Typed.respond(request)
+        })
+        .mount(&server)
+        .await;
+    server
+}
+
+/// A source past the provider's windows fails its row, unbilled, with a ready
+/// call that judges it in parts; a sibling keeps its answer.
 #[tokio::test]
-async fn an_oversized_or_missing_source_fails_its_row_without_provider_work() {
-    let server = provider(1).await;
+async fn an_oversized_or_missing_source_fails_its_row_and_says_how_to_split() {
+    let server = window_provider(100_000, 100_000).await;
     let workspace = Workspace::new();
     workspace.write(
         "big.txt",
@@ -205,21 +229,24 @@ async fn an_oversized_or_missing_source_fails_its_row_without_provider_work() {
     )
     .await;
     let rows = out["results"].as_array().unwrap();
+    let refused = &rows[0]["data"];
+    assert_eq!(refused["errorCode"], "classificationStateTooLarge", "{out}");
+    assert!(refused.get("answers").is_none());
+    let split = &refused["related"][0];
+    assert_eq!(split["tool"], "clasify", "{out}");
+    let query = &split["input"]["queries"][0];
+    assert_eq!(query["operation"], "sections", "{out}");
     assert_eq!(
-        rows[0]["data"]["errorCode"], "classificationContextTooLarge",
+        query["resources"]["source"]["query"]["path"], "big.txt",
         "{out}"
     );
-    assert!(rows[0]["data"].get("answers").is_none());
     assert_eq!(rows[1]["data"]["errorCode"], "pathNotFound", "{out}");
     assert_eq!(
         rows[2]["data"]["answers"]["restart"]["noul"], 0.9,
         "a sibling keeps its answer"
     );
-    assert_eq!(
-        sent(&server).await.len(),
-        1,
-        "only the state row reached the provider"
-    );
+    // The default window, the long one, the sibling: refusals are not billed.
+    assert_eq!(sent(&server).await.len(), 3);
     runtime.close().await;
 }
 
@@ -298,42 +325,60 @@ async fn a_github_source_reads_its_requested_ref_and_pins_the_lead_to_that_commi
     runtime.close().await;
 }
 
+/// The default window serves whatever it can: only the provider's refusal asks
+/// for the slower, less accurate long one, and `false` never does.
 #[tokio::test]
-async fn an_omitted_long_context_picks_the_window_the_state_needs() {
-    let server = provider(2).await;
+async fn an_omitted_long_context_asks_for_the_long_window_only_after_a_refusal() {
+    let server = window_provider(30_000, 1_000_000).await;
     let workspace = Workspace::new();
     workspace.write(
         "mid.txt",
         "x".repeat(80) + &"\nfiller line of text".repeat(3000),
     );
+    workspace.write("small.txt", "short text\n");
     let runtime = clasify_runtime(&workspace, &server, &[]);
-    let row = |long_context: Option<bool>| {
-        let mut row = json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":"mid.txt"}},
+    let row = |file: &str, long_context: Option<bool>| {
+        let mut row = json!({"operation":"evaluate","source":{"tool":"localFetch","query":{"path":file}},
             "questions":{"q":noul("Is it big?")}});
         if let Some(long_context) = long_context {
             row["longContext"] = json!(long_context);
         }
         row
     };
-    let out = clasify(&runtime, vec![row(None), row(Some(false)), content_row()]).await;
-    let rows = out["results"].as_array().unwrap();
-    assert!(rows[0]["data"]["answers"]["q"].is_object(), "{out}");
-    assert_eq!(
-        rows[1]["data"]["errorCode"], "classificationContextTooLarge",
-        "{out}"
-    );
     let long = |request: &wiremock::Request| {
         request
             .headers
             .get("typesafe-danger-zone-long-context")
             .is_some()
     };
-    let requests = server.received_requests().await.unwrap();
-    let judged: Vec<_> = requests
-        .iter()
-        .filter(|r| r.method.as_str() == "POST")
-        .collect();
-    assert_eq!(judged.len(), 2);
-    assert_eq!(judged.iter().filter(|request| long(request)).count(), 1);
+    let posts = async |server: &MockServer| {
+        let requests = server.received_requests().await.unwrap();
+        (
+            requests.len(),
+            requests.iter().filter(|request| long(request)).count(),
+        )
+    };
+    let out = clasify(&runtime, vec![row("small.txt", None)]).await;
+    assert!(
+        out["results"][0]["data"]["answers"]["q"].is_object(),
+        "{out}"
+    );
+    assert_eq!(posts(&server).await, (1, 0), "the default window served it");
+    let out = clasify(&runtime, vec![row("mid.txt", None)]).await;
+    assert!(
+        out["results"][0]["data"]["answers"]["q"].is_object(),
+        "{out}"
+    );
+    assert_eq!(
+        posts(&server).await,
+        (3, 1),
+        "refused, then the long window"
+    );
+    let out = clasify(&runtime, vec![row("mid.txt", Some(false))]).await;
+    assert_eq!(
+        out["results"][0]["data"]["errorCode"], "classificationStateTooLarge",
+        "{out}"
+    );
+    assert_eq!(posts(&server).await, (4, 1), "false never asks for it");
     runtime.close().await;
 }

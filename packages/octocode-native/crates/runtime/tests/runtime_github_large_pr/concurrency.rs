@@ -77,21 +77,19 @@ async fn patch_rows_in_one_call_share_one_budget() {
         .expect("two patch rows");
     let content = &outcome.structured_content;
     assert!(
-        content.get("responsePagination").is_none(),
+        content["responsePagination"].get("expiresAt").is_none(),
         "two rows overflowed the page: {}",
-        content
-            .get("responsePagination")
-            .cloned()
-            .unwrap_or_default()
+        content["responsePagination"]
     );
+    assert!(content["responsePagination"]["next"]["input"]["cursor"].is_string());
     for index in 0..2 {
         let data = &content["results"][index]["data"];
         let file = &data["pullRequests"][0]["files"][0];
         let taken = file["patchPagination"]["length"].as_u64().unwrap_or(0);
         // Half the default window each (one budget), not a whole window each.
         assert!((4_000..=20_000).contains(&taken), "row {index}: {taken}");
-        assert!(
-            data["pullRequests"][0]["contentPagination"]["patches"]["next"]["nextPage"].is_object(),
+        assert_eq!(
+            data["pullRequests"][0]["contentPagination"]["patches"]["hasMore"], true,
             "row {index}: {data}"
         );
     }

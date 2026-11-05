@@ -1,6 +1,7 @@
 //! The provider-page selection: classified rows of a tool whose provider
-//! returns its own pages of candidate files (ghSearchCode). The page is the
-//! judged source; its unfiltered lead keeps the page.
+//! returns its own pages of files (ghSearchCode). The page is the judged
+//! source and each of its hits a candidate; its unfiltered lead keeps the page.
+use super::provider_hits;
 use super::{
     Candidate, Failure, Runtime, select_scoped, unclassified_warning, unfiltered, unless_transient,
 };
@@ -73,16 +74,26 @@ pub(crate) fn apply_sanitized_rows(
             });
             continue;
         };
+        // Every hit is a candidate; a row with nothing to judge stays one
+        // unknown candidate.
+        let hits = values
+            .iter()
+            .map(|item| {
+                let judged = has_text(item) && !withheld(item);
+                provider_hits::hits(item, query, judged)
+            })
+            .collect::<Vec<_>>();
         let states = values
             .iter()
-            .map(|item| runtime.judge.project(json!({ "evidence": item })))
+            .zip(&hits)
+            .flat_map(|(item, hits)| {
+                hits.iter().map(move |hit| {
+                    provider_hits::state(item, hit).map(|state| runtime.judge.project(state))
+                })
+            })
             .collect::<Vec<_>>();
         let source = candidate_source_digest(tool, query, data, &states);
-        let candidates = values
-            .iter()
-            .zip(states)
-            .map(|(item, state)| Candidate::new(has_text(item).then_some(state)))
-            .collect::<Vec<_>>();
+        let candidates = states.into_iter().map(Candidate::new).collect::<Vec<_>>();
         let (outcome, provider) = match unless_transient(select_scoped(
             Some(runtime),
             query,
@@ -105,24 +116,11 @@ pub(crate) fn apply_sanitized_rows(
                 continue;
             }
         };
-        let shown = outcome.shown(values.len());
-        // Judged, yet neither shown nor excluded: related or unknown rows.
-        let hidden = (0..values.len())
-            .filter(|ordinal| {
-                outcome.considers(*ordinal)
-                    && shown.binary_search(ordinal).is_err()
-                    && !outcome.excluded.contains(ordinal)
-                    && !outcome.unjudged.contains(ordinal)
-            })
-            .map(|ordinal| values[ordinal].clone())
-            .collect::<Vec<_>>();
-        let mut values = values.into_iter().map(Some).collect::<Vec<_>>();
-        data["files"] = Value::Array(
-            shown
-                .iter()
-                .filter_map(|&i| values.get_mut(i).and_then(Option::take))
-                .collect(),
-        );
+        let total = hits.iter().map(Vec::len).sum();
+        let shown = outcome.shown(total);
+        let withheld_note = withheld_note(&values);
+        let (kept, hidden) = keep_shown(values, &hits, &shown, &outcome);
+        data["files"] = Value::Array(kept);
         data["selection"] = serde_json::to_value(&outcome.receipt).unwrap_or(Value::Null);
         strip_plan_from_tool_continuations(data, tool);
         // The unfiltered page reaches what selection left out; a page that
@@ -131,7 +129,7 @@ pub(crate) fn apply_sanitized_rows(
         if outcome.leaves_out() {
             set_next(data, "unfiltered", provider_page_unfiltered(tool, query));
         }
-        if let Some(token) = outcome.next_candidates(tool) {
+        if let Some(token) = outcome.next_candidates() {
             let mut next_query = (**query).clone();
             next_query["selection"] = json!(token);
             set_next(
@@ -145,7 +143,9 @@ pub(crate) fn apply_sanitized_rows(
             data,
             provider
                 .as_ref()
-                .map(|error| unclassified_warning(error, "this page", "its files are")),
+                .map(|error| unclassified_warning(error, "this page", "its files are"))
+                .into_iter()
+                .chain(withheld_note),
         );
         let response_row = if queries.len() == 1 {
             Some(&mut *response_query)
@@ -159,6 +159,40 @@ pub(crate) fn apply_sanitized_rows(
     Ok(())
 }
 
+/// The rows holding a `shown` hit, cut to those hits, and the rows judged yet
+/// neither shown nor excluded: those holding related or unknown hits.
+fn keep_shown(
+    values: Vec<Value>,
+    hits: &[Vec<provider_hits::Hit>],
+    shown: &[usize],
+    outcome: &super::Outcome,
+) -> (Vec<Value>, Vec<Value>) {
+    let mut kept = Vec::with_capacity(values.len());
+    let mut hidden = Vec::new();
+    let mut ordinal = 0;
+    for (item, hits) in values.into_iter().zip(hits) {
+        let ordinals = ordinal..ordinal + hits.len();
+        ordinal = ordinals.end;
+        let chosen = ordinals
+            .clone()
+            .filter(|at| shown.binary_search(at).is_ok())
+            .map(|at| at - ordinals.start)
+            .collect::<Vec<_>>();
+        let undecided = chosen.is_empty()
+            && !withheld(&item)
+            && ordinals.clone().any(|at| {
+                outcome.considers(at)
+                    && !outcome.excluded.contains(&at)
+                    && !outcome.unjudged.contains(&at)
+            });
+        if undecided {
+            hidden.push(item.clone());
+        }
+        kept.extend(provider_hits::keep(item, hits, &chosen));
+    }
+    (kept, hidden)
+}
+
 /// Whether a file's evidence shows any text to judge: a non-blank line or
 /// matched value.
 fn has_text(item: &Value) -> bool {
@@ -169,6 +203,29 @@ fn has_text(item: &Value) -> bool {
         || item["matches"]
             .as_array()
             .is_some_and(|matches| matches.iter().any(|matched| non_blank(&matched["value"])))
+}
+
+/// Whether the classification egress withholds this candidate's file by name:
+/// it stays unknown, with nothing of it in any provider request.
+fn withheld(item: &Value) -> bool {
+    item["path"]
+        .as_str()
+        .is_some_and(crate::policy::discovery::is_sensitive_repository_file)
+}
+
+/// The disclosure of a page's withheld candidates, which no receipt names.
+fn withheld_note(items: &[Value]) -> Option<String> {
+    let paths = items
+        .iter()
+        .filter(|item| withheld(item))
+        .filter_map(|item| item["path"].as_str())
+        .collect::<Vec<_>>();
+    (!paths.is_empty()).then(|| {
+        format!(
+            "Not judged: the classification egress withholds credential-named files, so nothing of these was read or sent to the provider: {}.",
+            paths.join(", ")
+        )
+    })
 }
 
 /// Set the continuation `key` of a row's data.
@@ -197,7 +254,12 @@ fn provider_page_unfiltered(tool: ToolId, query: &Value) -> Value {
     unfiltered(tool, query, &["page"])
 }
 
-fn candidate_source_digest(tool: ToolId, query: &Value, data: &Value, states: &[Value]) -> String {
+fn candidate_source_digest(
+    tool: ToolId,
+    query: &Value,
+    data: &Value,
+    states: &[Option<Value>],
+) -> String {
     let mut source = json!({
         "tool":tool.as_str(), "path":query.get("path"),
         "owner":query.get("owner"), "repo":query.get("repo"), "page":query.get("page"),

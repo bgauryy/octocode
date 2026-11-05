@@ -7,6 +7,8 @@ use super::proven::{Pass, Proof};
 use crate::execution::cancel::CancellationCheck;
 use crate::tools::source_view::ByteOrigin;
 use std::io::Read;
+#[cfg(test)]
+use std::path::Path;
 
 /// The windows `lines` held once a stream ends, with the source's totals.
 pub(super) fn streamed(
@@ -28,6 +30,8 @@ pub(super) fn streamed(
                 base: held.start.map_or(0, |start| start.base),
                 total: held.view_pos,
             },
+            masked: held.masked,
+            every_value: held.every_value,
             window: held.window,
             binary,
         })
@@ -55,11 +59,12 @@ pub(super) struct Streaming {
 /// a reopen by path, which a swapped path could turn into a FIFO).
 pub(super) fn stream_pass(
     source: &std::fs::File,
+    path: &std::path::Path,
     wants: &[Want],
     cancel: &impl CancellationCheck,
 ) -> Result<Streaming, String> {
     seek(source, 0)?;
-    let mut proof = Proof::new(source, wants)?;
+    let mut proof = Proof::new(source, path, wants)?;
     let mut buffer = vec![0u8; READ_BYTES];
     let mut binary = false;
     loop {
@@ -75,10 +80,12 @@ pub(super) fn stream_pass(
         binary |= chunk.contains(&0);
         proof.feed(chunk);
     }
-    Ok(Streaming {
-        pass: proof.finish(),
-        binary,
-    })
+    let mut pass = proof.finish();
+    // A binary source is refused: nothing of it is shown.
+    if !binary {
+        pass.mask_windows(source, cancel)?;
+    }
+    Ok(Streaming { pass, binary })
 }
 
 /// The windows of [`stream_pass`].
@@ -88,7 +95,7 @@ pub(super) fn stream(
     wants: &[Want],
     cancel: &impl CancellationCheck,
 ) -> Result<Vec<Streamed>, String> {
-    let Streaming { pass, binary } = stream_pass(source, wants, cancel)?;
+    let Streaming { pass, binary } = stream_pass(source, Path::new(""), wants, cancel)?;
     Ok(streamed(
         pass.lines,
         &pass.proven.digest,

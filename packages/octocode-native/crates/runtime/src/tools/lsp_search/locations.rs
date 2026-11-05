@@ -29,7 +29,7 @@ pub(super) use shaping::MAX_DECLARATION_CONTENT_LINES;
 use shaping::{DECLARATION_CLIPPED, location_payload, location_sizes};
 pub(super) use shaping::{
     RECOVERED_ALIAS, apply_context_lines, cap_declaration_content, compact_location,
-    public_location,
+    hide_lines_a_row_cannot_judge, public_location,
 };
 use snapshots::salted_snapshot;
 #[cfg(test)]
@@ -223,6 +223,7 @@ async fn location_page(
                 .filter_map(cap_declaration_content)
                 .collect();
         }
+        hide_lines_a_row_cannot_judge(&mut page, sources).await;
         let page = page.into_iter().map(public_location).collect::<Vec<_>>();
         match rows::located_files(page.clone()) {
             Some(files) => ("files", json!(files)),

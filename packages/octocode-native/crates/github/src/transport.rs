@@ -66,6 +66,14 @@ pub struct RequestSpec {
     /// The caller knows the answer cannot change (a query bound to a commit).
     /// A REST read is classified from its URL instead ([`names_commit`]).
     pinned: bool,
+    /// The repository file this request reads when its URL names none (a blob).
+    /// Part of its identity ([`evidence::request_key`]), so what keeps the answer
+    /// can tell what it holds ([`requested_file`]).
+    file: Option<String>,
+    /// A read of one pull request by a route with no validator (GraphQL): a kept
+    /// answer stands for the lifetime GitHub states for that pull request's REST
+    /// read ([`GitHubTransport::reuse_window`]).
+    reads_pull_request: bool,
 }
 impl RequestSpec {
     pub fn get(url: Url) -> Self {
@@ -75,6 +83,8 @@ impl RequestSpec {
             body: None,
             headers: HeaderMap::new(),
             pinned: false,
+            file: None,
+            reads_pull_request: false,
         }
     }
     pub(crate) fn graphql(url: Url, body: Value) -> Self {
@@ -84,7 +94,27 @@ impl RequestSpec {
             body: Some(body),
             headers: HeaderMap::new(),
             pinned: false,
+            file: None,
+            reads_pull_request: false,
         }
+    }
+
+    /// This query reads one pull request.
+    pub(crate) fn reading_pull_request(mut self) -> Self {
+        self.reads_pull_request = true;
+        self
+    }
+
+    /// Whether a GraphQL answer to this request can be kept: something later
+    /// says how long it stands.
+    fn keeps_graphql_answer(&self) -> bool {
+        self.pinned || self.reads_pull_request
+    }
+
+    /// This request reads the repository file at `path`.
+    pub(crate) fn reading_file(mut self, path: &str) -> Self {
+        self.file = Some(path.to_owned());
+        self
     }
 
     /// This query is bound to a commit: its answer cannot change.
@@ -202,6 +232,12 @@ impl GraphQlError {
         self.error_type.as_deref() == Some("RATE_LIMITED")
             || self.extensions.get("type").and_then(Value::as_str) == Some("RATE_LIMITED")
             || self.message.contains("RATE_LIMITED")
+    }
+
+    /// A secondary limit named on HTTP 200, as GitHub documents it may be
+    /// (Octokit tests the same words on a GraphQL error's message).
+    pub(crate) fn is_secondary_limit(&self) -> bool {
+        super::budget::names_secondary_limit(&self.message)
     }
 
     /// Octokit plugin-retry retries this GraphQL failure like a 500.
@@ -337,8 +373,9 @@ mod attempts;
 mod context;
 mod evidence;
 mod execute;
+mod graphql;
 pub use context::RequestContext;
-pub use evidence::{ProviderAnswer, ProviderEvidence};
+pub use evidence::{AnswerBody, ProviderAnswer, ProviderEvidence, requested_file};
 #[cfg(test)]
 pub(crate) use execute::SEARCH_REUSE_WINDOW;
 mod response;

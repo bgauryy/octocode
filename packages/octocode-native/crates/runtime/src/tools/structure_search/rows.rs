@@ -19,7 +19,7 @@ mod window;
 pub(super) use line_counts::line_count_reads;
 pub(super) use line_counts::{Lines, count_lines};
 pub(super) use read_lead::read_lead;
-pub(super) use window::window_rows;
+pub(super) use window::{Ranking, digest_entry, rows_of};
 
 /// What a listed entry is: anything that is neither a directory nor a
 /// symlink lists as a file.

@@ -3,7 +3,7 @@ use std::path::{Component, Path, PathBuf};
 
 use super::PathPolicy;
 use crate::policy::PolicyErrorCode;
-use crate::policy::discovery::{EntryKind, is_sensitive_path};
+use crate::policy::discovery::EntryKind;
 
 impl PathPolicy {
     /// Discovery prunes denied subtrees. Let the walker account for ordinary
@@ -21,7 +21,7 @@ impl PathPolicy {
         }
     }
 
-    /// Discovery decisions for one walk ([`DiscoveryWalk::permits`]), equal
+    /// Discovery decisions for one walk ([`DiscoveryWalk::permits_entry`]), equal
     /// to [`Self::permits_discovery`] at a fraction of its cost.
     pub(crate) fn discovery_walk(&self) -> DiscoveryWalk<'_> {
         DiscoveryWalk {
@@ -165,12 +165,8 @@ fn already_resolved(path: &Path) -> bool {
 }
 
 impl DiscoveryWalk<'_> {
-    pub(crate) fn permits(&self, path: &Path) -> bool {
-        self.permits_entry(path, None)
-    }
-
-    /// [`Self::permits`] for a walked entry whose directory-listing type the
-    /// walk already has: a type that is not a symlink skips the `lstat`.
+    /// Whether the walk may enter or read `path`. A listing type the walk
+    /// already has, not a symlink, skips the `lstat`.
     pub(crate) fn permits_entry(&self, path: &Path, file_type: Option<std::fs::FileType>) -> bool {
         self.decide(path, file_type).map_or_else(
             || self.policy.permits_discovery(path),
@@ -237,8 +233,8 @@ impl DiscoveryWalk<'_> {
             EntryKind::File
         };
         let permitted = self.policy.allowed(&real)
-            && !is_sensitive_path(lexical, entry)
-            && (!moved || !is_sensitive_path(&real, entry));
+            && !self.policy.withholds(lexical, entry)
+            && (!moved || !self.policy.withholds(&real, entry));
         // An admitted directory that is no link seeds its entries' real
         // path: its parent's plus its own name.
         if permitted && kind.is_dir() {
@@ -272,6 +268,10 @@ impl DiscoveryWalk<'_> {
             .filter(|parent| parent.admitted)?
             .real
             .clone();
+        // The name alone cannot say: the setting depends on where the file lies.
+        if self.policy.allows_credential_files() {
+            return None;
+        }
         let entry = if kind.is_dir() {
             EntryKind::Dir
         } else {

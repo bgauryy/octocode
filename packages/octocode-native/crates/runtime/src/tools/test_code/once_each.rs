@@ -24,20 +24,32 @@ impl<V: Clone> OnceEach<V> {
     /// they compute never asks for `key`: no lock is held while it runs, but
     /// a key waits for its own first asker.
     pub(super) fn of(&self, key: &Path, compute: impl FnOnce() -> V) -> V {
+        self.cell(key).get_or_init(compute).clone()
+    }
+
+    /// The value of `key` if it is settled, without waiting for anyone.
+    pub(super) fn known(&self, key: &Path) -> Option<V> {
+        self.cell(key).get().cloned()
+    }
+
+    /// Settles `key` at `value` unless it already is: a verdict computed
+    /// outside [`Self::of`], where a cycle could otherwise wait on itself.
+    pub(super) fn settle(&self, key: &Path, value: V) {
+        self.cell(key).get_or_init(|| value);
+    }
+
+    fn cell(&self, key: &Path) -> Arc<OnceLock<V>> {
         let hash = BuildHasherDefault::<DefaultHasher>::default()
             .hash_one(key.as_os_str().as_encoded_bytes());
         let shard = &self.shards[usize::from(hash.to_le_bytes()[0]) % SHARDS];
-        let cell = {
-            let mut cells = lock(shard);
-            match cells.get(key) {
-                Some(cell) => Arc::clone(cell),
-                None => {
-                    let cell = Arc::<OnceLock<V>>::default();
-                    cells.insert(key.to_path_buf(), Arc::clone(&cell));
-                    cell
-                }
+        let mut cells = lock(shard);
+        match cells.get(key) {
+            Some(cell) => Arc::clone(cell),
+            None => {
+                let cell = Arc::<OnceLock<V>>::default();
+                cells.insert(key.to_path_buf(), Arc::clone(&cell));
+                cell
             }
-        };
-        cell.get_or_init(compute).clone()
+        }
     }
 }

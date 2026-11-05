@@ -25,7 +25,6 @@ describe('failStartup', () => {
     );
     vi.spyOn(process, 'exit').mockImplementation(code => {
       exit(code);
-      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- process.exit returns never; the stub must return so the timers and events under test keep running.
       return undefined as never;
     });
   });

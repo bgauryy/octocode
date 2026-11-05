@@ -16,7 +16,7 @@ fn pages(data: Value, tool: ToolId, ordinary: usize, terminal: Option<usize>) ->
     (0..plan.total_pages)
         .map(|page| {
             json!(
-                plan.build_page(page, &[None], &[], &Cancellation::new())
+                plan.build_page(page, &[None], &Cancellation::new())
                     .unwrap()
             )
         })

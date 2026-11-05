@@ -1,6 +1,6 @@
-import { buildEnforcementContractIr } from '@octocodeai/octocode-core/schema';
 import { describe, expect, it } from 'vitest';
 import { queryBranches, renderDispatch, toolNames, type ChannelRegistry } from '../scripts/tool-contract/rust-dispatch.ts';
+import { contractIr } from './contract-ir.ts';
 
 const registry: ChannelRegistry = {
   localSearch: {
@@ -88,7 +88,7 @@ impl ::std::convert::From<Other> for Unrelated { }`,
 });
 
 describe('the core contract', () => {
-  const ir = buildEnforcementContractIr();
+  const ir = contractIr();
   const rust = renderDispatch(
     toolNames(ir.tools),
     ir.continuationChannels,

@@ -203,12 +203,17 @@ test('a recorded pid that is not the listener is stale and never killed', async 
 });
 
 test('cleanup without a listener or session reports no tracked session', async () => {
-  const port = await freePort();
-  const result = await cli(workspace(`empty-${port}`), [
-    'cleanup',
-    '--port',
-    port,
-  ]);
+  // A suite running beside this one can take a freed port before the call, so
+  // another port gets another try. A wrong answer repeats on every port.
+  let result;
+  for (
+    let attempt = 0;
+    attempt < 5 && result?.reason !== 'NO_LISTENER';
+    attempt++
+  ) {
+    const port = await freePort();
+    result = await cli(workspace(`empty-${port}`), ['cleanup', '--port', port]);
+  }
   assert.equal(result.status, 'NO_TRACKED_SESSION');
   assert.equal(result.reason, 'NO_LISTENER');
 });

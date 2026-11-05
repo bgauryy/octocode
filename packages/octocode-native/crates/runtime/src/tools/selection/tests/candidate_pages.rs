@@ -3,10 +3,9 @@
 use super::*;
 
 #[test]
-fn candidate_pages_skip_oversized_states_but_judge_every_fitting_state_once() {
+fn candidate_pages_walk_in_source_order_and_a_large_state_runs_alone() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let (mut runtime, calls) = selecting_runtime(&executor);
-    runtime.limits.max_candidates = 1;
     runtime.limits.max_chars = 64;
     let candidates = [
         Candidate::new(Some(json!({"content":"first"}))),
@@ -16,27 +15,25 @@ fn candidate_pages_skip_oversized_states_but_judge_every_fitting_state_once() {
     ];
     let query = json!({"classification":{"predicates":["find evidence"]}});
     let run = |prior| {
-        select_source(&runtime, &query, prior, &candidates, SelectionUnit::Files)
+        select_source(&runtime, &query, prior, &candidates, SelectionUnit::Hits)
             .unwrap_or_else(|_| panic!("mixed candidate page"))
     };
     let first = run(None);
     assert_eq!(first.selected, [0]);
-    assert_eq!(first.unjudged, [2]);
+    assert_eq!(first.unjudged, [1, 2]);
     assert_eq!(
         first.receipt.reason.as_deref(),
-        Some("candidateStateTooLarge")
+        Some("candidateEligibilityAndBudget")
     );
-    assert_eq!(first.receipt.unknown_items, 3);
-    assert!(first.excluded.is_empty());
-    let next = first
-        .next_candidates(ToolId::LocalSearch)
-        .expect("fitting candidate page");
-    let last = run(Some(next));
+    let second = run(Some(first.next_candidates().expect("the rest")));
+    assert_eq!(second.selected, [1]);
+    assert_eq!(second.unjudged, [2]);
+    let last = run(Some(second.next_candidates().expect("the rest")));
     assert_eq!(last.selected, [2]);
-    assert!(last.next_candidates(ToolId::LocalSearch).is_none());
+    assert!(last.next_candidates().is_none());
     assert_eq!(last.receipt.total_items, 1);
     assert_eq!(last.receipt.status, SelectionStatus::Complete);
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
 }
 
 /// Candidate pages: each judges the budget's worth of what the page
@@ -69,7 +66,8 @@ fn a_chain_of_candidate_pages_judges_every_ordinal_once() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let judge = std::sync::Arc::new(Recording(std::sync::Mutex::new(Vec::new())));
     let mut runtime = test_runtime(judge.clone(), executor.handle().clone());
-    runtime.limits.max_candidates = 3;
+    // Three candidates of 24 serialized characters a page.
+    runtime.limits.max_chars = 75;
     let mut candidates = (0..8)
         .map(|i| Candidate::new(Some(json!({"content":format!("evidence {i}")}))))
         .collect::<Vec<_>>();
@@ -96,7 +94,7 @@ fn a_chain_of_candidate_pages_judges_every_ordinal_once() {
         if totals.len() == 2 {
             second_page = Some((outcome.token.clone(), outcome.selected.clone()));
         }
-        match outcome.next_candidates(ToolId::LocalSearch) {
+        match outcome.next_candidates() {
             Some(next) => prior = Some(next.to_owned()),
             None => break,
         }
@@ -133,12 +131,11 @@ fn a_chain_of_candidate_pages_judges_every_ordinal_once() {
 fn provider_candidate_pages_cover_the_same_page_and_refuse_source_drift() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let (mut runtime, calls) = selecting_runtime(&executor);
-    runtime.limits.max_candidates = 2;
-    runtime.limits.max_chars = 1_024;
+    runtime.limits.max_chars = 1;
     let mut files: Vec<Value> = (0..5)
         .map(|i| json!({"path":format!("{i}.rs"),"lines":[format!("1\tfn candidate_{i}() {{}}")]}))
         .collect();
-    files.push(json!({"path":"oversized.rs","lines":["x".repeat(2_000)]}));
+    files.push(json!({"path":"oversized.rs","lines":[format!("1\t{}", "x".repeat(2_000))]}));
     let original = json!({"results":[{"index":0,"data":{
         "owner":"o","repo":"r","files":files,
         "next":{"nextPage":{"kind":"continue","tool":"ghSearchCode","input":{"queries":[{
@@ -149,7 +146,7 @@ fn provider_candidate_pages_cover_the_same_page_and_refuse_source_drift() {
         "classification":{"predicates":["Does this define a function?"]}});
     let mut seen = HashSet::new();
     let mut first_next = None;
-    for page in 0..3 {
+    for page in 0..6 {
         let mut output = original.clone();
         apply_code_rows(&mut output, query.clone(), &mut query.clone(), &runtime)
             .expect("candidate page");
@@ -160,22 +157,26 @@ fn provider_candidate_pages_cover_the_same_page_and_refuse_source_drift() {
         assert_eq!(data["next"]["nextPage"]["input"]["queries"][0]["page"], 4);
         if page == 0 {
             assert_eq!(data["selection"]["totalItems"], 6);
-            assert_eq!(data["selection"]["unknownItems"], 4);
-            assert_eq!(data["selection"]["reason"], "candidateStateTooLarge");
+            assert_eq!(data["selection"]["unknownItems"], 5);
+            assert_eq!(data["selection"]["reason"], "candidateBudget");
             assert!(data["next"]["unfiltered"].is_object());
         }
         let next = data["next"]["nextCandidatePage"]["input"]["queries"][0].clone();
-        if page < 2 {
+        if page < 5 {
             assert_eq!(next["page"], 3);
             assert!(next["selection"].is_string());
             first_next.get_or_insert_with(|| next.clone());
             query = next;
         } else {
-            assert!(next.is_null(), "oversized evidence cannot loop forever");
+            assert!(next.is_null(), "the walk ends");
         }
     }
-    assert_eq!(seen.len(), 5);
-    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert_eq!(
+        seen.len(),
+        6,
+        "every file reached once, the oversized one too"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 6);
     let query = first_next.expect("continuation");
     let mut changed = original;
     changed["results"][0]["data"]["files"][0]["lines"] = json!(["1\tchanged"]);
@@ -184,7 +185,7 @@ fn provider_candidate_pages_cover_the_same_page_and_refuse_source_drift() {
     assert_eq!(changed["results"][0]["data"]["errorCode"], "staleSnapshot");
     assert_eq!(
         calls.load(Ordering::SeqCst),
-        3,
+        6,
         "drift cannot trigger inference"
     );
 }

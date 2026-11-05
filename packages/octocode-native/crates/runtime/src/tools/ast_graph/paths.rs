@@ -44,3 +44,22 @@ pub(crate) fn normalize(p: &str) -> String {
     let folded = slash_path(&lexical(Path::new(&p.replace('\\', "/"))));
     folded.trim_start_matches('/').to_owned()
 }
+
+/// The directories above `root`, nearest first, up to its repository's
+/// boundary: what may hold code a scan of `root` imports. A root that is itself
+/// a repository's has none, and the walk ends after a level bound when no
+/// boundary shows.
+pub(super) fn dirs_above_within_repository(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    const MAX_LEVELS: usize = 16;
+    if octocode_engine::search::repository::is_root(root) {
+        return Vec::new();
+    }
+    let mut dirs = Vec::new();
+    for dir in root.ancestors().skip(1).take(MAX_LEVELS) {
+        dirs.push(dir.to_path_buf());
+        if octocode_engine::search::repository::is_root(dir) {
+            break;
+        }
+    }
+    dirs
+}

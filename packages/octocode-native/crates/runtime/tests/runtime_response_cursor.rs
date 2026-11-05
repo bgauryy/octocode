@@ -30,16 +30,7 @@ async fn walk(
         let payload = support::mcp_payload(&result);
         let pagination = payload["responsePagination"].clone();
         if !pages.is_empty() || pagination.is_object() {
-            assert_eq!(pagination["page"], pages.len() + 1, "{pagination}");
             assert_ne!(pagination["restart"], true, "{pagination}");
-        }
-        if let Some(first) = pages.first() {
-            let first: &Value = first;
-            assert_eq!(
-                pagination["totalPages"],
-                support::mcp_payload(first)["responsePagination"]["totalPages"],
-                "totalPages is exact from the first page: {pagination}"
-            );
         }
         pages.push(result);
         if pagination["hasMore"] != true {

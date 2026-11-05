@@ -121,7 +121,6 @@ fn detect_redacts_aws_access_key_id() {
 }
 
 /// A detector its file context rules out is never compiled for that text:
-/// the Kubernetes Secret automaton (tens of milliseconds to build) and other
 /// context-gated detectors cost nothing on a call whose output never reaches
 /// them, while the same text in their context still selects them.
 #[test]
@@ -181,7 +180,7 @@ fn a_whole_source_scan_is_asked_only_where_a_window_cannot_decide() {
     assert!(WholeSourcePatterns::for_path("docker-compose.txt").is_none());
     let patterns = WholeSourcePatterns::for_path("k8s/a.yaml").expect("applies");
     assert!(patterns.named_by("kind: Secret"));
-    assert!(patterns.named_by("data:"));
+    assert!(!patterns.named_by("data:"));
     assert!(!patterns.named_by("  name: x"));
     assert!(!patterns.named_by("ordinary line"));
 }

@@ -85,12 +85,11 @@ writeFileSync(
 const server = createServer((req, res) => {
   res.setHeader('content-type', 'text/html');
   res.end(
-    '<!doctype html><title>Frozen lifecycle fixture</title><h1>Research fixture</h1>' +
-      Array.from(
-        { length: 24 },
-        (_, i) =>
-          `<a href="/row/${i}">${i === 0 || i === 23 ? 'boundary' : 'evidence'} row ${i}</a>`
-      ).join('')
+    `<!doctype html><title>Frozen lifecycle fixture</title><h1>Research fixture</h1>${Array.from(
+      { length: 24 },
+      (_, i) =>
+        `<a href="/row/${i}">${i === 0 || i === 23 ? 'boundary' : 'evidence'} row ${i}</a>`
+    ).join('')}`
   );
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));

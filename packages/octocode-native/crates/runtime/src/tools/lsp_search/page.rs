@@ -16,6 +16,8 @@ pub(super) struct Target {
     /// Why the server runs at another root than the one inferred for the
     /// file: a warning every row of the request carries.
     pub(super) root_note: Option<String>,
+    /// What is wrong with the configuration behind this route.
+    pub(super) config_notes: Vec<String>,
 }
 
 impl Target {
@@ -108,20 +110,43 @@ pub(super) async fn run_page(
 ) -> Result<Value, Exit> {
     let target = discover_server(query, path, paths, execution_config)?;
     let outcome = run_target(query, &target, cancel, pool, paths, response_window).await;
-    let Some(note) = target.root_note else {
+    let notes = target
+        .root_note
+        .into_iter()
+        .chain(target.config_notes)
+        .collect::<Vec<_>>();
+    if notes.is_empty() {
         return outcome;
-    };
+    }
     match outcome {
         Ok(mut row) => {
-            crate::response::paging::push_warnings(&mut row, [note]);
+            crate::response::paging::push_warnings(&mut row, notes);
             Ok(row)
         }
         Err(Exit::Row(mut row)) => {
-            crate::response::paging::push_warnings(&mut row, [note]);
+            crate::response::paging::push_warnings(&mut row, notes);
             Err(Exit::Row(row))
         }
         failed => failed,
     }
+}
+
+/// The row of an anchor that resolves to nothing, with its recovery.
+fn anchor_unresolved(
+    query: &LspSearchQuery,
+    target: &Target,
+    text: Option<&str>,
+    error: &str,
+) -> Exit {
+    let mut row = failure(
+        query,
+        &target.uri,
+        ErrorCode::AnchorUnresolved,
+        error,
+        target.server_resolves(),
+    );
+    failure::anchor_recovery(&mut row, query, text);
+    Exit::Row(row)
 }
 
 /// [`run_page`] once the server is discovered.
@@ -153,21 +178,12 @@ pub(super) async fn run_target(
         return Ok(locations::snapshot_changed(query));
     }
     let text = document.as_deref().map(|source| source.content.as_str());
-    let anchor =
-        anchor::resolve_anchor(query, &target.path, &target.uri, text).map_err(|error| {
-            let mut row = failure(
-                query,
-                &target.uri,
-                ErrorCode::AnchorUnresolved,
-                &error,
-                target.server_resolves(),
-            );
-            failure::anchor_recovery(&mut row, query, text);
-            Exit::Row(row)
-        })?;
+    let anchor = anchor::resolve_anchor(query, &target.path, &target.uri, text)
+        .map_err(|error| anchor_unresolved(query, target, text, &error))?;
     // Every code-use check of the scope (the operation's and the one below)
     // bounds the scanned files by the anchor declaration's reach.
     scope.anchor_site(&target.path, anchor.line, anchor.character);
+    scope.asks(scope::Question::of(lsp_search_query::op(query)));
     let session = open_session(
         query,
         target,
@@ -187,7 +203,7 @@ pub(super) async fn run_target(
     // answers, which were judged when they were asked.
     let mut result = loop {
         let asked = session.client.asked_at();
-        let row = ops::Operation {
+        let mut row = ops::Operation {
             client: &session.client,
             query,
             sources: &mut sources,
@@ -216,6 +232,18 @@ pub(super) async fn run_target(
         {
             EmptyAnswer::Stands => break row,
             EmptyAnswer::AskAgain => {}
+            // The declarations it can see stay: partial, they claim nothing.
+            EmptyAnswer::StillLoading
+                if row.get("status").and_then(Value::as_str) != Some("empty") =>
+            {
+                failure::partial_with_related_rerun(
+                    &mut row,
+                    query,
+                    crate::response::paging::PartialReason::LanguageServerIndexing,
+                    &[],
+                );
+                break row;
+            }
             EmptyAnswer::StillLoading => break failure::still_indexing(query),
         }
     };
@@ -224,6 +252,38 @@ pub(super) async fn run_target(
     {
         scope.text_files(name, paths, cancel).await?;
         scope.check_code_uses(name, cancel).await?;
+        // Ask the server what each file's spelling names: only one it cannot
+        // place elsewhere can be a use it missed.
+        if server_coverage::lacks_signal(language_id)
+            && server_coverage::lists_no_use(&result)
+            && !target.root_only
+            && scope
+                .text_only_files(name)
+                .is_some_and(|files| !files.is_empty())
+        {
+            let checked = importers::verified_anchors(
+                &session.client,
+                &mut sources,
+                &snippet_policy,
+                cancel,
+                importers::ImporterSearch {
+                    symbol: name,
+                    scope: &scope,
+                    declaration: super::anchor::Position {
+                        path: &target.path,
+                        line: anchor.line,
+                        character: anchor.character,
+                    },
+                    known_files: &std::collections::HashSet::new(),
+                    window: importers::WindowRequest::default(),
+                    proof: importers::SiteProof::DefinitionChain,
+                    reads_imports: false,
+                },
+            )
+            .await
+            .map_err(|failure| crashed(query, &target.uri, &session.config, failure))?;
+            scope.answer(checked.rejected);
+        }
     }
     annotate(
         &mut result,
@@ -234,6 +294,15 @@ pub(super) async fn run_target(
         anchor.resolved_symbol,
         &|| cancel.check().is_err(),
     );
+    importers::flag_markup_importers(
+        &mut result,
+        query,
+        language_id,
+        (&scope, &target.path, text),
+        paths,
+        cancel,
+    )
+    .await?;
     if matches!(lsp_search_query::op(query), Op::References | Op::Callers) {
         locations::attach_read_lead(&mut result);
     }
@@ -247,10 +316,10 @@ pub(super) async fn run_target(
     Ok(row)
 }
 
-/// Whether `row` reads as a settled answer that nothing was found: empty, and
-/// not already flagged incomplete.
+/// Whether `row` reads as a settled answer that nothing was found: no use
+/// listed (empty, or declarations alone), and not already flagged incomplete.
 fn claims_absence(row: &Value) -> bool {
-    row.get("status").and_then(Value::as_str) == Some("empty")
+    server_coverage::lists_no_use(row)
         && row.get("isPartial").and_then(Value::as_bool) != Some(true)
 }
 
@@ -284,7 +353,8 @@ pub(super) fn needs_text_scan(
     inferred_project::is_incoming(lsp_search_query::operation(query))
         && (is_typescript_family(language_id)
             || is_c_family(language_id)
-            || matches!(language_id, Some("python" | "rust")))
+            || matches!(language_id, Some("python" | "rust"))
+            || server_coverage::lists_no_use(row))
         && lsp_search_query::symbol_name(query).is_some_and(|name| !name.trim().is_empty())
         && row.get("status").and_then(Value::as_str) != Some("error")
 }

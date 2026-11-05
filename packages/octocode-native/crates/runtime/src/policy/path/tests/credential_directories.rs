@@ -74,13 +74,13 @@ fn credential_directory_type_is_not_cached_across_replacement() {
     let path = root.path().join("credentials");
     let walk = policy.discovery_walk();
     std::fs::write(&path, "ordinary content").unwrap();
-    assert!(!walk.permits(&path));
+    assert!(!walk.permits_entry(&path, None));
     std::fs::remove_file(&path).unwrap();
     std::fs::create_dir(&path).unwrap();
-    assert!(walk.permits(&path));
+    assert!(walk.permits_entry(&path, None));
     std::fs::remove_dir(&path).unwrap();
     std::fs::write(&path, "ordinary content").unwrap();
-    assert!(!walk.permits(&path));
+    assert!(!walk.permits_entry(&path, None));
 }
 
 #[cfg(unix)]

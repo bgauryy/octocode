@@ -87,7 +87,7 @@ pub(super) fn select_no_match(
         local_fetch_query::selection(q),
         &[],
         None,
-        octocode_contract_types::SelectionUnit::Chunks,
+        octocode_contract_types::SelectionUnit::Hits,
     ) {
         Ok(outcome) => result.selection = Some(outcome.receipt),
         Err(failure) => return selection_failure(q, failure),
@@ -132,18 +132,55 @@ pub(super) fn select_view_chunks(
         }
         return Ok(None);
     }
-    let unsupported = None;
-    let (candidates, chunks) = super::super::selection::chunks(
-        &view.text,
-        ext.source_lines.as_deref(),
-        Some(source_text),
-        input.source_path,
-        input.provider_path,
-        security,
-        input.runtime,
-        local_fetch_query::selection(q),
-        unsupported,
-    );
+    // A search hit is the unit an agent asks about; a read with no search has
+    // only chunks to offer.
+    let source_lines = ext.source_lines.clone().unwrap_or_default();
+    let by_hit = !ext.matched_lines.is_empty()
+        && source_lines.len() == view.text.split_inclusive('\n').count();
+    let unit = if by_hit {
+        octocode_contract_types::SelectionUnit::Hits
+    } else {
+        octocode_contract_types::SelectionUnit::Chunks
+    };
+    let (candidates, chunks) = if by_hit {
+        let context = local_fetch_query::context_lines(q);
+        let (before, after) = (
+            octocode_engine::num::saturating_usize(context.before),
+            octocode_engine::num::saturating_usize(context.after),
+        );
+        let blocks = &ext.blocks;
+        super::super::selection::hit_chunks(
+            &view.text,
+            &source_lines,
+            &ext.matched_lines,
+            |hit| {
+                blocks
+                    .iter()
+                    .find(|block| (block.line..=block.end_line).contains(&hit))
+                    .map_or(
+                        (hit.saturating_sub(before), hit.saturating_add(after)),
+                        |block| (block.line, block.end_line),
+                    )
+            },
+            input.source_path,
+            input.provider_path,
+            security,
+            input.runtime,
+            local_fetch_query::selection(q),
+        )
+    } else {
+        super::super::selection::chunks(
+            &view.text,
+            ext.source_lines.as_deref(),
+            Some(source_text),
+            input.source_path,
+            input.provider_path,
+            security,
+            input.runtime,
+            local_fetch_query::selection(q),
+            None,
+        )
+    };
     let (outcome, provider) =
         crate::tools::selection::unless_transient(crate::tools::selection::select(
             input.runtime,
@@ -151,14 +188,31 @@ pub(super) fn select_view_chunks(
             &input.source_key(),
             local_fetch_query::selection(q),
             &candidates,
-            unsupported,
-            octocode_contract_types::SelectionUnit::Chunks,
+            None,
+            unit,
         ))
         .map_err(|failure| Box::new(selection_failure(q, failure)))?;
     let shown = outcome.shown(chunks.len());
-    let (text, source_lines) = super::super::selection::project(&view.text, &chunks, &shown);
-    view.text = text;
-    ext.source_lines = Some(source_lines);
+    if by_hit {
+        let keep = shown
+            .iter()
+            .flat_map(|&ordinal| chunks[ordinal].lines())
+            .copied()
+            .collect();
+        let (text, lines) =
+            super::super::selection::project_lines(&view.text, &source_lines, &keep);
+        view.text = text;
+        ext.source_lines = Some(lines);
+        ext.matched_lines = shown
+            .iter()
+            .map(|&ordinal| ext.matched_lines[ordinal])
+            .collect();
+        ext.count = Some(ext.matched_lines.len());
+    } else {
+        let (text, lines) = super::super::selection::project(&view.text, &chunks, &shown);
+        view.text = text;
+        ext.source_lines = Some(lines);
+    }
     Ok(Some(super::super::selection::Chosen::new(
         outcome, provider, &chunks,
     )))

@@ -1,8 +1,8 @@
 //! `$/progress` tracking and the readiness signal derived from it.
 
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::{Mutex, watch};
 use tokio::time::{Duration, Instant};
 
@@ -64,6 +64,43 @@ impl Readiness {
 /// `timeout_ms` so `wait_for_ready` can never block longer than asked.
 pub(crate) const STARTUP_SETTLE_MS: u64 = 2_000;
 
+/// How far a language server says it works; rust-analyzer's `health` above `ok`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HealthLevel {
+    /// "Some results might be wrong", for example a missing dependency.
+    Warning,
+    /// "Most results will be incomplete or wrong", for example a project that
+    /// failed to load.
+    Error,
+}
+
+impl HealthLevel {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Warning => "warning",
+            Self::Error => "error",
+        }
+    }
+
+    /// `None` for `ok`. A level this client does not know is no claim of working,
+    /// so it reads as the milder failure.
+    fn parse(level: &str) -> Option<Self> {
+        match level {
+            "ok" => None,
+            "error" => Some(Self::Error),
+            _ => Some(Self::Warning),
+        }
+    }
+}
+
+/// A language server's own report that it is not fully working: its answers
+/// may be incomplete or wrong.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ServerHealth {
+    pub level: HealthLevel,
+    pub message: Option<String>,
+}
+
 /// Tracks in-flight `$/progress` tokens emitted by a language server.
 ///
 /// After `initialized` is sent, servers like `rust-analyzer` begin asynchronous
@@ -76,6 +113,9 @@ pub(crate) const STARTUP_SETTLE_MS: u64 = 2_000;
 ///   2. **Drain**: wait until every active token ends or the original deadline expires.
 pub(crate) struct ProgressTracker {
     active: Mutex<HashSet<String>>,
+    /// What the server last said is wrong with it; `None` while it reports
+    /// `ok` or nothing.
+    health: StdMutex<Option<ServerHealth>>,
     /// `true` once at least one `begin` notification has been received.
     ever_active: AtomicBool,
     /// Tokens that began, counted once per start of a token not already open.
@@ -89,6 +129,7 @@ impl ProgressTracker {
         let (count_tx, count_rx) = watch::channel(0usize);
         Arc::new(Self {
             active: Mutex::new(HashSet::new()),
+            health: StdMutex::new(None),
             ever_active: AtomicBool::new(false),
             begins: AtomicU64::new(0),
             count_tx,
@@ -141,6 +182,27 @@ impl ProgressTracker {
         } else {
             self.on_begin(SERVER_STATUS_TOKEN.to_owned()).await;
         }
+    }
+
+    /// rust-analyzer `experimental/serverStatus`: the latest `health` replaces
+    /// the last, so a reloaded project clears an earlier failure.
+    pub(crate) fn on_server_health(&self, level: &str, message: Option<&str>) {
+        let report = HealthLevel::parse(level).map(|level| ServerHealth {
+            level,
+            message: message.map(str::to_owned),
+        });
+        *self
+            .health
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = report;
+    }
+
+    /// What the server last said is wrong with it, while it says so.
+    pub(crate) fn health(&self) -> Option<ServerHealth> {
+        self.health
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     /// Blocks until all in-flight tokens end **and** a quiescence window passes

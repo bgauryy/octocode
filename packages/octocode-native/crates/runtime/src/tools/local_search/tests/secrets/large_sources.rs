@@ -1,0 +1,113 @@
+//! A source too large for the scanner to judge whole: only what the source's
+//! structure says withholds a row. Every value below is fake.
+use super::*;
+
+const VALUE: &str = "RmFrZTBWYWx1ZTlOb3Q0UmVhbDhCbG9iN0xvbmc2RW5vdWdo";
+const OVER_THE_SCANNER: usize = 11 * 1024 * 1024;
+
+fn values(name: &str, text: &str, needle: &str) -> Vec<String> {
+    let root = tempfile::tempdir().expect("fixture directory");
+    let path = root.path().join(name);
+    fs::write(&path, text).expect("fixture");
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({"path": path.to_string_lossy(), "matchString": [needle], "limit": 20}),
+        None,
+    );
+    let found = search_in(&request, &policy, &security, None)
+        .expect("search")
+        .to_row()
+        .expect("serialize");
+    found["files"][0]["matches"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .map(|row| row["value"].as_str().expect("a value").to_owned())
+        .collect()
+}
+
+/// `kty` by chance in a long base64 string says nothing of the rows beside it.
+#[test]
+fn a_literal_inside_a_blob_withholds_nothing() {
+    let blob = "QUJDkty0REVGRwWVo9".repeat(OVER_THE_SCANNER / 18);
+    let text = format!(
+        "{{\"font\":\"{blob}\",\n\"name1\": \"ordinary words one\",\n\"name2\": \"ordinary words two\"\n}}\n"
+    );
+    assert_eq!(
+        values("bundle.json", &text, "ordinary words"),
+        vec![
+            "\"name1\": \"ordinary words one\",",
+            "\"name2\": \"ordinary words two\""
+        ]
+    );
+}
+
+/// `kty` as a word, a Rust path or a bare string names no JSON Web Key.
+#[test]
+fn a_kty_that_is_no_key_withholds_nothing() {
+    for spelling in ["the kty field", "Kty::Rsa is kty::Rsa", "\"kty\" is a word"] {
+        let filler = format!("{spelling} here\n").repeat(OVER_THE_SCANNER / 20);
+        let text = format!("{filler}\"name\": \"ordinary words\"\n");
+        assert_eq!(
+            values("notes.txt", &text, "ordinary words"),
+            vec!["\"name\": \"ordinary words\""],
+            "{spelling}"
+        );
+    }
+}
+
+/// A log that refers to a Secret holds no value of one.
+#[test]
+fn a_reference_to_a_secret_withholds_nothing() {
+    let line =
+        "{\"level\":\"info\",\"ref\":{\"kind\":\"Secret\",\"name\":\"x\"},\"user\":\"svc\"}\n";
+    let mut text = line.repeat(OVER_THE_SCANNER / line.len());
+    text.push_str("{\"level\":\"info\",\"msg\":\"ordinary words\"}\n");
+    assert_eq!(
+        values("events.log", &text, "ordinary words"),
+        vec!["{\"level\":\"info\",\"msg\":\"ordinary words\"}"]
+    );
+}
+
+fn secret_beside_config_maps(secret: &str) -> String {
+    let map = "{\n  \"data\": {\n    \"plain\": \"ordinary words\"\n  },\n  \"kind\": \"ConfigMap\"\n},\n";
+    format!(
+        "[\n{secret},\n{}{{}}\n]\n",
+        map.repeat(OVER_THE_SCANNER / map.len())
+    )
+}
+
+/// A real Secret loses its value, on either side of its `kind`, and only its value.
+#[test]
+fn a_real_secret_hides_its_value_and_nothing_else() {
+    for secret in [
+        format!("{{\n  \"data\": {{\n    \"blob\": \"{VALUE}\"\n  }},\n  \"kind\": \"Secret\"\n}}"),
+        format!("{{\n  \"kind\": \"Secret\",\n  \"data\": {{\n    \"blob\": \"{VALUE}\"\n  }}\n}}"),
+    ] {
+        let text = secret_beside_config_maps(&secret);
+        let hit = values("list.json", &text, "RmFrZTBWYWx1ZTlO");
+        assert_eq!(hit.len(), 1, "a hit is never dropped: {hit:?}");
+        assert!(!hit[0].contains(&VALUE[16..]), "{hit:?}");
+        let harmless = values("list.json", &text, "ordinary words");
+        assert_eq!(
+            harmless[0], "    \"plain\": \"ordinary words\"",
+            "{harmless:?}"
+        );
+    }
+}
+
+/// The same in YAML, with a `kind:` on every other manifest.
+#[test]
+fn a_large_yaml_hides_a_secret_s_block_and_nothing_else() {
+    let map = "apiVersion: v1\nkind: ConfigMap\ndata:\n  plain: ordinary words\n---\n";
+    let filler = map.repeat(OVER_THE_SCANNER / map.len());
+    let text = format!("apiVersion: v1\nstringData:\n  blob: {VALUE}\nkind: Secret\n---\n{filler}");
+    let hit = values("all.yaml", &text, "RmFrZTBWYWx1ZTlO");
+    assert_eq!(hit.len(), 1, "a hit is never dropped: {hit:?}");
+    assert!(!hit[0].contains(&VALUE[16..]), "{hit:?}");
+    let harmless = values("all.yaml", &text, "ordinary words");
+    assert_eq!(harmless[0], "  plain: ordinary words", "{harmless:?}");
+    // No Secret at all: every `kind:` of a large YAML leaves its rows readable.
+    let none = values("maps.yaml", &filler, "ordinary words");
+    assert_eq!(none[0], "  plain: ordinary words", "{none:?}");
+}

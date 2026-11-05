@@ -1,7 +1,7 @@
 //! `operation: "commit"`: one commit's header and its changed-file page.
 use super::file_page::{
-    DiffSides, FilePage, Lead, empty_scope_warning, file_page_note, lead_first, patch_needle,
-    read_commit_lead, shape_file_page,
+    DiffSides, FilePage, Lead, empty_scope_warning, lead_first, patch_needle, read_commit_lead,
+    shape_file_page,
 };
 use super::filter::{FileFilter, FileScope, FilteredPage};
 use super::inventory::file_page_size;
@@ -99,17 +99,13 @@ pub(super) async fn commit(
         Some(&commit.sha),
         page.cursors,
     );
-    let remaining = file_page_note(&out);
     if scope_removed_all {
         out["status"] = json!("empty");
     }
     let leads = commit_leads(query, &commit, page);
     lead_first(&mut out, leads);
     remove_nulls(&mut out);
-    Ok(ToolData {
-        remaining,
-        ..ToolData::from(out)
-    })
+    Ok(ToolData::from(out))
 }
 
 /// The facts of one commit a read names it by.

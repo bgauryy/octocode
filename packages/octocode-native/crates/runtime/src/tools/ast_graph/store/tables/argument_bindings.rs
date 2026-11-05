@@ -115,6 +115,9 @@ pub(super) fn imported(
     if targets.is_empty() {
         return Err(if external {
             "external-package"
+        } else if uncertain {
+            // An import that did not link, or a binding its target left open.
+            "other"
         } else {
             "not-declared-in-repo"
         });

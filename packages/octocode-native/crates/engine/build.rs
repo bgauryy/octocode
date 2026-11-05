@@ -135,7 +135,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=src/security/patterns");
     let mut gates = String::new();
     let mut fallback = Vec::new();
+    let mut longest = 0usize;
     for (index, pattern) in patterns::PATTERNS.iter().enumerate() {
+        let hir = regex_syntax::ParserBuilder::new()
+            .utf8(false)
+            .build()
+            .parse(pattern.regex)
+            .map_err(|error| format!("secret pattern {}: {error}", pattern.name))?;
+        longest = longest.max(hir.properties().maximum_len().unwrap_or(0));
         match gate_literals(pattern.regex)
             .map_err(|error| format!("secret pattern {}: {error}", pattern.name))?
         {
@@ -153,7 +160,9 @@ fn main() -> Result<(), Box<dyn Error>> {
          /// pattern it belongs to, in pattern order.\n\
          pub(super) static GATE_LITERALS: &[(&[u8], usize)] = &[\n{gates}];\n\
          /// Patterns with no provable literal: always candidates.\n\
-         pub(super) static FALLBACK: &[usize] = &[{}];\n",
+         pub(super) static FALLBACK: &[usize] = &[{}];\n\
+         /// Bytes of the longest match any pattern with a bound can make.\n\
+         pub const LONGEST_BOUNDED_MATCH: usize = {longest};\n",
         fallback.join(", ")
     );
     let out_dir = PathBuf::from(std::env::var("OUT_DIR")?);

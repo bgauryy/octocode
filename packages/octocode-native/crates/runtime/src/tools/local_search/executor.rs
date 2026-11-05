@@ -266,9 +266,7 @@ pub(super) fn shape_page(
     let (mut redacted, withheld, redaction) = redact_scan(scope, parsed, stored_redaction)?;
     // Encoded before the page reorders and fills it; deflated only if the
     // page's cursor keeps it (see `manifest::put_checked`).
-    let packed = if stored_redaction.is_none()
-        && crate::tools::test_code::result_may_be_kept(local_search_query::test_code(query))
-    {
+    let packed = if stored_redaction.is_none() {
         super::manifest::encode_checked(parsed, &|| scope.cancel.check().is_err())
     } else {
         None

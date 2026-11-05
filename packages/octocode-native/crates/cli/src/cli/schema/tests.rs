@@ -1,4 +1,4 @@
-use super::{catalog, grammar_instruction, tool_view};
+use super::{TOOL_FLOW_COMMAND, catalog, grammar_instruction, tool_view};
 use serde_json::{Value, json};
 
 /// A machine catalog with every presentation tool enabled except `off`.
@@ -50,17 +50,50 @@ fn catalog_lists_only_enabled_tools() {
 fn full_catalog_serves_the_core_instructions_then_the_cli_notes() {
     let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
     let shared = presentation["instructions"].as_str().expect("instructions");
-    for off in [vec![], vec!["clasify", "ghSearchHistory"]] {
+    let block = |name: &str| {
+        super::tools(presentation)
+            .find(|tool| tool["name"] == name)
+            .and_then(|tool| tool["instructions"].as_str())
+            .expect("a block")
+    };
+    let (scout, cves) = (block("clasify"), block("securityCheck"));
+    for (off, expected) in [
+        (vec![], format!("{shared}{scout}{cves}")),
+        (vec!["ghSearchHistory"], format!("{shared}{scout}{cves}")),
+        (vec!["securityCheck"], format!("{shared}{scout}")),
+        (
+            vec!["clasify", "ghSearchHistory"],
+            format!("{shared}{cves}"),
+        ),
+        (vec!["clasify", "securityCheck"], shared.to_owned()),
+    ] {
         let value = catalog(&machine(&off), Some("full")).expect("catalog");
-        let text = value["instructions"].as_str().expect("instructions");
-        assert!(text.starts_with(shared), "{off:?}: {text}");
-        assert!(
-            text.ends_with(
-                "<cli>All tools are available; execution checks credentials and prerequisites. MCP exposure: graph tools need OCTOCODE_BETA, clone needs OCTOCODE_ENABLE_CLONE, clasify needs OCTOCODE_CLASSIFICATION_API. Fields: schema <name> --view query. A next.* page still exits 0.</cli>"
+        assert_eq!(
+            value["instructions"].as_str().expect("instructions"),
+            format!(
+                "{}\n<cli>Listed tools are available; execution checks credentials and prerequisites. MCP exposure: graph tools need OCTOCODE_BETA, clone needs OCTOCODE_ENABLE_CLONE. Fields: schema <name> --view query. A next.* page still exits 0.</cli>",
+                expected
             ),
-            "{text}"
+            "{off:?}"
         );
     }
+    // Without the tool, the CLI's own notes do not name it either.
+    let value = catalog(&machine(&["clasify", "securityCheck"]), Some("full")).expect("catalog");
+    let text = value["instructions"].as_str().expect("instructions");
+    for word in ["clasify", "classification", "securityCheck", "CVE"] {
+        assert!(!text.contains(word), "{word}: {text}");
+    }
+}
+
+/// A CLI agent cannot read an MCP resource, so its catalog names none, and it
+/// still lists the command that prints the guide.
+#[test]
+fn the_cli_catalog_names_its_flow_command_and_no_resource() {
+    let value = catalog(&machine(&[]), Some("full")).expect("catalog");
+    let text = value["instructions"].as_str().expect("instructions");
+    assert!(!text.contains("octocode://"), "{text}");
+    let listed = catalog(&machine(&[]), None).expect("catalog");
+    assert_eq!(listed["commands"]["flow"], TOOL_FLOW_COMMAND, "{listed}");
 }
 
 #[test]

@@ -56,11 +56,7 @@ impl PathPolicy {
         if !self.allowed(&real_ancestor) {
             return Err(PolicyError::new(
                 PolicyErrorCode::OutsideAllowedRoots,
-                format!(
-                    "Path '{}' is outside allowed directories{}",
-                    self.display_requested(input, &absolute),
-                    self.describe_roots()
-                ),
+                self.outside_roots(input, &absolute),
             )
             .with_path(self.display_requested(input, &absolute)));
         }
@@ -74,11 +70,7 @@ impl PathPolicy {
         if !self.allowed(&resolved) {
             return Err(PolicyError::new(
                 PolicyErrorCode::OutsideAllowedRoots,
-                format!(
-                    "Path '{}' is outside allowed directories{}",
-                    self.display_requested(input, &absolute),
-                    self.describe_roots()
-                ),
+                self.outside_roots(input, &absolute),
             )
             .with_path(self.display_requested(input, &absolute)));
         }

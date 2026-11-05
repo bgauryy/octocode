@@ -23,12 +23,15 @@ use serde_json::Value;
 pub(crate) const CIRCUIT_OPEN: ErrorCode = ErrorCode::ClassificationProviderUnavailable;
 
 /// Whether a classification error `code` says the provider could not answer
-/// now (rate limited, overloaded, unreachable, failing, paused by its
-/// circuit) rather than refusing this caller or request (a credential,
+/// now (rate limited, overloaded, unreachable, failing, too slow, paused by
+/// its circuit) rather than refusing this caller or request (a credential,
 /// quota, content or size error the caller must fix). Evidence a reader
 /// already has is never withheld for the former.
 pub(crate) fn is_transient(code: ErrorCode) -> bool {
-    matches!(code, CIRCUIT_OPEN | ErrorCode::ClassificationRateLimited)
+    matches!(
+        code,
+        CIRCUIT_OPEN | ErrorCode::ClassificationRateLimited | ErrorCode::Timeout
+    )
 }
 
 /// Vendor-neutral response-contract violation reported by
@@ -65,8 +68,6 @@ pub struct ProviderDefaults {
     pub endpoint_path: &'static str,
     /// Path of the read-only model catalog on the same API root.
     pub models_path: &'static str,
-    /// Link to vendor setup docs; shown in `missingConfiguration` errors.
-    pub docs_url: &'static str,
 }
 
 /// Token usage a response reports.

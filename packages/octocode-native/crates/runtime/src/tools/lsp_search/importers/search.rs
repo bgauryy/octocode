@@ -18,6 +18,19 @@ pub(in super::super) struct ImporterSearch<'a> {
     pub(in super::super) declaration: Position<'a>,
     pub(in super::super) known_files: &'a HashSet<String>,
     pub(in super::super) window: WindowRequest<'a>,
+    pub(in super::super) proof: SiteProof,
+    /// Whether the language's imports can set candidates aside: ES and CommonJS
+    /// name their symbols, so a file importing only other modules is no use.
+    pub(in super::super) reads_imports: bool,
+}
+
+/// The answer with no candidate list: a later window cannot be placed.
+fn no_candidates(stale: bool, failed: bool) -> Importers {
+    Importers {
+        failed,
+        stale,
+        ..Importers::default()
+    }
 }
 
 /// Verified importer anchors of one [`ImporterSearch`].
@@ -39,13 +52,11 @@ pub(in super::super) async fn verified_anchors(
             },
         known_files,
         window: request,
+        proof,
+        reads_imports,
     } = search;
     if symbol.trim().is_empty() || scope.root.is_empty() {
-        // No candidate list: a later window cannot be placed.
-        return Ok(Importers {
-            stale: request.page > 1,
-            ..Importers::default()
-        });
+        return Ok(no_candidates(request.page > 1, false));
     }
     // The list cut into windows and digested is the text scan less the
     // anchor and the files whose imports cannot reach its module: both
@@ -62,13 +73,14 @@ pub(in super::super) async fn verified_anchors(
     )
     .await?
     else {
-        return Ok(Importers {
-            failed: true,
-            stale: request.page > 1,
-            ..Importers::default()
-        });
+        return Ok(no_candidates(request.page > 1, true));
     };
-    let module = anchor_module(sources, anchor_path, symbol).await;
+    // Module reach reads ES and CommonJS imports; an `#include` names no symbol.
+    let module = if reads_imports {
+        anchor_module(sources, anchor_path, symbol).await
+    } else {
+        None
+    };
     let (candidates, unreached) =
         split_reachable(candidates, module.clone(), sources.policy(), cancel).await?;
     let mut window = match Window::cut(candidates, request) {
@@ -80,7 +92,11 @@ pub(in super::super) async fn verified_anchors(
             });
         }
     };
-    window.exclude(known_files.clone());
+    // On an index-backed server a later window's files are in the anchor's own
+    // answer only because this request opened them; they are this page's rows.
+    if proof == SiteProof::DefinitionChain || request.page <= 1 {
+        window.exclude(known_files.clone());
+    }
     let skip = known_files
         .iter()
         .cloned()
@@ -95,18 +111,26 @@ pub(in super::super) async fn verified_anchors(
     ignored
         .nested_repositories
         .retain(|repo| Path::new(&anchor_file).starts_with(Path::new(&scope.root).join(repo)));
-    check_imports(&mut ignored, sources.policy(), cancel, symbol, module).await?;
-    let declaration = identities(
-        client,
-        sources,
-        snippet_policy,
+    sort_ignored(
+        &mut ignored,
+        reads_imports,
+        sources.policy(),
         cancel,
-        anchor_path,
-        line,
-        character,
+        symbol,
+        module,
     )
     .await?;
-    let Some(declaration) = declaration.filter(|declaration| !declaration.is_empty()) else {
+    let Some(declaration) = anchor_declaration(
+        proof,
+        (client, sources, snippet_policy, cancel),
+        Position {
+            path: anchor_path,
+            line,
+            character,
+        },
+    )
+    .await?
+    else {
         return Ok(Importers {
             window: Some(window),
             failed: true,
@@ -130,13 +154,20 @@ pub(in super::super) async fn verified_anchors(
             symbol,
         )
         .await?;
-        let verified = verify_occurrences(
-            client,
-            sources,
-            snippet_policy,
-            cancel,
+        let verified = verify_window(
+            (client, sources, snippet_policy, cancel),
             opened,
-            &declaration,
+            WindowProof {
+                proof,
+                declaration: &declaration,
+                reads_imports,
+                anchor: Position {
+                    path: anchor_path,
+                    line,
+                    character,
+                },
+                symbol,
+            },
         )
         .await?;
         anchors.extend(verified.anchors);
@@ -145,7 +176,10 @@ pub(in super::super) async fn verified_anchors(
         elsewhere.extend(verified.elsewhere);
         // A window with no verified importer adds no site, so the request
         // goes on to the next one rather than ending a call on nothing new.
-        if !anchors.is_empty()
+        // An index-backed server answers only what `index_window` opened, so
+        // this request judges that one window; the rest are `next.nextImporterWindow`.
+        if proof == SiteProof::AnchorReferences
+            || !anchors.is_empty()
             || !window.more()
             || window.verified_windows() >= MAX_WINDOWS_PER_REQUEST
             || started.elapsed() >= SKIP_BUDGET
@@ -164,6 +198,98 @@ pub(in super::super) async fn verified_anchors(
         elsewhere,
         ignored,
     })
+}
+
+/// [`check_imports`] where a language's imports name their symbols; elsewhere no
+/// import does, so a file that spells the name may use it.
+async fn sort_ignored(
+    ignored: &mut IgnoredMentions,
+    reads_imports: bool,
+    policy: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+    symbol: &str,
+    module: Option<Arc<AnchorModule>>,
+) -> Result<(), LspFailure> {
+    if reads_imports {
+        return check_imports(ignored, policy, cancel, symbol, module).await;
+    }
+    ignored.importing = ignored.files.clone();
+    Ok(())
+}
+
+/// What a site's definition chain must reach; an index-backed proof compares with
+/// the anchor's references instead. `None` when the chain could not be resolved.
+async fn anchor_declaration(
+    proof: SiteProof,
+    (client, sources, snippet_policy, cancel): (
+        &NativeLspClient,
+        &mut SourceCache<'_>,
+        &SnippetReadPolicy,
+        &dyn CancellationCheck,
+    ),
+    anchor: Position<'_>,
+) -> Result<Option<HashSet<String>>, LspFailure> {
+    if proof == SiteProof::AnchorReferences {
+        return Ok(Some(HashSet::new()));
+    }
+    let found = identities(
+        client,
+        sources,
+        snippet_policy,
+        cancel,
+        anchor.path,
+        anchor.line,
+        anchor.character,
+    )
+    .await?;
+    Ok(found.filter(|found| !found.is_empty()))
+}
+
+/// How one window's opened candidates are judged.
+struct WindowProof<'a> {
+    proof: SiteProof,
+    declaration: &'a HashSet<String>,
+    reads_imports: bool,
+    anchor: Position<'a>,
+    symbol: &'a str,
+}
+
+async fn verify_window(
+    (client, sources, snippet_policy, cancel): (
+        &NativeLspClient,
+        &mut SourceCache<'_>,
+        &SnippetReadPolicy,
+        &dyn CancellationCheck,
+    ),
+    opened: Vec<OpenedFile>,
+    how: WindowProof<'_>,
+) -> Result<Verified, LspFailure> {
+    match how.proof {
+        SiteProof::DefinitionChain => {
+            verify_occurrences(
+                client,
+                sources,
+                snippet_policy,
+                cancel,
+                opened,
+                how.declaration,
+                !how.reads_imports,
+            )
+            .await
+        }
+        SiteProof::AnchorReferences => {
+            verify_by_references(
+                client,
+                sources,
+                snippet_policy,
+                cancel,
+                opened,
+                how.anchor,
+                how.symbol,
+            )
+            .await
+        }
+    }
 }
 
 /// Sort `ignored.files` into those that import `symbol` (by name:

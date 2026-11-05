@@ -5,45 +5,104 @@ use crate::security::ContentSecurity;
 use octocode_contract_types::StructureSearchSort;
 use octocode_engine::types::FileSystemEntry;
 
-/// A walk's entries (the listed directory left out) ranked by `sort`, and the
-/// rows of those in `window`, each with its line count from `lines` (the
-/// walk's entries, in the same order); with how many entries it ranked. Only
-/// the window's rows are built. A row ranks as its entry does, since path and name
-/// order rank by what is delivered, so every path is redacted first for those.
-pub(in crate::tools::structure_search) fn window_rows(
+/// A walk's entries (the listed directory left out) ranked by a sort. Rows are
+/// built only for the window that lists them. A row ranks as its entry does,
+/// since path and name order rank by what is delivered, so every path is
+/// redacted first for those.
+pub(in crate::tools::structure_search) struct Ranking {
+    order: Vec<usize>,
+    delivered: Vec<Option<String>>,
+}
+
+impl Ranking {
+    /// `entries` ranked by `sort`, by their line counts from `lines` (the
+    /// walk's entries, in the same order).
+    pub(in crate::tools::structure_search) fn of(
+        entries: &[FileSystemEntry],
+        lines: &[Option<Lines>],
+        (root, security): (&std::path::Path, &ContentSecurity),
+        sort: &StructureSearchSort,
+    ) -> Self {
+        let mut order = (0..entries.len())
+            .filter(|&at| !Row::is_root_dir(&entries[at], root))
+            .collect::<Vec<_>>();
+        let mut delivered = vec![None; entries.len()];
+        if matches!(
+            super::super::files::sort_key(sort),
+            Some(
+                octocode_contract_types::StructureSearchSortAnyOrderBy::Path
+                    | octocode_contract_types::StructureSearchSortAnyOrderBy::Name
+            )
+        ) {
+            for &at in &order {
+                delivered[at] = Some(Row::listed_path(&entries[at], root, security));
+            }
+        }
+        rank(&mut order, sort, entries, lines, &delivered);
+        Self { order, delivered }
+    }
+
+    /// The entries in listing order, by their index in the walk.
+    pub(in crate::tools::structure_search) fn order(&self) -> &[usize] {
+        &self.order
+    }
+
+    /// The rows of the ranked entries in `window`.
+    pub(in crate::tools::structure_search) fn rows(
+        &mut self,
+        entries: &[FileSystemEntry],
+        lines: &[Option<Lines>],
+        (root, security): (&std::path::Path, &ContentSecurity),
+        window: std::ops::Range<usize>,
+    ) -> Vec<Row> {
+        let available = self.order.len();
+        self.order[window.start.min(available)..window.end.min(available)]
+            .iter()
+            .map(|&at| {
+                let path = self.delivered[at]
+                    .take()
+                    .unwrap_or_else(|| Row::listed_path(&entries[at], root, security));
+                Row::of(&entries[at], path, lines.get(at).copied().flatten())
+            })
+            .collect()
+    }
+}
+
+/// The rows of `entries`, already in listing order, each with its line count
+/// from `lines` (empty when none was counted).
+pub(in crate::tools::structure_search) fn rows_of(
     entries: &[FileSystemEntry],
     lines: &[Option<Lines>],
     (root, security): (&std::path::Path, &ContentSecurity),
-    sort: &StructureSearchSort,
-    window: std::ops::Range<usize>,
-) -> (Vec<Row>, usize) {
-    let mut ranked = (0..entries.len())
-        .filter(|&at| !Row::is_root_dir(&entries[at], root))
-        .collect::<Vec<_>>();
-    let mut delivered = vec![None; entries.len()];
-    if matches!(
-        super::super::files::sort_key(sort),
-        Some(
-            octocode_contract_types::StructureSearchSortAnyOrderBy::Path
-                | octocode_contract_types::StructureSearchSortAnyOrderBy::Name
-        )
-    ) {
-        for &at in &ranked {
-            delivered[at] = Some(Row::listed_path(&entries[at], root, security));
-        }
-    }
-    rank(&mut ranked, sort, entries, lines, &delivered);
-    let available = ranked.len();
-    let rows = ranked[window.start.min(available)..window.end.min(available)]
+) -> Vec<Row> {
+    entries
         .iter()
-        .map(|&at| {
-            let path = delivered[at]
-                .take()
-                .unwrap_or_else(|| Row::listed_path(&entries[at], root, security));
-            Row::of(&entries[at], path, lines.get(at).copied().flatten())
+        .enumerate()
+        .map(|(at, entry)| {
+            let path = Row::listed_path(entry, root, security);
+            Row::of(entry, path, lines.get(at).copied().flatten())
         })
-        .collect();
-    (rows, available)
+        .collect()
+}
+
+/// Feed `writer` what `entry`'s row shows: its name and kind, and what the walk
+/// read of its size, time and lines.
+pub(in crate::tools::structure_search) fn digest_entry(
+    writer: &mut octocode_engine::digest::HashWriter,
+    entry: &FileSystemEntry,
+    lines: Option<Lines>,
+) {
+    writer.update(entry.relative_path.as_bytes());
+    writer.update([0, EntryKind::from(entry.entry_type) as u8]);
+    writer.update(entry.size.unwrap_or(-1).to_le_bytes());
+    writer.update(entry.modified_ms().unwrap_or(-1.0).to_le_bytes());
+    writer.update([Lines::class(lines)]);
+    writer.update(Lines::count(lines).to_le_bytes());
+    // What a same-size edit with its time restored moves.
+    if let Some(stamp) = entry.stamp {
+        writer.update(stamp.changed_ns.to_le_bytes());
+        writer.update(stamp.inode.to_le_bytes());
+    }
 }
 
 /// Rank entries by `sort`; ties and traversal order keep the walk order (the

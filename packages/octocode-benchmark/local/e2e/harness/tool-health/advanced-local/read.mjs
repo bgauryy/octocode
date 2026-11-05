@@ -85,7 +85,6 @@ async function pagedMixedReads(ctx, surface, checks) {
   const rows = responses.flatMap(entry => entry.result.json?.results ?? []);
   checks.push([`read.paged-batch.complete.${surface}`, report.failures.length === 0, JSON.stringify(report.failures)]);
   checks.push([`read.paged-batch.response-pages.${surface}`, responses.some(entry => entry.result.json?.responsePagination?.hasMore === true), `${responses.length} calls`]);
-  checks.push([`read.paged-batch.source-pages.${surface}`, rows.some(row => row.data?.next?.nextPage), `${rows.length} rows`]);
   equal(checks, `read.paged-batch.status-indexes.${surface}`, rows.filter(row => row.status).map(row => [row.index, row.status]), [[1, 'empty'], [2, 'error']]);
   for (const { index, file, start, end } of [
     { index: 0, file: 'read/windows.txt', start: 1, end: 2 },

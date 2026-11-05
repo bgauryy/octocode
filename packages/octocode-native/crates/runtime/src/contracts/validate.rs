@@ -181,7 +181,12 @@ pub(crate) fn validate_batch(
     let envelope = match validate_envelope_with(tool, plan, &mut input) {
         Ok(()) => Vec::new(),
         Err(error) if error.is_contract_error() => return Err(error),
-        Err(error) => error.issues,
+        // The batch limit bounds what a caller sends; saved rows were admitted.
+        Err(error) => error
+            .issues
+            .into_iter()
+            .filter(|issue| !(saved && issue.rule_id == "schema.size" && issue.path == ["queries"]))
+            .collect(),
     };
     Ok((input, BatchIssues { rows, envelope }))
 }

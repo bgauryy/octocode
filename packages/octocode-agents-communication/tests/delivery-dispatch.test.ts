@@ -52,7 +52,7 @@ test('context lists requests apart from notices and keeps the peer-data rule fir
   assert.ok(text.startsWith(dispatch.CONTEXT_RULE));
   assert.match(text, /Requests: \[\]\. Notices\/answers: \[\d+\]\./);
   assert.equal(dispatch.withPeers([], 'peers only'), 'peers only');
-  assert.equal(dispatch.withPeers(items, 'peers').startsWith('peers ' + dispatch.CONTEXT_RULE), true);
+  assert.equal(dispatch.withPeers(items, 'peers').startsWith(`peers ${dispatch.CONTEXT_RULE}`), true);
 });
 
 test('attach validates the binding and refuses a second identity for one native receiver', async t => {

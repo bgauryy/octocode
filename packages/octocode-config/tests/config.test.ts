@@ -40,12 +40,14 @@ const CANONICAL = [
   // sandbox, or pick or download executables.
   'OCTOCODE_LSP_AUTO_INSTALL',
   'OCTOCODE_TRUST_PROJECT_LSP_CONFIG',
+  'OCTOCODE_LSP_TRUST_FETCHED_CODE',
   // Storage mode decides what persists on disk: home-trusted only.
   'OCTOCODE_STORAGE_MODE',
   'OCTOCODE_CARGO',
   'GITHUB_API_URL',
   'OCTOCODE_BETA',
   'OCTOCODE_ENABLE_CLONE',
+  'OCTOCODE_SECURITY_CHECKS',
   'ALLOWED_PATHS',
   'WORKSPACE_ROOT',
   'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
@@ -69,6 +71,8 @@ const CANONICAL = [
   // A workspace may narrow, never widen: local tools off, redaction on.
   'OCTOCODE_ENABLE_LOCAL',
   'OCTOCODE_REDACT_EMAILS',
+  // Opens credential-named files to local reads: only narrowed by a workspace.
+  'OCTOCODE_CREDENTIAL_FILES',
 ];
 
 describe('PROTECTED_KEYS', () => {

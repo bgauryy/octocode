@@ -28,14 +28,14 @@ export const OWNED_ELSEWHERE = 'Another delivery owner (listen, dispatch or run)
 
 /** The lock file name of a session next to its database. It is the socket address unless the path is too long. */
 export function ownerLockPath(database: string, session: string): string {
-  return join(dirname(database), basename(database) + '.owner-' + createHash('sha256').update(session).digest('hex').slice(0, 16) + '.lock');
+  return join(dirname(database), `${basename(database)}.owner-${createHash('sha256').update(session).digest('hex').slice(0, 16)}.lock`);
 }
 
 function fallbackDirectory(): string {
-  const directory = join('/tmp', 'octocode-agents-communication-' + (process.getuid?.() ?? 'user'));
+  const directory = join('/tmp', `octocode-agents-communication-${process.getuid?.() ?? 'user'}`);
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const info = lstatSync(directory);
-  if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) throw new Error('Delivery owner socket directory must be a private directory owned by this OS user: ' + directory);
+  if (!info.isDirectory() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) throw new Error(`Delivery owner socket directory must be a private directory owned by this OS user: ${directory}`);
   return directory;
 }
 
@@ -43,14 +43,14 @@ function fallbackDirectory(): string {
 function ownerAddress(database: string, session: string, prepare = false): string {
   const path = ownerLockPath(database, session);
   const digest = createHash('sha256').update(path).digest('hex').slice(0, 32);
-  if (WINDOWS) return '\\\\.\\pipe\\octocode-agents-communication-' + digest;
+  if (WINDOWS) return `\\\\.\\pipe\\octocode-agents-communication-${digest}`;
   if (Buffer.byteLength(path) <= MAX_SOCKET_PATH) return path;
-  return join(prepare ? fallbackDirectory() : join('/tmp', 'octocode-agents-communication-' + (process.getuid?.() ?? 'user')), digest + '.sock');
+  return join(prepare ? fallbackDirectory() : join('/tmp', `octocode-agents-communication-${process.getuid?.() ?? 'user'}`), `${digest}.sock`);
 }
 
 /** Where the owner of `address` records its identity: beside the socket, or beside the database for a Windows pipe. */
 function sidecarPath(database: string, session: string, address: string): string {
-  return (WINDOWS ? ownerLockPath(database, session) : address) + '.pid';
+  return `${WINDOWS ? ownerLockPath(database, session) : address}.pid`;
 }
 
 /** What a probe needs to recognise the owner process: its pid, its start time (null when unobtainable) and the socket's inode. */

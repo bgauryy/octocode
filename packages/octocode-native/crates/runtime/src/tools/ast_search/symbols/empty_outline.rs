@@ -31,7 +31,9 @@ pub(super) fn note_skipped(
     let filter = ast_search_query_symbols::name_filter(q);
     let exclude = ast_search_query_symbols::exclude(q).unwrap_or_default();
     let discovery = paths.discovery_walk();
-    let permits = |path: &std::path::Path| discovery.permits(path);
+    let permits = |path: &std::path::Path, kind: Option<std::fs::FileType>| {
+        discovery.permits_entry(path, kind)
+    };
     let stop = || cancel.check().is_err();
     // A file counts when it can declare the name: an outlined language that
     // spells it, like the scan's own prefilter.
@@ -53,11 +55,13 @@ pub(super) fn note_skipped(
     let probe_at = |at: &std::path::Path, exclude: &[String], walk: Walk| {
         let rules = (!walk.ignored && at.is_dir())
             .then(|| octocode_engine::search::walk::IgnoreRules::new(at));
-        let permitted = |path: &std::path::Path| {
-            permits(path)
-                && rules
-                    .as_ref()
-                    .is_none_or(|rules| !rules.is_ignored(path, path.is_dir()))
+        let permitted = |path: &std::path::Path, kind: Option<std::fs::FileType>| {
+            let is_dir = kind.map_or_else(|| path.is_dir(), |kind| kind.is_dir());
+            permits(path, kind)
+                && (is_dir
+                    || rules
+                        .as_ref()
+                        .is_none_or(|rules| !rules.is_ignored(path, false)))
         };
         FileProbe::new(at, &permitted, &keep)
             .stopping(&stop)

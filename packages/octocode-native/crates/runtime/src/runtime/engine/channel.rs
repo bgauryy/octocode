@@ -49,8 +49,8 @@ pub(super) struct ChannelRun {
     pub(super) rejected_rows: Vec<(usize, Value)>,
     /// Original input index of each admitted row (`row_indices` module).
     pub(super) row_indices: Vec<usize>,
-    /// Query that issued this saved work; fresh requests use their own indices.
-    pub(super) origin_index: Option<usize>,
+    /// The query each row answers; fresh requests use their own indices.
+    pub(super) origin: crate::runtime::row_indices::RowOrigin,
     /// The request states its queries itself, rather than resuming saved work.
     pub(super) fresh: bool,
     pub(super) response_query: Value,
@@ -111,7 +111,6 @@ impl ChannelRun {
                     ..stage
                 },
                 &replay.structured,
-                &replay.remaining,
                 &replay.pages,
                 context,
             )?;
@@ -193,12 +192,13 @@ impl ChannelRun {
         {
             return Ok(Rows::Answered(Err(error)));
         }
-        let mut remaining =
-            match stage::settle(self.id, &mut structured, &response_query, &mut failure) {
-                Ok(remaining) => remaining,
-                Err(error) => return Ok(Rows::Answered(Err(error))),
-            };
-        structured.edit(|output| crate::runtime::row_indices::inherit(output, self.origin_index));
+        if let Err(error) = stage::settle(self.id, &mut structured, &response_query, &mut failure) {
+            return Ok(Rows::Answered(Err(error)));
+        }
+        structured.edit(|output| crate::runtime::row_indices::inherit(output, &self.origin));
+        if let Err(error) = self.hoist_walks(&mut structured, &mut pending) {
+            return Ok(Rows::Answered(Err(error)));
+        }
         if let Some(cursor) = &self.pinned
             && crate::response::pager::content_snapshot(&structured, cursor.length)
                 != Some(cursor.content_snapshot())
@@ -211,8 +211,8 @@ impl ChannelRun {
         };
         let mut rejected_rows = Vec::new();
         if !rejected_at.is_empty() && self.options.pages(&structured, self.output.auto_page_chars) {
-            (remaining, rejected_rows) = structured.edit(|structured| {
-                crate::runtime::row_indices::split_rejected(structured, remaining, &rejected_at)
+            rejected_rows = structured.edit(|structured| {
+                crate::runtime::row_indices::split_rejected(structured, &rejected_at)
             });
         }
         let (
@@ -221,7 +221,7 @@ impl ChannelRun {
                 mut next,
             },
             seed,
-        ) = self.respond_settled(&settled, structured, remaining, context)?;
+        ) = self.respond_settled(&settled, structured, context)?;
         if let Ok(outcome) = &mut finished {
             if let Some(seed) = seed {
                 self.remember_page(outcome, &mut next, seed, context)?;
@@ -265,7 +265,6 @@ impl ChannelRun {
         &self,
         settled: &Settled<'_>,
         structured: Sanitized,
-        remaining: Vec<Vec<crate::response::result::Remaining>>,
         context: &ExecutionContext,
     ) -> Result<(stage::Staged, Option<PageReplay>), ExecutionError> {
         let pages = crate::response::pager::SavedPages::default();
@@ -274,12 +273,11 @@ impl ChannelRun {
             failure: settled.failure,
             ..self.stage(structured, true)
         };
-        let finished = stage::respond(stage, remaining.clone(), Some(&mut kept), context)?;
+        let finished = stage::respond(stage, Some(&mut kept), context)?;
         let seed = kept.map(|structured| PageReplay {
             access: self.access,
             github_identity: None,
             structured,
-            remaining,
             response_query: settled.response_query.clone(),
             failure: settled.failure,
             pages,
@@ -313,7 +311,7 @@ impl ChannelRun {
             Err(()) => false,
         };
         let (saved, retained) = if auth_retained {
-            self.replays.0.insert(cursor, seed)
+            self.replays.0.insert(cursor, seed, context.deadline)
         } else {
             (Arc::new(seed), false)
         };
@@ -331,7 +329,7 @@ impl ChannelRun {
                     warnings.push(json!("The response could not be retained with a stable access identity or within snapshot storage limits; the complete result is returned without display pagination."));
                 }
             });
-            *outcome = stage::respond(stage, saved.remaining.clone(), None, context)?
+            *outcome = stage::respond(stage, None, context)?
                 .result
                 .map_err(|_| ExecutionError::WorkerFailed)?;
             *next = None;

@@ -309,3 +309,58 @@ fn a_skipped_file_is_one_skip_with_one_diagnostic() {
     );
     assert!(!recovery.contains("maxFileBytes"), "{recovery}");
 }
+
+/// A `parser` that parsed nothing in a directory offers the other grammars the
+/// request's own walk met: no walk of its own, and neither what that walk skips
+/// (ignored, hidden, default-excluded) nor a link counts, while a generated file
+/// the scan leaves out does. With a depth bound the scan saw less than the scope.
+#[test]
+fn the_other_grammars_of_an_unparsed_directory_come_from_the_scan_walk() {
+    let root = Fixture::new();
+    std::fs::create_dir_all(root.0.join(".git")).expect("git dir");
+    root.write(".gitignore", "gen/\n");
+    root.write("src/a.rs", "fn a() {}\n");
+    root.write("src/b.rs", "fn b() {}\n");
+    root.write("src/deep/c.ts", "const c = 1;\n");
+    root.write("min.bundle.min.js", "hit();\n");
+    root.write("gen/d.go", "package gen\n");
+    root.write(".hidden/e.java", "class E {}\n");
+    root.write("node_modules/f/g.rb", "x = 1\n");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(root.0.join("src/a.rs"), root.0.join("link.cs")).expect("link");
+    let languages = |out: &serde_json::Value| {
+        out["related"][0]["input"]["queries"]
+            .as_array()
+            .expect("repair")
+            .iter()
+            .map(|row| row["parser"].as_str().expect("parser").to_owned())
+            .collect::<Vec<_>>()
+    };
+    let query =
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"$A"},"parser":"python"});
+    let before = crate::tools::ast_rule::present_walks();
+    let out = run(&root.0, query.clone()).expect("match");
+    assert_eq!(
+        crate::tools::ast_rule::present_walks(),
+        before,
+        "no second walk: {out}"
+    );
+    assert_eq!(
+        languages(&out),
+        ["rust", "javascript", "typescript"],
+        "{out}"
+    );
+    let mut bounded = query;
+    bounded["maxDepth"] = json!(1);
+    let out = run(&root.0, bounded).expect("match");
+    assert_eq!(
+        crate::tools::ast_rule::present_walks(),
+        before + 1,
+        "the whole scope still decides: {out}"
+    );
+    assert_eq!(
+        languages(&out),
+        ["rust", "javascript", "typescript"],
+        "{out}"
+    );
+}

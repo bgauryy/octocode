@@ -2,14 +2,23 @@ use super::{CacheClass, CacheConfig, CacheKey, DiskCodec};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 mod capacity;
+#[cfg(test)]
+pub(super) use capacity::EXPIRED_PER_SCAN;
+pub(super) use capacity::REUSE_LOCK_WAIT;
 
 /// The extension of an entry file. Entries of the retired JSON-envelope
 /// layout (`.json`, value base64 inside JSON) are removed by the next prune.
 pub(super) const ENTRY_EXTENSION: &str = "entry";
 const RETIRED_EXTENSION: &str = "json";
+/// The extension of a hard link another store's entry is shared through
+/// ([`Disk::link`]): its header is that store's, so its age is this store's.
+pub(super) const LINK_EXTENSION: &str = "link";
+
+/// The name before an entry's stem in the name of its lock file ([`Disk::entry_lock`]).
+pub(super) const ENTRY_LOCK_PREFIX: &str = "assessment-";
 
 /// The first line of an entry file: how the entry ages. The codec's value
 /// bytes follow the newline as they are, so a body is never re-encoded.
@@ -131,6 +140,60 @@ impl Disk {
         ))
     }
 
+    /// The lock file of `key`'s entry, for a store whose writers take one per
+    /// entry. It is named by the entry's own stem, so a scan can tell it has
+    /// outlived the entry ([`super::disk::capacity`]).
+    pub(crate) fn entry_lock(&self, key: &CacheKey) -> PathBuf {
+        let entry = self.file(key);
+        let stem = entry
+            .file_stem()
+            .map(|stem| stem.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        self.dir.join(format!("{ENTRY_LOCK_PREFIX}{stem}.lock"))
+    }
+
+    /// Whether `key`'s entry exists; if so it counts as used now.
+    pub(super) fn touch(&self, key: &CacheKey) -> bool {
+        let path = self.file(key);
+        crate::private_file::open_no_follow(&path, false)
+            .map(|file| touch_file(&file, &path))
+            .is_ok()
+    }
+
+    /// Give this directory its own hard link to the entry `source` holds under
+    /// `key`. The file then lives while either directory keeps its link: each
+    /// expires and evicts its own, as it would a copy, and the other's reader
+    /// is unaffected; a replaced entry is a new file, so a link keeps what it
+    /// linked. False (another filesystem, no link support) means no link.
+    pub(crate) fn link(&self, source: &Self, key: &CacheKey, config: &CacheConfig) -> bool {
+        self.publish_link(&source.file(key), &self.link_file(key), config)
+    }
+
+    /// The value bytes of this directory's link for `key`. Every read restarts
+    /// the link's lifetime, so a link outlives what its reader read it for.
+    pub(crate) fn read_link(&self, key: &CacheKey, config: &CacheConfig) -> Option<Vec<u8>> {
+        let path = self.link_file(key);
+        let read = crate::private_file::open_no_follow(&path, false).and_then(|file| {
+            let bytes = crate::private_file::read_limited(&file, config.disk_bytes)?;
+            Ok((file, bytes))
+        });
+        let (file, bytes) = match read {
+            Ok(read) => read,
+            Err(error) => {
+                if entry_is_invalid(&error) {
+                    let _ = fs::remove_file(&path);
+                }
+                return None;
+            }
+        };
+        touch_file(&file, &path);
+        DiskHeader::split(&bytes).map(|(_, value)| value.to_vec())
+    }
+
+    fn link_file(&self, key: &CacheKey) -> PathBuf {
+        self.file(key).with_extension(LINK_EXTENSION)
+    }
+
     pub(crate) fn read<V, C: DiskCodec<V>>(
         &self,
         key: &CacheKey,
@@ -182,11 +245,12 @@ impl Disk {
         value: &V,
         class: CacheClass,
         config: &CacheConfig,
+        deadline: Instant,
     ) -> bool {
         let Some(value) = C::encode(value) else {
             return false;
         };
-        self.write_encoded(key, &value, class, config)
+        self.write_encoded(key, &value, class, config, deadline)
     }
 
     pub(crate) fn write_encoded(
@@ -195,6 +259,7 @@ impl Disk {
         value: &[u8],
         class: CacheClass,
         config: &CacheConfig,
+        deadline: Instant,
     ) -> bool {
         let path = self.file(key);
         let header = DiskHeader {
@@ -205,6 +270,6 @@ impl Disk {
             return false;
         };
         bytes.push(b'\n');
-        self.publish(&path, [&bytes, value], config)
+        self.publish(&path, [&bytes, value], config, deadline)
     }
 }

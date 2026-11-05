@@ -1,6 +1,6 @@
 import Ajv2020 from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
-import { MCP_INSTRUCTIONS } from '@octocodeai/octocode-core/mcp';
+import { MCP_INSTRUCTIONS, MCP_TOOL_INSTRUCTIONS } from '@octocodeai/octocode-core/mcp';
 import {
   DIRECT_TOOL_DEFINITIONS,
   getPublicToolCatalog,
@@ -25,8 +25,10 @@ describe('canonical CLI and MCP discovery', () => {
     expect(presentation.instructions).toBe(MCP_INSTRUCTIONS);
     expect(presentation.fingerprint).toBe(getPublicToolCatalog().fingerprint);
     expect(tools.map(entry => entry.name)).toEqual(DIRECT_TOOL_DEFINITIONS.map(entry => entry.name));
-    for (const definition of DIRECT_TOOL_DEFINITIONS)
+    for (const definition of DIRECT_TOOL_DEFINITIONS) {
       expect(tool(definition.name).title).toBe(definition.title);
+      expect(tool(definition.name).instructions).toBe(MCP_TOOL_INSTRUCTIONS[definition.name]);
+    }
   });
 
   it('publishes the same request envelope in CLI schema and MCP', () => {

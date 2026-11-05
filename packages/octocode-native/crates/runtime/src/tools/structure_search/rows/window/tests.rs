@@ -9,6 +9,19 @@ use octocode_contract_types::{
 use octocode_engine::types::FileKind;
 use std::time::{Duration, UNIX_EPOCH};
 
+/// The rows of `window` of `entries` ranked by `sort`, with how many it ranked.
+fn window_rows(
+    entries: &[FileSystemEntry],
+    lines: &[Option<Lines>],
+    scope: (&std::path::Path, &ContentSecurity),
+    sort: &StructureSearchSort,
+    window: std::ops::Range<usize>,
+) -> (Vec<Row>, usize) {
+    let mut ranking = Ranking::of(entries, lines, scope, sort);
+    let available = ranking.order().len();
+    (ranking.rows(entries, lines, scope, window), available)
+}
+
 const TOKEN: &str = "ghp_a1B2c3D4a1B2c3D4a1B2c3D4a1B2c3D4a1B2";
 
 /// A walk's entries in walk order: names that redaction moves across others in

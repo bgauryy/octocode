@@ -28,7 +28,7 @@ export function resolveScrapingTool(
     index >= 0
       ? resolve(args[index + 1])
       : resolve(import.meta.dirname, '../../../..', 'skills/octocode-scraping');
-  const target = join(directory, 'scripts', tool + '.mjs');
+  const target = join(directory, 'scripts', `${tool}.mjs`);
   if (!existsSync(target)) {
     console.error(
       JSON.stringify({

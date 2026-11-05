@@ -8,7 +8,7 @@ import { data, providerSession, rowData, same } from './classification-checks.mj
 const marker = kind => `classification_evidence ${kind} ${'bounded evidence '.repeat(5)}`;
 
 function fixture(ctx, tool) {
-  if (tool === 'ghSearchCode') return { query: { owner: 'octo', repo: 'demo', keywords: ['greet'] }, decide: state => state.evidence?.path === 'src/greeter.ts' ? 'selected' : state.evidence?.path === 'src/app.ts' ? 'unknown' : 'excluded' };
+  if (tool === 'ghSearchCode') return { query: { owner: 'octo', repo: 'demo', keywords: ['greet'] }, decide: state => state.path === 'src/greeter.ts' ? 'selected' : state.path === 'src/app.ts' ? 'unknown' : 'excluded' };
   if (tool === 'ghGetFileContent') return { query: { owner: 'octo', repo: 'demo-docs', path: 'guide.txt' }, decide: state => state.sourceLineRanges?.[0]?.[0] <= 100 ? 'selected' : state.sourceLineRanges?.[0]?.[0] <= 300 ? 'unknown' : 'excluded' };
   const directory = path.join(ctx.cwd, 'advanced-selection');
   fs.mkdirSync(directory, { recursive: true });
@@ -35,8 +35,8 @@ function evidence(tool, rows) {
       : [file.path]));
 }
 function selectedIdentity(tool, state, identity, scope) {
-  if (tool === 'ghSearchCode') return identity === state.evidence.path;
-  if (tool === 'localSearch') return state.matches.some(match => identity.startsWith(`${path.relative(scope.cwd, path.resolve(scope.query.path, state.path))}:${match.line}:`));
+  if (tool === 'ghSearchCode') return identity === state.path;
+  if (tool === 'localSearch') return state.lines.split('\n').some(row => identity.startsWith(`${path.relative(scope.cwd, path.resolve(scope.query.path, state.path))}:${row.slice(0, row.indexOf('\t'))}:`));
   const line = Number(identity.slice(0, identity.indexOf(':')));
   return state.sourceLineRanges.some(([start, end]) => line >= start && line <= end);
 }
@@ -69,7 +69,7 @@ async function oneSurface(ctx, tool, { surface, setup, token }) {
     const selectedEvidence = evidence(tool, selected);
     const selectedStates = provider.sent.filter(entry => setup.decide(entry.request.state) === 'selected').map(entry => entry.request.state);
     checks.push(['selection.retry', provider.sent.filter(entry => same(entry.request, provider.sent[0].request)).length === 2, provider.sent.length]);
-    checks.push(['selection.context', provider.sent.length > 0 && provider.sent.every(entry => entry.headers['typesafe-danger-zone-long-context'] === 'true' && Object.values(entry.request.questions).every(question => question.instructions.context === classification.context)), provider.sent.length]);
+    checks.push(['selection.context', provider.sent.length > 0 && provider.sent.every(entry => entry.headers['typesafe-danger-zone-long-context'] === 'true' && entry.request.state.context === classification.context), provider.sent.length]);
     const before = provider.sent.length;
     const ordinary = await ctx.explore(tool, ctx.q(setup.query), surface);
     const unfiltered = selected[0].next.unfiltered;
@@ -108,6 +108,7 @@ async function partialFailurePaging(ctx, surface) {
     const responses = report.responses.filter(entry => entry.tool === 'localSearch');
     // The selection receipt is a disclosure: every part of the selected walk repeats it unchanged and its evidence
     // appears once across parts. The explored next.unfiltered* walks carry no receipt and are not selected evidence.
+    // One refused file request fails each of its 8 hits, every one named.
     const parts = responses.flatMap(entry => rowData(entry.result)).filter(row => row?.selection);
     const receipt = JSON.stringify(parts[0]?.selection);
     const matches = evidence('localSearch', parts);
@@ -115,7 +116,7 @@ async function partialFailurePaging(ctx, surface) {
       ['selection.partial-pages.complete', report.failures.length === 0 && responses.some(entry => entry.result.json?.results?.some(row => row.rowPart?.of > 1)), report.failures],
       ['selection.partial-pages.exact-evidence', matches.length === 16 && new Set(matches).size === 16
         && matches.every(match => !match.includes('failed.txt')), matches],
-      ['selection.partial-pages.metadata', parts.length > 1 && parts[0].selection?.failures?.length === 1
+      ['selection.partial-pages.metadata', parts.length > 1 && parts[0].selection?.failures?.length === 8
         && parts[0].selection.usage?.models?.length > 0 && parts.every(row => JSON.stringify(row.selection) === receipt),
         parts.map(row => row.selection)],
       ['selection.partial-pages.no-reevaluation', provider.sent.length === 3, provider.sent.length],

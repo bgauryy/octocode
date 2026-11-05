@@ -93,7 +93,6 @@ pub(super) fn finish_pr(
         files,
         menu,
         comment_reads,
-        remainder,
         commit_file_pages,
     } = shaped;
     let patches = wants.has(Section::Patches);
@@ -121,7 +120,7 @@ pub(super) fn finish_pr(
             [super::filter::match_dropped_warning(dropped, listed)],
         );
     }
-    let remaining = promote_pr_continuations(&mut out, query, &remainder);
+    promote_pr_continuations(&mut out, query);
     if !commit_file_pages.is_empty() {
         out["isPartial"] = json!(true);
         ensure_calls(&mut out);
@@ -149,10 +148,7 @@ pub(super) fn finish_pr(
     if let Some(reason) = graphql_fallback {
         out["graphqlFallback"] = json!(reason);
     }
-    ToolData {
-        remaining,
-        ..ToolData::from(out)
-    }
+    ToolData::from(out)
 }
 
 /// The row's next steps ride the response's leads (one capped list), never

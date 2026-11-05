@@ -131,7 +131,7 @@ export function stageBound(host: StoreHost & DeliveryApi, session: string, mode:
   if (awaitingRenewal(host, session)) return Object.assign([], { reason: SESSION_EXPIRED });
   const action = actionOnly ?? (mode.startsWith('managed:') || transport.requiresAction(mode));
   if (binding === null && !host.hasDispatchable(session, action)) return [];
-  const sql = CANDIDATES + (action ? "CASE m.wake WHEN 'action' THEN 0 ELSE 1 END," : '') + 'm.id LIMIT ' + String(catalog.deliveryBatchLimit());
+  const sql = `${CANDIDATES + (action ? "CASE m.wake WHEN 'action' THEN 0 ELSE 1 END," : '')}m.id LIMIT ${String(catalog.deliveryBatchLimit())}`;
   return transaction(host.db, () => {
     host.known(session, true);
     if (binding !== null) {
@@ -167,7 +167,7 @@ export function hasDispatchable(host: StoreHost, session: string, actionOnly: bo
 export async function hook(store: DeliveryStore, session: string, input: HookInput, io: Pick<DeliveryRuntime, 'output' | 'print'>): Promise<void> {
   await store.present(session, input.managed ?? false);
   if (store.attachment(session).transport !== 'raw') throw new ValidationError('Hook requires a raw attachment; do not mix native and hook consumers');
-  const mode = input.consumer ? 'raw:' + input.consumer : 'raw';
+  const mode = input.consumer ? `raw:${input.consumer}` : 'raw';
   const peers = store.peerContext(session, 'raw', 'session');
   const items = store.stage(session, mode);
   const content = withPeers(items, peers);
@@ -231,7 +231,7 @@ export class DeliveryClients {
       try {
         store.recordUsage(session, receipt.usage);
       } catch (error) {
-        throw new Transient('Native delivery completed, but usage audit failed: ' + (error as Error).message, { cause: error });
+        throw new Transient(`Native delivery completed, but usage audit failed: ${(error as Error).message}`, { cause: error });
       }
     }
     return {
@@ -264,7 +264,7 @@ export async function once(store: StoreHost & DeliveryApi, session: string, clie
   if (inbound && (inbound.outcome === 'held' || inbound.outcome === 'refused')) {
     // Writing would only park or drop the mail inside Claude Code. Leave it
     // unstaged: the receiver's own hook delivers it as context instead.
-    return { submitted: 0, transport: mode, deferred: 'claude-inbound-' + inbound.outcome, inbound, recipientTurnRequested: false, modelCalls: 0 };
+    return { submitted: 0, transport: mode, deferred: `claude-inbound-${inbound.outcome}`, inbound, recipientTurnRequested: false, modelCalls: 0 };
   }
   const peers = store.peerContext(session, 'native', 'session');
   const items = store.stageBound(session, mode, binding);

@@ -229,7 +229,6 @@ async fn unknown_windows_fill_each_call_before_the_next() {
     let judge = crate::tools::test_support::selection_fake::WordJudge { fail: None };
     // One page judges every line, so every unknown range is on this page.
     let mut shaping = shaping(judge);
-    shaping.selection.limits.max_candidates = 2 * unknown;
     shaping.selection.limits.max_chars = 2 * body.len();
     let result = execute(
         &provider,

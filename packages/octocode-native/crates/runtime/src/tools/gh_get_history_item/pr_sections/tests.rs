@@ -221,16 +221,8 @@ fn body_continuation_lists_only_unfinished_bodies() {
     assert_eq!(listed.len(), 1, "{row}");
     assert_eq!(listed[0]["id"], "2", "{row}");
     assert_eq!(listed[0]["body"], "x".repeat(12_000), "{row}");
-    let mut remainder = super::super::remaining::Remainder::default();
-    remainder.bodies(Axis::CommentBody, windows, &mut pagination);
-    assert_eq!(
-        remainder
-            .note(Axis::CommentBody, &pagination["commentBody"])
-            .map(|note| note.left)
-            .as_deref(),
-        Some("5 more comment body chars"),
-        "{pagination:?}"
-    );
+    windows.attach(Axis::CommentBody, &mut pagination);
+    assert_eq!(pagination["commentBody"]["hasMore"], true, "{pagination:?}");
 }
 
 /// A single-line comment omits startLine; a reply keeps its thread link

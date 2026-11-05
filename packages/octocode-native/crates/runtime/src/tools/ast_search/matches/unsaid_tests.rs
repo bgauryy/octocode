@@ -283,3 +283,59 @@ fn an_empty_relation_says_what_stop_by_end_holds() {
         assert_eq!(notes(&out), 0, "{quiet}: {out}");
     }
 }
+
+fn other_kind_notes(out: &serde_json::Value) -> Vec<String> {
+    out["diagnostics"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|d| d["code"] == "structural.rule.otherKind")
+        .map(|d| d["message"].as_str().expect("message").to_owned())
+        .collect()
+}
+
+/// A kind and a regex that hold nothing, where the same text is another kind:
+/// the row names that kind and counts it, for a file and a directory, and the
+/// lead lists exactly those nodes. Any other empty answer stays silent.
+#[test]
+fn an_empty_kind_says_which_kind_holds_its_text() {
+    let root = Fixture::new();
+    let file = root.0.join("a.rs");
+    std::fs::write(
+        &file,
+        "fn f() -> Result<u8, u8> { Ok(1) }\nfn g() -> Result<u8, u8> { Ok(2) }\n",
+    )
+    .expect("rust");
+    for path in [file.clone(), root.0.clone()] {
+        let rule = json!({"kind":"identifier","regex":"^Result$"});
+        let row = json!({"operation":"match","path":path,"rule":rule,"parser":"rust"});
+        let out = run(&root.0, row).expect("empty");
+        assert_eq!(out["status"], "empty", "{out}");
+        assert_eq!(out["matchCount"], 0, "{out}");
+        let notes = other_kind_notes(&out);
+        assert_eq!(notes.len(), 1, "{out}");
+        assert!(notes[0].contains("type_identifier"), "{notes:?}");
+        assert!(notes[0].contains('2'), "{notes:?}");
+        let lead = &checks::related_call(&out, "astSearch", |input| {
+            input["queries"][0]["rule"]["regex"] == "^Result$"
+        })["input"]["queries"][0];
+        crate::contracts::validate_query("astSearch", lead.clone()).expect("a valid lead row");
+        assert_eq!(run(&root.0, lead.clone()).expect("lead")["matchCount"], 2);
+    }
+    // Text in no node of any kind, a kind with no regex, a kind that holds the
+    // text, and a regex with no kind: nothing to say.
+    for quiet in [
+        json!({"kind":"identifier","regex":"^Zzz$"}),
+        json!({"kind":"while_expression"}),
+        json!({"kind":"type_identifier","regex":"^Result$"}),
+        json!({"regex":"^Zzz$"}),
+    ] {
+        let row = json!({"operation":"match","path":file,"rule":quiet,"parser":"rust"});
+        let out = run(&root.0, row).expect("row");
+        assert_eq!(
+            other_kind_notes(&out),
+            Vec::<String>::new(),
+            "{quiet}: {out}"
+        );
+    }
+}

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use ignore::gitignore::Gitignore;
 
-use super::filters::NameFilter;
+use super::name_filter::NameFilter;
 use super::{EntryFilter, Visit};
 use crate::error::{Error, ErrorKind};
 use crate::search::glob;
@@ -34,8 +34,11 @@ pub(super) struct CompiledQuery {
     pub(super) accessed_to: Option<std::time::SystemTime>,
     pub(super) size_min: Option<u64>,
     pub(super) size_max: Option<u64>,
+    #[cfg(unix)]
     pub(super) permissions: Option<String>,
+    #[cfg(unix)]
     pub(super) executable: bool,
+    #[cfg(unix)]
     pub(super) readable: bool,
     pub(super) writable: bool,
     /// The default excludes, pruned only where git ignores them.
@@ -58,6 +61,37 @@ pub(super) struct CompiledQuery {
     /// Something reads an entry's `lstat`: the caller
     /// ([`FileSystemQueryOptions::names_only`] off) or a metadata filter.
     pub(super) stats_entries: bool,
+    /// A metadata filter decides what the walk lists.
+    pub(super) metadata_filtered: bool,
+    /// The caller's reader of replayed rows ([`FileSystemQueryOptions::replayed`]).
+    pub(super) replayed: Option<crate::types::ReplayedEntries>,
+}
+
+/// A platform with no mode bits cannot answer these filters: listing every file
+/// as if it had filtered would be a wrong answer, so the query is refused.
+/// `writable` stays: the read-only attribute answers it.
+pub(super) fn refuse_unprovable_permissions(
+    options: &FileSystemQueryOptions,
+    has_mode_bits: bool,
+) -> Result<(), Error> {
+    if has_mode_bits {
+        return Ok(());
+    }
+    let field = if options.permissions.is_some() {
+        "permissions"
+    } else if options.executable.unwrap_or(false) {
+        "access: executable"
+    } else if options.readable.unwrap_or(false) {
+        "access: readable"
+    } else {
+        return Ok(());
+    };
+    Err(Error::with_kind(
+        ErrorKind::InvalidInput,
+        format!(
+            "{field} cannot be checked on this platform: its files have no mode bits to read. Only access: writable can be, from the read-only attribute."
+        ),
+    ))
 }
 
 impl CompiledQuery {
@@ -65,6 +99,7 @@ impl CompiledQuery {
         ordered(options.size_min, options.size_max, "sizeBytes")?;
         ordered(options.modified_from, options.modified_to, "modifiedAt")?;
         ordered(options.accessed_from, options.accessed_to, "accessedAt")?;
+        refuse_unprovable_permissions(&options, cfg!(unix))?;
         let shape = walk_shape(&options);
         let root = PathBuf::from(options.path);
         let defaults = options
@@ -101,8 +136,7 @@ impl CompiledQuery {
             include_ignored,
             include_hidden,
         } = options.ignore;
-        let stats_entries = !options.names_only
-            || options.empty.unwrap_or(false)
+        let metadata_filtered = options.empty.unwrap_or(false)
             || options.modified_from.is_some()
             || options.modified_to.is_some()
             || options.accessed_from.is_some()
@@ -114,7 +148,9 @@ impl CompiledQuery {
             || options.readable.unwrap_or(false)
             || options.writable.unwrap_or(false);
         Ok(Self {
-            stats_entries,
+            stats_entries: !options.names_only || metadata_filtered,
+            metadata_filtered,
+            replayed: options.replayed,
             ignore_rules: (!include_ignored).then(|| IgnoreRules::new(&root)),
             root,
             include_root: options.include_root.unwrap_or(false),
@@ -132,8 +168,11 @@ impl CompiledQuery {
             accessed_to: options.accessed_to,
             size_min: options.size_min,
             size_max: options.size_max,
+            #[cfg(unix)]
             permissions: options.permissions,
+            #[cfg(unix)]
             executable: options.executable.unwrap_or(false),
+            #[cfg(unix)]
             readable: options.readable.unwrap_or(false),
             writable: options.writable.unwrap_or(false),
             defaults,

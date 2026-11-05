@@ -90,11 +90,22 @@ pub fn code_occurrence_lines(
     content: &str,
     symbol_name: &str,
 ) -> Option<Vec<usize>> {
+    code_occurrences(file_path, content, symbol_name).map(|occurrences| occurrences.lines)
+}
+
+/// [`code_occurrence_lines`] with the parse that found them, which
+/// [`CodeOccurrences::declared_lines`] reads rather than parse again.
+#[must_use]
+pub fn code_occurrences(
+    file_path: &str,
+    content: &str,
+    symbol_name: &str,
+) -> Option<CodeOccurrences> {
     if exceeds_source_cap(content.len()) || symbol_name.is_empty() {
         return None;
     }
     let deadline = whole_file_deadline();
-    let tree = parse_as_code(file_path, content, deadline)?;
+    let (tree, language) = parse_as_code(file_path, content, deadline)?;
     let root = tree.root_node();
     let mut candidates = Vec::new();
     let index = LineIndex::new(content);
@@ -113,7 +124,46 @@ pub fn code_occurrence_lines(
         .map(|candidate| candidate.line_index)
         .collect::<Vec<_>>();
     lines.dedup();
-    Some(lines)
+    Some(CodeOccurrences {
+        lines,
+        tree,
+        language,
+    })
+}
+
+/// Where a name occurs as code in one text.
+pub struct CodeOccurrences {
+    /// Zero-based lines, see [`code_occurrence_lines`].
+    pub lines: Vec<usize>,
+    tree: tree_sitter::Tree,
+    language: &'static tree_sitter::Language,
+}
+
+impl CodeOccurrences {
+    /// The zero-based lines where `name` is declared in `content` (the text
+    /// these occurrences were found in), as
+    /// [`crate::signatures::extract_graph_facts`] reads the file; `None` when
+    /// only those facts can tell. Reads only the parts of the file spelling
+    /// the name, so it costs far less than the facts on a large file.
+    #[must_use]
+    pub fn declared_lines(&self, file_path: &str, content: &str, name: &str) -> Option<Vec<usize>> {
+        use crate::signatures::{MAX_PARSE_SIZE, extractor, graph_facts, graph_facts_grammar};
+        if content.len() > MAX_PARSE_SIZE {
+            return None;
+        }
+        let (entry, grammar) = graph_facts_grammar(content, file_path)?;
+        let own_parse;
+        let tree = if std::ptr::eq(&entry.language, self.language) {
+            &self.tree
+        } else {
+            own_parse = extractor::parse_before(content, &entry.language, whole_file_deadline())?;
+            &own_parse
+        };
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            graph_facts::declared_lines_from_tree(content, file_path, &grammar, tree, name)
+        }))
+        .unwrap_or(None)
+    }
 }
 
 fn resolve_position_before(
@@ -202,16 +252,21 @@ use crate::text::LineIndex;
 /// extension, else by the grammar that also parses it (a C++ header under
 /// `.h`): a tree the resolver can tell code from comments with. `None` when
 /// no grammar applies, every parse has errors, or the budget runs out.
-fn parse_as_code(file_path: &str, content: &str, deadline: Instant) -> Option<tree_sitter::Tree> {
+fn parse_as_code(
+    file_path: &str,
+    content: &str,
+    deadline: Instant,
+) -> Option<(tree_sitter::Tree, &'static tree_sitter::Language)> {
     let owner = grammar_for_file(file_path)?;
     let tree = owner.parse_before(content, deadline)?;
     if !tree.root_node().has_error() {
-        return Some(tree);
+        return Some((tree, owner.language()));
     }
     let sibling = crate::lsp::grammar::sibling_grammar_for_file(file_path)?;
-    sibling
+    let tree = sibling
         .parse_before(content, deadline)
-        .filter(|tree| !tree.root_node().has_error())
+        .filter(|tree| !tree.root_node().has_error())?;
+    Some((tree, sibling.language()))
 }
 
 fn normalized_lines(content: &str) -> Vec<&str> {
@@ -228,7 +283,7 @@ fn resolve_position_with_grammar(
     if grammar_for_file(file_path).is_none() {
         return Ok(None);
     }
-    let Some(tree) = parse_as_code(file_path, content, deadline) else {
+    let Some((tree, _)) = parse_as_code(file_path, content, deadline) else {
         return Ok(None);
     };
     let root = tree.root_node();

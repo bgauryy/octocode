@@ -150,6 +150,7 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
                         &mut from_prices.groups[window.clone()],
                         budget,
                         row_paths,
+                        None,
                         &NeverCancel,
                     )
                     .is_ok_and(|incomplete| incomplete.is_empty())
@@ -204,6 +205,7 @@ fn a_priced_file_edited_after_its_scan_rebuilds_no_page() {
             groups,
             budget,
             row_paths,
+            None,
             &NeverCancel
         )
         .is_err()
@@ -252,6 +254,7 @@ fn a_priced_file_whose_match_does_not_finish_is_shown_unevaluated() {
         &mut grouped.groups[window.clone()],
         budget,
         row_paths,
+        None,
         &NeverCancel,
     ) else {
         panic!("unchanged bytes are not a changed file");

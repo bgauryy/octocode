@@ -107,7 +107,7 @@ define('remaining: lazy DOM replacement refuses stale node and duplicate searchb
   'DOM.resolveNode',
   'Runtime.evaluate',
 ], () =>
-  withTarget(suite.base + '/ready-late', async selection => {
+  withTarget(`${suite.base}/ready-late`, async selection => {
     await refuseStaleNode(selection);
     await refuseDuplicateSearchbox(selection);
   }));
@@ -143,7 +143,7 @@ async function replaceControl(selection, replacement) {
         ? [
             {
               op: 'goto',
-              url: suite.base + '/ready-late?replacement=full-document',
+              url: `${suite.base}/ready-late?replacement=full-document`,
               after: { selector: '#heading' },
             },
           ]
@@ -206,7 +206,7 @@ for (const replacement of ['document', 'node']) {
       : 'snapshot-ref: DOM-only replacement refuses detached old ref before later mutation',
     ['Runtime.evaluate', 'DOM.resolveNode'],
     () =>
-      withTarget(suite.base + '/ready-late', async selection => {
+      withTarget(`${suite.base}/ready-late`, async selection => {
         const oldRef = await snapshotOriginalRef(selection);
         await replaceControl(selection, replacement);
         await refuseOldRef(selection, oldRef);

@@ -135,9 +135,13 @@ struct GraphAccumulator {
     /// Outline extraction: skip call facts, which an outline never reads and
     /// which are most of a large file's walk and facts.
     declarations_only: bool,
+    /// When set, the walk enters only the nodes that spell this word.
+    only_spelling: Option<crate::signatures::spelled::Spelled>,
     test_context: test_adapter::TestContext,
     /// Python: the file's names for `typing.TYPE_CHECKING`.
     typing: python::TypingBindings,
+    /// C++ `namespace al = a::b;` seen so far: alias → what it names.
+    namespace_aliases: std::collections::HashMap<String, String>,
 }
 
 /// A token `count_name_references` reads: a name leaf, or (`format`) a Rust
@@ -174,17 +178,21 @@ impl GraphAccumulator {
             non_reference_tokens: std::collections::HashSet::new(),
             public_namespace_scopes: std::collections::HashSet::new(),
             macro_bodies: Vec::new(),
+            namespace_aliases: std::collections::HashMap::new(),
             macro_chain: None,
             macro_recovered: None,
             declaration_spans: Vec::new(),
             name_tokens: None,
             declarations_only: false,
+            only_spelling: None,
             test_context: test_adapter::TestContext::default(),
             typing: python::TypingBindings::default(),
             diagnostics: vec![note(GraphFactCode::SyntaxOnly)],
         }
     }
 }
+
+pub(crate) use from_tree::declared_lines_from_tree;
 
 pub(crate) fn extract_graph_facts_with_metadata_with_extension(
     content: &str,

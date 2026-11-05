@@ -141,7 +141,7 @@ async fn invalid_missing_oversized_and_private_images_never_reach_provider() {
     large_dimensions[16..20].copy_from_slice(&9000u32.to_be_bytes());
     std::fs::write(workspace.workspace.join("wide.png"), large_dimensions).unwrap();
     let oversized = std::fs::File::create(workspace.workspace.join("large.png")).unwrap();
-    oversized.set_len(8 * 1024 * 1024 + 1).unwrap();
+    oversized.set_len(16 * 1024 * 1024 + 1).unwrap();
     let runtime = runtime(&workspace, &server, &[]);
     let mut unused = row("missing.png");
     unused["assets"]["unused"] = unused["assets"]["image_a"].take();

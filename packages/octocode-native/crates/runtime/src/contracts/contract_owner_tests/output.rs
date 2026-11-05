@@ -74,7 +74,7 @@ fn next_rejects_keys_the_tool_registry_does_not_declare() {
             "next":{name:continued}
         }}]})
     };
-    validate_output("localFetch", &output("readOtherRanges2"))
+    validate_output("localFetch", &output("continueBlock2"))
         .expect("a numbered instance of a declared branch");
     for name in ["nextMatchPage", "undeclared"] {
         validate_output("localFetch", &output(name))

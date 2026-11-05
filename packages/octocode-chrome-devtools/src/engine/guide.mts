@@ -6,15 +6,15 @@ import { chromeGuideTopics } from './chrome-contract.mjs';
 const args = process.argv.slice(2);
 if (args.includes('--help') || args.includes('-h')) {
   console.log(
-    'Usage: skill [topic] [--offset N] [--length N]\nTopics: ' +
-      chromeGuideTopics.join(', ') +
-      '\nReads package-owned guidance, with lossless artifact continuations.'
+    `Usage: skill [topic] [--offset N] [--length N]\nTopics: ${chromeGuideTopics.join(
+      ', '
+    )}\nReads package-owned guidance, with lossless artifact continuations.`
   );
 } else {
   const topic =
     args[0] && !args[0].startsWith('--') ? args.shift() : 'operating';
   if (!chromeGuideTopics.some(item => item === topic)) {
-    console.error('Unknown guide topic ' + topic);
+    console.error(`Unknown guide topic ${topic}`);
     process.exitCode = 2;
   } else {
     validateFlags(args, ['--offset', '--length']);
@@ -22,7 +22,7 @@ if (args.includes('--help') || args.includes('-h')) {
     const file =
       topic === 'operating'
         ? join(root, 'OPERATING.md')
-        : join(root, 'docs', topic + '.md');
+        : join(root, 'docs', `${topic}.md`);
     process.argv = [
       process.execPath,
       fileURLToPath(new URL('./artifact-query.mjs', import.meta.url)),

@@ -5,8 +5,8 @@ use octocode_engine::graph::{FileGraphNode, GraphFactsDocument};
 
 /// The workspace crates `cargo metadata` names for every Cargo workspace
 /// that encloses a scanned Rust file, with a diagnostic per workspace it
-/// could not read and one for Rust files no manifest encloses (their imports
-/// of other crates stay external; module paths still link by syntax).
+/// could not read and one for Rust files no manifest encloses (what their
+/// imports of other crates name stays unknown; module paths still link by syntax).
 pub(super) fn cargo_linking(
     scan: &GraphScan,
     b: &mut BuiltGraph,
@@ -23,7 +23,7 @@ pub(super) fn cargo_linking(
             ".",
             None,
             DiagnosticCode::UnsupportedLinking,
-            format!("Cargo metadata cargo-manifest-missing: {loose} Rust file(s) have no enclosing Cargo.toml; their imports of other crates stay external."),
+            format!("Cargo metadata cargo-manifest-missing: {loose} Rust file(s) have no enclosing Cargo.toml; what their imports of other crates name stays unknown."),
         ));
     }
     let (crates, failures) = load_cargo_crates(&b.root, &manifests, scan.cargo.as_deref(), cancel);
@@ -79,6 +79,8 @@ pub(super) struct LinkInputs<'x> {
     pub(super) cargo_crates: &'x CargoCrates,
     pub(super) ctx: &'x ResolveContext,
     pub(super) packages: &'x PackageIndex,
+    /// The scanned JS/TS modules, for a bare specifier a file's path ends in.
+    pub(super) js_modules: &'x super::super::js_paths::ModulesByName<'x>,
 }
 
 pub(super) fn link_file(

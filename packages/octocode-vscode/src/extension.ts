@@ -176,10 +176,11 @@ export async function activate(
 
     if (initialAuthStatus.authenticated) {
       outputChannel.appendLine(
-        `GitHub authenticated via ${initialAuthStatus.tokenSource}` +
-          (initialAuthStatus.accountName
+        `GitHub authenticated via ${initialAuthStatus.tokenSource}${
+          initialAuthStatus.accountName
             ? ` as ${initialAuthStatus.accountName}`
-            : '')
+            : ''
+        }`
       );
     }
 

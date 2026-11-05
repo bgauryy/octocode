@@ -74,6 +74,15 @@ impl LinkScope<'_> {
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>();
         let (first, module) = (*segments.first()?, *segments.last()?);
+        // `other_crate::f()`: the crate's root module, when it has a library.
+        if segments.len() == 1
+            && let Some(dir) = self.crate_dirs.get(first)
+        {
+            return self
+                .rust_files
+                .get(join(dir, "src/lib.rs").as_str())
+                .copied();
+        }
         if segments.len() < 2 || module.starts_with(|c: char| c.is_ascii_uppercase()) {
             return None;
         }

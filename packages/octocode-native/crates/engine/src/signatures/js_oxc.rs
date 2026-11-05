@@ -76,6 +76,11 @@ impl LocalExports {
     }
 }
 
+/// Whether oxc, not a tree-sitter grammar, reads `file_path` for graph facts.
+pub(crate) fn reads(file_path: &str) -> bool {
+    is_oxc_dialect(file_path, None)
+}
+
 /// Native JS/TS graph facts: a syntax-level AST inventory of declarations,
 /// imports, exports, function/class containment, and direct call expressions.
 /// It deliberately avoids type inference and cross-file resolution; callers

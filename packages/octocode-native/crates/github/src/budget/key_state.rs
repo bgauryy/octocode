@@ -61,6 +61,10 @@ pub(super) struct KeyFacts {
     pub(super) cooldown_until_ms: u64,
     #[serde(default)]
     pub(super) last_start_ms: BTreeMap<String, u64>,
+    /// The `max-age` GitHub stated for a REST read of a pull request, in
+    /// seconds; 0 when it stated none. A shorter view wins: it is the safe one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) pull_request_max_age: Option<u64>,
     #[serde(skip)]
     pub(super) circuit_failures: u32,
     #[serde(skip)]

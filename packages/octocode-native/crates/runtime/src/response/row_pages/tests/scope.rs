@@ -21,7 +21,7 @@ fn every_code_fragment_keeps_optional_provenance_and_evidence_qualifiers() {
     let mut seen = Vec::new();
     for page in 0..plan.total_pages {
         for row in plan
-            .build_page(page, &[None], &[], &Cancellation::new())
+            .build_page(page, &[None], &Cancellation::new())
             .expect("valid build_page")
         {
             for file in row["data"]["files"].as_array().expect("files") {
@@ -53,7 +53,6 @@ fn rows_scope_splits_nested_arrays_into_complete_json_pages() {
         structured.as_object().unwrap().clone(),
         &options,
         Vec::new(),
-        &[],
         crate::id::ToolId::LocalSearch,
     );
     assert!(pagination.total_pages > 2 && pagination.has_more);
@@ -78,7 +77,6 @@ fn rows_scope_splits_nested_arrays_into_complete_json_pages() {
             structured.as_object().unwrap().clone(),
             &options,
             Vec::new(),
-            &[],
             crate::id::ToolId::LocalSearch,
         );
         for row in envelope["results"].as_array().unwrap() {
@@ -116,7 +114,6 @@ fn later_slices_of_an_element_do_not_repeat_its_description() {
                     structured.as_object().unwrap().clone(),
                     &options,
                     Vec::new(),
-                    &[],
                     crate::id::ToolId::GhGetHistoryItem,
                 )
                 .1
@@ -128,7 +125,6 @@ fn later_slices_of_an_element_do_not_repeat_its_description() {
             structured.as_object().unwrap().clone(),
             &page,
             Vec::new(),
-            &[],
             crate::id::ToolId::GhGetHistoryItem,
         );
         let pr = &envelope["results"][0]["data"]["pullRequests"][0];
@@ -171,7 +167,6 @@ fn rows_scope_never_repeats_secondary_evidence_per_fragment() {
                 structured.as_object().unwrap().clone(),
                 &options,
                 Vec::new(),
-                &[],
                 crate::id::ToolId::GhGetHistoryItem,
             );
             assert!(first.total_pages > 1);
@@ -186,7 +181,6 @@ fn rows_scope_never_repeats_secondary_evidence_per_fragment() {
                     structured.as_object().unwrap().clone(),
                     &options,
                     Vec::new(),
-                    &[],
                     crate::id::ToolId::GhGetHistoryItem,
                 );
                 for row in envelope["results"].as_array().unwrap() {
@@ -231,7 +225,6 @@ fn rows_scope_preserves_dominant_context_with_complete_bounded_pages() {
         structured.as_object().unwrap().clone(),
         &options,
         Vec::new(),
-        &[],
         crate::id::ToolId::LocalSearch,
     );
     let mut seen = Vec::new();
@@ -246,7 +239,6 @@ fn rows_scope_preserves_dominant_context_with_complete_bounded_pages() {
                 ..options.clone()
             },
             Vec::new(),
-            &[],
             crate::id::ToolId::LocalSearch,
         );
         let envelope = Value::Object(envelope);

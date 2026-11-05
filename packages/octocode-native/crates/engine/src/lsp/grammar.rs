@@ -11,6 +11,10 @@ pub(crate) struct GrammarSpec {
 }
 
 impl GrammarSpec {
+    pub(crate) fn language(&self) -> &'static Language {
+        self.language
+    }
+
     pub(crate) fn parse_before(
         &self,
         content: &str,

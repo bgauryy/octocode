@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn a_paged_fixture_is_byte_identical_on_cli_and_mcp() {
         let fixture = json!({"results":[{"index":0,"data":{"files":[]}}],
-            "responsePagination":{"page":1,"totalPages":2,"hasMore":true,
+            "responsePagination":{"hasMore":true,
                 "next":{"kind":"continue","tool":"localSearch","input":{"cursor":"stable"}},
                 "expiresAt":"2026-11-02T00:00:00.000Z","replayed":false}});
         let outcome = || ToolOutcome {

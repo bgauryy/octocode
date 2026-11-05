@@ -27,7 +27,7 @@ const isolatedFrameSteps = parent => [
   ),
   {
     op: 'goto',
-    url: suite.base + '/isolated-parent',
+    url: `${suite.base}/isolated-parent`,
     session: parent,
     after: { selector: '#isolated' },
   },
@@ -91,7 +91,7 @@ const serviceWorkerSteps = (workerUrl, networkUrl) => [
     id: 'workerRequests',
     event: 'Network.requestWillBeSent',
   },
-  { op: 'goto', url: suite.base + '/sw/page', after: { selector: '#ready' } },
+  { op: 'goto', url: `${suite.base}/sw/page`, after: { selector: '#ready' } },
   {
     op: 'listen',
     id: 'workerLife',
@@ -176,8 +176,8 @@ define('remaining: service-worker synthetic response and explicit network bypass
   'Network.setBypassServiceWorker',
   'Network.getResponseBody',
 ], async () => {
-  const workerUrl = suite.base + '/sw/response?mode=worker',
-    networkUrl = suite.base + '/sw/response?mode=bypass';
+  const workerUrl = `${suite.base}/sw/response?mode=worker`,
+    networkUrl = `${suite.base}/sw/response?mode=bypass`;
   const r = await plan(serviceWorkerSteps(workerUrl, networkUrl));
   const requests = events(r, 'workerRequests');
   for (const url of [workerUrl, networkUrl])
@@ -214,7 +214,7 @@ define('remaining: service-worker synthetic response and explicit network bypass
       row.params.versions.some(
         version =>
           version.status === 'activated' &&
-          version.scriptURL === suite.base + '/owned-sw.js'
+          version.scriptURL === `${suite.base}/owned-sw.js`
       )
     )
   );

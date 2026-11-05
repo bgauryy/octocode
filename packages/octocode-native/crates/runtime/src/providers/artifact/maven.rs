@@ -14,6 +14,23 @@ mod pom;
 
 use pom::read_pom;
 
+/// The versions a `maven-metadata.xml`, comments removed, lists, in its order.
+fn listed_versions(clean: &str) -> Vec<String> {
+    patterns::version()
+        .captures_iter(clean)
+        .filter_map(|capture| capture.get(1))
+        .map(|value| value.as_str().trim().to_owned())
+        .collect()
+}
+
+/// The newest stable version a metadata document lists, oldest to newest.
+fn newest_stable(clean: &str) -> Option<String> {
+    listed_versions(clean)
+        .into_iter()
+        .rev()
+        .find(|version| !patterns::prerelease().is_match(version))
+}
+
 pub(crate) async fn maven(
     query: &ArtifactSearchQuery,
     state: &ArtifactProviderState,
@@ -168,11 +185,7 @@ async fn exact(
         // An exact version is one the metadata lists (Maven has no ranges
         // here: a bracketed range is not a published version).
         Some(wanted) => {
-            let published = patterns::version()
-                .captures_iter(&clean)
-                .filter_map(|capture| capture.get(1))
-                .map(|value| value.as_str().trim().to_owned())
-                .collect::<Vec<_>>();
+            let published = listed_versions(&clean);
             if !published.iter().any(|version| version == wanted) {
                 return Err(super::versions::version_not_found(
                     &artifact.package_name,
@@ -182,7 +195,17 @@ async fn exact(
             }
             Some(wanted.to_owned())
         }
-        None => field("release").or_else(|| field("latest")),
+        // `<release>` is the last deployment, a milestone or release candidate
+        // as easily as a final release. A stable one stands: it, not the
+        // highest number, tells a real release from an old date-shaped version.
+        None => field("release").or_else(|| field("latest")).map(|release| {
+            if !patterns::prerelease().is_match(&release) {
+                return release;
+            }
+            let stable = newest_stable(&clean);
+            artifact.only_prerelease = stable.is_none();
+            stable.unwrap_or(release)
+        }),
     };
     if let Some(version) = artifact.version.clone() {
         let (pom, published_at) = futures_util::join!(
@@ -215,22 +238,48 @@ fn group_path(group: &str) -> String {
         .join("/")
 }
 
+/// The newest stable release of `group:name`, from its metadata. Best-effort:
+/// `None` leaves a discovery row at the version the search named.
+async fn stable_release(group: &str, name: &str, client: &RegistryClient<'_>) -> Option<String> {
+    let url = parse_url(&format!(
+        "https://repo.maven.apache.org/maven2/{}/{}/maven-metadata.xml",
+        group_path(group),
+        super::util::encode_component(name)
+    ))
+    .ok()?;
+    let xml = client.text(ArtifactType::Maven, url, true).await.ok()??;
+    if patterns::doctype().is_match(&xml) {
+        return None;
+    }
+    newest_stable(&patterns::comment().replace_all(&xml, ""))
+}
+
 /// Central search names no source repository, so each discovery row reads
 /// its listed version's POM (concurrently, like an exact lookup does): a
 /// row on GitHub then carries the `owner`/`repo` every GitHub tool takes.
-/// A POM that is missing or names no SCM leaves the row without one.
+/// A POM that is missing or names no SCM leaves the row without one. A row
+/// whose `latestVersion` is a prerelease first reads which release is stable.
 async fn discovery_repositories(artifacts: &mut [ArtifactItem], client: &RegistryClient<'_>) {
     let found = futures_util::future::join_all(artifacts.iter().map(|artifact| async move {
         let (group, name) = artifact.package_name.split_once(':')?;
-        let version = artifact.version.as_deref()?;
-        read_pom(&group_path(group), name, version, client)
+        let listed = artifact.version.as_deref()?;
+        let stable = if patterns::prerelease().is_match(listed) {
+            stable_release(group, name, client).await
+        } else {
+            None
+        };
+        let version = stable.as_deref().unwrap_or(listed);
+        let repository = read_pom(&group_path(group), name, version, client)
             .await
             .ok()
-            .flatten()?
-            .repository
+            .flatten()
+            .and_then(|pom| pom.repository);
+        Some((stable, repository))
     }))
     .await;
-    for (artifact, repository) in artifacts.iter_mut().zip(found) {
+    for (artifact, found) in artifacts.iter_mut().zip(found) {
+        let (stable, repository) = found.unwrap_or_default();
+        artifact.version = stable.or(artifact.version.take());
         artifact.repository = repository;
     }
 }
@@ -285,3 +334,6 @@ mod tests;
 
 #[cfg(test)]
 mod discovery_tests;
+
+#[cfg(test)]
+mod latest_tests;

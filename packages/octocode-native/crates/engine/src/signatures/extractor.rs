@@ -109,7 +109,9 @@ pub struct LangExtractConfig {
 /// once built. Queries can be shared concurrently; parsing requires mutable
 /// parser access, so [`parse_with_deadline`] keeps a parser per worker thread.
 /// Caches one compiled `Query` per `(language, body_query)` pair instead of
-/// recompiling on every `extract()` call.
+/// recompiling on every `extract()` call. The pairs are the fixed grammar table
+/// in `languages.rs`, never input, so the map holds at most one entry per row of it and has no
+/// lifetime or share of the memory budget to give back.
 type QueryCacheKey = (Language, &'static str);
 type QueryCacheMap = HashMap<QueryCacheKey, Arc<Query>>;
 

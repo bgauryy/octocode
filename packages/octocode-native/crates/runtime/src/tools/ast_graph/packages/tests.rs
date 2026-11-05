@@ -97,15 +97,16 @@ fn a_scan_below_its_module_maps_through_the_enclosing_go_mod() {
         )),
         vec!["chunkenc/chunk.go"]
     );
-    // A module import outside the scanned subtree stays external.
-    assert_eq!(
-        files(scanned.resolve(
+    // A module import outside the scanned subtree is the module's own code,
+    // unscanned: never external.
+    assert!(matches!(
+        scanned.resolve(
             super::super::linking::Linker::Go,
             "example.com/app/model",
             "db.go"
-        )),
-        Vec::<String>::new()
-    );
+        ),
+        super::PackageLink::UnresolvedInternal
+    ));
     // No go.mod anywhere: module imports are unlinkable, not external.
     let bare = tempfile::tempdir().expect("tempdir");
     std::fs::create_dir(bare.path().join(".git")).expect("repository boundary");

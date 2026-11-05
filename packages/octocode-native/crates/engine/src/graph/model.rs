@@ -223,6 +223,9 @@ pub struct GraphFactRustModule {
     pub inline: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    /// The file `#[cfg_attr(test, path = "...")]` mounts it from, under test only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub test_path: Option<String>,
     pub unsupported: bool,
 }
 

@@ -113,7 +113,7 @@ fn walk_pages(
         let names = page_names(&row);
         assert!(!names.is_empty(), "page {call} moved: {row}");
         seen.extend(names);
-        let Some(next) = row.pointer("/pagination/next/nextPage/input/queries/0") else {
+        let Some(next) = row.pointer("/next/nextPage/input/queries/0") else {
             break;
         };
         q = serde_json::from_value(next.clone()).expect("executable continuation");
@@ -178,10 +178,9 @@ fn a_page_past_the_end_or_of_another_answer_never_skips_rows() {
         &q,
         items_payload(&q, "symbols", serde_json::json!(items), 600),
     );
-    let next: LspSearchQuery = serde_json::from_value(
-        first["pagination"]["next"]["nextPage"]["input"]["queries"][0].clone(),
-    )
-    .expect("continuation");
+    let next: LspSearchQuery =
+        serde_json::from_value(first["next"]["nextPage"]["input"]["queries"][0].clone())
+            .expect("continuation");
     // The answer changed: the digest no longer matches.
     let mut changed = items.clone();
     changed.pop();
@@ -208,7 +207,7 @@ fn a_forged_snapshot_is_a_stale_snapshot() {
         with_next(
             &q,
             items_payload(&q, "symbols", serde_json::json!(items), 600),
-        )["pagination"]["next"]["nextPage"]["input"]["queries"][0]
+        )["next"]["nextPage"]["input"]["queries"][0]
             .clone(),
     )
     .expect("continuation");
@@ -261,7 +260,7 @@ fn caller_pages_fill_the_budget_with_compact_rows() {
                 .flat_map(|file| file["matches"].as_array().into_iter().flatten())
                 .map(|call| call["symbolName"].as_str().expect("name").to_owned()),
         );
-        let Some(next) = row.pointer("/pagination/next/nextPage/input/queries/0") else {
+        let Some(next) = row.pointer("/next/nextPage/input/queries/0") else {
             break;
         };
         q = serde_json::from_value(next.clone()).expect("continuation");

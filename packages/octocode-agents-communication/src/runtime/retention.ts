@@ -19,7 +19,7 @@ function storage(db: Database, path: string): Storage {
   const size = db.integer('PRAGMA page_size');
   const count = db.integer('PRAGMA page_count');
   const free = db.integer('PRAGMA freelist_count');
-  return { pageSize: size, pageCount: count, freePages: free, logicalBytes: size * count, reusableBytes: size * free, mainFileBytes: statSync(path).size, walBytes: fileSize(path + '-wal') };
+  return { pageSize: size, pageCount: count, freePages: free, logicalBytes: size * count, reusableBytes: size * free, mainFileBytes: statSync(path).size, walBytes: fileSize(`${path}-wal`) };
 }
 
 export function report(path: string, input: DbRetentionInput): CommandResults['db retention'] {

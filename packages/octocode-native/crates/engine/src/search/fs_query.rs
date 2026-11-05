@@ -6,6 +6,7 @@ use std::path::Path;
 
 mod compiled;
 mod filters;
+mod name_filter;
 mod read_ahead;
 mod walker;
 
@@ -14,9 +15,9 @@ use crate::error::Error;
 use crate::types::fs_resume::Frame;
 use crate::types::{FileSystemQueryOptions, FileSystemQueryResult};
 use compiled::CompiledQuery;
-pub use filters::NameFilter;
 use filters::{EntryKind, file_name, visit_path};
 pub(crate) use filters::{has_extension, normalize_extensions};
+pub use name_filter::NameFilter;
 use walker::{QueryState, walk_children, walk_frame};
 
 /// Whether the walk inspects an entry now or replays one an earlier window
@@ -134,6 +135,7 @@ pub fn query_file_system(
         cursor: state.cursor,
         window_cursor: state.window_cursor,
         walked_dirs: state.walked_dirs,
+        evaluated: state.evaluated,
     })
 }
 

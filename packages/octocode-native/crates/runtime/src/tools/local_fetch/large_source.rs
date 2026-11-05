@@ -9,13 +9,18 @@
 //! a bounded text window over the source the same way), and every window
 //! line inside a private-key block is replaced before the window reaches the
 //! regular sanitizer, whichever side of the window the block's markers fall
-//! on. The window then goes through the normal pipeline, and its positions,
-//! totals, digest, and continuations are mapped back to the whole file.
+//! on. What a source's structure says is secret is masked in the window too
+//! ([`masks`]). The window then goes through the normal pipeline, and its positions,
+//! totals, digest, and continuations are mapped back to the whole file. One long
+//! line pages by bytes: a page reads from the pass's nearest place inside the line,
+//! and only as far as its window.
 
 use crate::tools::source_view::local_fetch_query;
 mod edges;
 mod held;
+mod hits;
 mod kept;
+mod masks;
 mod matches;
 mod page;
 mod proven;
@@ -33,8 +38,7 @@ use ranges::fetch_ranges;
 use std::path::Path;
 use window::{Opened, stream_window};
 
-/// Largest source a window may be streamed from.
-pub(super) const MAX_STREAM_SOURCE_BYTES: u64 = 1024 * 1024 * 1024;
+pub(super) use crate::tools::source_view::prepare::MAX_STREAM_SOURCE_BYTES;
 /// Lines held by one streamed window; response pages are sized separately.
 const WINDOW_LINES: usize = 5_000;
 /// Bytes one streamed window holds; a longer window is cut at a line end or,
@@ -42,8 +46,15 @@ const WINDOW_LINES: usize = 5_000;
 /// their own offset, so the rest of the line is the next window.
 pub(super) const WINDOW_BYTES: usize = 4 * 1024 * 1024;
 /// View bytes a byte page's window keeps behind the page: the page finds its
-/// line's start and its secret-scan margin there, as in an in-memory read.
-const BYTE_LOOKBEHIND: usize = 1024 * 1024;
+/// line's start and its secret-scan margin there, as in an in-memory read. Past
+/// every secret the detectors can bound, and a secret that outruns it (a value over
+/// this long, its name out of reach) is the stated limit.
+const BYTE_LOOKBEHIND: usize = 128 * 1024;
+/// Bytes a byte page's window holds: the page with that margin on both sides.
+const BYTE_WINDOW_BYTES: usize = 3 * BYTE_LOOKBEHIND;
+/// A line past this is no key-block line, whatever it spells: a key's own lines are
+/// short, and a line of this length is judged by its bytes alone.
+const KEY_LINE_BYTES: usize = 1024 * 1024;
 /// Line prefix kept to read a private-key block's named lines and armor headers.
 const MARKER_PREFIX_BYTES: usize = 256;
 
@@ -81,6 +92,10 @@ struct Streamed {
     origin: ByteOrigin,
     /// The source holds a NUL byte: binary, whatever its head showed.
     binary: bool,
+    /// The window holds masks of secret bytes ([`masks`]).
+    masked: bool,
+    /// Those masks hide every value, as no walk could place the secret ones.
+    every_value: bool,
 }
 
 /// A repair for a request a streamed window cannot serve.
@@ -120,10 +135,13 @@ pub(super) fn fetch_window(
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
 ) -> LocalFetchResult {
-    if octocode_engine::security::WholeSourcePatterns::for_path(&path.to_string_lossy()).is_some() {
-        let security = &unjudged::Unjudged(security);
-        return serve_source(q, path, source, meta, modified, share, security, cancel);
-    }
+    let security = &unjudged::Unjudged {
+        scan: security,
+        path_gated: octocode_engine::security::WholeSourcePatterns::for_path(
+            &path.to_string_lossy(),
+        )
+        .is_some(),
+    };
     serve_source(q, path, source, meta, modified, share, security, cancel)
 }
 

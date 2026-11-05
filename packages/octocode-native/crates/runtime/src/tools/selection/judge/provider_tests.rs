@@ -1,9 +1,9 @@
 //! The evaluator as a selection judge against a real provider endpoint:
 //! request shape, per-candidate failures and typed whole-page errors.
 use super::*;
-use crate::execution::{ExecutionContext, SelectionLimits};
+use crate::execution::ExecutionContext;
 use crate::tools::selection::Candidate;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate, matchers::method};
 
 /// A retry-free evaluator, so each candidate is one provider request.
@@ -81,12 +81,7 @@ fn evaluator_receives_context_and_long_context_and_keeps_success_after_failure()
                 admitted: &[0, 1],
                 predicates: &predicates,
                 research_context: Some(research_context),
-                long_context: true,
-                limits: SelectionLimits {
-                    max_candidates: 2,
-                    max_chars: 10_000,
-                    timeout: Duration::from_secs(10),
-                },
+                long_context: crate::tools::judgment::LongContext::Always,
                 handle: executor.handle(),
                 context: &context,
                 usage: &mut usage,
@@ -142,11 +137,10 @@ fn evaluator_receives_context_and_long_context_and_keeps_success_after_failure()
             body["state"]["sourceLineRanges"],
             json!([[4, 5], [0, 0], [9, 9]])
         );
+        // Context travels once, beside the evidence.
+        assert_eq!(body["state"]["context"], "Explain retry behavior");
         for question in body["questions"].as_object().expect("questions").values() {
-            assert_eq!(
-                question["instructions"]["context"],
-                "Explain retry behavior"
-            );
+            assert!(question["instructions"].get("context").is_none());
         }
     }
     run("Explain current defaults");
@@ -179,12 +173,7 @@ fn a_provider_failing_every_candidate_is_a_typed_error_not_unknown() {
             admitted: &[0, 1],
             predicates: &["Does this describe termination?".to_owned()],
             research_context: None,
-            long_context: false,
-            limits: SelectionLimits {
-                max_candidates: 2,
-                max_chars: 10_000,
-                timeout: Duration::from_secs(10),
-            },
+            long_context: crate::tools::judgment::LongContext::Never,
             handle: executor.handle(),
             context: &context,
             usage: &mut ClassificationUsage::default(),
@@ -228,12 +217,7 @@ fn a_refused_connection_is_named_not_the_circuit_it_opens() {
             admitted: &admitted,
             predicates: &["Does this describe termination?".to_owned()],
             research_context: None,
-            long_context: false,
-            limits: SelectionLimits {
-                max_candidates: candidates.len(),
-                max_chars: 100_000,
-                timeout: Duration::from_secs(20),
-            },
+            long_context: crate::tools::judgment::LongContext::Never,
             handle: executor.handle(),
             context: &context,
             usage: &mut ClassificationUsage::default(),
@@ -298,12 +282,7 @@ fn identical_candidate_states_in_one_call_share_one_request() {
             admitted: &[0, 1, 2],
             predicates: &["Does this describe termination?".to_owned()],
             research_context: None,
-            long_context: false,
-            limits: SelectionLimits {
-                max_candidates: 3,
-                max_chars: 10_000,
-                timeout: Duration::from_secs(10),
-            },
+            long_context: crate::tools::judgment::LongContext::Never,
             handle: executor.handle(),
             context: &context,
             usage: &mut usage,

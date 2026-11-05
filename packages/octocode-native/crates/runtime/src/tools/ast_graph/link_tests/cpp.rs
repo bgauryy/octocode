@@ -162,3 +162,104 @@ fn cuda_kernel_launches_and_device_calls_link() {
         ["kernels.cuh#scale_kernel"]
     );
 }
+
+/// `(*this).x()` is `this->x()`, and `this->B::x()` names `B`'s member, as
+/// `B::x()` does.
+#[test]
+fn spelled_out_this_receivers_bind_the_member() {
+    let temp = fixture(&[(
+        "src/box.cpp",
+        "class Base {\npublic:\n  int bm() { return 0; }\n};\nclass Box : public Base {\n  int helper() { return 2; }\n  int deref() { return (*this).helper(); }\n  int scoped() { return this->Base::bm(); }\n};\n",
+    )]);
+    let root = ingested(&temp);
+    assert_eq!(
+        callees(root, "src/box.cpp#Box.deref"),
+        [to("src/box.cpp#Box.helper", "local")]
+    );
+    assert_eq!(
+        callees(root, "src/box.cpp#Box.scoped"),
+        [to("src/box.cpp#Base.bm", "qualified")]
+    );
+}
+
+/// `p->B::x()` and `(*p).B::x()` name `B`'s member, whatever `p`'s type
+/// declares: the written class settles it, so `D`, which hides `x`, gets no
+/// edge, and an inherited member is still found through the written class.
+/// The same holds when a class defines its members out of line in one file.
+#[test]
+fn a_qualified_member_call_links_the_class_it_names_not_the_receivers() {
+    let temp = fixture(&[
+        (
+            "inline.cpp",
+            "struct A { int z() { return 0; } };\n\
+             struct B : A { int x() { return 1; } };\n\
+             struct D : B { int x() { return 2; } };\n\
+             int arrow(D *p) { return p->B::x(); }\n\
+             int deref(D *p) { return (*p).B::x(); }\n\
+             int dot(D d) { return d.B::x(); }\n\
+             int inherited(D *p) { return p->B::z(); }\n\
+             int unwritten(D *p) { return p->x(); }\n",
+        ),
+        (
+            "out.cpp",
+            "struct A2 { int z(); };\nint A2::z() { return 0; }\n\
+             struct B2 : A2 { int x(); };\nint B2::x() { return 1; }\n\
+             struct D2 : B2 { int x(); };\nint D2::x() { return 2; }\n\
+             int arrow(D2 *p) { return p->B2::x(); }\n\
+             int deref(D2 *p) { return (*p).B2::x(); }\n\
+             int dot(D2 d) { return d.B2::x(); }\n\
+             int inherited(D2 *p) { return p->B2::z(); }\n\
+             int unwritten(D2 *p) { return p->x(); }\n\
+             int plain() { return B2::x(); }\n\
+             struct C2 { int u(); int v(); int w() { return u(); } };\n\
+             int C2::u() { return 3; }\nint C2::v() { return u(); }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    for caller in ["arrow", "deref", "dot"] {
+        assert_eq!(
+            callees(root, &format!("inline.cpp#{caller}")),
+            [to("inline.cpp#B.x", "qualified")],
+            "{caller}"
+        );
+        assert_eq!(
+            callees(root, &format!("out.cpp#{caller}")),
+            [to("out.cpp#B2.x@4", "qualified")],
+            "out of line: {caller}"
+        );
+    }
+    assert_eq!(
+        callees(root, "out.cpp#plain"),
+        [to("out.cpp#B2.x@4", "qualified")]
+    );
+    for caller in ["out.cpp#C2.w", "out.cpp#C2.v@15"] {
+        let targets = call_edges(root, caller)
+            .into_iter()
+            .map(|(id, _, _)| id)
+            .collect::<Vec<_>>();
+        assert_eq!(targets, ["out.cpp#C2.u@14"], "bare member call: {caller}");
+    }
+    for (caller, target) in [
+        ("inline.cpp#inherited", "inline.cpp#A.z"),
+        ("out.cpp#inherited", "out.cpp#A2.z@2"),
+    ] {
+        assert_eq!(
+            call_edges(root, caller)
+                .into_iter()
+                .map(|(id, _, _)| id)
+                .collect::<Vec<_>>(),
+            [target],
+            "{caller}"
+        );
+    }
+    for (caller, target) in [
+        ("inline.cpp#unwritten", "inline.cpp#D.x"),
+        ("out.cpp#unwritten", "out.cpp#D2.x@6"),
+    ] {
+        assert_eq!(
+            callees(root, caller),
+            [to(target, "receiver-type")],
+            "{caller}"
+        );
+    }
+}

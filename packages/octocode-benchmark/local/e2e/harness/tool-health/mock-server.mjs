@@ -61,7 +61,7 @@ const sender = (res, rateLimit) => (status, payload, headers = {}) => {
  * `{ user, tokenMatches }` (never the secret itself). `token`: the credential
  * git accepts, or a list of them (one per caller).
  */
-export async function startMock({ fixtureDir, tmpDir, token, configureModel, classificationResponder } = {}) {
+export async function startMock({ fixtureDir, tmpDir, token, configureModel, classificationResponder, unmetered = false } = {}) {
   const model = buildModel(fixtureDir);
   configureModel?.(model);
   const requests = [];
@@ -73,7 +73,8 @@ export async function startMock({ fixtureDir, tmpDir, token, configureModel, cla
     unhandled.push(what);
     unhandledFrom.push({ request: what, token: /^(?:token|bearer)\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? null });
   };
-  const meter = rateLimiter();
+  // A shared credential over a whole matrix run must not wait out a quota window it only reports.
+  const meter = unmetered ? () => ({}) : rateLimiter();
   const repoGit = tmpDir ? makeGitRepo(model, tmpDir) : { reason: 'no tmpDir' };
   const git = { root: repoGit.root, tokens: new Set([token].flat().filter(Boolean)), gitAuth: [] };
   let base = '';

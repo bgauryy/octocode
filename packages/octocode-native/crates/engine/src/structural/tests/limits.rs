@@ -263,3 +263,34 @@ fn default_excludes_skip_only_what_git_ignores() {
     // Outside a repository a listed name is pruned by name alone.
     assert_eq!(found(&root), ["src/a.ts"]);
 }
+
+/// A scan window says what the candidates before it are now and through its cut:
+/// the same files read the same, and any change to one reads differently.
+#[test]
+fn a_scan_window_digests_the_candidates_around_its_cut() {
+    let root = crate::test_support::TmpDir::new();
+    for name in ["a.ts", "b.ts", "c.ts", "d.ts"] {
+        std::fs::write(root.join(name), "const a = 1;\n").expect("file");
+    }
+    let window = |skip: u32| {
+        search_files_detailed(StructuralSearchFilesOptions {
+            path: root.to_string_lossy().into_owned(),
+            pattern: Some("const a = 1".to_owned()),
+            max_files: Some(skip + 2),
+            skip_files: Some(skip),
+            ..StructuralSearchFilesOptions::default()
+        })
+        .expect("scan")
+    };
+    let first = window(0);
+    assert_eq!(first.scan_resume, Some(2));
+    assert_eq!(first.listed_before, None);
+    assert!(first.earlier_files.is_empty());
+    let through = first.listed_through.clone().expect("the resume's pin");
+    let second = window(2);
+    assert_eq!(second.listed_before.as_deref(), Some(through.as_str()));
+    assert_eq!(second.earlier_files.len(), 2);
+    assert_eq!(second.listed_through, None, "nothing left to resume");
+    std::fs::remove_file(root.join("a.ts")).expect("remove");
+    assert_ne!(window(2).listed_before.as_deref(), Some(through.as_str()));
+}

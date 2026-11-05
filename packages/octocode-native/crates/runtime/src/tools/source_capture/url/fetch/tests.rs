@@ -21,6 +21,9 @@ use std::time::Duration;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+/// A body limit these tests pick; a capture passes the caller's own.
+const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
+
 const NAME: &str = "docs.example.org";
 
 /// `route` on `server`, addressed by a public-looking name pinned to the

@@ -21,7 +21,7 @@ fn indexing_keeps_python_and_include_roots_after_the_sixty_fourth() {
     );
     files.insert("main.c".into());
     let context = load(root.0.as_path(), &files);
-    assert!(context.python_roots.contains(&"project69".to_owned()));
+    assert!(context.python.roots.contains(&"project69".to_owned()));
     assert!(context.system_include_dirs.contains(&"inc69".to_owned()));
 }
 
@@ -259,7 +259,7 @@ fn python_roots_include_src_layout_project_roots() {
     );
     assert_eq!(
         context.python_roots_for("app/main.py"),
-        vec![".", "libs/tool", "libs/tool/src"]
+        vec!["app", ".", "libs/tool", "libs/tool/src"]
     );
 }
 

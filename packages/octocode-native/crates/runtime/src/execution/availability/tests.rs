@@ -3,7 +3,7 @@ use crate::config::{ConfigInput, FileInput};
 use std::collections::BTreeMap;
 
 #[test]
-fn cli_catalog_keeps_all_tools_when_mcp_settings_and_prerequisites_are_off() {
+fn cli_catalog_ignores_mcp_settings_and_follows_only_the_classification_key() {
     for env in [
         vec![],
         vec![
@@ -22,7 +22,43 @@ fn cli_catalog_keeps_all_tools_when_mcp_settings_and_prerequisites_are_off() {
     ] {
         let tools = availability(&env, RuntimeSurface::Cli);
         for id in ToolId::ALL {
-            assert!(tools.is_available(id.as_str()), "{id}: {env:?}");
+            assert_eq!(
+                tools.is_available(id.as_str()),
+                !matches!(id, ToolId::Clasify | ToolId::SecurityCheck),
+                "{id}: {env:?}"
+            );
+        }
+        let clasify = tools.get("clasify").expect("known");
+        assert_eq!(clasify.reason_code(), Some("missingConfiguration"));
+        assert_eq!(clasify.env_vars(), ["OCTOCODE_CLASSIFICATION_API"]);
+    }
+    let keyed = availability(
+        &[
+            ("OCTOCODE_CLASSIFICATION_API", "k"),
+            ("OCTOCODE_SECURITY_CHECKS", "true"),
+            ("DISABLE_TOOLS", "clasify"),
+        ],
+        RuntimeSurface::Cli,
+    );
+    for id in ToolId::ALL {
+        assert!(keyed.is_available(id.as_str()), "{id}");
+    }
+}
+
+/// One check decides the key on both surfaces: only the MCP tool lists differ.
+#[test]
+fn clasify_needs_the_same_key_on_every_surface() {
+    for (key, expected) in [(None, false), (Some("  "), false), (Some("k"), true)] {
+        let env: Vec<_> = key
+            .map(|key| ("OCTOCODE_CLASSIFICATION_API", key))
+            .into_iter()
+            .collect();
+        for surface in [RuntimeSurface::Cli, RuntimeSurface::Mcp] {
+            assert_eq!(
+                availability(&env, surface).is_available("clasify"),
+                expected,
+                "{surface:?} {key:?}"
+            );
         }
     }
 }
@@ -197,5 +233,23 @@ fn beta_graph_tools_preserve_cli_access_and_require_opt_in_on_mcp() {
                 surface == RuntimeSurface::Cli
             );
         }
+    }
+}
+
+/// securityCheck exists only once the user turns it on, on both surfaces, and
+/// the refusal names what to set.
+#[test]
+fn the_security_check_exists_only_with_its_setting() {
+    for surface in [RuntimeSurface::Cli, RuntimeSurface::Mcp] {
+        let off = availability(&[], surface);
+        assert!(!off.is_available("securityCheck"), "{surface:?}");
+        let reason = off.get("securityCheck").expect("known").reason_text();
+        assert!(reason.contains("tools.enableSecurityCheck"), "{reason}");
+        assert_eq!(
+            off.get("securityCheck").expect("known").env_vars(),
+            ["OCTOCODE_SECURITY_CHECKS"]
+        );
+        let on = availability(&[("OCTOCODE_SECURITY_CHECKS", "true")], surface);
+        assert!(on.is_available("securityCheck"), "{surface:?}");
     }
 }

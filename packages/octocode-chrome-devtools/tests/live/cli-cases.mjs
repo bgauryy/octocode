@@ -150,7 +150,7 @@ test('cli: cancellation reaches sandbox runner and records interruption', async 
   try {
     while (!output.includes('CLI_INTERRUPT_READY')) {
       if (Date.now() - started > 10000)
-        throw new Error('CLI runner did not start: ' + output);
+        throw new Error(`CLI runner did not start: ${output}`);
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     proc.kill('SIGTERM');

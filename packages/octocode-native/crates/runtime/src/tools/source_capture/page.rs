@@ -147,10 +147,16 @@ fn reader_failure(
         hints.push(RERUN_HINT.into());
     } else if hints.is_empty() && leads.is_empty() {
         // Re-running a final failure fails the same way: say the code's fix.
-        let hint = declared
-            .and_then(|(code, _)| rows::error_code_hint(reader, code, &Value::Null))
-            .unwrap_or(RERUN_HINT);
-        hints.push(hint.into());
+        let hint = match declared {
+            Some((code, ErrorClass::InvalidInput)) => {
+                rows::error_code_hint(reader, code, &Value::Null)
+            }
+            Some((code, _)) => {
+                rows::error_code_hint(reader, code, &Value::Null).or(Some(RERUN_HINT))
+            }
+            None => Some(RERUN_HINT),
+        };
+        hints.extend(hint.map(str::to_owned));
     }
     ClassificationError {
         leads,

@@ -143,11 +143,12 @@ impl ToolRuntime {
         // Local tools read the GitHub checkouts (clones, materialized trees)
         // and clasify URL captures under the cache home, never the rest of
         // it (credentials, logs).
-        additional_roots.extend([
+        let fetched_code_roots = [
             crate::tools::gh_clone_repo::storage::clones_root(&octocode_home),
             crate::tools::gh_structure::materialize::materialize_root(&octocode_home),
             crate::tools::source_capture::url::capture_root(&octocode_home),
-        ]);
+        ];
+        additional_roots.extend(fetched_code_roots.iter().cloned());
         // Default sandbox: the configured workspace, or the process cwd when
         // unconfigured — never all of $HOME. Broad $HOME access is opt-in
         // only, via an explicit workspaceRoot or an allowedPaths entry.
@@ -161,12 +162,16 @@ impl ToolRuntime {
             additional_roots,
             include_home: false,
             home_dir: Some(input.os_home.clone()),
+            allow_credential_files: config.resolved.security.credential_files
+                == crate::config::CredentialFilesPolicy::Allow,
+            octocode_home: Some(octocode_home.clone()),
         })
         .map_err(|error| RuntimeError::new(ErrorCode::Policy, error.message))?;
         let security = ContentSecurity::new();
         let requests =
             RequestRuntime::new(RequestLimits::default()).map_err(runtime_execution_error)?;
         let persistent = config::is_persistent_storage_enabled(&config.resolved);
+        let saves_local = config::saves_local_results(&config.resolved);
         let lsp_execution_config = Arc::new(crate::tools::lsp_search::LspExecutionConfig {
             trust_project_config: config.resolved.lsp.trust_project_config,
             env: config
@@ -177,6 +182,12 @@ impl ToolRuntime {
                 .collect(),
             octocode_home: Some(octocode_home),
             invocation_dir: Some(input.cwd.clone()),
+            index_on_disk: persistent,
+            fetched_code_roots: if config.resolved.lsp.trust_fetched_code {
+                Vec::new()
+            } else {
+                fetched_code_roots.to_vec()
+            },
             prewarm_state: std::sync::Arc::default(),
         });
         let classification = crate::providers::classification::provider();
@@ -187,19 +198,24 @@ impl ToolRuntime {
         ));
         let selection_available = selection_available(&config, &availability);
         let page_replays = Arc::new(PageReplayMemo::new(&config, &input.cwd));
-        let cursors = Arc::new(super::cursors::Registry::new(
-            crate::cache::CacheConfig::derived(),
-            persistent.then(|| crate::cache::Directory::Continuations.path(&config.home)),
-            page_replays.policy.clone(),
-        ));
+        let cursors = Arc::new(
+            super::cursors::Registry::new(
+                crate::cache::CacheConfig::derived(),
+                saves_local.then(|| crate::cache::Directory::Continuations.path(&config.home)),
+                page_replays.policy.clone(),
+            )
+            .linking_answers(
+                persistent.then(|| crate::cache::Directory::ProviderAnswers.path(&config.home)),
+            ),
+        );
         let section_sessions = Arc::new(crate::tools::clasify::sections::Sessions::new(
             crate::cache::CacheConfig::derived(),
-            persistent.then(|| crate::cache::Directory::SectionAssessments.path(&config.home)),
+            saves_local.then(|| crate::cache::Directory::SectionAssessments.path(&config.home)),
             page_replays.policy.clone(),
         ));
         let lsp_answers = Arc::new(crate::tools::lsp_search::ContinuationAnswers::new(
             crate::cache::CacheConfig::derived(),
-            persistent.then(|| crate::cache::Directory::LspAnswers.path(&config.home)),
+            saves_local.then(|| crate::cache::Directory::LspAnswers.path(&config.home)),
             page_replays.policy.clone(),
         ));
         let graph_rows = Arc::new(crate::tools::ast_graph::store::SavedRows::new(
@@ -219,7 +235,6 @@ impl ToolRuntime {
             config,
             analysis_capabilities,
             limits,
-            classification,
             availability,
             evaluator,
             selection_available,

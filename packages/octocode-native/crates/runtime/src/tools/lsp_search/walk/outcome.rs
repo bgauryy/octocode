@@ -115,7 +115,7 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
     }
 
     row["clipped"] = json!(true);
-    let last_page = row.pointer("/pagination/next/nextPage").is_none();
+    let last_page = row.pointer("/next/nextPage").is_none();
     // Each parent resumes on its own: one that cannot be re-anchored (no
     // name or range) is a terminal limit for itself alone.
     // Many resume points share a file: each is read and line-indexed once.
@@ -242,15 +242,15 @@ fn note_omitted(row: &mut Value, walks: &[(Expansion, &HierarchyWalk)]) {
         .iter()
         .map(|(_, walk)| walk.out_of_policy)
         .sum::<usize>();
-    if out_of_policy > 0
-        && let Some(warnings) = row
-            .as_object_mut()
-            .map(|object| object.entry("warnings").or_insert_with(|| json!([])))
-            .and_then(Value::as_array_mut)
-    {
-        warnings.push(json!(format!(
-            "{out_of_policy} hierarchy items outside the allowed read roots were omitted."
-        )));
+    if out_of_policy > 0 {
+        // Missing callers: the same count `references` reports as partial.
+        crate::response::paging::mark_partial(
+            row,
+            crate::response::paging::PartialReason::LocationsWithheld,
+            &[format!(
+                "{out_of_policy} hierarchy items the path policy does not let this tool read were omitted."
+            )],
+        );
     }
     let builtin_lib = builtin_lib_names(walks);
     if !builtin_lib.is_empty()

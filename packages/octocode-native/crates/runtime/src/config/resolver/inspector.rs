@@ -1,18 +1,22 @@
 use super::super::loader::load_config;
 use super::super::types::*;
+use crate::security::scrub_error_text;
 
 pub(crate) fn inspector_data(input: &ConfigInput, output: &ConfigOutput) -> ConfigInspectorData {
     let home = output.home.clone();
     let top_level_keys = |file: &FileInput| -> Vec<String> {
         let mut keys: Vec<String> = load_config(file)
             .config
-            .and_then(|v| v.as_object().map(|o| o.keys().cloned().collect()))
+            .and_then(|v| {
+                v.as_object()
+                    .map(|o| o.keys().map(|key| scrub_error_text(key)).collect())
+            })
             .unwrap_or_default();
         keys.sort();
         keys
     };
     let skip_source = |key: &String| EnvSkip {
-        key: key.clone(),
+        key: scrub_error_text(key),
         source_path: match output.dotenv.sources.get(key).map(String::as_str) {
             Some("project") => input.project_env.path().clone(),
             _ => input.global_env.path().clone(),
@@ -23,7 +27,12 @@ pub(crate) fn inspector_data(input: &ConfigInput, output: &ConfigOutput) -> Conf
         global_env_path: input.global_env.path().clone(),
         project_env_path: input.project_env.path().clone(),
         project_env_exists: !matches!(input.project_env, FileInput::Missing { .. }),
-        loaded_keys: output.dotenv.keys.clone(),
+        loaded_keys: output
+            .dotenv
+            .keys
+            .iter()
+            .map(|key| scrub_error_text(key))
+            .collect(),
         skipped_protected: output
             .dotenv
             .skipped_protected
@@ -35,7 +44,7 @@ pub(crate) fn inspector_data(input: &ConfigInput, output: &ConfigOutput) -> Conf
                     .skipped_workspace_protected
                     .iter()
                     .map(|key| EnvSkip {
-                        key: key.clone(),
+                        key: scrub_error_text(key),
                         source_path: input.project_env.path().clone(),
                     }),
             )

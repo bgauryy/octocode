@@ -39,7 +39,7 @@ export function envelope(row: Row): RecordEnvelope {
 }
 
 const PAYLOAD = "CASE WHEN r.type='message' THEN m.data ELSE r.data END";
-export const RECORD_SELECT = 'SELECT r.id,r.path,r."from",r."to",r.type,r.timestamp,r.branch,' + PAYLOAD + " AS data FROM records r LEFT JOIN message_payload m ON r.type='message' AND m.id=CAST(r.entityId AS INTEGER)";
+export const RECORD_SELECT = `SELECT r.id,r.path,r."from",r."to",r.type,r.timestamp,r.branch,${PAYLOAD} AS data FROM records r LEFT JOIN message_payload m ON r.type='message' AND m.id=CAST(r.entityId AS INTEGER)`;
 // Mail history is visible only to its author and the recipients fixed at send time.
 // Custom targeted records use the same author/recipient rule; NULL means workspace-shared.
 const VISIBILITY = `((r.type='message' OR r.type LIKE 'delivery.%' OR r.type LIKE 'dispatch.%')
@@ -74,7 +74,7 @@ export function fetch(host: RecordsHost, session: string, value: FetchInput): Co
     for (const [field, operator] of [['since', '>='], ['until', '<=']] as const) {
       const bound = value[field];
       if (bound !== undefined) {
-        conditions.push('r.timestamp' + operator + '?');
+        conditions.push(`r.timestamp${operator}?`);
         args.push(bound);
       }
     }
@@ -97,19 +97,19 @@ export function fetch(host: RecordsHost, session: string, value: FetchInput): Co
       // Type checks distinguish JSON false from 0, and explicit null from a missing field.
       const kind = expected === null ? 'null' : expected === true ? 'true' : expected === false ? 'false' : typeof expected === 'string' ? 'text' : null;
       conditions.push(`json_extract(${PAYLOAD},?) IS ?`);
-      args.push('$.' + field, expected ?? null);
-      conditions.push(`json_type(${PAYLOAD},?) ` + (kind ? '=?' : "IN ('integer','real')"));
-      args.push('$.' + field);
+      args.push(`$.${field}`, expected ?? null);
+      conditions.push(`json_type(${PAYLOAD},?) ${kind ? '=?' : "IN ('integer','real')"}`);
+      args.push(`$.${field}`);
       if (kind) args.push(kind);
     }
     if ('search' in value) {
       const words = [...String(value.search).matchAll(WORDS)];
       if (!words.length) throw new ValidationError('search requires words or phrases');
       conditions.push('r.id IN (SELECT rowid FROM records_search WHERE records_search MATCH ?)');
-      args.push(words.map(([, phrase, word]) => '"' + (phrase ?? word)!.replaceAll('"', '""') + '"').join(' AND '));
+      args.push(words.map(([, phrase, word]) => `"${(phrase ?? word)!.replaceAll('"', '""')}"`).join(' AND '));
     }
     const limit: number = value.limit ?? 100;
-    const rows = query(host.db, RECORD_SELECT + ' WHERE ' + conditions.join(' AND ') + ' ORDER BY r.id LIMIT ?', [...args, limit + 1]);
+    const rows = query(host.db, `${RECORD_SELECT} WHERE ${conditions.join(' AND ')} ORDER BY r.id LIMIT ?`, [...args, limit + 1]);
     const result = { ...catalog.page(rows.map(envelope), false, 'fetch', { ...value, through }), through };
     // page also has a byte budget; honor the caller's smaller item budget.
     if (result.items.length > limit) {
@@ -149,11 +149,11 @@ export function record(host: RecordsHost, session: string, value: RecordInput): 
 /** The record envelopes of the given messages (`{id}` items), in the same order. */
 export function messageEnvelopes(host: RecordsHost, items: readonly { id: number }[]): RecordEnvelope[] {
   if (!items.length) return [];
-  const rows = query(host.db, RECORD_SELECT + " WHERE r.path IN (SELECT value FROM json_each(?)) AND r.type='message' AND r.entityId IN (SELECT CAST(value AS TEXT) FROM json_each(?))", [compact(host.sharedWorkspaces()), compact(items.map(item => item.id))]);
+  const rows = query(host.db, `${RECORD_SELECT} WHERE r.path IN (SELECT value FROM json_each(?)) AND r.type='message' AND r.entityId IN (SELECT CAST(value AS TEXT) FROM json_each(?))`, [compact(host.sharedWorkspaces()), compact(items.map(item => item.id))]);
   const byMessage = new Map(rows.map(envelope).map(row => [row.data.messageId, row]));
   return items.map(item => {
     const row = byMessage.get(item.id);
-    if (!row) throw new ValidationError('Message envelope is missing: ' + item.id);
+    if (!row) throw new ValidationError(`Message envelope is missing: ${item.id}`);
     return row;
   });
 }

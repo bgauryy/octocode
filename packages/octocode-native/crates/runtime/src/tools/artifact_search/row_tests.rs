@@ -97,3 +97,47 @@ fn rows_carry_no_type_and_start_with_the_name() {
     );
     assert!(!keys.iter().any(|key| *key == "type"), "{encoded}");
 }
+
+/// A package with no stable release says so: the version it names is a
+/// prerelease because nothing else exists, not because one was chosen.
+#[tokio::test]
+async fn a_package_with_only_prereleases_warns() {
+    use crate::providers::artifact::test_http::{RouteHttp, test_budget};
+    use crate::providers::artifact::{ArtifactProviderContext, execute_artifact};
+    use crate::providers::saved_answers::ReusedSince;
+    let row_for = |version: &'static str| async move {
+        let http = RouteHttp::always(json!({"minified": "composer/2.0", "packages": {
+            "o/r": [{"name": "o/r", "version": version}]
+        }}));
+        let budget = test_budget();
+        let reused = ReusedSince::new();
+        let query = super::typed(
+            &json!({"operation":"resolve","ecosystem":"packagist","packageName":"o/r"}),
+        );
+        let page = execute_artifact(
+            &query,
+            &ArtifactProviderContext {
+                http: &http,
+                budget: &budget,
+                npm_registry: None,
+                allow_private_registry: false,
+                answers: None,
+                reused: &reused,
+                tags: None,
+            },
+        )
+        .await
+        .expect("packagist");
+        super::respond(&query, page).expect("row")
+    };
+    let only = row_for("2.0.0-RC2").await;
+    assert!(
+        only["warnings"].to_string().contains("no stable release"),
+        "{only}"
+    );
+    let stable = row_for("2.0.0").await;
+    assert!(
+        !stable["warnings"].to_string().contains("no stable release"),
+        "{stable}"
+    );
+}

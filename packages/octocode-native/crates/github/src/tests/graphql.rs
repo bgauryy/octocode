@@ -181,3 +181,194 @@ async fn graphql_semantic_retry_backoff_honors_cancellation() {
         Some(ProviderErrorKind::Cancelled)
     );
 }
+
+/// GitHub may answer a GraphQL secondary limit with HTTP 200 and the limit in
+/// `errors[]`, and warns that continuing can ban the integration. That starts
+/// the key's cooldown, honors `retry-after`, and blocks REST too; REST is not a
+/// way around it.
+#[tokio::test]
+async fn a_graphql_secondary_limit_on_http_200_starts_the_cooldown() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("retry-after", "3600")
+                .set_body_json(serde_json::json!({
+                    "data": null,
+                    "errors": [{"message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}]
+                })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    let context = || with_token("t", Duration::from_secs(5), 1024);
+    let error = transport
+        .execute_graphql(
+            "query { viewer { login } }",
+            serde_json::json!({}),
+            &context(),
+        )
+        .await
+        .expect_err("limited");
+    assert_eq!(error.kind, ProviderErrorKind::RateLimited);
+    assert_eq!(
+        error.rate_limit.and_then(|rate| rate.retry_after_seconds),
+        Some(3600)
+    );
+    assert!(!transport.graphql_available(&context()));
+    let rest = transport
+        .execute(
+            RequestSpec::get(endpoint.rest(&["repos", "a", "b"]).expect("route")),
+            &context(),
+        )
+        .await
+        .expect_err("REST waits out the same cooldown");
+    assert_eq!(rest.kind, ProviderErrorKind::RateLimited);
+    assert!(transport.graphql_available(&with_token("other", Duration::from_secs(5), 1024)));
+}
+
+/// A limit whose `type` says RATE_LIMITED but whose message names a secondary
+/// limit is the key-wide cooldown, not one exhausted bucket; with no
+/// `retry-after` it waits the secondary default.
+#[tokio::test]
+async fn a_graphql_secondary_limit_is_not_mistaken_for_the_primary_one() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "errors": [{"type": "RATE_LIMITED", "message": "You have exceeded a secondary rate limit."}]
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    let context = || with_token("t", Duration::from_secs(5), 1024);
+    let error = transport
+        .execute_graphql(
+            "query { viewer { login } }",
+            serde_json::json!({}),
+            &context(),
+        )
+        .await
+        .expect_err("limited");
+    let waited = error
+        .rate_limit
+        .and_then(|rate| rate.retry_after_seconds)
+        .expect("the wait");
+    assert_eq!(
+        waited,
+        ExecutorConfig::octokit().secondary_default.as_secs()
+    );
+    transport
+        .execute(
+            RequestSpec::get(endpoint.rest(&["repos", "a", "b"]).expect("route")),
+            &context(),
+        )
+        .await
+        .expect_err("REST waits out the same cooldown");
+}
+
+/// A short `retry-after` is waited out and the read retried: the answer arrives
+/// no sooner than GitHub allowed.
+#[tokio::test]
+async fn a_short_graphql_secondary_limit_is_waited_out() {
+    let server = MockServer::builder().start().await;
+    let limited = Sequence::new(vec![
+        ResponseTemplate::new(200)
+            .insert_header("retry-after", "1")
+            .set_body_json(serde_json::json!({
+                "errors": [{"message": "You have exceeded a secondary rate limit."}]
+            })),
+        ResponseTemplate::new(200)
+            .set_body_json(serde_json::json!({"data": {"viewer": {"login": "me"}}})),
+    ]);
+    let arrivals = limited.arrivals.clone();
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(limited)
+        .mount(&server)
+        .await;
+    let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    let page = transport
+        .execute_graphql(
+            "query { viewer { login } }",
+            serde_json::json!({}),
+            &with_token("t", Duration::from_secs(5), 1024),
+        )
+        .await
+        .expect("retried");
+    assert_eq!(page.data.expect("data")["viewer"]["login"], "me");
+    let times = arrivals.times();
+    assert_eq!(times.len(), 2);
+    assert!(
+        times[1].duration_since(times[0]) >= Duration::from_millis(900),
+        "{times:?}"
+    );
+}
+
+/// GraphQL reads go unspaced because they are reads: a document that mutates is
+/// refused before anything is sent, wherever its operation sits.
+#[tokio::test]
+async fn a_mutating_graphql_document_is_never_sent() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    for document in [
+        "mutation { addStar(input: {}) { clientMutationId } }",
+        "  # a comment\n mutation Named($a: ID!) { x(a: $a) }",
+        "query A { viewer { login } }\nmutation B { x }",
+    ] {
+        let error = transport
+            .execute_graphql(
+                document,
+                serde_json::json!({}),
+                &with_token("t", Duration::from_secs(5), 1024),
+            )
+            .await
+            .expect_err(document);
+        assert_eq!(error.kind, ProviderErrorKind::Validation, "{document}");
+    }
+}
+
+/// A field, a string or a comment that says "mutation" is still a read.
+#[tokio::test]
+async fn a_read_that_mentions_mutation_is_sent() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .expect(3)
+        .mount(&server)
+        .await;
+    let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    for document in [
+        "query { viewer { mutation: login } }",
+        "query { search(query: \"mutation x\") { codeCount } }",
+        "# no mutation here\nquery { viewer { login } }",
+    ] {
+        transport
+            .execute_graphql(
+                document,
+                serde_json::json!({}),
+                &with_token("t", Duration::from_secs(5), 1024),
+            )
+            .await
+            .expect(document);
+    }
+}

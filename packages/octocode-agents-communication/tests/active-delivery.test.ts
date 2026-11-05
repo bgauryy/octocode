@@ -38,7 +38,7 @@ async function codexSocket(t: TestContext, workspace: string) {
         const upgrade = pending.subarray(0, end).toString().match(/sec-websocket-key: (.+)/i);
         assert.ok(upgrade, 'Fixture expects a WebSocket upgrade request');
         const key = upgrade[1].trim();
-        const accept = createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
+        const accept = createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
         socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
         pending = pending.subarray(end + 4); upgraded = true;
       }

@@ -107,7 +107,7 @@ async fn selected_pages(tool: &str) {
         .mount(&server)
         .await;
     let mut limits = support::PROVIDER_LIMITS;
-    limits.selection.max_candidates = 1;
+    limits.selection.max_chars = 1;
     let runtime = workspace.runtime_with(
         &support::provider_env(&server, &support::github_api(&server)),
         limits,
@@ -159,7 +159,7 @@ async fn local_fixture(exclude_first: bool) -> (Workspace, MockServer, ToolRunti
     let path = workspace.write("pages.txt", source());
     let server = provider(exclude_first).await;
     let mut limits = support::PROVIDER_LIMITS;
-    limits.selection.max_candidates = 1;
+    limits.selection.max_chars = 1;
     let runtime = workspace.runtime_with(&support::provider_env(&server, &[]), limits);
     let input = json!({"queries":[{"path":path,"classification":{"predicates":["Select evidence"]}}],
         "responseChars":4000});

@@ -13,6 +13,8 @@ use crate::graph::GraphFactImport;
 #[derive(Clone, Debug, Default)]
 pub(super) struct RustAttributes {
     pub(super) path: Option<String>,
+    /// The `path` a `cfg_attr` whose predicate requires test gives.
+    pub(super) test_path: Option<String>,
     pub(super) unsupported: bool,
     pub(super) cfg_test: bool,
 }
@@ -64,13 +66,7 @@ fn fold_rust_attributes<'t>(
         let name = inner.split(['(', '=']).next().unwrap_or_default().trim();
         match name {
             "path" => {
-                let literal = inner.split_once('=').map(|(_, value)| value.trim());
-                let value = literal
-                    .and_then(|value| value.strip_prefix('"'))
-                    .and_then(|value| value.strip_suffix('"'));
-                if let Some(value) =
-                    value.filter(|value| !value.contains('\\') && !value.contains('\0'))
-                {
+                if let Some(value) = path_literal(inner) {
                     if folded.path.is_some() {
                         folded.unsupported = true;
                     }
@@ -94,10 +90,27 @@ fn fold_rust_attributes<'t>(
             | "test" => {}
             // A conditional attribute that rewrites the path does change it.
             "cfg_attr" if !inner.contains("path") => {}
+            "cfg_attr" => {
+                folded.test_path = super::rust_cfg::cfg_attr_under_test(inner, "path")
+                    .and_then(path_literal)
+                    .map(str::to_owned);
+                folded.unsupported = true;
+            }
             _ => folded.unsupported = true,
         }
     }
     folded
+}
+
+/// The file a `path = "x.rs"` attribute body names, when it is a plain literal.
+fn path_literal(attribute: &str) -> Option<&str> {
+    attribute
+        .split_once('=')?
+        .1
+        .trim()
+        .strip_prefix('"')?
+        .strip_suffix('"')
+        .filter(|value| !value.contains('\\') && !value.contains('\0'))
 }
 
 /// Contexts for the named children of `node` (in order), computed in one

@@ -11,6 +11,9 @@ pub(super) use workspaces::{enclosing_manifests, load_cargo_crates};
 #[derive(Default)]
 pub(super) struct CargoCrates {
     packages: BTreeMap<String, BTreeMap<String, String>>,
+    /// Package directory → the import names its path dependencies take: local
+    /// code, inside the scan or not.
+    path_dependencies: BTreeMap<String, BTreeSet<String>>,
     pub(super) roots: BTreeSet<String>,
     /// The scan root's module path when the root lies inside a crate whose
     /// root (`src/lib.rs`, `src/main.rs`) is above it: `crate::a::b::x`
@@ -44,17 +47,32 @@ impl CargoCrates {
     }
 
     pub(super) fn resolve(&self, importer: &str, name: &str) -> Option<&String> {
-        self.packages
-            .iter()
-            .filter(|(directory, _)| {
-                directory.is_empty()
-                    || importer
-                        .strip_prefix(directory.as_str())
-                        .is_some_and(|tail| tail.starts_with('/'))
-            })
-            .max_by_key(|(directory, _)| directory.len())
-            .and_then(|(_, dependencies)| dependencies.get(name))
+        nearest_package(&self.packages, importer).and_then(|dependencies| dependencies.get(name))
     }
+
+    /// Whether the crate `name` may be local to the package holding `importer`: a
+    /// path dependency of it, or anything other than the standard crates when no
+    /// manifest was read to say what it depends on.
+    pub(super) fn may_name_local_crate(&self, importer: &str, name: &str) -> bool {
+        nearest_package(&self.path_dependencies, importer)
+            .map_or(!matches!(name, "std" | "core" | "alloc"), |dependencies| {
+                dependencies.contains(name)
+            })
+    }
+}
+
+/// The entry of the deepest package directory holding `importer`.
+fn nearest_package<'m, V>(packages: &'m BTreeMap<String, V>, importer: &str) -> Option<&'m V> {
+    packages
+        .iter()
+        .filter(|(directory, _)| {
+            directory.is_empty()
+                || importer
+                    .strip_prefix(directory.as_str())
+                    .is_some_and(|tail| tail.starts_with('/'))
+        })
+        .max_by_key(|(directory, _)| directory.len())
+        .map(|(_, entry)| entry)
 }
 
 /// The module path of `root` inside the crate whose source root encloses
@@ -112,6 +130,9 @@ pub(super) fn parse_cargo_crates(root: &Path, value: &serde_json::Value) -> Carg
             continue;
         };
         crates
+            .path_dependencies
+            .insert(scope.clone(), path_dependency_names(package));
+        crates
             .packages
             .insert(scope, package_dependencies(package, directory, &libraries));
     }
@@ -162,6 +183,22 @@ fn package_library(
         ));
     }
     found
+}
+
+/// The names a package's path dependencies import as.
+fn path_dependency_names(package: &serde_json::Value) -> BTreeSet<String> {
+    package["dependencies"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|dependency| dependency["path"].is_string())
+        .filter_map(|dependency| {
+            dependency["rename"]
+                .as_str()
+                .or(dependency["name"].as_str())
+        })
+        .map(|name| name.replace('-', "_"))
+        .collect()
 }
 
 /// Import name → library source for the package itself and its path

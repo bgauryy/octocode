@@ -430,6 +430,40 @@
         ]
       }
     },
+    "securityCheck": {
+      "evidence": [
+        "src/tools/security_check/osv/tests.rs",
+        "src/tools/security_check/package_tests.rs",
+        "src/tools/security_check/tests.rs",
+        "src/tools/security_check/url_source_tests.rs"
+      ],
+      "fields": {
+        "commit": [
+          "source"
+        ],
+        "ecosystem": [
+          "source"
+        ],
+        "id": [
+          "source"
+        ],
+        "operation": [
+          "dispatch"
+        ],
+        "packageName": [
+          "source"
+        ],
+        "repo": [
+          "view"
+        ],
+        "url": [
+          "source"
+        ],
+        "version": [
+          "source"
+        ]
+      }
+    },
     "ghCloneRepo": {
       "evidence": [
         "src/tools/gh_clone_repo/tests/replacement.rs",

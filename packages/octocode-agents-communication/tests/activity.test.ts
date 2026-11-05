@@ -145,7 +145,7 @@ test('bound MCP activity observes its registered workspace without mutating audi
   const db = new DatabaseSync(f.database, { readOnly: true });
   t.after(() => db.close());
   const before = only<JsonRecord>(db.prepare('SELECT count(*) AS count FROM records').get()).count;
-  const frames = [{ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'records', arguments: { type: 'activity', input: { limit: 1, path: 'one.txt' } } } }].map(frame => JSON.stringify(frame)).join('\n') + '\n';
+  const frames = `${[{ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'records', arguments: { type: 'activity', input: { limit: 1, path: 'one.txt' } } } }].map(frame => JSON.stringify(frame)).join('\n')}\n`;
   const result = JSON.parse(execFileSync(binary, ['mcp', '--workspace', f.workspace, '--database', f.database, '--session', session.id], { encoding: 'utf8', input: frames }));
   assert.equal(result.result.isError, undefined);
   const observation = JSON.parse(result.result.content[0].text);
@@ -175,6 +175,6 @@ test('a git child killed by a signal is a failure, not a partial result', { skip
   // Only `status` dies (after one complete record); every other call reaches the real git.
   writeFileSync(join(bin, 'git'), '#!/bin/sh\ncase "$*" in *" status "*) printf \'?? one.txt\\0\'; kill -9 $$;; esac\nPATH="$REAL_PATH" exec git "$@"\n');
   chmodSync(join(bin, 'git'), 0o755);
-  const run = () => execFileSync(binary, ['activity', '{}', '--workspace', f.workspace, '--database', f.database], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, REAL_PATH: process.env.PATH, PATH: bin + ':' + process.env.PATH } });
+  const run = () => execFileSync(binary, ['activity', '{}', '--workspace', f.workspace, '--database', f.database], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, REAL_PATH: process.env.PATH, PATH: `${bin}:${process.env.PATH}` } });
   assert.throws(run, (error: unknown) => isChildFailure(error) && /Git activity failed/.test(String(error.stderr) + String(error.stdout)));
 });

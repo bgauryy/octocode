@@ -14,6 +14,83 @@ use url::Url;
 use super::{HttpMethod, RequestSpec, ResponsePage};
 use crate::{ProviderError, ProviderErrorKind};
 
+/// An answer's text as the bytes it arrived in. A clone shares them, so the page
+/// a request read, its saved answer and the evidence a continuation owns hold
+/// one allocation, however long each lives. Written as a JSON string.
+#[derive(Clone, Default, Eq, PartialEq)]
+pub struct AnswerBody(Bytes);
+
+impl AnswerBody {
+    /// `None` when `bytes` are not UTF-8.
+    pub fn from_utf8(bytes: Bytes) -> Option<Self> {
+        std::str::from_utf8(&bytes).is_ok().then_some(Self(bytes))
+    }
+
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.0).unwrap_or_default()
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl From<String> for AnswerBody {
+    fn from(text: String) -> Self {
+        Self(Bytes::from(text))
+    }
+}
+
+impl From<&str> for AnswerBody {
+    fn from(text: &str) -> Self {
+        Self(Bytes::copy_from_slice(text.as_bytes()))
+    }
+}
+
+impl std::fmt::Debug for AnswerBody {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.as_str().fmt(formatter)
+    }
+}
+
+impl PartialEq<str> for AnswerBody {
+    fn eq(&self, other: &str) -> bool {
+        self.as_bytes() == other.as_bytes()
+    }
+}
+
+impl PartialEq<&str> for AnswerBody {
+    fn eq(&self, other: &&str) -> bool {
+        self == *other
+    }
+}
+
+impl PartialEq<String> for AnswerBody {
+    fn eq(&self, other: &String) -> bool {
+        self == other.as_str()
+    }
+}
+
+impl Serialize for AnswerBody {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for AnswerBody {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        String::deserialize(deserializer).map(Self::from)
+    }
+}
+
 /// One answered request as text: GitHub's REST and GraphQL answers are
 /// JSON or a file's raw text; a body that is not UTF-8 is never retained.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -22,7 +99,7 @@ pub struct ProviderAnswer {
     pub request: String,
     pub status: u16,
     pub headers: Vec<(String, String)>,
-    pub body: String,
+    pub body: AnswerBody,
     pub next: Option<String>,
     /// GitHub's definitive answer that the resource does not exist (a
     /// route probe, a missing path at a pinned commit).
@@ -62,8 +139,9 @@ impl ProviderEvidence {
     }
 }
 
-/// The identity of a request: method, URL, the media type it asked for and
-/// its body (a GraphQL query and its variables).
+/// The identity of a request: method, URL, the media type it asked for, its body
+/// (a GraphQL query and its variables), and the file it reads when its URL names
+/// none. Only the last can hold a line break: a body is one line of JSON.
 pub(super) fn request_key(spec: &RequestSpec) -> String {
     let method = match spec.method {
         HttpMethod::Get => "GET",
@@ -79,7 +157,18 @@ pub(super) fn request_key(spec: &RequestSpec) -> String {
         .as_ref()
         .map(ToString::to_string)
         .unwrap_or_default();
-    format!("{method} {}\n{accept}\n{body}", spec.url)
+    let file = spec
+        .file
+        .as_deref()
+        .map(|file| format!("\n{file}"))
+        .unwrap_or_default();
+    format!("{method} {}\n{accept}\n{body}{file}", spec.url)
+}
+
+/// The file a request reads when its URL names none, from its [`request_key`].
+#[must_use]
+pub fn requested_file(request: &str) -> Option<&str> {
+    request.splitn(4, '\n').nth(3)
 }
 
 /// A saved answer as the page it answers with.
@@ -96,7 +185,7 @@ pub(super) fn page_of(answer: &ProviderAnswer) -> ResponsePage {
                 ))
             })
             .collect::<HeaderMap>(),
-        body: Bytes::from(answer.body.clone()),
+        body: answer.body.0.clone(),
         next: answer
             .next
             .as_deref()
@@ -117,7 +206,7 @@ pub(super) fn answer_of(request: &str, page: &ResponsePage) -> Option<ProviderAn
             .filter(|(name, _)| *name != SET_COOKIE)
             .map(|(name, value)| Some((name.as_str().to_owned(), value.to_str().ok()?.to_owned())))
             .collect::<Option<Vec<_>>>()?,
-        body: String::from_utf8(page.body.to_vec()).ok()?,
+        body: AnswerBody::from_utf8(page.body.clone())?,
         next: page.next.as_ref().map(Url::to_string),
         not_found: None,
     })
@@ -240,7 +329,7 @@ impl Journal {
                         request: request.clone(),
                         status: error.status.unwrap_or(404),
                         headers: Vec::new(),
-                        body: String::new(),
+                        body: AnswerBody::default(),
                         next: None,
                         not_found: Some(error.clone()),
                     }),
@@ -252,5 +341,36 @@ impl Journal {
                 .unwrap_or_else(PoisonError::into_inner)
                 .clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A body written and read as JSON is the JSON string a `String` was, and
+    /// every hand-off from a page to an answer and back shares its bytes.
+    #[test]
+    fn a_body_is_a_shared_json_string() {
+        let text = "{\"a\":\"\u{e9}\\n\"}\n";
+        let body = AnswerBody::from(text);
+        let json = serde_json::to_string(&body).expect("json");
+        assert_eq!(json, serde_json::to_string(text).expect("json"));
+        assert_eq!(
+            serde_json::from_str::<AnswerBody>(&json).expect("body"),
+            text
+        );
+        assert!(AnswerBody::from_utf8(Bytes::from_static(&[0xff])).is_none());
+
+        let page = ResponsePage {
+            status: 200,
+            headers: HeaderMap::new(),
+            body: Bytes::copy_from_slice(text.as_bytes()),
+            next: None,
+            redirected: false,
+        };
+        let answer = answer_of("GET x", &page).expect("text");
+        assert_eq!(answer.body.as_bytes().as_ptr(), page.body.as_ptr());
+        assert_eq!(page_of(&answer).body.as_ptr(), page.body.as_ptr());
     }
 }

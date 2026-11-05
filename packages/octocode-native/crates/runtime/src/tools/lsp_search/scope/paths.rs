@@ -48,14 +48,28 @@ pub(in super::super) fn canonical(path: &str) -> String {
         .unwrap_or_else(|_| resolve())
 }
 
-/// The scope root: VCS root, else outermost workspace manifest, else the
-/// server root; clamped to the policy, never the process cwd.
-pub(super) fn search_root(anchor: &Path, server_root: &str, policy: &PathPolicy) -> String {
-    let start = if anchor.is_dir() {
+/// The directory an anchor stands in: a file holds no project files.
+fn anchor_dir(anchor: &Path) -> &Path {
+    if anchor.is_dir() {
         anchor
     } else {
         anchor.parent().unwrap_or(anchor)
-    };
+    }
+}
+
+/// Whether something above `anchor` says where its project ends: a repository
+/// or a workspace manifest, which [`search_root`] scans to.
+pub(super) fn has_project_boundary(anchor: &Path) -> bool {
+    anchor_dir(anchor).ancestors().any(|dir| {
+        dir.join(".git").exists()
+            || octocode_engine::lsp::workspace::is_workspace_manifest_root(dir)
+    })
+}
+
+/// The scope root: VCS root, else outermost workspace manifest, else the
+/// server root; clamped to the policy, never the process cwd.
+pub(super) fn search_root(anchor: &Path, server_root: &str, policy: &PathPolicy) -> String {
+    let start = anchor_dir(anchor);
     let chosen = start
         .ancestors()
         .find(|dir| dir.join(".git").exists())
@@ -117,6 +131,25 @@ pub(in super::super) fn widest_authorized_dir(start: &Path, policy: &PathPolicy)
         .last()
 }
 
+/// `*.ext` globs of the markup whose scripts `language_id`'s server cannot
+/// read unaided: only JavaScript runs in a script region.
+pub(super) fn markup_include(language_id: Option<&str>) -> Vec<String> {
+    use octocode_engine::signatures::languages::SCRIPT_BEARING_MARKUP;
+    if !octocode_engine::lsp::family::is_typescript_family(language_id) {
+        return Vec::new();
+    }
+    SCRIPT_BEARING_MARKUP
+        .iter()
+        .map(|extension| format!("*.{extension}"))
+        .collect()
+}
+
+/// Whether `file` is script-bearing markup by its extension.
+pub(super) fn is_markup(file: &str) -> bool {
+    let extension = octocode_engine::text::extension_of(file, true, "");
+    octocode_engine::signatures::languages::SCRIPT_BEARING_MARKUP.contains(&extension.as_str())
+}
+
 /// `*.ext` globs of every grammar in `language_id`'s family; the anchor's
 /// own extension for a language the registry does not know.
 pub(super) fn family_include(language_id: Option<&str>, anchor: &Path) -> Vec<String> {
@@ -138,4 +171,31 @@ pub(super) fn family_include(language_id: Option<&str>, anchor: &Path) -> Vec<St
         globs.push(format!("*.{}", extension.to_string_lossy()));
     }
     globs
+}
+
+impl super::Scope {
+    /// The scope of a request anchored at `anchor` (a file or, for a
+    /// workspace-root query, a directory), under the request's explicit
+    /// `workspace_root` when it holds the anchor.
+    pub(in super::super) fn resolve(
+        anchor: &str,
+        server_root: &str,
+        workspace_root: Option<&str>,
+        policy: &PathPolicy,
+        language_id: Option<&str>,
+    ) -> Self {
+        let anchor_path = Path::new(anchor);
+        let wide = search_root(anchor_path, server_root, policy);
+        let explicit = workspace_root.and_then(|root| explicit_root(anchor_path, root, policy));
+        let mut scope = Self::new(
+            explicit.clone().unwrap_or_else(|| wide.clone()),
+            family_include(language_id, anchor_path),
+        );
+        scope.unbounded = explicit.is_none() && !paths::has_project_boundary(anchor_path);
+        scope.narrowed =
+            explicit.is_some_and(|root| root != wide && Path::new(&root).starts_with(&wide));
+        scope.markup = markup_include(language_id);
+        scope.server_root = std::fs::canonicalize(server_root).ok();
+        scope
+    }
 }

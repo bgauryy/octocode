@@ -142,9 +142,9 @@ pub(super) struct Checkout {
 }
 
 /// `next.exploreClone`: list the checkout (the sparse subtree when one was
-/// requested) with structureSearch, the local entry into localSearch,
-/// astSearch, and lspSearch on it. A single checked-out file is read with
-/// localFetch instead: structureSearch lists directories only.
+/// requested) with structureSearch, the local entry into localSearch and
+/// astSearch on it. A single checked-out file is read with localFetch instead:
+/// structureSearch lists directories only.
 fn explore_next(clone_dir: &Path, sparse_paths: Option<&[String]>) -> serde_json::Value {
     use crate::response::result::Continuation;
     use crate::tools::source_view::local_fetch_query::read_lead;

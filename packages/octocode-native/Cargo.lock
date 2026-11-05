@@ -2160,6 +2160,7 @@ dependencies = [
  "bitflags",
  "bytes",
  "crc32fast",
+ "encoding_rs",
  "fastrand",
  "flate2",
  "futures-util",

@@ -25,20 +25,6 @@ fn payload_and_tool_errors_share_failure_classification() {
 }
 
 #[test]
-fn tool_data_keeps_its_remaining_notes() {
-    let note = crate::response::result::Remaining {
-        page: "nextPage".into(),
-        left: "4900 more reachable".into(),
-    };
-    let data = crate::response::result::ToolData {
-        remaining: vec![note.clone()],
-        ..crate::response::result::ToolData::from(serde_json::json!({"artifacts": []}))
-    };
-    assert_eq!(data_result(data).remaining, vec![note]);
-    assert!(data_result(serde_json::json!({})).remaining.is_empty());
-}
-
-#[test]
 fn tool_error_rows_take_their_failure_kind_from_the_error_code() {
     let unresolved = value_result(json!({"status":"error","errorCode":"anchorUnresolved"}));
     assert_eq!(unresolved.failure, Some(FailureKind::NotFound));

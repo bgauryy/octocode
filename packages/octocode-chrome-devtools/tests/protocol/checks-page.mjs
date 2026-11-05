@@ -20,7 +20,7 @@ export { checks };
 define('schema: every advertised command/event passes offline plan validation', [], async () => {
   for (const domain of suite.protocol.domains) {
     for (const command of domain.commands ?? []) {
-      validatePlan({ steps: [cdp(domain.domain + '.' + command.name)] });
+      validatePlan({ steps: [cdp(`${domain.domain}.${command.name}`)] });
       suite.planValidatedCommands++;
     }
     for (const entry of domain.events ?? []) {
@@ -29,7 +29,7 @@ define('schema: every advertised command/event passes offline plan validation', 
           {
             op: 'listen',
             id: 'event',
-            event: domain.domain + '.' + entry.name,
+            event: `${domain.domain}.${entry.name}`,
           },
         ],
       });
@@ -98,7 +98,7 @@ define('advanced: nested and replaced iframe realms', [
   const r = await plan([
     {
       op: 'goto',
-      url: suite.base + '/advanced',
+      url: `${suite.base}/advanced`,
       after: { selector: '#outer' },
     },
     ready(1),
@@ -143,7 +143,7 @@ define('advanced: open shadow discovery and duplicate action refusal', [
   'DOM.getDocument',
   'Runtime.evaluate',
 ], () =>
-  withTarget(suite.base + '/advanced', async selection => {
+  withTarget(`${suite.base}/advanced`, async selection => {
     const r = await plan(
       [
         { op: 'wait', selector: '#shadow' },

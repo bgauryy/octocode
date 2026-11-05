@@ -82,6 +82,8 @@ pub(super) struct Cut {
     /// `scanOffset`.
     pub(super) covered: usize,
     pub(super) snapshot: String,
+    /// What the next window or resume pins of the rows through this one.
+    pub(super) pins_through: Option<String>,
 }
 
 impl Cut {
@@ -167,11 +169,11 @@ impl Cut {
         {
             warnings.push(match self.time_window {
                 TimeWindow::EndedAtRows => format!(
-                    "the walk stopped at its time budget before `{at}` and found more rows than its {}-entry walk window: this window lists the first rows in walk order (name-sorted, depth-first), and entries after the last listed one are not yet listed: `next.nextPage` resumes the walk there.",
+                    "the walk stopped at its time budget before `{at}` and found more rows than its {}-entry walk window: this window lists the first rows in walk order (name-sorted, depth-first), and entries after the last listed one are not yet listed: `next` resumes the walk there.",
                     self.requested
                 ),
                 _ => format!(
-                    "the walk stopped at its time budget before `{at}`; entries from there on in walk order (name-sorted, depth-first) are not yet listed: `next.nextPage` resumes the walk there."
+                    "the walk stopped at its time budget before `{at}`; entries from there on in walk order (name-sorted, depth-first) are not yet listed: `next` resumes the walk there."
                 ),
             });
         }
@@ -222,12 +224,14 @@ impl Cut {
         if self.limit_cut {
             return Some(Move::Window {
                 scan_offset: offset(self.covered),
+                snapshot: self.pins_through.clone(),
             });
         }
         let position = self.resume_at()?;
         Some(Move::Resume {
             walk_offset: NonZeroU64::new(u64::try_from(position).ok()?)?,
             scan_offset: offset(self.rows_left_to_skip()),
+            snapshot: self.pins_through.clone(),
         })
     }
 

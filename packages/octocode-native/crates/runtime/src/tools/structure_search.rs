@@ -20,8 +20,10 @@ mod tests;
 mod tree;
 mod walk_policy;
 mod walked;
+mod windows;
 use cut::TimeWindow;
 use probe::ProbeBound;
+use resume::Resumes;
 use walked::Walked;
 
 /// The most rows one listing window walks, sorts and pages: the core walk
@@ -43,7 +45,6 @@ const WALK_BUDGET: std::time::Duration = octocode_engine::scan_budget::SCAN_TIME
 
 use crate::response::result::ToolError;
 use crate::tools::display_name;
-use octocode_engine::num::saturating_u32;
 use serde_json::{Value, json};
 
 /// The policy error for `requested`; a missing path also leads to a tree of
@@ -127,17 +128,15 @@ fn reports_withheld(path: &std::path::Path) -> bool {
     display_name(path) != ".git"
 }
 
-/// A continuation page whose walk no longer hashes to its `snapshot`: the
-/// stale stored walk is dropped and the listing restarts from its first
-/// page and window. A page without a snapshot pins nothing: it pages the
-/// current walk.
+/// A continuation whose walk no longer hashes to what it pinned (`pinned`):
+/// the stale stored walk is dropped and the listing restarts from its first
+/// page and window. A query that pins nothing pages the current walk.
 fn restart_if_stale(
     query: &impl serde::Serialize,
-    page: usize,
-    snapshot: Option<&str>,
+    pinned: Option<&str>,
     current: &str,
 ) -> Option<Value> {
-    let stale = snapshot.filter(|snapshot| page > 1 && *snapshot != current)?;
+    let stale = pinned.filter(|pinned| *pinned != current)?;
     memo::evict(stale);
     let row = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
     Some(crate::response::result::stale_snapshot(
@@ -202,60 +201,6 @@ impl<'a> Walking<'a> {
         match self {
             Self::Listing(budget) => Some(budget),
             Self::Probe(_) => None,
-        }
-    }
-}
-
-/// How a listing walk keeps and uses its cursor ([`resume`]): the walk's
-/// identity and the path policy it ran under, and its root.
-struct Resumes<'a> {
-    identity: Value,
-    paths: &'a crate::policy::path::PathPolicy,
-    root: &'a std::path::Path,
-}
-
-impl Resumes<'_> {
-    /// The engine options for a listing walk of `walking`: the cursor of the
-    /// window it resumes at `walk_offset` (when one is kept and nothing it
-    /// depends on changed), and a checkpoint at the window's last row
-    /// (`window_end`), where a window cut at its rows ends.
-    fn options(
-        &self,
-        walking: Walking<'_>,
-        walk_offset: u32,
-        window_end: usize,
-    ) -> (Option<octocode_engine::types::WalkCursor>, Option<u32>) {
-        if walking.budget().is_none() {
-            return (None, None);
-        }
-        let resume = (walk_offset > 0)
-            .then(|| resume::take(&self.identity, &self.paths.identity(), walk_offset))
-            .flatten();
-        (resume, Some(saturating_u32(window_end)))
-    }
-
-    /// Keep where the walk stands at the end of its window, for the window
-    /// that resumes there.
-    fn keep(
-        &self,
-        native: &mut octocode_engine::types::FileSystemQueryResult,
-        walking: Walking<'_>,
-    ) {
-        if walking.budget().is_none() || native.time_cut.is_none() {
-            return;
-        }
-        if let Some(cursor) = native
-            .cursor
-            .take()
-            .filter(|cursor| cursor.position() == native.walk_position)
-        {
-            resume::keep(
-                &self.identity,
-                &self.paths.identity(),
-                self.paths,
-                self.root,
-                cursor,
-            );
         }
     }
 }

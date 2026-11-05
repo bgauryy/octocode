@@ -38,8 +38,6 @@ pub(super) struct CommentPage {
     pagination: Value,
     /// The page's comment-body windows.
     bodies: BodyWindows,
-    /// Provider comments read up to the end of this page.
-    consumed: usize,
     /// The private `pageSize` that resumes at the first unshown
     /// comment ([`page_starting_at`]).
     resume_size: Option<usize>,
@@ -63,19 +61,11 @@ impl CommentPage {
         }
         let mut comments = self.pagination;
         comments["totalItems"] = json!(at.total);
-        if comments["hasMore"] == true
-            && let Some(total) = at.total
-        {
-            let left = total.saturating_sub(u64::try_from(self.consumed).unwrap_or(u64::MAX));
-            if left > 0 {
-                remainder.items(Axis::Comments, left);
-            }
-        }
         if let Some(size) = self.resume_size {
             remainder.resume_page_size(size);
         }
         pagination.insert(Axis::Comments.key().into(), comments);
-        remainder.bodies(Axis::CommentBody, self.bodies, pagination);
+        self.bodies.attach(Axis::CommentBody, pagination);
     }
 }
 
@@ -211,7 +201,6 @@ pub(super) async fn issue_comments(
         comments,
         pagination,
         bodies,
-        consumed: start + consumed,
         resume_size,
     })
 }

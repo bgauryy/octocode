@@ -45,7 +45,7 @@ try {
     rows = Array.from({ length: 73 }, (_, i) => ({
       id: i,
       status: i % 2 ? 200 : 503,
-      url: 'https://app.test/api/' + i,
+      url: `https://app.test/api/${i}`,
       body: i === 4 ? 'x'.repeat(40000) : 'ok',
     }));
   writeFileSync(file, JSON.stringify({ rows }));
@@ -166,14 +166,12 @@ try {
   for (let i = 0; i < 64; i++) writeSync(fd, block);
   writeSync(
     fd,
-    '","data":{"/rows":' +
-      JSON.stringify(
-        Array.from({ length: 2000 }, (_, id) => ({
-          id,
-          text: 'emoji 🧠 quote ' + String.fromCharCode(34, 92),
-        }))
-      ) +
-      '}}'
+    `","data":{"/rows":${JSON.stringify(
+      Array.from({ length: 2000 }, (_, id) => ({
+        id,
+        text: `emoji 🧠 quote ${String.fromCharCode(34, 92)}`,
+      }))
+    )}}}`
   );
   closeSync(fd);
   const bounded = spawnSync(

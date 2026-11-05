@@ -257,3 +257,20 @@ fn frozen_input_bounds_and_nested_secret_projection_match_reference() {
             .contains("ghp_")
     );
 }
+
+/// A source past what a read holds at once is judged like any other: a row cannot
+/// be judged alone only on the lines its object hides.
+#[test]
+fn past_the_bound_only_a_named_source_s_values_are_out_of_a_row_s_reach() {
+    let pad = "ordinary words\n";
+    let lines = octocode_engine::security::MAX_CONTENT_SIZE / pad.len() + 1;
+    let named = format!(
+        "{{\"data\":{{\n\"k\":\"c2VjcmV0\"\n}},\"kind\":\"Secret\"}}\n{}",
+        pad.repeat(lines)
+    );
+    assert_eq!(
+        lines_a_row_cannot_judge(&named, Path::new("dump.json")),
+        vec![(1, 1), (2, 2)]
+    );
+    assert!(lines_a_row_cannot_judge(&pad.repeat(lines), Path::new("dump.json")).is_empty());
+}

@@ -131,7 +131,7 @@ async function callTool(binding: McpBinding, selection: string | undefined, conn
       return { changed: true, result: { content: [{ type: 'text', text: compact({ ...binding.describe(), managed: binding.managed, instructions: binding.instructions() }) }] } };
     }
     if (typeof name !== 'string') throw new ValidationError(`Unknown tool: ${String(name)}`);
-    args = catalog.keyedInput(name, args, 'mcp:' + createHash('sha256').update(`${connection}:${compact(request.id)}`).digest('hex'));
+    args = catalog.keyedInput(name, args, `mcp:${createHash('sha256').update(`${connection}:${compact(request.id)}`).digest('hex')}`);
     const call = catalog.toolCommand(name, args, selection);
     const value = await binding.store!.call(binding.session, call.name, call.input);
     return { changed: false, result: { content: [{ type: 'text', text: compact(catalog.toolResult(call.name, value)) }] } };
@@ -148,7 +148,7 @@ async function serve(binding: McpBinding, selection: string | undefined, emit: (
     if (!binding.managed) return null;
     const presence = new Presence(() => binding.renew());
     presence.reset();
-    process.stderr.write(compactAscii({ type: 'mcp_ready', session: binding.session, presence: 'managed', leases: 'managed', delivery: 'manual-inbox', automaticWake: false }) + '\n');
+    process.stderr.write(`${compactAscii({ type: 'mcp_ready', session: binding.session, presence: 'managed', leases: 'managed', delivery: 'manual-inbox', automaticWake: false })}\n`);
     return presence;
   };
   const stop = stopEvent();

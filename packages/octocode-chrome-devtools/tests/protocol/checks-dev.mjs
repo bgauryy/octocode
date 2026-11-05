@@ -12,7 +12,7 @@ const devCheck = async extra => {
     [
       'dev-check',
       '--url',
-      suite.base + '/dev-check',
+      `${suite.base}/dev-check`,
       ...extra,
       ...(suite.transport === 'legacy' ? ['--port', suite.port] : []),
     ],

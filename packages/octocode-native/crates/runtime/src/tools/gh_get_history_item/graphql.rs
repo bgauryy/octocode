@@ -147,7 +147,7 @@ pub(super) async fn graphql_pull_request(
         variables[variable] = json!(first);
     }
     let mut page = transport
-        .execute_graphql(&document, variables.clone(), context)
+        .execute_pull_request_graphql(&document, variables.clone(), context)
         .await?;
     let mut pr = page
         .data
@@ -258,7 +258,7 @@ async fn read_on(
         next[connection.variable] = json!(CONNECTION_PAGE);
         next["after"] = json!(cursor);
         let mut answer = match transport
-            .execute_graphql(&connection.continuation_document(), next, context)
+            .execute_pull_request_graphql(&connection.continuation_document(), next, context)
             .await
         {
             Ok(answer) => answer,

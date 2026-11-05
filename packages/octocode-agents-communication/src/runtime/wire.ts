@@ -278,7 +278,7 @@ export class Wire implements AsyncDisposable {
       if (value === null) continue;
       if (typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Vendor sent a frame that is not a JSON object');
       if (value.id === identity && !('method' in value)) {
-        if ('error' in value || (pi && value.success !== true)) throw new Error('Vendor request failed: ' + dumps(value));
+        if ('error' in value || (pi && value.success !== true)) throw new Error(`Vendor request failed: ${dumps(value)}`);
         return value[pi ? 'data' : 'result'];
       }
       if ('id' in value && 'method' in value) await this.send(refusal(value.id));
@@ -287,7 +287,7 @@ export class Wire implements AsyncDisposable {
         this.pending.push(value);
       }
     }
-    throw new Error('Timed out: ' + method);
+    throw new Error(`Timed out: ${method}`);
   }
 
   async close(): Promise<void> {

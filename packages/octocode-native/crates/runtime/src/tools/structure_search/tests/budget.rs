@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 mod resume;
+mod resume_edits;
 mod windows;
 
 fn tree() -> Fixture {
@@ -182,7 +183,7 @@ fn follow_outputs(
             .map(|next| next["input"]["queries"][0].clone());
         assert!(
             next.as_ref()
-                .is_none_or(|query| query.get("snapshot").is_none()),
+                .is_none_or(|query| query.get("page").is_none()),
             "a fixture window is one page: {out}"
         );
         resumed.push(

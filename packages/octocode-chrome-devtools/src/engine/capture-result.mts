@@ -76,7 +76,7 @@ export async function captureResult(
   })) {
     const match = line.match(/^\[ARTIFACT\] (.+?) ((?:\/|[A-Za-z]:[\\/]).+)$/);
     if (match) {
-      const key = match[1] + '\0' + match[2];
+      const key = `${match[1]}\0${match[2]}`;
       if (!seen.has(key)) {
         seen.add(key);
         artifacts.push({ label: match[1], path: match[2] });

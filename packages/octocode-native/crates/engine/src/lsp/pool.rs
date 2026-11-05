@@ -159,6 +159,17 @@ pub(super) fn readiness_timeout(language_id: Option<&str>) -> Option<u32> {
     }
 }
 
+/// The language a pool key names. clangd serves C and C++ headers and sources
+/// as one project and takes no meaning from a document's language id, so they
+/// share one server (CUDA differs by its `initializationOptions`).
+fn pool_language(language_id: Option<&str>) -> Option<&str> {
+    if super::family::is_c_family(language_id) {
+        Some("c")
+    } else {
+        language_id
+    }
+}
+
 pub fn canonical_lsp_key(config: &LspLanguageServerConfig) -> Result<String> {
     let workspace_root = normalize_workspace_root(&config.workspace_root)?;
     let env = config
@@ -181,7 +192,7 @@ pub fn canonical_lsp_key(config: &LspLanguageServerConfig) -> Result<String> {
         "command": config.command,
         "args": config.args.clone().unwrap_or_default(),
         "env": env,
-        "languageId": config.language_id,
+        "languageId": pool_language(config.language_id.as_deref()),
         "initializationOptions": initialization_options,
         "maxMemoryMb": config.max_memory_mb,
     }))

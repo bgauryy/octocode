@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::super::compiled::{CompiledQuery, Verdict};
-use super::super::filters::{EntryKind, lstat, visit_path};
+use super::super::filters::{EntryKind, lstat, visit_path, visit_replayed};
 use super::super::{EntryFilter, Visit};
 use super::{MAX_RECURSION_DEPTH, QueryState, walk_children, walk_frame};
 use crate::error::Error;
@@ -156,10 +156,10 @@ pub(super) fn walk_level(
         if is_directory {
             passed = Some(path.clone());
         }
-        // A replayed entry only counts: the walk it resumes listed it or
-        // not, and entered it or not by this same verdict, which only a
-        // directory's entry needs again.
-        if replaying && !(query.recursive && is_directory) {
+        // A replayed entry only counts, unless the caller reads what the replay
+        // lists: the walk it resumes listed it or not, and entered it or not
+        // by this same verdict, which only a directory's entry needs again.
+        if replaying && query.replayed.is_none() && !(query.recursive && is_directory) {
             continue;
         }
         let visit = if replaying {
@@ -201,7 +201,16 @@ pub(super) fn walk_level(
             Verdict::Enters => {}
         }
 
-        if !replaying {
+        if replaying {
+            visit_replayed(
+                &path,
+                &file_name.to_string_lossy(),
+                (depth, kind),
+                &mut metadata,
+                query,
+                state,
+            );
+        } else {
             let listed = state.entries.len();
             if visit_path(
                 &path,

@@ -240,10 +240,10 @@ class CodexWorker extends VendorWorker {
     const turn = objectOrEmpty(params.turn);
     if (method === 'item/completed' && item.type === 'agentMessage') this.emit({ type: 'text', text: item.text });
     if (method === 'turn/completed') {
-      if (turn.status === 'failed') throw new Error('Vendor turn failed: ' + show(turn.error));
+      if (turn.status === 'failed') throw new Error(`Vendor turn failed: ${show(turn.error)}`);
       this.completed();
     }
-    if (method === 'error' && params.willRetry !== true) throw new Error('Vendor error: ' + show(params));
+    if (method === 'error' && params.willRetry !== true) throw new Error(`Vendor error: ${show(params)}`);
   }
 }
 
@@ -277,7 +277,7 @@ class PiWorker extends VendorWorker {
 
   async onEvent(event: JsonObject, _params: JsonObject, message: JsonObject): Promise<void> {
     const kind = event.type;
-    if (kind === 'response' && event.success === false) throw new Error('Pi command failed: ' + show(event.error));
+    if (kind === 'response' && event.success === false) throw new Error(`Pi command failed: ${show(event.error)}`);
     if (kind === 'message_end' && message.role === 'assistant') {
       const reason = message.stopReason;
       const failed = reason === 'error' || reason === 'aborted';
@@ -286,7 +286,7 @@ class PiWorker extends VendorWorker {
       this.emitTexts(message);
     }
     if (kind === 'agent_settled') {
-      if (this.error !== null) throw new Error('Pi turn failed: ' + show(this.error));
+      if (this.error !== null) throw new Error(`Pi turn failed: ${show(this.error)}`);
       this.completed();
     }
   }
@@ -326,7 +326,7 @@ class ClaudeWorker extends VendorWorker {
     }
     if (kind === 'assistant') this.emitTexts(message);
     if (kind === 'result') {
-      if (event.is_error === true) throw new Error('Vendor turn failed: ' + show(event));
+      if (event.is_error === true) throw new Error(`Vendor turn failed: ${show(event)}`);
       this.completed();
     }
   }

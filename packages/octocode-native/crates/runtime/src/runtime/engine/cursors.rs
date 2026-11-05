@@ -2,10 +2,11 @@
 //! A handle names one retained continuation by its content ([`handle`]). It
 //! never contains caller-editable progress.
 use super::page_replay::Refusal;
-use crate::cache::{CacheConfig, CacheKey, Store};
+use crate::cache::{CacheConfig, CacheKey, Disk, Store};
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::id::ToolId;
 use crate::response::cursor::{Cursor, issued};
+use crate::runtime::row_indices::RowOrigin;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -18,13 +19,39 @@ pub(super) enum SavedWork {
     ToolResume {
         index: Option<usize>,
     },
+    /// The walks of several rows on one handle: the input's queries, each
+    /// continuing the query at the same position of `indices`.
+    Rows {
+        indices: Vec<usize>,
+    },
     /// A later page of a saved response, and the query index its rows
-    /// inherit, so a replay that is no longer retained re-executes the
-    /// same rows under the same indices ([`Cursor::key`] checks both).
+    /// inherit (`rows` when they answer several), so a replay that is no
+    /// longer retained re-executes the same rows under the same indices
+    /// ([`Cursor::key`] checks both).
     ResponsePage {
         cursor: Cursor,
         index: Option<usize>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        rows: Option<Vec<usize>>,
     },
+}
+
+impl SavedWork {
+    /// The query each row of this work answers.
+    pub fn origin(&self) -> RowOrigin {
+        match self {
+            Self::Rows { indices }
+            | Self::ResponsePage {
+                rows: Some(indices),
+                ..
+            } => RowOrigin::Rows(indices.clone()),
+            Self::ToolResume { index: Some(index) }
+            | Self::ResponsePage {
+                index: Some(index), ..
+            } => RowOrigin::Query(*index),
+            Self::ToolResume { index: None } | Self::ResponsePage { .. } => RowOrigin::Request,
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -51,7 +78,9 @@ pub(super) struct Registry {
     store: Store<Issued>,
     /// What issued tool continuations own, beside the handles (same
     /// directory and retention).
-    evidence: Store<octocode_github::ProviderEvidence>,
+    evidence: Store<evidence::Sealed>,
+    /// The saved answers' directory, whose body files evidence links.
+    answers: Option<Disk>,
     /// What they own that may not be stored
     /// ([`crate::providers::saved_answers::gate_keeps`]): this process's
     /// memory only ([`evidence`]).
@@ -90,17 +119,25 @@ impl Opened {
 }
 
 mod evidence;
+mod walks;
 
 impl Registry {
     pub fn new(config: CacheConfig, disk: Option<PathBuf>, policy: String) -> Self {
         Self {
             store: Store::new(config.clone(), disk.clone()),
             evidence: Store::new(config.clone(), disk.clone()),
+            answers: None,
             held_evidence: Store::new(config, None),
             policy,
             disk,
             mutation: octocode_io::lock::Turnstile::new(),
         }
+    }
+
+    /// Evidence links the bodies of the saved answers in `directory`.
+    pub fn linking_answers(mut self, directory: Option<PathBuf>) -> Self {
+        self.answers = directory.map(Disk::new);
+        self
     }
 
     fn key(&self, token: &str) -> CacheKey {
@@ -143,7 +180,13 @@ impl Registry {
                 pending.github_identity.as_deref(),
                 &owned.digest,
             );
-            evidence::retain(&self.evidence, &self.held_evidence, key, owned);
+            evidence::retain(
+                &self.evidence,
+                &self.held_evidence,
+                self.answers.as_ref(),
+                key,
+                owned,
+            );
         }
         for (token, member) in pending.issued {
             let key = self.key(&token);
@@ -154,6 +197,12 @@ impl Registry {
             {
                 return Err(ExecutionError::WorkerFailed);
             }
+            // A clasify cursor names a plan kept that long: it must not die first.
+            let retention = if member.tool == ToolId::Clasify.as_str() {
+                crate::tools::clasify::sections::PLAN_RETENTION
+            } else {
+                crate::cache::CONTINUATION_RETENTION
+            };
             let issued = Issued {
                 access: pending.access,
                 github_identity: pending.github_identity.clone(),
@@ -162,7 +211,7 @@ impl Registry {
             let bytes = octocode_engine::json_size::bytes(&issued).unwrap_or(usize::MAX);
             if !self
                 .store
-                .put_confirmed(key, issued, bytes, crate::cache::CONTINUATION_RETENTION)
+                .put_until(context.deadline, key, issued, bytes, retention)
                 .1
             {
                 return Err(ExecutionError::WorkerFailed);
@@ -290,7 +339,9 @@ impl Pending {
     pub fn insert(&mut self, tool: ToolId, input: Value, work: SavedWork) -> String {
         let token = handle(&self.access, tool, &input, &work);
         let evidence = match (&self.evidence, &work) {
-            (Some((owner, owned)), SavedWork::ToolResume { .. }) if *owner == tool => {
+            (Some((owner, owned)), SavedWork::ToolResume { .. } | SavedWork::Rows { .. })
+                if *owner == tool =>
+            {
                 Some(owned.digest.clone())
             }
             _ => None,

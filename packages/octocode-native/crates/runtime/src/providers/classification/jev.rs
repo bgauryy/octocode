@@ -22,7 +22,6 @@ static DEFAULTS: ProviderDefaults = ProviderDefaults {
     model: "jev-latest",
     endpoint_path: "v1/systemone",
     models_path: "v1/models",
-    docs_url: "https://docs.typesafe.ai/introduction",
 };
 
 /// The question key of a single-question request and its response.
@@ -64,6 +63,9 @@ impl ClassificationProvider for Jev {
                 .collect(),
         };
         let mut request = json!({"model": model, "state": state, "questions": keyed});
+        // The provider boundary protects every caller (clasify and all tool
+        // selections), including callers that already passed an input gate.
+        crate::security::ContentSecurity::new().sanitize_data(&mut request);
         if let Some(assets) = assets {
             request["assets"] = assets.clone();
         }

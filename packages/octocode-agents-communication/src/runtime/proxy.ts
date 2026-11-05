@@ -58,7 +58,7 @@ export async function run(args: ProxyArgs, runtime: ProxyRuntime): Promise<void>
 
 async function worker(args: ProxyArgs, store: DeliveryStore, identity: string, vendor: string, model: string, prompt: string, runtime: ProxyRuntime): Promise<void> {
   const Handler = WORKERS[vendor];
-  if (!Handler) throw new ValidationError('Unknown worker vendor: ' + vendor);
+  if (!Handler) throw new ValidationError(`Unknown worker vendor: ${vendor}`);
   const lock = await claimDeliveryOwner(store.database, identity);
   const directory = mkdtempSync(join(tmpdir(), 'octocode-worker-'));
   const stop = stopEvent();
@@ -204,7 +204,7 @@ export class Loop {
     const { worker } = this;
     if (!worker.session || (worker.busy && !worker.deliverWhileBusy) || monotonic() - this.poll < POLL_MS) return;
     this.poll = monotonic();
-    const items = worker.store.stage(worker.identity, 'managed:' + worker.name, worker.stageActionOnly());
+    const items = worker.store.stage(worker.identity, `managed:${worker.name}`, worker.stageActionOnly());
     if (!items.length) {
       // The row expired while this process slept: renew now instead of waiting out the heartbeat period.
       if (items.reason === SESSION_EXPIRED) await this.presence.tick(true);
