@@ -113,7 +113,11 @@ fn expired_response_guidance_uses_the_retained_page_lifetime() {
                 Refusal::RequestChanged,
             ] {
                 let error = super::snapshot_expired(refusal, scope);
-                assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
+                let expected = match refusal {
+                    Refusal::Malformed | Refusal::OtherTool => ErrorCode::InvalidInput,
+                    _ => ErrorCode::ResponseSnapshotExpired,
+                };
+                assert_eq!(error.code, expected, "{refusal:?}");
                 assert!(error.message.contains("No source or provider was called"));
                 assert!(error.message.contains("original request without cursor"));
             }

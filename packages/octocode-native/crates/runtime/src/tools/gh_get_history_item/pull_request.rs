@@ -33,7 +33,7 @@ pub(super) async fn pull_request(
     let plan = PrPlan::new(query)?;
     // Review comments are REST-only: when GraphQL serves the rest of the
     // read, their first window loads beside it instead of after its answer.
-    let ((graphql, graphql_fallback), inline) =
+    let ((mut graphql, graphql_fallback), inline) =
         if graphql_complete_collection_eligible(query) && wants.has(Section::ReviewComments) {
             let (fast, inline) = tokio::try_join!(
                 fast_path(transport, query, context),
@@ -46,6 +46,11 @@ pub(super) async fn pull_request(
                 InlineWindow::Pending,
             )
         };
+    // What GraphQL answered with errors and REST read instead.
+    let graphql_warnings = graphql
+        .as_mut()
+        .map(|served| std::mem::take(&mut served.warnings))
+        .unwrap_or_default();
     let loads = load_pr(
         transport,
         query,
@@ -70,7 +75,13 @@ pub(super) async fn pull_request(
         )));
     }
     let shaped = shape_pr(transport, query, context, &wants, &plan, loads).await?;
-    let mut data = finish_pr(query, &wants, &plan, shaped, graphql_fallback);
+    let mut data = finish_pr(
+        query,
+        &wants,
+        &plan,
+        shaped,
+        (graphql_fallback, graphql_warnings),
+    );
     if let (Some(head), Some(number)) = (head, gh_get_history_item_query::number(query)) {
         pin_head_pages(&mut data.data, &head, number);
     }

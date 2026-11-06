@@ -218,3 +218,37 @@ fn reference_sibling_defaults_override_definition_defaults() {
     validate_schema(&schema, &schema, &mut value, &mut vec![]).expect("valid");
     assert_eq!(value, json!({"local":true,"shared":false}));
 }
+
+/// A field's authored guidance (`x-checks`) wins over the generic issue at
+/// that field: each one-level shape of a score scale reads the guidance, not
+/// the bare minimum-length rule, and a valid scale passes.
+#[test]
+fn a_fields_own_guidance_wins_over_its_generic_issue() {
+    let guidance = "score criteria is an array of at least two levels";
+    let schema = json!({
+        "type":"object",
+        "properties":{"questions":{"type":"object","additionalProperties":{
+            "type":"object",
+            "properties":{"criteria":{"type":"array","items":{"type":"string"},"minItems":2}}
+        }}},
+        "x-checks":[{
+            "id":"probe.score-levels", "each":"questions", "message":guidance,
+            "when":{"type":"object","properties":{"criteria":{"type":"array","maxItems":1}},"required":["criteria"]},
+            "assert":{"not":{}}
+        }]
+    });
+    for criteria in [json!(["only one"]), json!([]), json!(["low"])] {
+        let mut value = json!({"questions":{"q":{"criteria":criteria}}});
+        let error = validate_schema(&schema, &schema, &mut value, &mut vec![])
+            .expect_err("one level is refused");
+        let messages: Vec<_> = error
+            .issues
+            .iter()
+            .map(|issue| issue.message.as_str())
+            .collect();
+        assert_eq!(messages, [guidance], "{criteria}");
+        assert_eq!(error.issues[0].path, ["questions", "q"], "{criteria}");
+    }
+    let mut valid = json!({"questions":{"q":{"criteria":["low","high"]}}});
+    validate_schema(&schema, &schema, &mut valid, &mut vec![]).expect("two levels pass");
+}

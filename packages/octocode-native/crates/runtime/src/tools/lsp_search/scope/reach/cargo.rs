@@ -7,11 +7,8 @@ use std::path::{Path, PathBuf};
 const MANIFEST: &str = "Cargo.toml";
 const DEPENDENCY_TABLES: [&str; 3] = ["dependencies", "dev-dependencies", "build-dependencies"];
 
-fn manifest(package: &Path) -> Option<toml::Table> {
-    std::fs::read_to_string(package.join(MANIFEST))
-        .ok()?
-        .parse()
-        .ok()
+fn manifest(package: &Path) -> Option<std::sync::Arc<toml::Table>> {
+    octocode_engine::lsp::workspace::cargo_manifest(package)
 }
 
 /// The nearest directory above `file` holding a `Cargo.toml` that names a

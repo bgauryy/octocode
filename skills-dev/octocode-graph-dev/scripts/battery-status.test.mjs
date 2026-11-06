@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { batteryFailures, callFailure } from './lib/battery-status.mjs';
-import { workflow } from './graph-bench.mjs';
+import { callerFiles, workflow } from './graph-bench.mjs';
 import { compare } from './bench-compare.mjs';
 
 test('successful empty results pass; process, parse and contract errors remain failures', () => {
@@ -37,6 +37,24 @@ test('impact retains the actual error and the battery gate fails with its input'
 });
 
 const row = impact => ({ lang: 'go', ingest: { exit: 0 }, impact });
+
+test('caller-file comparisons use file evidence and preserve edge counts across definitions', async () => {
+  const calls = [];
+  const result = await callerFiles(async query => {
+    calls.push(query);
+    return {
+      rows: query.target === 'first'
+        ? [{ file: 'src/a.java', edges: 3 }, { file: 'src/b.java', edges: 1 }]
+        : [{ file: 'src/a.java', edges: 2 }],
+      ms: 1, bytes: 20, pagesComplete: true,
+    };
+  }, ['first', 'second']);
+  assert.ok(calls.every(query => query.view === 'files'));
+  assert.deepEqual([...result.files].sort(), ['src/a.java', 'src/b.java']);
+  assert.equal(result.row.rows, 6);
+  assert.equal(result.row.files, 2);
+  assert.equal(result.row.pagesComplete, true);
+});
 
 test('comparison reports all workflow status changes and fails new errors or missing stages', () => {
   const [regression] = compare([row({ exit: 0 })], [row({ exit: 5, errorCode: 'outputContractViolation' })]);

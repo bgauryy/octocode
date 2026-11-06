@@ -228,4 +228,17 @@ fn reuse_reports_the_fresh_clones_completion_time() {
     let reused = clone_pinned(&fixture, &query(), &context).expect("reuse");
     assert!(fresh.location.cloned_at.is_some());
     assert_eq!(fresh.location.cloned_at, reused.location.cloned_at);
+    // The receipt says which one fetched: only the reuse is marked.
+    let receipt = |result: &CloneResult| serde_json::to_value(result).expect("receipt");
+    assert!(
+        receipt(&fresh)["location"].get("reused").is_none(),
+        "{}",
+        receipt(&fresh)
+    );
+    assert_eq!(
+        receipt(&reused)["location"]["reused"],
+        true,
+        "{}",
+        receipt(&reused)
+    );
 }

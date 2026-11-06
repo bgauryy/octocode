@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isObject, type Json } from './json.ts';
 import { keepReachable, nativeIdentifiers } from './rust-reach.ts';
+import { shareStringSchemas } from './rust-shared.ts';
 import { dataTypeName, errorDataTypeName, queryBranches, queryTypeName, renderDispatch, type ChannelRegistry, type ErrorChannels } from './rust-dispatch.ts';
 
 export const TYPIFY_VERSION = '0.8.0';
@@ -96,15 +97,23 @@ export function rustBundle(bundle: { [key: string]: Json }): { [key: string]: Js
     }
     return walked;
   };
-  return {
+  return shareStringSchemas({
     ...bundle,
     $defs: Object.fromEntries(
       Object.entries(defs).map(([name, schema]) => [name, enumUnions(schema, isRowData(name))])
     ),
-  };
+  });
 }
 
 function normalizeNativeKeywords(schema: { [key: string]: Json }): void {
+    // An `allOf` member that leaves other keys open (`additionalProperties: {}`)
+    // admits what the member without the keyword admits; typify reads the
+    // keyword as a new object to merge and types the narrowed rule anew.
+    if (Array.isArray(schema.allOf))
+      for (const member of schema.allOf)
+        if (isObject(member) && isObject(member.additionalProperties)
+          && Object.keys(member.additionalProperties).length === 0)
+          delete member.additionalProperties;
     if (typeof schema.$ref === 'string') {
       delete schema.title;
       delete schema.description;
@@ -169,7 +178,8 @@ export function renderRust(
       dispatch ? withDispatchRoots(roots, dispatch.tools) : roots
     ).trim();
     // Validated string newtypes format like the `String` they wrap.
-    const display = [...generated.matchAll(/^pub struct (\w+)\(::std::string::String\);$/gm)]
+    // rustfmt may wrap a long name's field onto its own line.
+    const display = [...generated.matchAll(/^pub struct (\w+)\(\s*::std::string::String,?\s*\);$/gm)]
       .map(
         ([, name]) => `impl ::std::fmt::Display for ${name} {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {

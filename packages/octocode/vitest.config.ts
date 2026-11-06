@@ -6,9 +6,15 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     // Against the real native binary: `yarn test:e2e`, in verify:own after a build.
-    exclude: ['tests/e2e/launcher.e2e.test.ts', 'tests/e2e/config-view.e2e.test.ts'],
+    exclude: [
+      'tests/e2e/launcher.e2e.test.ts',
+      'tests/e2e/config-view.e2e.test.ts',
+    ],
     // Temp home, no credentials, dead proxy, guarded fetch and child processes.
-    setupFiles: ['../../test-utils/external-effects-guard.ts', 'tests/setup.ts'],
+    setupFiles: [
+      '../../test-utils/external-effects-guard.ts',
+      'tests/setup.ts',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

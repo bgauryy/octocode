@@ -27,9 +27,20 @@ pub(super) fn wanted_topics(query: &GhSearchRepoQuery) -> Vec<String> {
         .collect()
 }
 
+/// A repository only some accounts can see (`private`, `internal`): its
+/// visibility, so a row the token's own access listed is told from public
+/// evidence. `None` for a public one.
+fn not_public(visibility: &str, private: bool) -> Option<&str> {
+    match visibility {
+        "" if private => Some("private"),
+        "" | "public" => None,
+        other => Some(other),
+    }
+}
+
 /// One compact repository row: `owner`, `repo` and `defaultBranch` (the
-/// next hop's coordinates), the description, license, dates, counts and
-/// nonredundant topics (query matches first). Optional `fields` projection
+/// next hop's coordinates), the description, license, dates, counts,
+/// `visibility` when not public, and nonredundant topics (query matches first). Optional `fields` projection
 /// is applied after rows are assembled.
 pub(super) fn repository_row(
     item: octocode_github::RepositorySearchItem,
@@ -71,6 +82,9 @@ pub(super) fn repository_row(
     // A fork in an owner listing is not the owner's own source.
     if item.fork {
         row["fork"] = json!(true);
+    }
+    if let Some(visibility) = not_public(&item.visibility, item.private) {
+        row["visibility"] = json!(visibility);
     }
     if !topics.is_empty() {
         row["topics"] = json!(topics);

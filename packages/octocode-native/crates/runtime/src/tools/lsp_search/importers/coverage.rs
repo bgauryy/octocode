@@ -126,6 +126,60 @@ impl Importers {
         );
     }
 
+    /// What importer recovery could not do, naming the step and, for
+    /// candidates, every file of the window with its cause (paths relative
+    /// to `root`).
+    pub(super) fn failure_warning(&self, root: &str) -> String {
+        const CONFIRM: &str = "confirm with a localSearch of the name.";
+        match self.failure {
+            ScanFailure::CandidateList => format!(
+                "Importer recovery could not list the files that spell this name: the workspace text scan failed, so no importer was verified; {CONFIRM}"
+            ),
+            ScanFailure::AnchorDeclaration => format!(
+                "Importer recovery could not resolve the anchor's own declaration (the server's definition at the anchor named none), so none of the {} candidate files that spell this name could be checked against it; {CONFIRM}",
+                self.window.as_ref().map_or(0, Window::total)
+            ),
+            ScanFailure::Candidates => {
+                let relative = |file: &String| {
+                    Path::new(file)
+                        .strip_prefix(root)
+                        .map_or_else(|_| file.clone(), |path| path.to_string_lossy().into_owned())
+                };
+                let unopened = self.unopened.iter().collect::<HashSet<_>>();
+                let (closed, unresolved): (Vec<_>, Vec<_>) = self
+                    .unverified
+                    .iter()
+                    .partition(|file| unopened.contains(file));
+                let mut causes = Vec::new();
+                if !closed.is_empty() {
+                    causes.push(format!(
+                        "{} could not be read or opened in the server",
+                        closed
+                            .into_iter()
+                            .map(relative)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
+                if !unresolved.is_empty() {
+                    causes.push(format!(
+                        "the server resolved no occurrence in {} to the anchor's declaration",
+                        unresolved
+                            .into_iter()
+                            .map(relative)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                }
+                format!(
+                    "Importer recovery could not verify {} candidate file(s): {}. They stay out of the answer; {CONFIRM}",
+                    self.unverified.len(),
+                    causes.join("; ")
+                )
+            }
+        }
+    }
+
     /// Gitignored files are outside the candidate scan. One that imports the
     /// name may be a hidden importer, and one the import check could not
     /// decide is not ruled out: the row is partial, counts each kind, names
@@ -208,7 +262,7 @@ impl Importers {
             counts.push(format!(
                 "{} could not be checked for an import (unreadable, larger than {} MiB, or unparsable)",
                 ignored.unchecked.len(),
-                octocode_engine::signatures::MAX_PARSE_SIZE / (1024 * 1024),
+                crate::security::SourceLimits::REAL.whole_source / (1024 * 1024),
             ));
         }
         let more = if ignored.unfinished {
@@ -258,6 +312,16 @@ impl Importers {
         }
         if let Some(window) = &self.window {
             self.settle_silent_page(row, query, window);
+        }
+        if self.failed {
+            let warning = self.failure_warning(&scope.root);
+            flag_partial(
+                row,
+                query,
+                crate::tools::lsp_search::inferred_project::FAILED_REASON,
+                Some(&warning),
+                scope,
+            );
         }
         self.disclose_ignored(row, query, scope);
         let Some(window) = self.window.as_ref().filter(|window| window.more()) else {

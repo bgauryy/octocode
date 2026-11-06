@@ -91,6 +91,7 @@ fn run_syntax(
             &p.canonical,
             ast_search_query_syntax_tree::language(q).as_deref(),
         ),
+        node_chunk: NODE_CHUNK,
     };
     let budget = crate::response::page_windows::page_budget(response_window);
     let page = read_page(q, &source, budget, &source_snapshot, &mut maps, cancel)?;
@@ -218,6 +219,9 @@ struct Source<'a> {
     path: &'a std::path::Path,
     /// The grammar's extension when the request overrides the file's own.
     extension: Option<String>,
+    /// Nodes one engine read takes: [`NODE_CHUNK`]; a test walks a small tree in
+    /// chunks of its own size.
+    node_chunk: u32,
 }
 
 #[cfg(test)]
@@ -278,7 +282,7 @@ fn read_page(
             let (mut r, mut prices) = match stored {
                 Some(walked) => (walked.r.clone(), walked.prices.clone()),
                 None => (
-                    source.inspect(q, 0, NODE_CHUNK)?,
+                    source.inspect(q, 0, source.node_chunk)?,
                     pricing::Prices::default(),
                 ),
             };
@@ -286,7 +290,7 @@ fn read_page(
             while let Some(next) = r.next_offset.filter(|_| windows.len() <= page) {
                 cancel.check().map_err(ToolError::cancelled)?;
                 let remaining = r.total_nodes.saturating_sub(next);
-                let expected = remaining.min(NODE_CHUNK);
+                let expected = remaining.min(source.node_chunk);
                 let rest = source.inspect(q, next, expected)?;
                 append_observed_window(&mut r, rest, next, expected)?;
                 windows = priced_windows(q, &r, &mut prices, source, maps, budget, cancel)?;

@@ -24,29 +24,6 @@ mod walk;
 pub(super) use walk::listing_walks;
 use walk::walk_listing;
 
-/// Where a continuation moves a listing: the private position fields it
-/// sets, the rest of the query staying as written.
-pub(super) enum Move {
-    /// The next page of the stored walk, bound to its `snapshot`.
-    Page {
-        page: std::num::NonZeroU64,
-        snapshot: String,
-    },
-    /// The window after one a row limit cut, past the rows already listed,
-    /// bound to what those windows listed ([`windows`]).
-    Window {
-        scan_offset: Option<std::num::NonZeroU64>,
-        snapshot: Option<String>,
-    },
-    /// The walk resumed after a time cut, past the rows already listed,
-    /// bound to what the windows so far listed ([`resume`](super::resume)).
-    Resume {
-        walk_offset: std::num::NonZeroU64,
-        scan_offset: Option<std::num::NonZeroU64>,
-        snapshot: Option<String>,
-    },
-}
-
 /// A listing operation's query: the fields both operations share
 /// ([`listing_fields!`]) and what the operation decides itself.
 pub(super) trait Listing:
@@ -66,7 +43,7 @@ pub(super) trait Listing:
     /// entry: the resume cursors of the request's own walk do not apply.
     fn relaxed(&self, relaxed: Walk) -> Self;
     /// This query moved by `to`: a continuation's position.
-    fn moved(&self, to: Move) -> Self;
+    fn moved(&self, to: super::cut::Move) -> Self;
     /// Private page position within the saved listing.
     fn page(&self) -> usize;
     fn snapshot(&self) -> Option<&str>;
@@ -160,8 +137,8 @@ macro_rules! listing_fields {
                 query.walk_offset = None;
                 query
             }
-            fn moved(&self, to: super::listing::Move) -> Self {
-                use super::listing::Move;
+            fn moved(&self, to: super::cut::Move) -> Self {
+                use super::cut::Move;
                 let first = std::num::NonZeroU64::MIN;
                 let token = |snapshot: String| {
                     snapshot
@@ -174,10 +151,15 @@ macro_rules! listing_fields {
                         snapshot: Some(token(snapshot)),
                         ..self.clone()
                     },
+                    // A sorted listing's next window ranks the whole scope
+                    // again from its first entry.
                     Move::Window { scan_offset, snapshot } => Self {
                         page: first,
                         snapshot: snapshot.map(token),
                         scan_offset,
+                        walk_offset: self
+                            .walk_offset
+                            .filter(|_| super::files::is_traversal(&super::listing::Listing::sort(self))),
                         ..self.clone()
                     },
                     Move::Resume { walk_offset, scan_offset, snapshot } => Self {
@@ -361,27 +343,36 @@ fn listing_page<Q: Listing>(
     // A window `next.nextPage` continues is not the listing's end: its
     // rows are what this window loaded, not the listing's total.
     let continues = cut.walk_lead().is_some();
-    let facts = crate::response::pages::PageFacts::sized(
-        page,
-        cut.total_pages,
-        total,
-        cut.has_more() || continues,
-    )
+    let has_more = cut.has_more() || continues;
+    // A window of a listing walked whole counts the listing's rows, exactly;
+    // its page count is known only once the later windows are cut, so it
+    // states none.
+    let ranking = cut.limit_cut && cut.whole_walk();
+    let facts = if ranking {
+        crate::response::pages::PageFacts::open(page, None, has_more).with_items(cut.matched())
+    } else {
+        crate::response::pages::PageFacts::sized(page, cut.total_pages, total, has_more)
+    }
     .out_of_range(cut.out_of_range());
     out["pagination"] = facts.to_value();
-    if continues {
+    if ranking {
+        out["pagination"]["countScope"] = json!("complete");
+    } else if continues {
         out["pagination"]["countScope"] = json!("loaded");
     }
     // A walk cut by time proved nothing about what it did not scan, and a
-    // resumed window past every entry of its filters is no empty listing.
-    if total == 0 && walk.meta.time_cut.is_none() && q.walk_offset() == 0 {
+    // resumed walk-order window past every entry of its filters is no empty
+    // listing; a sorted window that ended its walk ranked the whole scope.
+    let whole_scope = q.walk_offset() == 0 || !super::files::is_traversal(&q.sort());
+    if total == 0 && walk.meta.time_cut.is_none() && whole_scope && walk.meta.available == 0 {
         out["status"] = json!("empty");
     }
     let mut warnings = Vec::new();
     cut.finish(&mut out, q, &mut warnings);
     // The walk's summary, what it skipped, its retries and its read
-    // describe the whole listing: page 1 states them once.
-    if page == 1 {
+    // describe the whole listing: page 1 states them once, and a sorted walk
+    // states them when it ends (its paused windows carry them there).
+    if page == 1 && walk.meta.time_window != super::cut::TimeWindow::Paused {
         walk.meta.disclose(&mut out, root)?;
         lead_to_skipped(&mut out, q, &walk.meta.uncovered, q.walk(), q.filtered());
         if let Some(read) = rows::read_lead(&walk.rows[shown], root) {

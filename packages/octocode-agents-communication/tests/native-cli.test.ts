@@ -81,10 +81,10 @@ test('MCP binds identity and survives malformed frames',async t=>{
   {jsonrpc:'2.0',id:6,method:'tools/call',params:{name:'documents',arguments:{type:'find',input:{path:'.'}}}},
   {jsonrpc:'2.0',id:7,method:'tools/call',params:{name:'leases',arguments:{type:'list',input:{}}}},
  ].map(frame=>JSON.stringify(frame))].map(v=>v===null?'null':v).join('\n')}\n`;
- const result=await start(f,['mcp','--session',a.id],frames);assert.equal(result.code,0,result.stderr);
+ const result=await start(f,['mcp','--tools','agents,messages,leases,documents,records','--session',a.id],frames);assert.equal(result.code,0,result.stderr);
  const rows=result.stdout.trim().split('\n').map((line): JsonRecord=>JSON.parse(line));
  assert.equal(rows[0].error.code,-32600);assert.equal(rows[1].error.code,-32700);
- assert.deepEqual(names(rows[3].result.tools),names(runtimeCatalog.selectedTools()));assert.equal(JSON.parse(rows[4].result.content[0].text).leases[0].path,'file');assert.equal(invoke(f,['locks','{"path":"file"}','--session',a.id]).items[0].owner,a.id);
+ assert.deepEqual(names(rows[3].result.tools),names(runtimeCatalog.catalog().tools));assert.equal(JSON.parse(rows[4].result.content[0].text).leases[0].path,'file');assert.equal(invoke(f,['locks','{"path":"file"}','--session',a.id]).items[0].owner,a.id);
  const catalog=invoke(f,['schema']);
  assert.deepEqual(rows[3].result.tools,catalog.tools);
  for(const tool of catalog.tools){

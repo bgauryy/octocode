@@ -29,9 +29,10 @@ impl Found<'_> {
             !binary_cut
                 .iter()
                 .any(|cut| std::path::Path::new(cut).ends_with(&file.path))
-                && !crate::tools::source_view::prepare::every_read_refused(&source_of(
-                    self.root, file,
-                ))
+                && !crate::tools::source_view::prepare::every_read_refused(
+                    &source_of(self.root, file),
+                    self.limits,
+                )
         };
         let declared = self.definition.and_then(|definition| {
             self.files

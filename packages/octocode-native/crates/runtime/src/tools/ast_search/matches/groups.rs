@@ -293,7 +293,7 @@ fn rebuild_file(
         None,
         q.rule().as_ref(),
         digest,
-        super::super::source::MAX_PARSE_SOURCE_BYTES as u64,
+        crate::security::SourceLimits::REAL.whole_source as u64,
         &|| cancel.check().is_err(),
     ) {
         Ok(octocode_engine::structural::Rebuilt::Matches(matches)) => matches,

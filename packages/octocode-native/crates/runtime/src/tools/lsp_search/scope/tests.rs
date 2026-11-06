@@ -1,9 +1,11 @@
 use super::*;
 use crate::tools::test_support::workspace_policy;
 
+mod answer_gaps;
 mod code_use_memo;
 mod listing;
 mod poisoned_locks;
+mod question;
 mod reach;
 mod text_scans;
 

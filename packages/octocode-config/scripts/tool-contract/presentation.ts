@@ -144,7 +144,7 @@ function rendered(definition: Definition, selection: boolean) {
   return {
     views: {
       query: view(definition, row, { inputSchema }),
-      variants: { name, description: definition.description, variants: toolVariants(definition) },
+      variants: { name, description: definition.description, variants: toolVariants(definition, selection) },
     },
     selections: Object.fromEntries(
       Object.entries(operationRows(definition)).map(([operation, operationRow]) => [

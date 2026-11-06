@@ -1,8 +1,8 @@
 # Octocode agents communication
 
-Use this MCP server and `/cli` interface to coordinate agents across linked Git worktrees.
-Codex, Claude Code, Grok Build, Pi, OpenCode, Cursor, and other local agents share one local messaging contract.
-One Node.js runtime and SQLite database (built-in `node:sqlite`) provide agent discovery, messages and per-recipient request outcomes, advisory path leases, immutable evidence documents, memories, and events. The model borrows A2A terminology for message parts, correlated requests, and artifacts; requests remain messages and named documents provide artifact storage. It is not an A2A wire implementation or remote endpoint.
+Use this MCP server and `/cli` interface to exchange messages and data between agents from any provider that can run a local stdio MCP client.
+Codex, Claude Code, Cursor, Octocode, Grok Build, Pi, OpenCode, and other local agents share one local messaging contract.
+One Node.js runtime and local SQLite database (built-in `node:sqlite`) provide peer discovery, durable messages and explicit replies. MCP defaults to messaging and read-only history; documents, record writes and advisory path leases are optional. Agents own their plans, task state and completion decisions; the package has no task backlog or scheduler. The model borrows A2A terminology for message parts, correlated requests, and artifacts; requests remain messages and named documents provide artifact storage. It is not an A2A wire implementation or remote endpoint.
 
 ```mermaid
 flowchart LR
@@ -21,13 +21,13 @@ Each agent keeps its own identity and worktree path; all participants share one 
 | Need | Commands and behavior |
 | --- | --- |
 | Identify collaborators | `join`, `binding`, `peers`, `set_status`, `heartbeat`, `resume`, `leave`: keep a separate live identity for each agent. |
-| Request work and finish it | `send_message`, `inbox`, `inbox wait`, `complete`: correlate the final answer and acknowledge handled work. |
+| Exchange messages and replies | `send_message`, `inbox`, `inbox wait`, `complete`: correlate the final answer and acknowledge handled work. |
 | Reach a group | `subscribe` and topic messages, or `send_message` to `"*"`: recipients are snapshotted at send time; later joiners receive no old fanout. |
 | Coordinate edits | `lock`, `lock_many`, `renew`, `unlock`, `locks`, `check_paths`, `check_write`: reserve files or trees, queue conflicts, and check ownership. |
 | Share larger evidence | `share_document`, `read_document`, `context`: publish immutable documents and discover relevant notes. |
 | Query history and findings | `record`, `fetch`, `activity`, `record_usage`: retain memories, events, Git evidence, and measured usage. |
 | Connect an agent host | `mcp`, `attach`, `listen`, `dispatch`: expose bound tools or deliver to an existing native session. `run` starts a new managed worker only when requested. |
-| Integrate host events | `host-config`, `host-hook`, `hook`, `confirm_delivery`, `completion-check`: preview setup, deliver context, and optionally check unfinished handling. |
+| Integrate host events | `host-config`, `host-hook`, `hook`, `confirm_delivery`: preview setup and deliver context without enforcing work completion. |
 | Inspect and recover | `health`, `view`, `retry_delivery`: inspect delivery and explicitly recover uncertain attempts. |
 | Maintain storage | `db info`, `db protocol`, `db export`, `db retention`, `db compact`, `prune`: inspect, back up, and maintain storage without dropping message history. |
 | Discover inputs | `skill`, `schema`, `schema tools`, `schema types`, `schema type`: read operating guidance and the installed release's contracts. |
@@ -47,9 +47,9 @@ Requirements and the companion skill: [installation](docs/INSTALLATION.md).
 
 ## Requirements and limits
 
-- **Runtime:** Node.js `^24.15.0` and its built-in `node:sqlite`; nothing else to install ([installation](docs/INSTALLATION.md#install-the-cli-and-companion-skill)). Schema v8 refuses older database files without changing them. Use the old compatible binary to finish or export v7 data, retain that database, then select a fresh explicit `--database` path for v8.
+- **Runtime:** Node.js `^24.15.0` and its built-in `node:sqlite`; nothing else to install ([installation](docs/INSTALLATION.md#install-the-cli-and-companion-skill)). Only the current schema v9 is supported. Incompatible databases are left unchanged; preserve them and select a fresh explicit `--database` path. All operational entities use strict types and enforced identity/workspace relationships.
 - **Upgrading:** run one runtime per database. Earlier releases held the delivery-owner lock as a file lock and this one holds a socket, so the two do not exclude each other: stop every old `listen`, `dispatch` and `run` before starting new ones ([DB.md](docs/DB.md#cleanup-and-conformance)).
-- **Database path:** SQLite opens at most 504 bytes of resolved path (symlinks followed); a longer `--database` is refused with the length and the limit ([DB.md](docs/DB.md#identity-and-discovery)).
+- **Database path:** On Unix, SQLite opens at most 504 bytes of resolved path (symlinks followed); Windows delegates path limits to its VFS/OS. An overlong Unix `--database` is refused before creating files ([DB.md](docs/DB.md#identity-and-discovery)).
 - **Numbers:** `5.0` is the integer `5`; `5.5` still fails an `integer` field ([entry points](docs/INTERFACES.md#supply-cli-input)).
 - **`activity` `pathRegex`:** a JavaScript `RegExp` with the `u` flag under a timeout; other dialects' syntax is refused ([commands](docs/COMMANDS.md#activity-pathregex)).
 - **Worker cleanup:** a managed `run` worker killed outright leaves a watchdog that kills the vendor's process group on POSIX; Windows has no equivalent and leaks the vendor process tree ([service protocol](docs/SERVICE_PROTOCOL.md#identity-and-capabilities)). The Windows named-pipe owner lock is untested.
@@ -122,7 +122,7 @@ Configure the host to launch a separate bound process for each agent:
 
 ```sh
 npx -y @octocodeai/octocode-agents-communication --managed \
-  --name api-reviewer --vendor codex --tools review \
+  --name api-reviewer --vendor your-provider \
   --workspace /absolute/project --database /absolute/shared/communication.sqlite
 ```
 
@@ -137,10 +137,9 @@ For a host that accepts an `mcpServers` configuration, merge this entry into its
       "command": "npx",
       "args": [
         "-y", "@octocodeai/octocode-agents-communication",
-        "--managed", "--vendor", "codex", "--name", "api-reviewer",
+        "--managed", "--vendor", "your-provider", "--name", "api-reviewer",
         "--workspace", "/absolute/project",
-        "--database", "/absolute/shared/communication.sqlite",
-        "--tools", "review"
+        "--database", "/absolute/shared/communication.sqlite"
       ]
     }
   }
@@ -151,7 +150,7 @@ For agent-selected initialization, omit `--managed`, `--vendor` and `--name`: on
 
 Use the actual vendor and a unique name; each independent agent needs its own identity. Other configuration formats take the same command and arguments.
 
-`--tools` selects `messaging` (messages, topics and status), `review` (adds documents, context and records), `editing` (adds leases and file coverage checks), or a comma-separated tool list. Bound tools use `{type,input}` without workspace or identity arguments; `schema tools --tools review` shows their definitions.
+`--tools` defaults to `messaging` (messages, topics, status and read-only history). Select `review` (adds documents, context and records), `editing` (adds leases and file coverage checks), or a comma-separated tool list. Bound tools use `{caller,type,input}`: copy `caller` from the binding (agent ID, name, vendor and known native ID); the runtime supplies omitted attribution and rejects conflicting identity fields. Workspace and acting identity remain bound; `schema tools --tools review` shows their definitions.
 
 The server supplies operating instructions at MCP initialization, so an agent can use it without loading the companion skill or invoking the CLI. See [the MCP agent contract](docs/INTERFACES.md#use-mcp-without-the-skill) for profile contents and the request/reply and editing workflows.
 
@@ -167,7 +166,8 @@ Native attachment targets an existing host session and creates no worker or perm
 | Pi | Inbox extension and durable host receipts | At idle for action mail | `editing` profile |
 | OpenCode | Loopback server API | Action uses `prompt_async` | Optional write/edit plugin |
 | Cursor | Post-tool hooks | No | No bundled guard |
-| Other local agents | CLI/MCP inbox or a host-wired context hook | Host-dependent | Host-dependent |
+| Octocode coding agent | Native post-tool hooks and MCP | No | No bundled guard |
+| Other local agents | CLI/MCP inbox or the [provider-neutral hook contract](docs/HOST_HOOKS.md#integrate-another-provider) | Host-dependent | Host-dependent |
 
 Hooks: [host setup](docs/HOST_SETUP.md#install-messaging-hooks). Native endpoints and receipts: [service protocol](docs/SERVICE_PROTOCOL.md#identity-and-capabilities). Edit guards: [lease admission](docs/HOST_LEASE_GUARDS.md). Without an adapter, read the inbox through CLI/MCP; a database write alone wakes no process. `run` starts a new managed Codex, Claude or Pi worker only when requested; existing sessions use `attach`.
 

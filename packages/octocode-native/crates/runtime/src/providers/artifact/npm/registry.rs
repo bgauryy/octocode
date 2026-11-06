@@ -1,7 +1,8 @@
 //! The npm registry a lookup may reach: a plain HTTP(S) base matching the
 //! query, and (unless private registries are allowed) a public host whose
-//! DNS answers are pinned through connect.
-use crate::policy::network::is_public;
+//! DNS answers are pinned through connect. A target that does not resolve
+//! gets the same refusal as a private one, naming only the host as given.
+use crate::policy::network::{is_public, not_public_refusal};
 use crate::providers::artifact::http::DnsPin;
 use crate::providers::artifact::query::artifact_search_query;
 use crate::providers::artifact::{ArtifactError, ResolvedNpmRegistry};
@@ -50,11 +51,16 @@ pub(crate) fn invalid_registry_url() -> ArtifactError {
     )
 }
 
-fn registry_target_error() -> ArtifactError {
+/// The one refusal for a registry host that is internal, does not resolve,
+/// or resolves to any address that is not public.
+fn registry_target_error(host: &str) -> ArtifactError {
     ArtifactError::new(
         ErrorCode::InvalidInput,
-        "registryUrl names a loopback, link-local or private host; network.allowPrivateRegistry \
-         (OCTOCODE_ALLOW_PRIVATE_REGISTRY) permits it.",
+        format!(
+            "registryUrl host {} network.allowPrivateRegistry \
+             (OCTOCODE_ALLOW_PRIVATE_REGISTRY) permits a private registry.",
+            not_public_refusal(host)
+        ),
     )
 }
 
@@ -63,15 +69,16 @@ fn registry_target_error() -> ArtifactError {
 /// hostname allowlist entry; every other domain is resolved once, rejects a
 /// mixed public/private answer, and is pinned through connect.
 fn validate_registry_target(base: &Url) -> Result<Option<DnsPin>, ArtifactError> {
+    let refused = || registry_target_error(base.host_str().unwrap_or_default());
     match base.host() {
-        Some(Host::Ipv4(ip)) if !is_public(ip.into()) => Err(registry_target_error()),
-        Some(Host::Ipv6(ip)) if !is_public(ip.into()) => Err(registry_target_error()),
+        Some(Host::Ipv4(ip)) if !is_public(ip.into()) => Err(refused()),
+        Some(Host::Ipv6(ip)) if !is_public(ip.into()) => Err(refused()),
         Some(Host::Ipv4(_) | Host::Ipv6(_)) => Ok(None),
         Some(Host::Domain(name)) => {
             let dns_host = name.to_ascii_lowercase();
             let host = dns_host.trim_end_matches('.');
             if host.is_empty() || octocode_github::names_localhost(host) {
-                return Err(registry_target_error());
+                return Err(refused());
             }
             if base.scheme() == "https"
                 && host == "registry.npmjs.org"
@@ -79,37 +86,29 @@ fn validate_registry_target(base: &Url) -> Result<Option<DnsPin>, ArtifactError>
             {
                 return Ok(None);
             }
-            let port = base
-                .port_or_known_default()
-                .ok_or_else(registry_target_error)?;
+            let port = base.port_or_known_default().ok_or_else(refused)?;
             let addresses: Vec<SocketAddr> = (dns_host.as_str(), port)
                 .to_socket_addrs()
-                .map_err(|_| {
-                    ArtifactError::new(
-                        ErrorCode::ProviderError,
-                        "Custom npm registry hostname could not be resolved safely.",
-                    )
-                })?
+                .map_err(|_| refused())?
                 .collect();
-            validate_resolved_addresses(&addresses)?;
+            validate_resolved_addresses(name, &addresses)?;
             Ok(Some(DnsPin {
                 host: dns_host,
                 addresses,
             }))
         }
-        None => Err(registry_target_error()),
+        None => Err(refused()),
     }
 }
 
-pub(super) fn validate_resolved_addresses(addresses: &[SocketAddr]) -> Result<(), ArtifactError> {
-    if addresses.is_empty() {
-        return Err(ArtifactError::new(
-            ErrorCode::ProviderError,
-            "Custom npm registry hostname resolved without any usable address.",
-        ));
-    }
-    if addresses.iter().any(|address| !is_public(address.ip())) {
-        return Err(registry_target_error());
+/// `host`'s DNS answer is usable when it has an address and every one is
+/// public.
+pub(super) fn validate_resolved_addresses(
+    host: &str,
+    addresses: &[SocketAddr],
+) -> Result<(), ArtifactError> {
+    if addresses.is_empty() || addresses.iter().any(|address| !is_public(address.ip())) {
+        return Err(registry_target_error(host));
     }
     Ok(())
 }

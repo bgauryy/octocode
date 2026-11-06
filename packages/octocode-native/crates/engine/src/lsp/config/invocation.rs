@@ -18,6 +18,19 @@ pub(super) use typescript_cli::{
     typescript_cli_from_command,
 };
 
+#[cfg(test)]
+pub(super) use typescript_cli::pin_tsserver as typescript_cli_pin_for_tests;
+
+/// [`typescript_cli::pin_tsserver`] under `options`' trust of `workspace_root`.
+pub(super) fn pin_tsserver(config: &mut LspLanguageServerConfig, options: &LspDiscoveryOptions) {
+    let trusted = options.trusts_project()
+        || typescript_cli::workspace_is_invocation_root(
+            &config.workspace_root,
+            options.invocation_dir.as_deref(),
+        );
+    typescript_cli::pin_tsserver(config, trusted);
+}
+
 pub(super) fn config_from_spec(
     spec: ServerSpec,
     workspace_root: &str,
@@ -47,6 +60,7 @@ pub(super) fn config_from_spec(
             options.octocode_home.as_deref(),
             options.index_home(),
         );
+        pin_tsserver(&mut config, options);
     }
     config
 }

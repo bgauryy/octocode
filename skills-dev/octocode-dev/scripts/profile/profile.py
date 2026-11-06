@@ -30,7 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from flows import BY_ID, CORPUS_REV, FLOWS
-from harness import DARWIN, Mcp, NATIVE, ROOT, can_count, clean_env, corpus, next_input, oneshot, queries, request_of, stub_env, stub_server
+from harness import DARWIN, Mcp, NATIVE, ROOT, can_count, clean_env, corpus, live_env, next_input, oneshot, queries, request_of, stub_env, stub_server, with_stub
 
 DEFAULT_BIN = NATIVE / 'target/profiling/octocode'
 IDLE = re.compile(r'^(swtch_pri|thread_switch|cthread_yield|sched_yield|__psynch_cvwait|semaphore_wait_trap|semaphore_timedwait_trap|__psynch_mutexwait|kevent|__semwait_signal|mach_msg|__workq_kernreturn|__ulock_wait|_pthread_wqthread|__select|poll|__accept|nanosleep|start_wqthread|thread_start|__wait4|__recvfrom|__read_nocancel|epoll_wait|futex|syscall$)')
@@ -81,7 +81,7 @@ def count(binary, flow, query, cwd, extra, reps):
     rows = []
     for _ in range(reps):
         with tempfile.TemporaryDirectory(prefix='octocode-profile-') as home:
-            env = clean_env(home, extra=extra)
+            env = clean_env(home, mode=flow.get('storage', 'memory'), extra=extra)
             if flow['phase'] == 'one':
                 rows.append(oneshot(binary, flow['tool'], query, cwd, env))
                 continue
@@ -102,7 +102,7 @@ def record(binary, flow, query, cwd, extra, secs, out):
     profile = out / 'profile.json.gz'
     wrapper = ('samply', 'record', '--save-only', '--unstable-presymbolicate', '--rate', '1000', '--output', str(profile), '--')
     with tempfile.TemporaryDirectory(prefix='octocode-profile-') as home:
-        env = clean_env(home, extra=extra)
+        env = clean_env(home, mode=flow.get('storage', 'memory'), extra=extra)
         if flow['phase'] == 'one':
             subprocess.run(['samply', 'record', '--save-only', '--unstable-presymbolicate', '--rate', '1000', '--iteration-count', str(max(1, secs // 2)),
                             '--output', str(profile), '--', str(binary), flow['tool'], json.dumps(query), '--json'],
@@ -212,7 +212,7 @@ def write_report(out, title, counted, found, top, calls, binary):
 def heap(binary, flow, query, cwd, extra, out):
     """What the server holds after the flow: live allocations by call tree."""
     with tempfile.TemporaryDirectory(prefix='octocode-profile-') as home:
-        env = clean_env(home, extra=extra)
+        env = clean_env(home, mode=flow.get('storage', 'memory'), extra=extra)
         if not DARWIN:
             if not shutil.which('heaptrack'):
                 print('heap: heaptrack is not installed; apt install heaptrack')
@@ -285,10 +285,13 @@ def main(argv=None):
     stub, extra = None, {}
     try:
         if flow.get('stub'):
-            stub, url = stub_server(work)
+            stub, info = stub_server(work)
             if stub is None:
-                raise SystemExit(url)
-            extra = stub_env(url)
+                raise SystemExit(info)
+            extra = stub_env(info)
+            query = with_stub(query, info)
+        if flow.get('live'):
+            extra = live_env(flow['live'])
         counted = {**count(binary, flow, query, cwd, extra, args.reps), 'reps': args.reps}
         (out / 'counters.json').write_text(json.dumps({'flow': flow['id'], 'phase': flow['phase'], **counted}, indent=1))
         print(f"{flow['id']} {flow['phase']}: {fmt(counted['instr'])} (max {fmt(counted['max'])}), peak {fmt(counted['peak'])}B, {counted['wall']:.2f} s, errors {counted['errors']}")

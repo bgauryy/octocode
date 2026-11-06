@@ -20,7 +20,9 @@ function fakeCargo(dir: string, stderrBytes: number, status: number): void {
 out=""
 while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done
 head -c ${stderrBytes} /dev/zero | tr '\\0' 'x' >&2
-[ ${status} -eq 0 ] && echo 'pub struct Id(::std::string::String);' > "$out"
+[ ${status} -eq 0 ] && echo 'pub struct Id(
+    ::std::string::String,
+);' > "$out"
 exit ${status}
 `
   );
@@ -56,6 +58,7 @@ describe.skipIf(process.platform === 'win32')('renderRust typify diagnostics', (
     expect(run.status, run.stderr.slice(0, 300)).toBe(0);
     expect(run.stderr).toHaveLength(bytes);
     expect(run.stdout).toContain('pub struct Id');
+    expect(run.stdout).toContain('impl ::std::fmt::Display for Id');
   }, 30_000);
 
   it('shows diagnostics and a non-zero exit when typify fails', () => {

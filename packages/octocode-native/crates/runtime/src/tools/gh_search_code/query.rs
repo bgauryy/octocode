@@ -119,8 +119,26 @@ mod tests {
             None,
         );
         assert_eq!(
-            q, "\"hello NOT\" \"x OR repo:evil/x\" repo:octocat/Hello-World in:file",
+            q, r#""\"hello\" NOT" "x\" OR repo:evil/x" repo:octocat/Hello-World in:file"#,
             "{q}"
+        );
+    }
+
+    /// A keyword that spells JSON quotes keeps them, escaped, beside the
+    /// path and extension qualifiers: GitHub answers this form (8
+    /// advisories for `ws` on 2026-11-06) and none with the quotes dropped.
+    #[test]
+    fn a_quoted_json_keyword_keeps_its_quotes_beside_path_and_extension() {
+        let q = code(
+            &parse(serde_json::json!({
+                "owner":"github","repo":"advisory-database","path":"advisories/github-reviewed",
+                "extensions":["json"],"keywords":["\"name\": \"ws\""]
+            })),
+            None,
+        );
+        assert_eq!(
+            q,
+            r#""\"name\": \"ws\"" extension:json path:"advisories/github-reviewed" repo:github/advisory-database in:file"#
         );
     }
 

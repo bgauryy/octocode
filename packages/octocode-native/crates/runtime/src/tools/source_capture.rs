@@ -155,9 +155,10 @@ pub(crate) fn capture(
     }
     // A captured state is the exact text: the source query admits no
     // `minify`, and an omitted one reads the file as is.
+    let reader = reader_context(context, max_chars);
     let (text, pin) = collect_pages(
         source["query"].clone(),
-        |row| read_page(id, row, dispatcher, context),
+        |row| read_page(id, row, dispatcher, &reader),
         max_chars,
         id == ToolId::GhGetFileContent,
     )?;
@@ -167,6 +168,19 @@ pub(crate) fn capture(
         read: read_lead(id, &source["query"], pin.as_deref()),
         source: None,
     })
+}
+
+/// The context a capture reads its source pages under: the call's deadline
+/// and cancellation, with a reader window holding the capture's whole
+/// budget. Every reader page reads, scans and digests the whole source, and
+/// the capture keeps every page, so a page sized to the caller's response
+/// share (a single long line: 16 KiB byte pages) cost one full source pass
+/// per 16 KiB: 640 passes and 844 G instructions for a 10 MiB line.
+pub(crate) fn reader_context(context: &ExecutionContext, max_chars: usize) -> ExecutionContext {
+    ExecutionContext {
+        response_window: Some(crate::response::page_windows::window_holding(max_chars)),
+        ..context.clone()
+    }
 }
 
 /// Every reader page of a selection, from `row` through the last, as one

@@ -199,12 +199,28 @@ fn retained_answers_hold_no_credential_and_replay_what_the_output_gate_shows() {
     );
 }
 
+/// Protocol data a later page sends back to the server keeps the server's
+/// bytes for that page, though the gate rewrites them (a credential in a
+/// hierarchy item, or a JDT handle that spells `key="L…"`): the store holds
+/// only the gated bytes, the server's stay in this process, and a store read
+/// after a restart restarts the request. No continuation is refused for it.
 #[test]
-fn a_credential_in_protocol_data_refuses_the_continuation_without_storing_it() {
+fn protocol_data_the_gate_rewrites_is_held_in_process_and_never_stored() {
     let range = json!({"start":{"line":0,"character":0},"end":{"line":0,"character":4}});
-    for answer in [
-        json!([{"name":"load","kind":12,"uri":"file:///repo/a.ts","range":range,"selectionRange":range,"detail":format!("token = \"{TOKEN}\"")}]),
-        json!([{"name":"load","kind":12,"location":{"uri":"file:///repo/a.ts","range":range},"data":{"token":TOKEN}}]),
+    let handle = r#"=guava-tests/test=/<com.google{T.java[T~T=)="Ljava.util.function.Function;!1865!1895!1870=&apply!1="Ljava.lang.Object;="key="Ljava.util.Map$Entry\<**>;="Lcom\/google;!0!true=)"#;
+    for (answer, secret) in [
+        (
+            json!([{"name":"load","kind":12,"uri":"file:///repo/a.ts","range":range,"selectionRange":range,"detail":format!("token = \"{TOKEN}\"")}]),
+            TOKEN,
+        ),
+        (
+            json!([{"name":"load","kind":12,"location":{"uri":"file:///repo/a.ts","range":range},"data":{"token":TOKEN}}]),
+            TOKEN,
+        ),
+        (
+            json!([{"name":"T$1","kind":5,"uri":"file:///repo/T.java","range":range,"selectionRange":range,"data":{"element":handle}}]),
+            handle,
+        ),
     ] {
         let dir = tempfile::tempdir().expect("directory");
         let store = ContinuationAnswers::new(
@@ -212,14 +228,31 @@ fn a_credential_in_protocol_data_refuses_the_continuation_without_storing_it() {
             Some(dir.path().into()),
             "policy".into(),
         );
-        let refused = store.retain(&mut row(), &answered(answer.clone()), soon());
-        assert!(
-            matches!(&refused, Err(failure) if failure.code == ErrorCode::ContentSecurityLimit),
-            "{answer}"
+        let mut first = row();
+        store
+            .retain(&mut first, &answered(answer.clone()), soon())
+            .unwrap_or_else(|error| panic!("{answer}: {error:?}"));
+        if secret == TOKEN {
+            assert!(
+                !stored_bytes(dir.path()).contains(TOKEN),
+                "no credential reaches the store: {answer}"
+            );
+        }
+        let replayed = raw(&store.open(next(&first)).expect("continuation").1);
+        assert_eq!(
+            replayed,
+            json!({ "provider-request": answer }),
+            "the server gets its own bytes back"
         );
+        let restarted = ContinuationAnswers::new(
+            CacheConfig::derived(),
+            Some(dir.path().into()),
+            "policy".into(),
+        );
+        let expired = restarted.open(next(&first)).map(|_| ());
         assert!(
-            !stored_bytes(dir.path()).contains(TOKEN),
-            "a refused answer is not stored"
+            matches!(&expired, Err(failure) if failure.code == ErrorCode::ResponseSnapshotExpired),
+            "{answer}: {expired:?}"
         );
     }
 }

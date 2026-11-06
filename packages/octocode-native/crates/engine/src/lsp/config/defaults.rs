@@ -21,7 +21,11 @@ pub fn rust_analyzer_headless_options() -> Value {
     json!({
         "cargo": {
             "buildScripts": { "enable": false },
-            "targetDir": true
+            "targetDir": true,
+            // An empty value overrides a repository's `.cargo/config.toml`
+            // `rustc-wrapper`, which `cargo metadata` runs even with build
+            // scripts off ([`allow_build_wrappers`] lifts it with them).
+            "extraEnv": { "RUSTC_WRAPPER": "", "RUSTC_WORKSPACE_WRAPPER": "" }
         },
         "procMacro": { "enable": false },
         "checkOnSave": false,
@@ -278,7 +282,7 @@ fn add_default_args(config: &mut LspLanguageServerConfig, defaults: &[&str]) {
     }
 }
 
-fn merge_default_options(config: &mut LspLanguageServerConfig, defaults: Value) {
+pub(super) fn merge_default_options(config: &mut LspLanguageServerConfig, defaults: Value) {
     config.initialization_options = Some(match config.initialization_options.take() {
         None | Some(Value::Null) => defaults,
         Some(user @ Value::Object(_)) => merge_under(defaults, user),
@@ -288,6 +292,26 @@ fn merge_default_options(config: &mut LspLanguageServerConfig, defaults: Value) 
 
 pub(super) fn apply_rust_analyzer_defaults(config: &mut LspLanguageServerConfig) {
     merge_default_options(config, rust_analyzer_headless_options());
+    if let Some(options) = config.initialization_options.as_mut() {
+        allow_build_wrappers(options);
+    }
+}
+
+/// With build scripts on, repository code runs anyway, and the user's own
+/// wrapper (sccache) with it: drop the empty wrapper values
+/// [`rust_analyzer_headless_options`] set. A value the user set stays.
+pub fn allow_build_wrappers(options: &mut Value) {
+    if options.pointer("/cargo/buildScripts/enable") != Some(&Value::Bool(true)) {
+        return;
+    }
+    if let Some(env) = options
+        .pointer_mut("/cargo/extraEnv")
+        .and_then(Value::as_object_mut)
+    {
+        env.retain(|name, value| {
+            !(value == "" && matches!(name.as_str(), "RUSTC_WRAPPER" | "RUSTC_WORKSPACE_WRAPPER"))
+        });
+    }
 }
 
 /// Deep-merge `overlay` onto `base`: objects merge key by key, and any other

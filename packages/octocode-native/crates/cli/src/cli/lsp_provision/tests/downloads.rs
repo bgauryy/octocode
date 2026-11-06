@@ -61,3 +61,119 @@ fn a_download_error_never_echoes_a_signed_url() {
     assert!(!message.contains("SECRET-TOKEN"), "{message}");
     assert!(message.starts_with("Download failed"), "{message}");
 }
+
+/// A loopback release host: each path answers with its own status, headers
+/// and body; its base URL.
+fn release_host(routes: &'static [(&'static str, &'static str)]) -> String {
+    use std::io::{BufRead, BufReader};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let base = format!("http://{}", listener.local_addr().expect("addr"));
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let mut reader = BufReader::new(&stream);
+            let mut request_line = String::new();
+            let _ = reader.read_line(&mut request_line);
+            let mut line = String::new();
+            while reader.read_line(&mut line).is_ok_and(|n| n > 2) {
+                line.clear();
+            }
+            let path = request_line.split(' ').nth(1).unwrap_or("/");
+            let answer = routes.iter().find(|(route, _)| *route == path).map_or(
+                "HTTP/1.1 404 X\r\ncontent-length: 0\r\n\r\n",
+                |(_, answer)| answer,
+            );
+            let _ = (&stream).write_all(answer.as_bytes());
+        }
+    });
+    base
+}
+
+const ROUTES: &[(&str, &str)] = &[
+    (
+        "/asset",
+        "HTTP/1.1 200 OK\r\ncontent-length: 5\r\nconnection: close\r\n\r\nbytes",
+    ),
+    (
+        "/moved",
+        "HTTP/1.1 302 Found\r\nlocation: /asset\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+    ),
+    (
+        "/away",
+        "HTTP/1.1 302 Found\r\nlocation: https://elsewhere.example/asset\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+    ),
+    (
+        "/nowhere",
+        "HTTP/1.1 302 Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+    ),
+    (
+        "/loop",
+        "HTTP/1.1 302 Found\r\nlocation: /loop\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+    ),
+    (
+        "/claims-huge",
+        "HTTP/1.1 200 OK\r\ncontent-length: 1000000\r\nconnection: close\r\n\r\n",
+    ),
+    (
+        "/streams-long",
+        "HTTP/1.1 200 OK\r\nconnection: close\r\n\r\n0123456789",
+    ),
+];
+
+/// Download `path` from `base` into a fresh file, with every hop on `base`
+/// allowed and `limit` bytes accepted: the bytes written, or the refusal.
+async fn fetch(base: &str, path: &str, limit: u64) -> Result<Vec<u8>, String> {
+    let dir = tempfile::tempdir().expect("dir");
+    let spool = dir.path().join("asset.download");
+    let file = tokio::fs::File::create(&spool).await.expect("spool");
+    let on_base = |url: &str| url.starts_with(base);
+    let mut file =
+        super::download::follow_redirects(&format!("{base}{path}"), file, &on_base, limit).await?;
+    tokio::io::AsyncWriteExt::flush(&mut file)
+        .await
+        .expect("flush");
+    Ok(std::fs::read(&spool).expect("downloaded"))
+}
+
+/// A redirect is followed to the asset; every hop is checked, so a redirect
+/// off the allowed hosts is refused, and one without a target, a loop, an
+/// error status or an asset over the limit fails without writing past it.
+#[tokio::test(flavor = "current_thread")]
+async fn a_download_follows_allowed_redirects_and_refuses_the_rest() {
+    let base = release_host(ROUTES);
+    assert_eq!(
+        fetch(&base, "/asset", 1024).await.as_deref(),
+        Ok(&b"bytes"[..])
+    );
+    assert_eq!(
+        fetch(&base, "/moved", 1024).await.as_deref(),
+        Ok(&b"bytes"[..])
+    );
+    let refused = |path: &'static str, limit: u64| {
+        let base = base.clone();
+        async move { fetch(&base, path, limit).await.expect_err(path) }
+    };
+    assert!(refused("/away", 1024).await.contains("elsewhere.example"));
+    assert!(refused("/nowhere", 1024).await.contains("Location"));
+    assert!(refused("/loop", 1024).await.contains("redirects"));
+    assert!(refused("/missing", 1024).await.contains("404"));
+    assert!(
+        refused("/claims-huge", 1024)
+            .await
+            .contains("Content-Length")
+    );
+    assert!(refused("/streams-long", 4).await.contains("limit"));
+}
+
+/// Production's hop check is the release allowlist: a plain-HTTP first hop
+/// is refused before any request.
+#[tokio::test(flavor = "current_thread")]
+async fn the_allowlist_refuses_a_plain_http_first_hop() {
+    let dir = tempfile::tempdir().expect("dir");
+    let file = tokio::fs::File::create(dir.path().join("spool"))
+        .await
+        .expect("spool");
+    let error = super::download::fetch_allowlisted("http://github.com/asset", file)
+        .await
+        .expect_err("plain http");
+    assert!(error.contains("github.com"), "{error}");
+}

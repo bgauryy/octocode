@@ -302,7 +302,7 @@ export function walSafe(version: readonly number[]): boolean {
  * longest path it opens is 504 bytes. Measured on Node 24.15.0 (SQLite 3.51.3) and Node 26.4.0 (SQLite 3.53.2): 504 bytes open and
  * write in rollback-journal and WAL mode, 505 fail with "unable to open database file". The resolved path counts, symlinks included.
  */
-const MAX_DATABASE_PATH_BYTES = 504;
+export const SQLITE_UNIX_DATABASE_PATH_BYTES = 504;
 
 /** The path as SQLite sees it: absolute, with symlinks resolved as far as the path exists. */
 function resolvedPath(path: string): string {
@@ -321,10 +321,12 @@ function resolvedPath(path: string): string {
 }
 
 /** Refuses a database path SQLite cannot open, before any directory or file is created. */
-export function checkPathLength(path: string): void {
+export function checkPathLength(path: string, platform: NodeJS.Platform = process.platform): void {
+  // Windows uses a different VFS and OS path policy. Let that owner accept or refuse its paths.
+  if (platform === 'win32') return;
   const bytes = Buffer.byteLength(resolvedPath(path));
-  if (bytes > MAX_DATABASE_PATH_BYTES)
-    throw new ValidationError(`Database path is ${bytes} bytes after resolving symlinks; SQLite opens at most ${MAX_DATABASE_PATH_BYTES} bytes. Use a shorter --database or --workspace path.`);
+  if (bytes > SQLITE_UNIX_DATABASE_PATH_BYTES)
+    throw new ValidationError(`Database path is ${bytes} bytes after resolving symlinks; SQLite opens at most ${SQLITE_UNIX_DATABASE_PATH_BYTES} bytes. Use a shorter --database or --workspace path.`);
 }
 
 function busy(error: unknown): boolean {

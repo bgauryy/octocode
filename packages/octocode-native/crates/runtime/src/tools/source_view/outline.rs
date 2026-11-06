@@ -10,8 +10,6 @@ pub(crate) struct SymbolsView {
     pub(crate) outline: Result<String, OutlineUnavailable>,
     pub(crate) warning: Option<String>,
     pub(crate) redacted_lines: Vec<(usize, usize)>,
-    /// The outline was rendered from the redacted source.
-    pub(crate) sanitized: bool,
 }
 
 /// The outline of `source` with its declaration spans, or why it has none,
@@ -27,19 +25,6 @@ pub(crate) fn symbols_view(
     source_path: &std::path::Path,
     security: &impl ContentScan,
 ) -> SymbolsView {
-    // Past the parse limit only a document format has an outline, and the
-    // compact fallback never reads this redaction: skip both on every page.
-    if source.len() > octocode_engine::signatures::MAX_PARSE_SIZE
-        && crate::content::DocumentFormat::of(path.split(['?', '#']).next().unwrap_or(path))
-            .is_none()
-    {
-        return SymbolsView {
-            outline: Err(OutlineUnavailable::TooLarge),
-            warning: None,
-            redacted_lines: Vec::new(),
-            sanitized: false,
-        };
-    }
     match crate::security::scan::redact_lines(security, source, source_path) {
         Ok((redacted, changed)) => {
             let redacted_lines = if changed {
@@ -47,10 +32,7 @@ pub(crate) fn symbols_view(
             } else {
                 Vec::new()
             };
-            SymbolsView {
-                sanitized: true,
-                ..render_symbols_view(&redacted, path, redacted_lines)
-            }
+            render_symbols_view(&redacted, path, redacted_lines)
         }
         Err(_) => render_symbols_view(source, path, Vec::new()),
     }
@@ -70,18 +52,20 @@ fn render_symbols_view(
         .filter(|(_, line)| octocode_engine::security::placeholder_regex().is_match(line))
         .map(|(index, _)| index + 1)
         .collect::<Vec<_>>();
-    // Both projections borrow the declaration document from this extraction;
-    // no lookup, second parse, or retained global result joins them.
-    let (signatures, declarations) =
-        octocode_engine::signatures::extract_signatures_with_declarations(source, path);
+    // The one outline every reader shows: astSearch symbols lists this
+    // declarations document's rows, this view renders them as source rows.
+    // Both projections borrow the document of this request's own parse.
+    let declarations = crate::tools::declarations::file_document(source, path);
+    let declarations = declarations.as_deref();
+    let signatures = octocode_engine::signatures::declarations_outline(source, path, declarations);
     let code = |outline: String| {
         let outline = declaration_ranges(
             crate::response::numbered::tab_gutter(&outline),
-            declarations.as_ref(),
+            declarations,
         );
         (
             Ok(outline),
-            super::block::outline_recovery_warning(declarations.as_ref(), path, &redacted),
+            super::block::outline_recovery_warning(declarations, path, &redacted),
         )
     };
     let (outline, warning) = match signatures {
@@ -116,7 +100,6 @@ fn render_symbols_view(
         outline,
         warning,
         redacted_lines,
-        sanitized: false,
     }
 }
 

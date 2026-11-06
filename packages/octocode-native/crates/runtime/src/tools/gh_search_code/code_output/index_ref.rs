@@ -63,8 +63,14 @@ pub(in crate::tools::gh_search_code) async fn disclose_index_ref(
         .zip(owner.try_into().ok())
         .zip(repo.as_str().try_into().ok())
         .zip(at_ref.as_deref().unwrap_or(reference).try_into().ok())
+        // An empty path lists the root; a path the schema refuses drops the lead.
+        .zip(if path.is_empty() {
+            Some(None)
+        } else {
+            path.try_into().ok().map(Some)
+        })
         .map(
-            |(((include, owner), repo), reference)| GhStructureQueryTree {
+            |((((include, owner), repo), reference), path)| GhStructureQueryTree {
                 include,
                 limit: NonZeroU64::new(300).unwrap_or(NonZeroU64::MIN),
                 main_goal: None,
@@ -74,7 +80,7 @@ pub(in crate::tools::gh_search_code) async fn disclose_index_ref(
                 operation: GhStructureQueryTreeOperation::Tree,
                 owner,
                 page: None,
-                path: (!path.is_empty()).then(|| path.to_owned()),
+                path,
                 reasoning: None,
                 ref_: Some(reference),
                 repo,

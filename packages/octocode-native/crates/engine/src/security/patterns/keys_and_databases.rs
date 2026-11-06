@@ -52,11 +52,6 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         regex: r###"(?i)['"][^'"\r\n]*\b(?:password|pwd)\s*=\s*(?P<secret>[^;'"\r\n]{4,})"###,
     },
     SecretPattern {
-        name: "base64EncodedSecrets",
-        file_context: None,
-        regex: r###"(?i)\b(?:secret|password|key|token)[_-]?(?:base64|encoded)?['"]?\s*[:=]\s*['"](?P<secret>[A-Za-z0-9+/]{32,}={0,3})['"]"###,
-    },
-    SecretPattern {
         name: "base64PemPrivateKey",
         file_context: None,
         // Base64 of a `-----BEGIN … PRIVATE KEY` armor line (Kubernetes `data:`,
@@ -183,27 +178,27 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "postgresqlConnectionString",
         file_context: None,
-        regex: r###"(?i)\bpostgresql:\/\/[^:]+:[^@]+@[^/\s]+\/[^?\s]+\b"###,
+        regex: r###"(?i)\bpostgresql:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+\/[^?\s]+\b"###,
     },
     SecretPattern {
         name: "mysqlConnectionString",
         file_context: None,
-        regex: r###"(?i)\bmysql:\/\/[^:]+:[^@]+@[^/\s]+\/[^?\s]+\b"###,
+        regex: r###"(?i)\bmysql:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+\/[^?\s]+\b"###,
     },
     SecretPattern {
         name: "jdbcConnectionStringWithCredentials",
         file_context: Some("(?:\\.env|config|settings|secrets)"),
-        regex: r###"(?i)\bjdbc:(?:postgresql|mysql):\/\/[^:]+:[^@]+@[^/\s]+\b"###,
+        regex: r###"(?i)\bjdbc:(?:postgresql|mysql):\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+\b"###,
     },
     SecretPattern {
         name: "mongodbConnectionString",
         file_context: None,
-        regex: r###"\bmongodb(?:\+srv)?:\/\/[a-zA-Z0-9._%-]+:[a-zA-Z0-9._%-]+@[a-zA-Z0-9._-]+(?::[0-9]+)?(?:\/[a-zA-Z0-9._-]*)?\b"###,
+        regex: r###"\bmongodb(?:\+srv)?:\/\/[a-zA-Z0-9._%-]+:(?P<secret>[a-zA-Z0-9._%-]+)@[a-zA-Z0-9._-]+(?::[0-9]+)?(?:\/[a-zA-Z0-9._-]*)?\b"###,
     },
     SecretPattern {
         name: "redisConnectionString",
         file_context: None,
-        regex: r###"\brediss?:\/\/[a-zA-Z0-9._%-]+:[a-zA-Z0-9._%-]+@[a-zA-Z0-9._-]+:[0-9]+\b"###,
+        regex: r###"\brediss?:\/\/[a-zA-Z0-9._%-]+:(?P<secret>[a-zA-Z0-9._%-]+)@[a-zA-Z0-9._-]+:[0-9]+\b"###,
     },
     SecretPattern {
         name: "redisAuthPassword",
@@ -213,32 +208,32 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "elasticsearchCredentials",
         file_context: None,
-        regex: r###"(?i)\bhttps?:\/\/[^:]+:[^@]+@[^/\s]+:9200\b"###,
+        regex: r###"(?i)\bhttps?:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+:9200\b"###,
     },
     SecretPattern {
         name: "couchdbCredentials",
         file_context: None,
-        regex: r###"(?i)\bhttp[s]?:\/\/[^:]+:[^@]+@[^/\s]+:5984\b"###,
+        regex: r###"(?i)\bhttp[s]?:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+:5984\b"###,
     },
     SecretPattern {
         name: "neo4jCredentials",
         file_context: None,
-        regex: r###"(?i)\bbolt[s]?:\/\/[^:]+:[^@]+@[^/\s]+:7687\b"###,
+        regex: r###"(?i)\bbolt[s]?:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+:7687\b"###,
     },
     SecretPattern {
         name: "timescaledbConnectionString",
         file_context: None,
-        regex: r###"(?i)\btimescaledb:\/\/[^:]+:[^@]+@[^/\s]+\/[^?\s]+\b"###,
+        regex: r###"(?i)\btimescaledb:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+\/[^?\s]+\b"###,
     },
     SecretPattern {
         name: "clickhouseCredentials",
         file_context: None,
-        regex: r###"(?i)\bclickhouse:\/\/[^:]+:[^@]+@[^/\s]+:8123\b"###,
+        regex: r###"(?i)\bclickhouse:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+:8123\b"###,
     },
     SecretPattern {
         name: "cassandraConnectionString",
         file_context: None,
-        regex: r###"(?i)\bcassandra:\/\/[^:]+:[^@]+@[^/\s]+:9042\b"###,
+        regex: r###"(?i)\bcassandra:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+:9042\b"###,
     },
     SecretPattern {
         name: "faunadbKey",
@@ -258,7 +253,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "databaseUrlWithCredentials",
         file_context: None,
-        regex: r###"(?i)\b(?:postgres|mysql|mongodb|redis):\/\/[^:]+:[^@]+@[^/\s]+\b"###,
+        regex: r###"(?i)\b(?:postgres|mysql|mongodb|redis):\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+\b"###,
     },
     SecretPattern {
         name: "clickhouseCloudApiKey",
@@ -268,7 +263,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "neonDatabaseConnectionString",
         file_context: None,
-        regex: r###"(?i)\bpostgres:\/\/[^:]+:[^@]+@[^/\s]*neon\.tech[^?\s]*\b"###,
+        regex: r###"(?i)\bpostgres:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]*neon\.tech[^?\s]*\b"###,
     },
     SecretPattern {
         name: "tursoDatabaseToken",
@@ -288,6 +283,6 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "cockroachdbConnectionString",
         file_context: None,
-        regex: r###"(?i)\bpostgresql:\/\/[^:]+:[^@]+@[^/\s]*cockroachlabs\.cloud[^?\s]*\b"###,
+        regex: r###"(?i)\bpostgresql:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]*cockroachlabs\.cloud[^?\s]*\b"###,
     },
 ];

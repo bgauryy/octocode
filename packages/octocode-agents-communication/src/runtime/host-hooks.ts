@@ -44,8 +44,7 @@ interface HookConfigRuntime extends Pick<DeliveryRuntime, 'output'> {
 }
 
 export function vendor(args: HostHookArgs): string {
-  if (!['cursor', 'grok', 'claude', 'codex'].includes(args.vendor ?? '')) throw new ValidationError('--vendor claude|codex|cursor|grok required');
-  return args.vendor!;
+  return catalog.text(args, 'vendor');
 }
 
 /** POSIX shell quoting of one word. */
@@ -107,12 +106,19 @@ export function hostContext(identity: string, items: readonly Pick<Offered, 'id'
 
 export function config(args: HostHookArgs, runtime: HookConfigRuntime): void {
   const mode = vendor(args);
+  if (!['cursor', 'grok', 'claude', 'codex', 'octocode'].includes(mode)) throw new ValidationError('No host-config preset for this vendor; map host events to the host-hook protocol in docs/HOST_HOOKS.md');
   const words = [...runtime.launcher, 'host-hook', '--vendor', mode, '--workspace', realpath(args.workspace, true), '--database', databasePath(args.database)];
   const command = process.platform === 'win32' ? windowsCommandLine(words) : words.map(quote).join(' ');
-  const events = mode === 'cursor' ? ['sessionStart', 'beforeSubmitPrompt', 'postToolUse', 'postToolUseFailure', 'sessionEnd'] : ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'SessionEnd'];
+  const events = mode === 'cursor' ? ['sessionStart', 'beforeSubmitPrompt', 'postToolUse', 'postToolUseFailure', 'sessionEnd']
+    : mode === 'octocode' ? ['SessionStart', 'PostToolUse', 'SessionEnd']
+    : ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'SessionEnd'];
   if (mode === 'grok' || mode === 'claude') events.splice(events.length - 1, 0, 'PostToolUseFailure');
-  const handler: JsonObject = { type: 'command', command, timeout: 10, ...(mode === 'codex' ? { additionalContextLimit: CODEX_CONTEXT_LIMIT } : {}) };
-  const hooks = Object.fromEntries(events.map(event => [event, mode === 'cursor' ? [handler] : [{ hooks: [handler] }]]));
+  const hooks = Object.fromEntries(events.map(event => {
+    // Codex caps shutdown at three seconds and warns on context settings for context-free events.
+    const handler: JsonObject = { type: 'command', command, timeout: mode === 'codex' && event === 'SessionEnd' ? 3 : 10 };
+    if (mode === 'codex' && (event === 'SessionStart' || event === 'PostToolUse')) handler.additionalContextLimit = CODEX_CONTEXT_LIMIT;
+    return [event, mode === 'cursor' ? [handler] : [{ hooks: [handler] }]];
+  }));
   const guardNote = mode === 'claude' ? 'Enable the separate Claude guard for Write/Edit/MultiEdit/NotebookEdit admission.' : 'No bundled edit guard for this host.';
   process.stderr.write(`${encode({ type: 'leaseGuard', vendor: mode, configured: false, supportedOperations: [], advisory: true, reason: `Messaging hooks only; ${guardNote} Shell/custom tools and OS writes are not fenced.` }).toString('utf8')}\n`);
   runtime.output(mode === 'cursor' ? { version: 1, hooks } : { hooks });

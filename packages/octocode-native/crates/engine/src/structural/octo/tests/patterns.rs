@@ -102,26 +102,20 @@ fn multi_capture_preserves_argument_separators() {
 }
 
 #[test]
-fn capture_env_rollback_restores_inserts_and_replacements() {
+fn capture_env_rollback_removes_bindings_since_the_checkpoint() {
     let mut env = CaptureEnv::default();
     assert!(env.capture_one("A", "a", (0, 0, 0, 1, 0, 0, 0)));
-    env.capture_replace(SECONDARY_CAPTURE, "first".to_owned(), (0, 0, 0, 5, 0, 0, 0));
     let checkpoint = env.checkpoint();
     assert!(env.capture_one("B", "b", (1, 0, 1, 1, 0, 0, 0)));
     assert!(env.capture_many("C", ["c1", "c2"].into_iter(), || vec![
         (2, 0, 2, 1, 0, 0, 0);
         2
     ]));
-    env.capture_replace(
-        SECONDARY_CAPTURE,
-        "second".to_owned(),
-        (3, 0, 3, 6, 0, 0, 0),
-    );
     // A backreference check that fails binds nothing.
     assert!(!env.capture_one("A", "other", (4, 0, 4, 5, 0, 0, 0)));
-    assert_eq!(env.undo_len(), 5);
+    assert_eq!(env.undo_len(), 3);
     env.rollback(checkpoint);
-    assert_eq!(env.undo_len(), 2);
+    assert_eq!(env.undo_len(), 1);
     assert!(env.capture_one("A", "a", (0, 0, 0, 1, 0, 0, 0)), "A kept");
     let (values, ranges) = env.into_maps();
     assert_eq!(values.keys().collect::<Vec<_>>(), ["A"]);

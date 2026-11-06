@@ -29,6 +29,9 @@
 //! - `SRCE` the source catalog (snapshots, representations, analysis units);
 //!   `SRCO` the origin pool in blocks of 256 origins, each block holding its
 //!   origins' index entries and then their records.
+//! - `WITN`, `UNRS` and the `STRE` and `SRCO` block bodies are stored
+//!   deflated behind their raw length; the directory authenticates the
+//!   stored bytes.
 //!
 //! Topology queries rebuild both CSR adjacency directions without occurrence
 //! evidence or its strings. Point and evidence queries load selected record
@@ -85,7 +88,10 @@ pub(crate) const MAGIC: &[u8; 8] = b"OCGRAPH\0";
 /// v16: the source origin pool moves from `SRCE` (now the catalog) to the
 /// blocked `SRCO`, so a page reads only the origin blocks it renders.
 /// v17: the manifest's `scan.excludeDir` becomes `scan.exclude`.
-pub(crate) const FORMAT_VERSION: u32 = 17;
+/// v18: occurrence evidence (`WITN`, `UNRS`, the `STRE` blocks) and the
+/// `SRCO` blocks are stored deflated (their raw length, then the deflated
+/// body), authenticated as stored.
+pub(crate) const FORMAT_VERSION: u32 = 18;
 /// Packed edge byte bit: the edge's evidence is test code.
 const EDGE_TEST: u8 = 0x80;
 const HEADER_LEN: usize = 8 + 4 + 4 + 32;

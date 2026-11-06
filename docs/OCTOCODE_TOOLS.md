@@ -10,7 +10,7 @@ For a reader who needs each tool's **result behavior**: what a call returns, wha
 | Availability, opt-ins, storage and caches | [Configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) |
 | `classification` and `clasify` | [Classification guide](OCTOCODE_CLASIFY.md) |
 
-The catalog has 16 tools, plus the opt-in `securityCheck`. The CLI lists all of them, except `clasify` without a classification key and `securityCheck` until you turn it on; MCP exposes a configured subset. Listing a tool does not guarantee its provider or language server is ready; invocation reports those failures.
+The catalog has 17 tools. The CLI lists all of them, `clasify` only with a classification key; MCP exposes a configured subset ([availability](CONFIGURATION.md#tool-availability-cli-and-mcp)). Listing a tool does not guarantee its provider or language server is ready; invocation reports those failures.
 
 ## How every tool call works
 
@@ -130,14 +130,23 @@ Provider-native package coordinates remain values, not hidden operation selector
 
 ### `securityCheck`
 
-Known vulnerabilities, from [OSV](SECURITY.md#advisory-egress). It is off, absent from MCP and the CLI, until you set `OCTOCODE_SECURITY_CHECKS=true` ([setting](CONFIGURATION.md#all-settings-and-defaults)); a repository cannot turn it on.
+Known vulnerabilities (CVE, GHSA and other advisory ids) of a package version, a package URL or purl, an advisory, or a commit, from OSV (`api.osv.dev`, operated by Google), with no token. This section owns the tool: where it is offered, what each call sends, and what each status proves. [Security](SECURITY.md#advisory-egress) states the egress policy; [configuration](CONFIGURATION.md#all-settings-and-defaults) the setting.
 
-| `operation` | Takes | Asks |
+| Surface | Offered | Sends anything |
 |---|---|---|
-| `package` | `ecosystem`, `packageName`, `version` | The public registry confirms it, then OSV at that exact version |
-| `url` | A package page or a purl | As `package`. A repository page names no package and is refused; nothing is sent |
-| `advisory` | `id`, such as `CVE-...` or `GHSA-...` | OSV's whole record, withdrawn ones too |
-| `commit` | A full `commit` hash, optional `repo` | OSV at that hash alone. `repo` is never sent; it only checks the records that return |
+| CLI | Always, with no setting | Only when you run a call |
+| MCP, default | No: absent from `tools/list`, and the instructions say a vulnerability claim from memory is not evidence | Nothing |
+| MCP with `OCTOCODE_SECURITY_CHECKS=true` (`tools.enableSecurityCheck`) | Yes; the instructions route known-vulnerability questions here first | Only when an agent calls it |
+| Repository settings (`.octocoderc`, `.env`) | Can turn it off for MCP, never on: the setting is home-only | Nothing |
+
+Restart MCP after changing the setting. No other tool contacts OSV; `artifactSearch` carries `advisories` only from the PyPI and NuGet registries, and its silence elsewhere says nothing about vulnerabilities.
+
+| `operation` | Takes | Asks | Leaves this machine |
+|---|---|---|---|
+| `package` | `ecosystem`, `packageName`, `version` | The public registry confirms it, then OSV at that exact version | The public name, ecosystem and a registry-confirmed version. A package the public registry does not list, or a failed registry read, sends nothing to OSV (not checked), so a private package is not disclosed. An unlisted version is not sent: OSV is asked about the package only (`versionEvaluated:false`) |
+| `url` | A package page or a purl | As `package` | As `package`. A repository page names no package and is refused before any request |
+| `advisory` | `id`, such as `CVE-...` or `GHSA-...` | OSV's whole record, withdrawn ones too | The id |
+| `commit` | A full `commit` hash, optional `repo` | OSV at that hash alone | The full hash, even from a private repository. `repo` is never sent; it only checks the records that return |
 
 A row leads with the answer: `answer` in one sentence, then `affected`, `upgradeTo` (the lowest fixed version clearing every listed advisory, confirmed with OSV at that version) or `upgradeNote` (why none can be named), and `cves`. Each advisory is `id`, `cves`, `summary`, `severity` and its `source`, `fixedIn` and `link`; its `related` calls read every record whole, with details, ranges and references. `sources[]` lists each source asked and its `status`.
 
@@ -168,7 +177,7 @@ Every shown match keeps its source coordinates. Count and scope disclosures desc
 
 ### `astSearch`
 
-A syntax match does not prove a runtime call or reference. A scan cut by its time budget continues with `next.expandScan` after the files it evaluated; no file count or walk ceiling ends a scan.
+A syntax match does not prove a runtime call or reference. A scan cut by its time budget continues with `next.expandScan` after the files it evaluated; no file count or walk ceiling ends a scan. Under a ranked order (`sort.by: matchCount`, or `order: desc`) a cut window lists no file yet: the window that ends the scan lists the whole scope in that order.
 
 ```json
 {"queries":[{"operation":"match","parser":"typescript","path":"src","rule":{"pattern":"eval($X)"}}]}
@@ -184,9 +193,9 @@ A syntax match does not prove a runtime call or reference. A scan cut by its tim
 
 ### `localFetch`
 
-A symbols outline describes syntax, not resolved identity, and data outlines summarize containers rather than list every nested scalar. Inspect `viewFallback` when a symbols read cannot produce a useful outline. Markdown outlines recognize ATX (`#`) headings; underline-style Setext headings require content reads. A binary source produces a typed error. Secret scanning happens before projection, including range reads.
+A symbols outline describes syntax, not resolved identity, and data outlines summarize containers rather than list every nested scalar. A code outline renders the same declarations `astSearch` symbols lists, at any size a whole read admits: each declaration's name row (a row over 1,000 characters lists the declaration heads it holds), the member rows of a class, struct, impl or module body, and import runs as one row. When the file has no outline, a compact view that reads its grammar stands in, named in `viewFallback`; when compact could only drop whitespace or is not smaller than the content view, the row is `symbolsUnsupported` with both reasons and a related read of the lines. A compact read's first page says how many bytes its view keeps of what the content view serves for the same lines, gutters included; a compact view that is not smaller is not served: the content view is, with `viewFallback.reason` `not-smaller`. Markdown outlines recognize ATX (`#`) headings; underline-style Setext headings require content reads. A binary source produces a typed error. Secret scanning happens before projection, including range reads.
 
-Compact reads preserve literal content and source-line citations. YAML compact reads retain the selected text, including comments and blank lines, because those bytes can belong to scalar values; `view:"symbols"` still outlines YAML keys. If a transformed view cannot be mapped to source lines, the reader keeps the original selected text. Use LSP to resolve a call's definition.
+Compact reads remove comments and spare whitespace where a grammar in the build parses the file. Strings, regexes, template literals, what the grammar could not read, and comments tools read (`//go:build`, cgo preambles, `// @ts-ignore`, `# type: ignore`) stay byte for byte, and every kept line carries its source line number. For CSS and SCSS the language's own comment and string rules are data on the grammar's row: a comment goes only where the grammar and those rules agree (a `//` line in `.css` is rule text and stays; in `.scss` it is a comment), and every string, a backslash-continued line included, stays byte for byte. Without a grammar, or when the grammar cannot read most of the file, compact drops only blank lines and trailing whitespace, and `viewFallback.reason` says so (`whitespace-only-no-grammar`, `whitespace-only-syntax-errors`, `whitespace-only-interrupted`). Markdown, YAML, TOML and JSON stay as they are, comments and blank lines included, because those bytes can be values, so their compact read serves the content view (`not-smaller`); `view:"symbols"` still outlines YAML keys. Use LSP to resolve a call's definition.
 
 ```json
 {"queries":[{"path":"src/index.ts"}]}
@@ -220,10 +229,11 @@ Evaluate supplied `content` or an unread `source`, discover models, or assess se
 
 `rustContext` fields and limits are in the schema. A field left out keeps the effective value (the configured server options, else rust-analyzer's default); `features` are deduplicated and sorted for identity, and `target` is otherwise the server's Cargo environment.
 
-- In a crate with a build script that did not run, an incoming answer missing files that spell the name is partial (`buildScriptsOff`) and offers a `related[]` lead with `rustContext.buildScripts:true`: the same query in that context. One note states the cost: it executes the workspace's build scripts (repository code) in a separate rust-analyzer (~2 GB).
+- In a crate with a build script that did not run, an incoming answer missing files that spell the name is partial (`buildScriptsOff`) and, where the host allows build scripts, offers a `related[]` lead with `rustContext.buildScripts:true`: the same query in that context. One note states the cost: it executes the workspace's build scripts (repository code) in a separate rust-analyzer (~2 GB). Without that opt-in (below) the row keeps `buildScriptsOff`, offers no lead, and its note names the opt-in.
 - rust-analyzer loads only the package directory, so an `include!` of a file outside it never resolves: an answer missing files that spell the name through such an include is partial (`includeOutsidePackage`) with a warning naming the file; no `rustContext` recovers it; check those uses lexically with `localSearch`.
 - A file that several files declare as a module (`#[path = "support/x.rs"] mod x;` in a bench and a test) is compiled once per declaring crate, and rust-analyzer answers for one copy: an incoming answer missing files that spell the name is partial (`sharedModuleFile`) with a warning naming the declaring files; check the other copies' uses lexically with `localSearch`.
-- A context is an overlay: it changes only the fields it sets, and only where the value differs from the effective one. Everything else, `cfg(test)` code included, stays as the default server analyzes it, so `{}` or a context equal to the defaults reuses the default server. Build scripts and proc macros run only when `buildScripts`/`procMacros` is true; enabled providers run workspace code, and the context is not a sandbox.
+- A context is an overlay: it changes only the fields it sets, and only where the value differs from the effective one. Everything else, `cfg(test)` code included, stays as the default server analyzes it, so `{}` or a context equal to the defaults reuses the default server. Build scripts and proc macros run only when `buildScripts`/`procMacros` is true and the host allows them; enabled providers run workspace code, and the context is not a sandbox.
+- Build scripts and proc macros are opt-in, whatever the client or its mode: a query whose `rustContext` sets `buildScripts:true` or `procMacros:true` gets `errorCode:"policy"` and starts no server, while every other query keeps the default rust-analyzer, which runs none. To allow them, set `lsp.allowBuildScripts` (`OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS=true`) in your home settings or the process environment; a workspace `.octocoderc` or `.env` cannot, so a repository cannot allow its own build scripts ([external processes](SECURITY.md#external-processes)). Allowing it lets any `lspSearch` call run the build scripts and proc macros of the workspace it names, so pair it with a client that asks before such calls.
 - rust-analyzer supplies cfg-selected definitions, declarative macro expansion, and enabled build-script or proc-macro results; `astSearch` gets no compiler expansion. A disabled provider can explain an empty answer for a declaration a normal Cargo build generates.
 - Different effective settings use different pooled clients. `rustContext.fingerprint` identifies the normalized requested settings and is part of pagination, so a changed context restarts pagination. It does not pin sources, Cargo configuration, toolchain, environment, or generated artifacts, and is not a reproducible-build identifier. See the [engine lifecycle contract](../packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md#rust-context) and [rust-analyzer configuration](https://rust-analyzer.github.io/book/configuration.html).
 

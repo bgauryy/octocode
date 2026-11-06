@@ -9,43 +9,46 @@ import {
 } from '../src/config/contract.generated.js';
 import { propagateOctocodeEnv } from '../src/index.js';
 
+/** A fresh home and project (with its `.octocode`) under one temporary root. */
+function makeDirs() {
+  const root = mkdtempSync(join(tmpdir(), 'octocode-dotenv-'));
+  const home = join(root, 'home');
+  const cwd = join(root, 'project');
+  mkdirSync(home);
+  mkdirSync(join(cwd, '.octocode'), { recursive: true });
+  return { root, home, cwd };
+}
+
 describe('trusted dotenv credential fallbacks', () => {
   let root: string;
   let home: string;
   let cwd: string;
 
-  beforeEach(() => {
-    root = mkdtempSync(join(tmpdir(), 'octocode-dotenv-'));
-    home = join(root, 'home');
-    cwd = join(root, 'project');
-    mkdirSync(home);
-    mkdirSync(join(cwd, '.octocode'), { recursive: true });
-  });
+  beforeEach(() => ({ root, home, cwd } = makeDirs()));
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-  it.each([
-    'GH_TOKEN',
-    'GITHUB_TOKEN',
-    'OCTOCODE_CLASSIFICATION_API',
-  ])('%s uses process > trusted project > home per key', key => {
-    writeFileSync(join(home, '.env'), `${key}=home-secret\nHOME_ONLY=home`);
-    writeFileSync(join(cwd, '.octocode', '.env'), `${key}=project-secret`);
-    for (const [trusted, initial, expected] of [
-      [undefined, undefined, 'project-secret'],
-      [false, undefined, 'home-secret'],
-      [true, undefined, 'project-secret'],
-      [true, 'process-secret', 'process-secret'],
-    ] as const) {
-      const env: Record<string, string | undefined> = { [key]: initial };
-      const result = propagateOctocodeEnv({ home, cwd, trusted, env });
-      expect(env[key]).toBe(expected);
-      expect(env.HOME_ONLY).toBe('home');
-      expect(result.sources[key]).toBe(
-        trusted !== false ? 'project' : 'global'
-      );
-      expect(JSON.stringify(result)).not.toContain('-secret');
+  it.each(['GH_TOKEN', 'GITHUB_TOKEN'])(
+    '%s uses process > trusted project > home per key',
+    key => {
+      writeFileSync(join(home, '.env'), `${key}=home-secret\nHOME_ONLY=home`);
+      writeFileSync(join(cwd, '.octocode', '.env'), `${key}=project-secret`);
+      for (const [trusted, initial, expected] of [
+        [undefined, undefined, 'project-secret'],
+        [false, undefined, 'home-secret'],
+        [true, undefined, 'project-secret'],
+        [true, 'process-secret', 'process-secret'],
+      ] as const) {
+        const env: Record<string, string | undefined> = { [key]: initial };
+        const result = propagateOctocodeEnv({ home, cwd, trusted, env });
+        expect(env[key]).toBe(expected);
+        expect(env.HOME_ONLY).toBe('home');
+        expect(result.sources[key]).toBe(
+          trusted !== false ? 'project' : 'global'
+        );
+        expect(JSON.stringify(result)).not.toContain('-secret');
+      }
     }
-  });
+  );
 
   const homeOnly = new Set<string>(HOME_TRUSTED_ENV_KEYS);
 
@@ -66,11 +69,13 @@ describe('trusted dotenv credential fallbacks', () => {
     }
   );
 
-  it.each([
-    ...new Set(
-      CONFIG_FIELDS.flatMap(field => (field.env ? [field.env.name] : []))
-    ),
-  ].filter(key => !homeOnly.has(key)))('all product config bindings use the same source order: %s', key => {
+  it.each(
+    [
+      ...new Set(
+        CONFIG_FIELDS.flatMap(field => (field.env ? [field.env.name] : []))
+      ),
+    ].filter(key => !homeOnly.has(key))
+  )('all product config bindings use the same source order: %s', key => {
     writeFileSync(join(home, '.env'), `${key}=home-value\nHOME_ONLY=home`);
     writeFileSync(join(cwd, '.octocode', '.env'), `${key}=workspace-value`);
     const env: Record<string, string | undefined> = {};
@@ -144,6 +149,29 @@ describe('trusted dotenv credential fallbacks', () => {
         });
       }
   }
+});
+
+describe('classification key from dotenv files', () => {
+  let root: string;
+  let home: string;
+  let cwd: string;
+
+  beforeEach(() => ({ root, home, cwd } = makeDirs()));
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+  it('never applies a classification key from a workspace .env', () => {
+    writeFileSync(
+      join(cwd, '.octocode', '.env'),
+      'OCTOCODE_CLASSIFICATION_API=workspace-secret'
+    );
+    for (const trusted of [undefined, true]) {
+      const env: Record<string, string | undefined> = {};
+      const result = propagateOctocodeEnv({ home, cwd, trusted, env });
+      expect(env.OCTOCODE_CLASSIFICATION_API).toBeUndefined();
+      expect(result.skippedProtected).toContain('OCTOCODE_CLASSIFICATION_API');
+      expect(JSON.stringify(result)).not.toContain('-secret');
+    }
+  });
 
   it('preserves the explicit classification opt-out and blocks infrastructure overrides', () => {
     writeFileSync(

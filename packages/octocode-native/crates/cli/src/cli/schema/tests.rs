@@ -198,3 +198,45 @@ fn a_tool_schema_states_its_query_fields_once() {
         assert!(value.get("inputSchema").is_none(), "{name}: {value}");
     }
 }
+
+/// Each request the schema views cannot answer is a usage error (exit 2)
+/// that names what is accepted, never an empty view.
+#[test]
+fn views_a_request_cannot_have_are_usage_errors() {
+    let m = machine(&["clasify"]);
+    for result in [
+        catalog(&m, Some("variants")),
+        tool_view(&m, "noSuchTool", None, None),
+        tool_view(&m, "localSearch", Some("noSuchView"), None),
+        tool_view(&m, "localSearch", Some("variants"), Some("operation=x")),
+        tool_view(&m, "lspSearch", Some("output"), Some("operation=x")),
+    ] {
+        assert_eq!(result.expect_err("refused").exit, 2);
+    }
+    let unknown = message(tool_view(&m, "noSuchTool", None, None));
+    assert!(unknown.contains("localSearch"), "{unknown}");
+    assert!(
+        !unknown.contains("clasify"),
+        "a disabled tool is not offered"
+    );
+}
+
+/// The output view is the meaning of each output field and coverage reason,
+/// the same one the MCP resource serves.
+#[test]
+fn the_output_view_is_the_tools_output_reference() {
+    let m = machine(&[]);
+    let view = tool_view(&m, "localSearch", Some("output"), None).expect("output view");
+    assert_eq!(view["name"], "localSearch");
+    assert!(!view["fields"].is_null());
+    assert_eq!(super::output_of("localSearch"), Some(view));
+    assert_eq!(super::output_of("noSuchTool"), None);
+}
+
+/// Without a tool entry in the runtime's catalog a tool is reported disabled.
+#[test]
+fn a_tool_the_runtime_does_not_list_is_disabled() {
+    let m = json!({ "fingerprint": "f", "grammarCapabilities": [], "tools": [] });
+    let view = tool_view(&m, "localSearch", Some("variants"), None).expect("variants");
+    assert_eq!(view["availability"]["enabled"], false);
+}

@@ -167,15 +167,18 @@ pub(crate) const MAX_STREAM_SOURCE_BYTES: u64 = 1024 * 1024 * 1024;
 
 /// Whether every read of the source at `path` is known to be refused, whatever it
 /// selects: past the streaming ceiling, or UTF-16 past the whole-file ceiling (it
-/// needs a whole-file decode).
-pub(crate) fn every_read_refused(path: &std::path::Path) -> bool {
+/// needs a whole-file decode) at `limits`.
+pub(crate) fn every_read_refused(
+    path: &std::path::Path,
+    limits: crate::security::SourceLimits,
+) -> bool {
     let Ok(meta) = std::fs::metadata(path) else {
         return false;
     };
     if meta.len() > MAX_STREAM_SOURCE_BYTES {
         return true;
     }
-    if meta.len() <= octocode_engine::security::MAX_CONTENT_SIZE as u64 {
+    if meta.len() <= limits.whole_source_bytes() {
         return false;
     }
     let mut head = [0_u8; 2];

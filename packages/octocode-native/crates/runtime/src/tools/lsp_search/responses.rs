@@ -8,13 +8,13 @@ use super::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Flag a non-error row partial when the open wait that preceded it timed
-/// out (`readiness` is `timeout`): the server was still loading the project.
+/// out: the server was still loading the project.
 pub(super) fn flag_still_loading(
     result: &mut Value,
     query: &LspSearchQuery,
-    readiness: Option<&str>,
+    readiness: Option<Readiness>,
 ) {
-    if readiness == Some("timeout") && result.get("status") != Some(&"error".into()) {
+    if readiness == Some(Readiness::Timeout) && result.get("status") != Some(&"error".into()) {
         partial_with_related_rerun(
             result,
             query,
@@ -186,8 +186,14 @@ pub(super) fn annotate(
     resolved_symbol: Option<Value>,
     stopped: &dyn Fn() -> bool,
 ) {
-    flag_still_loading(result, query, session.open_readiness.as_deref());
-    server_coverage::flag_server_health(result, query, session.client.health(), scope);
+    flag_still_loading(result, query, session.open_readiness);
+    server_coverage::flag_server_health(
+        result,
+        query,
+        session.client.health(),
+        &target.path,
+        scope,
+    );
     if let Some(reason) = &session.fell_back_from {
         crate::response::paging::push_warnings(
             result,
@@ -209,8 +215,9 @@ pub(super) fn annotate(
         &target.path,
         scope,
     );
-    let rust = receipt::RustAnalysis::of(&session.config);
-    failure::annotate_empty_includes(result, query, rust.build_scripts, stopped);
+    let rust = receipt::RustAnalysis::of(&session.config)
+        .allowing_build_scripts(target.allow_build_scripts);
+    failure::annotate_empty_includes(result, query, rust, stopped);
     server_coverage::annotate(
         result,
         query,

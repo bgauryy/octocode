@@ -81,7 +81,12 @@ fn the_same_bytes_at_another_path_keep_their_own_redaction() {
             query(json!({"matchString":["db"],"contextLines":{"before":0,"after":2}})),
         ] {
             let opening = at(&q, first);
-            assert!(kept_scan(&q, &source, second).is_none());
+            // A scan made at `first` never answers for `second`: what the memo
+            // holds for `second`, if anything, is that path's own redaction.
+            assert!(
+                kept_scan(&q, &source, second)
+                    .is_none_or(|kept| kept.contains("hunter2") == (second == "a.rs"))
+            );
             let other = at(&q, second);
             let (code, yaml) = if first == "a.rs" {
                 (&opening, &other)
@@ -290,11 +295,12 @@ fn pages_are_the_same_with_and_without_the_kept_scan() {
 
 /// The scan `ContentSecurity` kept for `source` read at `path`.
 fn kept_scan(q: &LocalFetchQuery, source: &str, path: &str) -> Option<String> {
-    retained::ScannedSource::of::<ContentSecurity>(
+    retained::ScannedSource::of(
         q,
         &octocode_engine::digest::sha256(source.as_bytes()),
         (Path::new(path), path),
         &SourceFacts::default(),
+        &ContentSecurity::new(),
     )?
     .get(q)
     .map(|source| source.text.clone().into_owned())

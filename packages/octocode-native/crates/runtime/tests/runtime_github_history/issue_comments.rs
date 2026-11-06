@@ -275,3 +275,83 @@ async fn issue_comment_walk_reads_every_comment_and_counts_the_rest() {
     );
     runtime.close().await;
 }
+
+/// A long discussion of uneven comments walked by its own cursor: a page
+/// after a short one still fills the response budget (the private grid that
+/// places a page never caps it), so every page but the last holds most of a
+/// response, and page numbers only climb.
+#[tokio::test]
+async fn issue_comment_pages_after_an_uneven_cut_still_fill_the_budget() {
+    const TOTAL: usize = 365;
+    const RESPONSE_CHARS: usize = 9_000;
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/issues/7"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "number": 7, "title": "Long thread", "state": "closed", "body": "proposal",
+            "user": {"login": "alice"}, "labels": [], "comments": TOTAL,
+            "created_at": "2026-09-20T00:00:00Z", "closed_at": "2026-09-25T00:00:00Z"
+        })))
+        .mount(&server)
+        .await;
+    // Uneven bodies, as a real discussion has: cuts land on every residue.
+    let body = |n: usize| format!("comment {n} {}", "y".repeat(150 + (n * 397) % 1_100));
+    let comments = (0..TOTAL)
+        .map(|n| {
+            json!({"id": n, "user": {"login": "bob"}, "body": body(n),
+                   "created_at": "2026-09-21T00:00:00Z", "updated_at": "2026-09-21T00:00:00Z"})
+        })
+        .collect::<Vec<_>>();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/issues/7/comments"))
+        .respond_with(CommentList(comments, server.uri()))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let mut input = Some(
+        json!({"queries":[{"operation":"issue","owner":"a","repo":"b","number":7,
+        "sections":["comments"]}],"responseChars":RESPONSE_CHARS}),
+    );
+    let (mut ids, mut pages, mut sizes) = (Vec::new(), Vec::new(), Vec::new());
+    while let Some(query) = input.take() {
+        assert!(sizes.len() < TOTAL, "walk did not finish");
+        let output = runtime
+            .run("walk".into(), "ghGetHistoryItem".into(), query.clone())
+            .await
+            .unwrap_or_else(|error| panic!("{query}: {error:?}"))
+            .structured_content
+            .into_value();
+        let issue = &output["results"][0]["data"]["issues"][0];
+        let shown = issue["comments"].as_array().cloned().unwrap_or_default();
+        for comment in &shown {
+            let id = comment["id"]
+                .as_str()
+                .expect("id")
+                .parse::<usize>()
+                .expect("numeric id");
+            assert_eq!(comment["body"], body(id), "{output}");
+            ids.push(id);
+        }
+        sizes.push(serde_json::to_string(&shown).expect("json").len());
+        let page = &issue["contentPagination"]["comments"];
+        pages.push(page["page"].as_u64().expect("page number"));
+        input = page["next"]["nextPage"]["input"]
+            .is_object()
+            .then(|| page["next"]["nextPage"]["input"].clone());
+    }
+    ids.sort_unstable();
+    assert_eq!(ids, (0..TOTAL).collect::<Vec<_>>());
+    // Every page but the last fills most of the response: the largest
+    // comment is under 1.3 KB, so a full page leaves less than that unused.
+    let thin = sizes[..sizes.len() - 1]
+        .iter()
+        .filter(|size| **size < RESPONSE_CHARS / 3)
+        .count();
+    assert_eq!(thin, 0, "comment chars per page: {sizes:?}");
+    assert!(
+        pages.windows(2).all(|pair| pair[0] < pair[1]),
+        "page numbers: {pages:?}"
+    );
+    runtime.close().await;
+}

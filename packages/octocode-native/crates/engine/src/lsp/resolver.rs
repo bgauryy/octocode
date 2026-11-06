@@ -94,7 +94,7 @@ pub fn code_occurrence_lines(
 }
 
 /// [`code_occurrence_lines`] with the parse that found them, which
-/// [`CodeOccurrences::declared_lines`] reads rather than parse again.
+/// [`CodeOccurrences::sites`] reads rather than parse again.
 #[must_use]
 pub fn code_occurrences(
     file_path: &str,
@@ -140,17 +140,19 @@ pub struct CodeOccurrences {
 }
 
 impl CodeOccurrences {
-    /// The zero-based lines where `name` is declared in `content` (the text
-    /// these occurrences were found in), as
-    /// [`crate::signatures::extract_graph_facts`] reads the file; `None` when
-    /// only those facts can tell. Reads only the parts of the file spelling
-    /// the name, so it costs far less than the facts on a large file.
+    /// Where `name` is declared and called in `content` (the text these
+    /// occurrences were found in), as [`crate::signatures::extract_graph_facts`]
+    /// reads the file; `None` when only those facts can tell. Reads only the
+    /// parts of the file spelling the name, so it costs far less than the
+    /// facts on a large file.
     #[must_use]
-    pub fn declared_lines(&self, file_path: &str, content: &str, name: &str) -> Option<Vec<usize>> {
-        use crate::signatures::{MAX_PARSE_SIZE, extractor, graph_facts, graph_facts_grammar};
-        if content.len() > MAX_PARSE_SIZE {
-            return None;
-        }
+    pub fn sites(
+        &self,
+        file_path: &str,
+        content: &str,
+        name: &str,
+    ) -> Option<crate::signatures::graph_facts::NamedSites> {
+        use crate::signatures::{extractor, graph_facts, graph_facts_grammar};
         let (entry, grammar) = graph_facts_grammar(content, file_path)?;
         let own_parse;
         let tree = if std::ptr::eq(&entry.language, self.language) {
@@ -160,7 +162,7 @@ impl CodeOccurrences {
             &own_parse
         };
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            graph_facts::declared_lines_from_tree(content, file_path, &grammar, tree, name)
+            graph_facts::named_sites_from_tree(content, file_path, &grammar, tree, name)
         }))
         .unwrap_or(None)
     }

@@ -1,13 +1,23 @@
 //! PCRE2 match ranges in one in-memory text (a file read's `regex:"pcre2"`),
-//! under the same worker slots and wall-clock deadline as a `-P` search.
+//! under the same worker slots as a `-P` search and a wall-clock deadline.
 use std::time::Duration;
 
 use grep_matcher::Matcher;
 
 use super::text_search::{
-    ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS, PCRE2_DEADLINE_GRACE, PCRE2_SEARCH_DEADLINE,
-    Pcre2WorkerSlot, pcre2_builder, release_worker_slot, try_acquire_worker_slot,
+    ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS, Pcre2WorkerSlot, pcre2_builder,
+    release_worker_slot, try_acquire_worker_slot,
 };
+
+/// Wall-clock ceiling of one range scan. Nothing bounds the time of one
+/// PCRE2 match, and the scan runs inside one uninterruptible `find_iter`, so
+/// the caller stops waiting for its worker after
+/// `PCRE2_SEARCH_DEADLINE + PCRE2_DEADLINE_GRACE`.
+const PCRE2_SEARCH_DEADLINE: Duration = Duration::from_secs(5);
+
+/// Extra time past [`PCRE2_SEARCH_DEADLINE`] the caller waits for a stuck
+/// range-scan worker.
+const PCRE2_DEADLINE_GRACE: Duration = Duration::from_secs(2);
 
 /// Why a PCRE2 range scan returned no ranges.
 #[derive(Debug, Clone, PartialEq, Eq)]

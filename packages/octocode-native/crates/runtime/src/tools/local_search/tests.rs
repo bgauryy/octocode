@@ -82,6 +82,15 @@ fn values(result: &LocalSearchResult) -> String {
 }
 
 fn search_fixture(files: &[(&str, &str)], request: LocalSearchQuery) -> serde_json::Value {
+    search_fixture_at(files, request, crate::security::SourceLimits::REAL)
+}
+
+/// [`search_fixture`] under a scanner that judges sources at `limits`.
+fn search_fixture_at(
+    files: &[(&str, &str)],
+    request: LocalSearchQuery,
+    limits: crate::security::SourceLimits,
+) -> serde_json::Value {
     let root = tempfile::tempdir().expect("fixture directory");
     for (name, body) in files {
         let path = root.path().join(name);
@@ -90,7 +99,8 @@ fn search_fixture(files: &[(&str, &str)], request: LocalSearchQuery) -> serde_js
         }
         fs::write(path, body).expect("fixture");
     }
-    let (policy, security) = policy_for(root.path());
+    let (policy, _) = policy_for(root.path());
+    let security = ContentSecurity::with_limits(limits);
     let request = ls_query(
         serde_json::json!({"path": root.path().to_string_lossy().into_owned()}),
         Some(&request),
@@ -216,6 +226,7 @@ mod secrets;
 mod special_files;
 mod stored;
 mod test_code;
+mod windows;
 
 /// A generated Rust file of `functions` functions with five `let ` lines
 /// each: an engine-like hot file whose hits all sit inside declarations.

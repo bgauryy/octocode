@@ -11,6 +11,24 @@ use crate::tools::gh_shared::ensure_calls;
 use octocode_contract_types::{GhGetHistoryItemQuery, GhSearchHistoryQuery};
 use serde_json::{Map, Value, json};
 
+/// The paths of `paths` a selected-patch read of `target` can name: the
+/// ones its query contract admits in `include` (a file GitHub reported
+/// without a usable name, such as an empty one, is left out). A lead never
+/// carries a call its own tool would refuse.
+pub(super) fn includable(target: &Value, paths: &[String]) -> Vec<String> {
+    paths
+        .iter()
+        .filter(|path| {
+            let probe = super::util::merge(
+                target.clone(),
+                json!({"include": [path], "sections": ["patches"]}),
+            );
+            serde_json::from_value::<GhGetHistoryItemQuery>(probe).is_ok()
+        })
+        .cloned()
+        .collect()
+}
+
 /// Offer unfiltered patches as related work when a matching view selected
 /// only hit runs (`fullPatchChars`). Batch selected files within the contract limit.
 pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemRequest) {
@@ -21,6 +39,10 @@ pub(super) fn attach_full_patch_continuation(out: &mut Value, q: &HistoryItemReq
     let mut nq = base_public_query(q, ItemOperation::PullRequest);
     for key in ["offset", "page"] {
         remove_key(&mut nq, key);
+    }
+    let narrowed = includable(&nq, &narrowed);
+    if narrowed.is_empty() {
+        return;
     }
     ensure_calls(out);
     for key in [

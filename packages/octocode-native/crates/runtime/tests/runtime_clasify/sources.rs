@@ -232,6 +232,12 @@ async fn an_oversized_or_missing_source_fails_its_row_and_says_how_to_split() {
     let refused = &rows[0]["data"];
     assert_eq!(refused["errorCode"], "classificationStateTooLarge", "{out}");
     assert!(refused.get("answers").is_none());
+    // The refused request was sent, unbilled: the row counts it.
+    assert_eq!(
+        refused["usage"],
+        json!({"input_tokens":0,"output_tokens":0,"calls":1}),
+        "{out}"
+    );
     let split = &refused["related"][0];
     assert_eq!(split["tool"], "clasify", "{out}");
     let query = &split["input"]["queries"][0];
@@ -245,8 +251,18 @@ async fn an_oversized_or_missing_source_fails_its_row_and_says_how_to_split() {
         rows[2]["data"]["answers"]["restart"]["noul"], 0.9,
         "a sibling keeps its answer"
     );
-    // The default window, the long one, the sibling: refusals are not billed.
-    assert_eq!(sent(&server).await.len(), 3);
+    // The default window and the sibling: refusals are not billed, and a
+    // source too large to be shown to fit the long window is not retried
+    // there; the agent splits it.
+    assert_eq!(sent(&server).await.len(), 2);
+    assert!(
+        refused["hints"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|hint| hint.as_str().unwrap().contains("long-context window")),
+        "{out}"
+    );
     runtime.close().await;
 }
 

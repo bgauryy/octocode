@@ -106,6 +106,69 @@ impl SecurityAdvisory {
     }
 }
 
+/// The records of `rows` that name one advisory, grouped
+/// ([`crate::providers::artifact::alias_groups`]): a GHSA record and its
+/// PYSEC or GO twin are one advisory, not two.
+pub(super) fn advisory_groups<'a>(rows: &[&'a SecurityAdvisory]) -> Vec<Vec<&'a SecurityAdvisory>> {
+    crate::providers::artifact::alias_groups(rows, |row| {
+        std::iter::once(row.id.as_str())
+            .chain(row.aliases.iter().map(String::as_str))
+            .collect()
+    })
+    .into_iter()
+    .map(|members| members.into_iter().map(|at| rows[at]).collect())
+    .collect()
+}
+
+/// One brief row for one advisory's records: the first's brief, with every
+/// other record's id in `aliases` (each one `advisory` call away) and every
+/// CVE and fixed version of the group.
+pub(super) fn group_brief(group: &[&SecurityAdvisory]) -> Value {
+    let Some((first, twins)) = group.split_first() else {
+        return Value::Null;
+    };
+    let mut row = first.brief();
+    if twins.is_empty() {
+        return row;
+    }
+    let mut add = |key: &str, values: Vec<&str>| {
+        let mut listed = row[key].as_array().cloned().unwrap_or_default();
+        for value in values {
+            if !listed.iter().any(|known| known == value) {
+                listed.push(json!(value));
+            }
+        }
+        if !listed.is_empty() {
+            row[key] = Value::Array(listed);
+        }
+    };
+    add(
+        "aliases",
+        twins.iter().map(|twin| twin.id.as_str()).collect(),
+    );
+    add(
+        "cves",
+        group.iter().flat_map(|record| record.cves()).collect(),
+    );
+    add(
+        "fixedIn",
+        group
+            .iter()
+            .flat_map(|record| record.fixed_in.iter().map(String::as_str))
+            .collect(),
+    );
+    if row.get("severity").is_none()
+        && let Some(severity) = twins.iter().find_map(|twin| twin.severity.as_deref())
+    {
+        row["severity"] = json!(severity);
+    }
+    // `link` stays last, as a brief row states it.
+    if let Some(link) = row.as_object_mut().and_then(|fields| fields.remove("link")) {
+        row["link"] = link;
+    }
+    row
+}
+
 /// The repositories a record's `GIT` ranges name.
 pub(super) fn repositories(row: &SecurityAdvisory) -> impl Iterator<Item = &str> {
     row.affected

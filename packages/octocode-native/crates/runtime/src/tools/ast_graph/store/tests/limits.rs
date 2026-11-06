@@ -28,7 +28,7 @@ fn ingest_within(dir: &Path, limits: &Limits) -> GraphOutput {
 }
 
 fn edges(edges: usize) -> Limits {
-    Limits { edges, ..LIMITS }
+    Limits { edges, ..*LIMITS }
 }
 
 fn redactions() -> usize {
@@ -196,7 +196,7 @@ fn row_counts_are_checked_before_redaction() {
     let mut built = build(dir, &paths, &security);
     let limits = Limits {
         table_items: 2,
-        ..LIMITS
+        ..*LIMITS
     };
     let redacted = redactions();
     let Err(out) = project_graph(&mut built, &paths, &security, &NeverCancel, &limits) else {

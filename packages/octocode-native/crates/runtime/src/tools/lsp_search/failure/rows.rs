@@ -99,7 +99,7 @@ fn without_project(query: &LspSearchQuery) -> bool {
 pub(in super::super) fn annotate_empty_includes(
     row: &mut Value,
     query: &LspSearchQuery,
-    build_scripts: bool,
+    rust: super::super::receipt::RustAnalysis,
     stopped: &dyn Fn() -> bool,
 ) {
     if let Some(path) = lsp_search_query::path(query) {
@@ -122,18 +122,19 @@ pub(in super::super) fn annotate_empty_includes(
                     &[],
                 );
             }
-            if !includes.generated.is_empty() && !build_scripts {
+            if !includes.generated.is_empty() && !rust.build_scripts {
                 // With an outside include as well, the name may be defined
                 // there: the ~2 GB rerun is no repair to lead with, so the
                 // tip names it instead. Alone, the executable rerun is the
                 // lead, and the tip states what running it costs.
-                let rerun = includes.outside.is_empty();
+                let allowed = rust.build_scripts_allowed;
+                let rerun = includes.outside.is_empty() && allowed;
                 let reason = super::super::server_coverage::BUILD_SCRIPTS_REASON;
                 crate::response::paging::mark_partial(row, reason, &[]);
                 if rerun && let Some(action) = next_action(query, reason) {
                     crate::response::result::attach_related(row, action);
                 }
-                tips.push(build_script_tip(rerun));
+                tips.push(build_script_tip(rerun, allowed));
             }
             if !tips.is_empty() {
                 let hints = row
@@ -156,10 +157,15 @@ pub(in super::super) const BUILD_SCRIPTS_COST: &str =
 /// rust-analyzer runs without build scripts by default, so in a package
 /// with one, a name the script generates (`include!(concat!(env!("OUT_DIR"),
 /// …))`) has no location until they run. With an executable rerun offered,
-/// the note names its setting and cost; without it, the
-/// note names the flag.
-pub(super) fn build_script_tip(rerun_offered: bool) -> String {
-    if rerun_offered {
+/// the note names its setting and cost; without it, the note names the flag,
+/// and while the host has not allowed build scripts, the opt-in.
+pub(super) fn build_script_tip(rerun_offered: bool, allowed: bool) -> String {
+    if !allowed {
+        let opt_in = super::super::receipt::BUILD_SCRIPTS_OPT_IN;
+        format!(
+            "A name a build script generates (include! of OUT_DIR) has no location while build scripts do not run; rustContext {{buildScripts:true}}, which {BUILD_SCRIPTS_COST}, is refused until you opt in: {opt_in}."
+        )
+    } else if rerun_offered {
         format!(
             "A name a build script generates (include! of OUT_DIR) has no location until build scripts run; the rerun with rustContext.buildScripts enabled {BUILD_SCRIPTS_COST}."
         )

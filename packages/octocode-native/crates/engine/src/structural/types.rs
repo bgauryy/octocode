@@ -193,7 +193,7 @@ pub struct StructuralSearchFilesDetailedResult {
     /// scan is complete, or was cut by an explicit `max_files`.
     pub scan_resume: Option<u32>,
     /// What the candidates `skip_files` passed are now
-    /// ([`super::files::ListedFiles`]); `None` when it passed none.
+    /// ([`crate::digest::ListedFiles`]); `None` when it passed none.
     pub listed_before: Option<String>,
     /// The same through the resume position, what the resume compares it with.
     pub listed_through: Option<String>,

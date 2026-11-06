@@ -7,10 +7,20 @@ use super::*;
 use crate::security::key_formats as formats;
 
 /// Every page of `query` under a page `budget`, joined.
-fn all_pages(mut query: LocalFetchQuery, paths: &Paths, budget: Option<usize>) -> String {
+fn all_pages(query: LocalFetchQuery, paths: &Paths, budget: Option<usize>) -> String {
+    all_pages_with(query, paths, budget, &Safe)
+}
+
+/// [`all_pages`] under the content scan `scan`.
+fn all_pages_with(
+    mut query: LocalFetchQuery,
+    paths: &Paths,
+    budget: Option<usize>,
+    scan: &impl ContentScan,
+) -> String {
     let mut out = String::new();
     for _ in 0..200 {
-        let result = execute_local_fetch(&query, paths, &Safe, &NeverCancel, budget, None);
+        let result = execute_local_fetch(&query, paths, scan, &NeverCancel, budget, None);
         out.push_str(result.content.as_deref().unwrap_or_default());
         match result.next.and_then(|next| next.continue_window) {
             Some(next) => query = next.query,
@@ -84,13 +94,14 @@ fn no_streamed_read_shows_a_body_line() {
             .find(|format| format.name == name)
             .expect("format");
         let fixture = Fixture::new();
-        let filler = "outside\n".repeat(1_400_000);
+        // Past the whole-file ceiling of the scan the reads run under.
+        let lead = SmallSafe.limits().whole_source / "outside\n".len() + 1_000;
+        let filler = "outside\n".repeat(lead);
         let path = fixture.write("large.log", format!("{filler}{}", format.text));
         let paths = Paths(fixture.0.clone());
-        let lead = 1_400_000;
         let total = format.text.lines().count();
         let whole = serde_json::json!({"ranges":[{"startLine":lead + 1,"endLine":lead + total}]});
-        let shown = all_pages(qj(&path, whole), &paths, None);
+        let shown = all_pages_with(qj(&path, whole), &paths, None, &SmallSafe);
         assert_hidden(&shown, format, "stream whole");
         assert!(shown.contains("tail line"), "{name}: {shown}");
         let at = format
@@ -101,12 +112,12 @@ fn no_streamed_read_shows_a_body_line() {
         let inside =
             serde_json::json!({"ranges":[{"startLine":lead + at + 1,"endLine":lead + total}]});
         assert_hidden(
-            &all_pages(qj(&path, inside), &paths, None),
+            &all_pages_with(qj(&path, inside), &paths, None, &SmallSafe),
             format,
             "stream inside",
         );
         let probe = serde_json::json!({"matchString":[format.secrets[1]],"contextLines":{"before":2,"after":2}});
-        let result = fetch(&qj(&path, probe), &paths);
+        let result = fetch_with(&qj(&path, probe), &paths, &SmallSafe);
         assert_hidden(
             result.content.as_deref().unwrap_or_default(),
             format,

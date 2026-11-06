@@ -334,10 +334,9 @@ pub(super) fn raw_range(node: Node<'_>) -> RawRange {
     )
 }
 
-/// Internal capture name for relational bookkeeping (`has`/`inside`). Lowercase
-/// is unreachable by user metavars — `pre_process_pattern` only treats `A-Z`/`_`
-/// after `$` as a metavar — so stripping this key from output can never drop a
-/// user capture.
+/// The name relational rules (`has`/`inside`) once bound their related node
+/// under. They bind nothing now; tests check it never reaches output.
+#[cfg(test)]
 pub(super) const SECONDARY_CAPTURE: &str = "secondary";
 
 // Cursor iteration is O(k); `node.child(i)` scans siblings linearly, so an

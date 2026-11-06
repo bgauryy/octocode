@@ -1,0 +1,4 @@
+// scss comment
+$x: 1px;
+.a { &:hover { color: red; } & :hover { color: blue; } }
+@include foo($a , $b);

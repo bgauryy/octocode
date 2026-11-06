@@ -21,6 +21,8 @@ pub(super) use index_ref::disclose_index_ref;
 pub(super) struct PageReads {
     pub(super) top: Option<Value>,
     pub(super) hits: Vec<Value>,
+    /// Secret-shaped values the page's lines show as placeholders.
+    pub(super) redacted: usize,
 }
 
 /// Whether source lines must be read before projecting the returned fields.
@@ -58,6 +60,7 @@ pub(super) fn shape_files(
     resolution: Option<Resolution>,
 ) -> PageReads {
     let mut hit_reads = Vec::new();
+    let mut redacted = 0;
     // One read lead: the top resolved hit's lines; only without them, the
     // index fragment (computed from the top row before it is reshaped).
     let fragment = items.first().cloned();
@@ -85,7 +88,9 @@ pub(super) fn shape_files(
                     total,
                     line_count,
                     declaration,
+                    redacted: shown_redacted,
                 } => {
+                    redacted += shown_redacted;
                     row.insert("lines".into(), json!(lines));
                     // Only a listing with context needs to say which lines are hits.
                     if lines.len() > matched.len() {
@@ -131,6 +136,7 @@ pub(super) fn shape_files(
     PageReads {
         top,
         hits: hit_reads,
+        redacted,
     }
 }
 

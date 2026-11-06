@@ -129,9 +129,10 @@ pub(super) fn walk_level(
         }
         let file_name = child.name.as_os_str();
         // The leading `skip_entries` entries were inspected by the walk this
-        // one resumes: replayed below, they spend none of the time budget.
+        // one resumes: replayed below. They and the `budget_after` ones spend
+        // none of the time budget.
         let replaying = state.position < query.skip_entries;
-        if !replaying && time_ran_out(&base, file_name, query, state) {
+        if state.position >= query.budget_from && time_ran_out(&base, file_name, query, state) {
             return Ok(());
         }
         state.position += 1;

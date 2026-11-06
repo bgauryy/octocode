@@ -178,6 +178,63 @@ fn subtypes_are_the_declarations_whose_heritage_names_the_base() {
     assert!(subtypes(source, "/work/a.ts", "Missing").is_empty());
 }
 
+/// A file a tree-sitter grammar reads gives its subtypes from the parts that
+/// spell the base: the same rows, without the whole file's facts.
+#[test]
+fn a_grammar_file_scans_without_its_whole_facts() {
+    let source = "class Base {}\nclass A extends Base implements Other {}\nclass B { void f() { Base b = null; } }\ninterface C extends Base {}\n";
+    let file = absolute("subtype-scan-parses/A.java");
+    assert_eq!(
+        subtypes(source, &file, "Base"),
+        vec![
+            (1, 6, 7, "class A extends Base implements Other {}".into()),
+            (3, 10, 11, "interface C extends Base {}".into()),
+        ]
+    );
+    assert_eq!(
+        crate::tools::declarations::parses::facts_of(&file),
+        0,
+        "whole-file facts parses"
+    );
+}
+
+/// A scan reads each file's subtypes once per text: a repeat scan reads the
+/// kept documents, and a Go file, whose heritage only embeds, is not parsed.
+#[test]
+fn a_repeat_scan_parses_nothing_and_go_files_never() {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = std::fs::canonicalize(dir.path()).expect("root");
+    let java = root.join("A.java");
+    let go = root.join("a.go");
+    std::fs::write(&java, "class A implements Querier {}\n").expect("java");
+    std::fs::write(&go, "package a\n\ntype S struct {\n\tQuerier\n}\n").expect("go");
+    let (java, go) = (
+        java.to_string_lossy().into_owned(),
+        go.to_string_lossy().into_owned(),
+    );
+    let files = BTreeSet::from([java.clone(), go.clone()]);
+    let parses = |file: &str| {
+        ["namedHeritage", "graphFacts"]
+            .map(|analysis| crate::tools::declarations::parses::of(analysis, file))
+    };
+    let first = scan_subtypes(&files, "Querier", &|| false);
+    assert_eq!(first.0.len(), 1, "the Java implementation");
+    assert!(first.0[0].uri.ends_with("/A.java"));
+    assert!(first.1.is_empty());
+    assert_eq!(parses(&java), [1, 0]);
+    assert_eq!(parses(&go), [0, 0], "Go embeds name no supertype");
+    let again = scan_subtypes(&files, "Querier", &|| false);
+    let rows = |found: &[LspCodeSnippet]| {
+        found
+            .iter()
+            .map(|snippet| serde_json::to_value(snippet).expect("row"))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(rows(&again.0), rows(&first.0));
+    assert_eq!(again.1, first.1);
+    assert_eq!(parses(&java), [1, 0], "a repeat reads the kept document");
+}
+
 #[test]
 fn only_a_type_declaration_anchors_a_subtype_scan() {
     let source = "export interface IDisposable {\n  dispose(): void;\n}\nexport class Box {\n  run(): void {}\n}\nexport function make(): void {}\n";
@@ -261,4 +318,29 @@ fn a_failed_implementation_request_has_the_syntax_scan_as_fallback() {
     assert!(!implementation_failure_has_fallback(
         &LspFailure::invalid_query("x")
     ));
+}
+
+/// tokio's `AsyncRead` file: a `macro_rules!` expanded inside an impl leaves
+/// only a linking caveat (its generated imports are unknown). Every parsed
+/// declaration and its own heritage stay whole, so the trait still anchors
+/// a hierarchy and the impl still names its trait.
+#[test]
+fn an_unexpanded_rust_macro_is_no_heritage_gap() {
+    let file = &absolute("async_read.rs");
+    let content = "pub trait AsyncRead {}\n\
+        macro_rules! deref_async_read { () => { fn f() {} }; }\n\
+        impl<T: AsyncRead> AsyncRead for Box<T> { deref_async_read!(); }\n";
+    let document = type_document(content, file).expect("a linking caveat is no gap");
+    assert!(
+        document
+            .diagnostics
+            .iter()
+            .any(|note| note.code == GraphFactCode::RustMacroExpansion),
+        "the fixture carries the macro caveat"
+    );
+    let node = type_node(&document, file, 0, 10).expect("the trait anchors");
+    assert_eq!(node["name"], "AsyncRead");
+    let implementation = impl_node(&document, file, 2, 33).expect("the trait impl");
+    let bases = direct_bases(&document, content, file, &implementation).expect("its heritage");
+    assert_eq!(bases.len(), 1);
 }

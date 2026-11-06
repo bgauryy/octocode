@@ -189,10 +189,14 @@ fn removed_languages_have_no_analysis_minifier_or_builtin_server_route() {
                 .iter()
                 .any(|item| item == ext)
         );
-        assert!(!crate::minify::config::minify_config().contains_key(ext));
+        assert!(
+            crate::minify::apply::apply_content_view_minification("target(value);", &file)
+                .whitespace_only
+                .is_some()
+                || ext == "toml"
+        );
         assert!(crate::lsp::config::detect_language_id(&file).is_none());
     }
-    assert!(crate::minify::comment_remover::rules_for("lua").is_none());
 }
 
 #[test]

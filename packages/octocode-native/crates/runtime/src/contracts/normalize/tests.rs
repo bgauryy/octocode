@@ -2,8 +2,10 @@ use super::*;
 use crate::contracts::prepare_rows;
 use serde_json::json;
 
+mod guessed_fields;
+
 fn accepted(tool: &str, sent: Value) -> Value {
-    let input = normalized_input(tool, sent.clone());
+    let input = normalized_input(tool, sent.clone()).0;
     let rows = prepare_rows(tool, input.clone()).unwrap_or_else(|error| {
         panic!("{sent} should have one reading: {:?}", error.issues);
     });
@@ -108,7 +110,7 @@ fn a_filter_selection_takes_a_bare_list_of_values() {
         json!({"include":["bug"]})
     );
 
-    let input = normalized_input("ghSearchHistory", row(json!({"assignee":["a","b"]})));
+    let input = normalized_input("ghSearchHistory", row(json!({"assignee":["a","b"]}))).0;
     let error = prepare_rows("ghSearchHistory", input).expect_err("two assignees");
     let issue = error.issues.first().expect("an issue");
     assert_eq!(
@@ -124,7 +126,7 @@ fn a_filter_selection_takes_a_bare_list_of_values() {
 #[test]
 fn a_row_with_an_include_field_is_no_selection() {
     for sent in [json!({"queries":[["a","b"]]}), json!({"queries":["a"]})] {
-        let input = normalized_input("localSearch", sent.clone());
+        let input = normalized_input("localSearch", sent.clone()).0;
         assert_eq!(input, sent);
     }
 }
@@ -145,7 +147,8 @@ fn fields_only_one_operation_takes_name_it() {
     let many = normalized_input(
         "lspSearch",
         json!({"queries":[{"path":"a.ts","symbolName":"a","line":1}]}),
-    );
+    )
+    .0;
     assert!(many["queries"][0].get("operation").is_none());
 }
 
@@ -172,7 +175,7 @@ fn a_sort_takes_its_natural_direction() {
 
 #[test]
 fn a_cursor_keeps_the_page_size_it_was_issued_with() {
-    let input = normalized_input("localSearch", json!({"cursor":"c","responseChars":900}));
+    let input = normalized_input("localSearch", json!({"cursor":"c","responseChars":900})).0;
     assert_eq!(input, json!({"cursor":"c"}));
 }
 
@@ -191,15 +194,11 @@ fn what_has_no_single_reading_stays_rejected() {
             json!({"queries":[{"path":".","matchString":["x"],"view":"file"}]}),
         ),
         (
-            "localSearch",
-            json!({"queries":[{"path":".","pattern":"x"}]}),
-        ),
-        (
             "localFetch",
             json!({"queries":[{"path":"a","responseChars":1},{"path":"b","responseChars":2}]}),
         ),
     ] {
-        let input = normalized_input(tool, sent.clone());
+        let input = normalized_input(tool, sent.clone()).0;
         let failed = prepare_rows(tool, input).map_or(true, |rows| rows.iter().any(Result::is_err));
         assert!(failed, "{sent} must stay rejected");
     }
@@ -213,7 +212,7 @@ fn an_error_names_only_what_repair_left() {
         {"path":".","matchString":"x","serchText":"typo"},
         {"path":".","matchString":"y"}
     ]});
-    let input = normalized_input("localSearch", sent);
+    let input = normalized_input("localSearch", sent).0;
     assert_eq!(input["queries"][0]["serchText"], json!("typo"));
     assert_eq!(input["queries"][0]["matchString"], json!(["x"]));
     assert!(input["queries"][0].get("include").is_none());
@@ -228,7 +227,7 @@ fn an_error_names_only_what_repair_left() {
 #[test]
 fn a_valid_call_is_untouched() {
     let sent = json!({"queries":[{"path":".","matchString":["x"]}],"responseChars":500});
-    assert_eq!(normalized_input("localSearch", sent.clone()), sent);
+    assert_eq!(normalized_input("localSearch", sent.clone()).0, sent);
 }
 
 /// A commit list takes one date range and a commit search a `{include, exclude}`
@@ -263,7 +262,7 @@ fn a_one_item_date_selection_reads_as_the_range_the_form_takes() {
     // An exclusion has no reading on the list: it stays as sent, and rejected.
     let excluded = row(json!({"committedAt":{"exclude":[range.clone()]}}), None);
     assert_eq!(
-        normalized_input("ghSearchHistory", excluded.clone()),
+        normalized_input("ghSearchHistory", excluded.clone()).0,
         excluded
     );
 }

@@ -1,4 +1,4 @@
-use super::{binding_rank, language_name, match_tier, rank_workspace_symbols};
+use super::{Readiness, binding_rank, language_name, match_tier, rank_workspace_symbols};
 use octocode_contract_types::LspSearchQuery;
 
 fn snippet(path: &str, start: u32, end: u32) -> octocode_engine::lsp::types::LspCodeSnippet {
@@ -181,9 +181,9 @@ fn an_outline_that_paid_a_timed_out_wait_is_flagged_still_loading() {
         (row["isPartial"] == true).then(|| row["partialReasons"].clone())
     };
     assert_eq!(
-        reasons(Some("timeout")),
+        reasons(Some(Readiness::Timeout)),
         Some(serde_json::json!(["languageServerIndexing"]))
     );
-    assert_eq!(reasons(Some("progressIdle")), None);
+    assert_eq!(reasons(Some(Readiness::ProgressIdle)), None);
     assert_eq!(reasons(None), None);
 }

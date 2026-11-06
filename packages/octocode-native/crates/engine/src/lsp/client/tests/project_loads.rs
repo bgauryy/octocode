@@ -205,7 +205,7 @@ async fn a_document_opened_without_the_wait_in_a_settled_project_waits_nothing()
 async fn outline(
     content: &str,
     answers: Vec<serde_json::Value>,
-) -> (Arc<Value>, Option<String>, Arc<Value>, Duration, usize) {
+) -> (Arc<Value>, Option<Readiness>, Arc<Value>, Duration, usize) {
     outline_with(content, answers, false).await
 }
 
@@ -215,7 +215,7 @@ async fn outline_with(
     content: &str,
     answers: Vec<serde_json::Value>,
     stalls: bool,
-) -> (Arc<Value>, Option<String>, Arc<Value>, Duration, usize) {
+) -> (Arc<Value>, Option<Readiness>, Arc<Value>, Duration, usize) {
     let (_tmp, dirs) = projects(&["p"]);
     let (client, mut reader, mut writer) =
         client_with_fake_server_using(NativeLspClient::new(ts_config()), 64 * 1024).await;
@@ -309,7 +309,7 @@ async fn a_timed_out_retry_reports_the_timeout() {
     )
     .await;
     assert_eq!(*symbols, symbol);
-    assert_eq!(readiness.as_deref(), Some("timeout"));
+    assert_eq!(readiness, Some(Readiness::Timeout));
     assert!(elapsed >= Duration::from_millis(u64::from(OPEN_READY_TIMEOUT_MS)));
 }
 
@@ -329,7 +329,7 @@ async fn a_resumed_client_does_not_report_a_stale_timeout() {
         .expect("indexing began");
     assert_eq!(
         client.wait_for_ready(Some(2_000)).await.expect("wait"),
-        "timeout"
+        Readiness::Timeout
     );
     let server = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(500)).await;
@@ -337,12 +337,12 @@ async fn a_resumed_client_does_not_report_a_stale_timeout() {
         writer
     });
     client.resume_timed_out_readiness(2_000).await;
-    assert_eq!(client.readiness().as_deref(), Some("progressIdle"));
+    assert_eq!(client.readiness(), Some(Readiness::ProgressIdle));
     let path = file(&dirs[0], "a.ts");
     let readiness = client
         .open_document_and_wait(path, "export {};\n", None, None)
         .await
         .expect("open");
-    assert_eq!(readiness.as_deref(), Some("progressIdle"));
+    assert_eq!(readiness, Some(Readiness::ProgressIdle));
     let _writer = server.await.expect("server");
 }

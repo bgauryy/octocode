@@ -52,6 +52,8 @@ pub(super) struct Found<'a> {
     pub(super) empty: bool,
     /// What an empty scan's walk searched, when its record can serve.
     pub(super) searched: Option<&'a [std::path::PathBuf]>,
+    /// The scanner's limits, which say what a read of a source can serve.
+    pub(super) limits: crate::security::SourceLimits,
 }
 
 impl Found<'_> {

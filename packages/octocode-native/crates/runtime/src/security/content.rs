@@ -191,8 +191,11 @@ pub(crate) fn lines_a_row_cannot_judge(text: &str, path: &Path) -> Vec<(u32, u32
     lines
 }
 
+/// The content policy every reader is given, with the source sizes it judges at.
 #[derive(Clone, Debug, Default)]
-pub struct ContentSecurity;
+pub struct ContentSecurity {
+    limits: super::SourceLimits,
+}
 
 /// Conservative email shape for opt-in masking of gh outputs. Local-part
 /// and domain are both masked; the match is intentionally simple (no
@@ -212,7 +215,17 @@ fn email_pattern() -> &'static regex::Regex {
 )]
 impl ContentSecurity {
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    /// A policy judging sources at `limits` instead of [`super::SourceLimits::REAL`].
+    pub fn with_limits(limits: super::SourceLimits) -> Self {
+        Self { limits }
+    }
+
+    /// The source sizes this policy judges at.
+    pub fn limits(&self) -> super::SourceLimits {
+        self.limits
     }
 
     /// Opt-in: mask every email address in `text`. Callers gate this on
@@ -229,8 +242,11 @@ impl ContentSecurity {
         file_path: Option<&Path>,
     ) -> SanitizationResult<'a> {
         let path = file_path.map(|path| path.to_string_lossy());
-        let native =
-            octocode_engine::security::sanitizer::sanitize_content(content, path.as_deref());
+        let native = octocode_engine::security::sanitizer::sanitize_content_within(
+            content,
+            path.as_deref(),
+            self.limits.whole_source,
+        );
         self.guard_native(native, file_path)
     }
 

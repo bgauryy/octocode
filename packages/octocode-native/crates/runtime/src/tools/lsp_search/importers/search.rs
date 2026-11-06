@@ -28,6 +28,7 @@ pub(in super::super) struct ImporterSearch<'a> {
 fn no_candidates(stale: bool, failed: bool) -> Importers {
     Importers {
         failed,
+        failure: ScanFailure::CandidateList,
         stale,
         ..Importers::default()
     }
@@ -134,6 +135,7 @@ pub(in super::super) async fn verified_anchors(
         return Ok(Importers {
             window: Some(window),
             failed: true,
+            failure: ScanFailure::AnchorDeclaration,
             rejected: unreached,
             ignored,
             ..Importers::default()
@@ -143,6 +145,7 @@ pub(in super::super) async fn verified_anchors(
     let mut anchors = Vec::new();
     let mut rejected = unreached;
     let mut unverified = Vec::new();
+    let mut unopened = Vec::new();
     let mut elsewhere = HashSet::new();
     loop {
         let (opened, open_failed) = open_candidates(
@@ -172,6 +175,7 @@ pub(in super::super) async fn verified_anchors(
         .await?;
         anchors.extend(verified.anchors);
         rejected.extend(verified.rejected);
+        unopened.extend(open_failed.iter().cloned());
         unverified.extend(verified.unverified.into_iter().chain(open_failed));
         elsewhere.extend(verified.elsewhere);
         // A window with no verified importer adds no site, so the request
@@ -193,8 +197,10 @@ pub(in super::super) async fn verified_anchors(
         window: Some(window),
         stale: false,
         failed: !unverified.is_empty(),
+        failure: ScanFailure::Candidates,
         rejected,
         unverified,
+        unopened,
         elsewhere,
         ignored,
     })
@@ -298,7 +304,7 @@ async fn verify_window(
 /// spells) from a module that may be the anchor's (see [`AnchorModule`];
 /// any module when `module` is unknown), and those the check cannot decide:
 /// refused by the policy, unreadable, larger than the parser's bound
-/// ([`octocode_engine::signatures::MAX_PARSE_SIZE`]), unparsable, or not
+/// ([`crate::security::SourceLimits::whole_source`]), unparsable, or not
 /// reached before the request stopped. Every file is checked: one
 /// cancellable blocking worker reads them in turn and keeps none (the server
 /// never opens them, so no request cache holds them); its parses are

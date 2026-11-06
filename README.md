@@ -195,12 +195,13 @@ Method and how to run your own: [benchmark guide](https://github.com/bgauryy/oct
 
 ## Tools
 
-**16 tools, plus the opt-in `securityCheck`.** The default configuration exposes 12 tools over MCP and 15 in the CLI; a classification key adds `clasify` to both, and `OCTOCODE_SECURITY_CHECKS=true` adds `securityCheck`, which asks OSV about known vulnerabilities. These add the other four to MCP ([details](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#tool-availability-cli-and-mcp)):
+**17 tools.** The default configuration exposes 12 tools over MCP and 16 in the CLI, `securityCheck` among them; a classification key adds `clasify` to both. These add the other five to MCP ([details](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#tool-availability-cli-and-mcp)):
 
 ```bash
 npx octocode config set local.beta true                 # graphBuild, graphQuery
 npx octocode config set tools.enableClone true          # ghCloneRepo
 npx octocode config set OCTOCODE_CLASSIFICATION_API --stdin   # clasify; paste the key, then Ctrl-D
+npx octocode config set tools.enableSecurityCheck true  # securityCheck: asks OSV about known vulnerabilities
 ```
 
 Every tool takes the same JSON in both interfaces. `npx octocode schema <tool>` shows its fields. Long results come with a cursor to pass back unchanged: `octocode <tool> '{"cursor":"…"}'`.

@@ -7,6 +7,8 @@ use super::GraphqlWants;
 /// counts its items (`total`, a pointer into the PR), when it does.
 pub(super) struct Connection {
     pub(super) key: &'static str,
+    /// The section a reader knows the connection by (a warning names it).
+    pub(super) section: &'static str,
     pub(super) field: &'static str,
     pub(super) variable: &'static str,
     pub(super) nodes: &'static str,
@@ -19,6 +21,7 @@ pub(super) struct Connection {
 
 pub(super) const FILES: Connection = Connection {
     key: "files",
+    section: "files",
     field: "files",
     variable: "files",
     nodes: "path additions deletions changeType",
@@ -26,6 +29,7 @@ pub(super) const FILES: Connection = Connection {
 };
 pub(super) const DISCUSSION: Connection = Connection {
     key: "commentsConn",
+    section: "comments",
     field: "commentsConn: comments",
     variable: "discussion",
     nodes: "databaseId author{ login __typename } body createdAt url",
@@ -33,6 +37,7 @@ pub(super) const DISCUSSION: Connection = Connection {
 };
 pub(super) const REVIEWS: Connection = Connection {
     key: "reviews",
+    section: "reviews",
     field: "reviews",
     variable: "reviews",
     nodes: "databaseId author{ login __typename } state body submittedAt commit{ oid }",
@@ -40,6 +45,7 @@ pub(super) const REVIEWS: Connection = Connection {
 };
 pub(super) const COMMITS: Connection = Connection {
     key: "commits",
+    section: "commits",
     field: "commits",
     variable: "commits",
     nodes: "commit{ oid message messageHeadline authoredDate committedDate author{ name user{ login } } }",
@@ -49,6 +55,7 @@ pub(super) const COMMITS: Connection = Connection {
 /// The PR's labels: every page is read on (GitHub serves no count beside them).
 pub(super) const LABELS: Connection = Connection {
     key: "labels",
+    section: "labels",
     field: "labels",
     variable: "labels",
     nodes: "name",

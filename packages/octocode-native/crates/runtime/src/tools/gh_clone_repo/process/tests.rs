@@ -55,13 +55,14 @@ fn isolated_git_keeps_runtime_proxy_ca_and_path_only() {
     assert_eq!(get("GITHUB_TOKEN"), None);
 }
 
-/// The token reaches git only through an owner-only GIT_ASKPASS
-/// helper that answers for the authorized origin alone. It is in neither
-/// the child's environment nor its argv, and the helper is gone once git
-/// exits.
+/// The token reaches git only through an owner-only GIT_ASKPASS helper that
+/// answers for the authorized origin alone. The token is never written to
+/// disk: the helper is a fixed script that reads it from the environment of
+/// this one git process tree, so a killed run leaves no credential behind.
+/// It is never in argv either.
 #[cfg(unix)]
 #[test]
-fn the_token_reaches_git_only_through_an_owner_only_askpass_helper() {
+fn the_token_reaches_git_only_through_the_askpass_environment_never_disk_or_argv() {
     use std::os::unix::fs::PermissionsExt;
     let home = crate::tools::test_support::Fixture::new();
     let dump = home.0.join("dump");
@@ -74,6 +75,7 @@ fn the_token_reaches_git_only_through_an_owner_only_askpass_helper() {
                 "env; printf 'arg:%s\\n' \"$@\"\n",
                 "printf 'askpass:%s\\n' \"$GIT_ASKPASS\"\n",
                 "ls -ld \"$GIT_ASKPASS\" \"$(dirname \"$GIT_ASKPASS\")\" | sed 's/^/mode:/'\n",
+                "sed 's/^/helper:/' \"$GIT_ASKPASS\"\n",
                 "printf 'user:%s\\n' \"$(\"$GIT_ASKPASS\" \"Username for 'https://github.com': \")\"\n",
                 "printf 'pass:%s\\n' \"$(\"$GIT_ASKPASS\" \"Password for 'https://x-access-token@github.com': \")\"\n",
                 "printf 'other:%s\\n' \"$(\"$GIT_ASKPASS\" \"Password for 'https://x-access-token@evil.example': \")\"\n",
@@ -108,15 +110,51 @@ fn the_token_reaches_git_only_through_an_owner_only_askpass_helper() {
             ran => Some(ran.expect("fixture runs")),
         }
     });
-    let dump = std::fs::read_to_string(&dump).expect("dump");
-    let (answers, child): (Vec<&str>, Vec<&str>) = dump.lines().partition(|line| {
+    let dumped = std::fs::read_to_string(&dump).expect("dump");
+    let (answers, child): (Vec<&str>, Vec<&str>) = dumped.lines().partition(|line| {
         line.starts_with("user:") || line.starts_with("pass:") || line.starts_with("other:")
     });
     let child = child.join("\n");
-    let environment = serde_json::json!(child);
+    let argv = serde_json::json!(
+        child
+            .lines()
+            .filter(|line| line.starts_with("arg:"))
+            .collect::<Vec<_>>()
+    );
     for secret in [token, basic_credential(token).as_str(), "GIT_CONFIG_VALUE"] {
-        crate::tools::test_support::checks::assert_absent(&environment, secret);
+        crate::tools::test_support::checks::assert_absent(&argv, secret);
     }
+    // The helper git runs, read while git runs, holds no credential.
+    let helper: Vec<&str> = child
+        .lines()
+        .filter(|line| line.starts_with("helper:"))
+        .collect();
+    assert!(!helper.is_empty(), "{child}");
+    crate::tools::test_support::checks::assert_absent(&serde_json::json!(helper), token);
+    // No file under the Octocode home holds the token, during or after the
+    // run, and no per-run helper directory is left to sweep.
+    let mut pending = vec![home.0.clone()];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).expect("read home") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path != dump && path != script {
+                let bytes = std::fs::read(&path).expect("read file");
+                assert!(
+                    !String::from_utf8_lossy(&bytes).contains(token),
+                    "{} holds the token",
+                    path.display()
+                );
+            }
+        }
+    }
+    let leftovers: Vec<_> = std::fs::read_dir(home.0.join("tmp"))
+        .expect("tmp")
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter(|name| name.starts_with("askpass"))
+        .collect();
+    assert!(leftovers.is_empty(), "{leftovers:?}");
     assert_eq!(
         answers,
         ["user:x-access-token", &format!("pass:{token}"), "other:"],
@@ -133,13 +171,160 @@ fn the_token_reaches_git_only_through_an_owner_only_askpass_helper() {
             .all(|mode| mode.get(1..10) == Some("rwx------")),
         "{modes:?}"
     );
-    let helper = child
-        .lines()
-        .find_map(|line| line.strip_prefix("askpass:"))
-        .expect("GIT_ASKPASS set");
+}
+
+/// The helper answers nothing when the prompts it may answer are not set:
+/// an empty pattern must not match every prompt.
+#[cfg(unix)]
+#[test]
+fn the_askpass_helper_answers_nothing_without_its_origin() {
+    let home = crate::tools::test_support::Fixture::new();
+    let helper = AskPass::create(&home.0, "ghp_secretToken123", "https://github.com/o/r.git")
+        .expect("helper");
+    for envs in [
+        vec![],
+        vec![("OCTOCODE_ASKPASS_TOKEN", "ghp_secretToken123")],
+        vec![
+            ("OCTOCODE_ASKPASS_USERNAME_PROMPT", ""),
+            ("OCTOCODE_ASKPASS_PASSWORD_PROMPT", ""),
+            ("OCTOCODE_ASKPASS_TOKEN", "ghp_secretToken123"),
+        ],
+    ] {
+        let output = Command::new(&helper.script)
+            .env_clear()
+            .envs(envs.iter().copied())
+            .arg("Password for 'https://x-access-token@evil.example': ")
+            .output()
+            .expect("run helper");
+        assert!(!output.status.success(), "{envs:?}");
+        assert!(output.stdout.is_empty(), "{envs:?}");
+    }
+}
+
+fn allowed_protocols(command: &Command) -> Option<String> {
+    envs(command).get("GIT_ALLOW_PROTOCOL").cloned().flatten()
+}
+
+/// Git may use HTTPS alone: for every remote, submodule and redirect.
+/// Plain HTTP is added only when the authorized remote itself is loopback
+/// HTTP (the endpoints `web_root` accepts); `file`, `ssh` and `ext` never.
+#[test]
+fn git_transports_are_https_plus_loopback_http_for_a_loopback_remote_only() {
+    let git = SystemGit::with_env(&BTreeMap::new());
+    let home = Path::new("/tmp/git-home");
+    for (url, expected) in [
+        (None, "https"),
+        (Some("https://github.com/o/r.git"), "https"),
+        (Some("https://ghe.corp:8443/o/r.git"), "https"),
+        (Some("http://127.0.0.1:8080/o/r.git"), "https:http"),
+        (Some("http://localhost/o/r.git"), "https:http"),
+        (Some("http://[::1]:9/o/r.git"), "https:http"),
+        (Some("http://ghe.corp/o/r.git"), "https"),
+        (Some("file:///tmp/o/r.git"), "https"),
+    ] {
+        let request = GitRunRequest {
+            authorization_url: url,
+            ..request()
+        };
+        assert_eq!(
+            allowed_protocols(&git.command(&request, home, None)).as_deref(),
+            Some(expected),
+            "{url:?}"
+        );
+    }
+}
+
+/// Real git refuses a transport outside the allow-list.
+#[test]
+fn real_git_refuses_a_transport_outside_the_allow_list() {
+    let home = crate::tools::test_support::Fixture::new();
+    let remote = url::Url::from_file_path(home.0.join("missing.git")).expect("file url");
+    let error = SystemGit::with_env(&BTreeMap::new())
+        .run(
+            &GitRunRequest {
+                args: vec!["ls-remote".into(), remote.as_str().into()],
+                timeout: Duration::from_secs(20),
+                ..request()
+            },
+            &GitRunControl {
+                cancellation: &crate::execution::cancel::NeverCancel,
+                deadline: Instant::now() + Duration::from_secs(25),
+                home: &home.0,
+            },
+        )
+        .expect_err("file transport refused");
     assert!(
-        !Path::new(helper).exists(),
-        "helper removed after git exits"
+        error.message.contains("transport 'file' not allowed"),
+        "{}",
+        error.message
+    );
+}
+
+/// End to end with real git against a loopback server that challenges: git
+/// hands its environment through `git-remote-http` to the helper, which
+/// answers git's exact prompts for this origin (port included), so the
+/// retried request carries the token as HTTP Basic.
+#[cfg(unix)]
+#[test]
+fn real_git_sends_the_token_after_a_challenge_from_the_authorized_origin() {
+    use std::io::{BufRead, BufReader, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    let server = std::thread::spawn(move || {
+        let mut authorizations = Vec::new();
+        for stream in listener.incoming().take(2) {
+            let mut stream = stream.expect("connection");
+            let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+            let mut authorization = None;
+            loop {
+                let mut line = String::new();
+                if reader.read_line(&mut line).expect("read") == 0 || line == "\r\n" {
+                    break;
+                }
+                if let Some((name, value)) = line.split_once(':')
+                    && name.eq_ignore_ascii_case("authorization")
+                {
+                    authorization = Some(value.trim().to_owned());
+                }
+            }
+            let response = if authorization.is_some() {
+                "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            } else {
+                "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"fixture\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            };
+            stream.write_all(response.as_bytes()).expect("write");
+            authorizations.push(authorization);
+            if authorizations.last().is_some_and(Option::is_some) {
+                break;
+            }
+        }
+        authorizations
+    });
+    let home = crate::tools::test_support::Fixture::new();
+    let url = format!("http://127.0.0.1:{port}/o/r.git");
+    let token = "ghp_fixtureToken123";
+    let ran = SystemGit::with_env(&BTreeMap::new()).run(
+        &GitRunRequest {
+            args: vec!["ls-remote".into(), url.clone().into()],
+            timeout: Duration::from_secs(20),
+            label: "challenge fixture".into(),
+            authorization: Some(token),
+            authorization_url: Some(&url),
+        },
+        &GitRunControl {
+            cancellation: &crate::execution::cancel::NeverCancel,
+            deadline: Instant::now() + Duration::from_secs(25),
+            home: &home.0,
+        },
+    );
+    let error = ran.expect_err("the fixture serves no repository");
+    crate::tools::test_support::checks::assert_absent(&serde_json::json!(error.message), token);
+    let authorizations = server.join().expect("server");
+    assert_eq!(
+        authorizations,
+        [None, Some(format!("Basic {}", basic_credential(token)))],
+        "{}",
+        error.message
     );
 }
 

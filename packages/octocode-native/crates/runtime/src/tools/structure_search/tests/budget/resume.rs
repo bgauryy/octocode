@@ -92,9 +92,9 @@ fn the_ignored_retry_of_a_resumed_window_lists_from_the_start() {
     }
 }
 
-/// A listing sorted by something else than walk order and cut by time lists
-/// its walk window's first rows in walk order, so the resumed walk
-/// reaches the rest: no row is lost to a sort a cut walk ranks differently.
+/// A listing sorted by something else than walk order and paused by time
+/// lists every entry exactly once over its windows ([`super::ranked`] proves
+/// the order).
 #[test]
 fn a_sorted_listing_cut_by_time_resumes_exactly() {
     for sort in ["name", "sizeBytes", "modifiedAt", "lineCount"] {
@@ -148,23 +148,6 @@ fn a_walk_cut_before_the_rows_an_earlier_window_listed_skips_the_rest_after_it()
         whole.sort();
         assert_eq!(chained, whole, "{operation}: every entry exactly once");
     }
-}
-
-#[test]
-fn a_sorted_listing_cut_before_the_rows_an_earlier_window_listed_lists_none_and_is_terminal() {
-    let root = Fixture::new();
-    let mut query = flat_listing("files", &root, json!({"sort":{"by":"name","order":"asc"}}));
-    query["scanOffset"] = json!(4);
-    WINDOW.set(Some(8));
-    let out = within_checked(&root.0, query.clone(), STEP * 5 / 3, &Slow);
-    assert_row_contract(ToolId::StructureSearch, &out);
-    assert!(listed_entries(&out).is_empty(), "{out}");
-    assert_eq!(out["terminalLimit"], true, "{out}");
-    assert!(out["next"].get("nextPage").is_none(), "{out}");
-    assert!(
-        out["warnings"].to_string().contains("cannot skip the rows"),
-        "{out}"
-    );
 }
 
 /// Entries the walk counted in an earlier window (withheld by policy,

@@ -2,7 +2,6 @@
 export * as activity from '../runtime/activity.js';
 export * as catalog from '../runtime/catalog.js';
 export * as cli from '../runtime/cli.js';
-export * as completion from '../runtime/completion.js';
 export * as config from '../runtime/config.js';
 export * as database from '../runtime/database.js';
 export * as databaseExport from '../runtime/database-export.js';

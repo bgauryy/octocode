@@ -113,4 +113,6 @@ mod commonjs;
 mod graph_occurrences;
 mod module_facts;
 mod nested_callers;
+mod nesting;
+mod nesting_pass;
 mod outline;

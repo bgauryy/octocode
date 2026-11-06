@@ -52,6 +52,10 @@ pub enum ExecutionError {
     Timeout,
     /// A tool reached a dispatcher that has no route for it.
     UnroutedTool,
+    /// Continuations cannot be retained in the configured persistent store.
+    StorageUnavailable,
+    /// This host exits after the call, but the answer needs memory-only saved work.
+    ContinuationLifetime,
     WorkerFailed,
 }
 
@@ -66,7 +70,10 @@ impl ExecutionError {
             Self::Cancelled => ErrorCode::Cancelled,
             Self::Timeout => ErrorCode::Timeout,
             Self::UnroutedTool => ErrorCode::UnroutedTool,
-            Self::InvalidLimits | Self::WorkerFailed => ErrorCode::ExecutionFailed,
+            Self::InvalidLimits
+            | Self::StorageUnavailable
+            | Self::ContinuationLifetime
+            | Self::WorkerFailed => ErrorCode::ExecutionFailed,
         }
     }
 }
@@ -81,6 +88,8 @@ impl std::fmt::Display for ExecutionError {
             Self::Cancelled => "The request was cancelled.",
             Self::Timeout => "Tool call timed out.",
             Self::UnroutedTool => "No route executes this tool.",
+            Self::StorageUnavailable => "Persistent continuation storage is unavailable. Check filesystem permissions or select a writable OCTOCODE_HOME; the continuation was not published.",
+            Self::ContinuationLifetime => "This answer requires continuations, but this command exits after one call and its saved work is memory-only. The requested evidence has not been delivered completely; no continuation was published. Use a live MCP session, or enable persistent storage with security settings that permit saving results, then repeat the original request.",
             Self::WorkerFailed => "The tool worker failed.",
         })
     }
@@ -147,9 +156,19 @@ struct RequestGuard {
 pub struct RequestAdmission {
     guard: RequestGuard,
     context: ExecutionContext,
+    pub(crate) persistent_continuations: bool,
 }
 
 impl RequestAdmission {
+    /// A host that exits after this call cannot resume in-process saved work.
+    /// Complete answers still work with memory-only storage; an answer that
+    /// needs a continuation requires a store that survives the host.
+    #[must_use]
+    pub fn requiring_persistent_continuations(mut self) -> Self {
+        self.persistent_continuations = true;
+        self
+    }
+
     /// Carry the caller's GitHub token on this request as a secret override.
     pub(crate) fn with_github_token(mut self, token: SecretString) -> Self {
         self.context.github_credential =
@@ -257,6 +276,7 @@ impl RequestRuntime {
             .ok_or(ExecutionError::InvalidLimits)?;
         state.requests.insert(request_id.clone(), token.clone());
         Ok(RequestAdmission {
+            persistent_continuations: false,
             guard: RequestGuard {
                 inner: self.inner.clone(),
                 id: request_id,
@@ -282,7 +302,7 @@ impl RequestRuntime {
         if !Arc::ptr_eq(&self.inner, &admission.guard.inner) {
             return Err(ExecutionError::WorkerFailed);
         }
-        let RequestAdmission { guard, context } = admission;
+        let RequestAdmission { guard, context, .. } = admission;
         let token = context.cancellation.clone();
         let _cancel_on_drop = token.clone().drop_guard();
         let deadline = tokio::time::Instant::from_std(context.deadline);

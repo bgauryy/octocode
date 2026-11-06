@@ -62,7 +62,7 @@ fn evidence_strings_share_the_record_dictionary_budget() {
     let limits = |string_bytes, table_items| Limits {
         string_bytes,
         table_items,
-        ..LIMITS
+        ..*LIMITS
     };
     let mut t = GraphTables::default();
     read_strings(&mut Reader::new(&section, "STRS"), &mut t, &limits(100, 3)).unwrap();
@@ -117,6 +117,6 @@ fn snapshot_bytes_are_pinned_across_block_boundaries() {
     // Readers of this format version hold exactly these bytes.
     assert_eq!(
         octocode_engine::digest::sha256(&bytes),
-        "69caf81b6be2850a6e639c98364da5602bb8ca32cbb05567e9d3953014d1cdef"
+        "2a6821affa5884438ae6cfa4aae21f9d0d9679c004a9a2ff65d1ed3728b66fa1"
     );
 }

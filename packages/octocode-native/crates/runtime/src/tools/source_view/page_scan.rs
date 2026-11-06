@@ -24,14 +24,15 @@ pub(super) struct ScannedPage {
 }
 
 /// How a page is cut from a view: the page's query, the view text, the
-/// bytes one line page may hold, and the raw source lines a transformed
-/// view pages in (see [`page_within`]).
+/// bytes one line page may hold, the raw source lines a transformed view
+/// pages in (see [`page_within`]), and the view's kept window scan.
 #[derive(Clone, Copy)]
 pub(super) struct PageWindow<'a> {
     pub(super) query: &'a LocalFetchQuery,
     pub(super) view: &'a str,
     pub(super) budget: super::pagination::LineBudget,
     pub(super) source_lines: Option<&'a SourceLines>,
+    pub(super) scans: &'a super::pagination::WindowScans,
 }
 
 /// Cut the page and scan it for secrets. A line or byte page is scanned on
@@ -51,6 +52,7 @@ pub(super) fn scan_page(
         view: selected,
         budget,
         source_lines,
+        scans,
     } = *cut;
     {
         let raw = page_within(selected, page_q, budget, source_lines);
@@ -58,7 +60,7 @@ pub(super) fn scan_page(
         let windowed = if raw.pagination.unit == ReadProgressUnit::Lines {
             sanitize_line_page(selected, raw, source_path, security).unwrap_or(None)
         } else {
-            sanitize_byte_page(selected, raw, source_path, security).unwrap_or(None)
+            sanitize_byte_page(selected, raw, source_path, security, scans).unwrap_or(None)
         };
         // Page sanitizers keep line counts, so a redacted page still maps
         // onto source lines.
@@ -157,14 +159,8 @@ pub(super) fn warn_redacted(
     warnings: &mut Vec<String>,
 ) {
     let redactions = redactions.min(placeholders(text));
-    if redactions > 0 {
-        warnings.push(format!(
-            "redactedContent: {redactions} secret-shaped value(s) in the returned text were replaced by [REDACTED…] placeholders; this content is not verbatim source."
-        ));
-    } else if view_redacted || blanked {
-        warnings.push(
-            "redactedContent: secret-shaped text in the requested view was redacted; this content is not verbatim source.".into(),
-        );
+    if redactions > 0 || view_redacted || blanked {
+        warnings.push(crate::security::redacted_content_warning(redactions));
     }
 }
 

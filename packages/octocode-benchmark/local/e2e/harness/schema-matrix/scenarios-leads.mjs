@@ -12,7 +12,8 @@ const scene = (id, tool) => (query, expects, more = {}) => ({ id: `lead.${id}`, 
 const score = (question, decision) => {
   const levels = question.criteria ?? ['low', 'mid', 'high'];
   const probabilities = Object.fromEntries(levels.map((_, level) => [String(level), decision === 'unknown' ? (level < 2 ? 0.4 : 0.2) : Number(level === (decision === 'selected' ? levels.length - 1 : 0))]));
-  return { type: 'score', score: decision === 'selected' ? levels.length - 1 : 0, confidence: decision === 'unknown' ? 0.4 : 1, probabilities, legend: Object.fromEntries(levels.map((label, level) => [String(level), label])) };
+  const expected = Object.entries(probabilities).reduce((sum, [level, p]) => sum + Number(level) * p, 0);
+  return { type: 'score', score: Number(expected.toFixed(4)), confidence: decision === 'unknown' ? 0.4 : 1, probabilities, legend: Object.fromEntries(levels.map((label, level) => [String(level), label])) };
 };
 const answering = decide => request => ({ body: classificationAnswer(request, (question, id) => score(question, decide(request, id))) });
 const predicates = (id, more = {}) => ({ classification: { predicates: [`scenario ${id}`], ...more } });
@@ -29,8 +30,8 @@ const HISTORY = [
     github: request => pullFiles([file('src/short.ts', { patch: '@@ -50,3 +50,3 @@\n a\n-needle old\n+needle new\n b' })])(request) ?? (request.p.startsWith('/repos/octo/demo/contents/src/short.ts') ? { status: 500, body: { message: 'unreadable' } } : null),
     allow: ['lead.execution'],
   }),
-  scene('readAtCommit.readParent', 'ghGetHistoryItem')({ ...PR, sections: ['patches'] }, { channels: ['readAtCommit', 'readParent'] }, { github: pullFiles([file('src/huge.rs')]) }),
-  scene('searchUnpatchedFile', 'ghGetHistoryItem')({ ...PR, sections: ['patches'], matchString: ['needle'] }, { channels: ['searchUnpatchedFile'], reasons: ['patchUnavailable'] }, { github: pullFiles([file('src/nopatch.rs')]) }),
+  scene('readAtCommit.readParent', 'ghGetHistoryItem')({ ...PR, sections: ['patches'] }, { channels: ['readAtCommit', 'readParent'] }, { github: pullFiles([file('src/huge.rs')]), allow: ['lead.execution'] }),
+  scene('searchUnpatchedFile', 'ghGetHistoryItem')({ ...PR, sections: ['patches'], matchString: ['needle'] }, { channels: ['searchUnpatchedFile'], reasons: ['patchUnavailable'] }, { github: pullFiles([file('src/nopatch.rs')]), allow: ['lead.execution'] }),
   scene('listCommits', 'ghGetHistoryItem')({ ...R, operation: 'compare', baseRef: 'aaa', headRef: 'bbb', sections: ['files'] }, { channels: ['listCommits'] }, { github: cappedCompare, allow: ['lead.execution'] }),
   scene('readCommitFiles', 'ghGetHistoryItem')({ ...R, operation: 'compare', baseRef: 'aaa', headRef: 'bbb' }, { channels: ['readCommitFiles'] }, { github: cappedCompare, allow: ['lead.execution'] }),
   scene('commentBody', 'ghGetHistoryItem')({ ...R, operation: 'issue', number: 2, sections: ['comments'] }, { channels: ['nextPage'] }, { github: request => (request.p === '/repos/octo/demo/issues/2/comments' ? { body: [{ id: 21, user: { login: 'octo-dev', type: 'User' }, body: 'long comment text '.repeat(1000), created_at: '2025-01-01T00:00:00Z', updated_at: '2025-01-01T00:00:00Z', html_url: 'x', author_association: 'OWNER' }] } : null) }),
@@ -38,7 +39,9 @@ const HISTORY = [
 ];
 
 function cappedCompare(request) {
-  if (request.p === '/repos/octo/demo/compare/aaa...bbb') return { body: { status: 'ahead', ahead_by: 2, behind_by: 0, total_commits: 2, base_commit: { sha: 'a'.repeat(40) }, merge_base_commit: {}, commits: [1, 2].map(index => ({ sha: String(index).repeat(40), commit: { message: `c${index}`, author: { name: 'n', date: '2025-01-01T00:00:00Z' } }, parents: [] })), files: Array.from({ length: 300 }, (_, index) => file(`f${index}.ts`, { patch: '@@ -1 +1 @@\n+x' })) } };
+  const resolved = /^\/repos\/octo\/demo\/commits\/(aaa|bbb)$/.exec(request.p);
+  if (resolved) return { body: { sha: resolved[1][0].repeat(40), commit: { message: resolved[1], author: { name: 'n', date: '2025-01-01T00:00:00Z' } }, parents: [] } };
+  if (request.p.startsWith('/repos/octo/demo/compare/')) return { body: { status: 'ahead', ahead_by: 2, behind_by: 0, total_commits: 2, base_commit: { sha: 'a'.repeat(40) }, merge_base_commit: {}, commits: [1, 2].map(index => ({ sha: String(index).repeat(40), commit: { message: `c${index}`, author: { name: 'n', date: '2025-01-01T00:00:00Z' } }, parents: [] })), files: Array.from({ length: 300 }, (_, index) => file(`f${index}.ts`, { patch: '@@ -1 +1 @@\n+x' })) } };
   return null;
 }
 
@@ -63,20 +66,21 @@ function contentOf(name, text) {
 
 const treeless = request => (/\/git\/trees\//.test(request.p) ? { status: 404, body: { message: 'Not Found' } } : null);
 const STRUCTURE = [
-  scene('expandDepth', 'ghStructure')({ ...R, operation: 'tree', materialize: true, maxDepth: 1, ref: 'a'.repeat(40) }, { channels: ['expandDepth'], reasons: ['materializeDepth'] }, { allow: ['lead.execution'], github: request => treeless(request) ?? (request.p === '/repos/octo/demo/contents' ? { body: [{ type: 'file', name: 'one.rs', path: 'one.rs', size: 1, sha: 'a'.repeat(40) }, { type: 'dir', name: 'router', path: 'router', size: 0, sha: 'b'.repeat(40) }] } : request.p === '/repos/octo/demo/contents/one.rs' ? { body: { type: 'file', encoding: 'base64', path: 'one.rs', size: 2, sha: 'a'.repeat(40), content: 'eAo=' } } : null) }),
-  scene('continueMaterialize', 'ghStructure')({ ...R, operation: 'tree', materialize: true, maxDepth: 1, ref: 'b'.repeat(40) }, { channels: ['continueMaterialize'], reasons: ['materializeIncomplete'] }, { allow: ['lead.execution'], github: request => treeless(request) ?? (request.p === '/repos/octo/demo/contents' ? { body: [{ type: 'file', name: 'a.rs', path: 'a.rs', size: 1, sha: 'a'.repeat(40) }, { type: 'file', name: 'b.rs', path: 'b.rs', size: 1, sha: 'b'.repeat(40) }] } : request.p === '/repos/octo/demo/contents/a.rs' ? { body: { type: 'file', encoding: 'base64', path: 'a.rs', size: 2, sha: 'a'.repeat(40), content: 'eAo=' } } : request.p === '/repos/octo/demo/contents/b.rs' ? { status: 429, body: { message: 'slow' }, headers: { 'retry-after': '60' } } : null) }),
-  scene('partialTreeFailures', 'ghStructure')({ ...R, operation: 'tree', maxDepth: 2 }, { reasons: ['partialTreeFailures'] }, { github: request => treeless(request) ?? (request.p === '/repos/octo/demo/contents' ? { body: [{ type: 'dir', name: 'src', path: 'src', size: 0, sha: 'b'.repeat(40) }] } : request.p === '/repos/octo/demo/contents/src' ? { status: 500, body: { message: 'down' } } : null) }),
+  scene('expandDepth', 'ghStructure')({ ...R, operation: 'tree', materialize: true, maxDepth: 1, ref: 'a'.repeat(40) }, { channels: ['expandDepth'], reasons: ['materializeDepth'] }, { allow: ['lead.execution', 'lead.repeat'], github: request => treeless(request) ?? (request.p === '/repos/octo/demo/contents' ? { body: [{ type: 'file', name: 'one.rs', path: 'one.rs', size: 1, sha: 'a'.repeat(40) }, { type: 'dir', name: 'router', path: 'router', size: 0, sha: 'b'.repeat(40) }] } : request.p === '/repos/octo/demo/contents/one.rs' ? { body: { type: 'file', encoding: 'base64', path: 'one.rs', size: 2, sha: 'a'.repeat(40), content: 'eAo=' } } : null) }),
+  scene('continueMaterialize', 'ghStructure')({ ...R, operation: 'tree', materialize: true, maxDepth: 1, ref: 'b'.repeat(40) }, { channels: ['continueMaterialize'], reasons: ['materializeIncomplete'] }, { allow: ['lead.execution'], github: request => treeless(request) ?? (request.p === '/repos/octo/demo/contents' ? { body: [{ type: 'file', name: 'a.rs', path: 'a.rs', size: 1, sha: 'a'.repeat(40) }, { type: 'file', name: 'b.rs', path: 'b.rs', size: 1, sha: 'b'.repeat(40) }] } : request.p === '/repos/octo/demo/contents/a.rs' ? { body: { type: 'file', encoding: 'base64', path: 'a.rs', size: 2, sha: 'a'.repeat(40), content: 'eAo=' } } : request.p === '/repos/octo/demo/contents/b.rs' ? { status: 429, body: { message: 'slow' }, headers: { 'retry-after': '1' } } : null) }),
+  scene('partialTreeFailures', 'ghStructure')({ ...R, operation: 'tree', maxDepth: 2 }, { reasons: ['partialTreeFailures'] }, { allow: ['lead.repeat'], github: request => treeless(request) ?? (request.p === '/repos/octo/demo/contents' ? { body: [{ type: 'dir', name: 'src', path: 'src', size: 0, sha: 'b'.repeat(40) }] } : request.p === '/repos/octo/demo/contents/src' ? { status: 500, body: { message: 'down' } } : null) }),
   scene('providerContentsLimit', 'ghStructure')({ ...R, operation: 'tree', maxDepth: 1 }, { reasons: ['providerContentsLimit'] }, { github: request => treeless(request) ?? (request.p === '/repos/octo/demo/contents' ? { body: Array.from({ length: 1000 }, (_, index) => ({ type: 'file', name: `f${index}`, path: `f${index}`, size: 1, sha: 'a'.repeat(40) })) } : null) }),
 ];
 
 const searchAnswer = body => request => (request.p === '/search/repositories' ? { body } : null);
 const PROVIDER_SHAPES = [
   scene('providerResultCap', 'ghSearchRepo')({ operation: 'search', keywords: ['alpha'], limit: 1 }, { reasons: ['providerResultCap'] }, { github: request => (request.p === '/search/repositories' ? { body: { total_count: 5000, incomplete_results: false, items: [] } } : null), allow: ['lead.execution'] }),
-  scene('providerIncompleteResults', 'ghSearchRepo')({ operation: 'search', keywords: ['alpha'] }, { reasons: ['providerIncompleteResults'], channels: [] }, { github: searchAnswer({ total_count: 0, incomplete_results: true, items: [] }) }),
-  scene('repair.search', 'artifactSearch')({ operation: 'search', ecosystem: 'npm', keywords: ['health'], page: 300, registryUrl: '$MOCK' }, { codes: ['invalidInput'], channels: ['repair'] }),
+  scene('providerIncompleteResults', 'ghSearchRepo')({ operation: 'search', keywords: ['alpha'] }, { reasons: ['providerIncompleteResults'], channels: [] }, { github: searchAnswer({ total_count: 0, incomplete_results: true, items: [] }), allow: ['lead.repeat'] }),
+  // `page` is private walk state now; a version the registry lacks is the reachable repair.
+  scene('repair.search', 'artifactSearch')({ operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '9.9.9', registryUrl: '$MOCK' }, { codes: ['versionNotFound'], channels: ['repair'] }),
   { id: 'lead.restart', tool: 'localFetch', files: { 'a.txt': Array.from({ length: 4000 }, (_, index) => `line ${index}\n`).join('') }, channels: ['restart'], codes: ['staleSnapshot'], run: async ({ call, dir }) => {
     const first = await call('localFetch', { queries: [{ path: '$DIR/a.txt' }], responseChars: 500 });
-    const next = first.json?.responsePagination?.next;
+    const next = first.json?.responsePagination?.next ?? first.json?.results?.[0]?.data?.next?.nextPage;
     if (!next) return 'no page to resume';
     (await import('node:fs')).writeFileSync(`${dir}/a.txt`, 'changed text\n');
     await call(next.tool, next.input);

@@ -1,5 +1,4 @@
-use super::patterns::{PATTERN_COUNT, PATTERNS};
-use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
+use super::patterns::PATTERNS;
 use regex::Regex;
 use std::sync::{LazyLock, OnceLock};
 
@@ -22,7 +21,17 @@ pub use jwk::hide_members as hide_jwk_members;
 pub use long_line::{LONG_LINE_BYTES, LongLine};
 pub use source_names::{Named, SecretForm, SecretSpan, SecretSpans, SourceNames, SourceWalk};
 
+mod prescan;
 mod regex_forms;
+
+use prescan::{PatternSet, prescan_candidates};
+
+/// The prescan gate `build.rs` derives from [`PATTERNS`]: `GATE_LITERALS`
+/// (lowercased literal, pattern index) and the `FALLBACK` pattern indices
+/// ([`prescan`]).
+mod gates {
+    include!(concat!(env!("OUT_DIR"), "/secret_gates.rs"));
+}
 
 mod file_context;
 
@@ -88,114 +97,6 @@ fn replacement_for(idx: usize) -> &'static str {
     &REPLACEMENTS[idx]
 }
 
-// ---------------------------------------------------------------------------
-// Literal prescan — the cheap gate in front of regex compilation.
-//
-// The old path lazily built a 309-branch RegexSet DFA plus 309 individual
-// regexes on the FIRST sanitize call (~250-800 ms), a tax every fresh process
-// paid even for entirely clean content. The prescan replaces it:
-//
-//   1. At build time (`build.rs`), extract every pattern's gate via
-//      regex-syntax HIR: its *required prefix literals*, else literals its
-//      structure requires inside every match. A pattern gates on its
-//      literals only when extraction proves the set is finite and every
-//      literal is a meaningful anchor (>= 3 bytes).
-//   2. At first call, build ONE case-insensitive aho-corasick automaton over
-//      those literals.
-//   3. Per call: scan content once with aho-corasick; only patterns whose
-//      literal appears (plus the small no-literal fallback bucket) get their
-//      regex compiled (lazily, once per process) and confirmed with is_match.
-//
-// Correctness invariant: for a gated pattern, "regex matches content" implies
-// "content contains one of its gate literals" (a match begins with a prefix
-// literal, and contains a match of every concatenated part, of one branch of
-// an alternation, and of a repetition's body when its minimum is one), and
-// patterns are parsed with their flags, so a `(?i)` pattern's literals carry
-// every Unicode case variant its regex matches (`ſ` for `s`); the automaton
-// is ASCII-case-insensitive over literals stored lowercased. Patterns whose
-// literals cannot be proven (pure entropy shapes, UUIDs) are ALWAYS
-// candidates — they are never gated out.
-// ---------------------------------------------------------------------------
-
-/// The prescan gate `build.rs` derives from [`PATTERNS`]: `GATE_LITERALS`
-/// (lowercased literal, pattern index) and the `FALLBACK` pattern indices.
-mod gates {
-    include!(concat!(env!("OUT_DIR"), "/secret_gates.rs"));
-}
-
-/// One automaton over every gated pattern's literals; its pattern id indexes
-/// `gates::GATE_LITERALS`.
-static PRESCAN: LazyLock<AhoCorasick> = LazyLock::new(|| {
-    // Aho-Corasick over a fixed literal set cannot fail to build.
-    #[expect(
-        clippy::expect_used,
-        reason = "built from static patterns, valid by construction"
-    )]
-    AhoCorasickBuilder::new()
-        .ascii_case_insensitive(true)
-        .build(gates::GATE_LITERALS.iter().map(|(literal, _)| literal))
-        .expect("prescan literal automaton must build")
-});
-
-/// A set of pattern indices, one bit per pattern, kept on the stack: picking
-/// a text's candidates allocates nothing.
-#[derive(Clone, Copy, Default)]
-struct PatternSet([u64; PATTERN_COUNT.div_ceil(64)]);
-
-impl PatternSet {
-    fn insert(&mut self, idx: usize) {
-        self.0[idx / 64] |= 1 << (idx % 64);
-    }
-
-    fn is_empty(&self) -> bool {
-        self.0.iter().all(|word| *word == 0)
-    }
-
-    fn intersects(self, other: Self) -> bool {
-        self.0.iter().zip(other.0).any(|(a, b)| a & b != 0)
-    }
-
-    /// The members, in canonical pattern order.
-    fn iter(self) -> impl Iterator<Item = usize> {
-        self.0.into_iter().enumerate().flat_map(|(at, word)| {
-            let mut rest = word;
-            std::iter::from_fn(move || {
-                (rest != 0).then(|| {
-                    let bit = rest.trailing_zeros() as usize;
-                    rest &= rest - 1;
-                    at * 64 + bit
-                })
-            })
-        })
-    }
-
-    /// The members `keep` accepts.
-    fn filter(self, mut keep: impl FnMut(usize) -> bool) -> Self {
-        let mut kept = Self::default();
-        for idx in self.iter().filter(|&idx| keep(idx)) {
-            kept.insert(idx);
-        }
-        kept
-    }
-}
-
-/// Candidate patterns for `content`: gated patterns whose literal appears,
-/// plus the always-on fallback bucket. Callers confirm each with the real
-/// pattern regex (compiled lazily, only for candidates), so they still see
-/// exact match semantics.
-fn prescan_candidates(content: &str) -> PatternSet {
-    let mut candidates = PatternSet::default();
-    // Overlapping scan: a literal nested inside another match span must still
-    // register its own pattern, or that pattern would be silently gated out.
-    for hit in PRESCAN.find_overlapping_iter(content) {
-        candidates.insert(gates::GATE_LITERALS[hit.pattern().as_usize()].1);
-    }
-    for &idx in gates::FALLBACK {
-        candidates.insert(idx);
-    }
-    candidates
-}
-
 /// Candidates that apply to `scope` ([`should_apply`]), checked before any
 /// pattern regex compiles: a pattern its file context rules out is never built
 /// for that text, so a process pays only for the detectors its output reaches.
@@ -249,7 +150,12 @@ fn replace_secrets(
                 line_start = searched_to + at + 1;
             }
             searched_to = whole.start();
-            if !redacts(&content[line_start..secret.start()], secret.as_str()) {
+            // A secret an earlier pattern already replaced (a URL's password
+            // that two URL patterns name) is a placeholder now: kept, so
+            // the redaction is counted once and its label stays.
+            if is_placeholder(secret.as_str())
+                || !redacts(&content[line_start..secret.start()], secret.as_str())
+            {
                 return whole.as_str().to_owned();
             }
             let line_breaks = secret
@@ -265,6 +171,12 @@ fn replace_secrets(
             redacted
         })
         .into_owned()
+}
+
+/// `text` is exactly one pattern's placeholder.
+fn is_placeholder(text: &str) -> bool {
+    text.starts_with(super::REDACTION_PREFIX)
+        && REPLACEMENTS.iter().any(|placeholder| placeholder == text)
 }
 
 /// Capture group name prefix marking the secret part of a match that also
@@ -346,6 +258,11 @@ pub(crate) struct DetectResult {
     pub secrets_detected: Vec<String>,
 }
 
+/// [`redact_within`] at [`MAX_CONTENT_SIZE`].
+pub(crate) fn redact(content: &str, scope: Scope<'_>) -> Option<DetectResult> {
+    redact_within(content, scope, MAX_CONTENT_SIZE)
+}
+
 /// Detects and redacts secrets over the whole content; `None` when nothing
 /// was redacted, so clean content is never copied.
 ///
@@ -356,8 +273,9 @@ pub(crate) struct DetectResult {
 ///
 /// `scope` gates file-context patterns (e.g. Kubernetes YAML secrets, `.env`
 /// fine-grained GitHub tokens) so they fire only where they apply.
-pub(crate) fn redact(content: &str, scope: Scope<'_>) -> Option<DetectResult> {
-    if content.len() > MAX_CONTENT_SIZE {
+/// A text past `limit` is judged in one pass over its spans.
+pub(crate) fn redact_within(content: &str, scope: Scope<'_>, limit: usize) -> Option<DetectResult> {
+    if content.len() > limit {
         return long_text::redact_long(content, scope);
     }
     let matched = matching_patterns(content, scope);

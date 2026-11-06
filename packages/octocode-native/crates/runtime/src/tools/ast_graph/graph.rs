@@ -29,6 +29,7 @@ mod resolve;
 mod rust;
 mod scan;
 pub(crate) mod scope;
+mod turn;
 use super::paths::{dirname, join, join_within_root, normalize};
 use link::*;
 pub(super) use resolve::OUTSIDE_ROOT;
@@ -83,14 +84,16 @@ pub(crate) fn build_graph_with_registry(
         reused_files,
         markup,
         tally,
-    } = scan::extract(
-        scan,
-        &validated.canonical,
-        paths,
-        security,
-        cancel,
-        registry,
-    )?;
+    } = {
+        let turn = turn::ExtractionTurn::new(cancel, scan.checkpoint.is_some());
+        match scan::extract(scan, &validated.canonical, paths, security, &turn, registry) {
+            Ok(extracted) => extracted,
+            Err(_) if turn.ended() => {
+                return Ok(paused(scan, validated.canonical, turn.walked()));
+            }
+            Err(error) => return Err(error),
+        }
+    };
     cancel.check().map_err(cancelled)?;
     if let Some(job) = &job {
         job.linking()?;
@@ -230,18 +233,40 @@ fn link_restored(
     if let Some(facts) = built.facts.get_mut(&file) {
         facts.source = source;
     }
-    if let Err((table, bound)) = scan.limits.admit(&built.tally) {
+    if let Err(over) = scan.limits.admit(&built.tally) {
         return Err(scope::too_broad(
             &built.root,
             known.iter().map(String::as_str),
             &format!(
-                "{} files are too many for one graph snapshot: linking the first {} projects more than the snapshot's {bound} {table} rows",
+                "{} files are too many for one graph snapshot: linking the first {}, they {over}",
                 known.len(),
                 built.facts.len()
             ),
         ));
     }
     Ok(())
+}
+
+/// A checkpointed build whose extraction used its share of the call's
+/// budget: what it committed resumes on the next call of the same input.
+fn paused(scan: &GraphScan, root: PathBuf, files: usize) -> BuiltGraph {
+    let committed_files = scan
+        .checkpoint
+        .as_deref()
+        .and_then(|base| std::fs::read_dir(checkpoint::job_path(base, &root)).ok())
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| entry.file_name().to_string_lossy().ends_with(".fact"))
+        .count();
+    BuiltGraph {
+        paused: Some(ExtractionPause {
+            committed_files,
+            remaining_files: files.saturating_sub(committed_files),
+        }),
+        root,
+        ..Default::default()
+    }
 }
 
 pub(super) fn registry_identity(registry: RegistryView<'_>) -> Result<String, ToolError> {

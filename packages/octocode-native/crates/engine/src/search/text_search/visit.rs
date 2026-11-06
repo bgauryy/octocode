@@ -14,7 +14,6 @@ use grep_matcher::Matcher;
 use ignore::WalkState;
 use std::path::Path;
 use std::sync::atomic::Ordering;
-use std::time::Instant;
 
 /// Walk-wide settings and shared state every worker reads while visiting.
 pub(super) struct WalkScope<'a> {
@@ -41,11 +40,24 @@ impl WalkScope<'_> {
         files: &mut FileSearcher<'_, M>,
         worker_recs: &mut WorkerRecs<'_>,
     ) -> WalkState {
-        let (opts, state) = (self.opts, self.state);
-        let dent = match self.admit(dent, path_filter) {
-            Ok(dent) => dent,
-            Err(walk_state) => return walk_state,
-        };
+        match self.admit(dent, path_filter) {
+            Ok(dent) => {
+                self.search_entry(self.state, &dent, files, worker_recs);
+                WalkState::Continue
+            }
+            Err(walk_state) => walk_state,
+        }
+    }
+
+    /// Search one admitted file and keep its record, counting it in `state`.
+    pub(super) fn search_entry<M: Matcher>(
+        &self,
+        state: &CollectState,
+        dent: &ignore::DirEntry,
+        files: &mut FileSearcher<'_, M>,
+        worker_recs: &mut WorkerRecs<'_>,
+    ) {
+        let opts = self.opts;
         let path: &Path = dent.path();
         // A test-code scope leaves out, unread, every file whose location
         // (path or mount) puts it on the other side; a file that may mix
@@ -59,19 +71,19 @@ impl WalkScope<'_> {
             };
             if !searched {
                 state.test_files_excluded.fetch_add(1, Ordering::Relaxed);
-                return WalkState::Continue;
+                return;
             }
         }
-        let Some((file, meta)) = self.open_within_ceiling(&dent) else {
-            return WalkState::Continue;
+        let Some((file, meta)) = self.open_within_ceiling(state, dent) else {
+            return;
         };
         let file_len = meta.len();
-        let Some(outcome) = self.search_file(files, &file, path) else {
-            return WalkState::Continue;
+        let Some(outcome) = self.search_file(state, files, &file, path) else {
+            return;
         };
         if self.left_out_whole(path, &outcome) {
             state.test_files_excluded.fetch_add(1, Ordering::Relaxed);
-            return WalkState::Continue;
+            return;
         }
         state
             .test_lines_excluded
@@ -97,16 +109,13 @@ impl WalkScope<'_> {
         if outcome.span_cap_reached {
             state.span_capped.store(true, Ordering::Relaxed);
         }
-        if outcome.deadline_hit {
-            state.timed_out.store(true, Ordering::Relaxed);
-        }
         state.files_searched.fetch_add(1, Ordering::Relaxed);
         state.bytes_searched.fetch_add(file_len, Ordering::Relaxed);
         if outcome.opaque {
             // Binary from its leading bytes: outside a text search, so
             // any bytes that happened to match are not hits.
             state.record_skipped_binary(path);
-            return WalkState::Continue;
+            return;
         } else if outcome.binary {
             // Text after the NUL was not searched: coverage is partial.
             state.record_binary(path);
@@ -116,12 +125,12 @@ impl WalkScope<'_> {
         // A binary file quit before any match is *unknown*, not "without
         // match": a files-without view never lists it.
         if outcome.binary && !has_match && self.keep_unmatched {
-            return WalkState::Continue;
+            return;
         }
         if has_match == self.keep_unmatched {
             // Normal/files-only/count modes keep matched files;
             // files-without-match keeps the rest.
-            return WalkState::Continue;
+            return;
         }
 
         let copied = outcome.copied;
@@ -131,12 +140,12 @@ impl WalkScope<'_> {
             .is_some_and(|terms| !terms.pass(copied, &file))
         {
             state.file_terms_dropped.fetch_add(1, Ordering::Relaxed);
-            return WalkState::Continue;
+            return;
         }
         let demoted =
             generated || (ranks_by_relevance(opts) && relevance::is_demoted_path(&relative));
         // A stopped walk keeps what it found without reading further.
-        let source = (opts.values.hashed() && !state.stopped())
+        let source = (opts.values.hashed() && !files.stop.load(Ordering::Relaxed))
             .then(|| hashed_source(&file, &meta))
             .flatten();
         drop(file);
@@ -146,7 +155,7 @@ impl WalkScope<'_> {
             matched_lines: outcome.matched_lines,
             submatches: outcome.submatches,
             om_matches: outcome.om_matches,
-            sort_time: capture_sort_time(opts, &dent),
+            sort_time: capture_sort_time(opts, dent),
             line_weight: outcome.line_weight,
             covered: outcome.covered,
             demoted,
@@ -156,7 +165,6 @@ impl WalkScope<'_> {
             not_utf8: outcome.not_utf8,
             term_counts: outcome.term_counts,
         });
-        WalkState::Continue
     }
 
     /// Whether the test-code scope leaves out the searched file `path`
@@ -184,27 +192,20 @@ impl WalkScope<'_> {
     }
 
     /// The entry when it is a file to search, or the walk state to return
-    /// for it (stop, cancellation, deadline, walk error, filter).
-    fn admit(
+    /// for it (stop, cancellation, walk error, filter).
+    pub(super) fn admit(
         &self,
         dent: std::result::Result<ignore::DirEntry, ignore::Error>,
         path_filter: &dyn TextSearchPathFilter,
     ) -> std::result::Result<ignore::DirEntry, WalkState> {
         let (opts, state) = (self.opts, self.state);
-        // Between entries: end the walk on stop, cancellation, or the
-        // deadline, keeping the files already finished.
+        // Between entries: end the walk on stop or cancellation, keeping
+        // the files already finished.
         if state.stopped() {
             return Err(WalkState::Quit);
         }
         if (self.control.cancelled)() {
             state.cancelled.store(true, Ordering::Relaxed);
-            state.stop.store(true, Ordering::Relaxed);
-            return Err(WalkState::Quit);
-        }
-        if let Some(deadline) = self.control.deadline
-            && Instant::now() >= deadline
-        {
-            state.timed_out.store(true, Ordering::Relaxed);
             state.stop.store(true, Ordering::Relaxed);
             return Err(WalkState::Quit);
         }
@@ -261,9 +262,9 @@ impl WalkScope<'_> {
 
     /// Whether a file of `len` bytes is above the byte ceiling (recorded as
     /// a size skip).
-    fn over_ceiling(&self, len: u64) -> bool {
+    fn over_ceiling(&self, state: &CollectState, len: u64) -> bool {
         if len > self.max_file_bytes {
-            self.state.size_skipped.store(true, Ordering::Relaxed);
+            state.size_skipped.store(true, Ordering::Relaxed);
             true
         } else {
             false
@@ -274,6 +275,7 @@ impl WalkScope<'_> {
     /// byte ceiling or fails to open (recorded as an error).
     fn open_within_ceiling(
         &self,
+        state: &CollectState,
         dent: &ignore::DirEntry,
     ) -> Option<(std::fs::File, std::fs::Metadata)> {
         let path = dent.path();
@@ -282,8 +284,7 @@ impl WalkScope<'_> {
         let (file, meta) = match crate::text::open_regular(path) {
             Ok(opened) => opened,
             Err(error) => {
-                self.state
-                    .record_error(format!("{}: {error}", path.display()));
+                state.record_error(format!("{}: {error}", path.display()));
                 return None;
             }
         };
@@ -292,7 +293,7 @@ impl WalkScope<'_> {
         // copy: the open read nothing, and its `fstat` is the size of what
         // would be read. Surfaced as `fileTooLarge`; not counted in
         // `files_searched`.
-        if self.over_ceiling(meta.len()) {
+        if self.over_ceiling(state, meta.len()) {
             return None;
         }
         Some((file, meta))
@@ -302,6 +303,7 @@ impl WalkScope<'_> {
     /// as an error, and as a pattern error when the matcher raised it).
     fn search_file<M: Matcher>(
         &self,
+        state: &CollectState,
         files: &mut FileSearcher<'_, M>,
         file: &std::fs::File,
         path: &Path,
@@ -313,9 +315,7 @@ impl WalkScope<'_> {
                 // `Other`, which carries the matcher's own errors (the
                 // searcher's and this sink's `io::Error::other`).
                 if error.kind() == std::io::ErrorKind::Other {
-                    self.state
-                        .pattern_error_count
-                        .fetch_add(1, Ordering::Relaxed);
+                    state.pattern_error_count.fetch_add(1, Ordering::Relaxed);
                 }
                 // Root-relative, or the file's name when it is the root.
                 let shown = path
@@ -324,8 +324,7 @@ impl WalkScope<'_> {
                     .filter(|relative| !relative.as_os_str().is_empty())
                     .or_else(|| path.file_name().map(Path::new))
                     .unwrap_or(path);
-                self.state
-                    .record_error(format!("{}: {error}", shown.display()));
+                state.record_error(format!("{}: {error}", shown.display()));
                 None
             }
         }

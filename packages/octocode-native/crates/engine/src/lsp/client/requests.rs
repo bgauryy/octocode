@@ -13,7 +13,7 @@ use super::{
     RESPONSE_SCOPE, SnippetReadPolicy,
 };
 use crate::error::{Error, Result};
-use crate::lsp::transport::{JsonRpcConnection, WaitBudget};
+use crate::lsp::transport::{JsonRpcConnection, Readiness, WaitBudget};
 use crate::lsp::types::LspCodeSnippet;
 use crate::lsp::uri::path_to_uri;
 use serde_json::{Value, json};
@@ -246,7 +246,7 @@ impl NativeLspClient {
         &self,
         file_path: String,
         content: &str,
-    ) -> Result<(Arc<Value>, Option<String>)> {
+    ) -> Result<(Arc<Value>, Option<Readiness>)> {
         let symbols = self.get_document_symbols(file_path.clone()).await?;
         let empty = symbols.is_null() || symbols.as_array().is_some_and(Vec::is_empty);
         let uri = path_to_uri(&file_path)?;

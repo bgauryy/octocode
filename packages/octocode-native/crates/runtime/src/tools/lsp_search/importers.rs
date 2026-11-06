@@ -109,6 +109,19 @@ pub(super) struct Anchor {
     pub(super) is_call: bool,
 }
 
+/// Which step of importer recovery failed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum ScanFailure {
+    /// Candidates the window holds could not be read, opened or resolved.
+    #[default]
+    Candidates,
+    /// The text scan for files that spell the name failed.
+    CandidateList,
+    /// The anchor's own declaration did not resolve, so no candidate could
+    /// be checked against it.
+    AnchorDeclaration,
+}
+
 #[derive(Default)]
 pub(super) struct Importers {
     pub(super) anchors: Vec<Anchor>,
@@ -120,6 +133,12 @@ pub(super) struct Importers {
     pub(super) stale: bool,
     /// A candidate could not be read, opened, or resolved, or the scan failed.
     pub(super) failed: bool,
+    /// What failed, when `failed`: the row's warning names it.
+    pub(super) failure: ScanFailure,
+    /// Candidates of this window that could not be read or opened in the
+    /// server; the rest of `unverified` the server opened but resolved no
+    /// occurrence of to the anchor's declaration.
+    pub(super) unopened: Vec<String>,
     /// Candidates whose every occurrence the server resolved to another
     /// declaration: checked, and not uses of this symbol.
     pub(super) rejected: Vec<String>,

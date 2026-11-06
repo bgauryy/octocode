@@ -184,7 +184,7 @@ fn validate_rule_position(
     }
     if !relation && (rule.field.is_some() || rule.stop_by.is_some()) {
         return Err(CompileError::rule(
-            "field and stopBy are only valid on a relation",
+            r#"stopBy and field go inside has, inside, precedes or follows, not on the rule itself: {"kind":"call_expression","inside":{"kind":"function_declaration","stopBy":"end"}}"#,
         ));
     }
     for rules in [rule.all.as_ref(), rule.any.as_ref()].into_iter().flatten() {

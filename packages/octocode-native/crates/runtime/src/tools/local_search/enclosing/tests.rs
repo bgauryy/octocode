@@ -141,7 +141,8 @@ fn the_outline_keeps_every_declaration_with_its_lines() {
     }
 }
 
-/// Independent requests produce the same typed declarations without retaining them.
+/// Independent requests read the same typed declarations: the one kept
+/// document of the text.
 #[test]
 fn an_outline_agrees_with_independent_declaration_requests() {
     let path = "enclosing-test/shared-parse.rs";
@@ -150,7 +151,7 @@ fn an_outline_agrees_with_independent_declaration_requests() {
     let first = crate::tools::declarations::file_document(&source, path).expect("parse");
     let again = crate::tools::declarations::file_document(&source, path).expect("parse");
     assert_eq!(first, again);
-    assert!(!std::sync::Arc::ptr_eq(&first, &again));
+    assert!(std::sync::Arc::ptr_eq(&first, &again));
     assert!(Outline::of("not a supported file", "enclosing-test/a.unknownext").is_none());
 }
 
@@ -199,7 +200,7 @@ fn searched_symbols_continue_with_engine_identifier_characters() {
 /// `enclosing`); one at the cap still is.
 #[test]
 fn files_over_the_enclosing_cap_are_not_outlined() {
-    let security = crate::security::ContentSecurity;
+    let security = crate::security::ContentSecurity::new();
     let path = std::path::Path::new("big.rs");
     let line = "fn f() {}\n";
     let at_cap = line.repeat(ENCLOSING_MAX_BYTES / line.len());

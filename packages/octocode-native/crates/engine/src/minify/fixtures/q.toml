@@ -1,0 +1,14 @@
+# comment
+[a]
+x = 1   # trailing
+
+ [a.b]
+    y = """
+  multi # keep
+    """
+    z = "s  t"
+
+
+  
+
+w = 'it''s'

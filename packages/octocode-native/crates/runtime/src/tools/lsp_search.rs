@@ -21,6 +21,7 @@ use crate::execution::cancel::CancellationCheck;
 use crate::num::u32_of_signed;
 use crate::policy::path::PathPolicy;
 use octocode_contract_types::{ErrorCode, LspSearchQuery};
+use octocode_engine::lsp::client::Readiness;
 use octocode_engine::lsp::config::{
     LspDiscoveryOptions, default_server_for_file, default_server_for_workspace_root,
     representative_source_for, typescript_server_fallback,
@@ -33,7 +34,6 @@ use octocode_engine::num::saturating_u32;
 use serde_json::{Value, json};
 use std::future::Future;
 use std::path::Path;
-use std::time::Duration;
 
 mod analysis_context;
 mod anchor;
@@ -63,6 +63,7 @@ mod server_coverage;
 mod session;
 mod source;
 mod test_scope;
+mod unanswered;
 mod walk;
 mod words;
 
@@ -75,9 +76,6 @@ use render::decode_uri_path;
 use responses::*;
 use session::*;
 use source::{SourceCache, SourceReadError, read_bounded_source_async, snippet_policy};
-
-/// How often a long language-server await re-checks cancellation.
-const CANCEL_POLL_MS: u64 = 50;
 
 /// The requested operation, decoded once from whichever shape the query
 /// is. The match is exhaustive over the generated operation enums, so an
@@ -151,6 +149,9 @@ pub struct LspExecutionConfig {
     pub index_on_disk: bool,
     /// See [`LspDiscoveryOptions::fetched_code_roots`].
     pub fetched_code_roots: Vec<std::path::PathBuf>,
+    /// `lsp.allowBuildScripts`: whether a `rustContext` may run the
+    /// workspace's build scripts and proc macros (repository code).
+    pub allow_build_scripts: bool,
     pub(crate) prewarm_state: std::sync::Arc<std::sync::Mutex<prewarm::WarmState>>,
 }
 
@@ -170,33 +171,50 @@ impl LspExecutionConfig {
     }
 }
 
-/// Await `future`, re-checking `cancel` every [`CANCEL_POLL_MS`]; a
-/// cancelled request drops the future (the engine then abandons the
-/// language-server request) and returns [`LspFailure::cancelled`].
+/// Await `future` until it completes, `cancel`'s signal is raised or its
+/// deadline passes, checking `cancel` before and after; a cancelled request
+/// drops the future (the engine then abandons the language-server request)
+/// and returns [`LspFailure::cancelled`]. Work under a `cancel` with neither
+/// a signal nor a deadline is checked only at those two points.
 pub(super) async fn cancellable<F: Future>(
     cancel: &dyn CancellationCheck,
     future: F,
 ) -> Result<F::Output, LspFailure> {
     cancel.check().map_err(LspFailure::cancelled)?;
+    let (mut signal, mut deadline) = (cancel.signal(), cancel.deadline());
     let mut future = std::pin::pin!(future);
-    let mut poll = tokio::time::interval(Duration::from_millis(CANCEL_POLL_MS));
-    poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
         tokio::select! {
             biased;
+            () = async {
+                match signal {
+                    Some(signal) => signal.cancelled().await,
+                    None => std::future::pending().await,
+                }
+            }, if signal.is_some() => signal = None,
+            () = async {
+                match deadline {
+                    Some(deadline) => {
+                        tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await;
+                    }
+                    None => std::future::pending().await,
+                }
+            }, if deadline.is_some() => deadline = None,
             output = &mut future => {
                 cancel.check().map_err(LspFailure::cancelled)?;
                 return Ok(output);
-            },
-            _ = poll.tick() => cancel.check().map_err(LspFailure::cancelled)?,
+            }
         }
+        // Woken by the signal or the deadline: the check says whether that
+        // cancelled this request; one it does not read leaves the work to end.
+        cancel.check().map_err(LspFailure::cancelled)?;
     }
 }
 
 /// Run blocking `work` on a worker whose stop callback follows `cancel`
-/// live: the request keeps polling `cancel` (as [`cancellable`] does) while
-/// the worker runs, and once it fails, or the request future is dropped, the
-/// callback returns true so the worker stops at its next check. `Ok(None)`
+/// live: the request awaits the worker under [`cancellable`], and once that
+/// fails, or the request future is dropped, the callback returns true so the
+/// worker stops at its next check. `Ok(None)`
 /// means the worker itself failed rather than produced a result.
 pub(super) async fn blocking_cancellable<T: Send + 'static>(
     cancel: &dyn CancellationCheck,

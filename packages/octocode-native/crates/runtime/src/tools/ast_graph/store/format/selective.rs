@@ -188,6 +188,9 @@ impl SnapshotReader {
             return Err("graph section checksum mismatch".into());
         }
         self.checked.insert((tag, None));
+        if blocks::sealed(&tag) && !blocks::blocked(&tag) {
+            return blocks::open(&bytes);
+        }
         Ok(bytes)
     }
 
@@ -208,6 +211,11 @@ impl SnapshotReader {
         if octocode_engine::digest::sha256_digest(&bytes).as_slice() != digest {
             return Err("graph record block checksum mismatch".into());
         }
+        let bytes = if blocks::sealed(&tag) {
+            blocks::open(&bytes)?
+        } else {
+            bytes
+        };
         self.checked.insert((tag, Some(index)));
         let mut out = Vec::with_capacity(bytes.len() + 5);
         writer::put(&mut out, u64::from(count));

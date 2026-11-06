@@ -21,33 +21,19 @@ use grep_searcher::BinaryDetection;
 use ignore::WalkState;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Instant;
 
 /// Per-worker collection buffer. Workers push into their own `Vec` and merge
 /// into the shared state on drop, after `build_parallel().run()` finishes,
-/// instead of taking a global mutex per matched file. With `eager` set (the
-/// PCRE2 path) every file is merged at once so the driver's snapshot sees it.
+/// instead of taking a global mutex per matched file.
 pub(super) struct WorkerRecs<'a> {
     pub(super) local: Vec<FileRec>,
     pub(super) state: &'a CollectState,
-    eager: bool,
 }
 
 impl WorkerRecs<'_> {
     pub(super) fn push(&mut self, rec: FileRec) {
         self.state.record_kept(rec.submatches, rec.matched_lines);
-        if self.eager {
-            {
-                let mut shared = self
-                    .state
-                    .recs
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner);
-                shared.push(rec);
-            }
-        } else {
-            self.local.push(rec);
-        }
+        self.local.push(rec);
     }
 }
 
@@ -67,15 +53,11 @@ impl Drop for WorkerRecs<'_> {
     }
 }
 
-/// How a walk is bounded and where finished files go.
+/// How a walk is stopped.
 #[derive(Clone, Copy)]
 pub(super) struct WalkControl<'a> {
-    /// Wall-clock ceiling (PCRE2 only); `None` for linear engines.
-    pub(super) deadline: Option<Instant>,
     /// Caller cancellation, polled before every walk entry.
     pub(super) cancelled: &'a (dyn Fn() -> bool + Sync),
-    /// Merge each finished file into the shared state immediately.
-    pub(super) eager: bool,
 }
 
 /// The largest file a search of `opts` opens.
@@ -91,7 +73,7 @@ pub(super) fn byte_ceiling(opts: &TextSearchOptions) -> u64 {
 
 /// Run a parallel ignore walk + per-file search for a concrete matcher type,
 /// writing into `state`. The walk stops at the next entry once `cancelled()`
-/// returns true, `state.stop` is raised, or `deadline` passes.
+/// returns true or `state.stop` is raised.
 pub(super) fn collect<M: Matcher + Sync>(
     opts: &TextSearchOptions,
     (matcher, terms): (&M, &[M]),
@@ -100,78 +82,15 @@ pub(super) fn collect<M: Matcher + Sync>(
     state: &CollectState,
     control: WalkControl<'_>,
 ) -> Result<()> {
-    let WalkControl {
-        deadline, eager, ..
-    } = control;
-    let only_matching = only_matching(opts);
-    // only-matching emits bare spans; only-matching ignores context too.
-    let context = if mode == Mode::Normal && !only_matching {
-        opts.context
-    } else {
-        SearchContext::default()
-    };
-
-    let max_file_bytes = byte_ceiling(opts);
-
-    // Traversal ordering is only stable if a single worker drains the walk in a
-    // fixed order; the default parallel walk merges worker buffers arbitrarily.
-    let (mut walk_builder, rule) = build_walk_builder(opts)?;
-    // Otherwise the walk takes this call's share of the process CPU budget
-    // (`walk_builder`, `cpu`).
-    if preserves_traversal_order(opts) {
-        walk_builder.threads(1);
-    }
-
-    let scope = WalkScope {
-        opts,
-        rule,
-        state,
-        control,
-        max_file_bytes,
-        keep_unmatched: mode == Mode::FilesWithoutMatch,
-        identifier: identifier_search(opts),
-        file_terms: FileTerms::new(opts),
-        attributes: ranks_by_relevance(opts)
-            .then(|| relevance::GitAttributes::new(Path::new(&opts.path)))
-            .flatten(),
-        words: ranks_by_relevance(opts)
-            .then(|| alternation_words(opts))
-            .flatten(),
-    };
+    let (walk_builder, scope) = walk_scope(opts, mode, state, control)?;
     let scope = &scope;
     let worker = || {
         let path_filter = Arc::clone(&path_filter);
         let mut worker_recs = WorkerRecs {
             local: Vec::new(),
             state,
-            eager,
         };
-        let mut files = FileSearcher {
-            opts,
-            matcher,
-            searcher: build_searcher(opts, context, BinaryDetection::quit(b'\x00')),
-            prefix_searcher: None,
-            context,
-            // `mode`/`only_matching` are invariant for the whole search.
-            work: MatchWork {
-                deferred_line: opts.values == SourceValues::Deferred
-                    && opts.syntax != PatternSyntax::Pcre2
-                    && context.is_empty()
-                    && !only_matching
-                    && !opts.multiline.unwrap_or(false),
-                weigh_lines: ranks_by_relevance(opts)
-                    && lists_match_density(mode)
-                    && !opts.invert_match.unwrap_or(false),
-                ..match_work(mode, only_matching)
-            },
-            deadline,
-            stop: &state.stop,
-            keep_head: ranks_by_relevance(opts),
-            copy: scope.file_terms.is_some(),
-            words: scope.words.as_ref(),
-            terms,
-        };
-
+        let mut files = file_searcher(scope, mode, (matcher, terms), &state.stop);
         move |dent| scope.visit(dent, &*path_filter, &mut files, &mut worker_recs)
     };
     // A file root is one entry: the parallel walker would spawn its pool and
@@ -187,4 +106,80 @@ pub(super) fn collect<M: Matcher + Sync>(
         walk_builder.build_parallel().run(|| Box::new(worker()));
     }
     Ok(())
+}
+
+/// The walker a search of `opts` runs and what every worker reads while it
+/// visits, with walk-wide records in `state`.
+pub(super) fn walk_scope<'a>(
+    opts: &'a TextSearchOptions,
+    mode: Mode,
+    state: &'a CollectState,
+    control: WalkControl<'a>,
+) -> Result<(ignore::WalkBuilder, WalkScope<'a>)> {
+    // Traversal ordering is only stable if a single worker drains the walk in a
+    // fixed order; the default parallel walk merges worker buffers arbitrarily.
+    let (mut walk_builder, rule) = build_walk_builder(opts)?;
+    // Otherwise the walk takes this call's share of the process CPU budget
+    // (`walk_builder`, `cpu`).
+    if preserves_traversal_order(opts) {
+        walk_builder.threads(1);
+    }
+    let scope = WalkScope {
+        opts,
+        rule,
+        state,
+        control,
+        max_file_bytes: byte_ceiling(opts),
+        keep_unmatched: mode == Mode::FilesWithoutMatch,
+        identifier: identifier_search(opts),
+        file_terms: FileTerms::new(opts),
+        attributes: ranks_by_relevance(opts)
+            .then(|| relevance::GitAttributes::new(Path::new(&opts.path)))
+            .flatten(),
+        words: ranks_by_relevance(opts)
+            .then(|| alternation_words(opts))
+            .flatten(),
+    };
+    Ok((walk_builder, scope))
+}
+
+/// One worker's searchers for the files `scope` admits, stopped by `stop`.
+pub(super) fn file_searcher<'a, M: Matcher>(
+    scope: &'a WalkScope<'_>,
+    mode: Mode,
+    (matcher, terms): (&'a M, &'a [M]),
+    stop: &'a std::sync::atomic::AtomicBool,
+) -> FileSearcher<'a, M> {
+    let opts = scope.opts;
+    let only_matching = only_matching(opts);
+    // only-matching emits bare spans; only-matching ignores context too.
+    let context = if mode == Mode::Normal && !only_matching {
+        opts.context
+    } else {
+        SearchContext::default()
+    };
+    FileSearcher {
+        opts,
+        matcher,
+        searcher: build_searcher(opts, context, BinaryDetection::quit(b'\x00')),
+        prefix_searcher: None,
+        context,
+        // `mode`/`only_matching` are invariant for the whole search.
+        work: MatchWork {
+            deferred_line: opts.values == SourceValues::Deferred
+                && opts.syntax != PatternSyntax::Pcre2
+                && context.is_empty()
+                && !only_matching
+                && !opts.multiline.unwrap_or(false),
+            weigh_lines: ranks_by_relevance(opts)
+                && lists_match_density(mode)
+                && !opts.invert_match.unwrap_or(false),
+            ..match_work(mode, only_matching)
+        },
+        stop,
+        keep_head: ranks_by_relevance(opts),
+        copy: scope.file_terms.is_some(),
+        words: scope.words.as_ref(),
+        terms,
+    }
 }

@@ -127,6 +127,7 @@ pub(super) fn link_file(
         reference_counts: counts,
         language,
         test_lines: p.test_lines.clone(),
+        go_package: p.go_package.clone(),
         ..Default::default()
     };
     let mut linker = FileLink {

@@ -78,7 +78,12 @@ pub(super) fn settle_rows(
             continue;
         }
         let span = matched.value.lines().count().max(1);
-        let (lo, hi) = row_window(&read.retained, (lo, hi.min(read.lines_read)), (line, span));
+        let (lo, hi) = row_window(
+            &read.retained,
+            (lo, hi.min(read.lines_read)),
+            (line, span),
+            security.limits().whole_source,
+        );
         // Too long to keep for a second look, the search judged it, and only a
         // window of it or its own span is on the row.
         if read.long_lines.contains(&line) {
@@ -142,12 +147,13 @@ fn row_window(
     retained: &std::collections::BTreeMap<usize, String>,
     (lo, hi): (usize, usize),
     (line, span): (usize, usize),
+    whole_source: usize,
 ) -> (usize, usize) {
     let bytes: usize = (lo..=hi)
         .filter_map(|at| retained.get(&at))
         .map(|text| text.len() + 1)
         .sum();
-    if bytes > octocode_engine::security::MAX_CONTENT_SIZE {
+    if bytes > whole_source {
         (line, (line + span - 1).min(hi))
     } else {
         (lo, hi)

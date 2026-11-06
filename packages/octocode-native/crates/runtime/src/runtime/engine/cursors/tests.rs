@@ -19,6 +19,27 @@ fn insert_page(pending: &mut Pending, page: usize) -> String {
 }
 
 #[test]
+fn unusable_persistent_storage_names_the_recovery_without_publishing_a_handle() {
+    let directory = tempfile::tempdir().unwrap();
+    let blocked = directory.path().join("not-a-directory");
+    std::fs::write(&blocked, "occupied").unwrap();
+    let registry = Registry::new(CacheConfig::derived(), Some(blocked), "policy".into());
+    let mut pending = Pending::new([9; 32], None);
+    let token = insert_page(&mut pending, 1);
+    let error = registry
+        .retain(pending, &context())
+        .expect_err("storage failure");
+    assert!(
+        error
+            .to_string()
+            .contains("Persistent continuation storage"),
+        "{error}"
+    );
+    assert!(error.to_string().contains("OCTOCODE_HOME"), "{error}");
+    assert!(registry.open(ToolId::LocalSearch, &token, [9; 32]).is_err());
+}
+
+#[test]
 fn page_planning_reserves_the_issued_handle_width() {
     let mut pending = Pending::new([3; 32], None);
     let issued = insert_page(&mut pending, 1);

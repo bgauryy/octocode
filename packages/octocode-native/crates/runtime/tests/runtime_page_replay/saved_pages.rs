@@ -50,7 +50,8 @@ async fn saved_pages_reject_mixed_input_tool_credential_config_and_workspace_cha
         .run("tool".into(), "localFetch".into(), next.clone())
         .await
         .expect_err("wrong tool");
-    assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
+    // Sent to the wrong tool: the caller corrects the call.
+    assert_eq!(error.code, ErrorCode::InvalidInput);
     let admission = runtime
         .admit_with(
             "credential".into(),
@@ -147,16 +148,24 @@ async fn tampered_and_unissued_handles_never_execute() {
             16
         );
     }
-    for input in [
-        json!({"cursor":token}),
-        json!({"cursor":format!("cursor2.{}","A".repeat(44))}),
-        json!({"cursor":format!("cursor1.{}","0".repeat(64))}),
+    // A well-formed handle with no saved work under it names expired work;
+    // a handle of no issued shape is the caller's input.
+    for (input, code) in [
+        (json!({"cursor":token}), ErrorCode::ResponseSnapshotExpired),
+        (
+            json!({"cursor":format!("cursor2.{}","A".repeat(44))}),
+            ErrorCode::ResponseSnapshotExpired,
+        ),
+        (
+            json!({"cursor":format!("cursor1.{}","0".repeat(64))}),
+            ErrorCode::InvalidInput,
+        ),
     ] {
         let error = runtime
             .run("unissued".into(), "localSearch".into(), input)
             .await
             .expect_err("registry lookup");
-        assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
+        assert_eq!(error.code, code, "{}", error.message);
     }
     runtime.close().await;
 }

@@ -31,6 +31,7 @@ const LAYERS: &[&[&str]] = &[
         "civil_date",
         "digest",
         "id",
+        "json_pointer",
         "num",
         "private_file",
         "process_status",
@@ -48,7 +49,7 @@ const LAYERS: &[&[&str]] = &[
 
 /// `octocode-engine`'s top-level modules, lowest layer first: shared
 /// vocabulary and text below the DTOs (`types`), the DTOs below the parse and
-/// graph-fact engines, those below redaction, redaction below the text search
+/// graph-fact engines, the parses below the compact view (`minify`), those below redaction, redaction below the text search
 /// that judges a long line while it holds it, and all of them below the
 /// language-server pool, structural matching and fact scans that compose them.
 const ENGINE_LAYERS: &[&[&str]] = &[
@@ -67,8 +68,10 @@ const ENGINE_LAYERS: &[&[&str]] = &[
     &["digest"],
     &["text"],
     &["error", "graph"],
-    &["minify", "process", "types"],
+    &["process", "types"],
     &["signatures"],
+    // Compact views read comments and strings from the grammars' parses.
+    &["minify"],
     &["security"],
     &["search"],
     &["fact_scan", "lsp", "structural"],

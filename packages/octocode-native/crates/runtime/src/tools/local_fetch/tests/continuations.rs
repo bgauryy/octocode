@@ -6,14 +6,14 @@ use super::*;
 /// The test scan, counting the whole-source passes a read makes: the
 /// private-key block pass and every scan of at least `whole` bytes (the
 /// source-wide line redaction; a page scan is far smaller).
-struct Counting {
+pub(super) struct Counting {
     whole: usize,
     scans: AtomicUsize,
     key_passes: AtomicUsize,
 }
 
 impl Counting {
-    fn of(source: &str) -> Self {
+    pub(super) fn of(source: &str) -> Self {
         // A page scan covers the page and its margins (8 KiB each side):
         // far less than half of these sources.
         assert!(source.len() >= 96 * 1024, "{} bytes", source.len());
@@ -25,7 +25,7 @@ impl Counting {
         }
     }
 
-    fn passes(&self) -> (usize, usize) {
+    pub(super) fn passes(&self) -> (usize, usize) {
         (
             self.key_passes.load(Ordering::SeqCst),
             self.scans.load(Ordering::SeqCst),
@@ -248,11 +248,13 @@ fn a_key_block_across_page_windows_stays_redacted_on_every_page() {
     );
 }
 
-/// Only a page that issues a next page keeps its view, and only a view
-/// whose texts passed the source-wide scan: a one-page read keeps nothing,
-/// nor does a whole-file content walk (its view is the unscanned source).
+/// Only a page that issues a next page keeps its view: a one-page read
+/// keeps nothing. A whole-file content walk keeps its view too, though that
+/// view is the unscanned source: every page cut from a kept view is scanned
+/// as a first page is, and the page scan is what protects the output
+/// (`whole_walks` proves each replayed page equals its cold read).
 #[test]
-fn only_a_continued_scanned_view_is_kept() {
+fn only_a_continued_view_is_kept() {
     let fixture = Fixture::new();
     let paths = Paths(fixture.0.clone());
     let kept = |name: &str, source: &str, fields: serde_json::Value| {
@@ -285,7 +287,7 @@ fn only_a_continued_scanned_view_is_kept() {
     let whole: String = (1..=2_000).map(|n| format!("kept whole {n}\n")).collect();
     assert_eq!(
         kept("kept_whole.txt", &whole, serde_json::json!({})),
-        (true, false)
+        (true, true)
     );
 }
 

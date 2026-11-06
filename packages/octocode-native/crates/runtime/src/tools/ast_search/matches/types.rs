@@ -44,7 +44,7 @@ pub(super) struct Scan {
     /// Where a time-budget cut resumes (`scanOffset`), in walk order.
     pub(super) scan_resume: Option<u32>,
     /// What the candidates before this window are now, and through its cut
-    /// ([`octocode_engine::structural::ListedFiles`]).
+    /// ([`octocode_engine::digest::ListedFiles`]).
     pub(super) listed_before: Option<String>,
     pub(super) listed_through: Option<String>,
     /// The candidates before this window: its pages answer for them too.
@@ -72,6 +72,8 @@ pub(super) struct Scan {
     pub(super) watches_ignore_files: bool,
     /// Candidate entries the security path policy withheld from the walk.
     pub(super) withheld: crate::policy::discovery::Withheld,
+    /// Octocode's own store directories the walk skipped, root-relative.
+    pub(super) artifacts: std::collections::BTreeSet<String>,
     /// Files the walk passed over because no grammar parses their names.
     pub(super) unparsed: NamedFiles,
     /// Without `parser`: the files the walk admitted, by parser extension
@@ -82,6 +84,11 @@ pub(super) struct Scan {
     pub(super) present: Option<std::collections::BTreeMap<String, usize>>,
     /// What a `testCode` scope left out.
     pub(super) test_code_excluded: octocode_engine::types::TestCodeExcluded,
+    /// Of `test_code_excluded.files`, those the walk left unread by where they
+    /// lie: a window's walk meets every file the windows before it met, so
+    /// these are counted again by each window, while the rest are the files
+    /// this window read.
+    pub(super) test_code_walked: u32,
     /// Rust files a `testCode` verdict needed and could not read.
     pub(super) test_code_unread: Vec<std::path::PathBuf>,
 }

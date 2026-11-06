@@ -16,6 +16,7 @@ use crate::id::ToolId;
 use crate::tools::test_support::checks::location_rows;
 use octocode_contract_types::ErrorCode;
 
+mod build_scripts_gate;
 mod call_counts;
 mod call_rows;
 mod caller_pages;
@@ -45,6 +46,8 @@ mod servers;
 mod sources;
 mod test_code;
 mod unresolved_anchors;
+#[cfg(unix)]
+mod watching_server;
 
 use fixtures::*;
 

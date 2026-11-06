@@ -13,7 +13,6 @@ use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder};
 use sha2::{Digest as _, Sha256};
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
-use std::time::Instant;
 
 /// Hard heap ceiling for a single `Searcher` pass. `grep-searcher` buffers a
 /// whole line (or multiline block) before matching; without a cap a huge single
@@ -190,7 +189,6 @@ pub(super) struct FileOutcome {
     pub(super) matched_lines: u32,
     pub(super) om_matches: Vec<TextSearchMatch>,
     pub(super) span_cap_reached: bool,
-    pub(super) deadline_hit: bool,
     pub(super) binary: bool,
     /// The first NUL came before any text: nothing text-searchable was lost.
     pub(super) opaque: bool,
@@ -220,7 +218,6 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
             matched_lines: sink.matched_lines,
             om_matches: sink.om_matches,
             span_cap_reached: sink.span_cap_reached,
-            deadline_hit: sink.deadline_hit,
             binary: sink.binary_offset.is_some(),
             opaque: sink.binary_offset == Some(0),
             line_weight: sink.line_weight,
@@ -248,7 +245,6 @@ pub(super) struct FileSearcher<'a, M: Matcher> {
     pub(super) prefix_searcher: Option<Searcher>,
     pub(super) context: SearchContext,
     pub(super) work: MatchWork,
-    pub(super) deadline: Option<Instant>,
     pub(super) stop: &'a AtomicBool,
     /// Keep the leading bytes for the generated-header check.
     pub(super) keep_head: bool,
@@ -279,13 +275,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
             std::io::Seek::seek(&mut &*file, std::io::SeekFrom::Start(0))?;
         }
         let mut tap = SourceTap::new(file, self.keep_head, self.copy);
-        let mut sink = CollectSink::new(
-            self.matcher,
-            work,
-            self.deadline,
-            self.stop,
-            (self.words, self.terms),
-        );
+        let mut sink = CollectSink::new(self.matcher, work, self.stop, (self.words, self.terms));
         sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
         sink.source = Some(path);
         sink.inspect_deferred = self
@@ -327,13 +317,8 @@ impl<M: Matcher> FileSearcher<'_, M> {
         let prefix_searcher = self
             .prefix_searcher
             .get_or_insert_with(|| build_searcher(opts, context, BinaryDetection::none()));
-        let mut prefix_sink = CollectSink::new(
-            self.matcher,
-            self.work,
-            self.deadline,
-            self.stop,
-            (self.words, self.terms),
-        );
+        let mut prefix_sink =
+            CollectSink::new(self.matcher, self.work, self.stop, (self.words, self.terms));
         prefix_sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
         prefix_sink.source = Some(path);
         prefix_sink.inspect_deferred = self
@@ -357,13 +342,8 @@ impl<M: Matcher> FileSearcher<'_, M> {
     /// through the same line buffer, so a NUL ends it where it ends a read of
     /// the file. Only for a search with no per-file scope ([`super::listable`]).
     pub(super) fn search_held(&mut self, bytes: &[u8]) -> std::io::Result<FileOutcome> {
-        let mut sink = CollectSink::new(
-            self.matcher,
-            self.work,
-            self.deadline,
-            self.stop,
-            (self.words, self.terms),
-        );
+        let mut sink =
+            CollectSink::new(self.matcher, self.work, self.stop, (self.words, self.terms));
         self.searcher
             .search_reader(self.matcher, bytes, &mut sink)?;
         let offset = sink
@@ -378,13 +358,8 @@ impl<M: Matcher> FileSearcher<'_, M> {
         let prefix_searcher = self
             .prefix_searcher
             .get_or_insert_with(|| build_searcher(opts, context, BinaryDetection::none()));
-        let mut prefix_sink = CollectSink::new(
-            self.matcher,
-            self.work,
-            self.deadline,
-            self.stop,
-            (self.words, self.terms),
-        );
+        let mut prefix_sink =
+            CollectSink::new(self.matcher, self.work, self.stop, (self.words, self.terms));
         prefix_searcher.search_slice(self.matcher, prefix, &mut prefix_sink)?;
         let mut outcome = FileOutcome::from(prefix_sink);
         outcome.binary = true;

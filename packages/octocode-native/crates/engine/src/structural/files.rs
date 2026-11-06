@@ -10,6 +10,7 @@ use super::types::{
     KeepLine, StructuralDemand, StructuralDiagnostic, StructuralSearchFilesDetailedResult,
     StructuralSearchFilesOptions, WalkErrors,
 };
+use crate::digest::{ListedFiles, stamp_of};
 use crate::error::{Error, Result};
 use crate::search::walk::{Prune, Stop};
 use crate::signatures::languages;
@@ -18,14 +19,12 @@ use crate::text::extension_of;
 mod anchors;
 mod counts;
 mod file_scan;
-mod listed;
 mod rebuild;
 mod walk;
 
 use anchors::AnchorFilter;
 use counts::ScanCounts;
 use file_scan::FileScan;
-pub use listed::ListedFiles;
 pub use rebuild::{Rebuilt, file_matches};
 use walk::{Walked, check_root_exists, collect_files};
 
@@ -132,7 +131,7 @@ pub(crate) fn search_files_with_budget(
     let max_files = max_files.map_or(usize::MAX, |n| n as usize);
     let max_file_bytes = max_file_bytes
         .map(|n| n as u64)
-        .unwrap_or(crate::signatures::MAX_PARSE_SIZE as u64);
+        .unwrap_or(crate::security::MAX_CONTENT_SIZE as u64);
     let prefilter = query.prefilter();
     let query_explanation = query.explanation_with_prefilter(&prefilter);
 
@@ -165,7 +164,7 @@ pub(crate) fn search_files_with_budget(
     let listed_before = (skip > 0).then(|| {
         let stamps = candidate_files[..skip]
             .par_iter()
-            .map(|file_path| listed::stamp_of(file_path))
+            .map(|file_path| stamp_of(file_path))
             .collect::<Vec<_>>();
         for (file_path, stamp) in candidate_files.iter().zip(stamps) {
             listed.add(file_path, stamp);

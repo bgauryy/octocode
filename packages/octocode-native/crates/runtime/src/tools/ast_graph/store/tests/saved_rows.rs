@@ -146,7 +146,18 @@ fn a_retained_set_is_bound_to_its_query_and_snapshot() {
 
     // A rebuilt snapshot is another snapshot: the page computes over it.
     std::thread::sleep(std::time::Duration::from_millis(1100));
-    let rebuilt = ingest_fixture(dir.0.as_path(), None);
+    let rebuilt = ingest(
+        &IngestOptions {
+            path: dir.0.join("app"),
+            workspace: Some(dir.0.to_path_buf()),
+            refresh: true,
+            ..IngestOptions::default()
+        },
+        &workspace_policy(dir.0.as_path()),
+        &ContentSecurity::new(),
+        &NeverCancel,
+        None,
+    );
     let rebuilt = rebuilt.value["id"].as_str().expect("id").to_owned();
     assert_ne!(rebuilt, id);
     let moved = second_page(&|o| o.graph = Some(rebuilt.clone()));

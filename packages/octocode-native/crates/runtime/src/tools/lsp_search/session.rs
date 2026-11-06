@@ -91,13 +91,26 @@ pub(super) fn discover_server(
         };
         return Err(fail(ErrorCode::ServerUnavailable, &message));
     };
+    if let Some(refusal) = octocode_engine::lsp::config::repository_toolchain_refusal(&config) {
+        return Err(fail(ErrorCode::ServerUnavailable, &refusal));
+    }
+    // A context that runs build scripts or proc macros runs repository code:
+    // refused before any server starts, unless the host's own settings allow it.
+    if config.language_id.as_deref() == Some("rust")
+        && !execution_config.allow_build_scripts
+        && receipt::requests_build_scripts(query)
+    {
+        return Err(fail(ErrorCode::Policy, &receipt::build_scripts_refusal()));
+    }
     receipt::apply_rust_context(&mut config, query).map_err(LspFailure::invalid_query)?;
     let config_notes =
         octocode_engine::lsp::config::route_problems(&path, Some(&config), &workspace, &discovery);
-    let fallback = if root_only {
-        typescript_server_fallback_for_workspace_root(&workspace, &discovery)
-    } else {
-        typescript_server_fallback(&path, &workspace, &discovery)
+    let fallback = super::page::Fallback {
+        path: path.clone(),
+        workspace,
+        root_only,
+        discovery,
+        routed: std::sync::OnceLock::new(),
     };
     Ok(Target {
         path,
@@ -107,6 +120,7 @@ pub(super) fn discover_server(
         fallback,
         root_note,
         config_notes,
+        allow_build_scripts: execution_config.allow_build_scripts,
     })
 }
 
@@ -149,7 +163,7 @@ pub(super) struct Session {
     pub(super) fell_back_from: Option<String>,
     /// The post-didOpen readiness (timeout when the project load was
     /// still running).
-    pub(super) open_readiness: Option<String>,
+    pub(super) open_readiness: Option<Readiness>,
     /// When this call began waiting on the server: what it waited on since
     /// is what it reports.
     pub(super) began: tokio::time::Instant,
@@ -199,7 +213,7 @@ async fn open_leased(
     // still indexing. Do not sync or query it yet: return the established
     // incomplete row, naming the server, with an optional same-query
     // reattempt instead.
-    if client.readiness().as_deref() == Some("timeout") {
+    if client.readiness() == Some(Readiness::Timeout) {
         return Err(receipt::naming(
             Exit::Row(failure::still_indexing(query)),
             receipt::server_receipt(&config, false),
@@ -295,7 +309,7 @@ pub(super) async fn acquire_leased_client(
             receipt::server_receipt(&target.config, true),
         )
     };
-    let Some(fallback) = target.fallback.clone() else {
+    let Some(fallback) = target.fallback.config().cloned() else {
         return Err(failed());
     };
     let acquired = reporting(

@@ -79,9 +79,11 @@ async fn a_url_that_names_no_package_says_so_and_sends_nothing() {
     assert!(http.seen().is_empty());
 }
 
-/// A repository page is refused before any request, with a lead to `package`.
+/// A repository page is refused before any request. Its lead is the
+/// repository's root tree, whose manifest names the package to check: never a
+/// guessed package (a Go module form of a JavaScript repository is notFound).
 #[tokio::test]
-async fn a_repository_url_sends_nothing_and_leads_to_package() {
+async fn a_repository_url_sends_nothing_and_leads_to_its_manifest() {
     let http = RouteHttp::new();
     let error = answer(
         &http,
@@ -96,9 +98,15 @@ async fn a_repository_url_sends_nothing_and_leads_to_package() {
         error.message
     );
     assert!(http.seen().is_empty(), "{:?}", http.targets());
-    let lead = serde_json::to_string(&error.calls).expect("lead");
-    assert!(lead.contains("\"operation\":\"package\""), "{lead}");
-    assert!(lead.contains("github.com/acme/private"), "{lead}");
+    let calls = serde_json::to_value(&error.calls).expect("lead");
+    let lead = &calls["viewTree"];
+    assert_eq!(lead["tool"], "ghStructure", "{calls}");
+    assert_eq!(
+        lead["input"]["queries"][0],
+        json!({"owner": "acme", "repo": "private", "operation": "tree"}),
+        "{calls}"
+    );
+    assert!(calls.get("repair").is_none(), "{calls}");
 }
 
 #[tokio::test]

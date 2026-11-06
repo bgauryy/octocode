@@ -20,6 +20,7 @@ mod auth_discovery;
 mod cli;
 mod cli_batch_response;
 mod cli_catalog;
+mod cli_continuation_lifetime;
 mod cli_exit_codes;
 mod cli_output;
 mod cli_skill;

@@ -36,6 +36,7 @@ pub(crate) fn text_search_query(path: &str, terms: &[&str]) -> Option<LocalSearc
         path: path.try_into().ok()?,
         reasoning: None,
         regex_engine: RegexEngine::Literal,
+        scan_offset: None,
         selection: None,
         snapshot: None,
         sort: LocalSearchSort::AnyOrder(LocalSearchSortAnyOrder {

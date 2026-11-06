@@ -29,8 +29,13 @@ impl Facts<'_> {
                 cves.push(cve.to_owned());
             }
         }
+        let records = results
+            .iter()
+            .flat_map(|result| &result.advisories)
+            .collect::<Vec<_>>();
         Self {
-            count: results.iter().map(|result| result.advisories.len()).sum(),
+            // Advisories, not records: a GHSA record and its PYSEC twin are one.
+            count: super::record::advisory_groups(&records).len(),
             cves,
             stopped: results.iter().any(|result| result.resume.is_some()),
             version_evaluated: true,

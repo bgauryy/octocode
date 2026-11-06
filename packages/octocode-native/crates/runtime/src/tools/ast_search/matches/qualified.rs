@@ -152,7 +152,7 @@ fn directory_probe(
             None,
             Some(&probe_rule(rule, broader)),
             digest,
-            super::super::source::MAX_PARSE_SOURCE_BYTES as u64,
+            crate::security::SourceLimits::REAL.whole_source as u64,
             &stop,
         ) {
             Ok(Rebuilt::Matches(matches)) => Some(

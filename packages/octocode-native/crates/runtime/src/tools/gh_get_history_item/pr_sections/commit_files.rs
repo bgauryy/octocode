@@ -41,11 +41,9 @@ pub(super) async fn first_page(
     )
     .await?;
     loaded.mark_commit_file_limit();
-    Ok(loaded.state.paginate(
-        filter.apply(loaded.items, false).kept,
-        Some(1),
-        Some(page_size),
-    ))
+    Ok(loaded
+        .state
+        .paginate(filter.apply(loaded.items).kept, Some(1), Some(page_size)))
 }
 
 pub(super) fn next_page(

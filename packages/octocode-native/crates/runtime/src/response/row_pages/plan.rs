@@ -62,7 +62,7 @@ impl PreparedRows {
                     let Some((parent, name)) = pointer.rsplit_once('/') else {
                         continue;
                     };
-                    let key = name.replace("~1", "/").replace("~0", "~");
+                    let key = crate::json_pointer::unescape(name);
                     let Some(value) = row
                         .pointer_mut(parent)
                         .and_then(Value::as_object_mut)
@@ -73,7 +73,7 @@ impl PreparedRows {
                     let segments = parent
                         .split('/')
                         .skip(1)
-                        .map(|segment| segment.replace("~1", "/").replace("~0", "~"))
+                        .map(crate::json_pointer::unescape)
                         .chain(std::iter::once(key))
                         .collect::<Vec<_>>();
                     insert_field(&mut fields, &segments, value);

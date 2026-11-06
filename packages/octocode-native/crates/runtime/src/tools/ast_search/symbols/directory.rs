@@ -24,8 +24,7 @@ fn directory_scan_options(
             ast_search_query_symbols::scan_offset(q),
         ),
         skip_files: Some(ast_search_query_symbols::scan_offset(q)),
-        max_file_bytes: u32::try_from(crate::tools::ast_search::source::MAX_PARSE_SOURCE_BYTES)
-            .ok(),
+        max_file_bytes: u32::try_from(crate::security::SourceLimits::REAL.whole_source).ok(),
         language_globs: ast_search_query_symbols::language_globs(q)
             .as_ref()
             .map(crate::tools::ast_rule::language_globs),
@@ -53,6 +52,8 @@ pub(crate) fn outline_directory(
 pub(super) struct DirectoryWalk {
     pub(super) files: octocode_engine::types::FileSystemQueryResult,
     withheld: crate::policy::discovery::Withheld,
+    /// Octocode's own store directories the walk skipped, root-relative.
+    artifacts: std::collections::BTreeSet<String>,
     /// Entries the walk could not read, and how many for want of
     /// permission.
     pub(super) walk_errors: (u32, u32),
@@ -104,6 +105,7 @@ pub(super) fn walk_directory(
         walk_errors: (files.skipped, files.permission_denied),
         files,
         withheld: admission.skipped().withheld,
+        artifacts: admission.skipped().artifacts,
     })
 }
 
@@ -214,6 +216,7 @@ pub(super) fn outline_walked(
         skipped: scan.files_skipped,
         diagnostics,
         withheld: walk.withheld,
+        artifacts: walk.artifacts,
         pruned: scan.pruned_dirs,
         walk_errors: walk.walk_errors,
         test_code_excluded: scoped

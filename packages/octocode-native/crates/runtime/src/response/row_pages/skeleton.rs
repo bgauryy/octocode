@@ -23,17 +23,13 @@ pub(super) fn volatile_reserve(fields: &Map<String, Value>) -> usize {
     octocode_engine::json_size::utf16_units(&shaped).unwrap_or(0) - 1
 }
 
-pub(super) fn escape_pointer(key: &str) -> String {
-    key.replace('~', "~0").replace('/', "~1")
-}
-
 /// The outermost array element a paged array at `pointer` lies in (reached
 /// through single-element arrays), as (array pointer, element index).
 pub(super) fn enclosing_element(value: &Value, pointer: &str) -> Option<(String, usize)> {
     let mut prefix = String::new();
     let mut node = value;
     for segment in pointer.trim_start_matches('/').split('/') {
-        let key = segment.replace("~1", "/").replace("~0", "~");
+        let key = crate::json_pointer::unescape(segment);
         if node.is_array() {
             return key.parse().ok().map(|index| (prefix, index));
         }
@@ -78,7 +74,7 @@ pub(super) fn lean_later_context(
         let Some(current) = node else {
             return;
         };
-        let key = segment.replace("~1", "/").replace("~0", "~");
+        let key = crate::json_pointer::unescape(segment);
         if let Some(map) = current.as_object_mut() {
             map.retain(|name, _| {
                 *name == key
@@ -86,7 +82,7 @@ pub(super) fn lean_later_context(
                     || name == HINTS_KEY
                     || context.required.contains(name)
                     || context.optional.contains(name)
-                    || holds(&format!("{at}/{}", escape_pointer(name)))
+                    || holds(&format!("{at}/{}", crate::json_pointer::escape(name)))
             });
         }
         node = match current {

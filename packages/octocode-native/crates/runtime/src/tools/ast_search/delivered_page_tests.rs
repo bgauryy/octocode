@@ -173,3 +173,35 @@ fn deep_scope_pages_measure_row_paths_as_delivered() {
         assert_eq!(seen, FILES, "{row}: every row once");
     }
 }
+
+/// A relational rule's page two keeps the rule the caller sent: a generated
+/// rule type writes an unset boxed sub-rule (`follows`, `has`, `not`) as
+/// `null`, which no query admits, so the published `next.nextPage` must leave
+/// it out, satisfy the output contract and run as page two of the same rule.
+#[test]
+fn a_relational_rule_publishes_a_page_two_that_validates_and_runs() {
+    let root = Fixture::new();
+    root.write(
+        "src/lib.rs",
+        "fn f() { let a = || g(1); let b = || g(2); let c = || g(3); }\n",
+    );
+    let base = root.0.canonicalize().expect("canonical root");
+    let (paths, security) = simple_policy(&base);
+    let rule =
+        json!({"kind":"call_expression","inside":{"kind":"closure_expression","stopBy":"end"}});
+    let row = json!({"operation":"match","path":base.join("src"),"rule":rule,"limit":1});
+    let out = execute_ast(&typed(&row), &paths, &security, &NeverCancel, None)
+        .unwrap_or_else(|error| panic!("{row}: {error:?}"));
+    assert_eq!(out["pagination"]["hasMore"], true, "{out}");
+    crate::tools::test_support::assert_row_contract(ToolId::AstSearch, &out);
+    let next = published_next_page(ToolId::AstSearch, &out);
+    assert_eq!(
+        next["rule"], rule,
+        "page two keeps the rule as sent: {next}"
+    );
+    let next = crate::contracts::validate_built_query("astSearch", next.clone())
+        .unwrap_or_else(|error| panic!("{next}: {error:?}"));
+    let page_two = execute_ast(&typed(&next), &paths, &security, &NeverCancel, None)
+        .unwrap_or_else(|error| panic!("{next}: {error:?}"));
+    crate::tools::test_support::assert_row_contract(ToolId::AstSearch, &page_two);
+}

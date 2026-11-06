@@ -33,9 +33,10 @@ fn document_symbols_sync_without_the_open_wait_and_diagnostics_keep_it() {
                 path: path.clone(),
                 root_only: false,
                 config: config(&root, &script, None),
-                fallback: None,
+                fallback: crate::tools::lsp_search::page::Fallback::known(None),
                 root_note: None,
                 config_notes: Vec::new(),
+                allow_build_scripts: false,
             };
             let mut sources = SourceCache::new(&paths);
             let document = sources.insert(&path, "const a = 1;\n".to_owned());

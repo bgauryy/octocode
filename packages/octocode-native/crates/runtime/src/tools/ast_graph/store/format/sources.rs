@@ -166,7 +166,7 @@ impl SourceTable {
                     &Limits {
                         source_bytes: entry.bytes as usize,
                         table_items: entry.items as usize,
-                        ..LIMITS
+                        ..*LIMITS
                     },
                 ),
             )

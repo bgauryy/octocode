@@ -118,3 +118,26 @@ fn menus_hold_at_most_two_entries_and_inventory_reviews_many_files() {
         "{menu}"
     );
 }
+
+/// A review pick holding a name the `include` contract refuses (a file
+/// GitHub reported with an empty path) never reaches a lead: the selected
+/// read names the admitted files, and a pick of none offers no selected
+/// read at all.
+#[test]
+fn a_selected_patch_read_never_names_an_empty_path() {
+    let read: HistoryItemRequest = HistoryItemRequest::from_row(json!({
+        "operation":"pullRequest", "owner":"o","repo":"r","number":1,
+        "sections":["files"]
+    }))
+    .expect("inventory query");
+    let inventory = json!({"changed_files":30,"additions":900,"deletions":10});
+    let review = vec![String::new(), "src/a.rs".to_owned()];
+    let menu = pr_next_menu(&read, &review, &inventory);
+    assert_eq!(
+        menu["readSelectedPatches"]["input"]["queries"][0]["include"],
+        json!(["src/a.rs"]),
+        "{menu}"
+    );
+    let menu = pr_next_menu(&read, &[String::new()], &inventory);
+    assert!(menu.get("readSelectedPatches").is_none(), "{menu}");
+}

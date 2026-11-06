@@ -224,6 +224,33 @@ fn the_inferred_grammar_comes_from_the_scan_walk() {
     assert_eq!(error.code, ErrorCode::LanguageRequired, "{error:?}");
 }
 
+/// A scope whose only source a default exclude skips (a vendored
+/// `index.min.js` beside its `package.json`) is no `languageRequired`: the
+/// grammar is known, the walk skipped the file. The first answer names it
+/// and leads to the walk that reads it, without `parser`.
+#[test]
+fn a_scope_whose_only_source_is_default_excluded_names_it_instead_of_asking_for_parser() {
+    let root = Fixture::new();
+    root.write("tar/package.json", "{\"name\":\"tar\"}\n");
+    root.write("tar/index.min.js", "function pack(){return entry()}\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0.join("tar"),"rule":{"pattern":"entry()"}}),
+    )
+    .expect("no languageRequired when source sits behind skipped paths");
+    assert_eq!(out["status"], "empty", "{out}");
+    assert!(
+        out["hints"]
+            .to_string()
+            .contains("behind skipped paths (*.min.js)"),
+        "{out}"
+    );
+    let lead = &crate::tools::ast_search::test_rows::skipped_call(&out)
+        .expect("a lead that lifts the default excludes")["input"]["queries"][0];
+    assert_eq!(lead["defaultExcludes"], false, "{out}");
+    assert!(lead.get("parser").is_none(), "{out}");
+}
+
 #[test]
 fn directory_match_infers_the_only_grammar_present() {
     let root = Fixture::new();

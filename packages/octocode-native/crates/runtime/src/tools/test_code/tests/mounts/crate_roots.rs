@@ -82,7 +82,7 @@ fn a_cfg_attr_path_under_test_mounts_that_file_only() {
 fn a_cfg_attr_path_in_a_parent_too_large_to_parse() {
     let root = Fixture::new();
     root.write("Cargo.toml", MANIFEST);
-    let padding = "// padding\n".repeat(octocode_engine::signatures::MAX_PARSE_SIZE / 11 + 1);
+    let padding = "// padding\n".repeat(crate::security::SourceLimits::REAL.whole_source / 11 + 1);
     root.write(
         "src/lib.rs",
         format!("{padding}#[cfg_attr(test, path = \"real.rs\")]\npub mod plain;\n"),

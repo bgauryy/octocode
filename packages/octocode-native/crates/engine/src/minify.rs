@@ -1,11 +1,13 @@
 pub mod apply;
-pub(crate) mod comment_remover;
-pub(crate) mod config;
-pub(crate) mod minifier;
-pub(crate) mod strategies;
+mod directive;
+mod grammars;
+mod layout;
+mod lexis;
+mod syntax;
+pub mod verify;
 
 #[cfg(test)]
-mod coverage_tests;
+mod compact_tests;
 
 #[cfg(test)]
-mod literal_tests;
+mod differential_tests;

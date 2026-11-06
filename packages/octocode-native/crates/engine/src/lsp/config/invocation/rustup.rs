@@ -116,7 +116,9 @@ pub(in crate::lsp::config) fn selected_component(
     let started = settle_clock();
     // Read before rustup runs: a change while it runs reads as a change.
     let inputs = inputs_of(view, proxy, &rustup, workspace_root);
-    let binary = ask_rustup(&rustup, proxy, workspace_root);
+    let binary = ask_rustup(&rustup, proxy, workspace_root).filter(|binary| {
+        view.toolchain.is_some() || naming_toolchain_file(workspace_root, Some(binary)).is_none()
+    });
     if let Some(mut inputs) = inputs {
         if let Some(binary) = &binary {
             inputs.follow(binary.clone());
@@ -212,6 +214,64 @@ fn keep_answer(question: Question, answer: Answer) {
         .sum::<usize>()
         + answer.inputs.weight();
     ANSWERS.insert(question, answer, weight, Some(crate::memory::IDLE));
+}
+
+/// Whether `binary` lies in a toolchain that a toolchain file in `workspace` or
+/// above it names by `path`: a directory the repository chose, so the server
+/// would be the repository's own program. rustup accepts only an absolute path
+/// there (a checkout at a predictable place, such as CI's). `RUSTUP_TOOLCHAIN`
+/// selects ahead of any file, so the caller asks only without it. A user who
+/// wants such a build names it as the server command in `lsp-servers.json`.
+/// The toolchain file that names it; with no `binary`, any file naming a path.
+fn naming_toolchain_file(workspace: &Path, binary: Option<&Path>) -> Option<PathBuf> {
+    let resolved = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let binary = binary.map(resolved);
+    workspace.ancestors().find_map(|dir| {
+        TOOLCHAIN_FILES
+            .iter()
+            .map(|name| dir.join(name))
+            .find(|file| {
+                std::fs::read_to_string(file)
+                    .ok()
+                    .and_then(|text| toolchain_path(&text))
+                    .is_some_and(|path| {
+                        binary
+                            .as_ref()
+                            .is_none_or(|binary| binary.starts_with(resolved(&dir.join(path))))
+                    })
+            })
+    })
+}
+
+/// The toolchain file whose `path` the rustup proxy `command` would run in
+/// `workspace_root` ([`naming_toolchain_file`]); `None` when `command` is no
+/// rustup proxy there, or `RUSTUP_TOOLCHAIN` selects ahead of the file.
+pub(in crate::lsp::config) fn repository_toolchain(
+    view: &RustupView,
+    workspace_root: &Path,
+    command: &str,
+) -> Option<PathBuf> {
+    if view.toolchain.is_some() {
+        return None;
+    }
+    let proxy = which::which_in(command, view.path_var.as_ref(), workspace_root).ok()?;
+    is_rustup_proxy(&proxy)
+        .then(|| naming_toolchain_file(workspace_root, None))
+        .flatten()
+}
+
+/// The `path` a toolchain file names: `[toolchain] path` in TOML, or a legacy
+/// one-line file whose line is a path.
+fn toolchain_path(text: &str) -> Option<PathBuf> {
+    if let Ok(parsed) = text.parse::<toml::Table>() {
+        return parsed
+            .get("toolchain")?
+            .get("path")?
+            .as_str()
+            .map(PathBuf::from);
+    }
+    let line = text.trim();
+    (Path::new(line).is_absolute()).then(|| PathBuf::from(line))
 }
 
 /// The `rustup` a proxy dispatches to: its link target (a bare name is a

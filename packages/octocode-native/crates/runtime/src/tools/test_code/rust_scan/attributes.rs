@@ -46,6 +46,14 @@ impl<'t> Pass<'t> {
             return false;
         };
         self.tokens = ahead;
+        if !inner && !self.opaque() && self.pending.attributes_from.is_none() {
+            let line_start = self.content[..hash.start]
+                .rfind('\n')
+                .map_or(0, |at| at + 1);
+            if self.content[line_start..hash.start].trim().is_empty() {
+                self.pending.attributes_from = Some(hash.line);
+            }
+        }
         self.last_end = end.end_line;
         if self.opaque() || !matches!(name, Some(Token::Word("cfg" | "path" | "cfg_attr"))) {
             return true;

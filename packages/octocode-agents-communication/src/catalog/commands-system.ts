@@ -48,7 +48,7 @@ export const systemCommands: readonly CommandDefinition[] = [
   },
   {
     name: "mcp",
-    description: "Typed stdio capability tools. Unbound connections expose init; --managed owns presence/cleanup and --session borrows the host identity. --tools limits capabilities.",
+    description: "Provider-neutral stdio messaging tools by default. Unbound connections expose init; --managed owns presence/cleanup and --session borrows the host identity. --tools opts into additional capabilities.",
     input: z.strictObject({}),
     usage: "mcp --workspace <path> [--database <file>] [--tools <names>] [--managed --vendor <host>] [--name <name> | --session <id>]",
     cliFlags: ["workspace","database","session","managed","vendor","name","tools"],

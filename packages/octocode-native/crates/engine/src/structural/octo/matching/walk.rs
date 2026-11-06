@@ -48,6 +48,11 @@ pub(in crate::structural) fn parse_tree_with_deadline(
             "parse",
             "Structural parsing exceeded its execution deadline",
         ),
+        ParseFailure::Unbounded => ExecutionError::limit(
+            "structural.parse.failed",
+            "parse",
+            "The grammar's error recovery stopped being linear in this file, so it was not parsed",
+        ),
     })
 }
 

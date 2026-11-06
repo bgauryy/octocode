@@ -14,13 +14,16 @@ const declared = new Set([
   ...fields.flatMap(field => (field.env ? [field.env.name] : [])),
 ]);
 
-// Names read outside the contract on purpose: each is a development or test seam,
-// never something a user configures.
+// Names read outside the contract on purpose: development/test seams or private
+// child-process values, never something a user configures.
 const NOT_CONFIGURATION = new Map([
   ['OCTOCODE_NATIVE_BIN', 'dev-only launcher override, gated by devOverridesAllowed'],
   ['OCTOCODE_LEAD_PROBE', 'tool-health harness probe'],
   ['OCTOCODE_NET_GUARD_TEST_LOOPBACK', 'lets skill tests reach a loopback server'],
   ['OCTOCODE_CLI', 'skill scripts: which local CLI to run'],
+  ['OCTOCODE_ASKPASS_USERNAME_PROMPT', 'private Git helper prompt, set for one child by AskPass'],
+  ['OCTOCODE_ASKPASS_PASSWORD_PROMPT', 'private Git helper prompt, set for one child by AskPass'],
+  ['OCTOCODE_ASKPASS_TOKEN', 'private Git helper credential, set for one child by AskPass'],
   ['SERVICE_API_KEY', 'the example in the is_secret_key doc comment'],
 ]);
 

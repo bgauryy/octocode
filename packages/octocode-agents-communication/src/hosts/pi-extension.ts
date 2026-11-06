@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { bindingArgs, readBinding, runtimeCommand, type HostBinding, type PiHost, type PiToolHost } from './shared/command.js';
 import { isObject, type Json } from '../runtime/validation.js';
-import { keyedInput, retryKeyPayload } from '../runtime/tool-groups.js';
+import { keyedInput, retryKeyPayload, validateToolEnvelope } from '../runtime/tool-groups.js';
 
 interface Tool {
   name: string;
@@ -85,6 +85,7 @@ export function registerBoundTools(pi: PiToolHost, options: BoundToolsOptions): 
         const { binary, workspace, database, session }: Partial<HostBinding> = options.getBinding ? options.getBinding() ?? {} : options;
         if (!session) throw new Error('Communication is disabled or no session is bound');
         if (!binary || !workspace) throw new Error('Communication binding requires a binary and a workspace');
+        validateToolEnvelope(tool.inputSchema, input);
         // Host call IDs survive re-execution; different calls may intentionally repeat a body.
         const payload = retryKeyPayload(tool.name, input);
         const retryable = payload !== null;

@@ -61,11 +61,13 @@ async fn an_issue_read_of_a_pull_request_number_is_not_found() {
     assert_eq!(&*error.message, "#9 is a pull request, not an issue");
 }
 
-/// An explicit `pageSize` bounds every issue comment page, not only the
-/// first: the walk keeps the caller's grid, the page block states no
-/// resume size, and every comment arrives once, in order.
+/// A saved `pageSize` (the cursor's grid; no published field sets one) only
+/// places a comment page: page 2 of a 4-comment grid starts at comment 4, and
+/// the page then fills the response budget instead of stopping at 4, so a
+/// walk resumed on a small grid never shrinks to it. Every comment from there
+/// arrives once, in order, and the block states no resume size.
 #[tokio::test]
-async fn issue_comment_pages_keep_the_callers_page_size() {
+async fn a_saved_grid_places_issue_comment_pages_without_capping_them() {
     let server = MockServer::builder().start().await;
     mount_json(
         &server,
@@ -87,27 +89,23 @@ async fn issue_comment_pages_keep_the_callers_page_size() {
         .respond_with(paged_like_github(server.uri(), comments, Value::Array))
         .mount(&server)
         .await;
-    let mut query = json!({"operation":"issue","owner":"o","repo":"r","number":7,
-        "sections":["comments"],"pageSize":4});
-    let mut ids = Vec::new();
-    for call in 1.. {
-        assert!(call <= 4, "walk did not finish");
-        let data = read(&server, query.clone()).await;
-        let issue = &data["issues"][0];
-        let shown = issue["comments"].as_array().cloned().unwrap_or_default();
-        assert!(shown.len() <= 4, "call {call}: {data}");
-        let block = &issue["contentPagination"]["comments"];
-        assert!(block.get("pageSize").is_none(), "call {call}: {data}");
-        ids.extend(shown.iter().map(|comment| comment["id"].to_string()));
-        let Some(next) =
-            data.pointer("/issues/0/contentPagination/comments/next/nextPage/input/queries/0")
-        else {
-            break;
-        };
-        assert_eq!(next["pageSize"], 4, "call {call}: {data}");
-        assert_eq!(next["page"], call + 1, "call {call}: {data}");
-        query = next.clone();
-    }
-    let expected = (0..11).map(|n| json!(n.to_string()).to_string());
-    assert_eq!(ids, expected.collect::<Vec<_>>());
+    let data = read(
+        &server,
+        json!({"operation":"issue","owner":"o","repo":"r","number":7,
+            "sections":["comments"],"page":2,"pageSize":4}),
+    )
+    .await;
+    let issue = &data["issues"][0];
+    let ids = issue["comments"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(|comment| comment["id"].to_string())
+        .collect::<Vec<_>>();
+    let expected = (4..11).map(|n| json!(n.to_string()).to_string());
+    assert_eq!(ids, expected.collect::<Vec<_>>(), "{data}");
+    let block = &issue["contentPagination"]["comments"];
+    assert!(block.get("pageSize").is_none(), "{data}");
+    assert_eq!(block["hasMore"], false, "{data}");
 }

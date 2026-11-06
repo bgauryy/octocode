@@ -63,7 +63,7 @@ fn a_secret_across_byte_pages_shows_one_complete_placeholder() {
     let mut pages = 0;
     loop {
         let raw = page_within(&view, &query(offset), LineBudget::bytes(4096), None);
-        let (page, _) = sanitize_byte_page(&view, raw, path, &SecretScan)
+        let (page, _) = sanitize_byte_page(&view, raw, path, &SecretScan, &WindowScans::default())
             .expect("scan")
             .expect("page");
         assert_eq!(page.pagination.offset, offset);

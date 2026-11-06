@@ -45,7 +45,7 @@ async fn a_content_row_sends_the_questions_unchanged_and_returns_provider_answer
     assert_eq!(result["model"], "jev-1.13.0");
     assert_eq!(
         result["usage"],
-        json!({"input_tokens":40,"output_tokens":7})
+        json!({"input_tokens":40,"output_tokens":7,"calls":1})
     );
     assert_eq!(
         result["answers"]["restart"],
@@ -134,7 +134,7 @@ async fn an_identical_evaluation_reaches_the_provider_every_time() {
     );
     assert_eq!(
         again["results"][0]["data"]["usage"],
-        json!({"input_tokens":40,"output_tokens":7}),
+        json!({"input_tokens":40,"output_tokens":7,"calls":1}),
         "a repeat is new spend"
     );
     // A different question is a different evaluation.
@@ -165,10 +165,33 @@ async fn identical_rows_in_one_call_share_one_provider_request() {
     let out = clasify(&runtime, rows).await;
     let results = out["results"].as_array().unwrap();
     assert_eq!(results.len(), 5, "{out}");
+    // Twins give one verdict; the request's spend is counted once, on the
+    // first of them in input order.
+    let verdict = |row: &Value| {
+        let mut data = row["data"].clone();
+        data.as_object_mut().unwrap().remove("usage");
+        data
+    };
     for twin in [2, 4] {
-        assert_eq!(results[0]["data"], results[twin]["data"], "{out}");
+        assert_eq!(verdict(&results[0]), verdict(&results[twin]), "{out}");
         assert!(results[twin].get("status").is_none(), "{out}");
     }
+    let total = |field: &str| {
+        [0, 2, 4]
+            .iter()
+            .map(|&row| results[row]["data"]["usage"][field].as_u64().unwrap())
+            .sum::<u64>()
+    };
+    assert_eq!(
+        (
+            total("input_tokens"),
+            total("output_tokens"),
+            total("calls")
+        ),
+        (40, 7, 1),
+        "{out}"
+    );
+    assert_eq!(results[0]["data"]["usage"]["calls"], 1, "{out}");
     assert!(
         results
             .iter()

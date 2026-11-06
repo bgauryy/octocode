@@ -30,7 +30,9 @@ fn template() -> Option<&'static Value> {
 
 /// A classifier fills the contract template's slot verbatim: the template
 /// (core `classifierTemplate`) judges it as a predicate about the source, or
-/// about `target` when a question names one line of a shared state.
+/// about `target` when a question names one line of a shared state. A target
+/// question leaves out the question text every target shares: the shared
+/// state carries it once ([`target_question`]).
 fn compile(classifier: &str, target: Option<&str>) -> Option<Value> {
     let template = template()?;
     let slot = template["slot"].as_str()?;
@@ -38,13 +40,21 @@ fn compile(classifier: &str, target: Option<&str>) -> Option<Value> {
     let instructions = question["instructions"].as_object_mut()?;
     instructions.insert(slot.to_owned(), Value::String(classifier.to_owned()));
     if let Some(target) = target {
-        instructions.insert("question".into(), template["targetQuestion"].clone());
+        instructions.shift_remove("question");
         instructions.insert(
             template["targetSlot"].as_str()?.to_owned(),
             Value::String(target.to_owned()),
         );
     }
     Some(question)
+}
+
+/// The template's question about a target line, which the state the targets
+/// share holds once for all of them.
+fn target_question() -> Option<&'static Value> {
+    template()?
+        .get("targetQuestion")
+        .filter(|question| question.is_string())
 }
 
 fn candidate_state(mut state: Value) -> Value {

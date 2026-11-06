@@ -195,7 +195,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "planetScaleConnectionString",
         file_context: None,
-        regex: r###"\bmysql:\/\/[a-zA-Z0-9_-]+:[a-zA-Z0-9_=-]+@[a-z0-9.-]+\.psdb\.cloud\/[a-zA-Z0-9_-]+\?sslaccept=strict\b"###,
+        regex: r###"\bmysql:\/\/[a-zA-Z0-9_-]+:(?P<secret>[a-zA-Z0-9_=-]+)@[a-z0-9.-]+\.psdb\.cloud\/[a-zA-Z0-9_-]+\?sslaccept=strict\b"###,
     },
     SecretPattern {
         name: "planetScaleToken",

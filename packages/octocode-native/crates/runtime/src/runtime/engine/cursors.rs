@@ -238,9 +238,9 @@ impl Registry {
             return Ok(None);
         };
         octocode_io::atomic::create_private_dir_all(disk)
-            .map_err(|_| ExecutionError::WorkerFailed)?;
+            .map_err(|_| ExecutionError::StorageUnavailable)?;
         let file = octocode_io::lock::open_lock_file(&disk.join("continuations.lock"))
-            .map_err(|_| ExecutionError::WorkerFailed)?;
+            .map_err(|_| ExecutionError::StorageUnavailable)?;
         // One stable sidecar bounds lock files and serializes short merges.
         loop {
             context.check()?;
@@ -249,14 +249,15 @@ impl Registry {
                 .saturating_duration_since(Instant::now())
                 .min(Duration::from_millis(100));
             match octocode_io::lock::lock_within(
-                file.try_clone().map_err(|_| ExecutionError::WorkerFailed)?,
+                file.try_clone()
+                    .map_err(|_| ExecutionError::StorageUnavailable)?,
                 wait,
                 octocode_io::lock::LOCK_POLL,
             ) {
                 Ok(lock) => return Ok(Some(lock)),
                 Err(octocode_io::lock::LockError::Busy) => {}
                 Err(octocode_io::lock::LockError::Io(_)) => {
-                    return Err(ExecutionError::WorkerFailed);
+                    return Err(ExecutionError::StorageUnavailable);
                 }
             }
         }

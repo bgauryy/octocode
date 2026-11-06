@@ -1,9 +1,10 @@
-//! History-A regressions: pull request, commit and compare views carry source, target and merge identity.
+//! History-A regressions: pull request views carry source, target and merge
+//! identity. Commit and compare views: [`super::history_a_commits`].
 
 use super::HISTORY_A_HEAD;
 use crate::support::{self};
 use serde_json::json;
-use support::{Workspace, call, checks, inventory_len, row_data, row_status};
+use support::{Workspace, call, checks, row_data, row_status};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -25,7 +26,7 @@ fn history_a_rest_pr(merged: bool) -> serde_json::Value {
     })
 }
 
-fn history_a_file(name: &str, patch: Option<&str>, additions: u64) -> serde_json::Value {
+pub(super) fn history_a_file(name: &str, patch: Option<&str>, additions: u64) -> serde_json::Value {
     let mut file = json!({
         "sha": "1111111111111111111111111111111111111111", "filename": name,
         "status": "modified", "additions": additions, "deletions": 1,
@@ -37,7 +38,11 @@ fn history_a_file(name: &str, patch: Option<&str>, additions: u64) -> serde_json
     file
 }
 
-async fn history_a_mount_pr(server: &MockServer, merged: bool, files: serde_json::Value) {
+pub(super) async fn history_a_mount_pr(
+    server: &MockServer,
+    merged: bool,
+    files: serde_json::Value,
+) {
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/pulls/9"))
         .respond_with(ResponseTemplate::new(200).set_body_json(history_a_rest_pr(merged)))
@@ -239,125 +244,5 @@ async fn history_a_graphql_pr_reads_target_sha_and_totals() {
         .map(|request| String::from_utf8_lossy(&request.body).into_owned())
         .collect::<Vec<_>>();
     assert!(documents[0].contains("baseRefOid"), "{documents:?}");
-    runtime.close().await;
-}
-
-/// An `include` that matches none of a commit's files keeps the
-/// whole commit's counts and names the changed directories nearest it.
-#[tokio::test]
-async fn history_a_commit_include_matching_nothing_warns_with_nearest_dirs() {
-    let server = MockServer::builder().start().await;
-    let sha = "abc123def456abc123def456abc123def456abc1";
-    let files = [
-        "docs/a.md",
-        "packages/react-dom/src/a.js",
-        "packages/react/src/b.js",
-        "packages/react/index.js",
-        "scripts/x.js",
-    ]
-    .iter()
-    .map(|name| json!({"filename": name, "status": "modified", "additions": 1, "deletions": 0}))
-    .collect::<Vec<_>>();
-    Mock::given(method("GET"))
-        .and(path(format!("/api/v3/repos/a/b/commits/{sha}")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "sha": sha,
-            "commit": {"message": "five files", "author": {"name": "A", "date": "2024-01-01T00:00:00Z"}},
-            "stats": {"additions": 5, "deletions": 0, "total": 5},
-            "files": files
-        })))
-        .mount(&server)
-        .await;
-    let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let read = |include: &str| json!({"operation":"commit","owner":"a","repo":"b","ref":sha,"include":[include]});
-    let outcome = call(&runtime, "ghGetHistoryItem", read("packages/react/**"))
-        .await
-        .expect("commit");
-    let data = row_data(&outcome);
-    assert_eq!(data["changedFilesCount"], 5, "{data}");
-    assert_eq!(inventory_len(&data["files"]), 2, "{data}");
-    assert!(data.get("commitTotals").is_none(), "{data}");
-    assert!(
-        !data["warnings"].to_string().contains("matched 0"),
-        "{data}"
-    );
-    let outcome = call(&runtime, "ghGetHistoryItem", read("packages/reakt/**"))
-        .await
-        .expect("commit");
-    let data = row_data(&outcome);
-    assert_eq!(data["changedFilesCount"], 5, "{data}");
-    let warnings = data["warnings"].to_string();
-    assert!(
-        warnings.contains("matched 0 of 5") && warnings.contains("packages/react/src/"),
-        "{data}"
-    );
-    runtime.close().await;
-}
-
-/// A comparison lists commit headlines (login first) and
-/// one `readCommit` lead for the first commit with more message.
-#[tokio::test]
-async fn history_a_compare_commits_are_headlines_with_login_authors() {
-    let server = MockServer::builder().start().await;
-    let head = "1111111111111111111111111111111111111111";
-    Mock::given(method("GET"))
-        .and(path(format!("/api/v3/repos/a/b/compare/v1...{head}")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "status": "ahead", "ahead_by": 3, "behind_by": 0, "total_commits": 3,
-            "commits": [
-                {"sha": "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1", "author": {"login": "rickhanlonii"},
-                 "commit": {"message": "Fix A (#1)", "author": {"name": "Ricky", "date": "2024-01-01T00:00:00Z"}}},
-                {"sha": "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2", "author": null,
-                 "commit": {"message": "Fix B (#2)\n\nLong body explaining B.", "author": {"name": "Unlinked", "date": "2024-01-02T00:00:00Z"}}},
-                {"sha": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3", "author": {"login": "acdlite"},
-                 "commit": {"message": "Fix C\n\nmore", "author": {"name": "Andrew", "date": "2024-01-03T00:00:00Z"}}}
-            ],
-            "files": [{"filename": "src/a.js", "status": "modified", "additions": 1, "deletions": 0}]
-        })))
-        .mount(&server)
-        .await;
-    let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let outcome = call(
-        &runtime,
-        "ghGetHistoryItem",
-        json!({"operation":"compare","owner":"a","repo":"b","baseRef":"v1","headRef":head}),
-    )
-    .await
-    .expect("compare");
-    let data = row_data(&outcome);
-    assert_eq!(row_status(&outcome), "success", "{data}");
-    let commits = data["commits"].as_array().expect("commits");
-    assert_eq!(
-        commits
-            .iter()
-            .map(|c| (c["messageHeadline"].clone(), c["author"].clone()))
-            .collect::<Vec<_>>(),
-        [
-            (json!("Fix A (#1)"), json!("rickhanlonii")),
-            (json!("Fix B (#2)"), json!("Unlinked")),
-            (json!("Fix C"), json!("acdlite")),
-        ],
-        "{data}"
-    );
-    assert!(commits.iter().all(|c| c.get("message").is_none()), "{data}");
-    Mock::given(method("GET")).and(path("/api/v3/repos/a/b/commits/c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha":"c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2","commit":{"message":"Fix B (#2)\n\nLong body explaining B.","author":{"name":"Unlinked","date":"2024-01-02T00:00:00Z"}},"files":[]})))
-        .expect(1).mount(&server).await;
-    let full = call(
-        &runtime,
-        "ghGetHistoryItem",
-        checks::related_call(data, "ghGetHistoryItem", |input| {
-            input["queries"][0]["ref"] == "c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2c2"
-        })["input"]
-            .clone(),
-    )
-    .await
-    .expect("complete message");
-    assert_eq!(
-        row_data(&full)["message"],
-        "Fix B (#2)\n\nLong body explaining B."
-    );
     runtime.close().await;
 }

@@ -11,7 +11,6 @@ use aho_corasick::AhoCorasick;
 use grep_matcher::Matcher;
 use grep_searcher::{Searcher, Sink, SinkContext, SinkMatch};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
 
 mod columns;
 mod long_line;
@@ -35,13 +34,8 @@ pub(super) struct CollectSink<'a, M: Matcher> {
     pub(super) om_matches: Vec<TextSearchMatch>,
     /// A retained span limit must never be reported as an exhaustive search.
     pub(super) span_cap_reached: bool,
-    /// Wall-clock ceiling for this file's search (see [`PCRE2_SEARCH_DEADLINE`](super::pcre2::PCRE2_SEARCH_DEADLINE)).
-    /// `None` disables the deadline (linear engines don't need it).
-    pub(super) deadline: Option<Instant>,
     /// Search-wide stop flag, polled between matched lines.
     pub(super) stop: &'a AtomicBool,
-    /// Set when `deadline` was hit and the search was stopped early.
-    pub(super) deadline_hit: bool,
     /// Absolute offset of the first NUL byte when the file was quit as binary.
     /// The searcher stops there, so bytes after it are unsearched.
     pub(super) binary_offset: Option<u64>,
@@ -78,7 +72,6 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
     pub(super) fn new(
         matcher: &'a M,
         work: MatchWork,
-        deadline: Option<Instant>,
         stop: &'a AtomicBool,
         (words, terms): (Option<&'a AhoCorasick>, &'a [M]),
     ) -> Self {
@@ -99,9 +92,7 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
             work,
             om_matches: Vec::new(),
             span_cap_reached: false,
-            deadline,
             stop,
-            deadline_hit: false,
             binary_offset: None,
             line_weight: 0,
             declares: false,
@@ -193,12 +184,6 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
         // Stop searching this file *before* doing more per-line work. Returning
         // Ok(false) ends the search cleanly and keeps the matches collected so far.
         if self.stop.load(Ordering::Relaxed) {
-            return Ok(false);
-        }
-        if let Some(deadline) = self.deadline
-            && Instant::now() >= deadline
-        {
-            self.deadline_hit = true;
             return Ok(false);
         }
         let line_number = saturating_u32(mat.line_number().unwrap_or(0));

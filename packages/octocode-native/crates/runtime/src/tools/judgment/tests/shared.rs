@@ -43,7 +43,10 @@ async fn identical_evaluations_share_one_request_and_count_spend_once() {
             &gate,
         )
     }))
-    .await;
+    .await
+    .into_iter()
+    .map(|(ask, _)| ask)
+    .collect::<Vec<_>>();
     let mut usage = stats::ClassificationUsage::default();
     for ask in &asks {
         let judged = ask.as_ref().unwrap();
@@ -85,7 +88,7 @@ async fn a_shared_failure_reaches_every_asker_and_counts_its_attempt_once() {
             &gate
         ),
     );
-    let (first, second) = (first.unwrap_err(), second.unwrap_err());
+    let (first, second) = (first.0.unwrap_err(), second.0.unwrap_err());
     assert_eq!(first.code, second.code);
     let mut usage = stats::ClassificationUsage::default();
     usage.add(&Err(first));
@@ -120,6 +123,7 @@ async fn a_different_payload_is_a_different_evaluation() {
         evaluator
             .evaluate_once(&evaluations, ask, model, &budget, &gate)
             .await
+            .0
             .unwrap();
     }
 }
@@ -140,6 +144,7 @@ async fn a_later_request_reaches_the_provider_again() {
                 &gate,
             )
             .await
+            .0
             .unwrap();
         assert_eq!(judged.provider_calls, 1);
     }

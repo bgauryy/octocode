@@ -1,0 +1,10 @@
+Plain text   with spaces
+  indented
+    more
+
+ one-space
+
+
+
+
+end

@@ -219,8 +219,9 @@ async fn exact_repository(
     Ok(ToolData::from(value))
 }
 
-/// A repository row's id: a `fields` pick keeps it.
-const REPO_ID: &[&str] = &["owner", "repo"];
+/// A repository row's id and its `visibility` mark: a `fields` pick keeps
+/// them, so a private row stays marked.
+const REPO_ID: &[&str] = &["owner", "repo", "visibility"];
 
 /// The filters a query can set beside its keywords, by wire name, one
 /// group each: the one table every narrowing check reads.

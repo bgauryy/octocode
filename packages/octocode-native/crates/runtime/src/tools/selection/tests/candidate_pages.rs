@@ -31,8 +31,18 @@ fn candidate_pages_walk_in_source_order_and_a_large_state_runs_alone() {
     let last = run(Some(second.next_candidates().expect("the rest")));
     assert_eq!(last.selected, [2]);
     assert!(last.next_candidates().is_none());
-    assert_eq!(last.receipt.total_items, 1);
-    assert_eq!(last.receipt.status, SelectionStatus::Complete);
+    // The last page counts the whole walk: the candidate with no state was
+    // never judged, so the walk stays partial, for the first page's reason.
+    assert_eq!(last.receipt.total_items, 4);
+    assert_eq!(
+        (last.receipt.selected_items, last.receipt.unknown_items),
+        (3, 1)
+    );
+    assert_eq!(last.receipt.status, SelectionStatus::Partial);
+    assert_eq!(
+        last.receipt.reason.as_deref(),
+        Some("candidateEligibilityAndBudget")
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 3);
 }
 
@@ -100,7 +110,7 @@ fn a_chain_of_candidate_pages_judges_every_ordinal_once() {
         }
         assert!(totals.len() < 10, "the chain ends");
     }
-    assert_eq!(totals, [9, 5, 2], "each page counts its own pool");
+    assert_eq!(totals, [9, 9, 9], "each page counts the whole walk");
     let mut judged = judge.0.lock().expect("lock").clone();
     judged.sort_unstable();
     assert_eq!(judged, (0..8).collect::<Vec<_>>(), "each judged once");
@@ -115,7 +125,7 @@ fn a_chain_of_candidate_pages_judges_every_ordinal_once() {
     ));
     let replay = run(Some(&token));
     assert_eq!(replay.selected, selected);
-    assert_eq!(replay.receipt.total_items, 5);
+    assert_eq!(replay.receipt.total_items, 9);
     assert!(
         (0..9).filter(|&o| replay.considers(o)).count() == 5,
         "the replay keeps its pool"
@@ -124,6 +134,79 @@ fn a_chain_of_candidate_pages_judges_every_ordinal_once() {
         judge.0.lock().expect("lock").len(),
         8,
         "a replay never judges"
+    );
+}
+
+/// The last candidate page tallies the whole walk: every unit judged, the
+/// unsure ones unknown, and judging complete once nothing waits for a later
+/// page. Its note separates units not judged yet from unknown answers.
+#[test]
+fn the_last_candidate_page_tallies_the_whole_walk() {
+    struct Thirds;
+    impl SelectionJudge for Thirds {
+        fn identity(&self) -> Value {
+            json!({"test":"thirds"})
+        }
+        fn select(&self, call: JudgeCall<'_>) -> Judgments {
+            Ok(call
+                .admitted
+                .iter()
+                .map(|&i| {
+                    let decision = match i % 3 {
+                        0 => Decision::Selected,
+                        1 => Decision::Excluded,
+                        _ => Decision::Unknown,
+                    };
+                    (i, decision)
+                })
+                .collect())
+        }
+    }
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let mut runtime = test_runtime(std::sync::Arc::new(Thirds), executor.handle().clone());
+    runtime.limits.max_chars = 75;
+    let candidates = (0..9)
+        .map(|i| Candidate::new(Some(json!({"content":format!("evidence {i}")}))))
+        .collect::<Vec<_>>();
+    let query = json!({"classification":{"predicates":["evidence"]}});
+    let run = |prior: Option<&str>| {
+        select_source(&runtime, &query, prior, &candidates, SelectionUnit::Hits)
+            .unwrap_or_else(|_| panic!("candidate page"))
+    };
+    let first = run(None);
+    assert_eq!(first.receipt.status, SelectionStatus::Partial);
+    assert_eq!(first.receipt.reason.as_deref(), Some("candidateBudget"));
+    assert_eq!(
+        (first.receipt.total_items, first.receipt.unknown_items),
+        (9, 7)
+    );
+    assert_eq!(
+        kept_note(&first, first.selected.len()).as_deref(),
+        Some(
+            "classification kept 1 of 9 hits that pass the classifiers; 6 hits not judged yet: next.nextCandidatePage judges them."
+        )
+    );
+    let mut last = first;
+    while let Some(next) = last.next_candidates().map(str::to_owned) {
+        last = run(Some(&next));
+    }
+    let receipt = &last.receipt;
+    assert_eq!(receipt.status, SelectionStatus::Complete);
+    assert_eq!(receipt.reason.as_deref(), Some("classificationUnknown"));
+    assert_eq!(
+        (
+            receipt.total_items,
+            receipt.selected_items,
+            receipt.excluded_items,
+            receipt.unknown_items
+        ),
+        (9, 3, 3, 3)
+    );
+    assert_eq!(
+        kept_note(&last, last.selected.len()).as_deref(),
+        Some(
+            "classification kept 3 of 9 hits that pass the classifiers (1 on this page); none is left to judge, and 3 hits stay unknown."
+        )
     );
 }
 

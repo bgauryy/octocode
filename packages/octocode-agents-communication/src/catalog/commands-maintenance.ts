@@ -137,23 +137,6 @@ export const maintenanceCommands: readonly CommandDefinition[] = [
     }).describe("Delivery diagnostics; actions maps each issue present to its instruction."),
   },
   {
-    name: "completion-check",
-    description: "Opt-in Claude/Pi completion check: read-only check of submitted, unacknowledged IDs; one recovery turn. Pass --session/--workspace/--database explicitly; stdin is hook JSON.",
-    input: z.object({
-      hook_event_name: z.string().describe("Host hook event name."),
-      stop_hook_active: z.boolean().describe("Whether completion recovery is already active.").optional(),
-      session_id: z.string().min(1).describe("Host session ID from the hook event."),
-      cwd: z.string().min(1).describe("Host working directory from the hook event."),
-    }).catchall(z.unknown()),
-    usage: "completion-check - --session <id> --workspace <repo> --database <db>",
-    cliFlags: ["workspace","database","session"],
-    result: z.strictObject({
-      decision: z.literal("block").optional(),
-      pending: z.array(z.int()).optional(),
-      reason: z.string().optional(),
-    }).describe("Empty to let the host stop; decision block lists unacknowledged message IDs."),
-  },
-  {
     name: "locks",
     description: "List reservations by owner or overlapping path. Results grant no ownership.",
     input: z.strictObject({

@@ -90,3 +90,24 @@ fn summaries_total_the_listing_not_the_whole_walk() {
         );
     }
 }
+
+/// `empty` lists either side of the line: `true` the empty files and
+/// directories, `false` every other one.
+#[test]
+fn empty_false_lists_what_empty_true_leaves_out() {
+    let root = Fixture::new();
+    root.write("full.rs", "fn f() {}\n");
+    root.write("blank.rs", "");
+    std::fs::create_dir(root.0.join("hollow")).expect("dir");
+    let names = |empty: bool| {
+        let row = json!({"operation":"files","path":root.0,"empty":empty,"view":"paths"});
+        let mut names = listed(&run(&root.0, row).expect("listing"))
+            .iter()
+            .map(|entry| entry["path"].as_str().expect("path").to_owned())
+            .collect::<Vec<_>>();
+        names.sort();
+        names
+    };
+    assert_eq!(names(true), ["./blank.rs", "./hollow"]);
+    assert_eq!(names(false), ["./full.rs"]);
+}

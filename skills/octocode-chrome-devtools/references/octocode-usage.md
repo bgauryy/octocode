@@ -28,9 +28,9 @@ Inspect schema availability, auth status and `lsp-server status <file>` as neede
 
 Follow [configuration](configuration.md) for credentials/settings. Inline `classification:{predicates:[...],context?,longContext?}` requires `OCTOCODE_CLASSIFICATION_API` or classification.api. Without the key, both surfaces leave out clasify and those fields; a CLI call answers `missingConfiguration`. Discovery makes no provider request. No setting change is implied by a missing capability.
 
-## 16 public tools
+## 17 public tools
 
-The default catalog contains 12 tools over MCP and 15 in the CLI. A nonblank classification key adds clasify to both (beta and provider health do not gate it). MCP independently adds graph tools with beta and clone with `OCTOCODE_ENABLE_CLONE=true`; tool lists and the local switch can restrict MCP further. Discovery is authoritative for the configured surface.
+The default catalog contains 12 tools over MCP and 16 in the CLI, securityCheck among them. A nonblank classification key adds clasify to both (beta and provider health do not gate it). MCP independently adds graph tools with beta, clone with `OCTOCODE_ENABLE_CLONE=true` and securityCheck with `OCTOCODE_SECURITY_CHECKS=true`; tool lists and the local switch can restrict MCP further. Discovery is authoritative for the configured surface.
 
 - Graph, only when discovery lists it: graphBuild writes and prunes workspace snapshots; graphQuery explores them. Candidates need LSP and source verification.
 - GitHub: ghSearchRepo, ghSearchCode, ghStructure, ghGetFileContent, ghSearchHistory, ghGetHistoryItem, ghCloneRepo.

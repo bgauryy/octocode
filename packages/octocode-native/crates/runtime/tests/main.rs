@@ -30,6 +30,7 @@ mod runtime_clasify_sections;
 mod runtime_clasify_url;
 mod runtime_code_meanings;
 mod runtime_d1_shapes;
+mod runtime_deep_nesting;
 mod runtime_empty_error_rows;
 mod runtime_flow_edge_replay;
 mod runtime_generic_walk;
@@ -59,6 +60,7 @@ mod runtime_response_cursor;
 mod runtime_stream_page_walk;
 mod runtime_surface_arms;
 mod runtime_tool_flow_handoffs;
+mod runtime_whole_walk_memory;
 mod tool_cache_contracts;
 
 /// `autotests = false` means a `tests/*.rs` file missing from the list above

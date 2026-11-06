@@ -11,7 +11,7 @@ use crate::types::{CaseRule, PatternSyntax, TextSearchOptions, TextSearchResult}
 use collect::{WalkControl, collect};
 use grep_regex::RegexMatcherBuilder;
 use mode::resolve_mode;
-use pcre2::{PCRE2_LIMITS, Pcre2Limits, search_pcre2};
+use pcre2::search_pcre2;
 use result::build_result;
 use state::CollectState;
 use std::path::Path;
@@ -22,18 +22,21 @@ mod file_search;
 mod file_terms;
 mod listed;
 mod mode;
+mod ordered;
 mod pcre2;
 mod result;
 mod sink;
 mod state;
 mod visit;
 mod walk_rule;
+mod window;
 
 pub use listed::{count_listed, listable};
 pub(crate) use pcre2::{
-    ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS, PCRE2_DEADLINE_GRACE, PCRE2_SEARCH_DEADLINE,
-    Pcre2WorkerSlot, pcre2_builder, release_worker_slot, try_acquire_worker_slot,
+    ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS, Pcre2WorkerSlot, pcre2_builder,
+    release_worker_slot, try_acquire_worker_slot,
 };
+pub use window::{Clock, Earlier, Pause, Resume, SearchWindow, Searched, Windowed};
 
 pub trait TextSearchPathFilter: Send + Sync {
     fn allows(&self, path: &Path, is_dir: bool) -> bool;
@@ -85,15 +88,22 @@ pub fn search_cancellable(
     path_filter: Arc<dyn TextSearchPathFilter>,
     cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Result<TextSearchResult> {
-    search_with_limits(opts, path_filter, cancelled, PCRE2_LIMITS)
+    match search_window(opts, path_filter, cancelled, SearchWindow::default())? {
+        Windowed::Whole(result) => Ok(result),
+        Windowed::Paused(_) => Err(Error::new("a text search with no window end paused")),
+    }
 }
 
-fn search_with_limits(
+/// [`search_cancellable`] for one window of the search ([`window`]): a PCRE2
+/// search pauses past `window.ends`, after the last file it finished in walk
+/// order, and resumes at `window.resume`. A linear engine searches its whole
+/// scope in one window.
+pub fn search_window(
     opts: TextSearchOptions,
     path_filter: Arc<dyn TextSearchPathFilter>,
     cancelled: &(dyn Fn() -> bool + Sync),
-    limits: Pcre2Limits,
-) -> Result<TextSearchResult> {
+    window: SearchWindow,
+) -> Result<Windowed> {
     let mode = resolve_mode(&opts);
 
     let case_insensitive = opts.case == CaseRule::Insensitive;
@@ -113,7 +123,7 @@ fn search_with_limits(
             .crlf(true);
         let matcher = b.build(&opts.pattern).map_err(to_engine_err)?;
         let terms = mode::term_matchers(&opts, mode, |term| b.build(term).map_err(to_engine_err))?;
-        return search_pcre2(opts, mode, (matcher, terms), path_filter, cancelled, limits);
+        return search_pcre2(opts, mode, (matcher, terms), path_filter, cancelled, window);
     }
 
     // ── Default Rust-regex path ─────────────────────────────────────────────────
@@ -124,7 +134,7 @@ fn search_with_limits(
         b.build(&spelled(term)).map_err(to_engine_err)
     })?;
     // The Rust regex engine is linear-time and cannot catastrophically
-    // backtrack, so it needs no wall-clock deadline.
+    // backtrack: its search is one window.
     let state = CollectState::new();
     collect(
         &opts,
@@ -132,13 +142,9 @@ fn search_with_limits(
         mode,
         path_filter,
         &state,
-        WalkControl {
-            deadline: None,
-            cancelled,
-            eager: false,
-        },
+        WalkControl { cancelled },
     )?;
-    Ok(build_result(&opts, mode, state.snapshot()))
+    Ok(Windowed::Whole(build_result(&opts, mode, state.snapshot())))
 }
 
 /// The builder of every Rust-regex matcher a search of `opts` runs.

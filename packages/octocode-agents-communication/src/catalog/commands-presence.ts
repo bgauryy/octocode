@@ -8,9 +8,9 @@ export const presenceCommands: readonly CommandDefinition[] = [
     name: "join",
     description: "Register identity; reuse supplied ID. Presence lasts 60s: listen or heartbeat every 15s.",
     input: z.strictObject({
-      name: z.string().min(1).max(256).describe("Unique live peer name; conflicts get a numeric suffix. Use the returned name."),
-      vendor: z.string().min(1).max(256).describe("Host vendor owning this identity."),
-      vendorSession: z.string().min(1).max(256).describe("Exact current host session ID; omit if unknown.").optional(),
+      name: z.string().min(1).max(256).describe("Introduce yourself with your existing agent name when available; otherwise choose one. Conflicts get a numeric suffix; use the returned name."),
+      vendor: z.string().min(1).max(256).describe("Your provider/host label; preserve it in caller metadata on each tool call."),
+      vendorSession: z.string().min(1).max(256).describe("Your exact current native agent/session ID when known; omit rather than invent one. Distinct from the returned database ID.").optional(),
       task: z.string().max(256).describe("Task shown to peers.").optional(),
       status: statusSchema.describe("Status shown to peers.").optional(),
       branch: z.string().max(256).nullable().describe("Git branch.").optional(),

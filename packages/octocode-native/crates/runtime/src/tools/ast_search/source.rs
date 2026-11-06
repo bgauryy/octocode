@@ -10,11 +10,13 @@ use crate::policy::PolicyError;
 use crate::response::result::ToolError;
 use crate::tools::display_name;
 
-/// The source astSearch parses, read bounded at [`MAX_PARSE_SOURCE_BYTES`];
-/// `None` when the file is larger.
+/// The source astSearch parses, read bounded at the whole-read limit
+/// ([`crate::security::SourceLimits::whole_source`]): every parse is
+/// bounded by its work and the request, not by size. `None` when the file
+/// is larger.
 pub(super) fn read_parse_source(path: &std::path::Path) -> Result<Option<Vec<u8>>, ToolError> {
     use crate::tools::source::read_bounded;
-    match read_bounded(path, MAX_PARSE_SOURCE_BYTES) {
+    match read_bounded(path, crate::security::SourceLimits::REAL.whole_source) {
         Ok(bytes) => Ok(Some(bytes)),
         Err(ReadError::TooLarge(_)) => Ok(None),
         Err(ReadError::NotRegular) => Err(io_error(
@@ -85,11 +87,11 @@ pub(super) fn admitted<'a>(
     )
 }
 
-/// The terminal row of a source larger than [`MAX_PARSE_SOURCE_BYTES`]; a
+/// The terminal row of a source larger than a whole read admits; a
 /// searched literal (a symbol name, a pattern without metavariables) leads
 /// to a text search of it in the same file.
 pub(super) fn source_limit(path: &str, literal: Option<&str>) -> Value {
-    let mut row = serde_json::json!({"status":"error","path":path,"errorCode":ErrorCode::FileTooLarge,"error":"Source exceeds the native parser byte limit."});
+    let mut row = serde_json::json!({"status":"error","path":path,"errorCode":ErrorCode::FileTooLarge,"error":"Source exceeds the byte limit of a whole read."});
     crate::response::paging::terminal_limit(
         &mut row,
         crate::response::paging::PartialReason::FileTooLarge,
@@ -115,8 +117,3 @@ pub(super) fn text_search(path: &str, literal: &str) -> Option<Value> {
 pub(super) fn pattern_literal(pattern: &str) -> Option<&str> {
     (!pattern.contains('$')).then_some(pattern)
 }
-/// Largest source astSearch parses (match, symbols, syntaxTree). Sized for
-/// real generated and monolithic sources (TypeScript's 3 MB checker.ts, the
-/// 2.3 MB lib.dom.d.ts); tree-sitter and oxc parse these in well under a
-/// second. Directory scans skip larger files and report them.
-pub(crate) const MAX_PARSE_SOURCE_BYTES: usize = octocode_engine::signatures::MAX_PARSE_SIZE;

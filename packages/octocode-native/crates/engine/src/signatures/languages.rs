@@ -129,10 +129,6 @@ pub struct LanguageEntry {
     pub structural_operation: bool,
     pub syntax_tree_operation: bool,
     pub outline_operation: bool,
-    /// Tree-sitter S-expression query whose `@body` captures are the nodes the
-    /// signature extractor drops. Every first-class grammar has a body query;
-    /// structural, signature, and graph capability inventories therefore agree.
-    pub body_query: &'static str,
     pub fact_capabilities: crate::types::GrammarFactCapabilities,
     pub test_frameworks: &'static [&'static str],
     pub(crate) call_adapter: Option<super::calls::CallAdapter>,
@@ -152,7 +148,7 @@ impl LanguageEntry {
         match operation {
             Op::StructuralSearch => self.structural_operation,
             Op::SyntaxTree => self.syntax_tree_operation,
-            Op::SignatureOutline => self.outline_operation && !self.body_query.is_empty(),
+            Op::SignatureOutline => self.outline_operation && self.fact_capabilities.declarations,
             Op::Declarations => self.fact_capabilities.declarations,
             Op::GraphFacts => self.fact_capabilities.any(),
         }
@@ -214,6 +210,15 @@ pub enum CommentStyle {
 
 pub fn find_entry(ext: &str) -> Option<&'static LanguageEntry> {
     LANGUAGE_TABLE.iter().find(|e| e.extensions.contains(&ext))
+}
+
+/// The grammars that also parse `ext`, which another grammar owns (C++ reads
+/// C's `.h` headers).
+pub(crate) fn also_parsing(ext: &str) -> impl Iterator<Item = &'static LanguageEntry> {
+    let ext = ext.to_owned();
+    LANGUAGE_TABLE
+        .iter()
+        .filter(move |entry| entry.also_parses.contains(&ext.as_str()))
 }
 
 /// Markup and single-file components whose script blocks hold JavaScript

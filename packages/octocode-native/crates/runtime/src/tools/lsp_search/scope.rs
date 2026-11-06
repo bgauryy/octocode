@@ -38,7 +38,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
+mod answered;
 mod code_use_memo;
+mod dependents;
+pub(super) use dependents::Dependents;
 mod ignored_index;
 mod listing;
 mod paths;
@@ -141,9 +144,13 @@ pub(super) struct Scope {
     /// The reach of that declaration for a symbol, read once (`None`: no
     /// bound is known).
     reach: Arc<ReachSlot>,
-    /// The anchor file (canonical) and the zero-based lines of it the answer
-    /// covers, the anchor's own line included; see [`Self::anchor_gap`].
-    anchor_lines: Mutex<Option<(String, BTreeSet<u32>)>>,
+    /// The zero-based lines the answer lists in each file it covers, the
+    /// anchor's own line included; see [`Self::answer_gaps`].
+    listed: Mutex<answered::Listed>,
+    /// What [`Self::answer_gaps`] found, by symbol, once looked for.
+    gaps: Mutex<Option<(String, Arc<Vec<answered::Gap>>)>>,
+    /// The other projects that may use the anchor ([`Self::dependents`]).
+    dependents: std::sync::OnceLock<Dependents>,
 }
 
 impl Scope {
@@ -163,7 +170,9 @@ impl Scope {
             code_uses: Arc::new(Mutex::new(HashMap::new())),
             site: Mutex::new(None),
             reach: Arc::new(Mutex::new(None)),
-            anchor_lines: Mutex::new(None),
+            listed: Mutex::default(),
+            gaps: Mutex::new(None),
+            dependents: std::sync::OnceLock::new(),
         }
     }
 
@@ -227,93 +236,6 @@ impl Scope {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(walked.clone());
         Ok(walked)
-    }
-
-    /// Whether the server's answer covers `file` (canonical path).
-    pub(super) fn is_answered(&self, file: &str) -> bool {
-        self.answered
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .contains(file)
-    }
-
-    /// Whether a file the server's answer covers under the scope root is
-    /// gone: a file removed after the server read it leaves no stamp for a
-    /// later walk to compare. Files outside the root (and non-file URIs)
-    /// are not this scope's to prove.
-    pub(super) async fn answered_removed(
-        &self,
-        cancel: &dyn CancellationCheck,
-    ) -> Result<bool, LspFailure> {
-        let root = PathBuf::from(&self.root);
-        let answered = self
-            .answered
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .iter()
-            .filter(|file| Path::new(file).starts_with(&root))
-            .cloned()
-            .collect::<Vec<_>>();
-        if answered.is_empty() {
-            return Ok(false);
-        }
-        let removed = blocking_cancellable(cancel, move |stopped| {
-            answered.iter().take_while(|_| !stopped()).any(|file| {
-                std::fs::symlink_metadata(file)
-                    .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
-            })
-        })
-        .await?;
-        // A check the request stopped proves nothing.
-        Ok(removed.unwrap_or(true))
-    }
-
-    /// Record files (paths or `file://` uris) the server's answer covers.
-    pub(super) fn answer(&self, files: impl IntoIterator<Item = impl AsRef<str>>) {
-        self.answered
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .extend(files.into_iter().map(|file| canonical_uri(file.as_ref())));
-    }
-
-    /// Record the zero-based lines of the anchor file the whole answer (every
-    /// page) covers, with the anchor's own `line`.
-    pub(super) fn answer_anchor_lines(
-        &self,
-        anchor: &str,
-        line: u32,
-        lines: impl IntoIterator<Item = u32>,
-    ) {
-        let mut covered = lines.into_iter().collect::<BTreeSet<_>>();
-        covered.insert(line);
-        *self
-            .anchor_lines
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner) =
-            Some((canonical_uri(anchor), covered));
-    }
-
-    /// The anchor file (canonical) when it uses `symbol` in code on a line
-    /// the answer does not cover: an answered file can still hide missed
-    /// sites, which no file count shows. `None` when nothing was recorded,
-    /// or the file cannot be read or parsed.
-    pub(super) fn anchor_gap(&self, symbol: &str) -> Option<String> {
-        let (file, covered) = self
-            .anchor_lines
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()?;
-        let text = crate::tools::source::read_bounded(
-            Path::new(&file),
-            octocode_engine::signatures::MAX_PARSE_SIZE,
-        )
-        .ok()
-        .and_then(|bytes| super::source::admitted_text(&bytes).ok())?;
-        let lines = octocode_engine::lsp::resolver::code_occurrence_lines(&file, &text, symbol)?;
-        lines
-            .iter()
-            .any(|line| u32::try_from(*line).is_ok_and(|line| !covered.contains(&line)))
-            .then_some(file)
     }
 
     /// This request's scope fingerprint as of `observed`

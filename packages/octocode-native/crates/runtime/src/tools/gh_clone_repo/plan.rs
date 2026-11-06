@@ -58,6 +58,7 @@ impl Plan<'_> {
                 symlinks: (!checkout.symlinks.is_empty()).then_some(checkout.symlinks),
                 history_depth: (self.depth > 1).then_some(self.depth),
                 cloned_at: None,
+                reused: false,
             },
         }
     }

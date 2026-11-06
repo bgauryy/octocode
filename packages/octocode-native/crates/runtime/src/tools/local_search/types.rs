@@ -110,7 +110,7 @@ pub struct SearchFile {
 /// `matchedLineCount`, `filesScanned`, `bytesSearched`, `binarySkipped`,
 /// `fileErrors`, `partialReasons`); the fields marked `skip` are what the
 /// runtime reads and the row never carries.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchStats {
     /// Occurrences; absent when the view did not count them.
@@ -119,6 +119,11 @@ pub struct SearchStats {
     /// Matched lines; absent when the view did not count them.
     #[serde(rename = "matchedLineCount", skip_serializing_if = "Option::is_none")]
     pub matched_lines: Option<u32>,
+    /// Files holding a hit over the whole scan, in the views that show hits or
+    /// their counts; absent when the scan missed content (a cap, an
+    /// unreadable file), since its file count is then not final.
+    #[serde(rename = "matchedFiles", skip_serializing_if = "Option::is_none")]
+    pub matched_files: Option<u32>,
     #[serde(skip)]
     pub files_matched: u32,
     #[serde(rename = "filesScanned")]
@@ -230,7 +235,6 @@ pub(crate) fn cap_partial_reason(
     use octocode_engine::types::CapReason;
     match reason {
         CapReason::MaxOnlyMatchingPerFile => PartialReason::MaxOnlyMatchingPerFile,
-        CapReason::Pcre2Deadline => PartialReason::Pcre2Deadline,
         CapReason::MaxFileSize => PartialReason::FileTooLarge,
         CapReason::Cancelled => PartialReason::Cancelled,
         CapReason::BinaryQuit => PartialReason::BinaryQuit,

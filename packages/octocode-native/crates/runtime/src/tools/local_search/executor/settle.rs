@@ -49,6 +49,7 @@ pub(super) fn settle_row(
         query,
         paths,
         output_root,
+        security,
         cancel,
         ..
     } = *scope;
@@ -106,6 +107,7 @@ pub(super) fn settle_row(
         walk_complete: !coverage.walk_cut,
         empty,
         searched: page.alternates.listed.as_deref(),
+        limits: security.limits(),
     }
     .add_leads(
         &mut stats,
@@ -123,6 +125,11 @@ pub(super) fn settle_row(
     let lists_scope =
         (coverage.scope_miss || (empty && coverage.binary_cut)).then_some(!coverage.scope_miss);
     route_beyond_pages(query, lists_scope, &mut next);
+    let is_partial = coverage.gap() || capped;
+    // A partial scan's file count is not final.
+    if is_partial {
+        stats.matched_files = None;
+    }
     Ok(LocalSearchResult {
         status,
         stats,
@@ -132,7 +139,7 @@ pub(super) fn settle_row(
         next,
         // The requested scope was searched whole. What a probe of the skipped
         // paths left unchecked is outside it, and the row names it.
-        is_partial: coverage.gap() || capped,
+        is_partial,
         // A retry over the skipped paths reaches the match, so no limit ends
         // this answer.
         terminal_limit: settled_terminal && !disclosed.skipped_match,
@@ -237,10 +244,17 @@ pub(crate) fn search_stats(
             count.or((total_files == 0).then_some(0))
         }
     };
+    let files_matched = scanned.files_matched.unwrap_or(total_files);
+    let whole_scan = !scanned.capped.unwrap_or(false) && scanned.error_count.unwrap_or(0) == 0;
+    let shows_hits = matches!(
+        view,
+        View::Content | View::MatchOnly | View::CountLines | View::CountMatches
+    );
     SearchStats {
         total_occurrences: counted(scanned.match_count),
         matched_lines: counted(scanned.matched_lines),
-        files_matched: scanned.files_matched.unwrap_or(total_files),
+        matched_files: (shows_hits && whole_scan).then_some(files_matched),
+        files_matched,
         files_searched: scanned.files_searched.unwrap_or(0),
         bytes_searched: scanned.bytes_searched,
         // A binary cut (capReason `binaryQuit`) stays `capped`: coverage ended

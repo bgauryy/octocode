@@ -33,14 +33,20 @@ pub(in crate::tools::local_search) fn redact_scan(
         paths,
         output_root,
         expected_digest,
+        security,
         cancel,
         ..
     } = *scope;
     if let Some(stored) = stored.filter(|stored| stored.output_root == output_root) {
         cancel.check().map_err(ToolError::cancelled)?;
-        if let Some(redacted) =
-            replay_redaction(query, parsed, output_root, expected_digest, paths, stored)?
-        {
+        if let Some(redacted) = replay_redaction(
+            query,
+            parsed,
+            (output_root, security.limits().key_scan),
+            expected_digest,
+            paths,
+            stored,
+        )? {
             return Ok((redacted, Withheld::new(), stored.clone()));
         }
     }
@@ -191,7 +197,7 @@ fn redact_file(
     let mut key_scan = None;
     let key_source = if key_material {
         validate_matched(paths, &source_path)?;
-        let bytes = read_key_scan_bytes(&source_path);
+        let bytes = read_key_scan_bytes(&source_path, security.limits().key_scan);
         let digest = bytes
             .as_ref()
             .map(|bytes| octocode_engine::digest::sha256_digest(bytes));
@@ -343,12 +349,13 @@ pub(super) fn redact_key_block_lines<'a>(
 }
 
 /// The bytes a key-block scan reads: the whole regular file within
-/// [`MAX_KEY_SCAN_BYTES`], or `None` (also for a FIFO or link swapped in
-/// since the walk).
+/// `limit` ([`crate::security::SourceLimits::key_scan`]), or `None` (also for a
+/// FIFO or link swapped in since the walk).
 pub(in crate::tools::local_search) fn read_key_scan_bytes(
     source: &std::path::Path,
+    limit: u64,
 ) -> Option<Vec<u8>> {
-    octocode_engine::text::read_regular(source, MAX_KEY_SCAN_BYTES)
+    octocode_engine::text::read_regular(source, limit)
         .ok()
         .map(|source| source.bytes)
 }

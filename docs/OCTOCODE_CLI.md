@@ -15,7 +15,7 @@ npx -y octocode localFetch '{"queries":[{"path":"src/index.ts","ranges":[{"start
 
 ### Tool commands
 
-Use `octocode <tool> '<JSON envelope>'`. The CLI lists 15 tools, including `ghCloneRepo`, `graphBuild` and `graphQuery`, plus `clasify` with a classification key and `securityCheck` with `OCTOCODE_SECURITY_CHECKS=true`. MCP catalog filters and opt-ins do not remove CLI commands. Without the key, `octocode clasify` still answers, with `missingConfiguration` and where to get one, and `octocode schema clasify` names the variable to set. A call that needs a missing credential, provider or language server reports that failure at invocation; filesystem policy and storage requirements still apply. See [configuration and MCP availability](CONFIGURATION.md#tool-availability-cli-and-mcp), and the [tools reference](OCTOCODE_TOOLS.md) for each tool's behavior.
+Use `octocode <tool> '<JSON envelope>'`. The CLI lists 16 tools, including `ghCloneRepo`, `graphBuild`, `graphQuery` and `securityCheck`, plus `clasify` with a classification key. `securityCheck` needs no setting on the CLI ([where it is offered and what it sends](OCTOCODE_TOOLS.md#securitycheck)). MCP catalog filters and opt-ins do not remove CLI commands. Without the key, `octocode clasify` still answers, with `missingConfiguration` and where to get one, and `octocode schema clasify` names the variable to set. A call that needs a missing credential, provider or language server reports that failure at invocation; filesystem policy and storage requirements still apply. See [configuration and MCP availability](CONFIGURATION.md#tool-availability-cli-and-mcp), and the [tools reference](OCTOCODE_TOOLS.md) for each tool's behavior.
 
 Each CLI call starts a new process. For many repeated calls, one long-lived `octocode mcp` session runs the same tools without that per-call startup.
 
@@ -60,7 +60,7 @@ octocode schema localFetch --view output   # what its output fields and partialR
 octocode schema --view flow                # which tool, how little to ask for, recovery
 ```
 
-The CLI catalog lists the tools available here; the query view describes authored input; the full view includes variants and rules. MCP clients inspect their server's `tools/list` for its configured subset. Defaults are owned by the contract. Discovery never requires copying private progress state.
+`octocode --help` names each available tool's required query fields (one form per tool); `octocode <tool> --help` names every form's required fields with an example and points to its output view. The CLI catalog lists the tools available here; the query view describes authored input; the full view includes variants and rules. MCP clients inspect their server's `tools/list` for its configured subset. Defaults are owned by the contract. Discovery never requires copying private progress state.
 
 ### The JSON form
 
@@ -78,7 +78,7 @@ octocode localFetch '{"cursor":"<issued cursor>"}'
 
 ### Text output
 
-Text mode renders readable evidence on stdout and guidance on stderr, on a terminal or a pipe, for every tool. A single-row search, listing or outline prints one line per hit, file or declaration (`path:line:text`, `path:count  [term count …]`), a file with several hits under its path once, as `rg --heading` (`line:text`, a declaration note only where it changes); any other result prints every field as indented `key: value` lines, a multi-line value as a `key: |` block. A batch prints each row under `## results[N]` and prefixes that row's stderr notes the same way. Nothing is clipped. Emitted next steps use the same JSON input as MCP. Use JSON mode for programmatic reconstruction and exact row metadata.
+Text mode renders readable evidence on stdout and guidance on stderr, on a terminal or a pipe, for every tool. A single-row search, listing or outline prints one line per hit, file or declaration (`path:line:text`, `path:count  [term count …]`), a file with several hits under its path once, as `rg --heading` (`line:text`, a declaration note only where it changes; with context lines, `line:text` hits and `line-text` context, whether `contextLines` was sent as a number or as `{before, after}`); any other result prints every field as indented `key: value` lines, a multi-line value as a `key: |` block. A batch prints each row under `## results[N]` and prefixes that row's stderr notes the same way. Nothing is clipped. Emitted next steps use the same JSON input as MCP. Use JSON mode for programmatic reconstruction and exact row metadata.
 
 ### Reading a JSON result
 

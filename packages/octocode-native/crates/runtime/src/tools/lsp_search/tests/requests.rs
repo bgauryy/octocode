@@ -134,7 +134,7 @@ fn hover_rejects_walk_controls_with_the_operations_that_take_them() {
             }),
             "unsupported operation field {field}: {error:?}"
         );
-        let rendered = crate::contracts::format_input_error("lspSearch", &error).to_string();
+        let rendered = crate::contracts::format_input_error("lspSearch", &error, &[]).to_string();
         assert!(rendered.contains(applies), "{field}: {rendered}");
         row["operation"] = serde_json::json!(applies);
         crate::contracts::validate("lspSearch", serde_json::json!({"queries":[row]}))

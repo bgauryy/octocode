@@ -1,11 +1,40 @@
 use super::*;
 
 #[test]
-fn each_request_owns_its_declaration_document() {
+fn a_text_read_again_is_its_kept_document() {
+    let source = "/// Doc.\nfn first() {\n    1;\n}\nfn second() {}\n";
+    let path = format!("/store-kept-{}/a.rs", std::process::id());
+    let first = file_document(source, &path).expect("first");
+    let second = file_document(source, &path).expect("second");
+    assert!(Arc::ptr_eq(&first, &second));
+    assert_eq!(parses::of("declarations", &path), 1);
+    assert_eq!(
+        *first,
+        octocode_engine::signatures::extract_declarations_document(source, &path).expect("engine")
+    );
+    // Each analysis, path and text is its own document.
+    let facts = graph_facts(source, &path).expect("facts");
+    assert!(!Arc::ptr_eq(&first, &facts));
+    assert_eq!(parses::facts_of(&path), 1);
+    let elsewhere = format!("/store-kept-{}/b.rs", std::process::id());
+    let moved = file_document(source, &elsewhere).expect("other path");
+    assert_eq!(moved.file, elsewhere);
+    assert_eq!(first.file, path);
+    let edited = file_document("fn third() {}\n", &path).expect("edited");
+    assert_eq!(edited.declarations[0].name, "third");
+    assert_eq!(parses::of("declarations", &path), 2);
+    let again = file_document(source, &path).expect("again");
+    assert!(
+        Arc::ptr_eq(&first, &again),
+        "an edit keeps the old text's document"
+    );
+}
+
+#[test]
+fn each_declaration_document_matches_the_engine() {
     let source = "/// Doc.\nfn first() {\n    1;\n}\nfn second() {}\n";
     let first = file_document(source, "a.rs").expect("first");
     let second = file_document(source, "a.rs").expect("second");
-    assert!(!Arc::ptr_eq(&first, &second));
     assert_eq!(first, second);
     assert_eq!(
         *first,
@@ -42,14 +71,13 @@ fn full_facts_preserve_heritage_and_reflect_edits() {
     let first = graph_facts(source, "a.ts").expect("facts");
     let again = graph_facts(source, "a.ts").expect("facts");
     assert_eq!(first, again);
-    assert!(!Arc::ptr_eq(&first, &again));
     assert!(first.edges.iter().any(|edge| edge.relation == "extends"));
     let edited = graph_facts("export class A {}\n", "a.ts").expect("edited facts");
     assert!(!edited.edges.iter().any(|edge| edge.relation == "extends"));
 }
 
 #[test]
-fn concurrent_requests_have_equal_independent_documents() {
+fn concurrent_requests_have_equal_documents() {
     let gate = std::sync::Barrier::new(4);
     let documents = std::thread::scope(|scope| {
         let workers = (0..4)
@@ -67,6 +95,5 @@ fn concurrent_requests_have_equal_independent_documents() {
     });
     for document in &documents[1..] {
         assert_eq!(document, &documents[0]);
-        assert!(!Arc::ptr_eq(document, &documents[0]));
     }
 }

@@ -227,3 +227,65 @@ fn removed_alias_commands_are_rejected() {
         assert_eq!(exit_code(&output), Some(2), "{alias} must be rejected");
     }
 }
+
+/// An agent goes from the root help straight to a call: the root help names
+/// each listed tool's required query fields (the first form's), every form's
+/// required fields are in `<tool> --help`, the form shown validates, and both
+/// say where output fields are explained. All of it comes from the contract.
+#[test]
+fn help_names_each_tools_required_fields_and_output_reference() {
+    let workspace = Workspace::new();
+    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    let root = all_tools_enabled(workspace.cli().arg("--help"))
+        .output()
+        .expect("root help");
+    assert!(root.status.success());
+    let root = stdout(&root);
+    assert!(root.contains("schema <tool> --view output"), "{root}");
+    let section = root
+        .split("Required query fields")
+        .nth(1)
+        .unwrap_or_else(|| panic!("no required-fields section: {root}"));
+    for tool in presentation["tools"].as_array().expect("tools") {
+        let name = tool["name"].as_str().expect("tool name");
+        let forms = tool["views"]["variants"]["variants"]
+            .as_array()
+            .expect("variants");
+        let first = &forms[0];
+        let required: Vec<&str> = first["requires"]
+            .as_array()
+            .expect("requires")
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .collect();
+        let line = section
+            .lines()
+            .take_while(|line| !line.is_empty())
+            .find(|line| line.starts_with("  ") && line.split_whitespace().next() == Some(name))
+            .unwrap_or_else(|| panic!("no required-fields line for {name}: {section}"));
+        for field in &required {
+            assert!(line.contains(field), "{name} lacks {field}: {line}");
+        }
+        if required.is_empty() {
+            assert!(line.contains("none"), "{line}");
+        }
+        // The form the root line describes is a valid query.
+        octocode_native::contracts::validate_query(name, first["example"].clone())
+            .unwrap_or_else(|error| panic!("{name} first form example: {error:?}"));
+        let own = all_tools_enabled(workspace.cli().args([name, "--help"]))
+            .output()
+            .expect("tool help");
+        assert!(own.status.success(), "{name}: {}", stderr(&own));
+        let own = stdout(&own);
+        for form in forms {
+            for field in form["requires"].as_array().expect("requires") {
+                let field = field.as_str().expect("field");
+                assert!(own.contains(field), "{name} --help lacks {field}: {own}");
+            }
+        }
+        assert!(
+            own.contains(&format!("octocode schema {name} --view output")),
+            "{name}: {own}"
+        );
+    }
+}

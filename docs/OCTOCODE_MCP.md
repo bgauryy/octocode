@@ -47,7 +47,7 @@ Results use `results: [{index, data, status?, rowPart?}]`. Required work appears
 
 ## Tool catalog
 
-The contract has 16 tools, plus the opt-in `securityCheck`. [Configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) owns the default MCP catalog, graph/clone/classification opt-ins, and additional tool filters. Tools excluded by configuration are omitted from `tools/list`. A configured provider can still fail when invoked; discovery does not probe its health.
+The contract has 17 tools. [Configuration](CONFIGURATION.md#tool-availability-cli-and-mcp) owns the default MCP catalog, graph/clone/classification/security opt-ins, and additional tool filters. Tools excluded by configuration are omitted from `tools/list`. A configured provider can still fail when invoked; discovery does not probe its health.
 
 | Family | Tools |
 |--------|-------|

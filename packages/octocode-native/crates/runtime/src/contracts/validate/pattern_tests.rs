@@ -209,6 +209,21 @@ fn the_contract_patterns_read_as_plain_rules() {
 b" is not a valid value for field: it must not contain line breaks, NUL"#,
         ),
         (
+            r"^[^\x00-\x1F\x7F]*$",
+            "a\rb",
+            "\"a\rb\" is not a valid value for field: it must not contain control characters",
+        ),
+        (
+            r"^[^\s\x00-\x1F\x7F]+$",
+            "a b",
+            r#""a b" is not a valid value for field: it must not contain whitespace, control characters"#,
+        ),
+        (
+            r"^[^*?[\]{}/\\\x00-\x1F\x7F]+$",
+            "a*",
+            r#""a*" is not a valid value for field: it must not contain '*', '?', '[', ']', '{', '}', '/', backslashes, control characters"#,
+        ),
+        (
             r"^https:\/\/\S+$",
             "http://x",
             r#""http://x" is not a valid value for field: it must start with https:// and must not contain whitespace"#,
@@ -222,6 +237,13 @@ b" is not a valid value for field: it must not contain line breaks, NUL"#,
             r"^[a-f0-9]{64}$",
             "x",
             r#""x" is not a valid value for field: it must be 64 characters from: a-f, digits"#,
+        ),
+        // A full commit hash: each alternative's length, not only the
+        // characters (a short hash holds only those and is still refused).
+        (
+            r"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$",
+            "6879efc",
+            r#""6879efc" is not a valid value for field: it must be 40 or 64 characters from: digits, a-f, A-F"#,
         ),
         (
             r"^(?:[a-f0-9]{16})+$",
@@ -279,4 +301,31 @@ fn no_contract_pattern_error_quotes_a_regex() {
             assert!(!message.contains(syntax), "{pattern}: {message}");
         }
     }
+}
+
+/// A field a variant forbids outright (`{"not":{}}`) is refused with the
+/// description beside it when the schema gives one: it names where the field
+/// goes. Without one the refusal stays generic.
+#[test]
+fn a_forbidden_field_is_refused_with_its_description() {
+    let schema = json!({"type":"object","properties":{
+        "stopBy":{"not":{},"description":"stopBy goes inside has or inside."},
+        "field":{"not":{}}
+    }});
+    let refusal = |value: Value| {
+        let mut value = value;
+        validate_input_schema(&schema, &schema, &mut value, &mut Vec::new())
+            .expect_err("forbidden")
+            .issues[0]
+            .message
+            .clone()
+    };
+    assert_eq!(
+        refusal(json!({"stopBy":"end"})),
+        "stopBy goes inside has or inside."
+    );
+    assert_eq!(
+        refusal(json!({"field":"name"})),
+        "Field is not allowed in this variant"
+    );
 }

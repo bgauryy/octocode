@@ -84,7 +84,7 @@ An unacknowledged stage remains fenced. An unchanged attach under a live owner l
 | --- | --- |
 | `Workspace repository changed since this path first joined this database` | The path now belongs to another repository (for example after `git init`). Its scope is immutable; bind the path to a new `--database` file. The old store stays readable. |
 | `This database uses WAL; upgrade Node.js…` | A newer SQLite created the store in WAL mode. Run every writer and hook with a Node.js release linked to a patched SQLite ([DB.md](DB.md#identity-and-discovery)). |
-| `Database path is N bytes after resolving symlinks; SQLite opens at most 504 bytes` | The resolved database path exceeds SQLite's 504-byte limit; nothing was created. Use a shorter `--database` (or `--workspace`) path; export first when a store already holds data. |
+| `Database path is N bytes after resolving symlinks; SQLite opens at most 504 bytes` | On Unix, the resolved database path exceeds SQLite's 504-byte VFS limit; nothing was created. Use a shorter `--database` (or `--workspace`) path; export first when a store already holds data. |
 | `Another delivery owner (listen, dispatch or run) already runs for this session` | One delivery owner per identity. Stop the live owner first. During an upgrade from a release that used a file lock, the old and new runtimes do not exclude each other: run one runtime per database ([DB.md](DB.md#cleanup-and-conformance)). |
 
 Presence and lease renewal: [workflow](WORKFLOW.md#presence-and-lease-expiry). Guarded edits stop on

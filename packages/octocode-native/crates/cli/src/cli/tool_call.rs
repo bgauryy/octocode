@@ -87,7 +87,7 @@ pub(in crate::cli) async fn drain_after_interrupt<T>(
 async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, mode: OutputMode) -> u8 {
     const REQUEST: &str = "cli-1";
     let admission = match runtime.admit(REQUEST.into()) {
-        Ok(admission) => admission,
+        Ok(admission) => admission.requiring_persistent_continuations(),
         Err(error) => {
             return Printed::finish(tool, Err(error), mode.json, &input, None).print(mode);
         }

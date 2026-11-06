@@ -1,0 +1,136 @@
+//! The requested view of the extracted text: content, compact, or a symbols
+//! outline, with the typed fallback when one stands in for another.
+use super::super::outline::symbols_view;
+use super::super::prepare::add_redacted_lines;
+use super::super::types::*;
+use super::{View, compact};
+use crate::execution::cancel::CancellationCheck;
+use crate::security::scan::ContentScan;
+use octocode_contract_types::{LocalFetchQuery, ReadView};
+
+/// Apply the requested `view` to the extracted text. A match read
+/// stays verbatim evidence; an outline the file cannot give falls back to
+/// the compact view when compaction reads the file's grammar, else is the
+/// reason (`Err`) no view stands in for it: a whitespace-only compact is
+/// near-raw text, not a smaller view of the code.
+pub(super) fn select_view(
+    q: &LocalFetchQuery,
+    ext: &mut super::super::extraction::Extraction,
+    source_redactions: &mut Vec<(usize, usize)>,
+    source_path: &std::path::Path,
+    security: &impl ContentScan,
+    full_source: &str,
+    cancel: &impl CancellationCheck,
+) -> Result<View, String> {
+    let requested = local_fetch_query::view(q);
+    let selected = std::mem::take(&mut ext.text);
+    // matchString reads are verbatim source; the tool description says so,
+    // so the row carries no fallback notice. Byte windows address the
+    // selected view (a numbered walk pages an oversized line by view bytes),
+    // so they take no view of their own here.
+    // Their preparation scanned the whole source (see `prepare_source`).
+    if local_fetch_query::has_matches(q) {
+        return Ok(View {
+            text: selected,
+            mode: None,
+            fallback: None,
+            note: None,
+            scans: Default::default(),
+        });
+    }
+    // Every transformed view keeps the citation gutter (`N\t`): the standard
+    // view numbers each kept line with its source line, the outline uses the
+    // same separator in every language.
+    let view = |text, mode| View {
+        text,
+        mode,
+        fallback: None,
+        note: None,
+        scans: Default::default(),
+    };
+    // The compact view, with a typed notice when it could only drop whitespace
+    // or stands in for an outline. A compact view no smaller than the content
+    // view of the same lines is not one: the content view is served, and the
+    // notice says why.
+    let compact_view = |selected: String, requested: ReadView, outline_reason: Option<&str>| {
+        let (text, whitespace_only) = compact::render(
+            full_source,
+            &selected,
+            local_fetch_query::path(q),
+            ext.source_lines.as_deref(),
+            cancel,
+        );
+        // Like with like: what the content view serves for these lines,
+        // gutters included. The first page says both, so the agent can
+        // choose either: no threshold decides for it.
+        let content = compact::content_bytes(&selected, ext.source_lines.as_deref());
+        let smaller = text.len() < content;
+        let hundredths = text.len().saturating_mul(10_000) / content.max(1);
+        let kept = format!(
+            "compact view: {} of {} bytes the content view serves for these lines ({}.{:02}%).",
+            text.len(),
+            content,
+            hundredths / 100,
+            hundredths % 100
+        );
+        let reasons: Vec<&str> = outline_reason
+            .into_iter()
+            .chain(whitespace_only.map(octocode_engine::minify::apply::WhitespaceOnly::reason))
+            .chain((!smaller).then_some(compact::NOT_SMALLER))
+            .collect();
+        let reason = (!reasons.is_empty()).then(|| reasons.join("; "));
+        let (text, mode, applied) = if smaller {
+            (text, Some(ReadView::Compact), ReadView::Compact)
+        } else {
+            (selected, None, ReadView::Content)
+        };
+        View {
+            fallback: reason.map(|reason| ViewFallback {
+                requested,
+                applied,
+                reason,
+            }),
+            note: Some(kept),
+            ..view(text, mode)
+        }
+    };
+    Ok(match requested {
+        ReadView::Content => view(selected, None),
+        ReadView::Compact => compact_view(selected, ReadView::Compact, None),
+        ReadView::Symbols => {
+            match symbols_view(&selected, local_fetch_query::path(q), source_path, security) {
+                super::super::outline::SymbolsView {
+                    outline: Ok(outline),
+                    warning,
+                    redacted_lines,
+                } => {
+                    // The outline shows the placeholders its render put in: the
+                    // page counts them as source-wide redactions.
+                    add_redacted_lines(source_redactions, &redacted_lines);
+                    View {
+                        // An outline from a recovered parse says where it is
+                        // blind, once: on the outline's first page.
+                        note: warning,
+                        ..view(outline, Some(ReadView::Symbols))
+                    }
+                }
+                // `viewFallback` is the typed notice of the applied view.
+                super::super::outline::SymbolsView {
+                    outline: Err(reason),
+                    ..
+                } => {
+                    let compact = compact_view(selected, ReadView::Symbols, Some(reason.as_str()));
+                    match compact.fallback {
+                        Some(fallback) if fallback.reason != reason.as_str() => {
+                            return Err(fallback.reason);
+                        }
+                        fallback => View {
+                            fallback,
+                            ..compact
+                        },
+                    }
+                }
+            }
+        }
+    })
+}

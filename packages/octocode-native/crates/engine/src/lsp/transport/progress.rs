@@ -23,7 +23,7 @@ const SERVER_STATUS_TOKEN: &str = "\0octocode/serverStatus";
 /// honestly: only `ProgressIdle` means the empty answer reflects the indexed
 /// project; the other two mean the emptiness might just be "not indexed yet".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Readiness {
+pub enum Readiness {
     /// Saw at least one `$/progress` cycle and drained it to idle — the server
     /// announced indexing and we waited for it to finish.
     ProgressIdle,
@@ -34,17 +34,6 @@ pub(crate) enum Readiness {
     /// `$/progress` was still active when `timeout_ms` expired — the server is
     /// (as far as we know) still indexing.
     Timeout,
-}
-
-impl Readiness {
-    /// Stable string form.
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::ProgressIdle => "progressIdle",
-            Self::SilentServer => "settledWithoutProgress",
-            Self::Timeout => "timeout",
-        }
-    }
 }
 
 /// Wait this long for the very first `$/progress begin` after
@@ -99,6 +88,9 @@ impl HealthLevel {
 pub struct ServerHealth {
     pub level: HealthLevel,
     pub message: Option<String>,
+    /// The project directory the report is about (one project of several
+    /// the server loaded failed to import); `None` for the whole server.
+    pub project: Option<String>,
 }
 
 /// Tracks in-flight `$/progress` tokens emitted by a language server.
@@ -187,10 +179,15 @@ impl ProgressTracker {
     /// rust-analyzer `experimental/serverStatus`: the latest `health` replaces
     /// the last, so a reloaded project clears an earlier failure.
     pub(crate) fn on_server_health(&self, level: &str, message: Option<&str>) {
-        let report = HealthLevel::parse(level).map(|level| ServerHealth {
+        self.set_health(HealthLevel::parse(level).map(|level| ServerHealth {
             level,
             message: message.map(str::to_owned),
-        });
+            project: None,
+        }));
+    }
+
+    /// Replace what the server is known to lack; `None` once it works.
+    pub(crate) fn set_health(&self, report: Option<ServerHealth>) {
         *self
             .health
             .lock()

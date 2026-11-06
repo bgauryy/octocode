@@ -34,7 +34,7 @@ fn matched(row: &AstSearchQuery) -> MatchQuery<'_> {
 
 fn scan_of(q: MatchQuery<'_>, paths: &PathPolicy) -> (Scope, Scan) {
     let scope = resolve_scope(q, paths, &NeverCancel).expect("scope");
-    let scan = scan_directory(q, &scope, paths, &NeverCancel).expect("scan");
+    let scan = scan_directory(q, &scope, paths, &NeverCancel, None).expect("scan");
     (scope, scan)
 }
 
@@ -101,7 +101,7 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
                             q.pattern_text().as_deref(),
                             None,
                             &digest,
-                            super::super::source::MAX_PARSE_SOURCE_BYTES as u64,
+                            crate::security::SourceLimits::REAL.whole_source as u64,
                             &|| false,
                         )
                         .expect("rebuild")

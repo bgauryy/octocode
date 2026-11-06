@@ -136,8 +136,10 @@ pub(super) struct RefusalScope {
     pub(super) mcp: bool,
 }
 
-/// The `responseSnapshotExpired` error for `refusal`: its cause, then the
-/// recovery every refusal shares.
+/// The error for `refusal`: its cause, then the recovery every refusal
+/// shares. A handle that was never issued, or sent to the wrong tool, is the
+/// caller's input (`invalidInput`); any other cause is saved work this
+/// runtime cannot answer (`responseSnapshotExpired`).
 pub(super) fn snapshot_expired(refusal: Refusal, scope: RefusalScope) -> RuntimeError {
     let lifetime = CONTINUATION_IDLE.as_secs();
     let cause = match refusal {
@@ -172,8 +174,16 @@ pub(super) fn snapshot_expired(refusal: Refusal, scope: RefusalScope) -> Runtime
             "The saved request no longer validates to the rows its page was cut from under this runtime's contract.".into()
         }
     };
+    let code = match refusal {
+        Refusal::Malformed | Refusal::OtherTool => ErrorCode::InvalidInput,
+        Refusal::NotRetained
+        | Refusal::OtherAccess
+        | Refusal::OtherSurface
+        | Refusal::IdentityChanged
+        | Refusal::RequestChanged => ErrorCode::ResponseSnapshotExpired,
+    };
     RuntimeError::new(
-        ErrorCode::ResponseSnapshotExpired,
+        code,
         format!(
             "{cause} No source or provider was called. Rerun the original request without cursor."
         ),

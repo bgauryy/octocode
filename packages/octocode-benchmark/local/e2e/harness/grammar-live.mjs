@@ -63,6 +63,7 @@ configureRealServers(env.OCTOCODE_HOME);
 const selected = new Set(process.argv.slice(2));
 const report = {
   at: new Date().toISOString(),
+  state: 'running',
   node: process.version,
   selected: [...selected],
   temporaryRoot: tmp,
@@ -72,8 +73,10 @@ const report = {
   calls: [],
   provenance: { contract: contract.fingerprint, native: nativeBinaryStamp() },
 };
+writeResults('grammar-live', report);
 const check = (name, ok, detail) => {
   report.results.push({ name, ok: !!ok, detail });
+  writeResults('grammar-live', report);
   process.stdout.write(`${ok ? 'PASS' : 'FAIL'} ${name}\n`);
 };
 const suiteDeadline =
@@ -201,7 +204,7 @@ async function checkSemanticCase({
         'lspSearch',
         input,
         exploreSurface({ surface, label, cwd }),
-        coverage.database ? { reaskUntil: suiteDeadline } : {}
+        { reaskUntil: suiteDeadline }
       );
       const locations = settled.pages.flatMap(page => lspLocations(page));
       const evidence = semanticLocationEvidence(
@@ -350,6 +353,7 @@ report.provenance.stable =
 check('provenance.stable', report.provenance.stable, report.provenance);
 report.failed = report.results.filter(row => row.ok === false);
 report.unavailable = report.inventory.filter(row => !row.serverAvailable);
+report.state = 'finished';
 writeResults('grammar-live', report);
 process.stdout.write(
   `[grammar-live] ${report.results.filter(row => row.ok === true).length} passed; ${report.failed.length} failed; ${report.unavailable.length} unavailable; ${report.calls.length} calls\n`

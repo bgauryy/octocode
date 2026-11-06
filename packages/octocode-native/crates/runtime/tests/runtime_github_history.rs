@@ -5,6 +5,7 @@ mod commits;
 mod continuation_semantics;
 mod failures;
 mod history_a;
+mod history_a_commits;
 mod issue_comments;
 mod issue_reads;
 mod pr_repeat_window;

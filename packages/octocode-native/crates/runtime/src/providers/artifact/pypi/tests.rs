@@ -326,3 +326,42 @@ async fn pypi_rows_keep_the_yanked_reason_and_vulnerabilities() {
     assert!(silent.get("advisories").is_none(), "{silent}");
     assert!(silent.get("yankedReason").is_none(), "{silent}");
 }
+
+/// PyPI lists one advisory once per database (GHSA and its PYSEC twin, each
+/// aliasing the other and the CVE): the row lists it once, keeping every id
+/// and alias and every fixed version; an unrelated advisory stays its own.
+#[tokio::test]
+async fn pypi_twin_advisories_are_one_row_with_every_alias() {
+    let mut release = pypi_release("2.31.0");
+    release["vulnerabilities"] = json!([
+        {"id": "GHSA-9wx4-h78v-vm56", "aliases": ["CVE-2024-35195", "PYSEC-2026-1873"],
+         "details": "verify=False sticks.", "fixed_in": ["2.32.0"],
+         "link": "https://osv.dev/vulnerability/GHSA-9wx4-h78v-vm56"},
+        {"id": "GHSA-9hjg-9r4m-mvj7", "aliases": ["CVE-2024-47081"], "details": ".netrc leak.",
+         "fixed_in": ["2.32.4"]},
+        {"id": "PYSEC-2026-1873", "aliases": ["CVE-2024-35195", "GHSA-9wx4-h78v-vm56"],
+         "details": "verify=False sticks.", "fixed_in": ["2.32.0", "2.32.1"],
+         "link": "https://osv.dev/vulnerability/PYSEC-2026-1873"}
+    ]);
+    let http = RouteHttp::routes(vec![("/pypi/requests/2.31.0/json", release)]);
+    let b = test_budget();
+    let client = RegistryClient::new(&http, &b);
+    let query = versioned(ArtifactType::Pypi, "requests", "2.31.0");
+    let page = pypi(&query, &client).await.expect("pypi");
+    let row = serde_json::to_value(&page.artifacts[0]).expect("row");
+    assert_eq!(
+        row["advisories"],
+        json!([{
+            "id": "GHSA-9wx4-h78v-vm56",
+            "aliases": ["CVE-2024-35195", "PYSEC-2026-1873"],
+            "url": "https://osv.dev/vulnerability/GHSA-9wx4-h78v-vm56",
+            "details": "verify=False sticks.",
+            "fixedIn": ["2.32.0", "2.32.1"]
+        }, {
+            "id": "GHSA-9hjg-9r4m-mvj7",
+            "aliases": ["CVE-2024-47081"],
+            "details": ".netrc leak.",
+            "fixedIn": ["2.32.4"]
+        }])
+    );
+}

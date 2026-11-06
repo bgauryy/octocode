@@ -148,6 +148,31 @@ impl OwnWalk {
     }
 }
 
+/// Octocode's own store under a workspace: `.octocode/graph`, the graph
+/// tools' snapshots. Skill outputs elsewhere under `.octocode` are not it.
+const GRAPH_STORE_DIRECTORY: [&str; 2] = [".octocode", "graph"];
+
+/// Whether a walk of `root` skips `path` as Octocode's own store
+/// ([`GRAPH_STORE_DIRECTORY`]): a directory below the root, whatever
+/// the walk's flags (`includeIgnored`, `includeHidden`,
+/// `defaultExcludes:false`). A root at or inside the store walks it: the
+/// caller asked for it by path.
+pub(crate) fn is_octocode_artifact(
+    root: &std::path::Path,
+    path: &std::path::Path,
+    is_dir: bool,
+) -> bool {
+    let [parent, name] = GRAPH_STORE_DIRECTORY;
+    is_dir
+        && path != root
+        && path.file_name().is_some_and(|found| found == name)
+        && path
+            .parent()
+            .and_then(std::path::Path::file_name)
+            .is_some_and(|found| found == parent)
+        && !root.starts_with(path)
+}
+
 /// `defaultExcludes` as the generated query types spell it (a plain flag or
 /// the shared named type): true unless the caller explicitly turned the
 /// default prune off.
@@ -221,6 +246,42 @@ mod tests {
         assert!(!names.iter().any(|name| name == "dist"), "{names:?}");
         assert!(names.iter().any(|name| name == "build"), "{names:?}");
         assert_eq!(walk_names(false, &bare), Vec::<String>::new());
+    }
+
+    #[test]
+    fn only_the_graph_store_under_octocode_is_an_artifact_unless_the_root_is_in_it() {
+        use std::path::Path;
+        let root = Path::new("/w");
+        assert!(is_octocode_artifact(
+            root,
+            Path::new("/w/.octocode/graph"),
+            true
+        ));
+        assert!(is_octocode_artifact(
+            root,
+            Path::new("/w/sub/.octocode/graph"),
+            true
+        ));
+        // Skill outputs and a file named graph stay walkable.
+        for (path, is_dir) in [
+            ("/w/.octocode/octocode-dev", true),
+            ("/w/.octocode/graph-view", true),
+            ("/w/.octocode/graph", false),
+            ("/w/graph", true),
+        ] {
+            assert!(
+                !is_octocode_artifact(root, Path::new(path), is_dir),
+                "{path}"
+            );
+        }
+        // A root at or inside the store searches it.
+        for inside in ["/w/.octocode/graph", "/w/.octocode/graph/snapshots"] {
+            assert!(!is_octocode_artifact(
+                Path::new(inside),
+                Path::new("/w/.octocode/graph"),
+                true
+            ));
+        }
     }
 
     #[test]

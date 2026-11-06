@@ -146,7 +146,7 @@ test('bound MCP activity observes its registered workspace without mutating audi
   t.after(() => db.close());
   const before = only<JsonRecord>(db.prepare('SELECT count(*) AS count FROM records').get()).count;
   const frames = `${[{ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'records', arguments: { type: 'activity', input: { limit: 1, path: 'one.txt' } } } }].map(frame => JSON.stringify(frame)).join('\n')}\n`;
-  const result = JSON.parse(execFileSync(binary, ['mcp', '--workspace', f.workspace, '--database', f.database, '--session', session.id], { encoding: 'utf8', input: frames }));
+  const result = JSON.parse(execFileSync(binary, ['mcp', '--tools', 'records', '--workspace', f.workspace, '--database', f.database, '--session', session.id], { encoding: 'utf8', input: frames }));
   assert.equal(result.result.isError, undefined);
   const observation = JSON.parse(result.result.content[0].text);
   assert.equal(observation.items[0].path, 'one.txt');

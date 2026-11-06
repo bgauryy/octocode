@@ -24,7 +24,7 @@ async fn first_open_waits_for_the_project_load_the_open_triggers() {
             .wait_for_ready(Some(300))
             .await
             .expect("silent startup"),
-        "settledWithoutProgress"
+        Readiness::SilentServer
     );
     let server = tokio::spawn(async move {
         assert_eq!(
@@ -52,7 +52,7 @@ async fn first_open_waits_for_the_project_load_the_open_triggers() {
         .open_document_and_wait(path.clone(), content, Some(400), Some(5_000))
         .await
         .expect("open");
-    assert_eq!(readiness.as_deref(), Some("progressIdle"));
+    assert_eq!(readiness, Some(Readiness::ProgressIdle));
     assert_eq!(started.elapsed(), Duration::from_millis(700));
     let references = client
         .get_locations(
@@ -104,7 +104,7 @@ async fn readiness_timeout_client_waits_again_without_restarting() {
             .wait_for_ready(Some(2_000))
             .await
             .expect("first wait"),
-        "timeout"
+        Readiness::Timeout
     );
     let server = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(1_000)).await;
@@ -125,7 +125,7 @@ async fn readiness_timeout_client_waits_again_without_restarting() {
         Duration::from_millis(1_200),
         "remaining indexing plus quiescence, no second startup settle"
     );
-    assert_eq!(client.readiness().as_deref(), Some("progressIdle"));
+    assert_eq!(client.readiness(), Some(Readiness::ProgressIdle));
     assert!(Arc::ptr_eq(
         &connection,
         &client.connection_handle().await.expect("same connection")
@@ -153,7 +153,7 @@ async fn first_open_after_a_confirmed_project_load_skips_the_settle() {
     client.inner.progress.on_end("startup").await;
     assert_eq!(
         client.wait_for_ready(Some(5_000)).await.expect("ready"),
-        "progressIdle"
+        Readiness::ProgressIdle
     );
     let tmp = TmpDir::new();
     let started = Instant::now();
@@ -167,8 +167,8 @@ async fn first_open_after_a_confirmed_project_load_skips_the_settle() {
         .await
         .expect("open");
     assert_eq!(
-        readiness.as_deref(),
-        Some("progressIdle"),
+        readiness,
+        Some(Readiness::ProgressIdle),
         "a wait owed nothing keeps the startup wait's confirmation, not a silent-server label"
     );
     assert_eq!(
@@ -210,15 +210,14 @@ async fn a_settle_cap_bounds_every_silent_server_wait() {
     let started = Instant::now();
     assert_eq!(
         client.wait_for_ready(Some(5_000)).await.expect("startup"),
-        "settledWithoutProgress"
+        Readiness::SilentServer
     );
     assert_eq!(
         client
             .open_document_and_wait(path.clone(), "export {};\n", Some(400), Some(5_000))
             .await
-            .expect("open")
-            .as_deref(),
-        Some("settledWithoutProgress")
+            .expect("open"),
+        Some(Readiness::SilentServer)
     );
     client
         .get_locations(

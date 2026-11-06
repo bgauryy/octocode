@@ -192,37 +192,34 @@ fn every_registered_grammar_and_alias_parses_and_searches_real_source() {
 }
 
 #[test]
-fn every_advertised_signature_query_compiles_and_removes_a_real_body() {
+fn every_advertised_outline_names_a_real_declaration_without_its_body() {
     let mut failures = Vec::new();
     for entry in all_entries()
         .iter()
-        .filter(|entry| !entry.body_query.is_empty())
+        .filter(|entry| entry.admits(crate::text::analysis::AnalysisOperation::SignatureOutline))
     {
         let ext = entry.extensions[0];
-        if let Err(error) = Query::new(&entry.language, entry.body_query) {
-            failures.push(format!(".{ext}: invalid body query: {error}"));
-            continue;
-        }
         let source = fixture(ext);
         assert!(
             source.contains("body_marker"),
             ".{ext}: fixture body required"
         );
-        let config = crate::signatures::extractor::LangExtractConfig {
-            language: entry.language.clone(),
-            body_query: entry.body_query,
-        };
-        let kept = crate::signatures::extractor::extract(source, &config)
-            .unwrap_or_else(|| panic!(".{ext}: expected signature extraction"));
-        let outline = kept
-            .iter()
-            .map(|(_, line)| line.as_str())
-            .collect::<Vec<_>>()
-            .join("\n");
-        if !outline.contains("target") || outline.contains("body_marker") {
-            failures.push(format!(
-                ".{ext}: signature must keep target and drop body:\n{outline}"
-            ));
+        let path = format!("fixture.{ext}");
+        let outline = crate::signatures::declarations_outline(
+            source,
+            &path,
+            crate::signatures::extract_declarations_document(source, &path).as_ref(),
+        );
+        match outline {
+            Ok(outline) if outline.contains("target") && !outline.contains("body_marker") => {}
+            // A fixture too small to outline still names its declaration.
+            Err(crate::signatures::OutlineUnavailable::NotSmaller)
+                if crate::signatures::extract_declarations_document(source, &path).is_some_and(
+                    |facts| facts.declarations.iter().any(|d| d.name.contains("target")),
+                ) => {}
+            other => failures.push(format!(
+                ".{ext}: outline must name target and leave out its body: {other:?}"
+            )),
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));

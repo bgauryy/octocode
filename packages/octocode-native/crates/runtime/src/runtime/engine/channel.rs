@@ -43,6 +43,8 @@ pub(super) struct OutputSettings {
 pub(super) struct ChannelRun {
     pub(super) id: ToolId,
     pub(super) mcp: bool,
+    /// The host stays alive for another call, or saved work survives its exit.
+    pub(super) can_resume: bool,
     pub(super) options: ResponsePageOptions,
     /// The admitted rows, each passed by the input gate.
     pub(super) queries: Vec<CheckedQuery>,
@@ -67,6 +69,9 @@ pub(super) struct ChannelRun {
     pub(super) access: [u8; 32],
     pub(super) cursors: Arc<Registry>,
     pub(super) resume_identity: Option<String>,
+    /// Sent fields read as declared ones ([`crate::contracts::normalized_input`]):
+    /// the response states each, so the caller learns the field.
+    pub(super) repairs: Vec<String>,
 }
 
 impl ChannelRun {
@@ -120,7 +125,7 @@ impl ChannelRun {
                 let mut pending = self.pending();
                 pending.bind_github_identity(self.resume_identity.clone());
                 self.register_page(outcome, next, &mut pending)?;
-                self.cursors.retain(pending, context)?;
+                self.retain_cursors(pending, context)?;
             }
             return contract(Ok(result));
         }
@@ -186,6 +191,17 @@ impl ChannelRun {
             rejected_at,
             mut failure,
         } = self.shape_rows(rejected, context)?;
+        if !self.repairs.is_empty() {
+            structured.edit(|structured| {
+                if let Some(warnings) = structured.as_object_mut().and_then(|map| {
+                    map.entry("warnings")
+                        .or_insert_with(|| json!([]))
+                        .as_array_mut()
+                }) {
+                    warnings.extend(self.repairs.iter().map(|note| json!(note)));
+                }
+            });
+        }
         let mut pending = self.pending();
         if let Err(error) =
             structured.edit(|structured| self.publish(structured, scope, &mut pending))

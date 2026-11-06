@@ -225,7 +225,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "credentialsInUrl",
         file_context: None,
-        regex: r###"\b[a-zA-Z]{3,10}:\/\/[^\\/\s:@]{3,20}:[^\\/\s:@]{3,20}@[^\s'"]+\b"###,
+        regex: r###"\b[a-zA-Z]{3,10}:\/\/[^\\/\s:@]{3,20}:(?P<secret>[^\\/\s:@]{3,20})@[^\s'"]+\b"###,
     },
     SecretPattern {
         name: "envVarSecrets",
@@ -237,12 +237,35 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         regex: r###"(?:\b(?:[A-Za-z0-9]+[_.-])*(?i:secret|password|passwd|passphrase|key|token|credential)s?(?:[_.-][A-Za-z0-9]+)*|\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Key|Token|Credential)s?(?:[A-Z][a-z0-9]*)*)["']?\s*(?:=>|:=|=|:)\s*(?:"(?P<secret>(?:\\[^\r\n]|[^"\\\r\n]){16,})"|'(?P<secret_single>(?:\\[^\r\n]|[^'\\\r\n]){16,})')"###,
     },
     SecretPattern {
+        name: "base64EncodedSecrets",
+        file_context: None,
+        // A base64 value under a credential-named key: evaluated after
+        // `envVarSecrets`, which names the quoted assignments both match, so
+        // this one adds only the keys it alone spells (`secretbase64`).
+        regex: r###"(?i)\b(?:secret|password|key|token)[_-]?(?:base64|encoded)?['"]?\s*[:=]\s*['"](?P<secret>[A-Za-z0-9+/]{32,}={0,3})['"]"###,
+    },
+    SecretPattern {
         name: "dotenvSecretAssignment",
         file_context: None,
         // An unquoted dotenv/INI/shell line `NAME=value` whose name holds a
         // credential word. The value must run to the end of the line (or a
         // comment), so code such as `SECRET = os.environ["X"]` is left alone.
-        regex: r###"(?m)^[ \t]*(?:export[ \t]+)?(?:[A-Za-z0-9]+[_.])*(?i:secret|password|passwd|passphrase|key|token|credential)s?(?:[_.][A-Za-z0-9]+)*[ \t]*=[ \t]*(?P<secret>[^\s"'$#(){}\[\]:][^\s"'(){}\[\]:]{11,})[ \t]*(?:#.*)?$"###,
+        // Outside a dotenv file (see `dotenvFileCredential`) a short value is
+        // too like any setting to call a credential: it has 12+ characters.
+        regex: r###"(?m)^[ \t]*(?:export[ \t]+)?(?:[A-Za-z0-9]+[_.])*(?i:secret|password|passwd|passphrase|pass|pwd|key|token|credential)s?(?:[_.][A-Za-z0-9]+)*[ \t]*=[ \t]*(?P<secret>[^\s"'$#(){}\[\]:][^\s"'(){}\[\]:]{11,})[ \t]*(?:#.*)?$"###,
+    },
+    SecretPattern {
+        name: "dotenvFileCredential",
+        // A dotenv file (`.env`, `.env.*`, `*.env`) holds credentials, so a
+        // credential name there says its value is one, however short.
+        file_context: Some(r###"(?i)(?:^|[/\\])(?:\.env(?:\.[^/\\]+)?|[^/\\]+\.env)$"###),
+        // `NAME=value` whose variable name ends in a credential word
+        // (`TLS_KEYSTORE_PASS`, not `PASSWORD_MIN_LENGTH` or `BYPASS_CACHE`),
+        // with a literal value: double-quoted (escapes allowed), single-quoted
+        // (literal, `$` included) or bare to the end of the line or a
+        // comment. A value that starts with `$` reads another variable, and
+        // one that starts with `[` is a redaction marker already.
+        regex: r###"(?m)^[ \t]*(?:export[ \t]+)?(?:[A-Za-z0-9]+_)*(?i:secret|password|passwd|passphrase|pass|pwd|key|token|credential)s?[ \t]*=[ \t]*(?:"(?P<secret>(?:\\[^\r\n]|[^"\\$\[\r\n])(?:\\[^\r\n]|[^"\\\r\n])*)"|'(?P<secret_single>[^'\[\r\n][^'\r\n]*)'|(?P<secret_bare>[^\s"'$#(){}\[\]=>][^\s(){}\[\]]*))[ \t]*(?:#.*)?$"###,
     },
     SecretPattern {
         name: "yamlSecretValue",

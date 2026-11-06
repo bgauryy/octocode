@@ -353,7 +353,7 @@ fn uses_in_code(symbol: &str, file: &str, question: Question) -> bool {
     code_use_memo::kept_or_read(symbol, file, question, || {
         let bytes = crate::tools::source::read_bounded(
             Path::new(file),
-            octocode_engine::signatures::MAX_PARSE_SIZE,
+            crate::security::SourceLimits::REAL.whole_source,
         )
         .ok()?;
         let Ok(text) = super::super::source::admitted_text(&bytes) else {
@@ -375,12 +375,15 @@ fn uses_in_code(symbol: &str, file: &str, question: Question) -> bool {
 /// name (the declarations parse holds its imports); an
 /// unreadable or unparsable file does not.
 pub(in super::super) fn imports_in_code(symbol: &str, file: &str) -> bool {
-    crate::tools::source::read_bounded(Path::new(file), octocode_engine::signatures::MAX_PARSE_SIZE)
-        .ok()
-        .and_then(|bytes| super::super::source::admitted_text(&bytes).ok())
-        .and_then(|text| {
-            crate::tools::declarations::file_document(&text, file)
-                .map(|facts| super::super::importers::imports_name(&facts, &text, symbol))
-        })
-        .unwrap_or(false)
+    crate::tools::source::read_bounded(
+        Path::new(file),
+        crate::security::SourceLimits::REAL.whole_source,
+    )
+    .ok()
+    .and_then(|bytes| super::super::source::admitted_text(&bytes).ok())
+    .and_then(|text| {
+        crate::tools::declarations::file_document(&text, file)
+            .map(|facts| super::super::importers::imports_name(&facts, &text, symbol))
+    })
+    .unwrap_or(false)
 }

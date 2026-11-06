@@ -17,7 +17,7 @@ mod types;
 
 #[cfg(test)]
 use files::search_files_detailed;
-pub use files::{ListedFiles, Rebuilt, file_matches, search_files};
+pub use files::{Rebuilt, file_matches, search_files};
 pub use octo::{
     COMPILE_FAILED, EXAMPLE_RULE, MATCH_DEADLINE, PARSE_INTERRUPTED, PatternDeclaration,
     QualifiedPattern, RULE_INVALID,
@@ -48,7 +48,7 @@ use serde_json::Value;
 /// per-file bytes via `max_file_bytes`; this mirrors that backstop on the
 /// single-content path, so a multi-MB blob can't hang tree-sitter parsing or `match_multi_capture` backtracking with no
 /// timeoutMs escape. At-or-below passes; over returns an error / `truncated`.
-const MAX_STRUCTURAL_CONTENT_BYTES: usize = crate::signatures::MAX_PARSE_SIZE;
+const MAX_STRUCTURAL_CONTENT_BYTES: usize = crate::security::MAX_CONTENT_SIZE;
 
 /// Test helper: a structural search over `content`, parsed with the grammar
 /// resolved from `ext`, returning bare matches. Exactly one of `pattern` /

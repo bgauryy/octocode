@@ -54,12 +54,13 @@ fn majority_policy_uses_named_probability_mass_and_any_all_question_semantics() 
 fn a_hit_question_names_its_target_and_a_whole_unit_question_does_not() {
     let hit = compile("Does this name a limit?", Some("line 14")).expect("question");
     assert_eq!(hit["instructions"]["target"], "line 14");
+    // The question every target shares travels once, in their state.
+    assert!(hit["instructions"].get("question").is_none(), "{hit}");
     assert!(
-        hit["instructions"]["question"]
-            .as_str()
+        target_question()
+            .and_then(Value::as_str)
             .unwrap()
-            .contains("target line itself"),
-        "{hit}"
+            .contains("target line itself")
     );
     let whole = compile("Does this name a limit?", None).expect("question");
     assert!(whole["instructions"].get("target").is_none());

@@ -2,7 +2,8 @@
 //!
 //! oxc parse/visit (and the tree-sitter signature recursion) have no depth
 //! guard, so they run on threads with a 64 MB native stack instead of the
-//! caller's thread. Jobs go to one lazily built rayon pool (`POOL_THREADS`
+//! caller's thread. A file nested deeper than that stack holds never reaches
+//! oxc (`signatures::js_oxc::nesting`): an overflow aborts the process. Jobs go to one lazily built rayon pool (`POOL_THREADS`
 //! workers) rather than a fresh thread per call, so concurrent or cancelled
 //! calls can never grow the thread count past the pool size.
 //!
@@ -29,7 +30,7 @@ use std::time::Duration;
 
 use oxc_allocator::Allocator;
 
-const STACK_SIZE: usize = 64 * 1024 * 1024;
+pub(crate) const STACK_SIZE: usize = 64 * 1024 * 1024;
 const MIN_POOL_THREADS: usize = 2;
 const MAX_POOL_THREADS: usize = 16;
 /// Arena capacity retained between jobs. `reset()` keeps the current chunk;

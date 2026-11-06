@@ -17,6 +17,7 @@
 
 use super::LspExecutionConfig;
 use crate::policy::path::PathPolicy;
+use octocode_engine::lsp::client::Readiness;
 use octocode_engine::lsp::config::default_server_for_file;
 use octocode_engine::lsp::pool::{LspClientPool, canonical_lsp_key};
 use octocode_engine::lsp::types::LspLanguageServerConfig;
@@ -37,8 +38,6 @@ const PREWARM_COOLDOWN: Duration = Duration::from_secs(30);
 const PREWARM_READY_TIMEOUT_MS: u32 = 20_000;
 /// Largest file the prewarm opens (the anchor read applies the real bound).
 const MAX_PREWARM_OPEN_BYTES: u64 = 2 * 1024 * 1024;
-/// Readiness string of a wait that ended with the server still indexing.
-const TIMEOUT: &str = "timeout";
 
 /// The source file a local tool row points at: the top search hit, else the
 /// row's or query's own `path` when it is a file. Relative paths are not guessed.
@@ -187,7 +186,7 @@ pub(super) async fn warm(
         let client = pool.acquire(config).await.ok().flatten()?;
         // Still indexing at its readiness budget: not warm yet. The pooled
         // server keeps indexing, and its next acquire waits again.
-        if client.readiness().as_deref() == Some(TIMEOUT) {
+        if client.readiness() == Some(Readiness::Timeout) {
             return None;
         }
         // One bounded read of a regular file. A file over the open cap (or
@@ -205,7 +204,7 @@ pub(super) async fn warm(
             .open_document_and_wait(file, &content, None, Some(PREWARM_READY_TIMEOUT_MS))
             .await
             .ok()?;
-        (readiness.as_deref() != Some(TIMEOUT)).then_some(())
+        (readiness != Some(Readiness::Timeout)).then_some(())
     };
     warmed.await.is_some()
 }

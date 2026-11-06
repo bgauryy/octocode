@@ -3,8 +3,9 @@
 
 use super::super::analysis_context;
 use super::super::failure::flag_partial;
+use super::super::paths::anchor_dir;
 use super::super::scope::Scope;
-use super::{anchor_dir, is_incoming};
+use super::is_incoming;
 use crate::tools::lsp_search::lsp_search_query;
 use octocode_contract_types::LspSearchQuery;
 use octocode_engine::lsp::clangd_database::{clangd_config_sources, database_search};

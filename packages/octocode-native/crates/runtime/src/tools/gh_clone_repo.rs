@@ -136,6 +136,10 @@ pub struct CloneLocation {
     /// When the checkout of this commit was cloned.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cloned_at: Option<String>,
+    /// The checkout was already on disk, verified unchanged, and nothing was
+    /// fetched: `clonedAt` is its first clone. Absent on a fresh clone.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub reused: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

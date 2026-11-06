@@ -79,12 +79,14 @@ export async function settleSemanticQuery(
   while (next) {
     const attempt = await explore(next.tool, next.input);
     attempts.push(attempt);
+    const withinDeadline = reaskUntil === undefined || now() < reaskUntil;
     next = attempt.failures.length ? null : indexingRetry(attempt.pages);
+    if (!withinDeadline) next = null;
     if (
       !next &&
       !attempt.failures.length &&
       reaskUntil !== undefined &&
-      now() < reaskUntil &&
+      withinDeadline &&
       stillIndexing(attempt.pages)
     )
       next = { tool, input };

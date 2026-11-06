@@ -63,13 +63,10 @@ fn connect() -> (JsonRpcConnection, Server) {
 }
 
 fn pending_len(connection: &JsonRpcConnection) -> Option<usize> {
-    connection
-        .shared
-        .pending
-        .lock()
-        .expect("pending lock")
-        .as_ref()
-        .map(HashMap::len)
+    match &*connection.shared.state.lock().expect("state lock") {
+        shared::ConnState::Open(pending) => Some(pending.len()),
+        shared::ConnState::Failed(_) => None,
+    }
 }
 
 async fn wait_until_dead(connection: &JsonRpcConnection) {

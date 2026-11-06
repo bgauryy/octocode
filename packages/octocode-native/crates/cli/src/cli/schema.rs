@@ -163,6 +163,40 @@ pub(super) fn output_of(name: &str) -> Option<Value> {
         .map(output_view)
 }
 
+/// The query fields the first form of tool `name` requires, for the root
+/// help's one line per tool: `path, matchString`; an operation the form
+/// selects by its value (`operation:"search"`); `none` when every field is
+/// optional. Read from the variants view `schema <tool> --view variants`
+/// serves, so the line and that view never disagree.
+pub(super) fn first_form_requires(name: &str) -> Option<String> {
+    let tool = tools(presentation().ok()?).find(|tool| tool["name"] == name)?;
+    let form = tool["views"]["variants"]["variants"].get(0)?;
+    let operations = form["operations"].as_array();
+    let fields: Vec<String> = form["requires"]
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_str)
+        .map(|field| match &form["example"][field] {
+            Value::String(value)
+                if operations.is_some_and(|operations| operations.iter().any(|op| op == value)) =>
+            {
+                format!("{field}:{value:?}")
+            }
+            _ => field.to_owned(),
+        })
+        .collect();
+    Some(if fields.is_empty() {
+        "none".to_owned()
+    } else {
+        fields.join(", ")
+    })
+}
+
+/// The command that prints what `name`'s output fields mean.
+pub(super) fn output_command(name: &str) -> String {
+    format!("octocode schema {name} --view output")
+}
+
 /// `octocode schema <tool> [--view] [--select]`.
 pub(super) fn tool_view(
     machine: &Value,

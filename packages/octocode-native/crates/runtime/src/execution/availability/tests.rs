@@ -24,7 +24,7 @@ fn cli_catalog_ignores_mcp_settings_and_follows_only_the_classification_key() {
         for id in ToolId::ALL {
             assert_eq!(
                 tools.is_available(id.as_str()),
-                !matches!(id, ToolId::Clasify | ToolId::SecurityCheck),
+                id != ToolId::Clasify,
                 "{id}: {env:?}"
             );
         }
@@ -35,7 +35,6 @@ fn cli_catalog_ignores_mcp_settings_and_follows_only_the_classification_key() {
     let keyed = availability(
         &[
             ("OCTOCODE_CLASSIFICATION_API", "k"),
-            ("OCTOCODE_SECURITY_CHECKS", "true"),
             ("DISABLE_TOOLS", "clasify"),
         ],
         RuntimeSurface::Cli,
@@ -236,20 +235,24 @@ fn beta_graph_tools_preserve_cli_access_and_require_opt_in_on_mcp() {
     }
 }
 
-/// securityCheck exists only once the user turns it on, on both surfaces, and
-/// the refusal names what to set.
+/// The CLI always offers securityCheck; an MCP host offers it once the user
+/// turns it on, and the refusal names what to set.
 #[test]
-fn the_security_check_exists_only_with_its_setting() {
-    for surface in [RuntimeSurface::Cli, RuntimeSurface::Mcp] {
-        let off = availability(&[], surface);
-        assert!(!off.is_available("securityCheck"), "{surface:?}");
+fn the_security_check_needs_its_setting_on_mcp_only() {
+    for env in [vec![], vec![("OCTOCODE_SECURITY_CHECKS", "false")]] {
+        assert!(
+            availability(&env, RuntimeSurface::Cli).is_available("securityCheck"),
+            "{env:?}"
+        );
+        let off = availability(&env, RuntimeSurface::Mcp);
+        assert!(!off.is_available("securityCheck"), "{env:?}");
         let reason = off.get("securityCheck").expect("known").reason_text();
         assert!(reason.contains("tools.enableSecurityCheck"), "{reason}");
         assert_eq!(
             off.get("securityCheck").expect("known").env_vars(),
             ["OCTOCODE_SECURITY_CHECKS"]
         );
-        let on = availability(&[("OCTOCODE_SECURITY_CHECKS", "true")], surface);
-        assert!(on.is_available("securityCheck"), "{surface:?}");
     }
+    let on = availability(&[("OCTOCODE_SECURITY_CHECKS", "true")], RuntimeSurface::Mcp);
+    assert!(on.is_available("securityCheck"));
 }

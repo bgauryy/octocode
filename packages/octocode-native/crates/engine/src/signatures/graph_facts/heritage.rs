@@ -31,6 +31,40 @@ use super::super::nodes::node_text;
 use super::{GraphAccumulator, NodePositions, scala};
 use crate::graph::GraphFactEdge;
 
+/// The heritage clauses a grammar's declarations carry, by its canonical
+/// extension: the one dispatch of [`collect_heritage`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Clauses {
+    Rust,
+    Python,
+    Java,
+    Go,
+    CSharp,
+    Scala,
+    /// A C++-style `base_class_clause` of a class or struct specifier.
+    BaseClass,
+}
+
+impl Clauses {
+    pub(super) fn of(ext: &str) -> Self {
+        match ext {
+            "rs" => Self::Rust,
+            "py" => Self::Python,
+            "java" => Self::Java,
+            "go" => Self::Go,
+            "cs" => Self::CSharp,
+            ext if scala::is_scala(ext) => Self::Scala,
+            _ => Self::BaseClass,
+        }
+    }
+
+    /// Whether a clause names a supertype (`extends` / `implements`): every
+    /// form but Go's, whose embedded types are `embeds`.
+    pub(super) const fn names_supertypes(self) -> bool {
+        !matches!(self, Self::Go)
+    }
+}
+
 pub(super) fn collect_heritage(
     node: Node<'_>,
     content: &str,
@@ -39,13 +73,13 @@ pub(super) fn collect_heritage(
     from: &str,
 ) {
     let mut bases: Vec<(&'static str, Node<'_>)> = Vec::new();
-    match (acc.ext.as_str(), node.kind()) {
-        ("rs", "impl_item") => {
+    match (Clauses::of(&acc.ext), node.kind()) {
+        (Clauses::Rust, "impl_item") => {
             if let Some(trait_node) = node.child_by_field_name("trait") {
                 bases.push(("implements", trait_node));
             }
         }
-        ("rs", "trait_item") => {
+        (Clauses::Rust, "trait_item") => {
             if let Some(bounds) = node.child_by_field_name("bounds") {
                 push_children(&mut bases, bounds, "extends", |kind| {
                     matches!(
@@ -55,7 +89,7 @@ pub(super) fn collect_heritage(
                 });
             }
         }
-        ("py", "class_definition") => {
+        (Clauses::Python, "class_definition") => {
             if let Some(arguments) = node.child_by_field_name("superclasses") {
                 let mut cursor = arguments.walk();
                 for argument in arguments.named_children(&mut cursor) {
@@ -75,7 +109,7 @@ pub(super) fn collect_heritage(
                 }
             }
         }
-        ("java", "class_declaration" | "enum_declaration" | "record_declaration") => {
+        (Clauses::Java, "class_declaration" | "enum_declaration" | "record_declaration") => {
             if let Some(superclass) = node.child_by_field_name("superclass") {
                 push_children(&mut bases, superclass, "extends", is_java_type);
             }
@@ -83,14 +117,14 @@ pub(super) fn collect_heritage(
                 push_type_list(&mut bases, interfaces, "implements");
             }
         }
-        ("go", "type_spec") => {
+        (Clauses::Go, "type_spec") => {
             bases.extend(
                 super::go::embedded_types(node)
                     .into_iter()
                     .map(|base| ("embeds", base)),
             );
         }
-        ("java", "interface_declaration") => {
+        (Clauses::Java, "interface_declaration") => {
             let mut cursor = node.walk();
             let extends = node
                 .named_children(&mut cursor)
@@ -99,7 +133,7 @@ pub(super) fn collect_heritage(
                 push_type_list(&mut bases, extends, "extends");
             }
         }
-        ("cs", kind) => {
+        (Clauses::CSharp, kind) => {
             let mut cursor = node.walk();
             let base_list = node
                 .named_children(&mut cursor)
@@ -125,7 +159,7 @@ pub(super) fn collect_heritage(
                 }
             }
         }
-        (_, "class_specifier" | "struct_specifier") => {
+        (Clauses::BaseClass, "class_specifier" | "struct_specifier") => {
             let mut cursor = node.walk();
             let clause = node
                 .named_children(&mut cursor)
@@ -139,7 +173,7 @@ pub(super) fn collect_heritage(
                 });
             }
         }
-        (ext, _) if scala::is_scala(ext) => {
+        (Clauses::Scala, _) => {
             for base in scala::bases(node) {
                 let (to, at) = match base {
                     scala::Base::Named(base) => {

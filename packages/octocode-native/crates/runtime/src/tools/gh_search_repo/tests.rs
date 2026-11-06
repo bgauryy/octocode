@@ -90,3 +90,36 @@ fn topic_naming_the_language_is_dropped() {
     assert_eq!(row["topics"], json!(["http"]), "{row}");
     assert_eq!(row["language"], "Python", "{row}");
 }
+
+/// A repository only the token's account can see is marked with its
+/// visibility (GitHub's `visibility`, else its `private` flag); a public
+/// one carries no mark.
+#[test]
+fn a_repository_that_is_not_public_names_its_visibility() {
+    let row = |extra: serde_json::Value| {
+        let mut item =
+            json!({"full_name":"me/r","name":"r","html_url":"h","default_branch":"main"});
+        item.as_object_mut()
+            .expect("object")
+            .extend(extra.as_object().expect("object").clone());
+        repository_row(serde_json::from_value(item).expect("item"), &[])
+    };
+    assert_eq!(
+        row(json!({"visibility":"private","private":true}))["visibility"],
+        "private"
+    );
+    assert_eq!(
+        row(json!({"visibility":"internal"}))["visibility"],
+        "internal"
+    );
+    assert_eq!(row(json!({"private":true}))["visibility"], "private");
+    for public in [json!({"visibility":"public","private":false}), json!({})] {
+        assert!(row(public.clone()).get("visibility").is_none(), "{public}");
+    }
+    let mut picked = json!({"repositories":[row(json!({"visibility":"private"}))]});
+    crate::tools::gh_shared::pick_rows(&mut picked, "repositories", REPO_ID, &["stars".into()]);
+    assert_eq!(
+        picked["repositories"][0]["visibility"], "private",
+        "{picked}"
+    );
+}

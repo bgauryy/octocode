@@ -103,7 +103,7 @@ pub(crate) struct TreeCpuClock {
 /// processes that have exited used.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 #[derive(Default)]
-struct SeenCpu {
+pub(super) struct SeenCpu {
     live: std::collections::HashMap<u32, Duration>,
     exited: Duration,
 }
@@ -136,23 +136,31 @@ impl TreeCpuClock {
                 now.insert(pid, time);
             }
         }
-        let mut seen = self
-            .seen
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let gone = seen
+        Some(
+            self.seen
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .record(now),
+        )
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+impl SeenCpu {
+    /// The tree's total after a read that found `now` (pid → CPU time): every
+    /// live process's time plus the last time seen of each one that exited.
+    pub(super) fn record(&mut self, now: std::collections::HashMap<u32, Duration>) -> Duration {
+        let gone = self
             .live
             .iter()
             .filter(|(pid, _)| !now.contains_key(pid))
             .map(|(_, time)| *time)
             .fold(Duration::ZERO, Duration::saturating_add);
-        seen.exited = seen.exited.saturating_add(gone);
-        seen.live = now;
-        Some(
-            seen.live
-                .values()
-                .fold(seen.exited, |total, time| total.saturating_add(*time)),
-        )
+        self.exited = self.exited.saturating_add(gone);
+        self.live = now;
+        self.live
+            .values()
+            .fold(self.exited, |total, time| total.saturating_add(*time))
     }
 }
 

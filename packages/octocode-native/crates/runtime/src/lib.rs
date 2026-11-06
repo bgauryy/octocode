@@ -24,6 +24,7 @@ pub mod contracts;
 mod digest;
 pub mod execution;
 pub mod id;
+mod json_pointer;
 pub(crate) mod num;
 pub(crate) mod policy;
 mod private_file;

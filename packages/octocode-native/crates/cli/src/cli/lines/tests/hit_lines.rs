@@ -119,3 +119,37 @@ fn grouped_location_rows_print_as_hits() {
     assert!(lines.out.starts_with("a.rs\n2:needle();"), "{}", lines.out);
     assert!(lines.out.contains("\n6:needle();"), "{}", lines.out);
 }
+
+/// `contextLines: N` is shorthand the runtime repairs to `{before:N,after:N}`
+/// before the call runs: its text is the object form's, one file line number
+/// on each line (`N:` a hit, `N-` context), never the value's own `N\t`
+/// prefix printed after the hit's line.
+#[test]
+fn shorthand_context_lines_print_as_the_object_form() {
+    let object = render(ToolId::LocalSearch, &sample(), &context(), None)
+        .expect("lines")
+        .out;
+    for shorthand in [
+        json!({"queries":[{"path":"s","matchString":["x"],"contextLines":1}]}),
+        json!({"queries":[{"path":"s","matchString":"x","contextLines":1}]}),
+        json!({"path":"s","matchString":"x","contextLines":1}),
+    ] {
+        let lines = render(ToolId::LocalSearch, &sample(), &shorthand, None).expect("lines");
+        assert_eq!(lines.out, object, "{shorthand}");
+    }
+    for line in object
+        .lines()
+        .filter(|line| line.starts_with(char::is_numeric))
+    {
+        let text = line.trim_start_matches(char::is_numeric);
+        let text = text
+            .strip_prefix(':')
+            .or_else(|| text.strip_prefix('-'))
+            .expect("N: or N- before the text");
+        let second = text.trim_start_matches(char::is_numeric);
+        assert!(
+            second.len() == text.len() || !second.starts_with(['\t', ':']),
+            "a second line number: {line}"
+        );
+    }
+}

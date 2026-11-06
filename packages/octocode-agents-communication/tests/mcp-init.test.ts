@@ -39,6 +39,31 @@ async function connect(t: TestContext, f: ReturnType<typeof fixture>, extra: str
 }
 const value = (result: JsonRecord): JsonRecord => {assert.equal(result.isError,undefined,result.content[0].text);return JSON.parse(result.content[0].text);};
 
+test('each tool call carries the bound caller and rejects another agent introduction before writing', async t => {
+  const f = fixture(t), client = await connect(t, f);
+  const initialized = await client.call('init', { name: 'known-agent', vendor: 'any-provider', vendorSession: 'native-id' });
+  const binding = value(initialized);
+  const caller = { id: binding.session, name: 'known-agent', vendor: 'any-provider', vendorSession: 'native-id' };
+  assert.deepEqual(binding.caller, caller);
+  assert.deepEqual(initialized['_meta'].caller, caller);
+  const listed = await client.request('tools/list');
+  for (const tool of listed.tools) assert.ok(tool.inputSchema.properties.caller);
+  const read = await client.call('agents', { caller, type: 'list', input: {} });
+  value(read);
+  assert.deepEqual(read['_meta'].caller, caller);
+  const automatic = await client.call('messages', { type: 'read', input: {} });
+  value(automatic);
+  assert.deepEqual(automatic['_meta'].caller, caller, 'The runtime supplies identity even when the model omits it');
+  for (const field of ['id', 'name', 'vendor', 'vendorSession']) {
+    const rejected = await client.call('agents', { caller: { ...caller, [field]: 'someone-else' }, type: 'status', input: { task: 'spoofed' } });
+    assert.equal(rejected.isError, true);
+    assert.match(rejected.content[0].text, /caller.*binding/i);
+    assert.deepEqual(rejected['_meta'].caller, caller);
+  }
+  assert.notEqual(f.cli('binding', {}, caller.id).task, 'spoofed');
+  await client.close();
+});
+
 test('unbound MCP exposes only init, creates nothing until called and changes discovery once', {timeout:30000}, async t => {
   const f=fixture(t), client=await connect(t,f,['--tools','messaging']);
   assert.deepEqual(client.initialized.capabilities,{tools:{listChanged:true}});
@@ -68,6 +93,25 @@ test('explicit binding omits init and exact host identity reuse leaves the exter
   assert.equal(reused.session,host.id);assert.equal(reused.managed,false);
   assert.match(reused.instructions,/external lifecycle owner/);
   await pending.close();assert.equal(f.cli('peers').items[0].id,host.id);
+});
+
+test('an arbitrary provider shares one identity between lifecycle hooks and MCP', {timeout:30000}, async t => {
+  const f = fixture(t), vendor = 'independent-provider', vendorSession = 'exact-host-session';
+  const hook = (event: string) => JSON.parse(execFileSync(binary, ['host-hook', '--vendor', vendor, ...f.flags], {
+    input: JSON.stringify({ hook_event_name: event, session_id: vendorSession, cwd: f.workspace }), encoding: 'utf8',
+  }));
+  const started = hook('SessionStart');
+  const host = f.cli('peers').items[0];
+  assert.match(started.hookSpecificOutput.additionalContext, new RegExp(host.id));
+  const client = await connect(t, f);
+  const binding = value(await client.call('init', { name: 'ignored', vendor, vendorSession }));
+  assert.equal(binding.session, host.id);
+  assert.equal(binding.managed, false, 'Hooks retain lifecycle ownership');
+  assert.equal(f.cli('peers').items.length, 1, 'MCP reuses the registered hook identity');
+  await client.close();
+  assert.equal(f.cli('peers').items[0].id, host.id);
+  hook('SessionEnd');
+  assert.equal(f.cli('peers').items.length, 0);
 });
 
 test('ambiguous or expired exact host binding cannot create a duplicate; failed init stays recoverable', {timeout:30000}, async t => {

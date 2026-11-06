@@ -111,7 +111,7 @@ async fn cancelling_readiness_preserves_the_live_client_for_a_later_request() {
     client.inner.progress.on_end("index").await;
     assert_eq!(
         client.wait_for_ready(Some(500)).await.unwrap(),
-        "progressIdle"
+        Readiness::ProgressIdle
     );
     let server = tokio::spawn(async move {
         let request = read_client_frame(&mut reader).await;

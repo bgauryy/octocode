@@ -115,7 +115,7 @@ fn a_pid_recycled_before_the_freeze_is_never_signaled() {
         vec![vec![process(101), process(102)], vec![process(102)]],
         Some((Event::Walk, 101)),
     );
-    tear_down(&table, ROOT);
+    tear_down(&table, ROOT, &[]);
     assert_eq!(table.signals_to(101), Vec::<libc::c_int>::new());
     assert_eq!(table.signals_to(102), vec![libc::SIGSTOP, libc::SIGKILL]);
 }
@@ -128,7 +128,7 @@ fn a_pid_recycled_after_the_group_kill_is_not_killed_again() {
         vec![vec![process(101)]],
         Some((Event::Signal(-ROOT_PID, libc::SIGKILL), 101)),
     );
-    tear_down(&table, ROOT);
+    tear_down(&table, ROOT, &[]);
     assert_eq!(table.signals_to(101), vec![libc::SIGSTOP]);
 }
 
@@ -142,7 +142,7 @@ fn the_root_is_frozen_before_the_walk_and_the_walk_repeats_until_nothing_is_new(
         ],
         None,
     );
-    tear_down(&table, ROOT);
+    tear_down(&table, ROOT, &[]);
     let log = table.log.borrow();
     assert_eq!(log[0], Event::Signal(ROOT_PID, libc::SIGSTOP), "{log:?}");
     assert_eq!(log.iter().filter(|event| **event == Event::Walk).count(), 3);
@@ -156,9 +156,100 @@ fn the_root_is_frozen_before_the_walk_and_the_walk_repeats_until_nothing_is_new(
 #[test]
 fn reserved_pids_and_a_root_of_init_are_never_signaled() {
     let table = Scripted::new(vec![vec![process(0), process(1)]], None);
-    tear_down(&table, ROOT);
+    tear_down(&table, ROOT, &[]);
     assert!(table.signals_to(0).is_empty() && table.signals_to(1).is_empty());
     let init = Scripted::new(vec![vec![process(101)]], None);
-    tear_down(&init, 1);
+    tear_down(&init, 1, &[]);
     assert!(init.log.borrow().is_empty());
+}
+
+/// A table whose walk answers per root: `children[root]` are its children
+/// now. Models a server leader that already exited gracefully: its detached
+/// daemon was re-parented away, so walking the leader finds nothing.
+struct Rooted {
+    children: HashMap<u32, Vec<Process>>,
+    live: HashMap<u32, u64>,
+    log: RefCell<Vec<Event>>,
+}
+
+impl ProcessTable for Rooted {
+    type Handle = u32;
+
+    fn descendants(&self, root: u32) -> Vec<Process> {
+        self.log.borrow_mut().push(Event::Walk);
+        let mut found = Vec::new();
+        let mut frontier = vec![root];
+        while let Some(parent) = frontier.pop() {
+            for child in self.children.get(&parent).into_iter().flatten() {
+                found.push(*child);
+                frontier.push(child.pid);
+            }
+        }
+        found
+    }
+
+    fn pin(&self, pid: u32) -> Option<u32> {
+        self.live.contains_key(&pid).then_some(pid)
+    }
+
+    fn start(&self, pid: u32) -> Option<u64> {
+        self.live.get(&pid).copied()
+    }
+
+    fn send(&self, handle: &u32, signal: libc::c_int) {
+        let pid = libc::pid_t::try_from(*handle).expect("pid");
+        self.log.borrow_mut().push(Event::Signal(pid, signal));
+    }
+
+    fn signal_unreaped(&self, target: libc::pid_t, signal: libc::c_int) {
+        self.log.borrow_mut().push(Event::Signal(target, signal));
+    }
+}
+
+impl Rooted {
+    fn signals_to(&self, pid: u32) -> Vec<libc::c_int> {
+        let pid = libc::pid_t::try_from(pid).expect("pid");
+        self.log
+            .borrow()
+            .iter()
+            .filter_map(|event| match *event {
+                Event::Signal(target, signal) if target == pid => Some(signal),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+#[test]
+fn a_daemon_orphaned_by_a_graceful_exit_dies_with_the_snapshot_and_its_workers() {
+    // Snapshot before `exit`: the leader 100 had a detached daemon 101.
+    // After the leader exited, 101 is re-parented away (no child of 100)
+    // and has since started worker 102. A pid the snapshot saw that is now
+    // a stranger (103 recycled) must not be touched.
+    let daemon = process(101);
+    let worker = process(102);
+    let recycled = process(103);
+    let table = Rooted {
+        children: HashMap::from([(101, vec![worker])]),
+        live: HashMap::from([(101, 101), (102, 102), (103, STRANGER_START)]),
+        log: RefCell::default(),
+    };
+    tear_down(&table, ROOT, &[daemon, recycled]);
+    assert_eq!(table.signals_to(101), vec![libc::SIGSTOP, libc::SIGKILL]);
+    assert_eq!(table.signals_to(102), vec![libc::SIGSTOP, libc::SIGKILL]);
+    assert!(
+        table.signals_to(103).is_empty(),
+        "a recycled pid is a stranger"
+    );
+}
+
+#[test]
+fn without_a_snapshot_an_orphaned_daemon_is_unreachable() {
+    let table = Rooted {
+        children: HashMap::new(),
+        live: HashMap::from([(101, 101)]),
+        log: RefCell::default(),
+    };
+    tear_down(&table, ROOT, &[]);
+    assert!(table.signals_to(101).is_empty());
 }

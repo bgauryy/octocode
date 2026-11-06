@@ -198,6 +198,8 @@ pub(crate) struct Outline {
     pub(super) diagnostics: Vec<Value>,
     /// Candidate entries the security path policy withheld from the walk.
     pub(super) withheld: crate::policy::discovery::Withheld,
+    /// Octocode's own store directories the walk skipped, root-relative.
+    pub(super) artifacts: std::collections::BTreeSet<String>,
     /// Root-relative directories the default excludes pruned unseen.
     pub(super) pruned: Vec<String>,
     /// Entries the walk could not read, and how many for want of
@@ -317,6 +319,7 @@ pub(super) fn outline_file(
         skipped,
         diagnostics,
         withheld: Default::default(),
+        artifacts: Default::default(),
         pruned: Vec::new(),
         walk_errors: (0, 0),
         test_code_excluded: scoped

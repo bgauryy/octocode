@@ -36,7 +36,8 @@ pub fn execute_local_fetch(
             SourceSizeLimit::Streaming,
         );
     }
-    let in_memory = meta.len() <= MAX_SOURCE_BYTES;
+    let limits = security.limits();
+    let in_memory = meta.len() <= limits.whole_source_bytes();
     let (file, sample) = match read_sample(file, meta.len(), in_memory) {
         Ok(opened) => opened,
         Err(error) => {
@@ -55,7 +56,8 @@ pub fn execute_local_fetch(
             local_fetch_query::path(q).to_owned(),
             ErrorCode::FileTooLarge,
             format!(
-                "BOM-marked UTF-16 sources require a bounded whole-file decode (limit: {MAX_SOURCE_BYTES} bytes); this source is {} bytes.",
+                "BOM-marked UTF-16 sources require a bounded whole-file decode (limit: {} bytes); this source is {} bytes.",
+                limits.whole_source,
                 meta.len()
             ),
         );
@@ -68,13 +70,13 @@ pub fn execute_local_fetch(
     }
     // The read stops past the cap, in case the file grew past the ceiling
     // between the stat above and this read (TOCTOU).
-    let bytes = match read_rest(file, sample, MAX_SOURCE_BYTES, cancel) {
+    let bytes = match read_rest(file, sample, limits.whole_source_bytes(), cancel) {
         Ok(bytes) => bytes,
         Err(octocode_engine::text::ReadError::TooLarge(len)) => {
             return source_too_large(
                 local_fetch_query::path(q),
                 len,
-                SourceSizeLimit::InMemoryGrowth,
+                SourceSizeLimit::InMemoryGrowth(limits.whole_source_bytes()),
             );
         }
         Err(octocode_engine::text::ReadError::Io(error)) => {

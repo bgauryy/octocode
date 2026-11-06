@@ -2,8 +2,8 @@
 //! processes honor each other's limits.
 use super::{KeyState, key_state::KeyFacts, now_ms};
 use crate::ProviderError;
+use lock::{WriteLock, lock_file, lock_file_blocking, off_worker};
 use octocode_io::cancellation::Cancellation;
-use octocode_io::{budget::pause, lock::TryLock};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -37,6 +37,8 @@ fn warn_unshared(action: &str, path: &Path, error: &dyn std::fmt::Display) {
 /// The state file's bytes: `None` when it does not exist yet, or cannot be
 /// read (with the warning).
 fn read_state(path: &Path) -> Option<Vec<u8>> {
+    #[cfg(test)]
+    record_io(path);
     match std::fs::read(path) {
         Ok(bytes) => Some(bytes),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -45,6 +47,32 @@ fn read_state(path: &Path) -> Option<Vec<u8>> {
             None
         }
     }
+}
+
+/// Which thread touched which state file, for the tests that keep this file
+/// IO off the async workers.
+#[cfg(test)]
+static IO_THREADS: std::sync::Mutex<Vec<(PathBuf, std::thread::ThreadId)>> =
+    std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+fn record_io(path: &Path) {
+    IO_THREADS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push((path.to_path_buf(), std::thread::current().id()));
+}
+
+/// The threads that read or wrote `path`'s state file.
+#[cfg(test)]
+fn io_threads(path: &Path) -> Vec<std::thread::ThreadId> {
+    IO_THREADS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .filter(|(seen, _)| seen == path)
+        .map(|(_, thread)| *thread)
+        .collect()
 }
 
 pub(super) struct Persist {
@@ -188,8 +216,12 @@ impl KeyState {
     /// reserves. Without a mirror it runs on the in-memory facts alone. A lock
     /// a peer process holds is waited for without blocking the runtime, until
     /// the request's `deadline` or `cancellation`.
+    ///
+    /// The read and the write run on the blocking pool, not on the async
+    /// worker that polls this request, and each carries the lock: a request
+    /// dropped mid-write releases it only once the write is done.
     pub(super) async fn reserve_shared<R>(
-        &self,
+        self: &Arc<Self>,
         deadline: Instant,
         cancellation: &Cancellation,
         reserve: impl FnOnce(&mut KeyFacts) -> R,
@@ -203,8 +235,12 @@ impl KeyState {
         let Some(path) = path else {
             return Ok(reserve(&mut self.facts()));
         };
-        let _lock = lock_file(&path, deadline, cancellation).await?;
-        let on_disk = read_state(&path);
+        let lock = lock_file(&path, deadline, cancellation).await?;
+        let (lock, path, on_disk) = off_worker(move || {
+            let on_disk = read_state(&path);
+            (lock, path, on_disk)
+        })
+        .await?;
         let (result, view) = {
             let mut facts = self.facts();
             if let Some(disk) = on_disk
@@ -216,7 +252,12 @@ impl KeyState {
             let result = reserve(&mut facts);
             (result, facts.blocking_view(now_ms()))
         };
-        self.write_view(&path, on_disk.as_deref(), &view);
+        let state = Arc::clone(self);
+        off_worker(move || {
+            state.write_view(&path, on_disk.as_deref(), &view);
+            drop(lock);
+        })
+        .await?;
         Ok(result)
     }
 
@@ -285,6 +326,8 @@ impl KeyState {
     /// Write `view` unless the file already holds it, through a unique temp
     /// file and an atomic rename; the caller holds the file lock.
     fn write_view(&self, path: &Path, on_disk: Option<&[u8]>, view: &KeyFacts) {
+        #[cfg(test)]
+        record_io(path);
         let Ok(bytes) = serde_json::to_vec(view) else {
             return;
         };
@@ -309,78 +352,7 @@ impl KeyState {
     }
 }
 
-/// The `<state>.lock` sidecar, opened for locking; `None` when it cannot be.
-fn open_lock_file(path: &Path) -> Option<std::fs::File> {
-    let mut name = path.as_os_str().to_os_string();
-    name.push(".lock");
-    let name = PathBuf::from(name);
-    match octocode_io::lock::open_lock_file(&name) {
-        Ok(file) => Some(file),
-        Err(error) => {
-            warn_unshared("open the lock file", &name, &error);
-            None
-        }
-    }
-}
-
-/// Exclusive advisory lock on the `<state>.lock` sidecar, polled so that the
-/// wait yields to the runtime and ends at the `deadline` or on cancellation.
-/// `Ok(None)` when the file cannot be opened or the filesystem does not
-/// support locking.
-async fn lock_file(
-    path: &Path,
-    deadline: Instant,
-    cancellation: &Cancellation,
-) -> Result<Option<octocode_io::lock::LockedFile>, ProviderError> {
-    let Some(mut file) = open_lock_file(path) else {
-        return Ok(None);
-    };
-    loop {
-        match octocode_io::lock::try_lock(file) {
-            Ok(TryLock::Locked(lock)) => return Ok(Some(lock)),
-            Ok(TryLock::Busy(busy)) => {
-                file = busy;
-                pause(octocode_io::lock::LOCK_POLL, deadline, cancellation).await?;
-            }
-            Err(error) => {
-                warn_unshared("lock", path, &error);
-                return Ok(None);
-            }
-        }
-    }
-}
-
-/// What a synchronous writer's lock attempt yields.
-enum WriteLock {
-    /// The peer lock is held: the read-merge-write is serialized.
-    Held(octocode_io::lock::LockedFile),
-    /// The filesystem refuses the lock operation itself (no lock support).
-    Unsupported,
-    /// A peer holds the lock past the deadline, or the lock file cannot be
-    /// opened: an unlocked write could drop a peer's facts.
-    Unavailable,
-}
-
-/// [`lock_file`] for synchronous writers, bounded by `deadline` so a stalled
-/// peer cannot hold the caller indefinitely.
-fn lock_file_blocking(path: &Path, deadline: Instant) -> WriteLock {
-    let Some(file) = open_lock_file(path) else {
-        return WriteLock::Unavailable;
-    };
-    match octocode_io::lock::lock_within(
-        file,
-        deadline.saturating_duration_since(Instant::now()),
-        octocode_io::lock::LOCK_POLL,
-    ) {
-        Ok(lock) => WriteLock::Held(lock),
-        Err(octocode_io::lock::LockError::Busy) => WriteLock::Unavailable,
-        Err(octocode_io::lock::LockError::Io(error)) => {
-            warn_unshared("lock", path, &error);
-            WriteLock::Unsupported
-        }
-    }
-}
-
+mod lock;
 #[cfg(test)]
 mod recovery_tests;
 #[cfg(test)]

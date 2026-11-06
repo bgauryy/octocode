@@ -16,7 +16,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::OnceCell;
 
-type Identity = [u8; 32];
+/// An evaluation's identity: the hash of its exact provider request.
+pub(crate) type Identity = [u8; 32];
 type Slot = Arc<OnceCell<Result<Judged, ClassificationError>>>;
 
 /// The evaluations one request has asked for, by identity.
@@ -39,6 +40,9 @@ impl Evaluations {
 impl Evaluator {
     /// [`Evaluator::evaluate_prepared`], sharing one provider request among
     /// identical evaluations of `evaluations`' request.
+    /// The outcome comes with the evaluation's identity (`None` when it has
+    /// none to share), so a caller holding every asker can settle which one
+    /// carries the spend.
     pub(crate) async fn evaluate_once(
         &self,
         evaluations: &Evaluations,
@@ -46,9 +50,12 @@ impl Evaluator {
         model: Option<&str>,
         budget: &RequestBudget,
         gate: &GateLease,
-    ) -> Result<Judged, ClassificationError> {
+    ) -> (Result<Judged, ClassificationError>, Option<Identity>) {
         let Some(identity) = self.identity(input, model) else {
-            return self.evaluate_prepared(input, model, budget, gate).await;
+            return (
+                self.evaluate_prepared(input, model, budget, gate).await,
+                None,
+            );
         };
         let mut sent = false;
         let shared = evaluations
@@ -60,9 +67,9 @@ impl Evaluator {
             .await
             .clone();
         if sent {
-            return shared;
+            return (shared, Some(identity));
         }
-        match shared {
+        let shared = match shared {
             Ok(judged) => Ok(Judged {
                 provider_calls: 0,
                 known_usage_calls: 0,
@@ -72,7 +79,8 @@ impl Evaluator {
                 provider_calls: 0,
                 ..error
             }),
-        }
+        };
+        (shared, Some(identity))
     }
 
     /// The evaluation's identity, or `None` when it has no payload to compare

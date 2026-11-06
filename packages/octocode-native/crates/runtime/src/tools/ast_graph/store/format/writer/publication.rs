@@ -48,7 +48,7 @@ pub(super) fn write_snapshot(
         if tag == b"STRE" {
             let texts = encoder.evidence_texts();
             let mut section = BlockedSection::begin(output, offset, texts.len(), limit, cancel)?;
-            blocks::string_blocks(texts, &mut |body| section.body(&body))?;
+            blocks::string_blocks(texts, &mut |body| section.sealed(tag, body))?;
             offset = section.finish(tag, &mut directory)?;
             continue;
         }
@@ -100,13 +100,18 @@ pub(super) fn write_snapshot(
         };
         if blocks::blocked(tag) {
             let rows = Reader::new(&flat, "encoder records")
-                .count()
+                .rows()
                 .map_err(invalid_graph)?;
             let mut section = BlockedSection::begin(output, offset, rows, limit, cancel)?;
-            blocks::record_blocks(tag, &flat, &mut |body| section.body(&body))?;
+            blocks::record_blocks(tag, &flat, &mut |body| section.sealed(tag, body))?;
             offset = section.finish(tag, &mut directory)?;
             continue;
         }
+        let flat = if blocks::sealed(tag) {
+            blocks::seal(tag, &flat)?
+        } else {
+            flat
+        };
         directory.extend(tag);
         directory.extend(offset.to_le_bytes());
         directory.extend((flat.len() as u64).to_le_bytes());
@@ -178,6 +183,15 @@ impl<'o, O: std::io::Write + std::io::Seek> BlockedSection<'o, O> {
         write_chunks(self.output, body.bytes, self.cancel)?;
         self.end = end;
         Ok(())
+    }
+
+    /// [`Self::body`] of the stored form of `body`, a block of `tag`.
+    fn sealed(&mut self, tag: &[u8; 4], body: blocks::Body<'_>) -> Result<(), ToolError> {
+        let stored = blocks::seal(tag, body.bytes)?;
+        self.body(&blocks::Body {
+            bytes: &stored,
+            ..body
+        })
     }
 
     /// Writes the directory and the padding, adds the section to the outer

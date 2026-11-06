@@ -30,9 +30,9 @@ mod tests;
 mod waits;
 mod watched;
 
+pub use crate::lsp::transport::{HealthLevel, Readiness, ServerHealth};
 pub use absence::{AskedAt, EmptyAnswer};
 use open_documents::{MAX_OPEN_DOCUMENTS, OpenDocuments};
-pub use crate::lsp::transport::{HealthLevel, ServerHealth};
 pub use requests::LocationRequest;
 pub use snippets::{SNIPPET_CONTENT_WITHHELD, SnippetPathAuthorizer, SnippetReadPolicy};
 pub use waits::ServerWaits;
@@ -84,7 +84,7 @@ struct NativeLspClientInner {
     stderr_lines: Arc<StdMutex<VecDeque<String>>>,
     capabilities: StdMutex<Option<Value>>,
     server_info: StdMutex<Option<Value>>,
-    readiness: StdMutex<Option<String>>,
+    readiness: StdMutex<Option<Readiness>>,
     /// What callers waited on here: the start and the project loads.
     waits: StdMutex<waits::Waits>,
     progress: Arc<ProgressTracker>,

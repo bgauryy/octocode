@@ -10,15 +10,20 @@
 //! looks a value up, and a cursor whose snapshot names other bytes ends as
 //! a stale snapshot before any lookup, so a changed file never replays.
 //!
-//! Secrets: only a view whose every kept text passed the source-wide scan
-//! is kept ([`super::view::View::sanitized`]): a pattern or range read's
-//! line-redacted source, and an outline rendered from its redacted source.
-//! Private-key blocks were redacted across the whole source before either,
+//! Secrets: the page scan is what protects output, and it runs on every
+//! page cut from a kept view as it does on a first page (`render` cuts and
+//! scans; see `page_scan`). So a kept view may be the unscanned source of a
+//! whole read: its replayed pages equal their cold reads. Private-key
+//! blocks were redacted across the whole source before any view was built,
 //! so a block spanning page windows stays redacted on every replayed page.
+//! The key holds the scanner's limits, so a scan that reads the source
+//! differently never replays another's view.
 //!
 //! Lifetime: a value is kept only by a page that issues a next page, and
-//! lives as issued continuation state does ([`PageMemo`]); a one-page read
-//! keeps nothing, and a fresh read (no page position) never replays.
+//! lives as issued continuation state does ([`PageMemo`]): in process
+//! memory only, weighed against the process budget, never written to disk.
+//! A one-page read keeps nothing, and a fresh read (no page position) never
+//! replays.
 //!
 //! [`ScannedSource`] is the fresh read's side: the source a range or match
 //! read scanned whole, for the next such read of the same bytes. Its key holds
@@ -51,12 +56,21 @@ static STORE: PageMemo<Arc<Kept>> = PageMemo::new();
 /// of it is not kept (the next read scans again).
 static SCANNED: PageMemo<Arc<Source<'static>>> = PageMemo::new();
 
+/// The store key of a value: the source digest and the policy that shaped
+/// it, so two reads of the same bytes (another view, another path) each
+/// keep their own value instead of evicting each other's.
+fn key(sha256: &str, policy: &str) -> String {
+    format!("{sha256}\n{policy}")
+}
+
 /// What shaped a view besides the source bytes: both paths, whether the bytes
-/// start inside the file, the scanner, and the read when the view depends on it.
+/// start inside the file, the scanner and the limits it reads a source at,
+/// and the read when the view depends on it.
 fn policy<S: ContentScan>(
     read: Option<&LocalFetchQuery>,
     paths: (&std::path::Path, &str),
     facts: &SourceFacts,
+    security: &S,
 ) -> Option<String> {
     serde_json::to_string(&serde_json::json!({
         "read": read,
@@ -64,6 +78,7 @@ fn policy<S: ContentScan>(
         "providerPath": paths.1,
         "interior": facts.interior,
         "scan": std::any::type_name::<S>(),
+        "limits": format!("{:?}", security.limits()),
     }))
     .ok()
 }
@@ -84,6 +99,7 @@ impl ScannedSource {
         sha256: &str,
         paths: (&std::path::Path, &str),
         facts: &SourceFacts,
+        security: &S,
     ) -> Option<Self> {
         if facts.byte_origin.is_some()
             || !(local_fetch_query::has_matches(q) || local_fetch_query::has_ranges(q))
@@ -92,7 +108,7 @@ impl ScannedSource {
         }
         Some(Self {
             sha256: sha256.to_owned(),
-            policy: policy::<S>(None, paths, facts)?,
+            policy: policy(None, paths, facts, security)?,
         })
     }
 
@@ -102,7 +118,7 @@ impl ScannedSource {
         if local_fetch_query::snapshot(q).is_some_and(|snapshot| snapshot != self.sha256) {
             return None;
         }
-        SCANNED.get(&self.sha256, &self.policy, Arc::clone)
+        SCANNED.get(&key(&self.sha256, &self.policy), &self.policy, Arc::clone)
     }
 
     /// Keep `source`, as the scan left it, for the next read of these bytes.
@@ -114,7 +130,12 @@ impl ScannedSource {
             offsets: source.offsets.clone(),
             ..owned(source.shared())
         };
-        SCANNED.put(self.sha256, self.policy, weight, Arc::new(kept));
+        SCANNED.put(
+            key(&self.sha256, &self.policy),
+            self.policy,
+            weight,
+            Arc::new(kept),
+        );
     }
 }
 
@@ -134,6 +155,7 @@ impl Retention {
         sha256: &str,
         paths: (&std::path::Path, &str),
         facts: &SourceFacts,
+        security: &S,
     ) -> Option<Self> {
         if facts.byte_origin.is_some()
             || local_fetch_query::has_classification(q)
@@ -146,7 +168,7 @@ impl Retention {
         local_fetch_query::set_snapshot(&mut read, None).ok()?;
         Some(Self {
             sha256: sha256.to_owned(),
-            policy: policy::<S>(Some(&read), paths, facts)?,
+            policy: policy(Some(&read), paths, facts, security)?,
         })
     }
 
@@ -158,11 +180,11 @@ impl Retention {
         {
             return None;
         }
-        STORE.get(&self.sha256, &self.policy, Arc::clone)
+        STORE.get(&key(&self.sha256, &self.policy), &self.policy, Arc::clone)
     }
 
-    /// Keep the view `result` was cut from when the page continues and the
-    /// view holds only scanned text.
+    /// Keep the view `result` was cut from when the page continues; every
+    /// page cut from it is scanned (see the module note).
     pub(super) fn keep(
         self,
         result: &LocalFetchResult,
@@ -174,19 +196,21 @@ impl Retention {
             .next
             .as_ref()
             .is_some_and(|next| next.continue_window.is_some());
-        if !continues || !view.sanitized {
+        if !continues {
             return;
         }
         let source = owned(source);
+        // The view's window-scan slot may come to hold up to one more copy
+        // of the view's text (see `pagination::WindowScans`).
         let weight = source.text.len()
-            + view.text.len()
+            + 2 * view.text.len()
             + ext.text.len()
             + std::mem::size_of::<usize>()
                 * (ext.source_lines.as_ref().map_or(0, Vec::len)
                     + ext.matched_lines.len()
                     + 2 * source.redacted_lines.len());
         STORE.put(
-            self.sha256,
+            key(&self.sha256, &self.policy),
             self.policy,
             weight,
             Arc::new(Kept { source, ext, view }),
@@ -209,14 +233,37 @@ fn owned(source: Source<'_>) -> Source<'static> {
     }
 }
 
+/// The keys `store` holds for `sha256`, under any policy.
+#[cfg(test)]
+fn keys_of<V: Send + Sync + 'static>(store: &PageMemo<V>, sha256: &str) -> Vec<String> {
+    let prefix = format!("{sha256}\n");
+    store
+        .contents()
+        .0
+        .into_iter()
+        .filter(|kept| kept.starts_with(&prefix))
+        .collect()
+}
+
 /// Whether a view is kept for `sha256`.
 #[cfg(test)]
 pub(crate) fn holds(sha256: &str) -> bool {
-    STORE.contents().0.iter().any(|kept| kept == sha256)
+    !keys_of(&STORE, sha256).is_empty()
 }
 
-/// Forget the scan kept for `sha256`: its next read scans again.
+/// Forget the views kept for `sha256`: its next page builds them again, as
+/// a cold read does.
+#[cfg(test)]
+pub(crate) fn forget_view(sha256: &str) {
+    keys_of(&STORE, sha256)
+        .iter()
+        .for_each(|kept| STORE.evict(kept));
+}
+
+/// Forget the scans kept for `sha256`: its next read scans again.
 #[cfg(test)]
 pub(crate) fn forget_scan(sha256: &str) {
-    SCANNED.evict(sha256);
+    keys_of(&SCANNED, sha256)
+        .iter()
+        .for_each(|kept| SCANNED.evict(kept));
 }

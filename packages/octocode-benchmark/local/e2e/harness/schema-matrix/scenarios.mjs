@@ -78,7 +78,12 @@ export async function runScenario(worker, scenario, surface, ledger) {
   const env = scenarioEnv(scenario, context);
   const pages = [];
   const failures = [];
-  const answer = scenario.github && (request => scenario.github(request, context));
+  const trace = process.env.OCTOCODE_MATRIX_TRACE;
+  const answer = (scenario.github || trace) && (request => {
+    const out = scenario.github?.(request, context) ?? null;
+    if (trace) process.stderr.write(`trace ${scenario.id} ${surface} ${request.method ?? ''} ${request.p}${request.url?.search ?? ''} -> ${out ? out.status ?? 200 : 'model'}\n`);
+    return out;
+  });
   const provider = scenario.provider && ((request, headers) => scenario.provider(request, headers, context));
   worker.override = { github: answer, provider };
   const call = async (tool, input) => {

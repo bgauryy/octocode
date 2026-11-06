@@ -9,7 +9,6 @@ use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
 use octocode_contract_types::LocalSearchQuery;
 use octocode_engine::num::saturating_u32;
-use octocode_engine::signatures::MAX_PARSE_SIZE;
 
 mod decoded;
 mod exposed;
@@ -33,11 +32,6 @@ pub(super) use lines::{VerifyReadError, materialize, read_verification_lines};
 pub(super) use redaction::read_key_scan_bytes;
 use redaction::redact_key_block_lines;
 pub(super) use redaction::{redact_scan, scan_inspector};
-
-/// Upper bound (bytes) on a file re-read for the private-key block scan.
-/// Matches the secret scanner's own content cap; larger files fall back to the
-/// per-match window sanitizer rather than pay an unbounded read.
-pub(super) const MAX_KEY_SCAN_BYTES: u64 = 10 * 1024 * 1024;
 
 /// What a stored scan's file must still hash to (see `expected_digest`).
 pub(super) type ExpectedDigest<'a> =
@@ -229,7 +223,12 @@ pub(super) fn verify_shown(
         let outlined = shows_rows;
         let parsed_by_cut = outlined.then(|| cut.remove(index)).flatten();
         let bytes = (outlined && parsed_by_cut.is_none())
-            .then(|| super::sources::read_entry(&source, MAX_PARSE_SIZE))
+            .then(|| {
+                super::sources::read_entry(
+                    &source,
+                    crate::security::SourceLimits::REAL.whole_source,
+                )
+            })
             .flatten();
         let expected = expected_digest(&source);
         let verification = match &bytes {
@@ -312,7 +311,9 @@ pub(super) fn outline_for_cut(
         if validate_matched(scope.paths, &source).is_err() {
             continue;
         }
-        let Some(bytes) = super::sources::read_entry(&source, MAX_PARSE_SIZE) else {
+        let Some(bytes) =
+            super::sources::read_entry(&source, crate::security::SourceLimits::REAL.whole_source)
+        else {
             continue;
         };
         if let super::sources::Expected::Stored(stored) = (scope.expected_digest)(&source)

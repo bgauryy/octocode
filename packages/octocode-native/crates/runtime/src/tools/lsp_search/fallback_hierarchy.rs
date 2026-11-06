@@ -211,12 +211,27 @@ impl<'a, 'p> Fallback<'a, 'p> {
             .resolved_nodes(anchor.path, anchor.line, anchor.character)
             .await?;
         if let Some(initial) = initial {
-            if roots.len() != 1 {
-                return Err(LspFailure::invalid_query(
-                    "Cannot assign implementation candidates to an ambiguous type anchor",
-                ));
+            match roots.as_slice() {
+                [root] => *self.initial.lock().await = Some((root.clone(), initial)),
+                // No declaration resolved: the failure that says why (an
+                // unreadable parse, an unanswered definition) is the answer.
+                [] => {
+                    let failure = self.failures.lock().await.drain(..).next();
+                    return Err(failure.unwrap_or_else(|| {
+                        LspFailure::unestablished(format!(
+                            "No type declaration resolves at {}:{}:{}",
+                            anchor.path,
+                            anchor.line + 1,
+                            anchor.character + 1
+                        ))
+                    }));
+                }
+                _ => {
+                    return Err(LspFailure::invalid_query(
+                        "Cannot assign implementation candidates to an ambiguous type anchor",
+                    ));
+                }
             }
-            *self.initial.lock().await = Some((roots[0].clone(), initial));
         }
         let paths = self.sources.lock().await.policy();
         let mut walk = Walk::new(paths, &roots, expansion, depth)

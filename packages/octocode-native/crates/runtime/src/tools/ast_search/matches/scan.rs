@@ -1,4 +1,5 @@
 //! The scan of one file or a directory, and the order of its files.
+use super::super::scan_window::window_files;
 use super::continuations::tree_repair;
 use super::query::MatchQuery;
 use super::rows::{diagnostic_error, error_diagnostic, match_display_path};
@@ -10,6 +11,7 @@ use crate::policy::path::PathPolicy;
 use crate::policy::prune;
 use crate::response::result::ToolError;
 use crate::tools::ast_rule::has_extension_in;
+use crate::tools::test_code::Scoped;
 use octocode_contract_types::ErrorCode;
 use octocode_engine::structural::{
     FileMatches, StructuralDetailedMatch, StructuralDiagnostic, StructuralSearchFilesOptions,
@@ -34,7 +36,7 @@ pub(super) fn scan_file(
     let Some(bytes) = super::super::source::read_parse_source(canonical)? else {
         let mut error = ToolError::new(
             ErrorCode::FileTooLarge,
-            "Source exceeds the native parser byte limit.",
+            "Source exceeds the byte limit of a whole read.",
         );
         if let Some(lead) = q
             .pattern_text()
@@ -123,11 +125,16 @@ pub(super) fn scan_file(
     })
 }
 
+/// The scan of a directory's window: from `q`'s `scanOffset` until the time
+/// budget cuts it, or with `through` the candidates before that position,
+/// from the first, as an explicit file window the engine never cuts by time
+/// (what a ranked scan lost, [`super::standing`]).
 pub(super) fn scan_directory(
     q: MatchQuery<'_>,
     scope: &Scope,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
+    through: Option<u32>,
 ) -> Result<Scan, ToolError> {
     #[cfg(test)]
     DIRECTORY_SCANS
@@ -180,9 +187,9 @@ pub(super) fn scan_directory(
                 q.include_hidden(),
             ),
             max_depth: q.max_depth(),
-            max_files: super::super::scan_window::window_files(q.scan_offset()),
-            skip_files: Some(q.scan_offset()),
-            max_file_bytes: u32::try_from(super::super::source::MAX_PARSE_SOURCE_BYTES).ok(),
+            max_files: through.or_else(|| window_files(q.scan_offset())),
+            skip_files: Some(through.map_or(q.scan_offset(), |_| 0)),
+            max_file_bytes: u32::try_from(crate::security::SourceLimits::REAL.whole_source).ok(),
         },
         demand(q, &price),
         &|path, file_type| {
@@ -274,17 +281,13 @@ pub(super) fn scan_directory(
         walk_errors: r.walk_errors,
         skipped_by_prefilter: r.skipped_by_pre_filter,
         withheld: admission.skipped().withheld,
+        artifacts: admission.skipped().artifacts,
         unparsed: logged.unparsed,
         census: logged.census,
         present: logged.present,
-        test_code_excluded: scoped
-            .as_ref()
-            .map(crate::tools::test_code::Scoped::excluded)
-            .unwrap_or_default(),
-        test_code_unread: scoped
-            .as_ref()
-            .map(crate::tools::test_code::Scoped::unread)
-            .unwrap_or_default(),
+        test_code_excluded: scoped.as_ref().map(Scoped::excluded).unwrap_or_default(),
+        test_code_walked: scoped.as_ref().map_or(0, Scoped::left_unread),
+        test_code_unread: scoped.as_ref().map(Scoped::unread).unwrap_or_default(),
     })
 }
 
@@ -325,6 +328,13 @@ pub(super) static DIRECTORY_SCANS: std::sync::Mutex<Vec<std::path::PathBuf>> =
 /// order of the whole scan.
 fn walk_order(a: &ScannedFile, b: &ScannedFile) -> std::cmp::Ordering {
     std::path::Path::new(&a.path).cmp(std::path::Path::new(&b.path))
+}
+
+/// Whether `q`'s order ranks the scope's whole file set: every order but walk
+/// order, the only one in which a cut scan's windows, each listed in turn,
+/// list the files in the order of the whole scan.
+pub(super) fn ranks_whole_scope(q: MatchQuery<'_>) -> bool {
+    q.sort() == Some("matchCount") || q.reverse().unwrap_or(false)
 }
 
 pub(super) fn sort_files(q: MatchQuery<'_>, files: &mut [ScannedFile]) {

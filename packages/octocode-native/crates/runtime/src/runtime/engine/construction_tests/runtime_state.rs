@@ -264,3 +264,26 @@ fn a_host_with_loaded_config_files_reads_none() {
         "rewritten"
     );
 }
+
+/// Without a classification provider the published row schemas lack
+/// `classification`, so an unknown-field error never lists or offers it; with
+/// one, the field is published and listed.
+#[tokio::test]
+async fn unknown_field_errors_list_only_the_published_fields() {
+    let home = tempfile::tempdir().expect("home");
+    let input = serde_json::json!({"queries":[{"mainGoal":"g","reasoning":"r","path":"a.ts","lineStart":1}]});
+    for (env, published) in [
+        (vec![], false),
+        (vec![("OCTOCODE_CLASSIFICATION_API", "fixture-key")], true),
+    ] {
+        let runtime = runtime(home.path(), &env);
+        assert_eq!(runtime.presentation()["selection"], published);
+        let Err(error) = runtime.admit_queries(ToolId::LocalFetch, &input, false, true) else {
+            panic!("an unknown field is rejected");
+        };
+        let shown = error.payload.expect("payload").to_string();
+        assert!(shown.contains("Unknown field 'lineStart'"), "{shown}");
+        assert!(shown.contains("ranges"), "{shown}");
+        assert_eq!(shown.contains("classification"), published, "{shown}");
+    }
+}

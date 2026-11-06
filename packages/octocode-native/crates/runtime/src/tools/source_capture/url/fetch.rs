@@ -1,11 +1,13 @@
 //! One HTTPS request of a URL capture, to a public address only. Each hop
 //! resolves its host here, refuses any address that is not publicly
 //! routable, and pins the connection to exactly the checked addresses, so a
-//! second DNS answer cannot redirect it to a private network. The request
+//! second DNS answer cannot redirect it to a private network. A host that
+//! does not resolve gets the same refusal as a private one, naming neither
+//! an address nor which case it was. The request
 //! carries no credential or cookie and follows no redirect itself; the body
 //! is read within the request budget and a byte limit.
 use super::Reply;
-use crate::policy::network::is_public;
+use crate::policy::network::{is_public, not_public_refusal};
 use crate::tools::judgment::ClassificationError;
 use octocode_contract_types::ErrorCode;
 use octocode_io::budget::{BudgetStop, RequestBudget};
@@ -50,7 +52,7 @@ impl Network<'_> {
                 .wait(tokio::net::lookup_host((name.as_str(), port)))
                 .await
                 .map_err(stopped)?
-                .map_err(|_| unreachable(&host, "its name does not resolve"))?
+                .map_err(|_| not_public(&host))?
                 .collect(),
         };
         let addresses = public_addresses(&host, addresses)?;
@@ -130,21 +132,20 @@ impl Network<'_> {
     }
 }
 
-/// `addresses` when every one is publicly routable.
+/// `addresses` when there is one and every one is publicly routable.
 pub(super) fn public_addresses(
     host: &Host<String>,
     addresses: Vec<SocketAddr>,
 ) -> Result<Vec<SocketAddr>, ClassificationError> {
-    if addresses.is_empty() {
-        return Err(unreachable(host, "its name has no address"));
-    }
-    if let Some(blocked) = addresses.iter().find(|address| !is_public(address.ip())) {
-        return Err(denied(&format!(
-            "{host} resolves to {}, which is not a public address.",
-            blocked.ip()
-        )));
+    if addresses.is_empty() || addresses.iter().any(|address| !is_public(address.ip())) {
+        return Err(not_public(host));
     }
     Ok(addresses)
+}
+
+/// The one refusal for a host that does not resolve or is not public.
+fn not_public(host: &Host<String>) -> ClassificationError {
+    denied(&not_public_refusal(&host.to_string()))
 }
 
 pub(super) fn denied(message: &str) -> ClassificationError {

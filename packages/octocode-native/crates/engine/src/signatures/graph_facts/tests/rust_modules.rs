@@ -235,8 +235,9 @@ fn rust_nonconventional_modules_and_macros_remain_explicitly_unsupported() {
 
 /// Items compiled only under `cfg(test)` (an outer `#[cfg(test)]` or
 /// `#[cfg(all(test, …))]`, or an inner `#![cfg(test)]`) are reported once
-/// as 1-based `[start, end]` line spans; `not(test)` and `any(test, …)`
-/// also compile outside tests, so they are no test span.
+/// as 1-based `[start, end]` line spans, from the item's first attribute
+/// line; `not(test)` and `any(test, …)` also compile outside tests, so they
+/// are no test span.
 #[test]
 fn rust_cfg_test_items_are_test_line_spans() {
     let value = facts(
@@ -263,7 +264,7 @@ fn rust_cfg_test_items_are_test_line_spans() {
     );
     assert_eq!(
         value["testLines"],
-        serde_json::json!([[3, 7], [9, 9], [11, 11], [16, 19]]),
+        serde_json::json!([[2, 7], [8, 9], [10, 11], [16, 19]]),
         "{value}"
     );
     let plain = facts("mod tests {}\n", "src/lib.rs");

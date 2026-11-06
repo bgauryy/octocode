@@ -1,9 +1,3 @@
-/// Largest source the parsers accept (declarations, graph facts, oxc,
-/// syntax trees). Separate from the minifier's 1 MiB guard: parsing a real
-/// monolithic source (TypeScript's 3 MB checker.ts) is cheap and bounded,
-/// and the runtime tools share this bound.
-pub const MAX_PARSE_SIZE: usize = 8 * 1024 * 1024;
-
 mod arguments;
 mod calls;
 pub(crate) mod extractor;
@@ -11,6 +5,8 @@ pub mod graph_facts;
 pub(crate) mod js_oxc;
 pub mod markup;
 pub use js_oxc::call_sites::{EnclosingCallable, ReferenceSite, reference_sites};
+#[doc(hidden)]
+pub use js_oxc::nesting::nesting_sweep_check;
 pub(crate) mod node_kinds;
 mod nodes;
 pub(crate) mod spelled;
@@ -57,7 +53,7 @@ pub const TYPE_DECLARATION_KINDS: &[&str] =
 /// by oxc.
 #[expect(
     clippy::expect_used,
-    reason = "OXC admission rejects input above MAX_PARSE_SIZE before this private constructor"
+    reason = "source templates address u32 offsets; oxc spans are u32, so its admitted input fits them"
 )]
 fn native_graph_facts(
     language: String,
@@ -69,7 +65,7 @@ fn native_graph_facts(
         crate::text::analysis::Producer::new(format!("oxc-facts:{language}"), "6"),
         crate::text::analysis::AnalysisOperation::GraphFacts,
     )
-    .expect("parser input is bounded to MAX_PARSE_SIZE");
+    .expect("oxc input fits u32 offsets");
     graph_facts_document(language, file, source_templates)
 }
 
@@ -183,9 +179,6 @@ pub fn extract_declarations_document_with_extension(
     file_path: &str,
     extension: &str,
 ) -> Option<crate::graph::GraphFactsDocument> {
-    if content.len() > MAX_PARSE_SIZE {
-        return None;
-    }
     if let Some(facts) = js_oxc::extract_declarations_as(content, file_path, Some(extension)) {
         return Some(facts);
     }
@@ -200,86 +193,6 @@ pub fn extract_declarations_document_with_extension(
     }))
     .unwrap_or(None)
     .map(|extraction| extraction.facts)
-}
-
-/// The symbols outline of `content` ([`extract_signatures_inner`]) and its
-/// declarations-only facts ([`extract_declarations_document`]) from ONE
-/// tree-sitter parse wherever both read the same grammar; JS/TS
-/// declarations come from oxc, the outline from tree-sitter. Runs on the
-/// shared deep parser stack.
-pub fn extract_signatures_with_declarations(
-    content: &str,
-    file_path: &str,
-) -> (
-    Result<String, OutlineUnavailable>,
-    Option<crate::graph::GraphFactsDocument>,
-) {
-    let (content, file_path) = (content.to_owned(), file_path.to_owned());
-    crate::deep_stack::run_on_deep_stack(move || {
-        Some(signatures_with_declarations(&content, &file_path))
-    })
-    .unwrap_or((Err(OutlineUnavailable::ParseFailed), None))
-}
-
-fn signatures_with_declarations(
-    content: &str,
-    file_path: &str,
-) -> (
-    Result<String, OutlineUnavailable>,
-    Option<crate::graph::GraphFactsDocument>,
-) {
-    if content.len() > MAX_PARSE_SIZE {
-        return (Err(OutlineUnavailable::TooLarge), None);
-    }
-    // Already on the deep stack: oxc parses in place, without another copy.
-    if let Some(mut declarations) = js_oxc::extract_declarations_in_place(content, file_path) {
-        if let Some(unit) = declarations.source_templates.units.first_mut() {
-            unit.operation = crate::text::analysis::AnalysisOperation::Declarations;
-        }
-        return (
-            extract_signatures_inner(content, file_path),
-            Some(declarations),
-        );
-    }
-    let shared = std::panic::catch_unwind(|| {
-        let ext = extension_of(file_path, true, "txt");
-        let grammar = crate::text::file_extension::grammar_extension(content, &ext);
-        let entry = languages::find_entry(grammar).ok_or(OutlineUnavailable::UnsupportedLanguage);
-        // Each reader reads the whole file; only the parse is shared.
-        let deadline = extractor::whole_file_deadline;
-        let tree = entry
-            .ok()
-            .and_then(|entry| extractor::parse_before(content, &entry.language, deadline()));
-        let declarations = graph_facts::declaration_facts_from_tree(
-            content,
-            file_path,
-            grammar,
-            tree.as_ref(),
-            deadline(),
-        );
-        let skeleton = entry.and_then(|entry| {
-            let cfg = LangExtractConfig {
-                language: entry.language.clone(),
-                body_query: entry.body_query,
-            };
-            if !entry.admits(crate::text::analysis::AnalysisOperation::SignatureOutline) {
-                return Err(OutlineUnavailable::UnsupportedLanguage);
-            }
-            let tree = tree.as_ref().ok_or(OutlineUnavailable::ParseFailed)?;
-            let kept = extractor::outline_from_tree(content, &cfg, tree, deadline())
-                .ok_or(OutlineUnavailable::ParseFailed)?;
-            renderer::render_skeleton(&kept, entry.comment_style)
-                .ok_or(OutlineUnavailable::NoDeclarations)
-        });
-        (skeleton, declarations)
-    });
-    match shared {
-        Ok((skeleton, declarations)) => (
-            skeleton.and_then(|skeleton| usable_outline(content, skeleton)),
-            declarations,
-        ),
-        Err(_) => (Err(OutlineUnavailable::ParseFailed), None),
-    }
 }
 
 /// [`tree_sitter_graph_facts`] without call facts (see
@@ -304,6 +217,35 @@ pub fn extract_graph_facts(
 /// The grammar [`extract_graph_facts`] reads a file with when tree-sitter
 /// reads it, with the extension that grammar goes by; `None` when oxc owns
 /// the file or no grammar does.
+/// The declarations of `content` whose `extends`/`implements` clause names
+/// `name`, with those edges, as [`extract_graph_facts`] records them, reading
+/// only the parts of the file that spell `name`; `None` when only the whole
+/// facts can tell (oxc owns the file, or the narrow walk cannot decide).
+#[must_use]
+pub fn extract_named_heritage(
+    content: &str,
+    file_path: &str,
+    name: &str,
+) -> Option<crate::graph::GraphFactsDocument> {
+    let (entry, grammar) = graph_facts_grammar(content, file_path)?;
+    let tree = extractor::parse_before(content, &entry.language, extractor::whole_file_deadline())?;
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        graph_facts::named_heritage_from_tree(content, file_path, &grammar, &tree, name)
+    }))
+    .unwrap_or(None)
+}
+
+/// Whether `content`, the text of `file_path`, can declare a type whose
+/// `extends` / `implements` clause the facts record: `false` only for a
+/// grammar whose heritage clauses never name a supertype (Go embeds), so a
+/// subtype scan reads nothing there without parsing it. Every file oxc
+/// owns, and one no grammar reads, may.
+#[must_use]
+pub fn may_name_supertypes(content: &str, file_path: &str) -> bool {
+    graph_facts_grammar(content, file_path)
+        .is_none_or(|(_, grammar)| graph_facts::names_supertypes(&grammar))
+}
+
 pub(crate) fn graph_facts_grammar(
     content: &str,
     file_path: &str,
@@ -345,13 +287,12 @@ pub const DECLARATION_KINDS: &[&str] = &[
 ];
 
 use crate::text::extension_of;
-use extractor::LangExtractConfig;
 use languages::CommentStyle;
 
 mod outline;
+#[cfg(test)]
 pub(crate) use outline::extract_signatures_inner;
-use outline::usable_outline;
-pub use outline::{OutlineUnavailable, is_comment_line};
+pub use outline::{OutlineUnavailable, declarations_outline, is_comment_line};
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 #[cfg(test)]

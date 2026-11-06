@@ -69,8 +69,8 @@ export const SHAPES = {
   'nest.ts': ['function outer() {', '  if (ready) {', '    return 1;', '  }', '}', ''],
 };
 const GITIGNORE = 'ignored-dir/\nbuild/\n';
-/** Lines of a file that test-code rules claim on their own: the item under `#[cfg(test)]`, 1-based. */
-const TEST_LINES = { 'src/lib.rs': [4, 5, 6, 7] };
+/** Lines of a file that test-code rules claim on their own: the item under `#[cfg(test)]`, its attribute line included, 1-based. */
+const TEST_LINES = { 'src/lib.rs': [3, 4, 5, 6, 7] };
 const TEST_FILES = new Set(['tests/alpha.test.ts', 'src/util_test.go']);
 const DEFAULT_PRUNED = new Set(['build', 'node_modules']);
 const IGNORED_DIRS = new Set(['ignored-dir', 'build']);

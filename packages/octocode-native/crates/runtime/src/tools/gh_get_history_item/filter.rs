@@ -49,7 +49,8 @@ impl FileFilter<'_> {
     /// One file page for a commit, a comparison and a pull request alike:
     /// the filter runs over every loaded file first, then the page cuts the
     /// kept ones, so page N is the N-th page of files in scope (and, with a
-    /// `matchString` read of patches, of files whose patch holds it).
+    /// `matchString`, of files whose patch holds it). `patches`: the page
+    /// shows patches, which sizes it.
     pub(super) fn page(
         &self,
         files: Vec<Value>,
@@ -63,7 +64,7 @@ impl FileFilter<'_> {
             unsearched,
             dropped,
             in_scope,
-        } = self.apply(files, patches);
+        } = self.apply(files);
         let count = kept.len();
         let (files, page) = state.paginate(
             kept,
@@ -82,10 +83,10 @@ impl FileFilter<'_> {
     }
 
     /// Filter `files` once, for every file page (commit, comparison and pull
-    /// request alike). `searches_patches`: the read searches the literal in
-    /// patches, so in-scope files without one are unsearched.
-    pub(super) fn apply(&self, files: Vec<Value>, searches_patches: bool) -> Filtered {
-        let unsearched = if self.needle.is_some() && searches_patches {
+    /// request alike). A literal is searched in patches, so in-scope files
+    /// without one are unsearched, whether the page shows patches or not.
+    pub(super) fn apply(&self, files: Vec<Value>) -> Filtered {
+        let unsearched = if self.needle.is_some() {
             unsearched_files(&files, self)
         } else {
             Vec::new()

@@ -16,7 +16,21 @@ pub fn sanitize_content<'a>(
     content: &'a str,
     file_path: Option<&str>,
 ) -> crate::error::Result<SanitizationResult<'a>> {
-    sanitize_in(content, file_path.map_or(Scope::Pathless, Scope::File))
+    sanitize_content_within(content, file_path, super::MAX_CONTENT_SIZE)
+}
+
+/// [`sanitize_content`] judging a text longer than `whole_text_limit` in one
+/// pass over its spans, as one past [`super::MAX_CONTENT_SIZE`] always is.
+pub fn sanitize_content_within<'a>(
+    content: &'a str,
+    file_path: Option<&str>,
+    whole_text_limit: usize,
+) -> crate::error::Result<SanitizationResult<'a>> {
+    sanitize_in(
+        content,
+        file_path.map_or(Scope::Pathless, Scope::File),
+        whole_text_limit,
+    )
 }
 
 /// One string leaf of a tool result about the file at `source_path` (see
@@ -46,9 +60,10 @@ fn redact_leaf(content: &str, scope: Scope<'_>) -> crate::error::Result<Option<S
 fn sanitize_in<'a>(
     content: &'a str,
     scope: Scope<'_>,
+    whole_text_limit: usize,
 ) -> crate::error::Result<SanitizationResult<'a>> {
     guarded(|| {
-        let Some(result) = detector::redact(content, scope) else {
+        let Some(result) = detector::redact_within(content, scope, whole_text_limit) else {
             return SanitizationResult {
                 content: content.into(),
                 has_secrets: false,

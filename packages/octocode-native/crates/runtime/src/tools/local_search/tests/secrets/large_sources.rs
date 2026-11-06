@@ -3,13 +3,16 @@
 use super::*;
 
 const VALUE: &str = "RmFrZTBWYWx1ZTlOb3Q0UmVhbDhCbG9iN0xvbmc2RW5vdWdo";
-const OVER_THE_SCANNER: usize = 11 * 1024 * 1024;
+/// The limits these searches judge at, and a source past what is judged whole.
+const LIMITS: crate::security::SourceLimits = crate::security::SourceLimits::SMALL;
+const OVER_THE_SCANNER: usize = LIMITS.whole_source + LIMITS.whole_source / 10;
 
 fn values(name: &str, text: &str, needle: &str) -> Vec<String> {
     let root = tempfile::tempdir().expect("fixture directory");
     let path = root.path().join(name);
     fs::write(&path, text).expect("fixture");
-    let (policy, security) = policy_for(root.path());
+    let (policy, _) = policy_for(root.path());
+    let security = ContentSecurity::with_limits(LIMITS);
     let request = ls_query(
         serde_json::json!({"path": path.to_string_lossy(), "matchString": [needle], "limit": 20}),
         None,

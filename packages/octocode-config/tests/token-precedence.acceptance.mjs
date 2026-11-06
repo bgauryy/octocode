@@ -37,6 +37,8 @@ const groups = [
   {
     tool: 'clasify',
     aliases: ['OCTOCODE_CLASSIFICATION_API'],
+    // Home-only: a workspace .env key is ignored and the home .env key applies.
+    homeOnly: true,
     input: {
       queries: [{ operation: 'models' }],
     },
@@ -124,11 +126,13 @@ try {
             1,
             `${name}/${surface}: exactly one invocation request and no startup probe`
           );
+          const expected =
+            source === 'workspace' && group.homeOnly ? 'home' : source;
           assert.ok(
             observations.every(
               value =>
-                value === `Bearer ${source}-fixture` ||
-                value === `token ${source}-fixture`
+                value === `Bearer ${expected}-fixture` ||
+                value === `token ${expected}-fixture`
             ),
             `${name}/${surface}: wrong source selected`
           );

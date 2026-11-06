@@ -24,15 +24,18 @@ pub(super) struct Outbound {
     pub(super) written: Option<oneshot::Sender<Result<()>>>,
 }
 
+/// Whether the connection still serves requests.
+pub(super) enum ConnState {
+    /// Serving: the waiter of each request still pending, by id.
+    Open(HashMap<u64, PendingSender>),
+    /// Failed, for this reason (the first wins): new requests are refused
+    /// with it and every waiter has already been failed.
+    Failed(Error),
+}
+
 /// State shared by the handle, the reader task, and the writer task.
 pub(super) struct Shared {
-    /// `None` once the connection has failed: new requests are refused and
-    /// every waiter has already been failed.
-    pub(super) pending: Mutex<Option<HashMap<u64, PendingSender>>>,
-    pub(super) failed: AtomicBool,
-    /// Why the connection failed (the first reason wins), so requests made
-    /// after the failure report it instead of a generic "closed".
-    pub(super) failure_reason: Mutex<Option<Error>>,
+    pub(super) state: Mutex<ConnState>,
     pub(super) outbound: mpsc::Sender<Outbound>,
     pub(super) push_diagnostics: Arc<PushDiagnosticsStore>,
     pub(super) partial_results: PartialResultStore,
@@ -50,30 +53,38 @@ pub(super) struct Shared {
 }
 
 impl Shared {
+    pub(super) fn new_state() -> Mutex<ConnState> {
+        Mutex::new(ConnState::Open(HashMap::new()))
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, ConnState> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     pub(super) fn is_alive(&self) -> bool {
-        !self.failed.load(Ordering::Acquire)
+        matches!(*self.state(), ConnState::Open(_))
     }
 
     /// Registers a waiter for `id`; refused once the connection has failed.
     pub(super) fn register(&self, id: u64) -> Result<oneshot::Receiver<Result<Value>>> {
         let (tx, rx) = oneshot::channel();
-        let mut pending = self.pending.lock().map_err(|_| self.closed())?;
-        match pending.as_mut() {
-            Some(map) if self.is_alive() => {
-                map.insert(id, tx);
+        match &mut *self.state() {
+            ConnState::Open(pending) => {
+                pending.insert(id, tx);
                 Ok(rx)
             }
-            _ => Err(self.closed()),
+            ConnState::Failed(error) => Err(error.clone()),
         }
     }
 
     /// Removes and returns the waiter for `id`, if it is still pending.
     pub(super) fn take_pending(&self, id: u64) -> Option<PendingSender> {
-        self.pending
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_mut()
-            .and_then(|map| map.remove(&id))
+        match &mut *self.state() {
+            ConnState::Open(pending) => pending.remove(&id),
+            ConnState::Failed(_) => None,
+        }
     }
 
     /// Marks the connection failed and fails every pending request with
@@ -85,22 +96,16 @@ impl Shared {
     /// [`Self::fail`] with the typed cause every drained or later request
     /// reports.
     pub(super) fn fail_with(&self, error: Error) {
-        {
-            let mut slot = self
-                .failure_reason
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if slot.is_none() {
-                *slot = Some(error.clone());
-            }
-        }
-        self.failed.store(true, Ordering::Release);
-        let drained = self
-            .pending
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
-        for sender in drained.into_iter().flat_map(HashMap::into_values) {
+        let drained = {
+            let mut state = self.state();
+            let ConnState::Open(pending) = &mut *state else {
+                return;
+            };
+            let drained = std::mem::take(pending);
+            *state = ConnState::Failed(error.clone());
+            drained
+        };
+        for sender in drained.into_values() {
             let _ = sender.send(Err(error.clone()));
         }
     }
@@ -154,14 +159,9 @@ impl Shared {
 
     /// The error for a request refused because the connection failed.
     pub(super) fn closed(&self) -> Error {
-        match self
-            .failure_reason
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
-        {
-            Some(error) => error,
-            None => closed_error(),
+        match &*self.state() {
+            ConnState::Failed(error) => error.clone(),
+            ConnState::Open(_) => closed_error(),
         }
     }
 

@@ -1,35 +1,66 @@
-//! The lines a walk of only the nodes spelling a name finds it declared on are
-//! the lines the whole file's graph facts name it on.
+//! The sites a walk of only the nodes spelling a name finds (the lines it is
+//! declared on, the lines its calls span) are the sites the whole file's graph
+//! facts name.
 use crate::lsp::resolver::code_occurrences;
 use crate::signatures::extract_graph_facts;
+use crate::signatures::graph_facts::NamedSites;
 
-/// The whole file's answer, in order.
-fn from_facts(file: &str, source: &str, name: &str) -> Vec<usize> {
-    let mut lines = extract_graph_facts(source, file)
-        .expect("facts")
+/// The whole file's answer, each list in order.
+fn facts_sites(file: &str, source: &str, name: &str) -> NamedSites {
+    let facts = extract_graph_facts(source, file).expect("facts");
+    let mut declared = facts
         .declarations
         .iter()
         .filter(|declaration| declaration.name == name)
         .map(|declaration| declaration.selection_range.start.line as usize)
         .collect::<Vec<_>>();
-    lines.sort_unstable();
-    lines
+    let mut called = facts
+        .calls
+        .iter()
+        .filter(|call| {
+            call.callee
+                .rsplit_once(['.', ':'])
+                .map_or(call.callee.as_str(), |(_, last)| last)
+                == name
+        })
+        .flat_map(|call| call.range.start.line as usize..=call.range.end.line as usize)
+        .collect::<Vec<_>>();
+    declared.sort_unstable();
+    called.sort_unstable();
+    NamedSites {
+        declared,
+        called: Some(called),
+    }
+}
+
+fn from_facts(file: &str, source: &str, name: &str) -> Vec<usize> {
+    facts_sites(file, source, name).declared
+}
+
+fn narrow_sites(file: &str, source: &str, name: &str) -> Option<NamedSites> {
+    let occurrences = code_occurrences(file, source, name).expect("occurrences");
+    let mut sites = occurrences.sites(file, source, name)?;
+    sites.declared.sort_unstable();
+    if let Some(called) = sites.called.as_mut() {
+        called.sort_unstable();
+    }
+    Some(sites)
 }
 
 fn narrow(file: &str, source: &str, name: &str) -> Option<Vec<usize>> {
-    let occurrences = code_occurrences(file, source, name).expect("occurrences");
-    let mut lines = occurrences.declared_lines(file, source, name)?;
-    lines.sort_unstable();
-    Some(lines)
+    narrow_sites(file, source, name).map(|sites| sites.declared)
 }
 
+/// Both walks declare the name on `expected`, and a narrow walk that knows the
+/// calls finds them on the same lines.
 fn same(file: &str, source: &str, name: &str, expected: &[usize]) {
-    assert_eq!(from_facts(file, source, name), expected, "facts: {file}");
-    assert_eq!(
-        narrow(file, source, name).as_deref(),
-        Some(expected),
-        "narrow: {file}"
-    );
+    let facts = facts_sites(file, source, name);
+    assert_eq!(facts.declared, expected, "facts: {file}");
+    let narrow = narrow_sites(file, source, name).expect("narrowed");
+    assert_eq!(narrow.declared, facts.declared, "narrow: {file}");
+    if let Some(called) = narrow.called {
+        assert_eq!(Some(called), facts.called, "narrow calls: {file}");
+    }
 }
 
 #[test]
@@ -143,6 +174,12 @@ fn a_macro_body_declaring_nothing_keeps_the_narrow_answer() {
 /// there leaves the answer to it, and using the name there changes nothing.
 #[test]
 fn a_shadowed_macro_body_agrees_with_the_whole_walk() {
+    let calls = "macro_rules! assert { ($($t:tt)*) => {}; }\nfn origin() {}\nfn f() { assert!(origin()); }\n";
+    assert_eq!(
+        narrow_sites("a.rs", calls, "origin").map(|sites| sites.called),
+        Some(None),
+        "a call in a body the whole walk may not read is left to it"
+    );
     let declares = "macro_rules! assert { ($($t:tt)*) => {}; }\nfn f() { assert!({ fn origin() {} true }); }\nfn g() { origin(); }\n";
     assert_eq!(from_facts("a.rs", declares, "origin"), Vec::<usize>::new());
     assert_eq!(narrow("a.rs", declares, "origin"), None);
@@ -184,6 +221,41 @@ fn a_header_keeps_the_grammar_of_its_facts() {
         &[2],
     );
     same("b.h", "int origin(void);\n", "origin", &[0]);
+}
+
+/// A call spanning lines counts each line it spans, a member call counts by
+/// its last segment, and a call of another name is no site of this one.
+#[test]
+fn calls_of_the_name_are_the_calls_its_facts_hold() {
+    same(
+        "a.go",
+        "package p\nfunc use(q Querier) {\n\tq.Querier(\n\t\t1,\n\t)\n\tother(Querier)\n}\n",
+        "Querier",
+        &[],
+    );
+    same(
+        "a.py",
+        "def f(x):\n    x.origin()\n    origin(\n        1)\n    other(origin)\n",
+        "origin",
+        &[],
+    );
+    same(
+        "A.java",
+        "class A {\n    void f() { this.origin(); other(origin); }\n    void origin() {}\n}\n",
+        "origin",
+        &[2],
+    );
+    let go = narrow_sites(
+        "a.go",
+        "package p\nfunc use(q Querier) {\n\tq.Querier(\n\t\t1,\n\t)\n}\n",
+        "Querier",
+    )
+    .expect("narrowed");
+    assert_eq!(
+        go.called.as_deref(),
+        Some(&[2, 3, 4][..]),
+        "a call counts every line it spans"
+    );
 }
 
 /// oxc owns these files, and a name that is no one identifier is not narrowed.

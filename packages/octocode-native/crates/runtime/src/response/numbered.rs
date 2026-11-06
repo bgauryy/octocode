@@ -11,7 +11,7 @@
 mod view;
 use crate::id::ToolId;
 use serde_json::Value;
-pub(crate) use view::{line_faithful_view, number_view, tab_gutter};
+pub(crate) use view::tab_gutter;
 
 /// Separator between the line number and the source text.
 pub(crate) const SEPARATOR: char = '\t';

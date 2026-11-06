@@ -125,3 +125,59 @@ fn a_bounded_scan_answers_as_the_whole_line_scan() {
     }
     assert!(oversized > 20, "the corpus reaches oversized lines");
 }
+
+/// A walk of a transformed view (raw lines behind each view line, some
+/// dropped) through an oversized view line: every `next` moves forward, no
+/// query repeats, and the pages join to the view. A byte page that ends the
+/// long line resumes at the raw line after it, not at its view index (the
+/// compact `auth.css` walk cycled lines -> bytes -> bytes -> lines -> lines).
+#[test]
+fn a_transformed_view_walks_through_an_oversized_line_without_repeating() {
+    for (before, long_bytes, after, dropped_every) in [
+        (23, 17_765, 76, 3),
+        (1, 40_000, 2, 2),
+        (5, 16_385, 0, 4),
+        (0, 33_000, 9, 5),
+    ] {
+        let raw_total = (before + 1 + after) * dropped_every;
+        let lines: Vec<usize> = (1..=raw_total)
+            .filter(|line| line % dropped_every == 0)
+            .collect();
+        let source = SourceLines {
+            lines,
+            total: raw_total,
+        };
+        let mut content = String::new();
+        for index in 0..before + 1 + after {
+            if index == before {
+                content.push_str(&"b".repeat(long_bytes));
+                content.push('\n');
+            } else {
+                content.push_str(&format!("line {index}\n"));
+            }
+        }
+        let mut query: LocalFetchQuery =
+            serde_json::from_value(serde_json::json!({"path":"auth.css"})).expect("query");
+        let mut walked = String::new();
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..200 {
+            let page = page_within(
+                &content,
+                &query,
+                LineBudget::bytes(LINE_PAGE_BYTES),
+                Some(&source),
+            );
+            walked.push_str(&page.text);
+            let Some(next) = continuation(&query, &page.pagination) else {
+                break;
+            };
+            query = next.continue_window.expect("next").query;
+            let key = serde_json::to_string(&query).expect("key");
+            assert!(
+                seen.insert(key.clone()),
+                "repeated {key} at {before}/{long_bytes}"
+            );
+        }
+        assert_eq!(walked, content, "{before}/{long_bytes}/{after}");
+    }
+}

@@ -1,14 +1,15 @@
 //! The provider requests one page of candidates becomes. A hit is a question,
-//! not a request: the hits of one file share one state holding their windows,
-//! and every question names its target line, so a state is sent once and a
-//! window informs its hit without passing it. The provider judges the
-//! questions over one state independently (docs.typesafe.ai/cookbooks/parallel_questions).
+//! not a request: the hits of one file share one state holding their windows
+//! and the question text every target shares, and every question names its
+//! target line, so a state is sent once and a window informs its hit without
+//! passing it. The provider judges the questions over one state independently
+//! and bills the state once (docs.typesafe.ai/cookbooks/parallel_questions).
 //! A candidate with no target is a whole unit: its own state, one question per
 //! predicate; identical ones share a request.
-use super::{compile, provider_state};
+use super::{compile, provider_state, target_question};
 use crate::tools::selection::JudgeCall;
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// Characters of the windows one request's state holds before the next hit
 /// starts another: at the worst measured 1.3 characters a token, under the
@@ -30,6 +31,9 @@ pub(super) struct Request {
 struct Group {
     path: Option<String>,
     lines: BTreeMap<u64, String>,
+    /// Lines the state sends: each hit's window but the line its own label
+    /// quotes, which its question already carries.
+    sent: BTreeSet<u64>,
     chars: usize,
     targets: HashMap<String, usize>,
     questions: Vec<Value>,
@@ -71,6 +75,20 @@ fn target_label(target: &Value) -> String {
     label
 }
 
+/// The line a hit's label quotes whole: its own line, unless the label quotes
+/// a match span instead.
+fn quoted_line(target: &Value, lines: &[(u64, &str)]) -> Option<u64> {
+    if target.get("match").is_some() {
+        return None;
+    }
+    let line = target["line"].as_u64()?;
+    let text = target["text"].as_str()?;
+    lines
+        .iter()
+        .any(|&(at, window)| at == line && window == text)
+        .then_some(line)
+}
+
 fn window(state: &Value) -> Vec<(u64, &str)> {
     state["lines"]
         .as_array()
@@ -95,6 +113,7 @@ pub(super) fn requests(call: &JudgeCall<'_>) -> Option<Vec<Request>> {
     let mut wholes = HashMap::<String, usize>::new();
     let mut group = Group::default();
     let context = call.research_context;
+    let question = target_question()?;
     let flush = |group: &mut Group, requests: &mut Vec<Request>| {
         if group.slots.is_empty() {
             return;
@@ -103,11 +122,16 @@ pub(super) fn requests(call: &JudgeCall<'_>) -> Option<Vec<Request>> {
         let lines = group
             .lines
             .iter()
+            .filter(|(line, _)| group.sent.contains(line))
             .map(|(line, text)| format!("{line}\t{text}"))
             .collect::<Vec<_>>()
             .join("\n");
+        let mut state = json!({"path":group.path, "question":question});
+        if !lines.is_empty() {
+            state["lines"] = json!(lines);
+        }
         requests.push(Request {
-            state: with_context(json!({"path":group.path, "lines":lines}), context),
+            state: with_context(state, context),
             questions: group.questions,
             slots: group.slots,
         });
@@ -145,8 +169,12 @@ pub(super) fn requests(call: &JudgeCall<'_>) -> Option<Vec<Request>> {
         }
         group.path = Some(path.to_owned());
         group.chars = group.chars.saturating_add(chars);
+        let quoted = quoted_line(target, &lines);
         for (line, text) in lines {
             group.lines.entry(line).or_insert_with(|| text.to_owned());
+            if quoted != Some(line) {
+                group.sent.insert(line);
+            }
         }
         let label = target_label(target);
         let first = match group.targets.get(&label) {

@@ -8,15 +8,18 @@ use octocode_engine::graph::GraphFactRustModule;
 #[test]
 fn a_file_too_large_to_parse_keeps_its_test_items() {
     let root = Fixture::new();
-    let padding = "// padding\n".repeat(octocode_engine::signatures::MAX_PARSE_SIZE / 11 + 1);
+    let padding = "// padding\n".repeat(crate::security::SourceLimits::REAL.whole_source / 11 + 1);
     let big = root.write(
         "src/big.rs",
         format!("pub fn run() {{}}\n{padding}#[cfg(test)]\nmod tests {{\n    fn t() {{}}\n}}\n"),
     );
     let index = TestCodeIndex::new(&workspace_policy(&root.0));
     let last = u32::try_from(padding.lines().count()).expect("lines") + 2;
-    assert_eq!(*index.spans(&big), vec![[last + 1, last + 3]]);
+    // The item's span starts at its `#[cfg(test)]` line.
+    assert_eq!(*index.spans(&big), vec![[last, last + 3]]);
     assert!(!index.is_test_line(&big, 1));
+    assert!(!index.is_test_line(&big, last - 1));
+    assert!(index.is_test_line(&big, last));
     assert!(index.is_test_line(&big, last + 2));
     let whole = root.write(
         "src/whole.rs",
@@ -29,7 +32,7 @@ fn a_file_too_large_to_parse_keeps_its_test_items() {
 #[test]
 fn a_parent_too_large_to_parse_mounts_under_test() {
     let root = Fixture::new();
-    let padding = "// padding\n".repeat(octocode_engine::signatures::MAX_PARSE_SIZE / 11 + 1);
+    let padding = "// padding\n".repeat(crate::security::SourceLimits::REAL.whole_source / 11 + 1);
     root.write(
         "src/lib.rs",
         format!("{padding}mod open;\n#[cfg(test)]\nmod gated;\n"),
@@ -302,6 +305,12 @@ fn every_file_of_real_source_scans_as_it_parses() {
 fn every_item_form_scans_as_it_parses() {
     for content in [
         "mod a;\n#[cfg(test)]\nmod b;\n",
+        // The attribute run belongs to its item, from the first attribute that
+        // begins its line; one after other code leaves that line to the code.
+        "#[derive(Debug)]\n// note\n#[cfg(test)]\nstruct S;\nfn g() {}\n",
+        "fn g() {} #[cfg(test)]\nfn t() {}\n",
+        "fn g() {} #[derive(Debug)]\n#[cfg(test)]\nstruct S;\n",
+        "struct S {\n    a: u8,\n    #[cfg(test)]\n    b: u8,\n}\n",
         "#[cfg(test)]\npub(crate) mod a;\n",
         "#[cfg(\n  test\n)]\nmod\n  a;\n",
         "#![cfg(test)]\nfn t() {}\n",

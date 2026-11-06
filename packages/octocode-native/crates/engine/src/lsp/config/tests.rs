@@ -28,11 +28,14 @@ mod fetched_code;
 mod invocation;
 #[cfg(unix)]
 mod probe;
+mod repository_code;
 mod resolution;
 #[cfg(unix)]
 mod rustup_fixture;
 #[cfg(unix)]
 mod rustup_memo;
+#[cfg(unix)]
+mod rustup_toolchain_path;
 mod server_defaults;
 mod tsgo;
 mod workspace_root;

@@ -1,13 +1,13 @@
 /** Worker capability families, projected from the operation catalog rather than copied schemas. */
 import type { CommandInputs, CommandResults } from './catalog-types.generated.js';
 import { ValidationError } from './errors.js';
-import { asObject, isObject, type Json, type JsonObject } from './validation.js';
+import { asObject, isObject, validate, type Json, type JsonObject } from './validation.js';
 
 type Operation = keyof CommandInputs;
 type Tool = CommandResults['schema']['tools'][number];
 const GROUPS = [
-  { name: 'agents', description: 'Discover peers, advertise task/status, and subscribe to topics.', variants: { list: 'peers', status: 'set_status', subscribe: 'subscribe' } },
-  { name: 'messages', description: 'Exchange requests, notices and final replies.', variants: { read: 'inbox', send: 'send_message', complete: 'complete' } },
+  { name: 'agents', description: 'Discover peers, advertise availability, and subscribe to topics.', variants: { list: 'peers', status: 'set_status', subscribe: 'subscribe' } },
+  { name: 'messages', description: 'Exchange text, JSON data and references; acknowledge messages or reply.', variants: { read: 'inbox', send: 'send_message', complete: 'complete' } },
   { name: 'leases', description: 'Reserve paths and verify edit ownership in this worktree.', variants: { acquire: 'lock_many', check: 'check_write', list: 'locks', renew: 'renew', release: 'unlock' } },
   { name: 'documents', description: 'Publish, discover and read immutable evidence.', variants: { publish: 'share_document', find: 'context', read: 'read_document' } },
   { name: 'records', description: 'Repository history and persistent coordination records.', variants: { read: 'fetch', write: 'record', activity: 'activity' } },
@@ -23,7 +23,7 @@ const PROFILES: Readonly<Record<string, readonly Operation[]>> = {
 
 export function isTool(name: string): boolean { return GROUPS.some(group => group.name === name); }
 
-export function groupedTools(operations: readonly Tool[], selection?: string | null): Tool[] {
+export function groupedTools(operations: readonly Tool[], caller: JsonObject, selection?: string | null): Tool[] {
   let groups: readonly string[] = GROUPS.map(group => group.name);
   const profile = selection == null ? undefined : PROFILES[selection];
   if (selection != null && !profile) {
@@ -42,6 +42,7 @@ export function groupedTools(operations: readonly Tool[], selection?: string | n
     return [{ name: group.name, description: group.description,
       annotations: { readOnlyHint: sources.every(source => source.annotations.readOnlyHint), destructiveHint: false, openWorldHint: false },
       inputSchema: { type: 'object', properties: {
+        caller,
         type: { type: 'string', enum: variants.map(([type]) => type), description: 'Enabled operation.' },
         input: { type: 'object', description: 'Arguments for this type; {} when none.' },
       }, required: ['type', 'input'], additionalProperties: false,
@@ -56,6 +57,13 @@ export function operationFor(name: string, type: unknown): Operation {
   const operation = Object.entries(group.variants).find(([kind]) => kind === type)?.[1];
   if (!operation) throw new ValidationError(`Unknown type for ${name}: ${type}`);
   return operation;
+}
+
+/** Enforce the selected operation before the shared command catalog validates its arguments. */
+export function validateToolEnvelope(schema: unknown, value: unknown): void {
+  // Keep precise command-field errors instead of the union's generic failure.
+  const { oneOf: _variants, ...envelope } = asObject(schema, 'tool inputSchema');
+  validate(envelope, value);
 }
 
 export function toolContinuation(candidate: Json): Json {

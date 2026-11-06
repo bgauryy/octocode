@@ -3,6 +3,8 @@
 use super::*;
 use octocode_contract_types::ReadView;
 
+mod parse_limits;
+
 /// A source whose earlier redaction (a whole-file key block) broke the
 /// parse names those lines as redacted text, never as syntax the grammar
 /// lacks.
@@ -139,13 +141,19 @@ fn symbols_outline_data_keys_and_name_why_an_outline_is_missing() {
     let text = t.0.join("notes.txt");
     fs::write(&text, "plain\n".repeat(100)).expect("fixture");
     let r = fetch(&qj(&text, serde_json::json!({"view": "symbols"})), &paths);
-    assert_eq!(
-        r.view_fallback
-            .as_ref()
-            .map(|fallback| fallback.reason.as_str()),
-        Some("unsupported-language"),
+    // No outline, and a compact view would only lose whitespace (no grammar
+    // reads `.txt`): the row says both reasons and leads to the lines,
+    // instead of near-raw text labelled compact.
+    assert_eq!(r.error_code, Some(ErrorCode::SymbolsUnsupported), "{r:?}");
+    assert_eq!(r.content, None, "{r:?}");
+    assert!(
+        r.error
+            .as_deref()
+            .is_some_and(|error| error.contains("unsupported-language; whitespace-only-no-grammar")),
         "{r:?}"
     );
+    let read = r.next.as_ref().and_then(|next| next.read.as_ref());
+    assert!(read.is_some(), "{r:?}");
 }
 
 /// A symbols outline from a recovered parse (Flow types) says which lines
@@ -224,49 +232,6 @@ fn each_symbols_view_scans_its_own_source() {
     assert_eq!(scan.0.load(Ordering::SeqCst), scans * 2);
 }
 
-/// Code past the parse limit has no outline to scan for: paging its compact
-/// fallback pays for neither a redaction pass nor a parse attempt. A document
-/// format outlines without a parse, so it still gets its keys.
-#[test]
-fn a_code_file_past_the_parse_limit_skips_the_outline_attempt() {
-    struct Counting(AtomicUsize);
-    impl ContentScan for Counting {
-        fn sanitize(
-            &self,
-            text: &str,
-            _: &Path,
-        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
-            self.0.fetch_add(1, Ordering::SeqCst);
-            Ok((text.to_owned(), vec![]))
-        }
-    }
-    let scan = Counting(AtomicUsize::new(0));
-    let filler = "x".repeat(octocode_engine::signatures::MAX_PARSE_SIZE);
-    let code = format!("pub fn run() {{}}\n// {filler}\n");
-    let view = crate::tools::source_view::outline::symbols_view(
-        &code,
-        "big.rs",
-        Path::new("/fixture/big.rs"),
-        &scan,
-    );
-    assert_eq!(
-        view.outline,
-        Err(octocode_engine::signatures::OutlineUnavailable::TooLarge)
-    );
-    assert_eq!(scan.0.load(Ordering::SeqCst), 0);
-
-    let rows = "\"x\",\n".repeat(octocode_engine::signatures::MAX_PARSE_SIZE / 4);
-    let data = format!("{{\n\"name\": 1,\n\"long\": [\n{rows}\"x\"\n]\n}}\n");
-    let view = crate::tools::source_view::outline::symbols_view(
-        &data,
-        "big.json",
-        Path::new("/fixture/big.json"),
-        &scan,
-    );
-    assert!(view.outline.expect("key outline").contains("name"));
-    assert!(scan.0.load(Ordering::SeqCst) > 0);
-}
-
 /// A symbols outline names each multi-line declaration's line span.
 #[test]
 fn symbols_view_heads_carry_line_ranges() {
@@ -302,15 +267,18 @@ fn symbols_view_spans_sit_on_the_head_row_below_annotations() {
         "Ann.java",
         "package x;\n\n@Entity\n@Table(name = \"t\")\npublic class Ann {\n    @Id\n    @GeneratedValue\n    private Long id;\n\n    @Override\n    @Deprecated\n    public String toString() {\n        return \"\";\n    }\n}\n",
     );
+    // An annotation run opening a declaration keeps its first row, marked
+    // cut when the run goes on.
+    let has_row = |text: &str, row: &str| text.lines().any(|line| line.starts_with(row));
     for row in [
-        "\n3\t@Entity",
-        "\n5-15\tpublic class Ann {",
-        "\n6\t    @Id",
-        "\n8\t    private Long id;",
-        "\n10\t    @Override",
-        "\n12-14\t    public String toString() {",
+        "3\t@Entity",
+        "5-15\tpublic class Ann {",
+        "6\t    @Id",
+        "8\t    private Long id;",
+        "10\t    @Override",
+        "12-14\t    public String toString() {",
     ] {
-        assert!(java.contains(row), "{row:?} in {java}");
+        assert!(has_row(&java, row), "{row:?} in {java}");
     }
     let ts = outline(
         "dec.ts",
@@ -318,12 +286,12 @@ fn symbols_view_spans_sit_on_the_head_row_below_annotations() {
     );
     for row in [
         "1\t@Injectable()",
-        "\n5-12\texport class A {",
-        "\n6\t  @Output()",
-        "\n8\t  changed = 1;",
-        "\n9-11\t  method(): void {",
+        "5-12\texport class A {",
+        "6\t  @Output()",
+        "8\t  changed = 1;",
+        "9-11\t  method(): void {",
     ] {
-        assert!(ts.contains(row), "{row:?} in {ts}");
+        assert!(has_row(&ts, row), "{row:?} in {ts}");
     }
     // Every row shows once: no line both inside a span's head and its own row.
     for text in [&java, &ts] {
@@ -335,4 +303,67 @@ fn symbols_view_spans_sit_on_the_head_row_below_annotations() {
         lines.dedup();
         assert_eq!(lines.len(), all, "{text}");
     }
+}
+
+/// A compact read says on its first page how many bytes its view keeps of
+/// what the content view serves for the same lines, gutters included, so
+/// the agent can choose it or the source: no threshold chooses for it.
+#[test]
+fn a_compact_read_says_how_much_of_the_source_it_keeps() {
+    let t = Fixture::new();
+    let p = t.0.join("c.rs");
+    let source = "// a comment\nfn a() -> u8 {\n    // another\n    1\n}\n";
+    fs::write(&p, source).expect("fixture");
+    let r = fetch(
+        &qj(&p, serde_json::json!({"view": "compact"})),
+        &Paths(t.0.clone()),
+    );
+    assert_eq!(r.view, Some(ReadView::Compact), "{:?}", r.view_fallback);
+    let kept = r.content.as_deref().expect("compact").len();
+    let content = "1\t// a comment\n2\tfn a() -> u8 {\n3\t    // another\n4\t    1\n5\t}\n";
+    let note = format!(
+        "compact view: {kept} of {} bytes the content view serves",
+        content.len()
+    );
+    assert!(
+        r.warnings.iter().any(|warning| warning.starts_with(&note)),
+        "{note:?} in {:?}",
+        r.warnings
+    );
+}
+
+/// A compact view no smaller than the content view of the same lines (here
+/// nothing to remove) is not served as compact: the content view is, with
+/// `viewFallback` saying why, and the first page still says what compact
+/// would keep.
+#[test]
+fn a_compact_view_no_smaller_than_the_content_view_serves_the_content() {
+    let t = Fixture::new();
+    let p = t.0.join("n.rs");
+    let source = "fn a() {}\nfn b() {}\n";
+    fs::write(&p, source).expect("fixture");
+    let r = fetch(
+        &qj(&p, serde_json::json!({"view": "compact"})),
+        &Paths(t.0.clone()),
+    );
+    assert_eq!(r.view, None, "{:?}", r.view_fallback);
+    let fallback = r.view_fallback.as_ref().expect("viewFallback");
+    assert_eq!(
+        (
+            fallback.requested,
+            fallback.applied,
+            fallback.reason.as_str()
+        ),
+        (ReadView::Compact, ReadView::Content, "not-smaller")
+    );
+    // The content view as the runtime serves it; the response numbers it.
+    assert_eq!(r.content.as_deref(), Some(source));
+    assert!(
+        r.warnings
+            .iter()
+            .any(|warning| warning
+                .starts_with("compact view: 24 of 24 bytes the content view serves")),
+        "{:?}",
+        r.warnings
+    );
 }

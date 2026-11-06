@@ -86,10 +86,11 @@ pub(crate) async fn pypi(
     artifact.yanked = (info.get("yanked") == Some(&Value::Bool(true))).then_some(true);
     artifact.yanked_reason = artifact.yanked.and(string(info.get("yanked_reason")));
     // PyPI states these for the release this document describes; `[]` lists none.
+    // PyPI lists an advisory once per database (GHSA and PYSEC): one row each.
     artifact.advisories = body
         .get("vulnerabilities")
         .and_then(Value::as_array)
-        .map(|rows| rows.iter().map(advisory).collect());
+        .map(|rows| Advisory::merged(rows.iter().map(advisory).collect()));
     artifact.requires_python = string(info.get("requires_python"));
     // A requirement gated by an extra is optional, not required.
     let (optional, required): (Vec<String>, Vec<String>) = info

@@ -1,333 +1,131 @@
-use crate::minify::comment_remover::remove_comments;
-use crate::minify::config::Strategy;
-use crate::minify::minifier::{MAX_SIZE, get_file_config};
-use crate::minify::strategies::{
-    minify_brace_code, minify_code_core, minify_css_quality, minify_embedded_web,
-    minify_general_core, minify_javascript_core, minify_json_readable_inner, minify_markdown_core,
-};
+//! `view:"compact"`: code without comments and spare whitespace, each kept
+//! line under its source number. Only a grammar can say where a language's
+//! comments and strings are, so without one compaction touches whitespace only
+//! and says so. Markdown and data stay as they are.
+
+use super::grammars::Spacing;
+use super::layout::{Indent, Region, as_is, lay_out, whitespace_only};
+use super::syntax;
 use crate::text::extension_of;
 
+/// Documents whose whitespace and `#` or `//` lines can all be content.
+const STAYS_AS_IT_IS: &[&str] = &[
+    "md", "markdown", "mdx", "yaml", "yml", "toml", "json", "jsonc", "json5",
+];
+
+/// One line of a compact view. `text` keeps its line ending, if any.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeptLine {
+    /// 1-based line of the source this text is from.
+    pub line: usize,
+    pub text: String,
+}
+
+/// Why a view holds the source's comments: it only lost blank lines and
+/// trailing whitespace, inside any string too (the gap in its numbers shows
+/// a dropped line).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WhitespaceOnly {
+    /// No grammar for this file type in this build.
+    NoGrammar,
+    /// The grammar could not read most of the source.
+    SyntaxErrors,
+    /// The request was cancelled or ran out of time during the parse.
+    Interrupted,
+}
+
+impl WhitespaceOnly {
+    #[must_use]
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::NoGrammar => "whitespace-only-no-grammar",
+            Self::SyntaxErrors => "whitespace-only-syntax-errors",
+            Self::Interrupted => "whitespace-only-interrupted",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompactView {
+    pub lines: Vec<KeptLine>,
+    pub whitespace_only: Option<WhitespaceOnly>,
+}
+
+/// How a source is laid out: where its comments and literals are, as byte
+/// offsets. It holds none of the source's text, so it can be kept for the
+/// later pages of the same source.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Lexing(Layout);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Layout {
+    AsIs,
+    WhitespaceOnly(WhitespaceOnly),
+    Grammar(Vec<Region>, Indent, Spacing),
+}
+
+impl Lexing {
+    /// Whether a later page of the same source may reuse it: an interrupted
+    /// parse is about that request only.
+    #[must_use]
+    pub fn reusable(&self) -> bool {
+        self.0 != Layout::WhitespaceOnly(WhitespaceOnly::Interrupted)
+    }
+
+    /// The heap it holds, for a store's weight.
+    #[must_use]
+    pub fn heap_bytes(&self) -> usize {
+        match &self.0 {
+            Layout::Grammar(regions, _, _) => std::mem::size_of_val(regions.as_slice()),
+            _ => 0,
+        }
+    }
+}
+
+/// Find where `content`'s comments and literals are, `content` being a whole
+/// source file at `file_path`. The parse ends when `stop` says its request is
+/// over.
 #[must_use]
-pub fn apply_content_view_minification(content: &str, file_path: &str) -> String {
-    let file_path = file_path.to_owned();
-    transform_on_deep_stack(content, move |content| {
-        apply_content_view_minification_inner(content, &file_path)
+pub fn lex(content: &str, file_path: &str, stop: &dyn Fn() -> bool) -> Lexing {
+    let extension = extension_of(file_path, true, "txt");
+    if STAYS_AS_IT_IS.contains(&extension.as_str()) {
+        return Lexing(Layout::AsIs);
+    }
+    Lexing(match syntax::lex(content, &extension, stop) {
+        Ok(lexed) => Layout::Grammar(lexed.regions, lexed.indent, lexed.spacing),
+        Err(reason) => Layout::WhitespaceOnly(reason),
     })
 }
 
-/// Run a content transform on the deep-stack pool. A panic or an unavailable
-/// pool yields `None` there, so the caller gets the original content rather
-/// than `String::default()`, an empty view.
-fn transform_on_deep_stack(
-    content: &str,
-    transform: impl FnOnce(&str) -> String + Send + 'static,
-) -> String {
-    let shared: std::sync::Arc<str> = content.into();
-    let job_content = std::sync::Arc::clone(&shared);
-    crate::deep_stack::run_on_deep_stack(move || Some(transform(&job_content)))
-        .unwrap_or_else(|| shared.to_string())
-}
-
-/// Content-view minification — agent-readable; indentation is kept wherever
-/// it can carry syntax.
-pub(crate) fn apply_content_view_minification_inner(content: &str, file_path: &str) -> String {
-    if content.len() > MAX_SIZE {
-        return content.to_owned();
-    }
-    let result = std::panic::catch_unwind(|| {
-        let ext = extension_of(file_path, true, "txt");
-        // Resolve the file-type config through the SAME shared resolver the full
-        // minify path uses (`minifier::get_file_config`) rather than re-deriving
-        // the basename / indentation-sensitive lookup here. The two entry points
-        // otherwise drift silently — e.g. a new indentation-sensitive name added
-        // to `get_file_config` would never reach the content view. `ext` is still
-        // derived locally for the family checks below, because css and html both
-        // map to the `Code` strategy and strategy alone can't tell them apart
-        // (css → css_quality, html → embedded_web).
-        let cfg = get_file_config(file_path);
-        let strategy = cfg.map(|c| c.strategy);
-
-        if strategy == Some(Strategy::Verbatim) {
-            return content.to_owned();
-        }
-
-        if strategy == Some(Strategy::Json) {
-            let (out, _) = minify_json_readable_inner(content);
-            return out;
-        }
-
-        if strategy == Some(Strategy::Markdown) {
-            return minify_markdown_core(content);
-        }
-
-        // CSS / SCSS / LESS content view: bounded best-effort comment and whitespace cleanup.
-        if matches!(ext.as_str(), "css" | "scss" | "less" | "sass") {
-            return minify_css_quality(content);
-        }
-
-        // HTML / Vue / Svelte content-view: keep the markup readable but minify
-        // embedded <style> and <script> blocks (lightweight cleanup) where
-        // the compressible bytes actually live. A generic comment-strip barely
-        // touches these files (benchmark: ~0% content-view cut).
-        if matches!(ext.as_str(), "html" | "htm" | "vue" | "svelte") {
-            return minify_embedded_web(content);
-        }
-
-        // JS/TS: comment-strip + whitespace tighten preserves declarations,
-        // identifier uses, and per-line structure (file:line citation). Any
-        // optimizing/mangling minification is reserved for the full-minify API.
-        if crate::text::JS_TS_EXTENSIONS.contains(&ext.as_str()) {
-            return minify_javascript_core(content);
-        }
-
-        // Brace code: strip indentation like JS/TS.
-        if let Some(c) = cfg.filter(|c| c.strategy == Strategy::Brace)
-            && let Some(groups) = c.comments
-        {
-            return minify_brace_code(content, groups);
-        }
-
-        let stripped = if let Some(c) = cfg {
-            if let Some(groups) = c.comments {
-                remove_comments(content, groups)
-            } else {
-                content.to_owned()
-            }
-        } else {
-            content.to_owned()
-        };
-
-        match strategy {
-            None | Some(Strategy::General) => minify_general_core(&stripped),
-            _ => minify_code_core(&stripped),
-        }
-    })
-    .unwrap_or_else(|_| content.to_owned());
-
-    if result.len() < content.len() {
-        result
-    } else {
-        content.to_owned()
+/// The compact view of `content` as `lexing` (of this same text) lays it out.
+#[must_use]
+pub fn compact_view(content: &str, lexing: &Lexing) -> CompactView {
+    match &lexing.0 {
+        Layout::AsIs => CompactView {
+            lines: as_is(content),
+            whitespace_only: None,
+        },
+        Layout::WhitespaceOnly(reason) => CompactView {
+            lines: whitespace_only(content),
+            whitespace_only: Some(*reason),
+        },
+        Layout::Grammar(regions, indent, spacing) => CompactView {
+            lines: lay_out(content, regions, *indent, *spacing),
+            whitespace_only: None,
+        },
     }
 }
 
-// ── Tests ────────────────────────────────────────────────────────────────────
+/// The compact view of `content`, a whole source file at `file_path`.
+#[must_use]
+pub fn apply_content_view_minification(content: &str, file_path: &str) -> CompactView {
+    compact_view(content, &lex(content, file_path, &|| false))
+}
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A transform that panics (or a pool that cannot run it)
-    /// yields the original content, never an empty content view.
-    #[test]
-    fn failed_deep_stack_transform_returns_the_original_content() {
-        let out = transform_on_deep_stack("fn keep() {}", |_| panic!("minifier bug"));
-        assert_eq!(out, "fn keep() {}");
-        assert_eq!(
-            transform_on_deep_stack("a  b", |content| content.replace("  ", " ")),
-            "a b"
-        );
-    }
-
-    #[test]
-    fn content_view_keeps_php_inline_html_indentation() {
-        let php = "<ul>\n    <li><?php echo $a; ?></li>\n</ul>\n";
-        assert!(apply_content_view_minification_inner(php, "view.php").contains("    <li>"));
-        assert_eq!(
-            crate::minify::minifier::get_file_config("view.php").map(|c| c.strategy),
-            Some(Strategy::Code)
-        );
-    }
-
-    #[test]
-    fn content_view_strips_brace_code_indent_but_keeps_python_indent() {
-        let rust = "fn main() {\n    // note\n\n    call();\n}\n";
-        assert_eq!(
-            apply_content_view_minification_inner(rust, "src/main.rs"),
-            "fn main() {\ncall();\n}"
-        );
-        let python = "def main():\n    # note\n    call()\n";
-        assert!(apply_content_view_minification_inner(python, "main.py").contains("    call()"));
-    }
-
-    #[test]
-    fn content_view_keeps_valid_json_intact() {
-        let out = apply_content_view_minification_inner(r#"{"a":1,"b":  2}"#, "foo.json");
-        assert!(out.contains('a'));
-    }
-
-    #[test]
-    fn content_view_strips_markdown_html_comments() {
-        let out = apply_content_view_minification_inner(
-            "# Title\n\nText <!-- hidden --> end\n",
-            "readme.md",
-        );
-        assert!(out.contains("Title"));
-        assert!(!out.contains("hidden"));
-    }
-
-    #[test]
-    fn content_view_preserves_ts_type_only_imports() {
-        let src = "import type { Foo } from './foo';\nexport function add(a: number, b: number): number {\n  return a + b;\n}\n";
-        let out = apply_content_view_minification_inner(src, "math.ts");
-        assert!(
-            out.contains("import type"),
-            "research content-view must retain type imports: {out}"
-        );
-    }
-
-    #[test]
-    fn content_view_preserves_declarations_and_identifier_uses() {
-        let source = "import type { Remote } from './remote';\ninterface PrivateShape { name: string; }\ntype LocalId = string;\nexport function target(value: PrivateShape): string {\n  // removable comment\n  const localName: LocalId = value.name;\n  return localName;\n}\n";
-        for extension in ["ts", "tsx", "mts", "cts"] {
-            let output =
-                apply_content_view_minification_inner(source, &format!("fixture.{extension}"));
-            for declaration in [
-                "import type",
-                "interface PrivateShape",
-                "type LocalId",
-                "localName",
-            ] {
-                assert!(
-                    output.contains(declaration),
-                    "{extension}: missing {declaration}: {output}"
-                );
-            }
-            assert_eq!(
-                output.matches("localName").count(),
-                2,
-                "binding and reference must both survive: {output}"
-            );
-            assert!(!output.contains("removable comment"));
-            assert!(output.len() < source.len());
-        }
-        for &extension in crate::text::JS_EXTENSIONS {
-            let source = "export function target(uniqueArgumentName) {\n  const anotherUniqueName = uniqueArgumentName + 1;\n  return anotherUniqueName;\n}\n";
-            let output =
-                apply_content_view_minification_inner(source, &format!("fixture.{extension}"));
-            assert_eq!(
-                output.matches("anotherUniqueName").count(),
-                2,
-                "{extension}: {output}"
-            );
-        }
-    }
-
-    #[test]
-    fn content_view_scala_extensions_share_comment_and_literal_behavior() {
-        let source = "// removable comment\nobject Example {\n  val endpoint = \"https://example.com/path\"\n}\n";
-        let expected = apply_content_view_minification_inner(source, "fixture.scala");
-        for extension in ["scala", "sc", "sbt"] {
-            let output =
-                apply_content_view_minification_inner(source, &format!("fixture.{extension}"));
-            assert_eq!(output, expected, "{extension} must use Scala minification");
-            assert!(!output.contains("removable comment"));
-            assert!(output.contains("https://example.com/path"));
-        }
-    }
-
-    #[test]
-    fn content_view_strips_all_js_comment_classes() {
-        // The "standard" view contract removes both line and JSDoc comments.
-        let src = "import { useState } from \"react\";\n// Top-level comment that should be stripped\nexport function f() {\n  /** jsdoc to strip */\n  return useState;\n}\n";
-        let out = apply_content_view_minification_inner(src, "x.tsx");
-        assert!(
-            !out.contains("Top-level comment"),
-            "normal comments must be stripped: '{out}'"
-        );
-        assert!(
-            !out.contains("jsdoc to strip"),
-            "jsdoc comments must be stripped: '{out}'"
-        );
-        assert!(out.contains("useState"));
-    }
-
-    // ── CSS content view ──────────────────────────────────────────────────────
-    #[test]
-    fn css_content_view_compresses_and_strips_comments() {
-        let src = "h1 { color: red; font-weight: bold; }\np { margin: 0px; padding: 0px; }\n/* comment */\n.foo { display: flex; }";
-        let out = apply_content_view_minification_inner(src, "style.css");
-        assert!(
-            out.len() < src.len(),
-            "CSS content-view must compress ({} vs {})",
-            out.len(),
-            src.len()
-        );
-        assert!(!out.contains("/* comment */"));
-    }
-
-    #[test]
-    fn scss_content_view_compresses() {
-        let src = ".container {\n  display: flex;\n  /* comment */\n  flex-direction: row;\n  padding: 0px 0px;\n}\n.header { color: red; /* header comment */ }";
-        let out = apply_content_view_minification_inner(src, "styles.scss");
-        assert!(out.len() < src.len());
-    }
-
-    #[test]
-    fn css_content_view_output_keeps_selectors_without_growing() {
-        let src = "body { margin: 0; padding: 0; background-color: #fff; }\nh1 { font-size: 2em; color: #333; }";
-        let out = apply_content_view_minification_inner(src, "main.css");
-        assert!(out.contains("body") || out.contains("h1"));
-        assert!(out.len() <= src.len());
-    }
-
-    // ── HTML / Vue / Svelte embedded content view ────────────────────────────
-    #[test]
-    fn html_content_view_minifies_embedded_style_and_script_and_keeps_markup() {
-        let src = "<!doctype html>\n<html>\n<head>\n  <!-- nav styles -->\n  <style>\n    .card {\n      color: red;\n      padding: 0px;\n    }\n  </style>\n</head>\n<body>\n  <h1>Dashboard</h1>\n  <script>\n    function greet(name) {\n      // say hello\n      console.log(\"hi \" + name);\n    }\n  </script>\n</body>\n</html>\n";
-        let out = apply_content_view_minification_inner(src, "page.html");
-        assert!(out.len() < src.len(), "HTML embedded view must compress");
-        assert!(
-            out.contains("<h1>Dashboard</h1>"),
-            "markup preserved: {out}"
-        );
-        assert!(!out.contains("nav styles"), "HTML comment dropped: {out}");
-        assert!(!out.contains("// say hello"), "JS comment dropped: {out}");
-        assert!(out.contains("greet"), "JS identifiers preserved: {out}");
-    }
-
-    #[test]
-    fn vue_sfc_content_view_minifies_ts_script_and_style() {
-        let src = "<template>\n  <section id=\"app\">{{ title }}</section>\n</template>\n\n<style scoped>\n.title {\n  font-weight: bold;\n  margin: 0px;\n}\n</style>\n\n<script lang=\"ts\">\nexport default {\n  data(): { title: string } {\n    // initial state\n    return { title: \"Hi\" };\n  },\n};\n</script>\n";
-        let out = apply_content_view_minification_inner(src, "App.vue");
-        assert!(out.len() < src.len(), "Vue SFC view must compress: {out}");
-        assert!(out.contains("id=\"app\""), "template preserved: {out}");
-        assert!(!out.contains("initial state"), "TS comment dropped: {out}");
-    }
-
-    #[test]
-    fn svelte_external_script_left_intact() {
-        let src =
-            "<script src=\"/vendor.js\"></script>\n<h1>Title</h1>\n<!-- footer -->\n<p>Body</p>\n";
-        let out = apply_content_view_minification_inner(src, "Page.svelte");
-        assert!(
-            out.contains("src=\"/vendor.js\""),
-            "external script kept: {out}"
-        );
-        assert!(!out.contains("footer"), "comment dropped: {out}");
-        assert!(out.contains("<h1>Title</h1>"));
-    }
-
-    // ── shared config resolver (drift guard) ────────────────────────────────
-    #[test]
-    fn content_view_uses_shared_config_resolver_for_indentation_sensitive_names() {
-        // "Makefile" has no extension; only the shared `get_file_config` maps
-        // indentation-sensitive basenames to the "sh" config (hash comments).
-        // If the content view re-derived config inline and drifted, the comment
-        // would survive. This guards that both entry points share one resolver.
-        let src = "all:\n\t# build step comment\n\techo hi\n";
-        let out = apply_content_view_minification_inner(src, "Makefile");
-        assert!(
-            !out.contains("build step comment"),
-            "hash comment must be stripped via the shared sh config: {out}"
-        );
-        assert!(out.contains("echo hi"), "recipe body preserved: {out}");
-    }
-
-    // ── size cap ──────────────────────────────────────────────────────────────
-    #[test]
-    fn content_view_returns_oversized_input_untouched() {
-        let src = "text  \n".repeat(180_000); // ~1.26MB — trailing spaces WOULD minify
-        let out = apply_content_view_minification_inner(&src, "big.md");
-        assert_eq!(out, src);
+pub(super) fn indent_of(content: &str, file_path: &str) -> Option<Indent> {
+    match lex(content, file_path, &|| false).0 {
+        Layout::Grammar(_, indent, _) => Some(indent),
+        _ => None,
     }
 }

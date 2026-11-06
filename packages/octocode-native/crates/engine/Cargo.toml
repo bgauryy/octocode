@@ -10,6 +10,10 @@ repository.workspace = true
 keywords = ["llm", "context", "lsp", "search"]
 categories = ["development-tools", "text-processing"]
 
+# These are source-text inputs read by minify::differential_tests, not Rust modules.
+[package.metadata.cargo-shear]
+ignored-paths = ["src/minify/fixtures/*.rs"]
+
 # No doctests: nextest runs the tests (crates/runtime/Cargo.toml).
 [lib]
 doctest = false
@@ -43,6 +47,7 @@ toml = { workspace = true }
 tree-sitter = "0.27"
 tree-sitter-asm = { version = "0.24", optional = true }
 tree-sitter-c = "0.24"
+tree-sitter-css = "0.25"
 tree-sitter-c-sharp = { version = "0.23", optional = true }
 tree-sitter-cpp = { version = "0.23", optional = true }
 tree-sitter-cuda = { version = "0.21.2", optional = true }
@@ -52,6 +57,7 @@ tree-sitter-javascript = "0.25"
 tree-sitter-python = "0.25"
 tree-sitter-rust = "0.24.2"
 tree-sitter-scala = { version = "0.26", optional = true }
+tree-sitter-scss = "1"
 tree-sitter-typescript = "0.23"
 url = { workspace = true }
 regex-syntax = "0.8"

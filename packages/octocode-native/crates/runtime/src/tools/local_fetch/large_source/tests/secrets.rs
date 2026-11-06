@@ -14,7 +14,7 @@ const PUBLIC: &str = "Public0Coordinate9Stays8Readable7Always6Ab";
 fn config_maps() -> String {
     let mut text = String::new();
     let mut at = 0usize;
-    while text.len() < 11 * 1024 * 1024 {
+    while text.len() < past_whole() {
         text.push_str(&format!(
             "    {{\n      \"data\": {{\n        \"k{at}\": \"public value {at}\"\n      }},\n      \"kind\": \"ConfigMap\"\n    }},\n"
         ));
@@ -165,7 +165,7 @@ fn a_kind_many_windows_away_still_hides_the_value() {
 #[test]
 fn yaml_string_data_stays_hidden_with_the_kind_out_of_the_window() {
     let filler = "apiVersion: v1\nkind: ConfigMap\ndata:\n  key: public value\n---\n"
-        .repeat(11 * 1024 * 1024 / 50);
+        .repeat(past_whole() / 50);
     for text in [
         format!(
             "apiVersion: v1\nstringData:\n  blob: {WORDS}\n  other: {VALUE}\nkind: Secret\n---\n{filler}"
@@ -185,7 +185,7 @@ fn yaml_string_data_stays_hidden_with_the_kind_out_of_the_window() {
 /// name-based rule knows them, and the public members stay.
 #[test]
 fn a_jwk_other_prime_stays_hidden_with_its_kty_out_of_the_window() {
-    let filler = "  {\"id\": 1, \"payload\": \"public value\"},\n".repeat(11 * 1024 * 1024 / 40);
+    let filler = "  {\"id\": 1, \"payload\": \"public value\"},\n".repeat(past_whole() / 40);
     for text in [
         format!(
             "{{\n \"kty\": \"RSA\",\n \"n\": \"{PUBLIC}\",\n \"oth\": [\n  {{\n   \"r\": \"{OTHER_R}\",\n   \"t\": \"{OTHER_T}\"\n  }}\n ],\n \"rows\": [\n{filler}  {{}}\n ]\n}}\n"
@@ -247,7 +247,7 @@ fn only_the_secret_s_own_values_are_hidden() {
 #[test]
 fn a_reference_to_a_secret_hides_nothing() {
     let row = "{\"level\":\"info\",\"msg\":\"event\",\"ref\":{\"kind\":\"Secret\",\"name\":\"x\"},\"user\":\"svc\"}\n";
-    let file = suffixed(".log", row.repeat(11 * 1024 * 1024 / row.len()).as_bytes());
+    let file = suffixed(".log", row.repeat(past_whole() / row.len()).as_bytes());
     let read = fetch(
         &file,
         &query(serde_json::json!({"path":file.path(),"ranges":[{"startLine":9,"endLine":9}]})),
@@ -260,12 +260,12 @@ fn a_reference_to_a_secret_hides_nothing() {
 /// place in the source's bytes while the value stays hidden on all of them.
 #[test]
 fn byte_pages_of_one_line_stay_contiguous_around_a_hidden_value() {
-    let items = (0..300_000)
+    let items = (0..past_whole() / 40)
         .map(|at| format!("{{\"data\":{{\"k{at}\":\"public {at}\"}},\"kind\":\"ConfigMap\"}},"))
         .collect::<String>();
     let secret = format!("{{\"data\":{{\"blob\":\"{WORDS}\"}},\"kind\":\"Secret\"}}");
     let text = format!("{{\"items\":[{secret},{items}{{}}],\"kind\":\"List\"}}");
-    assert!(text.len() > 10 * 1024 * 1024, "a streamed source");
+    assert!(text.len() > LIMITS.whole_source, "a streamed source");
     let file = suffixed(".json", text.as_bytes());
     let mut next =
         query(serde_json::json!({"path":file.path(),"ranges":[{"startLine":1,"endLine":1}]}));

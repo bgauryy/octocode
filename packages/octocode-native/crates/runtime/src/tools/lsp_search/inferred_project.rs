@@ -14,6 +14,7 @@
 
 use super::failure::flag_partial;
 use super::importers::{SCAN_CAPPED, SCAN_COMPLETE, SCAN_FAILED};
+use super::paths::anchor_dir;
 use super::scope::Scope;
 use crate::tools::lsp_search::lsp_search_query;
 use octocode_contract_types::LspSearchQuery;
@@ -23,8 +24,8 @@ use std::path::Path;
 
 pub(super) const REASON: crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::InferredProject;
-/// The lexical importer scan failed, so no importer was verified.
-pub(super) const FAILED_REASON: crate::response::paging::PartialReason =
+/// Importer recovery failed a step, so some importers are unverified.
+pub(in crate::tools::lsp_search) const FAILED_REASON: crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::ImporterScanFailed;
 const INFERRED_WARNING: &str = "No tsconfig.json or jsconfig.json covers this file, so the TypeScript server used an inferred project that sees only opened files and their imports; results from other files are missing. Add a tsconfig.json/jsconfig.json at the workspace root, or confirm with a localSearch of the name.";
 
@@ -34,16 +35,6 @@ pub(super) fn is_incoming(operation: &str) -> bool {
         operation,
         "references" | "callers" | "implementation" | "subtypes" | "workspaceSymbol"
     )
-}
-
-/// The directory whose ancestors a server searches for the project of
-/// `anchor`: the anchor itself when it is a directory, else its parent.
-fn anchor_dir(anchor: &Path) -> &Path {
-    if anchor.is_dir() {
-        anchor
-    } else {
-        anchor.parent().unwrap_or(anchor)
-    }
 }
 
 /// Flag an incoming-direction TS/JS row answered by an inferred project.
@@ -71,11 +62,8 @@ pub(super) fn annotate(
         .pointer("/coverage/importerScan")
         .and_then(Value::as_str)
     {
-        Some(SCAN_COMPLETE | SCAN_CAPPED) => return,
-        Some(SCAN_FAILED) => (
-            FAILED_REASON,
-            "Importer recovery could not read, open, or resolve every candidate, or its scan failed. Some importers remain unverified; confirm with a localSearch of the name.".to_owned(),
-        ),
+        // A failed scan was flagged with its cause by `Importers::annotate`.
+        Some(SCAN_COMPLETE | SCAN_CAPPED | SCAN_FAILED) => return,
         _ if typescript && typescript_project_dir(anchor_dir(Path::new(anchor_path))).is_none() => {
             (REASON, INFERRED_WARNING.to_owned())
         }

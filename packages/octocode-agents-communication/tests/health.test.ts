@@ -58,8 +58,12 @@ test('health separates stale handling from offline recipients and isolates works
   assert.equal(f.call('health',{staleAfterMs:1000}).issues[0].issue,'overdueHandling');
   f.db.prepare('UPDATE sessions SET expiresAt=0 WHERE id=?').run(f.b);
   assert.equal(f.call('health').issues[0].issue,'offlineRecipient');
-  f.db.prepare('UPDATE sessions SET workspace=? WHERE id=?').run('/different-workspace',f.b);
-  assert.equal(f.call('health').counts.unacknowledged,0);
+  assert.throws(() => f.db.prepare('UPDATE sessions SET workspace=? WHERE id=?').run('/different-workspace',f.b), /identity is immutable/i);
+  const elsewhere = tempWorkspace(t, 'communication-health-other-');
+  const other = jsonCall(binary, elsewhere, f.database);
+  other('join', { name: 'other-workspace', vendor: 'raw' });
+  assert.equal(other('health').counts.unacknowledged,0);
+  assert.equal(f.call('health').counts.unacknowledged,1);
 });
 test('health rejects invalid limits and never creates a missing DB',t=>{
   const f=fixture(t);

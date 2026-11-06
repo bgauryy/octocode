@@ -1,6 +1,5 @@
 //! Core-declared evidence collections; all other values stay atomic context.
 use super::evidence::DependencyError;
-use super::skeleton::escape_pointer;
 use crate::contracts::output_fields::CollectionRoutes;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -35,7 +34,7 @@ fn collections<'a>(
                         for (key, child) in map {
                             pending.push_back((
                                 child,
-                                format!("{pointer}/{}", escape_pointer(key)),
+                                format!("{pointer}/{}", crate::json_pointer::escape(key)),
                                 *child_state,
                             ));
                         }
@@ -50,7 +49,7 @@ fn collections<'a>(
             } else if let Some(child) = value.as_object().and_then(|map| map.get(key)) {
                 pending.push_back((
                     child,
-                    format!("{pointer}/{}", escape_pointer(key)),
+                    format!("{pointer}/{}", crate::json_pointer::escape(key)),
                     *child_state,
                 ));
             }
@@ -150,7 +149,7 @@ pub(super) fn drop_empty_declared_siblings(
         if !source.pointer(container).is_some_and(Value::is_array) {
             continue;
         }
-        let key = key.replace("~1", "/").replace("~0", "~");
+        let key = crate::json_pointer::unescape(key);
         if !required.contains(&key)
             && let Some(object) = row.pointer_mut(parent).and_then(Value::as_object_mut)
         {
@@ -202,7 +201,7 @@ pub(super) fn drop_delivered_elsewhere(
         let context_only = |fields: &serde_json::Map<String, Value>| {
             fields.iter().all(|(key, value)| {
                 !(value.is_array() || value.is_object())
-                    || here.contains(&format!("{holder}/{}", escape_pointer(key)))
+                    || here.contains(&format!("{holder}/{}", crate::json_pointer::escape(key)))
             })
         };
         let whole = optional.contains(holder)
@@ -222,7 +221,7 @@ fn remove_slot(part: &mut Value, pointer: &str) {
     let Some((parent, key)) = pointer.rsplit_once('/') else {
         return;
     };
-    let key = key.replace("~1", "/").replace("~0", "~");
+    let key = crate::json_pointer::unescape(key);
     if let Some(object) = part.pointer_mut(parent).and_then(Value::as_object_mut) {
         object.shift_remove(&key);
     }

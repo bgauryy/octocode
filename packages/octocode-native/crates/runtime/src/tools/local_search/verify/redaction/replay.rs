@@ -12,7 +12,7 @@ use octocode_contract_types::LocalSearchQuery;
 pub(super) fn replay_redaction(
     query: &LocalSearchQuery,
     parsed: &mut octocode_engine::types::TextSearchResult,
-    output_root: &std::path::Path,
+    (output_root, key_scan): (&std::path::Path, u64),
     expected_digest: &ExpectedDigest<'_>,
     paths: &crate::policy::path::PathPolicy,
     stored: &Redaction,
@@ -23,7 +23,7 @@ pub(super) fn replay_redaction(
         };
         let source_path = output_root.join(&file.path);
         validate_matched(paths, &source_path)?;
-        let Some(bytes) = read_key_scan_bytes(&source_path) else {
+        let Some(bytes) = read_key_scan_bytes(&source_path, key_scan) else {
             return Ok(None);
         };
         let digest = octocode_engine::digest::sha256_digest(&bytes);

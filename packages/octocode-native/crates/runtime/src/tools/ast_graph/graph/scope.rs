@@ -8,9 +8,13 @@ use std::sync::{Mutex, PoisonError};
 
 /// The snapshot refuses past its bounds only after every file is parsed; a
 /// running lower bound of what it will hold stops the scan as soon as that
-/// refusal is certain: the source table's charge
-/// ([`super::capture::CapturedSource::admission`]) and the [`Tally`] of
-/// nodes and `contains` edges every linked file projects.
+/// refusal is certain: the [`Tally`] of nodes and `contains` edges every
+/// linked file projects. Source correspondence is not tallied against the
+/// snapshot: readers admit its origins one block at a time, so its size
+/// alone never refuses a snapshot. The build's own working set is: every
+/// kept file is held until projection, so each is charged its
+/// [`super::super::limits::build_charge`] and the scan stops once the next
+/// file passes the build budget, before linking, not in swap.
 pub(super) struct Admission<'a> {
     root: &'a Path,
     limits: Limits,
@@ -22,9 +26,13 @@ pub(super) struct Admission<'a> {
 #[derive(Default)]
 struct Charged {
     files: usize,
-    bytes: usize,
-    items: usize,
     tally: Tally,
+    /// The build charge of every file admitted.
+    bytes: usize,
+    /// The refusal of the file that first passed a bound: parallel workers
+    /// admitting after it get the same one, so the answer names the files
+    /// that passed it whichever worker reports first.
+    refused: Option<ToolError>,
 }
 
 impl<'a> Admission<'a> {
@@ -45,36 +53,32 @@ impl<'a> Admission<'a> {
         }
     }
 
-    /// Charges one captured file holding `declarations`; `scopeTooBroad`,
-    /// naming narrower scopes, once the snapshot can no longer publish.
-    pub(super) fn admit(
-        &self,
-        source: &super::capture::CapturedSource,
-        declarations: usize,
-    ) -> Result<(), ToolError> {
-        let (bytes, items) = source.admission();
+    /// Charges one file kept for linking, holding `declarations` and
+    /// costing the build `bytes` ([`super::super::limits::build_charge`]);
+    /// `scopeTooBroad`, naming narrower scopes, once the snapshot can no
+    /// longer publish or the build would pass its memory budget.
+    pub(super) fn admit(&self, declarations: usize, bytes: usize) -> Result<(), ToolError> {
         let mut charged = self.charged.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(refused) = &charged.refused {
+            return Err(refused.clone());
+        }
         charged.files += 1;
-        charged.bytes = charged.bytes.saturating_add(bytes);
-        charged.items = charged.items.saturating_add(items);
         charged.tally.add(Tally::file(declarations));
-        let over = if charged.bytes > self.limits.source_bytes
-            || charged.items > self.limits.table_items
-        {
-            format!(
-                "their source correspondence exceeds the snapshot budget ({} bytes, {} items)",
-                self.limits.source_bytes, self.limits.table_items
-            )
-        } else if let Err((table, bound)) = self.limits.admit(&charged.tally) {
-            format!("they project more than the snapshot's {bound} {table} rows")
-        } else {
+        charged.bytes = charged.bytes.saturating_add(bytes);
+        let Err(over) = self
+            .limits
+            .admit(&charged.tally)
+            .and_then(|()| self.limits.admit_build(charged.bytes))
+        else {
             return Ok(());
         };
-        Err(self.too_broad(&format!(
-            "the first {} of {} files are too many for one graph snapshot: {over}",
+        let refused = self.too_broad(&format!(
+            "the first {} of {} files are too many for one graph snapshot: they {over}",
             charged.files,
             self.walked.len()
-        )))
+        ));
+        charged.refused = Some(refused.clone());
+        Err(refused)
     }
 
     /// What the admitted files certainly project, carried into linking.

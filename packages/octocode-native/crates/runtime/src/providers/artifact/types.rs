@@ -7,27 +7,10 @@ use std::collections::BTreeMap;
 use std::fmt;
 use url::Url;
 
-/// One advisory a registry lists for a version, in the registry's own words.
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Advisory {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub aliases: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub severity: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub fixed_in: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub withdrawn: Option<String>,
-}
+mod advisory;
+
+pub use advisory::Advisory;
+pub(crate) use advisory::alias_groups;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

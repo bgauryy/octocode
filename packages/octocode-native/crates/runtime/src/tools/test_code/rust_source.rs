@@ -7,12 +7,14 @@ use std::path::{Path, PathBuf};
 
 /// Whether `content` could be test code whole ([`whole_or`]): a span covering
 /// every line starts on line 1, so it is an inner `#![cfg(...)]` (of the file,
-/// or of a module opened on line 1) or an item its `cfg` opens on line 1.
+/// or of a module opened on line 1), or an item whose `cfg` or first outer
+/// attribute (`#[derive(...)]` above `#[cfg(test)]`) is on line 1: an item's
+/// span starts at its attributes.
 pub(super) fn may_be_test_whole(content: &str) -> bool {
     content
         .lines()
         .next()
-        .is_some_and(|first| first.contains("cfg"))
+        .is_some_and(|first| first.contains("cfg") || first.trim_start().starts_with('#'))
         || has_inner_cfg(content)
 }
 

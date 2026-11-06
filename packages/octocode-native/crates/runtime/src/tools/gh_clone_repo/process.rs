@@ -1,11 +1,14 @@
 mod askpass;
+mod redaction;
 
 use super::CloneError;
 use crate::execution::cancel::CancellationCheck;
 use crate::tools::bounded_process::{BoundedError, run_bounded, run_bounded_records};
 use askpass::AskPass;
-use base64::{Engine as _, engine::general_purpose::STANDARD};
 use octocode_contract_types::ErrorCode;
+#[cfg(test)]
+use redaction::basic_credential;
+use redaction::scrub;
 use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -131,6 +134,10 @@ pub struct SystemGit {
     /// Collected stdout/stderr bytes per git run ([`MAX_OUTPUT_BYTES`];
     /// tests lower it to reach the cap with a small repository).
     max_output: usize,
+    /// Tests clone hermetic fixtures from local `file://` remotes, a
+    /// transport production git never gets ([`SystemGit::with_file_transport`]).
+    #[cfg(test)]
+    file_transport: bool,
 }
 
 impl Default for SystemGit {
@@ -142,6 +149,8 @@ impl Default for SystemGit {
                 .filter_map(|name| Some((name.to_owned(), std::env::var_os(name)?)))
                 .collect(),
             max_output: MAX_OUTPUT_BYTES,
+            #[cfg(test)]
+            file_transport: false,
         }
     }
 }
@@ -166,6 +175,8 @@ impl SystemGit {
             executable: PathBuf::from("git"),
             passthrough,
             max_output: MAX_OUTPUT_BYTES,
+            #[cfg(test)]
+            file_transport: false,
         }
     }
 
@@ -185,12 +196,30 @@ impl SystemGit {
             ..self
         }
     }
+
+    /// This git also allowed the `file` transport, for fixtures whose
+    /// remote is a local bare repository.
+    #[cfg(test)]
+    pub(super) fn with_file_transport(self) -> Self {
+        Self {
+            file_transport: true,
+            ..self
+        }
+    }
 }
 
-/// The header value git builds from the helper's answers: HTTP Basic with the
-/// `x-access-token` user.
-fn basic_credential(token: &str) -> String {
-    STANDARD.encode(format!("x-access-token:{token}"))
+/// The transports git may use for every remote, submodule, promisor fetch
+/// and redirect (`GIT_ALLOW_PROTOCOL`, which overrides any
+/// `protocol.*.allow` config): HTTPS, plus plain HTTP only when the
+/// authorized remote itself is loopback HTTP (the endpoints
+/// [`super::validate::web_root`] accepts). `file`, `ssh`, `git` and `ext`
+/// never: a hostile repository cannot reach local paths or run a command
+/// through a transport.
+fn allowed_protocols(authorization_url: Option<&str>) -> &'static str {
+    let loopback_http = authorization_url
+        .and_then(|url| url::Url::parse(url).ok())
+        .is_some_and(|url| url.scheme() == "http" && octocode_github::is_loopback(&url));
+    if loopback_http { "https:http" } else { "https" }
 }
 
 impl SystemGit {
@@ -202,6 +231,13 @@ impl SystemGit {
         git_home: &Path,
         askpass: Option<&AskPass>,
     ) -> Command {
+        let protocols = allowed_protocols(request.authorization_url);
+        #[cfg(test)]
+        let protocols = if self.file_transport {
+            format!("{protocols}:file")
+        } else {
+            protocols.to_owned()
+        };
         let mut command = Command::new(&self.executable);
         command
             .env_clear()
@@ -214,14 +250,19 @@ impl SystemGit {
             .env("GCM_INTERACTIVE", "Never")
             .env("LC_ALL", "C")
             .env("LANG", "C")
+            .env("GIT_ALLOW_PROTOCOL", protocols)
             .arg("-c")
             .arg(format!("core.hooksPath={}", null_device()))
             .args(&request.args);
         command.envs(self.passthrough.iter().map(|(name, value)| (name, value)));
         if let Some(askpass) = askpass {
-            // The path to a helper, never the token: the child's environment
-            // and argv are readable by other processes of the same user.
-            command.env("GIT_ASKPASS", &askpass.script);
+            // The helper on disk holds no credential: the token and the
+            // prompts it may answer reach it through this child's
+            // environment alone (never argv, never a file), inherited by
+            // the git processes this one starts and gone when they exit.
+            command
+                .env("GIT_ASKPASS", &askpass.script)
+                .envs(askpass.env());
         }
         command
     }
@@ -332,39 +373,6 @@ fn process_failure(message: String) -> CloneError {
         hints: vec!["Resolve the reported Git process or resource failure before retrying.".into()],
         ..CloneError::new(ErrorCode::GitFailed, message)
     }
-}
-
-fn scrub(text: &str, token: Option<&str>, home: &Path) -> String {
-    let mut result = text.to_owned();
-    if let Some(token) = token {
-        // The base64 header value git builds first: it does not contain the
-        // token, and git can echo it without the `Authorization:` prefix.
-        result = result
-            .replace(&basic_credential(token), "[REDACTED]")
-            .replace(token, "[REDACTED]");
-    }
-    // A checkout stage is an internal path under the Octocode home; the
-    // error names what failed, not where it was staged.
-    let stages = [Some(home.to_path_buf()), home.canonicalize().ok()];
-    for home in stages.into_iter().flatten() {
-        let stage = home.join("tmp").join("clone-tmp");
-        let pattern = format!(r"{}[^\s'\x22]*", regex::escape(&stage.to_string_lossy()));
-        if let Ok(stage) = regex::Regex::new(&pattern) {
-            result = stage.replace_all(&result, "<checkout>").into_owned();
-        }
-    }
-    // Redact any authorization header regardless of scheme. Git sends the
-    // helper's answers as `Authorization: Basic <base64(x-access-token:…)>`;
-    // the base64 form does NOT contain the plaintext token, so this header
-    // pattern — not the token replace above — stops a reversible credential
-    // from leaking if git echoes a request.
-    static AUTH: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-        #[expect(clippy::expect_used, reason = "static pattern, valid by construction")]
-        regex::Regex::new(r"(?i)Authorization:\s*(Bearer|token|Basic)\s+\S+")
-            .expect("static authorization regex")
-    });
-    AUTH.replace_all(&result, "Authorization: [REDACTED]")
-        .into_owned()
 }
 
 #[cfg(windows)]

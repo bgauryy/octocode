@@ -344,3 +344,34 @@ async fn the_row_leads_with_the_answer() {
         "{related}"
     );
 }
+
+/// A GHSA record and its PYSEC twin (each aliasing the other and the CVE)
+/// are one advisory: the answer counts advisories, not records, and the
+/// brief row lists the twin's id in `aliases`, every CVE and fixed version.
+#[tokio::test]
+async fn twin_records_of_one_advisory_are_counted_and_listed_once() {
+    let twin = |id: &str, aliases: &[&str], fixed: &str| {
+        json!({"id": id, "aliases": aliases, "summary": format!("{id} summary"),
+               "affected": [{"package": {"name": "lodash", "ecosystem": "npm"},
+                             "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": fixed}]}]}]})
+    };
+    let http = registry().post_sequence(vec![(
+        200,
+        json!({"vulns": [
+            twin("GHSA-aaaa", &["CVE-2020-28500", "PYSEC-1"], "4.18.0"),
+            twin("GHSA-bbbb", &["CVE-2021-23337"], "4.18.1"),
+            twin("PYSEC-1", &["CVE-2020-28500", "GHSA-aaaa"], "4.17.21"),
+        ]}),
+    )]);
+    let data = answer(&http, Some("4.17.20"), None).await.expect("row");
+    let answer = data["answer"].as_str().expect("answer");
+    assert!(answer.contains("2 known advisories"), "{answer}");
+    let rows = data["advisories"].as_array().expect("advisories");
+    assert_eq!(rows.len(), 2, "{data}");
+    assert_eq!(rows[0]["id"], "GHSA-aaaa");
+    assert_eq!(rows[0]["aliases"], json!(["PYSEC-1"]), "{data}");
+    assert_eq!(rows[0]["cves"], json!(["CVE-2020-28500"]), "{data}");
+    assert_eq!(rows[0]["fixedIn"], json!(["4.18.0", "4.17.21"]), "{data}");
+    assert_eq!(rows[1]["id"], "GHSA-bbbb");
+    assert!(rows[1].get("aliases").is_none(), "{data}");
+}

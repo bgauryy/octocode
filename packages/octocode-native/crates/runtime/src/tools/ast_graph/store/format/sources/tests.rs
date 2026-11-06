@@ -14,7 +14,7 @@ fn bounded(bytes: usize, items: usize) -> Limits {
     Limits {
         source_bytes: bytes,
         table_items: items,
-        ..LIMITS
+        ..*LIMITS
     }
 }
 
@@ -259,23 +259,24 @@ fn encoded_counts_cannot_bypass_allocation_or_cancellation_limits() {
     );
 }
 
-/// The charge a scan sums to bound a table before building it is what
-/// admitting the built table's origins back spends: every item, and every
-/// byte but the encoded records themselves (known only once encoded).
+/// An origin's read charge is what its index entry admits when its block is
+/// read back: every item, and every byte but the encoded record itself
+/// (known only once encoded).
 #[test]
 fn read_charge_is_the_origin_admission_cost() {
     let (descriptors, origins) = fixture();
     let value = SourceTable::from_origins(descriptors, &origins, &NeverCancel).unwrap();
-    let mut spent = budget::Budget::new(&NeverCancel, &LIMITS);
-    value.origins.admit_read(&mut spent).unwrap();
-    let summed = origins
-        .iter()
-        .map(read_charge)
-        .fold((0, 0), |(bytes, items), (b, i)| (bytes + b, items + i));
-    assert_eq!(summed.1, spent.items);
-    assert!(
-        summed.0 > 0 && summed.0 <= spent.bytes,
-        "{summed:?} vs {}",
-        spent.bytes
-    );
+    for (reference, origin) in origins.iter().enumerate() {
+        let (bytes, items) = read_charge(origin);
+        let entry = value.origins.get(reference as u32).unwrap();
+        // The index entry's own item and bytes come on top of its decode.
+        assert_eq!(items, entry.items as usize + 1, "origin {reference}");
+        assert!(
+            bytes > 0
+                && bytes
+                    <= entry.bytes as usize + crate::tools::ast_graph::limits::ORIGIN_INDEX_BYTES,
+            "origin {reference}: {bytes} vs {}",
+            entry.bytes
+        );
+    }
 }

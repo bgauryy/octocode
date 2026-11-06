@@ -4,8 +4,10 @@
 //! mounted only under `#[cfg(test)]` (its parent's `mod name;` sits in a
 //! test-only item, or the parent is test code itself), and the Rust items
 //! compiled only under test (`#[cfg(test)]`, `#![cfg(test)]`), read from the
-//! file's cached declarations parse. A file is parsed only when a search
-//! asks about it, so a scope costs one cached parse per file with hits.
+//! file's declarations parse, kept by the text's digest. A file is parsed only
+//! when a search asks about it, and a text parsed once (by an earlier page, a
+//! repeat, or another file with the same bytes) is not parsed again while the
+//! store keeps it.
 //! A file is test code whole by where it lies (path or mount) or by its spans; one wholly on the side a scope
 //! leaves out is left out as a file in every view and tool. A file too large
 //! for the parse is read by a scan that reports the same facts
@@ -271,31 +273,44 @@ impl TestCodeIndex {
         path: &Path,
         content: &str,
     ) -> Option<Arc<octocode_engine::graph::GraphFactsDocument>> {
-        #[cfg(test)]
-        PARSES.with(|parses| parses.set(parses.get() + 1));
         crate::tools::declarations::file_document(content, &path.to_string_lossy())
     }
 
-    /// What the declarations parse of `content`, the text of `path`, says,
-    /// or the scan of a text past what the parse admits: one read a request,
-    /// whichever verdict asks first.
+    /// What the declarations parse of `content` says of test code, or the
+    /// scan of a text past what the parse admits, from [`FACTS`] when the same
+    /// text (the same path's kind of source) was read before.
+    fn facts(path: &Path, content: &str) -> Arc<rust_scan::Scanned> {
+        #[cfg(test)]
+        PARSES.with(|parses| parses.set(parses.get() + 1));
+        let digest = octocode_engine::digest::sha256(content.as_bytes());
+        let kind = path
+            .extension()
+            .map(|extension| extension.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        if let Some(kept) = FACTS.get(&digest, &kind, Arc::clone) {
+            return kept;
+        }
+        let facts = match Self::parse(path, content) {
+            Some(document) => rust_scan::Scanned {
+                test_lines: document.test_lines.clone(),
+                modules: document.modules.clone(),
+            },
+            None => rust_scan::scan(content),
+        };
+        let facts = Arc::new(facts);
+        FACTS.put(digest, kind, facts.weight(), Arc::clone(&facts));
+        facts
+    }
+
+    /// What `content`, the text of `path`, says of test code: one read a
+    /// request, whichever verdict asks first.
     fn parsed(&self, path: &Path, content: &str) -> Arc<Parsed> {
         self.parsed.of(path, || {
             let crate_root = self.crate_target(path).is_some();
-            let (test_lines, modules) = match Self::parse(path, content) {
-                Some(document) => (
-                    document.test_lines.clone(),
-                    mount_targets::file_modules(path, &document.modules, crate_root),
-                ),
-                None => {
-                    let scanned = rust_scan::scan(content);
-                    let modules = mount_targets::file_modules(path, &scanned.modules, crate_root);
-                    (scanned.test_lines, modules)
-                }
-            };
+            let facts = Self::facts(path, content);
             Arc::new(Parsed {
-                test_lines,
-                modules,
+                test_lines: facts.test_lines.clone(),
+                modules: mount_targets::file_modules(path, &facts.modules, crate_root),
             })
         })
     }
@@ -315,11 +330,17 @@ thread_local! {
     static PARSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// Declarations parses this thread's test-code index asked for.
+/// Texts this thread's test-code index asked a parse of (a kept one included).
 #[cfg(test)]
 pub(crate) fn parses() -> usize {
     PARSES.with(std::cell::Cell::get)
 }
+
+/// What a Rust text says of test code, by its digest (and the extension the
+/// parse reads it as): it depends on the text alone, so every request, page
+/// and path holding the same text reads it once while the store keeps it.
+static FACTS: crate::tools::page_memo::PageMemo<Arc<rust_scan::Scanned>> =
+    crate::tools::page_memo::PageMemo::new();
 
 /// Says what a verdict lost to the files it could not read, if any.
 pub(crate) fn unread_note(unread: &[PathBuf]) -> Option<String> {

@@ -139,3 +139,27 @@ fn rejects_min_depth_greater_than_max_depth() {
 
     assert!(err.contains("minDepth must be less than or equal to maxDepth"));
 }
+
+/// Entries before `budget_after` are walked as new ones (listed and counted)
+/// whatever the clock reads, and the budget starts only past them: a walk that
+/// lost an earlier walk's progress redoes it and still moves on.
+#[test]
+fn entries_before_budget_after_are_listed_and_spend_no_budget() {
+    let root = TmpDir::new();
+    for name in ["a.ts", "b.ts", "c.ts", "d.ts"] {
+        File::create(root.join(name)).expect("file");
+    }
+    for after in 0..4 {
+        let cut = query_file_system_inner(FileSystemQueryOptions {
+            path: root.to_string_lossy().to_string(),
+            time_budget: Some(std::time::Duration::ZERO),
+            budget_after: Some(after),
+            ..Default::default()
+        })
+        .expect("query");
+        assert_eq!(cut.walk_position, after, "after {after}");
+        assert_eq!(cut.entries.len() as u32, after, "after {after}");
+        assert_eq!(cut.total_discovered, after, "after {after}");
+        assert_eq!(cut.time_cut.is_some(), after < 4, "after {after}");
+    }
+}

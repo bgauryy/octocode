@@ -16,16 +16,17 @@ const REPO_BLOB_PREFIXES = ['octocode', 'octocode-mcp'].map(repo => `https://git
 const PUBLIC_TOOL_NAMES = DIRECT_TOOL_DEFINITIONS.map(
   definition => definition.name
 );
-// Off until the user turns them on, on every surface: clasify needs a key, securityCheck its switch.
+// MCP opt-ins: clasify needs a key; securityCheck needs its switch.
 const needsSetup = name =>
   name === TOOL_NAMES.CLASIFY ||
   (name === TOOL_NAMES.SECURITY_CHECK && !DEFAULT_CONFIG.tools.enableSecurityCheck);
-// The opt-in tool the docs name beside the count; clasify counts, and a key adds it.
-const CATALOG_TOOL_COUNT = PUBLIC_TOOL_NAMES.filter(name => name !== TOOL_NAMES.SECURITY_CHECK).length;
-const CLI_DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => !needsSetup(name));
+const CATALOG_TOOL_COUNT = PUBLIC_TOOL_NAMES.length;
+// CLI discovery includes securityCheck independently of MCP's opt-in switch.
+const CLI_DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => name !== TOOL_NAMES.CLASIFY);
 const CLI_DEFAULT_TOOL_COUNT = CLI_DEFAULT_TOOL_NAMES.length;
 // Default MCP catalog: core tool policy decides beta tools; clone needs its own opt-in.
 const DEFAULT_TOOL_COUNT = CLI_DEFAULT_TOOL_NAMES.filter(name => {
+  if (needsSetup(name)) return false;
   if (name === TOOL_NAMES.GITHUB_CLONE_REPO && !DEFAULT_CONFIG.tools.enableClone) return false;
   return !(isBetaTool(name) && !DEFAULT_CONFIG.local.beta);
 }).length;
@@ -285,13 +286,13 @@ function validateToolCatalog() {
 
   const defaults = `${DEFAULT_TOOL_COUNT} tools over MCP and ${CLI_DEFAULT_TOOL_COUNT} in the CLI`;
   const counts = {
-    'README.md': [`**${CATALOG_TOOL_COUNT} tools, plus the opt-in \`securityCheck\`.**`, defaults],
-    'docs/OCTOCODE_TOOLS.md': [`The catalog has ${CATALOG_TOOL_COUNT} tools, plus the opt-in \`securityCheck\`.`],
-    'docs/OCTOCODE_MCP.md': [`The contract has ${CATALOG_TOOL_COUNT} tools, plus the opt-in \`securityCheck\`.`],
+    'README.md': [`**${CATALOG_TOOL_COUNT} tools.**`, defaults],
+    'docs/OCTOCODE_TOOLS.md': [`The catalog has ${CATALOG_TOOL_COUNT} tools.`],
+    'docs/OCTOCODE_MCP.md': [`The contract has ${CATALOG_TOOL_COUNT} tools.`],
     'docs/OCTOCODE_CLI.md': [`The CLI lists ${CLI_DEFAULT_TOOL_COUNT} tools`],
     'docs/CONFIGURATION.md': [`The CLI has ${CLI_DEFAULT_TOOL_COUNT} tools`, `MCP starts with ${DEFAULT_TOOL_COUNT}`],
     'skills-dev/octocode-dev/docs/TOOL_QUALITY.md': [
-      `CLI exposes ${CLI_DEFAULT_TOOL_COUNT} tools; MCP has ${DEFAULT_TOOL_COUNT} enabled by default`,
+      `CLI exposes ${CLI_DEFAULT_TOOL_COUNT} tools`, `MCP has ${DEFAULT_TOOL_COUNT} enabled by default`,
     ],
     'skills/common/references/octocode-usage.md': [
       `## ${CATALOG_TOOL_COUNT} public tools`,

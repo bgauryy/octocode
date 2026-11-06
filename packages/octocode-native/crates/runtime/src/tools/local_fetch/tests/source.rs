@@ -150,9 +150,11 @@ fn a_late_nul_byte_makes_an_in_memory_source_binary() {
     );
 }
 
-/// Each page reads and prepares its own source, and source edits are observed.
+/// Each page reads its own bytes; a walk of one version prepares it once
+/// (later pages replay the first page's view and scan their own cut), and
+/// a source edit is observed: the new version is prepared again.
 #[test]
-fn each_large_source_page_prepares_its_own_bytes() {
+fn a_large_source_walk_prepares_each_version_once() {
     struct CountingKeys(AtomicUsize);
     impl ContentScan for CountingKeys {
         fn sanitize(
@@ -169,7 +171,8 @@ fn each_large_source_page_prepares_its_own_bytes() {
     }
     let t = Fixture::new();
     let p = t.0.join("large.txt");
-    let line = format!("{}\n", "x".repeat(79));
+    // Bytes no other test writes: a kept view is keyed by them.
+    let line = format!("{}\n", "w".repeat(79));
     fs::write(&p, line.repeat(4_000)).expect("fixture");
     let scan = CountingKeys(AtomicUsize::new(0));
     let read = |req: &LocalFetchQuery| {
@@ -185,14 +188,14 @@ fn each_large_source_page_prepares_its_own_bytes() {
     assert_eq!(second.status, ReadStatus::Success, "{second:?}");
     assert_eq!(
         scan.0.load(Ordering::Relaxed),
-        2,
-        "each page prepares its source"
+        1,
+        "the second page replays the first page's view"
     );
     fs::write(&p, line.repeat(4_001)).expect("edit");
     assert_eq!(read(&q(&p)).total_lines, Some(4_001));
     assert_eq!(
         scan.0.load(Ordering::Relaxed),
-        3,
+        2,
         "a new version is prepared again"
     );
 }

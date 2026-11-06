@@ -9,6 +9,9 @@ use serde_json::{Value, json};
 /// re-reads its images.
 const IMAGE_WINDOW_HINT: &str = "Each image question re-reads its images: ask fewer image questions per call, or crop the image.";
 
+/// What a binary source needs when it is an image.
+const IMAGE_SOURCE_HINT: &str = "source takes text; a PNG or JPEG image is judged under assets, as the clasify call in related[] does.";
+
 /// Recovery for a failed row. A captured source failed in classification:
 /// its exact read is the way back to the evidence. A source that was never
 /// captured failed in its reader: that error and its own hints say what
@@ -30,6 +33,17 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
         && let Some(split) = sections_call(row, source)
     {
         crate::response::result::attach_related(failure, split);
+    }
+    // A binary source is no text to judge: an image is judged under assets.
+    if acquisition
+        && crate::id::error_code_of(failure) == Some(ErrorCode::BinaryFileUnsupported)
+        && let Input::Judge(Target::Source(source)) = &row.input
+        && let Some(call) = assets_call(row, source)
+    {
+        crate::response::result::attach_related(failure, call);
+        let mut hints = vec![json!(IMAGE_SOURCE_HINT)];
+        hints.extend(failure["hints"].as_array().into_iter().flatten().cloned());
+        failure["hints"] = json!(hints);
     }
     let read = captured
         .map(|capture| capture.read.clone())
@@ -89,6 +103,37 @@ pub(super) fn sections_call(row: &Row, source: &Value) -> Option<Value> {
     }
     let mut call =
         json!({"operation":"sections","resources":{"source":source},"questions":questions});
+    if let Some(context) = &row.context {
+        call["context"] = json!(context);
+    }
+    if let Some(model) = &row.model {
+        call["model"] = json!(model);
+    }
+    Some(crate::response::result::Continuation::related(ToolId::Clasify, call).build())
+}
+
+/// The same questions over a file `source` as an image under assets, named
+/// by the one-line content: the route for an image a text source refuses.
+fn assets_call(row: &Row, source: &Value) -> Option<Value> {
+    const KEY: &str = "image";
+    let tool = ToolId::from_name(source["tool"].as_str()?)?;
+    let identity: &[&str] = match tool {
+        ToolId::LocalFetch => &["path"],
+        ToolId::GhGetFileContent => &["owner", "repo", "path", "ref"],
+        _ => return None,
+    };
+    let query = identity
+        .iter()
+        .filter_map(|field| Some(((*field).to_owned(), source["query"].get(*field)?.clone())))
+        .collect::<serde_json::Map<_, _>>();
+    let questions = row
+        .keys
+        .iter()
+        .cloned()
+        .zip(row.questions.iter().cloned())
+        .collect::<serde_json::Map<_, _>>();
+    let mut call = json!({"operation":"evaluate","content":KEY,
+        "assets":{KEY:{"source":{"tool":tool.as_str(),"query":query}}},"questions":questions});
     if let Some(context) = &row.context {
         call["context"] = json!(context);
     }
@@ -220,6 +265,34 @@ mod tests {
         let mut other = json!({"errorCode":"classificationProviderError"});
         add(&row, None, &mut other);
         assert!(!other.to_string().contains(IMAGE_WINDOW_HINT), "{other}");
+    }
+
+    /// An image given as a text source gets the same questions as a ready
+    /// call with it under assets.
+    #[test]
+    fn a_binary_source_offers_the_same_questions_with_the_file_under_assets() {
+        let mut row = source_row();
+        row.keys = vec!["q".into()];
+        row.questions = vec![json!({"type":"noul","instructions":"Is a popup shown?"})];
+        let mut failure = json!({"errorCode":"binaryFileUnsupported","hints":["Reader advice."]});
+        add(&row, None, &mut failure);
+        let hints = failure["hints"].as_array().unwrap();
+        assert_eq!(hints[0], json!(IMAGE_SOURCE_HINT), "{failure}");
+        assert!(hints.contains(&json!("Reader advice.")), "{failure}");
+        let call = failure["related"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|lead| lead["tool"] == "clasify")
+            .expect("assets call");
+        let query = &call["input"]["queries"][0];
+        assert_eq!(
+            query["assets"]["image"]["source"],
+            json!({"tool":"localFetch","query":{"path":"source.rs"}}),
+            "{failure}"
+        );
+        assert_eq!(query["content"], "image");
+        assert_eq!(query["questions"]["q"], row.questions[0]);
     }
 
     #[test]

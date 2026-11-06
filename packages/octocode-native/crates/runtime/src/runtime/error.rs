@@ -130,7 +130,7 @@ mod tests {
         RuntimeError {
             code: ErrorCode::InvalidInput,
             message: error.to_string(),
-            payload: Some(Box::new(contracts::format_input_error(tool, &error))),
+            payload: Some(Box::new(contracts::format_input_error(tool, &error, &[]))),
             validation_issues: Some(error.issues),
         }
     }

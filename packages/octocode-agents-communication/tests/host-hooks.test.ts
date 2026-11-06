@@ -27,10 +27,11 @@ function fixture(t: TestContext, vendor: string, paths?: { workspace?: string; d
     { input: JSON.stringify({ ...input(event), ...override }), encoding: 'utf8', stdio: ['pipe','pipe','pipe'] }));
   return { workspace, database, flags, cli, input, args, hook };
 }
-for (const vendor of ['cursor', 'grok', 'claude', 'codex']) {
+for (const vendor of ['cursor', 'grok', 'claude', 'codex', 'octocode', 'independent-provider']) {
   test(`${vendor}: identity reuse, event-specific context, one-time delivery and teardown`, t => {
     const f = fixture(t, vendor);
     const initial = f.hook('sessionStart');
+    assert.ok(existsSync(f.database), 'A provider hook must register its identity');
     const db = new DatabaseSync(f.database); t.after(() => db.close());
     const recipient = only<JsonRecord>(db.prepare('SELECT * FROM sessions').get());
     assert.equal(recipient.vendor, vendor);
@@ -49,6 +50,7 @@ for (const vendor of ['cursor', 'grok', 'claude', 'codex']) {
     assert.equal(content.includes('Communication identity:'), vendor === 'grok');
     assert.deepEqual(f.hook('postToolUseFailure'), {});
     assert.equal(f.cli('inbox', {}, recipient.id).items[0].id, message.id);
+    assert.deepEqual(f.hook('Stop'), {}, 'Unacknowledged mail does not prevent the host from ending a turn');
     f.cli('complete', { message: message.id }, recipient.id);
     f.hook('sessionEnd');
     assert.ok(only<JsonRecord>(db.prepare('SELECT expiresAt FROM sessions WHERE id=?').get(recipient.id)).expiresAt <= Date.now());
@@ -144,7 +146,7 @@ test('wrong workspace, ignored events and foreign compatibility hooks consume no
   assert.equal(existsSync(f.database), false);
 });
 test('native config previews have timeouts, supported events and no writes', t => {
-  for (const vendor of ['cursor','grok','claude','codex']) {
+  for (const vendor of ['cursor','grok','claude','codex','octocode']) {
     const f = fixture(t,vendor);
     const result = JSON.parse(execFileSync(binary,['host-config','--vendor',vendor,...f.flags],{encoding:'utf8'}));
     const event = vendor === 'cursor' ? 'postToolUse' : 'PostToolUse';
@@ -153,6 +155,14 @@ test('native config previews have timeouts, supported events and no writes', t =
     if (vendor === 'codex') {
       assert.equal(handler.additionalContextLimit, CODEX_CONTEXT_LIMIT);
       assert.equal(result.hooks.PostToolUseFailure, undefined);
+      assert.ok(result.hooks.SessionEnd[0].hooks[0].timeout <= 3, 'Codex caps SessionEnd at three seconds');
+      assert.equal(result.hooks.SessionEnd[0].hooks[0].additionalContextLimit, undefined, 'SessionEnd accepts no model context');
+      assert.equal(result.hooks.UserPromptSubmit[0].hooks[0].additionalContextLimit, undefined, 'Presence-only hooks need no context override');
+    }
+    if (vendor === 'octocode') {
+      assert.equal(result.hooks.PostToolUseFailure, undefined, 'Octocode native hooks do not support failure events');
+      assert.deepEqual(Object.keys(result.hooks), ['SessionStart', 'PostToolUse', 'SessionEnd']);
+      assert.equal(handler.additionalContextLimit, undefined, 'Native Octocode rejects Codex-specific settings');
     }
     assert.ok(handler.command.includes('host-hook'));
     assert.equal(result.hooks.stop,undefined);

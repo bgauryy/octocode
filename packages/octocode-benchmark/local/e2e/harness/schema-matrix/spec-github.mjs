@@ -136,7 +136,8 @@ function pullTruth(query) {
 function itemTruth(ctx, { query }) {
   if (query.operation === 'issue') return issueTruth(query);
   if (query.operation === 'compare') return compareTruth(ctx, query);
-  if (query.operation === 'commit') return fileTruth((query.sections ?? []).includes('patches') ? query : { ...query, matchString: undefined }).map(file => ['file', file]);
+  // A commit's matchString filters its files as a pull request's does, patches section or not.
+  if (query.operation === 'commit') return fileTruth(query).map(file => ['file', file]);
   return pullTruth(query);
 }
 

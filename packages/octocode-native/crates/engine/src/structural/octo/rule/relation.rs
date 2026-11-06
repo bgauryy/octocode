@@ -1,16 +1,15 @@
 //! Relational rules (`has`, `inside`, `precedes`, `follows`): their
 //! direction, field, stop rule and matching.
 
-use tree_sitter::Node;
+use std::num::NonZeroU16;
+
+use tree_sitter::{Node, TreeCursor};
 
 use crate::structural::kinds::near_fields;
 use crate::structural::language::AgLanguage;
 
 use crate::structural::octo::error::CompileError;
-use crate::structural::octo::matching::{
-    CaptureEnv, ExecutionError, SECONDARY_CAPTURE, ancestors_from_root, named_children, node_text,
-    raw_range,
-};
+use crate::structural::octo::matching::{CaptureEnv, ExecutionError, ancestors_from_root};
 
 use super::{CompiledRule, Document, RawRule, RawStopBy, StopKind};
 
@@ -25,7 +24,7 @@ pub(super) enum Direction {
 pub(super) struct Relation {
     direction: Direction,
     rule: CompiledRule,
-    field: Option<std::num::NonZeroU16>,
+    field: Option<NonZeroU16>,
     stop: Stop,
 }
 
@@ -92,24 +91,6 @@ impl Relation {
         }
     }
 
-    fn accepts<'t>(
-        &self,
-        node: Node<'t>,
-        ancestors: Option<&[Node<'t>]>,
-        document: &Document<'_, 't>,
-        captures: &mut CaptureEnv,
-    ) -> Result<bool, ExecutionError> {
-        if !self.rule.matches(node, ancestors, document, captures)? {
-            return Ok(false);
-        }
-        captures.capture_replace(
-            SECONDARY_CAPTURE,
-            node_text(node, document.content).to_owned(),
-            raw_range(node),
-        );
-        Ok(true)
-    }
-
     pub(super) fn matches<'t>(
         &self,
         candidate: Node<'t>,
@@ -119,24 +100,16 @@ impl Relation {
     ) -> Result<bool, ExecutionError> {
         match self.direction {
             Direction::Descendant => {
-                let mut stack = if let Some(field) = self.field {
-                    candidate
-                        .children_by_field_id(field, &mut candidate.walk())
-                        .filter(Node::is_named)
-                        .collect::<Vec<_>>()
-                } else {
-                    named_children(candidate)
-                };
-                stack.reverse();
-                while let Some(node) = stack.pop() {
+                return walk_descendants(candidate, self.field, |node| {
                     ExecutionError::check(document.deadline)?;
-                    if self.accepts(node, None, document, captures)? {
-                        return Ok(true);
-                    }
-                    if !self.stops(node, document, captures)? {
-                        stack.extend(named_children(node).into_iter().rev());
-                    }
-                }
+                    Ok(if self.rule.matches(node, None, document, captures)? {
+                        Visit::Found
+                    } else if self.stops(node, document, captures)? {
+                        Visit::Skip
+                    } else {
+                        Visit::Descend
+                    })
+                });
             }
             Direction::Ancestor => {
                 let owned;
@@ -155,7 +128,11 @@ impl Relation {
                         node.children_by_field_id(field, &mut node.walk())
                             .any(|child| child == branch)
                     });
-                    if in_field && self.accepts(node, Some(&chain[..index]), document, captures)? {
+                    if in_field
+                        && self
+                            .rule
+                            .matches(node, Some(&chain[..index]), document, captures)?
+                    {
                         return Ok(true);
                     }
                     if self.stops(node, document, captures)? {
@@ -197,7 +174,7 @@ impl Relation {
                         break;
                     }
                     let node = cursor.node();
-                    if self.accepts(node, Some(chain), document, captures)? {
+                    if self.rule.matches(node, Some(chain), document, captures)? {
                         return Ok(true);
                     }
                     if self.stops(node, document, captures)? {
@@ -209,3 +186,76 @@ impl Relation {
         Ok(false)
     }
 }
+
+/// What [`walk_descendants`] does after visiting a node.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Visit {
+    /// The relation holds: end the walk.
+    Found,
+    /// Visit this node's named children next.
+    Descend,
+    /// Leave this node's subtree unvisited.
+    Skip,
+}
+
+/// Visit `candidate`'s named descendants in pre-order (source order), the
+/// first level limited to children in `field`. One cursor walks the whole
+/// subtree, so no node list is allocated per visited node. Returns whether a
+/// visit reported [`Visit::Found`].
+fn walk_descendants<'t>(
+    candidate: Node<'t>,
+    field: Option<NonZeroU16>,
+    mut visit: impl FnMut(Node<'t>) -> Result<Visit, ExecutionError>,
+) -> Result<bool, ExecutionError> {
+    // The cursor's depth counts from `candidate` (depth 0), so the walk never
+    // leaves its subtree.
+    let mut cursor = candidate.walk();
+    if !goto_first_admitted_child(&mut cursor, field) {
+        return Ok(false);
+    }
+    loop {
+        match visit(cursor.node())? {
+            Visit::Found => return Ok(true),
+            Visit::Descend if goto_first_admitted_child(&mut cursor, field) => continue,
+            Visit::Descend | Visit::Skip => {}
+        }
+        while !goto_next_admitted_sibling(&mut cursor, field) {
+            if !cursor.goto_parent() || cursor.depth() == 0 {
+                return Ok(false);
+            }
+        }
+    }
+}
+
+/// Whether the walk visits the cursor's node: a named node, and on the first
+/// level one in `field` when a field is set.
+fn admitted(cursor: &TreeCursor<'_>, field: Option<NonZeroU16>) -> bool {
+    cursor.node().is_named()
+        && (cursor.depth() != 1 || field.is_none_or(|field| cursor.field_id() == Some(field)))
+}
+
+/// Move to the first admitted child; the cursor stays put when there is none.
+fn goto_first_admitted_child(cursor: &mut TreeCursor<'_>, field: Option<NonZeroU16>) -> bool {
+    if !cursor.goto_first_child() {
+        return false;
+    }
+    if admitted(cursor, field) || goto_next_admitted_sibling(cursor, field) {
+        return true;
+    }
+    cursor.goto_parent();
+    false
+}
+
+/// Move to the next admitted sibling; on `false` the cursor is on some later
+/// sibling of the same parent.
+fn goto_next_admitted_sibling(cursor: &mut TreeCursor<'_>, field: Option<NonZeroU16>) -> bool {
+    while cursor.goto_next_sibling() {
+        if admitted(cursor, field) {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests;

@@ -76,7 +76,7 @@ fn answers_after_changes(
                     octocode_engine::stamp::settle_written_so_far();
                 }
                 let page = |query: &LocalFetchQuery| {
-                    execute_local_fetch(query, &paths, &Safe, &NeverCancel, Some(2_000), None)
+                    execute_local_fetch(query, &paths, &SmallSafe, &NeverCancel, Some(2_000), None)
                 };
                 let first = page(&qj(&file, fields.clone()));
                 assert_eq!(first.error_code, None, "{read}: {:?}", first.error);
@@ -111,7 +111,7 @@ fn every_later_page_of_a_changed_file_is_stale_in_memory() {
 
 #[test]
 fn every_later_page_of_a_changed_file_is_stale_when_streamed() {
-    let bytes = super::super::acquire::MAX_SOURCE_BYTES as usize + 1024 * 1024;
+    let bytes = SmallSafe.limits().whole_source + SmallSafe.limits().whole_source / 10;
     let original = source(bytes);
     let wrong = answers_after_changes(
         bytes,

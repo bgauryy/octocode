@@ -17,7 +17,7 @@ fn build(dir: &Path) -> (String, Vec<u8>) {
     };
     let limits = Limits {
         retained_bytes: 0,
-        ..LIMITS
+        ..*LIMITS
     };
     let out = ingest_with_registry(
         &options,

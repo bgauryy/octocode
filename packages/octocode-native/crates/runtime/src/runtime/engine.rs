@@ -255,6 +255,9 @@ impl CancellationCheck for ExecutionContext {
     fn deadline(&self) -> Option<std::time::Instant> {
         Some(self.deadline)
     }
+    fn signal(&self) -> Option<&octocode_io::cancellation::Cancellation> {
+        Some(&self.cancellation)
+    }
 }
 
 #[cfg(test)]

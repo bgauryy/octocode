@@ -98,3 +98,28 @@ fn client_paths_match_their_documented_configuration_files() {
         );
     }
 }
+
+/// `--pass-env` copies each forwarded variable this shell sets, and only
+/// those, into the entry.
+#[test]
+fn pass_env_copies_exactly_the_forwarded_variables_this_shell_sets() {
+    let spec = super::super::server_spec(&super::super::InstallArgs {
+        pass_env: true,
+        ..default_args()
+    });
+    let forwarded = [
+        super::super::local_enabled_env().expect("local env"),
+        super::super::PASS_ENV_TOKEN,
+    ];
+    for key in forwarded {
+        assert_eq!(
+            spec.env.get(key),
+            std::env::var(key)
+                .ok()
+                .filter(|value| !value.is_empty())
+                .as_ref(),
+            "{key}"
+        );
+    }
+    assert!(spec.env.keys().all(|key| forwarded.contains(&key.as_str())));
+}

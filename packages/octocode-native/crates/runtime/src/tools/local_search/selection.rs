@@ -31,10 +31,6 @@ pub(super) struct Selected {
     unknown_files: Vec<String>,
     /// Files the scan matched.
     scan_files: usize,
-    /// Files that held hits of this candidate page before and after
-    /// selection.
-    files_before: usize,
-    files_kept: usize,
     /// Hit rows considered by this candidate page, before and after
     /// selection.
     rows_before: usize,
@@ -202,14 +198,14 @@ pub(super) fn select_hits(
     // next candidate page judges them.
     let (mut rows_total, mut rows_before, mut lines_removed) = (0usize, 0usize, 0usize);
     let scan_files = parsed.files.len();
-    let (mut files_before, mut unknown_files) = (0usize, Vec::new());
+    let mut unknown_files = Vec::new();
     let mut kept = Vec::with_capacity(parsed.files.len());
     let mut ordinal = 0usize;
     for (mut file, hits) in std::mem::take(&mut parsed.files).into_iter().zip(file_hits) {
         rows_total += file.matches.len();
         let lines_before = distinct_lines(&file);
         let mut keep = vec![false; file.matches.len()];
-        let (mut holds_unknown, mut judged) = (false, false);
+        let mut holds_unknown = false;
         for index in hits {
             // A hit outside this candidate page's pool was judged (and shown,
             // or left to its unfiltered route) by an earlier one.
@@ -217,7 +213,6 @@ pub(super) fn select_hits(
                 if unjudged.contains(&ordinal) {
                     holds_unknown = true;
                 } else {
-                    judged = true;
                     rows_before += 1;
                     match decisions[ordinal] {
                         Decision::Selected => keep[index] = true,
@@ -230,7 +225,6 @@ pub(super) fn select_hits(
             }
             ordinal += 1;
         }
-        files_before += usize::from(judged);
         if holds_unknown {
             unknown_files.push(file.path.clone());
         }
@@ -254,8 +248,6 @@ pub(super) fn select_hits(
         outcome,
         unknown_files,
         scan_files,
-        files_before,
-        files_kept: parsed.files.len(),
         rows_before,
         rows_kept,
         provider,

@@ -172,8 +172,8 @@ fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
         )
         .expect_err("failure fixture");
     assert_eq!(failed.code, ErrorCode::GitFailed);
-    // The child's environment dump names the helper, never the credential:
-    // nothing is left to redact.
+    // The child's environment dump names the helper and holds the token the
+    // helper reads; the scrubbed error carries the helper, never the token.
     test_support::checks::assert_absent(&serde_json::json!(failed.message), token);
     assert!(
         failed.message.contains("GIT_ASKPASS="),

@@ -69,7 +69,7 @@ pub(super) const DISABLED_MACRO_CODES: &[&str] = &[
     "proc-macro-disabled",
 ];
 
-pub(super) const RUST_MACRO_NOTE: &str = "Proc-macros and build scripts are off by default (they run repository code), so rust-analyzer reports unexpanded macros; pass rustContext {buildScripts:true, procMacros:true} to expand them.";
+pub(super) const RUST_MACRO_NOTE: &str = "Proc-macros and build scripts are off by default (they run repository code), so rust-analyzer reports unexpanded macros; pass rustContext {buildScripts:true, procMacros:true} to expand them once lsp.allowBuildScripts is on (home .octocoderc, or OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS=true in the process environment or the home .env); until then such a query is refused.";
 
 pub(in super::super) fn disabled_macro_diagnostics(items: &Value) -> bool {
     super::super::render::items(items).iter().any(|item| {

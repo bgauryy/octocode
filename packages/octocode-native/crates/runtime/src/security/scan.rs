@@ -15,6 +15,11 @@ pub(crate) trait ContentScan {
         text: &str,
         path: &Path,
     ) -> Result<(String, Vec<String>), (ErrorCode, String)>;
+    /// The source sizes this scanner judges at; a test double that does not say
+    /// is judged at the real ones.
+    fn limits(&self) -> super::SourceLimits {
+        super::SourceLimits::REAL
+    }
     /// Redact whole PEM/OpenSSH/PGP private-key blocks across the FULL file
     /// before any read/search window is cut, closing the interior-window leak the
     /// anchored full-block patterns cannot catch. The default applies to every
@@ -101,16 +106,18 @@ pub(crate) fn sanitize_provider_text(
 /// at `path`, through the one response walker ([`super::sanitize_json`]): a
 /// value redacted where its context shows is redacted wherever else the
 /// payload repeats it bare, so a secret named in a body that a row never
-/// shows still redacts its bare copy in a title.
+/// shows still redacts its bare copy in a title. Returns how many values it
+/// replaced by placeholders.
 pub(crate) fn sanitize_provider_json(
     security: &impl ContentScan,
     value: &mut serde_json::Value,
     path: &Path,
-) -> Result<(), octocode_github::ProviderError> {
+) -> Result<usize, octocode_github::ProviderError> {
+    let before = super::placeholders_in(value);
     super::sanitize_json(value, &mut |text, _| {
         sanitize_provider_text(security, text, path)
-    })
-    .map(|_| ())
+    })?;
+    Ok(super::placeholders_in(value).saturating_sub(before))
 }
 
 /// A test scan double that returns every text unchanged.
@@ -125,6 +132,9 @@ impl ContentScan for Passthrough {
 }
 
 impl ContentScan for super::ContentSecurity {
+    fn limits(&self) -> super::SourceLimits {
+        Self::limits(self)
+    }
     fn sanitize(
         &self,
         text: &str,

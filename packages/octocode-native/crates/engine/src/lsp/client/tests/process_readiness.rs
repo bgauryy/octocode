@@ -83,7 +83,7 @@ fn first_open_waits_for_the_project_load_the_open_triggers() {
         // No progress on initialized: the initial readiness wait only settles.
         assert_eq!(
             client.wait_for_ready(Some(300)).await.unwrap(),
-            "settledWithoutProgress"
+            Readiness::SilentServer
         );
 
         let readiness = client
@@ -95,7 +95,7 @@ fn first_open_waits_for_the_project_load_the_open_triggers() {
             )
             .await
             .expect("document syncs");
-        assert_eq!(readiness.as_deref(), Some("progressIdle"));
+        assert_eq!(readiness, Some(Readiness::ProgressIdle));
         let references = client
             .get_locations(
                 LocationRequest::References {
@@ -169,8 +169,8 @@ fn readiness_timeout_client_waits_again_on_the_next_acquire() {
             .expect("start")
             .expect("client");
         assert_eq!(
-            first.readiness().as_deref(),
-            Some("timeout"),
+            first.readiness(),
+            Some(Readiness::Timeout),
             "indexing outlasts the first readiness budget"
         );
         let first_pid = std::fs::read_to_string(&pid_file).expect("server pid");
@@ -189,8 +189,8 @@ fn readiness_timeout_client_waits_again_on_the_next_acquire() {
             "no second server process"
         );
         assert_eq!(
-            second.readiness().as_deref(),
-            Some("progressIdle"),
+            second.readiness(),
+            Some(Readiness::ProgressIdle),
             "the next acquire waits again instead of keeping the stored timeout"
         );
         assert!(
@@ -237,7 +237,7 @@ fn first_open_after_a_confirmed_project_load_skips_the_settle() {
         client.start().await.expect("fake server starts");
         assert_eq!(
             client.wait_for_ready(Some(5_000)).await.unwrap(),
-            "progressIdle"
+            Readiness::ProgressIdle
         );
         let file = root.join("a.sh").to_string_lossy().into_owned();
         let started = std::time::Instant::now();
@@ -246,7 +246,7 @@ fn first_open_after_a_confirmed_project_load_skips_the_settle() {
             .await
             .expect("document syncs");
         let waited = started.elapsed();
-        assert_eq!(readiness.as_deref(), Some("settledWithoutProgress"));
+        assert_eq!(readiness, Some(Readiness::SilentServer));
         assert!(
             waited < Duration::from_millis(400),
             "no settle stacked on a confirmed project load: {waited:?}"
@@ -278,14 +278,14 @@ fn a_settle_cap_bounds_every_silent_server_wait() {
         let started = std::time::Instant::now();
         assert_eq!(
             client.wait_for_ready(Some(5_000)).await.unwrap(),
-            "settledWithoutProgress"
+            Readiness::SilentServer
         );
         let file = root.join("a.sh").to_string_lossy().into_owned();
         let readiness = client
             .open_document_and_wait(file.clone(), "echo hi\n", Some(400), Some(5_000))
             .await
             .expect("document syncs");
-        assert_eq!(readiness.as_deref(), Some("settledWithoutProgress"));
+        assert_eq!(readiness, Some(Readiness::SilentServer));
         client
             .get_locations(
                 LocationRequest::Definition,

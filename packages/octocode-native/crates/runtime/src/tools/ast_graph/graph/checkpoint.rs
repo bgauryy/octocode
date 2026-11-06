@@ -126,11 +126,12 @@ impl Job<'_> {
     /// digest + pinned identity + complete payload), so it is written
     /// without a sync: a torn or lost write fails verification on the next
     /// build and is extracted again; only stage transitions are durable.
+    /// Returns the kept facts and their artifact's encoded bytes.
     pub(super) fn keep(
         &self,
         view: &GraphFactsView<'_>,
         source: capture::CapturedSource,
-    ) -> Result<super::scan::Kept, ToolError> {
+    ) -> Result<(super::scan::Kept, usize), ToolError> {
         // Reused from its own verified artifact: that artifact already holds
         // these facts, so it is kept, not encoded, scanned and written again.
         if view.reused {
@@ -146,7 +147,7 @@ impl Job<'_> {
                 state.committed.insert(view.relative_path.into());
                 drop(state);
                 let storage = Storage::Disk(self.target(view.relative_path));
-                return Ok(self.retain(view, source, size, storage));
+                return Ok((self.retain(view, source, size, storage), to_usize(size)));
             }
         }
         let bytes = encode(&self.manifest.namespace, view)?;
@@ -155,10 +156,11 @@ impl Job<'_> {
             let previous = {
                 let mut state = self.state();
                 if state.memory_bytes.saturating_add(size) > self.limits.memory_only_bytes {
-                    return Err(limit(
-                        "memory-only extraction artifacts",
-                        self.limits.memory_only_bytes,
-                    ));
+                    // Past the budget for encoded copies, the file is linked
+                    // from its decoded facts like an uncheckpointed build's:
+                    // nothing is refused, only this file's resumption.
+                    drop(state);
+                    return Ok((decoded(view, source), bytes.len()));
                 }
                 state.memory_bytes += size;
                 state.memory_files += 1;
@@ -186,7 +188,10 @@ impl Job<'_> {
                     .saturating_sub(previous.unwrap_or(0))
                     .saturating_add(size);
                 if next_bytes > self.limits.spill_bytes {
-                    return Err(limit("checkpoint disk artifacts", self.limits.spill_bytes));
+                    // Past the disk budget the file is linked from its
+                    // decoded facts, as past the memory-only budget.
+                    drop(state);
+                    return Ok((decoded(view, source), bytes.len()));
                 }
                 state.bytes = next_bytes;
                 state.artifacts.insert(view.relative_path.into(), size);
@@ -210,7 +215,7 @@ impl Job<'_> {
             state.committed.insert(view.relative_path.into());
             Storage::Disk(target)
         };
-        Ok(self.retain(view, source, size, storage))
+        Ok((self.retain(view, source, size, storage), to_usize(size)))
     }
 
     /// The file's facts kept decoded when `size` more encoded bytes fit the
@@ -329,6 +334,16 @@ pub(in crate::tools::ast_graph) fn complete(
         state::sync_dir(parent)?;
     }
     Ok(())
+}
+
+/// The file's facts kept decoded, as an uncheckpointed build keeps them.
+fn decoded(view: &GraphFactsView<'_>, source: capture::CapturedSource) -> super::scan::Kept {
+    let marks = super::super::classify::SourceMarks::of(view.relative_path, view.content);
+    super::scan::Kept::Memory(Box::new((view.to_entry(), marks, source)))
+}
+
+fn to_usize(bytes: u64) -> usize {
+    usize::try_from(bytes).unwrap_or(usize::MAX)
 }
 
 fn failure(message: impl Into<String>) -> ToolError {

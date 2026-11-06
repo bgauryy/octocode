@@ -6,6 +6,9 @@ mod pure;
 mod job;
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
+mod cpu_clock;
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 mod live;
 
 #[cfg(unix)]

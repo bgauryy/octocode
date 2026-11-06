@@ -124,7 +124,6 @@ pub(super) fn build_result(
         submatches,
         matched_lines,
         span_capped,
-        timed_out,
         size_skipped,
         binary_quit,
         binary_files,
@@ -144,7 +143,6 @@ pub(super) fn build_result(
     // Cap reasons in a fixed order, so equal results carry equal reasons.
     let cap_reasons: Vec<CapReason> = [
         (span_capped, CapReason::MaxOnlyMatchingPerFile),
-        (timed_out, CapReason::Pcre2Deadline),
         (size_skipped, CapReason::MaxFileSize),
         (cancelled, CapReason::Cancelled),
         (binary_quit, CapReason::BinaryQuit),

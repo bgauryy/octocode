@@ -5,7 +5,7 @@ use super::*;
 #[test]
 fn a_streamed_source_hides_its_leading_bom() {
     let mut source = "\u{feff}alpha\nbeta\n".to_owned().into_bytes();
-    source.extend(std::iter::repeat_n(b'z', 11 * 1024 * 1024));
+    source.extend(std::iter::repeat_n(b'z', past_whole()));
     let file = temp(&source);
     let read = fetch(
         &file,
@@ -21,7 +21,7 @@ fn a_streamed_source_hides_its_leading_bom() {
 #[test]
 fn a_streamed_window_past_line_one_keeps_a_leading_feff() {
     let mut source = "alpha\nbeta\n\u{feff}gamma\n".to_owned().into_bytes();
-    source.extend(std::iter::repeat_n(b'z', 11 * 1024 * 1024));
+    source.extend(std::iter::repeat_n(b'z', past_whole()));
     let file = temp(&source);
     let read = fetch(
         &file,
@@ -34,7 +34,7 @@ fn a_streamed_window_past_line_one_keeps_a_leading_feff() {
 #[test]
 fn default_streamed_read_fills_short_lines_and_continues_the_long_line() {
     let mut source = "x\n".repeat(1_200).into_bytes();
-    source.extend(std::iter::repeat_n(b'z', 11 * 1024 * 1024));
+    source.extend(std::iter::repeat_n(b'z', past_whole()));
     let file = temp(&source);
     let first = fetch(&file, &query(serde_json::json!({"path":file.path()})), None);
     assert_eq!(first.content.as_deref(), Some("x\n".repeat(1200).as_str()));
@@ -162,7 +162,7 @@ fn a_walk_across_a_giant_key_body_reconstructs_the_sanitized_source_once() {
     let mut call = query(serde_json::json!({"path":file.path()}));
     let (mut joined, mut pages) = (String::new(), 0);
     loop {
-        let page = fetch(&file, &call, Some(2 * WINDOW_BYTES));
+        let page = fetch(&file, &call, Some(2 * LIMITS.window));
         assert_eq!(page.error_code, None, "page {pages}");
         joined.push_str(page.content.as_deref().expect("content"));
         pages += 1;

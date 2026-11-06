@@ -101,6 +101,15 @@ pub(super) struct TypingBindings {
 
 const CONSTANT: &str = "TYPE_CHECKING";
 
+/// One step of [`TypingBindings::value_at_run_time`]: read a node (`None`:
+/// a missing operand, which is unsettled), or combine the values its
+/// operands left on the value stack.
+enum Step<'tree> {
+    Read(Option<Node<'tree>>),
+    Not,
+    Join { settled: bool },
+}
+
 fn is_typing_module(name: &str) -> bool {
     matches!(name, "typing" | "typing_extensions")
 }
@@ -154,18 +163,57 @@ impl TypingBindings {
     /// What `condition` is when the program runs, where the file settles it:
     /// `TYPE_CHECKING` is false, whatever it is called. `literals` also reads
     /// `True` and `False`, which a condition can test but a variable holding
-    /// one may be rebound.
+    /// one may be rebound. Evaluated over an explicit stack: a value nested
+    /// `((…))`, `not not …` or `a or b or …` deeper than any thread stack
+    /// holds is read, not a process abort.
     fn value_at_run_time(
         &self,
         condition: Node<'_>,
         content: &str,
         literals: bool,
     ) -> Option<bool> {
-        let operand = |field: &str| {
-            condition
-                .child_by_field_name(field)
-                .and_then(|inner| self.value_at_run_time(inner, content, literals))
-        };
+        let mut steps = vec![Step::Read(Some(condition))];
+        let mut values: Vec<Option<bool>> = Vec::new();
+        while let Some(step) = steps.pop() {
+            match step {
+                Step::Read(None) => values.push(None),
+                Step::Read(Some(node)) => match node.kind() {
+                    "parenthesized_expression" => steps.push(Step::Read(node.named_child(0))),
+                    "not_operator" => {
+                        steps.push(Step::Not);
+                        steps.push(Step::Read(node.child_by_field_name("argument")));
+                    }
+                    "boolean_operator" => {
+                        let settled = node
+                            .child_by_field_name("operator")
+                            .and_then(|operator| node_text(operator, content))
+                            == Some("or");
+                        steps.push(Step::Join { settled });
+                        steps.push(Step::Read(node.child_by_field_name("right")));
+                        steps.push(Step::Read(node.child_by_field_name("left")));
+                    }
+                    _ => values.push(self.leaf_value(node, content, literals)),
+                },
+                Step::Not => {
+                    let value = values.pop().flatten();
+                    values.push(value.map(std::ops::Not::not));
+                }
+                Step::Join { settled } => {
+                    let right = values.pop().flatten();
+                    let left = values.pop().flatten();
+                    values.push(if left == Some(settled) || right == Some(settled) {
+                        Some(settled)
+                    } else {
+                        left.filter(|_| right == left)
+                    });
+                }
+            }
+        }
+        values.pop().flatten()
+    }
+
+    /// [`Self::value_at_run_time`] of a node that holds no operand.
+    fn leaf_value(&self, condition: Node<'_>, content: &str, literals: bool) -> Option<bool> {
         match condition.kind() {
             "identifier" => {
                 let name = node_text(condition, content)?;
@@ -183,22 +231,6 @@ impl TypingBindings {
             }
             "true" => literals.then_some(true),
             "false" => literals.then_some(false),
-            "parenthesized_expression" => {
-                self.value_at_run_time(condition.named_child(0)?, content, literals)
-            }
-            "not_operator" => operand("argument").map(std::ops::Not::not),
-            "boolean_operator" => {
-                let (left, right) = (operand("left"), operand("right"));
-                let text = condition
-                    .child_by_field_name("operator")
-                    .and_then(|operator| node_text(operator, content));
-                let settled = text == Some("or");
-                if left == Some(settled) || right == Some(settled) {
-                    Some(settled)
-                } else {
-                    left.filter(|_| right == left)
-                }
-            }
             _ => None,
         }
     }

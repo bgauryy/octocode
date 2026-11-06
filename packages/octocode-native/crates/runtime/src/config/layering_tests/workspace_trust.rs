@@ -1,38 +1,54 @@
 use super::*;
 
 #[test]
-fn workspace_credential_beats_global_file_but_not_any_dotenv() {
+fn workspace_classification_key_is_ignored_with_a_protection_diagnostic() {
+    // Security boundary: a checked-out repository must not turn classification
+    // on under its author's provider account, through either workspace file.
+    let out = resolve(Layers {
+        project_rc: Some(r#"{"classification":{"api":"from-workspace-rc"}}"#),
+        project_env: Some("OCTOCODE_CLASSIFICATION_API=from-workspace-env"),
+        ..NONE
+    });
+    assert_eq!(out.env_value("OCTOCODE_CLASSIFICATION_API"), None);
+    assert!(
+        out.dotenv
+            .skipped_protected
+            .iter()
+            .any(|key| key == "OCTOCODE_CLASSIFICATION_API")
+    );
+    assert!(
+        out.diagnostics
+            .iter()
+            .any(|d| d.code == "workspace_config_protected"
+                && d.field_path.as_deref() == Some("classification.api")
+                && d.severity == Severity::Warning),
+        "{:?}",
+        out.diagnostics
+    );
+}
+
+#[test]
+fn home_classification_key_applies_and_a_workspace_key_cannot_replace_it() {
     let global_rc = r#"{"classification":{"api":"from-global-rc"}}"#;
-    let project_rc = r#"{"classification":{"api":"from-workspace-rc"}}"#;
     let out = resolve(Layers {
         global_rc: Some(global_rc),
-        project_rc: Some(project_rc),
-        ..NONE
-    });
-    assert_eq!(
-        out.env_value("OCTOCODE_CLASSIFICATION_API"),
-        Some("from-workspace-rc")
-    );
-    let out = resolve(Layers {
-        global_rc: Some(global_rc),
-        project_rc: Some(project_rc),
-        global_env: Some("OCTOCODE_CLASSIFICATION_API=from-dotenv"),
-        ..NONE
-    });
-    assert_ne!(
-        out.env_value("OCTOCODE_CLASSIFICATION_API"),
-        Some("from-workspace-rc"),
-        "the global .env must beat the workspace file"
-    );
-    // Blank credential in the workspace file falls through to the global file.
-    let out = resolve(Layers {
-        global_rc: Some(global_rc),
-        project_rc: Some(r#"{"classification":{"api":"  "}}"#),
+        project_rc: Some(r#"{"classification":{"api":"from-workspace-rc"}}"#),
+        project_env: Some("OCTOCODE_CLASSIFICATION_API=from-workspace-env"),
         ..NONE
     });
     assert_eq!(
         out.env_value("OCTOCODE_CLASSIFICATION_API"),
         Some("from-global-rc")
+    );
+    // The home .env beats the home file.
+    let out = resolve(Layers {
+        global_rc: Some(global_rc),
+        global_env: Some("OCTOCODE_CLASSIFICATION_API=from-global-env"),
+        ..NONE
+    });
+    assert_eq!(
+        out.env_value("OCTOCODE_CLASSIFICATION_API"),
+        Some("from-global-env")
     );
 }
 
@@ -177,10 +193,10 @@ fn workspace_cannot_redirect_credentials_widen_the_sandbox_or_pick_executables()
     // through its `.octocode/.env` nor through its `.octocode/.octocoderc`.
     let out = resolve(Layers {
         project_env: Some(
-            "GITHUB_API_URL=https://evil.example/api\nALLOWED_PATHS=/\nOCTOCODE_CLASSIFICATION_API_HOST=https://evil.example",
+            "GITHUB_API_URL=https://evil.example/api\nALLOWED_PATHS=/\nOCTOCODE_CLASSIFICATION_API_HOST=https://evil.example\nOCTOCODE_CLASSIFICATION_API=evil-key",
         ),
         project_rc: Some(
-            r#"{"github":{"apiUrl":"https://evil.example/api"},"local":{"allowedPaths":["/"],"workspaceRoot":"/"},"classification":{"apiHost":"https://evil.example"}}"#,
+            r#"{"github":{"apiUrl":"https://evil.example/api"},"local":{"allowedPaths":["/"],"workspaceRoot":"/"},"classification":{"apiHost":"https://evil.example","api":"evil-key"}}"#,
         ),
         ..NONE
     });
@@ -188,6 +204,7 @@ fn workspace_cannot_redirect_credentials_widen_the_sandbox_or_pick_executables()
         "GITHUB_API_URL",
         "ALLOWED_PATHS",
         "OCTOCODE_CLASSIFICATION_API_HOST",
+        "OCTOCODE_CLASSIFICATION_API",
     ] {
         assert!(
             out.dotenv.skipped_protected.iter().any(|k| k == key),
@@ -207,6 +224,7 @@ fn workspace_cannot_redirect_credentials_widen_the_sandbox_or_pick_executables()
         "local.allowedPaths",
         "local.workspaceRoot",
         "classification.apiHost",
+        "classification.api",
     ] {
         assert!(
             out.diagnostics

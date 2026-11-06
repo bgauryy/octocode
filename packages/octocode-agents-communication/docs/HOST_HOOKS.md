@@ -8,6 +8,7 @@ Nothing here changes user-level host settings; hooks live in host configuration,
 | --- | --- | --- | --- |
 | Claude Code | `SessionStart`, `UserPromptSubmit`, tool events; `SessionEnd` leaves | `PostToolUse`/`PostToolUseFailure` `hookSpecificOutput.additionalContext` | Prompt events maintain presence; session-start context carries binding only |
 | Codex | `SessionStart`, `UserPromptSubmit`, `PostToolUse`; `SessionEnd` leaves | `PostToolUse` `hookSpecificOutput.additionalContext` | No `PostToolUseFailure` event configured; session-start context carries binding only |
+| Octocode | `SessionStart`, `PostToolUse`; `SessionEnd` leaves | `PostToolUse` `hookSpecificOutput.additionalContext` | Native preset; no prompt/failure event or Pi extension; session-start context carries binding only |
 | Cursor | `sessionStart`, `beforeSubmitPrompt`, tool events; `sessionEnd` leaves | `postToolUse`/`postToolUseFailure` `additional_context` | `beforeSubmitPrompt` only validates |
 | Grok Build | `SessionStart`, `UserPromptSubmit`, tool events; `SessionEnd` leaves | `PostToolUse`/`PostToolUseFailure` `hookSpecificOutput.additionalContext` | Session-start and prompt-hook output is discarded |
 | OpenCode | Existing session ID via server/SDK | `POST /session/:id/message` with `noReply:true` | No shell hook needed when the server is reachable |
@@ -30,30 +31,40 @@ Inspect the server's `/doc` schema first. Only literal-loopback HTTP with an exp
 ## Failure and context policy
 
 - Identity resolves through vendor labels and native bindings. A native-bound identity keeps presence/end events but gets no hook context; a second registration for that receiver is rejected (reuse the reported identity), and raw hook init cannot replace a concurrent native attachment.
-- Deterministic (no model call), ten-second host timeout, 1 MiB stdin bound. Invalid input or workspace mismatch logs and fails open.
+- Deterministic (no model call), host-specific timeout (Codex shutdown: three seconds; other generated hooks: ten seconds), 1 MiB stdin bound. Invalid input or workspace mismatch logs and fails open.
 - Only supported injection events stage messages; others leave rows untouched. Hook payloads and tool results are never stored.
 - SQLite serializes concurrent identity creation and staging. Restarts reuse the identity; expiry neither deletes audit nor replays.
 - Messaging hooks change neither tool permissions nor tool results and never block completion.
 - Presence renews on events; an idle host expires unless a listener keeps it, and direct messages wait for its next event.
 - SDK acceptance and handling ACKs stay separate from stdout success; a crash after staging needs explicit recovery. A hook whose stdout reader closed before the write finished (host timeout, `| head`) records the offer `uncertain` and exits 0: the message stays pending, so inspect it and use `retry_delivery`. Hook stdin may start with a UTF-8 byte order mark.
 
-## Claude: bounded completion check alongside native delivery
+## Integrate another provider
 
-For an attached Claude recipient, the host can configure `completion-check` as a process-local [Stop hook](https://code.claude.com/docs/en/hooks#stop):
+MCP accepts any nonblank vendor label. For automatic context delivery, map the host's events to `host-hook --vendor <provider>` using the same label in MCP `init`. No provider code or API key is required by the communication layer.
 
-```json
-{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"'/absolute/path/agents-communication' completion-check - --workspace '/repo' --database '/db/communication.sqlite' --session 'DB_SESSION_ID'","timeout":10}]}]}}
+```sh
+npx -y @octocodeai/octocode-agents-communication /cli host-hook \
+  --vendor your-provider --workspace /absolute/project \
+  --database /absolute/shared/communication.sqlite --json
 ```
 
-Shell-quote the real paths and DB identity. Bind the native session and canonical workspace before the first Stop event, keep the listener running, and expose `inbox`. The command checks stdin `session_id` and `cwd` against the binding. Opt-in only.
+Send one JSON object on stdin:
 
-- It lists at most 16 submitted, unexpired, unacknowledged IDs, without bodies; fetch one with `inbox({message:ID})`, then reply/ACK.
-- `stop_hook_active:true` returns `{}`, so a blocked task cannot loop. Invalid bindings fail with a diagnostic and complete nothing.
-- Read-only: no staging, resend, audit, permission changes, idle wake, provider recovery, or evidence of handling; the socket receipt stays write-only. Passive mail is ignored. Claude may show a Stop-hook error notice for a block; the event still records success.
+```json
+{"hook_event_name":"PostToolUse","session_id":"exact-host-session-id","cwd":"/absolute/project","context_generation":"stable-context-id"}
+```
+
+Use `SessionStart` to register the identity and inject initial binding context; `UserPromptSubmit` to maintain presence; `PostToolUse` or `PostToolUseFailure` to receive messages; and `SessionEnd` to leave. Each independent agent, including a child, supplies its own host session ID. The configured workspace must contain `cwd`. `context_generation` is optional; change it only when the host resets or compacts context.
+
+Consume `hookSpecificOutput.additionalContext` as peer data in the host's context. `{}` means no addition. Keep the event output intact: oversized bodies become executable `data.next` references and excess messages remain pending. The adapter must honor the documented context budget or use the deferred confirmation bridge below. The hook confirms submission after writing stdout; a host that cannot equate successful stdout delivery with acceptance must use deferred confirmation instead.
+
+To share this identity with MCP, initialize with the same `vendor` and exact `vendorSession` (the hook's `session_id`), or pass the returned database session as `--session`. Hooks own presence and teardown for that binding. `host-config` remains a preset generator for known host configuration formats; another provider wires these events through its own configuration.
+
+`Stop` and unknown events do nothing. The former `completion-check` command and Pi `completionCheck` option were removed: delete their old host configuration. Pending messages never force an extra model turn or prevent stopping; agents decide when and how to answer. Every adapter uses the current database contract in [DB.md](DB.md).
 
 ## Identity context generations
 
-Claude/Codex/Cursor emit binding context once at session start, Grok on the first supported post-tool event; flags are relative to host cwd, with `--database` omitted for the default DB. Later batches carry only new data. A host can supply a stable new `context_generation` after reset/compaction; repeats with no messages stay silent. No model turn starts, and elapsed time implies no reset.
+Provider-neutral, Claude/Codex/Cursor/Octocode hooks emit binding context once at session start, Grok on the first supported post-tool event; flags are relative to host cwd, with `--database` omitted for the default DB. Later batches carry only new data. A host can supply a stable new `context_generation` after reset/compaction; repeats with no messages stay silent. No model turn starts, and elapsed time implies no reset.
 
 Without an eligible message or new generation, hooks take a read-only path and skip the writer lock; creation, renewal, delivery and teardown stay transactional.
 
@@ -65,8 +76,6 @@ Hooks add bounded peer changes: IDs, names, declared tasks, availability. Publis
 - `removedFromView` may mean pagination displaced a row: check `peers` before you infer departure. Follow `next`; `refresh` means a change may lie past the cached page. Views hold at most 16 rows, 3,000-byte row budget (one complete row always fits).
 - Pi inserts directory notices without a turn; native recipients get changes with their next delivery; managed workers also get an initial directory. No roster change wakes an idle host; `peers` is the current lookup.
 
-Pi `completionCheck: true`: after a real turn ends, the extension checks submitted, unacknowledged IDs and allows one recovery turn per work cycle (new action mail or user input starts a cycle; recovery does not). Passive mail never wakes; session/workspace changes cancel stale checks; it never acknowledges unfinished work.
-
 Pi sends `strict:false` on its communication function descriptors for OpenAI Chat/Responses, which otherwise may make omitted optional routing fields required. It also projects top-level schema unions into plain object parameters for providers that reject root `oneOf`/`anyOf`/`allOf`; the canonical catalog still validates exact routing and payload rules. Other tools and schemas are unchanged. See [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling).
 
 ## Custom bridge confirmation
@@ -76,4 +85,4 @@ For deferred confirmation, call `hook {"format":"json","deferConfirm":true}`.
 Retain every offered message ID and `dispatchToken`.
 Call `confirm_delivery` only after the host SDK accepts the context.
 Call `complete` separately after handling; acceptance is not acknowledgement.
-`host-hook` consumes actual host event JSON on stdin. It does not replace manual joining.
+`host-hook` consumes lifecycle JSON on stdin and resolves or creates the host binding; the lower-level `hook` command requires an existing database identity.

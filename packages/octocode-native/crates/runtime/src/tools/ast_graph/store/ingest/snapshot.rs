@@ -19,7 +19,29 @@ pub(super) struct Publish<'a> {
     pub build_ms: u64,
     pub registry: RegistryView<'a>,
     pub registry_identity: &'a str,
+    pub build_identity: &'a str,
     pub limits: &'a Limits,
+}
+
+/// A build whose extraction paused at its call's budget: a partial answer
+/// with its progress; the tool adapter adds the call that resumes it.
+pub(super) fn paused(
+    root: &Path,
+    pause: super::super::super::types::ExtractionPause,
+) -> GraphOutput {
+    let mut out = GraphOutput::ok(json!({
+        "root": root.to_string_lossy(),
+        "progress": {
+            "committedFiles": pause.committed_files,
+            "remainingFiles": pause.remaining_files,
+        },
+    }));
+    crate::response::paging::mark_partial(
+        &mut out.value,
+        crate::response::paging::PartialReason::ScanBudget,
+        &[],
+    );
+    out
 }
 
 /// Names the narrower scopes to ingest on a budget the scan could not bound.
@@ -90,6 +112,7 @@ pub(super) fn publish_snapshot(
         build_ms: job.build_ms,
         registry: job.registry,
         registry_identity: job.registry_identity,
+        build_identity: job.build_identity,
     });
     if let Err(error) = cancel.check() {
         return GraphOutput::error(ErrorCode::Cancelled, error);
@@ -116,12 +139,22 @@ pub(super) fn publish_snapshot(
     }
     let pruned = prune(job.home, &job.built.root, job.options.keep);
     progress::emit(|| format!("published {id} ({bytes} bytes)"));
+    let mut receipt = receipt(&id, &dir, &manifest, started);
+    if !pruned.is_empty() {
+        receipt["pruned"] = json!(pruned);
+    }
+    GraphOutput::ok(receipt)
+}
+
+/// The receipt of the published snapshot `id` at `dir`, from its manifest:
+/// a fresh build and an unchanged scope's reuse answer alike.
+pub(super) fn receipt(id: &str, dir: &Path, manifest: &Value, started: Instant) -> Value {
     let mut receipt = json!({
         "id": id,
         "dir": dir.to_string_lossy(),
-        "root": job.built.root.to_string_lossy(),
-        "bytes": bytes,
-        "sha256": digest,
+        "root": manifest["root"],
+        "bytes": manifest["graph"]["bytes"],
+        "sha256": manifest["graph"]["sha256"],
         "counts": manifest["counts"],
         "calls": manifest["calls"],
         "argumentCoverage": manifest["argumentCoverage"],
@@ -134,9 +167,6 @@ pub(super) fn publish_snapshot(
     if manifest["diagnostics"]["total"].as_u64().unwrap_or(0) > 0 {
         receipt["diagnostics"] = manifest["diagnostics"]["byCode"].clone();
     }
-    if !pruned.is_empty() {
-        receipt["pruned"] = json!(pruned);
-    }
     super::super::manifest::disclose_value_references(&mut receipt);
-    GraphOutput::ok(receipt)
+    receipt
 }

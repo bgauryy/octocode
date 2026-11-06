@@ -19,9 +19,16 @@ fn builds_pages_and_freshness_are_workspace_scoped() {
         "{built}"
     );
     assert_eq!(built["root"], "app", "{built}");
-    // An explicit rebuild of unchanged sources publishes a new snapshot with the
-    // same graph content; the receipt carries no reuse flag.
-    let rebuilt = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    // A build of unchanged sources answers with the current snapshot; a
+    // refresh publishes a new one with the same graph content. Neither
+    // receipt carries a reuse flag.
+    let again = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    assert_eq!(built["id"], again["id"], "{again}");
+    let rebuilt = call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json!({"path":"app","refresh":true}),
+    );
     assert_ne!(built["id"], rebuilt["id"], "{rebuilt}");
     assert!(rebuilt.get("reused").is_none(), "{rebuilt}");
     for key in ["root", "counts", "calls", "linkage", "scan"] {
@@ -133,4 +140,47 @@ fn simultaneous_builds_each_publish_a_complete_snapshot_under_retention() {
         assert_eq!(stats["graph"]["id"], json!(id), "{stats}");
         assert_eq!(stats["counts"], outputs[0]["counts"], "{stats}");
     }
+}
+
+/// A paused build is a partial row with its progress, whose
+/// `next.expandScan` is the same request without `refresh`, which would
+/// discard what it resumes.
+#[test]
+fn a_paused_build_resumes_through_expand_scan_without_refresh() {
+    struct Spent(std::time::Instant);
+    impl crate::execution::cancel::CancellationCheck for Spent {
+        fn check(&self) -> Result<(), String> {
+            Ok(())
+        }
+        fn deadline(&self) -> Option<std::time::Instant> {
+            Some(self.0)
+        }
+    }
+    let dir = Fixture::new();
+    dir.write("app/a.ts", "export const a = () => 1;\n");
+    let paths = workspace_policy(&dir.0);
+    let (workspace, root) = scope("app", &paths).expect("scope");
+    let query: GraphBuildQuery =
+        serde_json::from_value(json!({"path": "app", "refresh": true})).expect("query");
+    let options = IngestOptions {
+        workspace: Some(workspace),
+        ..IngestOptions::of_query(&query, root)
+    };
+    let mut paused = ingest(
+        &options,
+        &paths,
+        &ContentSecurity::new(),
+        &Spent(std::time::Instant::now()),
+        None,
+    );
+    resume_paused(&mut paused, &query);
+    let data = result(paused).data;
+    crate::tools::test_support::assert_row_contract(ToolId::GraphBuild, &data);
+    assert_eq!(data["isPartial"], true, "{data}");
+    let row = &data["next"]["expandScan"]["input"]["queries"][0];
+    assert_eq!(row["path"], "app", "{data}");
+    assert!(row.get("refresh").is_none(), "{data}");
+    // The resumed call builds the scope.
+    let built = call(&dir.0, ToolId::GraphBuild, row.clone());
+    assert!(built["id"].is_string(), "{built}");
 }

@@ -126,12 +126,16 @@ impl Inapplicable {
 /// The one grammar a directory scan without `parser` read, from the
 /// census of its own walk (no second walk): `None` when it read several (or
 /// one the query does not compile in). A first window whose files are all
-/// of no supported grammar is `languageRequired`.
+/// of no supported grammar is `languageRequired`, unless source files sit
+/// behind the paths the walk skipped: then the empty answer names them and
+/// leads to the walk that reads them.
 pub(super) fn infer_grammar(
     q: MatchQuery<'_>,
     scope: &Scope,
     scan: &Scan,
     grammars: &[GrammarCompile],
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
 ) -> Result<Option<String>, ToolError> {
     if scope.is_file || scope.language.is_some() {
         return Ok(None);
@@ -152,7 +156,10 @@ pub(super) fn infer_grammar(
         // A walk that admitted no file at all, or withheld some, names no
         // grammar to set: its empty result and disclosures are the answer.
         GrammarChoice::Absent
-            if q.scan_offset() == 0 && scan.unparsed.count > 0 && scan.withheld.total() == 0 =>
+            if q.scan_offset() == 0
+                && scan.unparsed.count > 0
+                && scan.withheld.total() == 0
+                && super::gaps::skipped_walk(q, scope, paths, true, cancel).is_none() =>
         {
             Err(ToolError::new(
                 ErrorCode::LanguageRequired,

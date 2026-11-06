@@ -1,15 +1,12 @@
 use super::octo::parse_tree_with_deadline;
 use crate::signatures::extractor::whole_file_deadline;
-use crate::signatures::{MAX_PARSE_SIZE, languages};
+use crate::signatures::languages;
 
 /// Count the recovered syntax errors with the selected grammar: each
 /// outermost ERROR span once and each MISSING node outside one; `None` for
-/// an oversized source, an unknown grammar, or a parse cut by its deadline
-/// (no count is known).
+/// an unknown grammar, or a parse its deadline or work bound cut (no count
+/// is known).
 pub fn count_syntax_errors(content: &str, selector: &str) -> Option<u32> {
-    if content.len() > MAX_PARSE_SIZE {
-        return None;
-    }
     let entry = languages::select(selector).next()?;
     let tree = parse_tree_with_deadline(&entry.language, content, whole_file_deadline()).ok()?;
     Some(error_spans(tree.root_node()))
@@ -102,11 +99,12 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_and_oversized_inputs_have_no_count() {
+    fn only_an_unknown_grammar_or_an_unfinished_parse_has_no_count() {
         assert_eq!(count_syntax_errors("text", "unknown-language"), None);
-        assert_eq!(
-            count_syntax_errors(&"x".repeat(MAX_PARSE_SIZE + 1), "rust"),
-            None
-        );
+        // No size refusal: a source as large as a whole read admits is
+        // counted; the parse's linear work bound is what stops a parse.
+        let line = "fn a() {}\n";
+        let large = line.repeat(crate::security::MAX_CONTENT_SIZE / line.len());
+        assert_eq!(count_syntax_errors(&large, "rust"), Some(0));
     }
 }

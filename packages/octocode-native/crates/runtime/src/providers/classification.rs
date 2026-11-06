@@ -68,6 +68,10 @@ pub struct ProviderDefaults {
     pub endpoint_path: &'static str,
     /// Path of the read-only model catalog on the same API root.
     pub models_path: &'static str,
+    /// The vendor's documented long-context window in tokens, read at its
+    /// lower bound. The runtime retries a refused request there on its own
+    /// only when the retry provably fits it.
+    pub long_context_tokens: u64,
 }
 
 /// Token usage a response reports.

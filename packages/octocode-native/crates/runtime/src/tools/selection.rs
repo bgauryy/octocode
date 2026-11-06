@@ -238,6 +238,63 @@ pub(crate) fn unless_transient(
     }
 }
 
+/// The note of a classified page that left units out, in the receipt's own
+/// counts over the whole walk: how many it kept, how many of them this page
+/// shows when an earlier candidate page kept some, whether units wait for
+/// `next.nextCandidatePage` or none is left to judge, and, when this page
+/// shows none, that an empty classified result is no absence.
+pub(crate) fn kept_note(outcome: &Outcome, shown: usize) -> Option<String> {
+    let receipt = &outcome.receipt;
+    if outcome.provider_unavailable()
+        || receipt.total_items == 0
+        || receipt.selected_items >= receipt.total_items
+    {
+        return None;
+    }
+    let counted = |count: usize| match receipt.unit {
+        octocode_contract_types::SelectionUnit::Hits => {
+            octocode_engine::text::counted(count, "hit", "hits")
+        }
+        octocode_contract_types::SelectionUnit::Chunks => {
+            octocode_engine::text::counted(count, "chunk", "chunks")
+        }
+    };
+    let count = |value: i64| usize::try_from(value).unwrap_or_default();
+    let mut note = format!(
+        "classification kept {} of {} that pass the classifiers",
+        receipt.selected_items,
+        counted(count(receipt.total_items))
+    );
+    if count(receipt.selected_items) != shown {
+        note.push_str(&if shown == 0 {
+            " (none on this page)".to_owned()
+        } else {
+            format!(" ({shown} on this page)")
+        });
+    }
+    let pending = outcome.unjudged.len();
+    if pending > 0 {
+        note.push_str(&format!(
+            "; {} not judged yet: next.nextCandidatePage judges them",
+            counted(pending)
+        ));
+    } else if receipt.unknown_items > 0 {
+        let unknown = count(receipt.unknown_items);
+        note.push_str(&format!(
+            "; none is left to judge, and {} {} unknown",
+            counted(unknown),
+            if unknown == 1 { "stays" } else { "stay" }
+        ));
+    }
+    note.push('.');
+    if shown == 0 {
+        note.push_str(
+            " An empty classified result is not absence: next.unfiltered lists them all.",
+        );
+    }
+    Some(note)
+}
+
 /// The warning of a view shown unfiltered because the provider could not
 /// answer: `subject` names the view ("this search"), `shown` what is shown
 /// ("its hits are"); the provider's code, message and hints follow.
@@ -326,47 +383,4 @@ fn progress_fields() -> &'static std::collections::BTreeSet<String> {
 /// The receipt and warning helpers every classified reader shares; the
 /// plan, selection and provider-page tests are in `selection/tests.rs`.
 #[cfg(test)]
-mod shared_tests {
-    use super::*;
-    use octocode_contract_types::{SelectionScope, SelectionUnit};
-
-    fn outcome(unjudged: Vec<[u32; 2]>) -> Outcome {
-        let mut plan = plan::Plan::new(
-            "binding".into(),
-            3,
-            SelectionStatus::Partial,
-            SelectionScope::SelectedView,
-            SelectionUnit::Hits,
-            None,
-        );
-        plan.selected = vec![0];
-        plan.unjudged = unjudged;
-        plan.finish()
-    }
-
-    #[test]
-    fn related_items_are_decided_hidden_and_apart_from_unknown_ones() {
-        let mut plan = plan::Plan::new(
-            "binding".into(),
-            3,
-            SelectionStatus::Partial,
-            SelectionScope::SelectedView,
-            SelectionUnit::Chunks,
-            None,
-        );
-        plan.selected = vec![0];
-        plan.related = vec![2];
-        let outcome = plan.finish();
-        let receipt = &outcome.receipt;
-        assert_eq!(receipt.related_items.map(u64::from), Some(1));
-        assert_eq!((receipt.selected_items, receipt.unknown_items), (1, 1));
-        assert_eq!(outcome.related, vec![2]);
-        assert_eq!(outcome.shown(3), vec![0]);
-        assert!(outcome.leaves_out());
-        // A page with no related ordinal omits the count.
-        assert_eq!(
-            super::shared_tests::outcome(vec![]).receipt.related_items,
-            None
-        );
-    }
-}
+mod shared_tests;

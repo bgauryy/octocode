@@ -10,19 +10,19 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 256,
-            "description": "Unique live peer name; conflicts get a numeric suffix. Use the returned name."
+            "description": "Introduce yourself with your existing agent name when available; otherwise choose one. Conflicts get a numeric suffix; use the returned name."
           },
           "vendor": {
             "type": "string",
             "minLength": 1,
             "maxLength": 256,
-            "description": "Host vendor owning this identity."
+            "description": "Your provider/host label; preserve it in caller metadata on each tool call."
           },
           "vendorSession": {
             "type": "string",
             "minLength": 1,
             "maxLength": 256,
-            "description": "Exact current host session ID; omit if unknown."
+            "description": "Your exact current native agent/session ID when known; omit rather than invent one. Distinct from the returned database ID."
           },
           "task": {
             "type": "string",
@@ -585,7 +585,7 @@
     },
     {
       "name": "mcp",
-      "description": "Typed stdio capability tools. Unbound connections expose init; --managed owns presence/cleanup and --session borrows the host identity. --tools limits capabilities.",
+      "description": "Provider-neutral stdio messaging tools by default. Unbound connections expose init; --managed owns presence/cleanup and --session borrows the host identity. --tools opts into additional capabilities.",
       "inputSchema": {
         "type": "object",
         "properties": {},
@@ -1015,8 +1015,8 @@
     },
     {
       "name": "host-hook",
-      "description": "Claude/Codex/Cursor/Grok stdin lifecycle JSON. Bind identity at session start; offer mail on supported post-tool events. Fails open; configure a timeout.",
-      "usage": "host-hook --vendor claude|codex|cursor|grok --workspace <path> [--database <file>]",
+      "description": "Provider-neutral stdin lifecycle JSON: hook_event_name, session_id, cwd. Bind at SessionStart; deliver on PostToolUse/PostToolUseFailure; leave at SessionEnd. Built-in host envelopes are also accepted. Fails open; configure a host timeout.",
+      "usage": "host-hook --vendor <provider> --workspace <path> [--database <file>]",
       "cliFlags": [
         "workspace",
         "database",
@@ -1030,21 +1030,17 @@
         "properties": {
           "vendor": {
             "type": "string",
-            "enum": [
-              "claude",
-              "codex",
-              "cursor",
-              "grok"
-            ],
-            "description": "Host receiving the hook configuration."
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Provider label matching the agent's MCP init vendor."
           }
         }
       }
     },
     {
       "name": "host-config",
-      "description": "Preview Claude/Codex/Cursor/Grok messaging hook config with 10s timeouts; writes no settings or DB. Merge into the documented host location; separate edit guards are optional.",
-      "usage": "host-config --vendor claude|codex|cursor|grok --workspace <path> [--database <file>]",
+      "description": "Preview Claude/Codex/Cursor/Grok/Octocode messaging hook config with host-compatible events and timeouts; writes no settings or DB. Merge into the documented host location; separate edit guards are optional.",
+      "usage": "host-config --vendor claude|codex|cursor|grok|octocode --workspace <path> [--database <file>]",
       "cliFlags": [
         "workspace",
         "database",
@@ -1062,7 +1058,8 @@
               "claude",
               "codex",
               "cursor",
-              "grok"
+              "grok",
+              "octocode"
             ],
             "description": "Host receiving the hook configuration."
           }
@@ -1611,45 +1608,6 @@
       "cliFlags": [
         "workspace",
         "database"
-      ]
-    },
-    {
-      "name": "completion-check",
-      "description": "Opt-in Claude/Pi completion check: read-only check of submitted, unacknowledged IDs; one recovery turn. Pass --session/--workspace/--database explicitly; stdin is hook JSON.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "hook_event_name": {
-            "type": "string",
-            "description": "Host hook event name."
-          },
-          "stop_hook_active": {
-            "type": "boolean",
-            "description": "Whether completion recovery is already active."
-          },
-          "session_id": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Host session ID from the hook event."
-          },
-          "cwd": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Host working directory from the hook event."
-          }
-        },
-        "additionalProperties": true,
-        "required": [
-          "hook_event_name",
-          "session_id",
-          "cwd"
-        ]
-      },
-      "usage": "completion-check - --session <id> --workspace <repo> --database <db>",
-      "cliFlags": [
-        "workspace",
-        "database",
-        "session"
       ]
     },
     {
@@ -5672,25 +5630,6 @@
         "actions"
       ],
       "description": "Delivery diagnostics; actions maps each issue present to its instruction."
-    },
-    "completion-check": {
-      "type": "object",
-      "properties": {
-        "decision": {
-          "const": "block"
-        },
-        "pending": {
-          "type": "array",
-          "items": {
-            "type": "integer"
-          }
-        },
-        "reason": {
-          "type": "string"
-        }
-      },
-      "additionalProperties": false,
-      "description": "Empty to let the host stop; decision block lists unacknowledged message IDs."
     },
     "locks": {
       "type": "object",

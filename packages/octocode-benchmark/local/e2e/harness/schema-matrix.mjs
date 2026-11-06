@@ -43,7 +43,8 @@ const driver = createDriver({ validate: validateOutput, validateInput, validateT
 const coverage = createInputCoverage(tools);
 const ledger = createLedger(contract);
 
-const plan = tools.flatMap(tool => (SPECS[tool.name] ? planTool(tool, SPECS[tool.name]) : []));
+// OCTOCODE_MATRIX_ROWS=none runs the scenarios alone (values then read as uncovered).
+const plan = process.env.OCTOCODE_MATRIX_ROWS === 'none' ? [] : tools.flatMap(tool => (SPECS[tool.name] ? planTool(tool, SPECS[tool.name]) : []));
 for (const row of plan) {
   SPECS[row.tool].normalize?.(row);
   row.input = { queries: [row.query], ...(row.responseChars && { responseChars: row.responseChars }) };

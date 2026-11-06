@@ -10,7 +10,7 @@ fn checked_streamed_page(query: &LocalFetchQuery, paths: &Paths) -> LocalFetchRe
             .expect("canonical input contract");
     let query_json = rows.remove(0);
     let admitted = serde_json::from_value(query_json.clone()).expect("admitted query");
-    let result = fetch(&admitted, paths);
+    let result = fetch_with(&admitted, paths, &SmallSafe);
     crate::tools::test_support::published(
         crate::id::ToolId::LocalFetch,
         &serde_json::to_value(&result).expect("output"),
@@ -22,14 +22,13 @@ fn checked_streamed_page(query: &LocalFetchQuery, paths: &Paths) -> LocalFetchRe
 fn streamed_oversized_line_pages_its_bytes_and_later_selected_lines() {
     let fixture = Fixture::new();
     let path = fixture.0.join("large.log");
-    let longest = "x".repeat(4 * 1024 * 1024);
+    let limits = SmallSafe.limits();
+    let longest = "x".repeat(limits.window);
     let suffix = "suffix past the streamed window\n";
     let selected_tail = "selected tail\n";
     // Streamed sources are those over the in-memory ceiling: the lines
     // after the oversized one only take the file just past it.
-    let outside = (super::super::acquire::MAX_SOURCE_BYTES as usize).saturating_sub(longest.len())
-        / "outside\n".len()
-        + 1_000;
+    let outside = limits.whole_source.saturating_sub(longest.len()) / "outside\n".len() + 1_000;
     fixture.write(
         "large.log",
         format!(
@@ -141,7 +140,10 @@ fn a_streamed_multi_range_read_serves_what_fits_and_continues_the_rest() {
 fn streamed_byte_pages_reject_source_changes_and_start_from_private_progress() {
     let fixture = Fixture::new();
     let line = "x".repeat(32 * 1024);
-    let source = format!("{line}\nselected tail\n{}", "outside\n".repeat(1_400_000));
+    let source = format!(
+        "{line}\nselected tail\n{}",
+        "outside\n".repeat(SmallSafe.limits().whole_source / 8 + 1_000)
+    );
     let path = fixture.write("large.log", &source);
     let paths = Paths(fixture.0.clone());
     let first = checked_streamed_page(
@@ -197,8 +199,8 @@ fn a_streamed_clipped_private_key_body_stays_redacted_across_windows() {
         "large.log",
         format!(
             "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\nselected tail\n{}",
-            "S".repeat(4 * 1024 * 1024 + 17),
-            "outside\n".repeat(900_000)
+            "S".repeat(SmallSafe.limits().window + 17),
+            "outside\n".repeat(SmallSafe.limits().whole_source / 8)
         ),
     );
     let paths = Paths(fixture.0.clone());

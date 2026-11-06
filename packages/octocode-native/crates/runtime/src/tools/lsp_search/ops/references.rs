@@ -105,15 +105,15 @@ impl Operation<'_, '_> {
                 .chain(importers.iter().flat_map(Importers::covered)),
         );
         let anchor_file = super::super::scope::canonical_uri(self.path);
-        self.scope.answer_anchor_lines(
-            self.path,
-            self.line,
-            found
-                .iter()
-                .chain(&recovered)
-                .chain(&from_importers)
-                .filter(|snippet| super::super::scope::canonical_uri(&snippet.uri) == anchor_file)
-                .map(|snippet| snippet.range.start.line),
+        self.scope.answer_lines(
+            false,
+            std::iter::once((self.path, self.line)).chain(
+                found
+                    .iter()
+                    .chain(&recovered)
+                    .chain(&from_importers)
+                    .map(|snippet| (snippet.uri.as_str(), snippet.range.start.line)),
+            ),
         );
         keep_this_pages_answer(
             &mut found,

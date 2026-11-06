@@ -257,23 +257,55 @@ async fn hierarchy_walk_checks_cancellation_between_requests() {
     assert_eq!(graph.requests.get(), 0);
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn long_awaits_observe_cancellation() {
-    struct CancelAfter(std::sync::atomic::AtomicUsize);
-    impl crate::execution::cancel::CancellationCheck for CancelAfter {
+/// An await is woken by the request's signal, never by a poll: how often it
+/// checks the cancellation does not grow with how long the work takes.
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn an_await_checks_cancellation_without_polling() {
+    struct Counting(std::sync::atomic::AtomicUsize);
+    impl crate::execution::cancel::CancellationCheck for Counting {
         fn check(&self) -> Result<(), String> {
-            if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) >= 2 {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+    }
+    async fn checks(wait: std::time::Duration) -> usize {
+        let cancel = Counting(std::sync::atomic::AtomicUsize::new(0));
+        cancellable(&cancel, tokio::time::sleep(wait))
+            .await
+            .expect("never cancelled");
+        cancel.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+    let short = checks(std::time::Duration::from_secs(1)).await;
+    let long = checks(std::time::Duration::from_secs(100)).await;
+    assert_eq!(short, long, "checks per await, 1 s against 100 s");
+}
+
+/// A signal raised while the work is pending ends the await at once.
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn a_raised_signal_ends_a_pending_await() {
+    struct Signalled(octocode_io::cancellation::Cancellation);
+    impl crate::execution::cancel::CancellationCheck for Signalled {
+        fn check(&self) -> Result<(), String> {
+            if self.0.is_cancelled() {
                 Err("cancelled".into())
             } else {
                 Ok(())
             }
         }
+        fn signal(&self) -> Option<&octocode_io::cancellation::Cancellation> {
+            Some(&self.0)
+        }
     }
-    let cancel = CancelAfter(std::sync::atomic::AtomicUsize::new(0));
-    let started = std::time::Instant::now();
+    let cancel = Signalled(octocode_io::cancellation::Cancellation::new());
+    let raise = cancel.0.clone();
+    let started = tokio::time::Instant::now();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        raise.cancel();
+    });
     let result = cancellable(&cancel, std::future::pending::<()>()).await;
     assert_eq!(result.expect_err("cancelled").code, ErrorCode::Cancelled);
-    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    assert_eq!(started.elapsed(), std::time::Duration::from_secs(1));
 }
 
 #[tokio::test(flavor = "current_thread")]

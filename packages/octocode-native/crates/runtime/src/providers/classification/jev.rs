@@ -22,6 +22,9 @@ static DEFAULTS: ProviderDefaults = ProviderDefaults {
     model: "jev-latest",
     endpoint_path: "v1/systemone",
     models_path: "v1/models",
+    // docs.typesafe.ai/models: with the long-context header "the per-request
+    // context and the per-question context are both 262k tokens".
+    long_context_tokens: 262_000,
 };
 
 /// The question key of a single-question request and its response.

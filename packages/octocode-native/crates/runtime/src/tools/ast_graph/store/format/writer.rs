@@ -308,6 +308,8 @@ pub(super) fn assemble(sections: Vec<Section>) -> (Vec<u8>, String) {
             if blocks::blocked(&section.tag) {
                 section.bytes =
                     blocks::pack(&section.tag, &section.bytes).expect("fixture record blocks");
+            } else if blocks::sealed(&section.tag) {
+                section.bytes = blocks::seal(&section.tag, &section.bytes).expect("fixture seal");
             }
             section
         })

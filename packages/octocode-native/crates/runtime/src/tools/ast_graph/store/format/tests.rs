@@ -9,7 +9,7 @@ fn front_coded_strings_cannot_expand_past_decode_budget() {
     let mut reader = Reader::new(&bytes, "STRS");
     let limits = Limits {
         string_bytes: 5,
-        ..LIMITS
+        ..*LIMITS
     };
     assert!(read_strings(&mut reader, &mut tables, &limits).is_err());
 }
@@ -22,7 +22,7 @@ fn empty_front_coded_strings_cannot_bypass_item_budget() {
     let limits = Limits {
         string_bytes: 100,
         table_items: 2,
-        ..LIMITS
+        ..*LIMITS
     };
     assert!(read_strings(&mut reader, &mut tables, &limits).is_err());
 }

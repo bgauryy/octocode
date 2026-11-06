@@ -233,3 +233,14 @@ test('another partial reason ends the wait and the limit leaves the row incomple
   assert.equal(expired.attempts.length, 3);
   assert.equal(semanticPagesComplete(expired.pages), false);
 });
+
+test('the caller deadline also bounds emitted indexing retries without hiding partial evidence', async () => {
+  let asked = 0;
+  const result = await settleSemanticQuery('lspSearch', {}, async () => {
+    asked += 1;
+    return { pages: [indexing(asked === 1 ? [retry] : [])], failures: [] };
+  }, { reaskUntil: 0, now: () => 0 });
+  assert.equal(asked, 1, 'an emitted related call cannot bypass the caller deadline');
+  assert.equal(result.attempts.length, 1);
+  assert.equal(semanticPagesComplete(result.pages), false);
+});

@@ -185,18 +185,6 @@ pub fn inspect_with_extension(
         .map(str::to_owned)
         .unwrap_or_else(|| extension_of(file_path, true, "txt"));
 
-    if content.len() > crate::signatures::MAX_PARSE_SIZE {
-        return failed(
-            "syntaxTree.content.tooLarge",
-            "parse",
-            format!(
-                "Syntax-tree content exceeds {} byte limit",
-                crate::signatures::MAX_PARSE_SIZE
-            ),
-            file_path,
-        );
-    }
-
     let Some(entry) = languages::find_entry(&ext)
         .filter(|entry| entry.admits(crate::text::analysis::AnalysisOperation::SyntaxTree))
     else {
@@ -323,7 +311,7 @@ pub fn inspect_with_extension(
 
 #[expect(
     clippy::expect_used,
-    reason = "syntax admission bounds input to MAX_PARSE_SIZE before this private constructor"
+    reason = "source templates address u32 offsets; tree-sitter positions are u32, so a parsed input fits them"
 )]
 fn source_templates(content: &str, name: &str) -> crate::text::analysis::SourceTemplates {
     crate::text::analysis::SourceTemplates::new(

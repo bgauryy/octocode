@@ -6,7 +6,7 @@ mod normalize;
 mod prepare;
 mod private_state;
 pub mod query_limits;
-pub(crate) use normalize::normalized_input;
+pub(crate) use normalize::{meant_field, normalized_input};
 pub(crate) use private_state::state_fields;
 pub(crate) mod output_fields;
 mod schema_facts;
@@ -18,8 +18,9 @@ pub(crate) use validate::levenshtein;
 
 use crate::id::ToolId;
 pub(crate) use schema_facts::{
-    child_schemas, item_schemas, property_schemas, query_declares, query_schema_max,
-    query_schema_number, query_schema_value, resolve_ref, schema_keyword,
+    additional_schemas, child_schemas, item_schemas, property_names, property_schemas,
+    query_declares, query_schema_max, query_schema_number, query_schema_value, resolve_ref,
+    schema_keyword,
 };
 pub(crate) use validate::validate_output_in_place;
 pub use validate::{
@@ -298,6 +299,44 @@ pub fn cli_presentation() -> Result<&'static serde_json::Value, &'static str> {
         })
         .as_ref()
         .map_err(String::as_str)
+}
+
+/// The row fields `tool` publishes only beside a classification provider:
+/// those its presentation's `selection` schema has and its plain one lacks.
+/// A runtime without a provider publishes the plain schema, so its errors
+/// name none of these.
+pub(crate) fn selection_only_fields(tool: &str) -> Vec<String> {
+    let Some(entry) = cli_presentation().ok().and_then(|presentation| {
+        presentation["tools"]
+            .as_array()?
+            .iter()
+            .find(|entry| entry["name"] == tool)
+    }) else {
+        return Vec::new();
+    };
+    let row_fields = |schema: &serde_json::Value| {
+        let defs = &schema["$defs"];
+        schema_facts::property_schemas(schema, defs, "queries")
+            .into_iter()
+            .flat_map(|queries| schema_facts::item_schemas(queries, defs))
+            .flat_map(|row| schema_facts::property_names(row, defs))
+            .map(str::to_owned)
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let plain = row_fields(&entry["mcp"]["inputSchema"]);
+    row_fields(&entry["selection"]["mcp"]["inputSchema"])
+        .into_iter()
+        .filter(|field| !plain.contains(field))
+        .collect()
+}
+
+/// `input` as the runtime runs it: the one lossless repair applied before
+/// validation (`contextLines: 2` becomes `{"before":2,"after":2}`, a bare row
+/// is wrapped in `queries`). A caller that describes a finished call, such as
+/// the CLI's text output, reads this rather than what was sent.
+#[must_use]
+pub fn input_as_run(tool_name: &str, input: serde_json::Value) -> serde_json::Value {
+    normalized_input(tool_name, input).0
 }
 
 /// The `<tool> --help` section of the CLI presentation tool `name`.

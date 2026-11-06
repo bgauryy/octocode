@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 pub(in super::super) struct TargetRoots {
     directory: PathBuf,
-    manifest: toml::Table,
+    manifest: std::sync::Arc<toml::Table>,
     edition_2015: bool,
     build_script: Option<PathBuf>,
 }

@@ -129,13 +129,9 @@ impl Selected {
         Ok(vec![("unfiltered", whole), ("unfilteredUnknown", unknown)])
     }
 
-    /// The provider's error when it failed this page, the hit rows kept
-    /// (those that pass the classifiers) of the pre-selection totals when
-    /// selection removed hits, and, when it kept none, why (every hit
-    /// judged and none passed, or some could not be judged) and that an
-    /// empty classified result is no absence: the unfiltered search matched
-    /// those rows and `next.unfiltered` lists them. That counts describe
-    /// kept hits is the tool description's, not repeated here.
+    /// The provider's error when it failed this page; else, when selection
+    /// removed hits, what it kept over the whole walk
+    /// ([`crate::tools::selection::kept_note`]).
     pub(in crate::tools::local_search) fn disclosure(&self) -> Vec<String> {
         let mut notes = Vec::new();
         if let Some(error) = &self.provider {
@@ -145,25 +141,10 @@ impl Selected {
                 "its hits are",
             ));
         }
-        if self.rows_kept == 0 && self.rows_before > 0 && self.provider.is_none() {
-            let unknown = self.outcome.receipt.unknown_items;
-            let why = if unknown == 0 {
-                "every hit was judged and none passed the questions".to_owned()
-            } else {
-                format!("no hit passed the questions and {unknown} could not be judged")
-            };
-            notes.push(format!(
-                "classification: {why}, so none of the {} ({}) is listed. An empty classified result is not absence: the unfiltered search matched them, and `next.unfiltered` lists them.",
-                octocode_engine::text::counted(self.rows_before, "hit row", "hit rows"),
-                octocode_engine::text::counted(self.files_before, "file", "files"),
-            ));
-        } else if self.rows_kept < self.rows_before {
-            notes.push(format!(
-                "classification kept {} of {} ({} of {}) that pass the classifiers.",
+        if self.provider.is_none() && self.rows_before > 0 {
+            notes.extend(crate::tools::selection::kept_note(
+                &self.outcome,
                 self.rows_kept,
-                octocode_engine::text::counted(self.rows_before, "hit row", "hit rows"),
-                self.files_kept,
-                octocode_engine::text::counted(self.files_before, "file", "files"),
             ));
         }
         notes

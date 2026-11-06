@@ -188,6 +188,7 @@ impl ToolRuntime {
             } else {
                 fetched_code_roots.to_vec()
             },
+            allow_build_scripts: config.resolved.lsp.allow_build_scripts,
             prewarm_state: std::sync::Arc::default(),
         });
         let classification = crate::providers::classification::provider();

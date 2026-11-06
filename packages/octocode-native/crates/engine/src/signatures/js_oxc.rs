@@ -31,6 +31,7 @@ pub(super) mod call_sites;
 mod callers;
 mod dialect;
 mod module_facts;
+pub(crate) mod nesting;
 mod outline;
 mod symbols;
 mod validity;
@@ -260,17 +261,6 @@ pub(crate) fn extract_declarations_as(
     })
 }
 
-/// [`extract_declarations`] for a caller already on the deep-stack pool:
-/// parsed in place, with no copy of `content` for another job.
-pub(crate) fn extract_declarations_in_place(
-    content: &str,
-    path: &str,
-) -> Option<GraphFactsDocument> {
-    let parse = || extract_declarations_inner(content, path, None);
-    (content.len() <= crate::signatures::MAX_PARSE_SIZE && is_oxc_dialect(path, None))
-        .then(|| std::panic::catch_unwind(std::panic::AssertUnwindSafe(parse)).unwrap_or(None))?
-}
-
 fn extract_declarations_inner(
     content: &str,
     file_path: &str,
@@ -309,9 +299,10 @@ fn extract_declarations_inner(
     })
 }
 
-/// Why oxc gives no facts for `content` read as `parser`'s dialect: its first
-/// error, with the 1-based line it names. `None` when it reports none (it
-/// could not run, or the caller stopped).
+/// Why oxc gives no facts for `content` read as `parser`'s dialect: a nesting
+/// deeper than its stack holds, else its first error, with the 1-based line
+/// either names. `None` when it reports none (it could not run, or the caller
+/// stopped).
 pub(super) fn parse_failure(
     content: &str,
     file_path: &str,
@@ -323,6 +314,9 @@ pub(super) fn parse_failure(
         file_path,
         Some(parser),
         move |content, file_path| {
+            if let Some(too_deep) = nesting::too_deep(content, &dialect) {
+                return Some((too_deep.reason(), too_deep.line));
+            }
             with_thread_allocator(|allocator| {
                 let source_type = source_type_for(&dialect, file_path, content);
                 let errors = Parser::new(allocator, content, source_type)

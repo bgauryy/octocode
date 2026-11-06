@@ -5,7 +5,10 @@ import base from './vitest.config';
 export default defineConfig({
   test: {
     ...base.test,
-    include: ['tests/e2e/launcher.e2e.test.ts', 'tests/e2e/config-view.e2e.test.ts'],
+    include: [
+      'tests/e2e/launcher.e2e.test.ts',
+      'tests/e2e/config-view.e2e.test.ts',
+    ],
     exclude: [],
   },
 });

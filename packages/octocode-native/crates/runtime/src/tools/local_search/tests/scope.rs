@@ -101,6 +101,48 @@ fn walk_options_lift_only_their_own_exclusions() {
     }
 }
 
+/// Octocode's own graph store is skipped whatever the flags, and disclosed
+/// as such; skill outputs elsewhere under `.octocode` stay searchable, and a
+/// path inside the store searches it.
+#[test]
+fn the_graph_store_is_skipped_unless_the_path_names_it() {
+    let root = tempfile::tempdir().expect("fixture");
+    for path in [
+        "visible.txt",
+        ".octocode/graph/snapshot.txt",
+        ".octocode/octocode-dev/report.txt",
+    ] {
+        let path = root.path().join(path);
+        fs::create_dir_all(path.parent().expect("parent")).expect("directory");
+        fs::write(path, "needle\n").expect("file");
+    }
+    let every = serde_json::json!({"matchString":["needle"],"view":"files","includeHidden":true,"includeIgnored":true,"defaultExcludes":false});
+    let body = search_root(root.path(), every.clone())
+        .to_row()
+        .expect("row");
+    assert_eq!(
+        paths(&body),
+        [".octocode/octocode-dev/report.txt", "visible.txt"]
+            .map(str::to_owned)
+            .into(),
+        "{body}"
+    );
+    let skipped = body["skippedPaths"]["entries"].as_array().expect("skipped");
+    assert!(
+        skipped
+            .iter()
+            .any(|entry| entry["cause"] == "octocode-artifact"
+                && entry["path"]
+                    .as_str()
+                    .is_some_and(|path| path.ends_with(".octocode/graph"))),
+        "{body}"
+    );
+    let inside = search_root(&root.path().join(".octocode/graph"), every)
+        .to_row()
+        .expect("row");
+    assert_eq!(paths(&inside).len(), 1, "{inside}");
+}
+
 #[cfg(unix)]
 #[test]
 fn escaped_symlinks_and_sensitive_files_are_excluded_before_matching() {

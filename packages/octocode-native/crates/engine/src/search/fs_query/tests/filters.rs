@@ -182,6 +182,34 @@ fn filters_by_size_and_empty() {
     assert_eq!(full.entries[0].name, "full.txt");
 }
 
+/// `empty:false` keeps the entries `empty:true` leaves out: files with bytes
+/// and directories with entries.
+#[test]
+fn empty_false_lists_only_entries_that_are_not_empty() {
+    let root = TmpDir::new();
+    File::create(root.join("empty.txt")).expect("create empty");
+    fs::write(root.join("full.txt"), "hello").expect("write full");
+    fs::create_dir_all(root.join("hollow")).expect("empty dir");
+    fs::create_dir_all(root.join("filled")).expect("dir");
+    fs::write(root.join("filled/x.txt"), "x").expect("child");
+    let names = |empty| {
+        let mut names = query_file_system_inner(FileSystemQueryOptions {
+            path: root.to_string_lossy().to_string(),
+            empty: Some(empty),
+            ..Default::default()
+        })
+        .expect("query")
+        .entries
+        .into_iter()
+        .map(|entry| entry.relative_path)
+        .collect::<Vec<_>>();
+        names.sort();
+        names
+    };
+    assert_eq!(names(true), ["empty.txt", "hollow"]);
+    assert_eq!(names(false), ["filled", "filled/x.txt", "full.txt"]);
+}
+
 #[test]
 fn filters_by_entry_type() {
     let root = TmpDir::new();

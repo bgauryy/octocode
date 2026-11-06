@@ -7,8 +7,23 @@ const DEADLINE: Duration = Duration::from_secs(15);
 
 struct Viewer(Child);
 
+/// A viewer ends as a user's Ctrl+C ends it: SIGTERM, so it leaves through its
+/// own shutdown (and a coverage run records the session). One still running
+/// past the deadline is killed.
 impl Drop for Viewer {
     fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Ok(pid) = i32::try_from(self.0.id()) {
+            // SAFETY: `pid` is this test's own unreaped child, so it names no other process.
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+            let deadline = Instant::now() + DEADLINE;
+            while Instant::now() < deadline {
+                if matches!(self.0.try_wait(), Ok(Some(_))) {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
         let _ = self.0.kill();
         let _ = self.0.wait();
     }

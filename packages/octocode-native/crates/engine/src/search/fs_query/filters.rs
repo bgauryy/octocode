@@ -195,7 +195,9 @@ fn matches_metadata(
     query: &CompiledQuery,
     state: &mut QueryState,
 ) -> bool {
-    if query.empty && !is_empty(path, metadata, place, query, state) {
+    if let Some(empty) = query.empty
+        && is_empty(path, metadata, place, query, state) != empty
+    {
         return false;
     }
     // A size filter is about content: a directory's own length (its entry

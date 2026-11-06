@@ -501,7 +501,6 @@ DbExportInput: DbExportInput
 DbRetentionInput: DbRetentionInput
 DbCompactInput: DbCompactInput
 HealthInput: HealthInput
-CompletionCheckInput: CompletionCheckInput
 LocksInput: LocksInput
 ViewInput: ViewInput
 FetchInput: FetchInput
@@ -549,7 +548,6 @@ DbRetentionResult: DbRetentionResult
 DbCompactResult: DbCompactResult
 SchemaToolsResult: SchemaToolsResult
 HealthResult: HealthResult
-CompletionCheckResult: CompletionCheckResult
 LocksResult: LocksResult
 ViewResult: ViewResult
 FetchResult: FetchResult
@@ -588,15 +586,15 @@ CheckpointData: CheckpointData
  */
 export interface JoinInput {
 /**
- * Unique live peer name; conflicts get a numeric suffix. Use the returned name.
+ * Introduce yourself with your existing agent name when available; otherwise choose one. Conflicts get a numeric suffix; use the returned name.
  */
 name: string
 /**
- * Host vendor owning this identity.
+ * Your provider/host label; preserve it in caller metadata on each tool call.
  */
 vendor: string
 /**
- * Exact current host session ID; omit if unknown.
+ * Your exact current native agent/session ID when known; omit rather than invent one. Distinct from the returned database ID.
  */
 vendorSession?: string
 /**
@@ -1141,29 +1139,6 @@ message: number
  */
 recipient: string
 }
-}
-/**
- * This interface was referenced by `CatalogTypes`'s JSON-Schema
- * via the `definition` "CompletionCheckInput".
- */
-export interface CompletionCheckInput {
-/**
- * Host hook event name.
- */
-hook_event_name: string
-/**
- * Whether completion recovery is already active.
- */
-stop_hook_active?: boolean
-/**
- * Host session ID from the hook event.
- */
-session_id: string
-/**
- * Host working directory from the hook event.
- */
-cwd: string
-[k: string]: unknown | undefined
 }
 /**
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
@@ -2150,17 +2125,6 @@ actions: {
 next?: Continuation
 }
 /**
- * Empty to let the host stop; decision block lists unacknowledged message IDs.
- *
- * This interface was referenced by `CatalogTypes`'s JSON-Schema
- * via the `definition` "CompletionCheckResult".
- */
-export interface CompletionCheckResult {
-decision?: "block"
-pending?: number[]
-reason?: string
-}
-/**
  * Leases in ID order.
  *
  * This interface was referenced by `CatalogTypes`'s JSON-Schema
@@ -2626,7 +2590,6 @@ export interface CommandInputs {
   'db retention': CatalogTypes['DbRetentionInput'];
   'db compact': CatalogTypes['DbCompactInput'];
   'health': CatalogTypes['HealthInput'];
-  'completion-check': CatalogTypes['CompletionCheckInput'];
   'locks': CatalogTypes['LocksInput'];
   'view': CatalogTypes['ViewInput'];
   'fetch': CatalogTypes['FetchInput'];
@@ -2677,7 +2640,6 @@ export interface CommandResults {
   'db compact': CatalogTypes['DbCompactResult'];
   'schema tools': CatalogTypes['SchemaToolsResult'];
   'health': CatalogTypes['HealthResult'];
-  'completion-check': CatalogTypes['CompletionCheckResult'];
   'locks': CatalogTypes['LocksResult'];
   'view': CatalogTypes['ViewResult'];
   'fetch': CatalogTypes['FetchResult'];

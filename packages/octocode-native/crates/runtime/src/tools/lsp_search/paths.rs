@@ -155,3 +155,13 @@ fn rust_workspace_of(project: &Path) -> Option<std::path::PathBuf> {
     }
     octocode_engine::lsp::workspace::cargo_workspace_root(project).filter(|root| selects_rust(root))
 }
+
+/// The directory an anchor stands in, whose ancestors a server searches for
+/// its project: the anchor itself when it is a directory, else its parent.
+pub(super) fn anchor_dir(anchor: &Path) -> &Path {
+    if anchor.is_dir() {
+        anchor
+    } else {
+        anchor.parent().unwrap_or(anchor)
+    }
+}

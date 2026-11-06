@@ -1,22 +1,42 @@
 //! Every graph build and snapshot bound, owned once. A build is refused as
 //! soon as its snapshot can no longer publish; writers take [`Limits`]
 //! (tests lower them), readers decode untrusted snapshots under [`LIMITS`].
+//!
+//! The topology a query loads whole (NODE and EDGE rows, their indexes,
+//! adjacency and strings) is bounded by the process memory budget
+//! ([`octocode_engine::memory::MEMORY`]), priced per row by
+//! [`NODE_ROW_BYTES`] and [`EDGE_ROW_BYTES`]. What a build itself holds
+//! (every kept file's facts, source correspondence and projected tables) is
+//! bounded by [`build_budget`], charged per file by [`build_charge`].
+
+mod charges;
+
+#[cfg(test)]
+pub(crate) use charges::read_charge;
+pub(crate) use charges::{ORIGIN_INDEX_BYTES, build_budget, build_charge};
 
 /// The bounds one graph build and its snapshot obey.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Limits {
     /// `graph.bin` bytes, written and read.
     pub snapshot_bytes: usize,
-    /// Rows per snapshot table.
+    /// Rows per snapshot table but EDGE: the NODE rows the memory budget
+    /// holds on their own.
     pub table_items: usize,
-    /// EDGE rows. The build tallies its certain edges against the same
-    /// bound, so a build that passes it can still publish.
+    /// EDGE rows the memory budget holds on their own. The build tallies
+    /// its certain edges against it, so a build that passes it can still
+    /// publish.
     pub edges: usize,
+    /// Loaded topology bytes ([`NODE_ROW_BYTES`] per node plus
+    /// [`EDGE_ROW_BYTES`] per edge) one snapshot may need: the budget its
+    /// NODE and EDGE rows share.
+    pub topology_bytes: usize,
     /// Expanded bytes of both string dictionaries (STRS and STRE).
     pub string_bytes: usize,
-    /// Allocation charge of the source table (SRCE).
+    /// Allocation charge of the source catalog (SRCE) and of each block of
+    /// the origin pool (SRCO): a reader admits origins a block at a time.
     pub source_bytes: usize,
-    /// Mapping work of the source table.
+    /// Mapping work of the source catalog and of each origin block.
     pub source_work: usize,
     /// Checkpoint artifacts on disk.
     pub spill_bytes: u64,
@@ -27,12 +47,35 @@ pub(crate) struct Limits {
     pub retained_bytes: u64,
     /// One extraction artifact.
     pub artifact_bytes: usize,
+    /// Bytes one build may hold at its peak ([`build_budget`]): the scan
+    /// charges each kept file [`build_charge`] and refuses past it.
+    pub build_bytes: usize,
 }
 
-pub(crate) const LIMITS: Limits = Limits {
+/// Bytes one NODE row and one EDGE row hold once a query loads a snapshot's
+/// topology (`graphQuery hubs`: tables, lookup indexes, both adjacency
+/// directions and the record strings). Measured 2026-11-06 on release
+/// builds as the peak memory a fresh server added to load four snapshots,
+/// least-squares fit `bytes = 425·nodes + 64·edges + 11 MB`, within 6% of
+/// each: prometheus (18,083 nodes, 59,388 edges: 21.3 MB), kubernetes `pkg`
+/// (50,865, 137,440: 42.9 MB), vscode (335,573, 1,169,637: 228.3 MB) and
+/// linux `drivers/gpu` (1,254,328, 1,483,601: 638.6 MB).
+pub(crate) const NODE_ROW_BYTES: usize = 425;
+/// See [`NODE_ROW_BYTES`].
+pub(crate) const EDGE_ROW_BYTES: usize = 64;
+
+/// The bounds of this process: its topology bounds from the memory budget,
+/// its build bound from the host's memory.
+pub(crate) static LIMITS: std::sync::LazyLock<Limits> = std::sync::LazyLock::new(|| {
+    Limits::for_memory(octocode_engine::memory::MEMORY.limit(), build_budget())
+});
+
+/// The bounds that do not depend on the host.
+const FIXED: Limits = Limits {
     snapshot_bytes: 512 << 20,
-    table_items: 5_000_000,
-    edges: 2_000_000,
+    table_items: 0,
+    edges: 0,
+    topology_bytes: 0,
     string_bytes: 512 << 20,
     source_bytes: 512 << 20,
     source_work: 512 << 20,
@@ -40,24 +83,24 @@ pub(crate) const LIMITS: Limits = Limits {
     memory_only_bytes: 64 << 20,
     retained_bytes: 128 << 20,
     artifact_bytes: 64 << 20,
+    build_bytes: 0,
 };
 
 /// Sections one snapshot may hold (format shape, read side).
 pub(crate) const MAX_SECTIONS: usize = 64;
 
-// The bounds agree, or the crate does not build: every EDGE row is a table
-// row, and no part of a snapshot may outgrow the whole.
+// The fixed bounds agree, or the crate does not build: no part of a
+// snapshot may outgrow the whole.
 const _: () = {
-    assert!(LIMITS.edges <= LIMITS.table_items);
-    assert!(LIMITS.source_bytes <= LIMITS.snapshot_bytes);
-    assert!(LIMITS.string_bytes <= LIMITS.snapshot_bytes);
-    assert!(LIMITS.artifact_bytes as u64 <= LIMITS.spill_bytes);
-    assert!(LIMITS.memory_only_bytes <= LIMITS.spill_bytes);
+    assert!(FIXED.source_bytes <= FIXED.snapshot_bytes);
+    assert!(FIXED.string_bytes <= FIXED.snapshot_bytes);
+    assert!(FIXED.artifact_bytes as u64 <= FIXED.spill_bytes);
+    assert!(FIXED.memory_only_bytes <= FIXED.spill_bytes);
 };
 
 impl Default for Limits {
     fn default() -> Self {
-        LIMITS
+        *LIMITS
     }
 }
 
@@ -86,87 +129,122 @@ impl Tally {
     }
 }
 
+/// How a tally overfills the snapshot, worded as the clause after "they".
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Overfill {
+    /// One table's rows past its bound.
+    Rows { table: &'static str, bound: usize },
+    /// The loaded topology past the memory budget.
+    Memory { needed: usize, budget: usize },
+    /// What the build holds past its budget ([`build_budget`]).
+    BuildMemory { needed: usize, budget: usize },
+}
+
+impl std::fmt::Display for Overfill {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Rows { table, bound } => {
+                write!(f, "project more than the snapshot's {bound} {table} rows")
+            }
+            Self::Memory { needed, budget } => write!(
+                f,
+                "need about {} MiB to load their topology, past this host's {} MiB memory budget",
+                needed >> 20,
+                budget >> 20
+            ),
+            Self::BuildMemory { needed, budget } => write!(
+                f,
+                "need about {} MiB to build, past this host's {} MiB build budget (half its memory)",
+                needed >> 20,
+                budget >> 20
+            ),
+        }
+    }
+}
+
 impl Limits {
-    /// The EDGE rows a reader admits: the edge bound, within the table bound.
-    pub(crate) fn edge_rows(&self) -> usize {
-        self.edges.min(self.table_items)
+    /// The bounds of a process whose memory budget is `budget` bytes and
+    /// whose builds may hold `build` bytes: the rows of each topology table
+    /// that budget holds on its own, the budget their rows share, and the
+    /// build's own bound.
+    pub(crate) fn for_memory(budget: usize, build: usize) -> Self {
+        Self {
+            table_items: budget / NODE_ROW_BYTES,
+            edges: budget / EDGE_ROW_BYTES,
+            topology_bytes: budget,
+            build_bytes: build,
+            ..FIXED
+        }
     }
 
-    /// The table (`NODE` or `EDGE`) `tally` already overfills, with its
-    /// bound. A tally exactly at a bound publishes.
-    pub(crate) fn admit(&self, tally: &Tally) -> Result<(), (&'static str, usize)> {
+    /// How a build whose kept files charge `charged` bytes passes its
+    /// budget; a charge exactly at it builds.
+    pub(crate) fn admit_build(&self, charged: usize) -> Result<(), Overfill> {
+        if charged > self.build_bytes {
+            return Err(Overfill::BuildMemory {
+                needed: charged,
+                budget: self.build_bytes,
+            });
+        }
+        Ok(())
+    }
+
+    /// The EDGE rows a reader admits.
+    pub(crate) fn edge_rows(&self) -> usize {
+        self.edges
+    }
+
+    /// How `tally` already overfills the snapshot: a table past its rows,
+    /// or both past the memory they share. A tally exactly at a bound
+    /// publishes.
+    pub(crate) fn admit(&self, tally: &Tally) -> Result<(), Overfill> {
         if tally.nodes > self.table_items {
-            return Err(("NODE", self.table_items));
+            return Err(Overfill::Rows {
+                table: "NODE",
+                bound: self.table_items,
+            });
         }
         if tally.edges > self.edge_rows() {
-            return Err(("EDGE", self.edge_rows()));
+            return Err(Overfill::Rows {
+                table: "EDGE",
+                bound: self.edge_rows(),
+            });
+        }
+        let needed = tally
+            .nodes
+            .saturating_mul(NODE_ROW_BYTES)
+            .saturating_add(tally.edges.saturating_mul(EDGE_ROW_BYTES));
+        if needed > self.topology_bytes {
+            return Err(Overfill::Memory {
+                needed,
+                budget: self.topology_bytes,
+            });
         }
         Ok(())
     }
 }
 
-/// Bytes of one origin's entry in the source table's index (SRCE); the
-/// table asserts its entry has this size.
-pub(crate) const ORIGIN_INDEX_BYTES: usize = 24;
-
-/// What admitting `origin` back from a published source table charges:
-/// its index entry plus its decode (unit id, every vector, every raw
-/// source id), every item and every byte but its encoded record. A scan's
-/// running sum of it bounds the table from below before it is built.
-pub(crate) fn read_charge(
-    origin: &octocode_engine::text::analysis::OriginProjection,
-) -> (usize, usize) {
-    use octocode_engine::text::analysis::{
-        Contribution, OriginBranch, OriginSegment, OriginalRange,
-    };
-    use std::mem::size_of;
-    let mut bytes = ORIGIN_INDEX_BYTES
-        + origin.analysis_unit_id.len()
-        + origin.segments.len() * size_of::<OriginSegment>();
-    let mut items = 2 + origin.segments.len();
-    let raw = |value: &OriginalRange, bytes: &mut usize, items: &mut usize| {
-        *bytes += value.source_id.len();
-        *items += 1;
-    };
-    for segment in &origin.segments {
-        bytes += segment.branches.len() * size_of::<OriginBranch>();
-        items += segment.branches.len();
-        for branch in &segment.branches {
-            match branch {
-                OriginBranch::Copied(value) | OriginBranch::Transcoded(value) => {
-                    raw(value, &mut bytes, &mut items);
-                }
-                OriginBranch::Derived(values) => {
-                    bytes += values.len() * size_of::<Contribution>();
-                    items += values.len();
-                    for value in values {
-                        if let Contribution::Source(value) = value {
-                            raw(value, &mut bytes, &mut items);
-                        }
-                    }
-                }
-                OriginBranch::Unmapped(_) => {}
-            }
-        }
-    }
-    (bytes, items)
-}
-
 #[cfg(test)]
 mod tests {
+    use super::charges::{DECLARATION_BUILD_BYTES, UNKNOWN_HOST_MB, build_budget_for};
     use super::*;
 
-    /// The build's bounds can never pass what the reader admits (the old
-    /// 2M file-edge cap counted a subset of the 2M EDGE rows, so a build at
-    /// it could not publish). The orderings are checked at compile time.
+    /// The build's bounds can never pass what the reader admits, and the
+    /// topology bounds come from the memory budget: each table alone fits
+    /// it, and so does the topology it holds.
     #[test]
     fn limits_are_consistent() {
         assert_eq!(LIMITS.edge_rows(), LIMITS.edges);
         assert_eq!(
             Limits::default(),
-            LIMITS,
+            *LIMITS,
             "writers default to the reader's bounds"
         );
+        let budget = octocode_engine::memory::MEMORY.limit();
+        assert_eq!(*LIMITS, Limits::for_memory(budget, build_budget()));
+        assert!(LIMITS.table_items * NODE_ROW_BYTES <= budget);
+        assert!(LIMITS.edges * EDGE_ROW_BYTES <= budget);
+        assert_eq!(LIMITS.topology_bytes, budget);
     }
 
     #[test]
@@ -174,30 +252,91 @@ mod tests {
         let limits = Limits {
             table_items: 4,
             edges: 3,
-            ..LIMITS
+            ..*LIMITS
         };
         assert_eq!(limits.admit(&Tally { nodes: 4, edges: 3 }), Ok(()));
         assert_eq!(
             limits.admit(&Tally { nodes: 5, edges: 0 }),
-            Err(("NODE", 4))
+            Err(Overfill::Rows {
+                table: "NODE",
+                bound: 4
+            })
         );
         assert_eq!(
             limits.admit(&Tally { nodes: 1, edges: 4 }),
-            Err(("EDGE", 3))
+            Err(Overfill::Rows {
+                table: "EDGE",
+                bound: 3
+            })
         );
-        let narrow = Limits {
-            table_items: 2,
+        // Rows each table holds alone can still overfill the memory they
+        // share: the budget for exactly four nodes and three edges.
+        let shared = Limits {
+            topology_bytes: 4 * NODE_ROW_BYTES + 3 * EDGE_ROW_BYTES,
             ..limits
         };
+        let shared = Limits {
+            table_items: 10,
+            edges: 10,
+            ..shared
+        };
+        assert_eq!(shared.admit(&Tally { nodes: 4, edges: 3 }), Ok(()));
         assert_eq!(
-            narrow.admit(&Tally { nodes: 1, edges: 3 }),
-            Err(("EDGE", 2)),
-            "EDGE rows are table rows too"
+            shared.admit(&Tally { nodes: 5, edges: 3 }),
+            Err(Overfill::Memory {
+                needed: 5 * NODE_ROW_BYTES + 3 * EDGE_ROW_BYTES,
+                budget: shared.topology_bytes
+            })
         );
         let mut tally = Tally::default();
         tally.add(Tally::file(2));
         tally.add(Tally::file(0));
         assert_eq!(tally, Tally { nodes: 4, edges: 2 });
+    }
+
+    /// A build may hold half of the host's memory, read where the rest of
+    /// the runtime reads it; an unreadable host counts as [`UNKNOWN_HOST_MB`].
+    #[test]
+    fn the_build_budget_is_half_the_host_memory() {
+        assert_eq!(LIMITS.build_bytes, build_budget());
+        assert_eq!(
+            build_budget(),
+            build_budget_for(octocode_engine::host::memory_mb())
+        );
+        assert_eq!(build_budget_for(Some(16 * 1024)), 8 << 30);
+        assert_eq!(build_budget_for(Some(12 * 1024)), 6 << 30);
+        assert_eq!(
+            build_budget_for(None),
+            build_budget_for(Some(UNKNOWN_HOST_MB))
+        );
+    }
+
+    /// A charge at the build budget builds; one byte past it is refused,
+    /// worded with both sizes.
+    #[test]
+    fn a_charge_past_the_build_budget_is_refused_with_both_sizes() {
+        let limits = Limits {
+            build_bytes: 3 << 20,
+            ..*LIMITS
+        };
+        assert_eq!(limits.admit_build(3 << 20), Ok(()));
+        let over = limits
+            .admit_build((3 << 20) + 1)
+            .expect_err("past the budget");
+        assert_eq!(
+            over,
+            Overfill::BuildMemory {
+                needed: (3 << 20) + 1,
+                budget: 3 << 20
+            }
+        );
+        let text = over.to_string();
+        assert!(text.contains("3 MiB build budget"), "{text}");
+        // A file is charged at least its encoded facts, a declaration's
+        // bytes per declaration, and its correspondence in full.
+        assert!(build_charge(400, 0, 0) >= 400);
+        assert!(build_charge(0, 1, 0) >= DECLARATION_BUILD_BYTES);
+        assert_eq!(build_charge(400, 1, 7), build_charge(400, 1, 0) + 7);
     }
 
     /// Tests lower a bound one way, through [`Limits`]: no thread-local

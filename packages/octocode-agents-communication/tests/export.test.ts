@@ -33,6 +33,7 @@ test('export includes committed WAL and all workspaces, preserves source, verifi
  const f = fixture(t), writer = openWriter(f);
  try {
   writer.exec('BEGIN IMMEDIATE'); insert(writer, f.session, 'wal-only');
+  writer.prepare('INSERT INTO workspaces VALUES(?,?)').run('/separate-workspace', '/separate-workspace');
   writer.prepare('INSERT INTO sessions(id,workspace,name,vendor,expiresAt) VALUES(?,?,?,?,?)').run('other-workspace', '/separate-workspace', 'other', 'raw', Date.now() + 60000);
   writer.exec('COMMIT');
   assert.ok(statSync(`${f.database}-wal`).size > 0);

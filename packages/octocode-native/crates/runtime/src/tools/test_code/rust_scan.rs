@@ -20,6 +20,25 @@ pub(super) struct Scanned {
     pub(super) modules: Vec<GraphFactRustModule>,
 }
 
+impl Scanned {
+    /// The heap this result holds.
+    pub(super) fn weight(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + self.test_lines.capacity() * std::mem::size_of::<[u32; 2]>()
+            + self
+                .modules
+                .iter()
+                .map(|module| {
+                    std::mem::size_of_val(module)
+                        + module.name.capacity()
+                        + module.scope.iter().map(String::capacity).sum::<usize>()
+                        + module.path.as_ref().map_or(0, String::capacity)
+                        + module.test_path.as_ref().map_or(0, String::capacity)
+                })
+                .sum::<usize>()
+    }
+}
+
 pub(super) fn scan(content: &str) -> Scanned {
     let mut pass = Pass {
         content,
@@ -48,6 +67,10 @@ struct Pending {
     /// A `cfg` requires test: the line after it, where what it gates can start
     /// (the parse gates a comment or attribute between it and the item too).
     test_from: Option<u32>,
+    /// The line of the first outer attribute read so far that begins its
+    /// line. The attributes belong to the item, so a test span starts there;
+    /// one after other code on its line leaves that line to the code.
+    attributes_from: Option<u32>,
     path: Option<String>,
     test_path: Option<String>,
 }
@@ -169,7 +192,11 @@ impl<'t> Pass<'t> {
             && !self.whole
         {
             self.span = Some(Span {
-                start: from.min(lexeme.line),
+                start: self
+                    .pending
+                    .attributes_from
+                    .unwrap_or(from)
+                    .min(lexeme.line),
                 depth: self.stack.len(),
                 ends: Ends::Undecided,
             });

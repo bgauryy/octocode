@@ -42,11 +42,14 @@ impl Question {
             return true;
         }
         // Sites that are not what was asked for, by their zero-based lines.
-        let narrow = (self == Self::Uses)
-            .then(|| occurrences.declared_lines(file, text, symbol))
-            .flatten();
+        let narrow = occurrences
+            .sites(file, text, symbol)
+            .and_then(|sites| match self {
+                Self::Uses => Some(sites.declared),
+                _ => sites.called,
+            });
         let other: HashSet<usize> = match narrow {
-            Some(declared) => declared.into_iter().collect(),
+            Some(lines) => lines.into_iter().collect(),
             None => {
                 let Some(facts) = crate::tools::declarations::graph_facts(text, file) else {
                     return true;
@@ -81,6 +84,28 @@ impl Question {
                 .collect(),
         }
     }
+}
+
+/// The zero-based lines of `file` where code declares `symbol` and where it
+/// calls it, from the parse `occurrences` came from where it can tell, else
+/// the file's facts; `None` when neither reads the file.
+pub(super) fn declared_and_called(
+    symbol: &str,
+    file: &str,
+    text: &str,
+    occurrences: &CodeOccurrences,
+) -> Option<(HashSet<usize>, HashSet<usize>)> {
+    let sites = occurrences.sites(file, text, symbol);
+    let facts = || crate::tools::declarations::graph_facts(text, file);
+    let declared = match sites.as_ref() {
+        Some(sites) => sites.declared.iter().copied().collect(),
+        None => Question::Uses.other_sites(symbol, &*facts()?),
+    };
+    let called = match sites.and_then(|sites| sites.called) {
+        Some(called) => called.into_iter().collect(),
+        None => Question::Implementations.other_sites(symbol, &*facts()?),
+    };
+    Some((declared, called))
 }
 
 impl Scope {

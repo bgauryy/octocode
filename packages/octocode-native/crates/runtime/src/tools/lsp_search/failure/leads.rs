@@ -37,13 +37,17 @@ pub(in super::super) fn flag_partial(
     let name = lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty());
     let text_only = name.and_then(|name| scope.text_only_files(name));
     let agrees = text_only.as_ref().is_some_and(Vec::is_empty);
-    // The lead also reads the anchor file when it uses the name on lines
+    // The lead also reads each answered file that uses the name on lines
     // the answer misses; it is answered, so it is not counted.
     let lead_files = text_only.clone().map(|mut files| {
-        if let Some(anchor) = name.and_then(|name| scope.anchor_gap(name))
-            && !files.contains(&anchor)
+        for gap in name
+            .map(|name| scope.answer_gaps(name))
+            .iter()
+            .flat_map(|gaps| gaps.iter())
         {
-            files.push(anchor);
+            if !files.contains(&gap.file) {
+                files.push(gap.file.clone());
+            }
         }
         files
     });
@@ -79,6 +83,60 @@ pub(in super::super) fn flag_partial(
         // A position anchor has no name to search for: coverage reason and
         // warning only.
         None => crate::response::paging::push_warnings(row, warnings),
+    }
+}
+
+/// Flag a `references` or `callers` row whose server left out code sites
+/// of the name inside files it answers ([`super::super::scope::Scope::answer_gaps`]):
+/// partial, each file and line named, and the text lead reads those files
+/// (or, when the row already leads to a text search, that one does).
+pub(in super::super) fn flag_answer_gaps(
+    row: &mut Value,
+    query: &LspSearchQuery,
+    scope: &super::super::scope::Scope,
+    paths: &crate::policy::path::PathPolicy,
+) {
+    let Some(name) = lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty())
+    else {
+        return;
+    };
+    let gaps = scope.answer_gaps(name);
+    if gaps.is_empty() || !row.is_object() || row.get("errorCode").is_some() {
+        return;
+    }
+    let files = gaps.iter().map(|gap| gap.file.clone()).collect::<Vec<_>>();
+    let shown = shown_paths(paths, &files);
+    let sites = gaps
+        .iter()
+        .zip(&shown)
+        .flat_map(|(gap, file)| {
+            gap.lines
+                .iter()
+                .map(move |line| format!("{file}:{}", line + 1))
+        })
+        .collect::<Vec<_>>();
+    let kind = if lsp_search_query::op(query) == super::super::Op::Callers {
+        "call"
+    } else {
+        "use"
+    };
+    crate::response::paging::mark_partial(
+        row,
+        crate::response::paging::PartialReason::ServerUnanswered,
+        &[format!(
+            "The server's answer leaves out {} code {kind}(s) of `{name}` in files it answers: {}. The text lead reads them.",
+            sites.len(),
+            sites.join(", ")
+        )],
+    );
+    let leads_text = row
+        .get("related")
+        .and_then(Value::as_array)
+        .is_some_and(|related| related.iter().any(|call| call["tool"] == "localSearch"));
+    if !leads_text
+        && let Some(lead) = text_search_lead(name, &scope.root, &scope.include, Some(&shown))
+    {
+        crate::response::result::attach_related(row, lead.build());
     }
 }
 

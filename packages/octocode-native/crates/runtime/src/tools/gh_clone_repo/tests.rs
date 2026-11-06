@@ -7,7 +7,7 @@ use crate::tools::gh_shared::test_support::{
     mock_endpoint, one_shot_provider, one_shot_provider_at,
 };
 use crate::tools::test_support;
-use octocode_contract_types::{ErrorCode, GhCloneRepoQueryPathsItem, GhCloneRepoQueryRef};
+use octocode_contract_types::ErrorCode;
 use octocode_github::CredentialSource;
 use std::ffi::OsString;
 use std::fs;
@@ -48,7 +48,8 @@ impl RewriteRunner {
 
     fn with_git(from: &str, to: &str, system: SystemGit) -> Self {
         Self {
-            system,
+            // The fixture remote is a local bare repository.
+            system: system.with_file_transport(),
             from: from.into(),
             to: to.into(),
             seen: Mutex::new(vec![]),
@@ -310,18 +311,27 @@ fn query() -> GhCloneRepoQuery {
         "owner": "fixture-owner", "repo": "fixture-repo", "ref": "main"}))
 }
 
-fn one(path: &str) -> Vec<GhCloneRepoQueryPathsItem> {
+fn one<T: std::str::FromStr>(path: &str) -> Vec<T>
+where
+    T::Err: std::fmt::Debug,
+{
     many(&[path])
 }
 
-fn many(paths: &[&str]) -> Vec<GhCloneRepoQueryPathsItem> {
+fn many<T: std::str::FromStr>(paths: &[&str]) -> Vec<T>
+where
+    T::Err: std::fmt::Debug,
+{
     paths
         .iter()
         .map(|path| (*path).parse().expect("valid sparse fixture path"))
         .collect()
 }
 
-fn reference(value: &str) -> GhCloneRepoQueryRef {
+fn reference<T: std::str::FromStr>(value: &str) -> T
+where
+    T::Err: std::fmt::Debug,
+{
     value.parse().expect("valid fixture branch or commit")
 }
 

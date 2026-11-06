@@ -2,37 +2,37 @@ Use the relevant section when choosing a tool or query shape, screening unread s
 
 Over MCP, call the same tools with the JSON shown; the `npx` lines are the CLI form.
 
-## Route: where is the evidence?
+## Route: where the evidence is
 
 ```mermaid
 flowchart TD
-  Q{Where is the evidence?}
+  Q{Evidence location}
   Q -- this checkout --> LQ
   Q -- a published package --> PQ
   Q -- another repo --> GQ
 
   subgraph Local
-    LQ{Need?}
+    LQ{Local need}
     LQ -- path unknown --> SS[structureSearch]
     LQ -- spelling, count, absence --> LS[localSearch]
     LQ -- code shape --> AST[astSearch]
     LQ -- identity, callers, type --> LSP[lspSearch]
-    LQ -- repeated topology, ask first --> GRAPH[graphBuild, graphQuery, if listed]
+    LQ -- importers, cycles, dead code, impact --> GRAPH[graphBuild, then graphQuery, if listed]
     LS -- hit line --> LSP
     AST -- hit line --> LSP
     GRAPH -- confirm edge --> LSP
   end
 
   subgraph Package
-    PQ{Name known?}
-    PQ -- no --> PS[artifactSearch search]
-    PQ -- yes --> PR[artifactSearch resolve]
-    PQ -- yes, a CVE question --> PA[securityCheck, if listed]
+    PQ{Package name}
+    PQ -- unknown --> PS[artifactSearch search]
+    PQ -- known --> PR[artifactSearch resolve]
+    PQ -- known, a vulnerability question --> PA[securityCheck, if listed]
     PS --> PR
   end
 
   subgraph GitHub
-    GQ{Need?}
+    GQ{GitHub need}
     GQ -- owner or repo unknown --> GR[ghSearchRepo]
     GR --> GQ
     GQ -- tree, refs, path at a revision --> GS[ghStructure]
@@ -49,35 +49,35 @@ flowchart TD
   PR -- no GitHub lead --> GR
   GM -- localPath --> LQ
 
-  SS & LS & AST & GS & GC --> MANY{Ambiguity changes the next read?}
-  MANY -- yes --> SCOUT[Scout graph]
-  MANY -- no --> READ
+  SS & LS & AST & GS & GC --> MANY{Ambiguity that changes the next read}
+  MANY -- present --> SCOUT[Scout graph]
+  MANY -- none --> READ
   SCOUT --> READ
   LSP & GI --> READ[Read the deciding span: localFetch, ghGetFileContent]
-  READ --> DONE{Claim settled?}
-  DONE -- no --> Q
-  DONE -- edit --> PATCH[Patch] --> VERIFY
-  DONE -- answer --> VERIFY[Verify, cite path:line or commitSha]
+  READ --> DONE{Claim state}
+  DONE -- open --> Q
+  DONE -- settled, edit --> PATCH[Patch] --> VERIFY
+  DONE -- settled, answer --> VERIFY[Verify, cite path:line or commitSha]
 ```
 
 Prefer a local checkout; after a 404, never substitute another ref for a claim about that ref (a default-branch lead fits only a guessed ref). Trace only `entry → transformations → state → output → consumers`, and switch tools only when the next claim needs different evidence.
 
-## Shape: how little answers it?
+## Shape: the least that answers
 
-Ask before every call: what must the answer contain?
+Before every call, name what the answer must contain.
 
 ```mermaid
 flowchart TD
-  A{What must the answer contain?}
+  A{What the answer must contain}
   A -- which files --> F["view:files; ghSearchCode fields:[path]"]
   A -- how many --> N["view:countLines or countMatches"]
   A -- distinct values --> V["view:matchOnly, unique:count"]
   A -- layout --> L["structureSearch view:paths; ghStructure include"]
-  A -- a file's outline --> O{What file?}
+  A -- a file's outline --> O{File kind}
   O -- Markdown, small code or data --> OS["view:symbols, then ranges"]
   O -- large code --> OK["astSearch symbols + symbolKinds"]
   O -- large data --> OM[matchString on the key]
-  A -- one declaration --> D{What do you know?}
+  A -- one declaration --> D{What you know}
   D -- a unique literal --> DB["matchString + block:true"]
   D -- a name with many hits --> DS["astSearch symbolFilter, then ranges"]
   D -- its lines --> DR[ranges]
@@ -87,9 +87,9 @@ flowchart TD
   A -- an inferred type --> H[lspSearch hover]
   A -- who uses a symbol --> W["lspSearch references view:files; callers for calls only"]
   A -- one change --> CH["sections + include, then matchString"]
-  A -- a whole file --> WH{Quoting or editing?}
-  WH -- yes --> CT[view:content]
-  WH -- no, comment-heavy --> CP[view:compact]
+  A -- a whole file --> WH{Purpose}
+  WH -- quote or edit --> CT[view:content]
+  WH -- read only, comment-heavy --> CP[view:compact]
 ```
 
 A smaller view answers only what it selects: `view:"files"` holds no lines, `symbols` no bodies, `matchOnly` no owner, `compact` no quotes. Widen when the claim needs more, and finish the pages that claim covers. Selectors choose evidence; they never replace it.
@@ -117,21 +117,21 @@ A smaller view answers only what it selects: `view:"files"` holds no lines, `sym
 
 ```mermaid
 flowchart TD
-  S{What is unread?}
+  S{Unread material}
   S -- a fact with a fixed spelling --> X[Exact search or read: no model]
   S -- counts, identity, absence --> X2[Exact tools: AST, LSP, unfiltered search]
-  S -- too many hits, and no term or path splits them --> I["classification on localSearch, localFetch, ghSearchCode, ghGetFileContent"]
+  S -- many hits or lines to judge by meaning --> I["classification on localSearch, localFetch, ghSearchCode, ghGetFileContent"]
   S -- one large source, a named fact --> E["clasify evaluate + source"]
   S -- which regions across sources --> SE["clasify sections + resources"]
   S -- a screenshot, chart or image --> IM["clasify evaluate + assets"]
-  I --> K{selection.reason?}
+  I --> K{selection.reason}
   K -- candidateBudget: more to judge --> NC[next.nextCandidatePage] --> K
-  K -- classificationUnknown, or none --> U{Could unknowns change the claim, or is it about absence or a count?}
-  U -- yes --> UF[next.unfiltered or next.unfilteredUnknown]
-  U -- no --> R
-  E & SE & IM --> LB{Labels are the whole answer?}
-  LB -- yes --> END[Report the labels]
-  LB -- no --> R[next.read or target lines, then cite]
+  K -- classificationUnknown, or none --> U{Unknowns that could change the claim, or a claim about absence or a count}
+  U -- present --> UF[next.unfilteredUnknown; next.unfiltered only for counts or absence]
+  U -- none --> R
+  E & SE & IM --> LB{Labels as the answer}
+  LB -- whole answer --> END[Report the labels]
+  LB -- more needed --> R[next.read or target lines, then cite]
 ```
 
 - The loop is find, judge, read, cite: find candidates with exact search, paths and globs; judge them with `classification` or `clasify`; read the judged lines; cite path and lines. An unknown or partial answer goes back to find; lines that do not confirm the answer go back to judge.
@@ -181,10 +181,10 @@ Reuse a search's `matchString`, `regexEngine`, `caseMode` and `wholeWord` when r
 ## Route conditions
 
 - **Version in use beats latest.** Omitting `version` resolves the latest stable release, so pass the lockfile's version and read installed files first.
-- **A CVE question goes to `securityCheck` when it is listed:** `package` at the lockfile's version, `url`, `advisory` with an id, or `commit`. `status:"empty"` is none known to OSV, not proof the version is safe; `status:"error"` is not checked. When it is not listed, say the user turns it on with `OCTOCODE_SECURITY_CHECKS`: `artifactSearch` carries `advisories` only for PyPI and NuGet, from the registry, and elsewhere the state is unknown, never clean. With a CVE already named, prove the fix from source: the release's `ref`, then `ghSearchHistory` and `ghGetHistoryItem` compare.
+- **A CVE question goes to `securityCheck` when it is listed:** `package` at the lockfile's version, `url`, `advisory` with an id, or `commit`. `status:"empty"` is none known to OSV, not proof the version is safe; `status:"error"` is not checked. When it is not listed (MCP without `OCTOCODE_SECURITY_CHECKS`; the CLI always offers it), memory is not evidence: name the gap. `artifactSearch` carries `advisories` only for PyPI and NuGet, from the registry, and elsewhere the state is unknown, never clean. With a CVE already named, prove the fix from source: the release's `ref`, then `ghSearchHistory` and `ghGetHistoryItem` compare.
 - **Trust the ref by `verification`.** `provenance` and `tag` tie it to the version; with `registryRef` or `defaultBranch`, check that tree's manifest before citing. PyPI resolves only; custom registries are npm only.
 - **`ghSearchCode` sees only the default branch.** Its `ref` re-reads hits and never widens the search: at zod `v3.23.8` it returned `packages/zod/src/v3/types.ts`, but the file there is `src/types.ts`. For a past revision, use `ghStructure` at that ref. One hit is not the only definition. An empty index result is not absence.
-- **`ghSearchCode` requires `owner`.** With no owner, start from `artifactSearch` or `ghSearchRepo`, or ask; never guess.
+- **`ghSearchCode` requires `owner`.** With no owner, start from `artifactSearch` or `ghSearchRepo`; never guess.
 - **Only LSP crosses your scope.** `references` on one package's symbol also found its importers in two other packages; graph, AST and text stayed inside the `path` they were given.
 - **AST and graph edges are candidates.** Check grammar capabilities, parse assessment and scan coverage, then confirm with LSP. Empty LSP while `analysisContext` reports errors is not absence.
 - **Graph needs the workspace.** When listed, `graphBuild` rejects a materialized or cloned path outside it; use AST and text there.
@@ -228,7 +228,7 @@ Read every row's `errorCode`, message, `hints` and recovery calls, even in a suc
 | Missing path, identifier or revision | Verify the observed identity and access; use an emitted discovery call; never substitute another revision for a claim about it |
 | Timeout or transient provider failure | Retry at most once when it can help; respect `retryable:false`; state the remaining scope |
 | Authentication, permission or rate limit | Correct access or wait for the reported reset; repeats do not restore it |
-| Stale or expired continuation | Use its restart call or repeat the original request; never construct a cursor. `responseSnapshotExpired` also covers malformed and unknown cursors; the message names which |
+| Stale or expired continuation | Use its restart call or repeat the original request; never construct a cursor. `responseSnapshotExpired` covers unknown or expired saved work; a malformed cursor, or one sent to another tool, is `invalidInput`; the message names the cause |
 | Tool or contract failure | Keep the failing call and error code, use applicable recovery, report the gap |
 
 ## Measured cost

@@ -16,8 +16,9 @@ fn rejected_row(
     tool: ToolId,
     index: usize,
     error: &contracts::ContractValidationError,
+    unpublished: &[String],
 ) -> (usize, Value) {
-    let formatted = contracts::format_input_error(tool.as_str(), error);
+    let formatted = contracts::format_input_error(tool.as_str(), error, unpublished);
     let mut data = json!({"error": formatted["error"], "errorCode": ErrorCode::InvalidInput});
     if let Some(details) = formatted
         .get("details")
@@ -31,8 +32,9 @@ fn rejected_row(
 pub(super) fn invalid_input_error(
     tool: &str,
     error: contracts::ContractValidationError,
+    unpublished: &[String],
 ) -> RuntimeError {
-    let mut payload = contracts::format_input_error(tool, &error);
+    let mut payload = contracts::format_input_error(tool, &error, unpublished);
     payload["errorCode"] = json!(ErrorCode::InvalidInput);
     RuntimeError {
         code: ErrorCode::InvalidInput,
@@ -63,6 +65,16 @@ pub(super) fn output_contract_error(
 }
 
 impl ToolRuntime {
+    /// The row fields `tool`'s published schema lacks on this runtime: its
+    /// classification fields while no provider is available.
+    pub(super) fn unpublished_fields(&self, tool: &str) -> Vec<String> {
+        if self.selection_available {
+            Vec::new()
+        } else {
+            contracts::selection_only_fields(tool)
+        }
+    }
+
     /// The tool behind `tool` when this surface may run it, else the
     /// actionable reason it may not.
     pub(super) fn admit_tool(&self, tool: &str, mcp: bool) -> Result<ToolId, RuntimeError> {
@@ -132,7 +144,7 @@ impl ToolRuntime {
         let PreparedRows {
             valid: prepared,
             mut invalid,
-        } = prepare_queries(tool, input, saved)?;
+        } = prepare_queries(tool, input, saved, &self.unpublished_fields(tool))?;
         let mcp_availability = (mcp && id.is_clasify()).then(|| {
             crate::execution::availability::ToolAvailability::resolve(
                 &self.config,
@@ -158,7 +170,10 @@ impl ToolRuntime {
                     schema: None,
                     received: None,
                     path,
-                    message: "classification requires an available classification provider; configure JEV or omit the context.".into(),
+                    message: format!(
+                        "{field} needs {}; set it, or omit {field}.",
+                        crate::config::field::CLASSIFICATION_API.display_name()
+                    ),
                 });
             }
             if id.is_clasify() {
@@ -199,11 +214,13 @@ impl ToolRuntime {
             return Err(invalid_input_error(
                 tool,
                 contracts::ContractValidationError { issues },
+                &self.unpublished_fields(tool),
             ));
         }
+        let unpublished = self.unpublished_fields(tool);
         let rejected = invalid
             .iter()
-            .map(|(index, error)| rejected_row(id, *index, error))
+            .map(|(index, error)| rejected_row(id, *index, error, &unpublished))
             .collect();
         Ok(AdmittedRows { queries, rejected })
     }
@@ -225,13 +242,18 @@ struct PreparedRows {
 /// Contract-validated rows by input index, and the invalid ones. Row
 /// isolation: when only some rows of a batch are invalid, the valid rows
 /// still run and the rest become indexed error rows.
-fn prepare_queries(tool: &str, input: &Value, saved: bool) -> Result<PreparedRows, RuntimeError> {
+fn prepare_queries(
+    tool: &str,
+    input: &Value,
+    saved: bool,
+    unpublished: &[String],
+) -> Result<PreparedRows, RuntimeError> {
     let rows = if saved {
         contracts::prepare_saved_rows(tool, input.clone())
     } else {
         contracts::prepare_rows(tool, input.clone())
     }
-    .map_err(|error| invalid_input_error(tool, error))?;
+    .map_err(|error| invalid_input_error(tool, error, unpublished))?;
     let mut prepared = PreparedRows {
         valid: Vec::with_capacity(rows.len()),
         invalid: Vec::new(),

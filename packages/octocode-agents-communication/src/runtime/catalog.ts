@@ -10,8 +10,9 @@ import type { Budget, CommandInputs, CommandResults, Continuation } from './cata
 import { recordVariants } from './record-variants.js';
 import { compact } from './json-text.js';
 import { asObject, asObjects, isObject, type Json, type JsonObject, type Schema } from './validation.js';
-import { groupedTools, operationFor, variantInput } from './tool-groups.js';
+import { groupedTools, operationFor, validateToolEnvelope, variantInput } from './tool-groups.js';
 import { workerInstructions } from './mcp-instructions.js';
+import { callerSchema } from './caller.js';
 export { isTool, keyedInput, groupedResult as toolResult } from './tool-groups.js';
 
 /** A catalog command that takes input, by name. */
@@ -82,7 +83,7 @@ function load(): Dump {
   const validated: unknown = value;
   const dump = validated as Dump;
   operations = dump.tools;
-  dump.tools = groupedTools(operations);
+  dump.tools = groupedTools(operations, callerSchema(results.binding));
   for (const tool of dump.tools) validation.checkSchema(tool.inputSchema);
   return (loaded = dump);
 }
@@ -221,18 +222,15 @@ export function ttl(value: { readonly ttlMs?: unknown }, defaultValue: number, m
 }
 
 export function selectedTools(selection?: string | null): Dump['tools'] {
-  load();
-  return groupedTools(operations, selection);
+  const dump = load();
+  return groupedTools(operations, callerSchema(dump.results.binding), selection ?? 'messaging');
 }
 
 /** Both worker transports and the public CLI validate and dispatch the same typed family call. */
 export function toolCommand(name: string, value: unknown, selection?: string | null): CommandCall {
   const tool = selectedTools(selection).find(candidate => candidate.name === name);
   if (!tool) throw new ValidationError(`Unknown tool: ${name}`);
-  // Validate the discriminator/envelope first, then the selected operation. The equivalent
-  // oneOf discovery schema alone would hide actionable field errors behind a union error.
-  const { oneOf: _variants, ...envelope } = asObject(tool.inputSchema, 'tool inputSchema');
-  validation.validate(envelope, value);
+  validateToolEnvelope(tool.inputSchema, value);
   const input = asObject(value, 'tool arguments');
   return command(operationFor(name, input.type), variantInput(input));
 }

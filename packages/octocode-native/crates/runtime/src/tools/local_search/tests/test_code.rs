@@ -98,6 +98,30 @@ fn only_keeps_test_hits_and_counts_the_production_ones() {
     );
 }
 
+/// The `#[cfg(test)]` line belongs to the item it gates: `only` keeps a hit
+/// on it and `exclude` leaves it out, as it does the item's own lines.
+#[test]
+fn the_cfg_test_attribute_line_belongs_to_its_item() {
+    const GATED_MODULE: [(&str, &str); 1] = [(
+        "src/lib.rs",
+        "pub fn run() {}\n#[cfg(test)]\nmod tests {}\n",
+    )];
+    let search = |test_code: &str| {
+        search_fixture(
+            &GATED_MODULE,
+            ls_query(
+                serde_json::json!({"matchString":["cfg"],"regexEngine":"rust","testCode":test_code,"view":"content"}),
+                None,
+            ),
+        )
+    };
+    let only = search("only");
+    assert_eq!(hits(&only), ["src/lib.rs:2"], "{only}");
+    let exclude = search("exclude");
+    assert!(hits(&exclude).is_empty(), "{exclude}");
+    assert_eq!(exclude["testCodeExcluded"]["lines"], 1, "{exclude}");
+}
+
 /// The listed paths of a files or files-without view, sorted.
 fn listed(body: &serde_json::Value) -> Vec<String> {
     let mut paths = body["files"]
@@ -271,7 +295,7 @@ fn a_scoped_search_follows_a_file_that_appears_and_mounts_it() {
 /// left to warn about.
 #[test]
 fn a_file_too_large_to_parse_is_split_at_its_test_items() {
-    let padding = "// padding\n".repeat(octocode_engine::signatures::MAX_PARSE_SIZE / 11 + 1);
+    let padding = "// padding\n".repeat(crate::security::SourceLimits::REAL.whole_source / 11 + 1);
     let big = format!(
         "pub fn needle_run() {{}}\n{padding}#[cfg(test)]\nmod tests {{\n    fn needle_test() {{}}\n}}\n"
     );

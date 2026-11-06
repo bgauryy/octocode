@@ -2,6 +2,10 @@ use super::*;
 use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::Fixture;
 
+/// The chunk the chunked walks below read in: small, so a walk past several
+/// chunks is a small tree. Production reads [`NODE_CHUNK`] nodes at a time.
+const TEST_CHUNK: u32 = 2_000;
+
 fn inspected(text: &str, limit: u32) -> octocode_engine::structural::SyntaxTreeInspectResult {
     octocode_engine::structural::inspect_with_extension(
         text,
@@ -77,9 +81,9 @@ fn plain_windows_cover_every_node_once_and_price_each_only_once() {
 
 #[test]
 fn tiny_windows_price_a_large_chunk_without_allocating_each_closure_again() {
-    let text = "let item = 1;\n".repeat(25_100);
-    let result = inspected(&text, NODE_CHUNK);
-    assert_eq!(result.nodes.len(), NODE_CHUNK as usize);
+    let text = "let item = 1;\n".repeat(TEST_CHUNK as usize / 4 + 100);
+    let result = inspected(&text, TEST_CHUNK);
+    assert_eq!(result.nodes.len(), TEST_CHUNK as usize);
     let stop = || false;
     let mut maps =
         super::super::source::mapping_budget(&crate::execution::cancel::NeverCancel, &stop);
@@ -92,7 +96,7 @@ fn tiny_windows_price_a_large_chunk_without_allocating_each_closure_again() {
     let mut prices = pricing::Prices::default();
     let windows = pricing::windows(&result, &mut prices, &admitted, &mut maps, 1, &NeverCancel)
         .expect("small atomic pages fit retained-state limits");
-    assert_eq!(windows.len(), NODE_CHUNK as usize);
+    assert_eq!(windows.len(), TEST_CHUNK as usize);
     assert!(
         windows
             .iter()
@@ -104,7 +108,8 @@ fn tiny_windows_price_a_large_chunk_without_allocating_each_closure_again() {
 #[test]
 fn recovered_trees_continue_beyond_the_materialized_chunk_without_repricing_old_nodes() {
     let root = Fixture::new();
-    let text = format!("{}function (", "let item = 1;\n".repeat(75_100));
+    let lines = 3 * TEST_CHUNK as usize / 4 + 100;
+    let text = format!("{}function (", "let item = 1;\n".repeat(lines));
     root.write("recovered.ts", &text);
     let path = root.0.join("recovered.ts");
     let stop = || false;
@@ -117,6 +122,7 @@ fn recovered_trees_continue_beyond_the_materialized_chunk_without_repricing_old_
         content: admitted.text(),
         path: &path,
         extension: None,
+        node_chunk: TEST_CHUNK,
     };
     let budget = 131_072;
     let snapshot = path.to_string_lossy().into_owned();
@@ -143,7 +149,7 @@ fn recovered_trees_continue_beyond_the_materialized_chunk_without_repricing_old_
             "each newly read node priced once"
         );
         if walked.r.next_offset.is_none() {
-            assert!(walked.r.total_nodes > 300_000);
+            assert!(walked.r.total_nodes > 3 * TEST_CHUNK);
             assert_eq!(walked.r.nodes.len(), walked.r.total_nodes as usize);
             assert!(
                 walked

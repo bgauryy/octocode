@@ -135,6 +135,26 @@ fn questions_group_until_the_body_ceiling() {
     assert!(grouped(text_input(&over, &questions), "m", jev()).is_none());
 }
 
+/// The runtime's own long-window retry is sent only when it provably fits:
+/// a text body no longer, in bytes, than the documented window in tokens.
+#[test]
+fn the_long_window_retry_is_sent_only_when_the_request_provably_fits() {
+    let window = usize::try_from(jev().defaults().long_context_tokens).unwrap();
+    let questions = [json!({"type":"noul","instructions":"q"})];
+    let fits = json!("x".repeat(window / 2));
+    assert!(fits_long_window(text_input(&fits, &questions), "m", jev()));
+    let over = json!("x".repeat(window));
+    assert!(!fits_long_window(text_input(&over, &questions), "m", jev()));
+    // An image's tokens follow its pixels, not its bytes: no local bound.
+    let assets = json!({"small":{"type":"image","format":"png","data_base64":"AA"}});
+    let small = json!("small");
+    let input = EvaluationInput {
+        assets: Some(&assets),
+        ..text_input(&small, &questions)
+    };
+    assert!(!fits_long_window(input, "m", jev()));
+}
+
 #[test]
 fn images_share_one_request_without_counting_base64_as_text_context() {
     let state = json!("opaque");

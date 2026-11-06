@@ -81,12 +81,20 @@ pub(in super::super) async fn hedged<T, E, H>(
 /// The declarations of `content` whose `extends` / `implements` clause names
 /// `base` (as written, or as the last segment of a dotted name), located at
 /// the declaration's name. Matched by name, not resolved to a declaration.
+/// Read from the parts of the file that spell `base` where the engine can;
+/// else from the whole file's facts; a file whose grammar never names a
+/// supertype (Go embeds) holds none and is not parsed.
 pub(in super::super) fn subtype_snippets(
     content: &str,
     file: &str,
     base: &str,
 ) -> Vec<LspCodeSnippet> {
-    let Some(document) = crate::tools::declarations::graph_facts(content, file) else {
+    if !octocode_engine::signatures::may_name_supertypes(content, file) {
+        return Vec::new();
+    }
+    let Some(document) = crate::tools::declarations::named_heritage(content, file, base)
+        .or_else(|| crate::tools::declarations::graph_facts(content, file))
+    else {
         return Vec::new();
     };
     let Ok(uri) = octocode_engine::lsp::uri::path_to_uri(file) else {

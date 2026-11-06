@@ -170,16 +170,48 @@ pub(super) fn hide_unavailable_tools(mut command: clap::Command) -> clap::Comman
 }
 
 /// The help command: unavailable tools hidden, each tool's help ending with
-/// what the query needs (required fields and one runnable example), and the
-/// root help with every available tool's flag examples, all from the
-/// embedded CLI presentation.
+/// what the query needs (required fields and one runnable example) and where
+/// its output fields are explained, and the root help with each available
+/// tool's required fields, all from the embedded CLI presentation.
 pub(super) fn help_command() -> clap::Command {
-    ToolId::ALL
+    let command =
+        ToolId::ALL
+            .into_iter()
+            .fold(hide_unavailable_tools(Args::command()), |command, tool| {
+                let name = tool.as_str();
+                match octocode_native::contracts::cli_tool_help(name) {
+                    Some(help) => command.mut_subcommand(name, |sub| {
+                        sub.after_help(format!(
+                            "{help}\nOutput fields: {}",
+                            super::schema::output_command(name)
+                        ))
+                    }),
+                    None => command,
+                }
+            });
+    let listed: Vec<(&str, String)> = ToolId::ALL
         .into_iter()
-        .fold(hide_unavailable_tools(Args::command()), |command, tool| {
-            match octocode_native::contracts::cli_tool_help(tool.as_str()) {
-                Some(help) => command.mut_subcommand(tool.as_str(), |sub| sub.after_help(help)),
-                None => command,
-            }
+        .map(ToolId::as_str)
+        .filter(|name| {
+            command
+                .find_subcommand(name)
+                .is_some_and(|sub| !sub.is_hide_set())
         })
+        .filter_map(|name| Some((name, super::schema::first_form_requires(name)?)))
+        .collect();
+    if listed.is_empty() {
+        return command;
+    }
+    let width = listed.iter().map(|(name, _)| name.len()).max().unwrap_or(0);
+    let mut root =
+        String::from("Required query fields, one form per tool (every form: <tool> --help):");
+    for (name, fields) in &listed {
+        root.push_str(&format!("\n  {name:width$}  {fields}"));
+    }
+    root.push_str("\nWhat output fields mean: schema <tool> --view output");
+    let after = command
+        .get_after_help()
+        .map(|text| format!("{root}\n\n{text}"))
+        .unwrap_or(root);
+    command.after_help(after)
 }

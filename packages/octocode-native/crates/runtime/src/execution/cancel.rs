@@ -8,6 +8,11 @@ pub trait CancellationCheck: Sync {
     fn deadline(&self) -> Option<std::time::Instant> {
         None
     }
+    /// The signal that raises this cancellation, for work that awaits it
+    /// instead of re-running [`Self::check`]; `None` when only `check` says.
+    fn signal(&self) -> Option<&octocode_io::cancellation::Cancellation> {
+        None
+    }
 }
 
 /// The instant work under `cancel` must stop: its request's deadline, else
@@ -17,6 +22,16 @@ pub(crate) fn deadline_of(cancel: &dyn CancellationCheck) -> std::time::Instant 
         .deadline()
         .unwrap_or_else(|| std::time::Instant::now() + super::lifecycle::MAX_TIMEOUT)
 }
+/// The midpoint of what `cancel`'s request has left: where work that can
+/// resume ends, leaving the other half to answer; `None` for work no request
+/// bounds.
+pub(crate) fn halfway(cancel: &dyn CancellationCheck) -> Option<std::time::Instant> {
+    let now = std::time::Instant::now();
+    cancel
+        .deadline()
+        .map(|deadline| now + deadline.saturating_duration_since(now) / 2)
+}
+
 #[cfg(test)]
 pub(crate) struct NeverCancel;
 #[cfg(test)]

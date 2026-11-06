@@ -52,6 +52,14 @@ pub(super) fn page_starting_at(start: usize, max_size: usize) -> (usize, usize) 
     (start / size + 1, size)
 }
 
+/// [`page_starting_at`] for the page after `page` of a walk whose grid each
+/// page may change: the size is also at most `start / page`, so the pair's
+/// page number is past `page` and a walk's page numbers only climb (size 1
+/// always qualifies, since `start` is past every item of pages 1..=`page`).
+pub(super) fn page_starting_at_after(start: usize, max_size: usize, page: usize) -> (usize, usize) {
+    page_starting_at(start, max_size.min(start / page.max(1)).max(1))
+}
+
 /// How much of a provider collection a load covered.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct WindowState {

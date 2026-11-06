@@ -49,64 +49,35 @@ fn spawn_shell(script: &str) -> std::process::Child {
         .expect("spawn sh")
 }
 
-/// CPU growth of `pid`'s tree over `window` of wall time.
-fn cpu_growth(pid: u32, window: Duration) -> Duration {
-    let clock = TreeCpuClock::new(pid);
-    let before = clock.read().expect("readable");
-    std::thread::sleep(window);
-    clock.read().expect("readable").saturating_sub(before)
+/// The OS read behind the clock: this thread's own work shows in this
+/// process's tree. How a tree's processes add up is `cpu_clock`'s, on samples.
+#[test]
+fn tree_cpu_clock_reads_this_process_work() {
+    let clock = TreeCpuClock::new(std::process::id());
+    let before = clock.read().expect("this process is readable");
+    let started = crate::test_cpu::thread_cpu_time();
+    let mut spin = 0u64;
+    while crate::test_cpu::thread_cpu_time() - started < Duration::from_millis(30) {
+        spin = std::hint::black_box(spin.wrapping_add(1));
+    }
+    let after = clock.read().expect("still readable");
+    assert!(after > before, "{after:?} after {before:?}");
 }
 
+/// A child of the root is read with it: an idle one adds its own time, which
+/// `cpu_clock`'s samples prove is counted.
 #[test]
-fn tree_cpu_clock_grows_for_a_busy_server_and_not_an_idle_one() {
-    let mut busy = spawn_shell("while :; do :; done");
-    let mut idle = spawn_shell("sleep 60");
-    let window = Duration::from_millis(400);
-    let busy_growth = cpu_growth(busy.id(), window);
-    let idle_growth = cpu_growth(idle.id(), window);
-    kill_tree(busy.id());
-    kill_tree(idle.id());
-    let _ = busy.wait();
-    let _ = idle.wait();
-    assert!(
-        busy_growth >= window / 10,
-        "a spinning process burns CPU: {busy_growth:?}"
-    );
-    assert!(
-        idle_growth < window / 20,
-        "a sleeping process does not: {idle_growth:?}"
-    );
-}
-
-#[test]
-fn tree_cpu_clock_counts_descendants() {
-    // The shell only waits; the CPU is burned by its child.
-    let mut parent = spawn_shell("(while :; do :; done) & wait");
-    std::thread::sleep(Duration::from_millis(200));
-    let window = Duration::from_millis(400);
-    let growth = cpu_growth(parent.id(), window);
-    kill_tree(parent.id());
-    let _ = parent.wait();
-    assert!(growth >= window / 10, "child CPU is the tree's: {growth:?}");
-}
-
-/// A helper that burns CPU and exits must not make the tree's total
-/// fall: a falling total would read as "no progress" to the request wait.
-#[test]
-fn tree_cpu_clock_never_falls_when_a_busy_descendant_exits() {
-    let mut parent =
-        spawn_shell("(while :; do :; done) & busy=$!; sleep 1; kill $busy; wait; sleep 60");
-    let clock = TreeCpuClock::new(parent.id());
-    std::thread::sleep(Duration::from_millis(700));
-    let while_busy = clock.read().expect("readable");
-    std::thread::sleep(Duration::from_millis(1_000));
-    let after_exit = clock.read().expect("readable");
-    kill_tree(parent.id());
-    let _ = parent.wait();
-    assert!(
-        after_exit >= while_busy,
-        "{after_exit:?} fell below {while_busy:?}"
-    );
+fn tree_cpu_clock_reads_a_child_of_its_root() {
+    let mut child = spawn_shell("sleep 30");
+    let clock = TreeCpuClock::new(std::process::id());
+    let read = clock.read();
+    let walked = descendants(std::process::id())
+        .iter()
+        .any(|process| process.pid == child.id());
+    kill_tree(child.id());
+    let _ = child.wait();
+    assert!(read.is_some(), "the root and its child are readable");
+    assert!(walked, "the clock's walk reaches the child");
 }
 
 #[test]

@@ -164,7 +164,7 @@ fn a_value_outside_its_format_names_the_format_not_its_pattern() {
     let error =
         crate::contracts::prepare_many_and_validate("ghSearchHistory", json!({"queries": [row]}))
             .expect_err("not a date-time");
-    let shown = crate::contracts::validate::format_input_error("ghSearchHistory", &error);
+    let shown = crate::contracts::validate::format_input_error("ghSearchHistory", &error, &[]);
     assert_eq!(
         shown["error"],
         r#"queries.0.filters.createdAt.include.0.from: "not-a-date" is not a valid value for from: it must be a date-time (RFC 3339), e.g. 2026-10-01T00:00:00Z"#,
@@ -191,7 +191,7 @@ fn validate_input_schema_for_test(
 fn first_error(tool: &str, row: Value) -> String {
     let error = crate::contracts::prepare_many_and_validate(tool, json!({"queries": [row]}))
         .expect_err("invalid row");
-    crate::contracts::validate::format_input_error(tool, &error)["error"]
+    crate::contracts::validate::format_input_error(tool, &error, &[])["error"]
         .as_str()
         .expect("message")
         .to_owned()

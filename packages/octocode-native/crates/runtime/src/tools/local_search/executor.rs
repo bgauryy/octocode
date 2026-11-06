@@ -21,8 +21,11 @@ use projection::annotate_rows;
 pub(super) use projection::order_files;
 #[cfg(test)]
 pub(super) use scanned::scan;
-pub(super) use scanned::{Scanned, scan_query, search_options};
+#[cfg(test)]
+pub(super) use scanned::scan_query;
+pub(super) use scanned::{Scanned, scan_resumed, search_options};
 use serde_json::json;
+pub(super) use settle::search_stats;
 use settle::{Page, settle_row};
 use std::sync::Arc;
 
@@ -37,10 +40,15 @@ pub fn execute_local_search(
     selection: Option<&crate::tools::selection::Runtime>,
 ) -> Result<LocalSearchResult, ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
+    let (resumed, query) = super::window::resumed(query)?;
+    let query = &*query;
     check_each_term(query)?;
     let terms = local_search_query::term_patterns(query);
     let joined = &*local_search_query::normalized(query)?;
-    let scan = scan_query(joined, paths, cancel, (response_window, terms))?;
+    let mut scan = scan_resumed(joined, paths, cancel, (response_window, terms), resumed)?;
+    if let Some(pause) = scan.paused.take() {
+        return super::window::paused_row(query, pause, (&scan.query_key, &scan.policy_key));
+    }
     let alternates = Alternates::new(query, &scan);
     let mut row = page_of(
         joined,
@@ -77,7 +85,7 @@ fn check_each_term(query: &LocalSearchQuery) -> Result<(), ToolError> {
 }
 
 /// The page `query` asks for, cut from `scan` (fresh, or stored and proved
-/// unchanged when [`scan_query`] took it). Every file the page reads or
+/// unchanged when [`scan_resumed`] took it). Every file the page reads or
 /// shows is checked again here, so a file changed since then restarts the
 /// snapshot or is denied rather than shown.
 pub(super) fn page_of(

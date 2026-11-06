@@ -55,19 +55,19 @@ impl NativeLspClient {
     /// when the open was written is drained. An explicit `settle_ms` follows
     /// the same rule.
     ///
-    /// Returns the readiness string (`progressIdle`, `settledWithoutProgress`, or
-    /// `timeout`) for the wait, and `None` for a document whose wait completed.
+    /// Returns how the wait ended, and `None` for a document whose wait
+    /// completed.
     /// A wait that was owed nothing (no settle, and no progress under way)
     /// confirmed nothing itself, so it reports the client's startup readiness
-    /// instead of `settledWithoutProgress`: a confirmed load stays
-    /// `progressIdle`. A timed-out load still owes a wait on the next call.
+    /// instead of [`Readiness::SilentServer`]: a confirmed load stays
+    /// [`Readiness::ProgressIdle`]. A timed-out load still owes a wait on the next call.
     pub async fn open_document_and_wait(
         &self,
         file_path: String,
         content: &str,
         settle_ms: Option<u32>,
         timeout_ms: Option<u32>,
-    ) -> Result<Option<String>> {
+    ) -> Result<Option<Readiness>> {
         let _activity = self.lease();
         let observed = self.inner.progress.subscribe();
         let begins = self.inner.progress.begins();
@@ -88,7 +88,7 @@ impl NativeLspClient {
             project_key(&file_path),
             begins,
         );
-        let settle_ms = if pending.is_none() || self.readiness_is(Readiness::ProgressIdle) {
+        let settle_ms = if pending.is_none() || self.readiness() == Some(Readiness::ProgressIdle) {
             0
         } else {
             self.settle_ms(u64::from(settle_ms.unwrap_or(OPEN_SETTLE_MS)))
@@ -119,7 +119,7 @@ impl NativeLspClient {
         let reported = owed_nothing
             .then(|| self.readiness())
             .flatten()
-            .unwrap_or_else(|| readiness.as_str().to_owned());
+            .unwrap_or(readiness);
         Ok(Some(reported))
     }
 

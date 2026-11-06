@@ -125,13 +125,15 @@ fn malformed_parser_glob_fails_before_scanning_files() {
 }
 
 #[test]
-fn reports_stable_read_and_extraction_failures() {
+fn reports_a_stable_read_failure_and_extracts_past_any_parse_size() {
     let fixture = tempfile::tempdir().expect("fixture");
     let root = fixture.path().to_path_buf();
     fs::create_dir_all(&root).expect("create fixture");
     // Not [0xff, 0xfe]: that is a UTF-16 byte-order mark, which is admitted.
     fs::write(root.join("invalid.js"), [0xc3, 0x28]).expect("write invalid utf8 fixture");
-    let extraction_size = crate::signatures::MAX_PARSE_SIZE + 1;
+    // No parse size refuses a file the scan admits: `max_file_bytes` alone
+    // bounds what it reads.
+    let extraction_size = crate::security::MAX_CONTENT_SIZE;
     fs::write(root.join("extract.ts"), vec![b'x'; extraction_size])
         .expect("write extraction fixture");
 
@@ -151,10 +153,7 @@ fn reports_stable_read_and_extraction_failures() {
             .iter()
             .map(|diagnostic| (diagnostic.relative_path.as_str(), diagnostic.code.as_str()))
             .collect::<Vec<_>>(),
-        [
-            ("extract.ts", "graph.scan.extractFailed"),
-            ("invalid.js", "graph.scan.readFailed"),
-        ]
+        [("invalid.js", "graph.scan.readFailed")]
     );
 }
 

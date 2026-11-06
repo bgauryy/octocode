@@ -76,9 +76,18 @@ const _: () = {
 /// Give a spawned child process a bounded window to exit on its own (e.g.
 /// after an LSP `exit` notification) before escalating to a hard kill.
 /// Returns `true` if the process exited within `timeout_duration` without
-/// needing to be killed.
-pub(super) async fn wait_for_graceful_exit(child: &mut Child, timeout_duration: Duration) -> bool {
-    end_child(child, timeout_duration, crate::process::kill_tree_blocking).await
+/// needing to be killed. `tree` is the child's process tree read before it
+/// was asked to exit: the sweep also ends those descendants that its exit
+/// re-parented away.
+pub(super) async fn wait_for_graceful_exit(
+    child: &mut Child,
+    timeout_duration: Duration,
+    tree: crate::process::TreeSnapshot,
+) -> bool {
+    end_child(child, timeout_duration, |pid| {
+        crate::process::kill_tree_blocking_with(pid, tree)
+    })
+    .await
 }
 
 /// Ends `child` and sweeps its process group with `sweep(pid)` on both paths:

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import type { TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
@@ -15,7 +15,6 @@ const { database, databaseExport, records, timing, ValidationError } = runtime;
 type Database = ReturnType<typeof database.openDatabase>;
 type RecordsHost = Parameters<typeof records.fetch>[0];
 const sha256 = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
-const legacy = JSON.parse(readFileSync(new URL('./fixtures/legacy-database.json', import.meta.url), 'utf8'));
 
 /** The slice of the store the record operations need, over a database and its single workspace. */
 function host(db: Database, workspace: string): RecordsHost {
@@ -44,12 +43,6 @@ const currentSession = (t: TestContext) => {
   db.close();
   return { directory, workspace: directory, file, id };
 };
-const legacyV7Database = (t: TestContext) => {
-  const directory = tempWorkspace(t, 'database-v7-', { real: true });
-  const file = join(directory, 'legacy-v7.sqlite');
-  copyFileSync(new URL('./fixtures/legacy-database.sqlite', import.meta.url), file);
-  return { file, workspace: legacy.info.workspace };
-};
 
 test('typed column reads return SQLite values and refuse a column of another type', () => {
   const db = new database.Database(new DatabaseSync(':memory:'));
@@ -62,13 +55,17 @@ test('typed column reads return SQLite values and refuse a column of another typ
   } finally { db.close(); }
 });
 
-test('a schema-v7 database is refused unchanged rather than migrated', t => {
-  const { workspace, file } = legacyV7Database(t);
+test('a non-current schema is refused unchanged rather than migrated', t => {
+  const { workspace, file } = currentSession(t);
+  const unsupported = database.schema().schemaVersion - 1;
+  const source = new DatabaseSync(file);
+  source.exec(`PRAGMA user_version=${unsupported}`);
+  source.close();
   const before = sha256(file);
   const inspected = database.inspect(file, workspace);
   assert.equal(inspected.compatible, false);
-  assert.equal(inspected.schemaVersion, 7);
-  assert.ok(inspected.expectedSchemaVersion > 7);
+  assert.equal(inspected.schemaVersion, unsupported);
+  assert.equal(inspected.expectedSchemaVersion, database.schema().schemaVersion);
   for (const [readOnly, create] of [[true, false], [false, true], [false, false]])
     assert.throws(() => database.openDatabase(file, readOnly, create), /Incompatible agents-communication database.*existing data is not modified/);
   assert.equal(sha256(file), before);
@@ -191,6 +188,7 @@ test('the WAL safety gate matches the recorded output', () => {
 test('transactions are explicit: commit, rollback on any throw, no nesting, no async bodies', t => {
   const workspace = tempWorkspace(t, 'database-', { real: true });
   const db = database.openDatabase(join(workspace, 'tx.sqlite'), false, true);
+  db.run('INSERT INTO workspaces VALUES(?,?)', [workspace, workspace]);
   const sessionSql = 'INSERT INTO sessions(id,workspace,name,vendor,expiresAt) VALUES(?,?,?,?,?)';
   const count = () => db.value('SELECT count(*) FROM sessions');
   assert.equal(database.transaction(db, () => { db.run(sessionSql, ['one', workspace, 'one', 'generic', 1]); assert.equal(db.inTransaction, true); return 'done'; }), 'done');

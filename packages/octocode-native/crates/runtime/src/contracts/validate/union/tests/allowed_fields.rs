@@ -7,7 +7,7 @@ use super::*;
 fn unknown_field_error(tool: &str, row: Value) -> String {
     let error =
         prepare_many_and_validate(tool, json!({ "queries": [row] })).expect_err("unknown field");
-    let shown = crate::contracts::validate::format_input_error(tool, &error);
+    let shown = crate::contracts::validate::format_input_error(tool, &error, &[]);
     shown["error"].as_str().unwrap_or_default().to_owned()
 }
 

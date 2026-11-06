@@ -192,3 +192,14 @@ fn enable_flags_are_declared_where_the_client_documents_one() {
     );
     assert_eq!(flagged(EnableFlag::Enabled), ["opencode", "codex"]);
 }
+
+/// A plain stdio client is a JSON `mcpServers` map in one user file: home
+/// is its only scope and its own function places that file.
+#[test]
+fn a_stdio_client_has_only_its_user_file() {
+    let client = ClientSpec::stdio("example", |dirs| dirs.config.join("example.json"));
+    assert_eq!(client.scopes().collect::<Vec<_>>(), ["home"]);
+    assert_eq!(client.server_keys(), ["mcpServers", "octocode"]);
+    assert!(!client.config_dir_overridden());
+    assert_eq!((client.home)(&dirs(None)), PathBuf::from("/c/example.json"));
+}

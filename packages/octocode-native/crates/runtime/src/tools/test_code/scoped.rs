@@ -103,6 +103,13 @@ impl Scoped {
         self.index.unread()
     }
 
+    /// Of [`Self::excluded`]'s files, those the walk left unread by where they
+    /// lie ([`Self::reads`]): what the walk decided, not what reading a file
+    /// showed.
+    pub(crate) fn left_unread(&self) -> u32 {
+        self.files.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// What the scope left out so far.
     pub(crate) fn excluded(&self) -> TestCodeExcluded {
         let whole = octocode_engine::num::saturating_u32(lock(&self.whole).len());

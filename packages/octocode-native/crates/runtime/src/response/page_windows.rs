@@ -157,6 +157,14 @@ pub(crate) fn page_budget(response_window: Option<usize>) -> usize {
     page_chars(response_window, ROW_SKELETON_CHARS)
 }
 
+/// The smallest response window whose [`page_budget`] holds `chars`: the
+/// window an internal reader passes when it keeps every page it reads, so
+/// a selection within `chars` is one page (one read of the source) instead
+/// of one default-sized page per read.
+pub(crate) fn window_holding(chars: usize) -> usize {
+    chars.saturating_add(ROW_SKELETON_CHARS)
+}
+
 /// Fallback when a caller has no configured response window. Runtime calls
 /// carry their window and reserve the surrounding row from that budget.
 const FALLBACK_PAGE_CHARS: usize = 24_000;

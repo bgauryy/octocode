@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod dotenv_files;
+mod locators;
 mod phrases;
 
 /// A base64-encoded PEM private key (Kubernetes `data:`, Helm values,
@@ -157,6 +159,8 @@ fn credential_assignments_keep_code_statement_references() {
 fn credential_assignments_keep_identifier_values() {
     for content in [
         "\"x-kubernetes-patch-merge-key\": \"resourceClaimName\",\n",
+        // Long enough for the base64 shape: still a field name.
+        "\"x-kubernetes-patch-merge-key\": \"resourceClaimNameForExtendedResources\",\n",
         "const sortKey = \"createdAtTimestamp\";\n",
         "PRIMARY_KEY=ResourceClaimName\n",
         "  apiKey: resourceClaimName\n",
@@ -186,13 +190,9 @@ fn credential_assignments_keep_identifier_values() {
     ] {
         let result = detect(&content, None);
         assert!(!result.sanitized.contains(secret), "leaked: {content:?}");
-        assert!(
-            result
-                .secrets_detected
-                .iter()
-                .any(|name| name == "envVarSecrets"),
-            "{content:?}"
-        );
+        // Independent value-shape rules may redact before the assignment rule.
+        // This case proves redaction, not precedence between overlapping rules.
+        assert!(!result.secrets_detected.is_empty(), "{content:?}");
     }
 }
 
@@ -330,5 +330,50 @@ fn credential_assignments_keep_digests_keyed_by_file_paths() {
     ] {
         let result = detect(&content, None);
         assert!(!result.sanitized.contains(secret), "leaked: {content:?}");
+    }
+}
+
+/// A URL with credentials loses only its password: scheme, user, host, port
+/// and path stay readable, whichever URL pattern (or several) names it, and
+/// the password is counted once.
+#[test]
+fn credentials_in_a_url_redact_only_the_password() {
+    let password = "Fake0Pass9Word";
+    let urls = [
+        "https://admin:{p}@the-internet.herokuapp.com/basic_auth",
+        "postgres://app:{p}@db.example.test:5432/orders",
+        "postgresql://app:{p}@db.example.test/orders",
+        "mysql://app:{p}@db.example.test/orders",
+        "mongodb+srv://app:{p}@cluster0.example.test/orders",
+        "rediss://app:{p}@cache.example.test:6380",
+        "http://elastic:{p}@search.example.test:9200",
+        "bolt://neo4j:{p}@graph.example.test:7687",
+        "cassandra://app:{p}@ring.example.test:9042",
+        "postgres://app:{p}@ep-cool.us-east-2.aws.neon.tech/neondb",
+    ];
+    for url in urls {
+        let line = format!("url = {}\n", url.replace("{p}", password));
+        let result = detect(&line, None);
+        assert!(
+            !result.sanitized.contains(password),
+            "{url}: password leaked: {}",
+            result.sanitized
+        );
+        let (head, tail) = url.split_once("{p}").expect("placeholder");
+        let kept = result
+            .sanitized
+            .strip_prefix(&format!("url = {head}"))
+            .and_then(|rest| rest.strip_suffix(&format!("{tail}\n")))
+            .unwrap_or_else(|| panic!("{url}: context lost: {}", result.sanitized));
+        assert!(
+            kept.starts_with(crate::security::REDACTION_PREFIX) && !kept.contains(' '),
+            "{url}: {kept}"
+        );
+        assert_eq!(
+            result.secrets_detected.len(),
+            1,
+            "{url}: {:?}",
+            result.secrets_detected
+        );
     }
 }

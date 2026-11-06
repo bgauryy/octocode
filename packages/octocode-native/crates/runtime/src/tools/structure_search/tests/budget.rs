@@ -9,6 +9,7 @@ use crate::tools::test_support::{Fixture, assert_row_contract, simple_policy, sk
 use serde_json::{Value, json};
 use std::time::Duration;
 
+mod ranked;
 mod resume;
 mod resume_edits;
 mod windows;
@@ -167,6 +168,9 @@ fn follow_outputs(
     let mut windows = Vec::new();
     let mut resumed = Vec::new();
     let mut query = start;
+    // The chain's first window walks under its own budget, not served from a
+    // listing an earlier walk of the same scope kept.
+    let _walking = super::super::windows::walking_firsts();
     loop {
         let budget = budgets[windows.len().min(budgets.len() - 1)];
         assert!(windows.len() < 60, "the walk never finishes: {query}");

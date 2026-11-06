@@ -1,11 +1,34 @@
 //! One listing window cut into pages, and the continuations it leads to
 //! (`nextPage` and the related `narrowScope` query).
-use super::listing::{Listing, Move};
+use super::listing::Listing;
 use super::{continuation, narrow_scope};
 use crate::response::result::insert_next;
 use octocode_contract_types::StructureSearchChannel;
 use serde_json::{Value, json};
 use std::num::NonZeroU64;
+
+/// Where a continuation moves a listing: the private position fields it
+/// sets, the rest of the query staying as written.
+pub(super) enum Move {
+    /// The next page of the stored walk, bound to its `snapshot`.
+    Page {
+        page: std::num::NonZeroU64,
+        snapshot: String,
+    },
+    /// The window after one a row limit cut, past the rows already listed,
+    /// bound to what those windows listed ([`windows`]).
+    Window {
+        scan_offset: Option<std::num::NonZeroU64>,
+        snapshot: Option<String>,
+    },
+    /// The walk resumed after a time cut, past the rows already listed,
+    /// bound to what the windows so far listed ([`resume`](super::resume)).
+    Resume {
+        walk_offset: std::num::NonZeroU64,
+        scan_offset: Option<std::num::NonZeroU64>,
+        snapshot: Option<String>,
+    },
+}
 
 /// Serialized chars one row adds to a page: `entry` always, plus `header`
 /// when the row opens a group: it starts the page, or `continues` is false
@@ -87,6 +110,13 @@ pub(super) struct Cut {
 }
 
 impl Cut {
+    /// The walk covered the whole scope before any window was cut (a sorted
+    /// listing ranks it, an outline counts it): a row limit only pages that
+    /// listing. Its first rows are final (a ranking's top), its total is
+    /// exact, and nothing about it is partial.
+    pub(super) fn whole_walk(&self) -> bool {
+        self.time_cut.is_none() && !self.early_exit
+    }
     pub(super) fn has_more(&self) -> bool {
         self.page < self.total_pages
     }
@@ -95,10 +125,7 @@ impl Cut {
     /// listing is in walk order wherever `scanOffset` skips rows, and the
     /// walk advanced past its own resume point.
     pub(super) fn resume_at(&self) -> Option<usize> {
-        (self.time_cut.is_some()
-            && !self.limit_cut
-            && self.time_window != TimeWindow::SortedPastScanOffset
-            && self.walk_position > self.walk_offset)
+        (self.time_cut.is_some() && !self.limit_cut && self.walk_position > self.walk_offset)
             .then_some(self.walk_position)
     }
     /// The listing rows `scanOffset` skipped that this window's walk did
@@ -134,17 +161,10 @@ impl Cut {
             );
         }
         if self.time_terminal() {
-            let past = if self.time_window == TimeWindow::SortedPastScanOffset {
-                format!(
-                    "the walk stopped at its time budget before `{}` and this listing's sort order cannot skip the rows of an earlier window across a cut walk, so this window lists none; its rows and entries from there on in walk order (name-sorted, depth-first)",
-                    self.time_cut.as_deref().unwrap_or_default()
-                )
-            } else {
-                format!(
-                    "the walk stopped at its time budget before `{}`; entries from there on in walk order (name-sorted, depth-first)",
-                    self.time_cut.as_deref().unwrap_or_default()
-                )
-            };
+            let past = format!(
+                "the walk stopped at its time budget before `{}`; entries from there on in walk order (name-sorted, depth-first)",
+                self.time_cut.as_deref().unwrap_or_default()
+            );
             warnings.push(format!("terminalLimit: {past} are on no page."));
             if let Some(lead) = narrow_scope(query) {
                 out["calls"]["narrowScope"] = lead;
@@ -168,6 +188,9 @@ impl Cut {
             .filter(|_| !self.time_terminal() && !self.has_more())
         {
             warnings.push(match self.time_window {
+                TimeWindow::Paused => format!(
+                    "the walk paused at its time budget before `{at}`: a sorted listing ranks its whole scope, so it lists its rows once the walk ends; `next` resumes the walk there."
+                ),
                 TimeWindow::EndedAtRows => format!(
                     "the walk stopped at its time budget before `{at}` and found more rows than its {}-entry walk window: this window lists the first rows in walk order (name-sorted, depth-first), and entries after the last listed one are not yet listed: `next` resumes the walk there.",
                     self.requested
@@ -177,9 +200,10 @@ impl Cut {
                 ),
             });
         }
+        let window_cut = self.limit_cut && !self.whole_walk();
         for (cut, reason) in [
             (
-                self.limit_cut,
+                window_cut,
                 crate::response::paging::PartialReason::WalkWindow,
             ),
             (
@@ -198,7 +222,7 @@ impl Cut {
                 &[],
             );
         }
-        if self.limit_cut {
+        if window_cut {
             out["clipped"] = json!(true);
             if self.early_exit {
                 out["atLeast"] = json!(self.scan_offset + self.total + 1);
@@ -253,9 +277,8 @@ pub(super) enum TimeWindow {
     /// last row it lists, in walk order, and the walk resumes there. The
     /// rows after it in walk order are not dropped, the resume walks them.
     EndedAtRows,
-    /// A listing sorted by something other than walk order resumed with
-    /// `scanOffset` skips rows of an earlier window's sort order, which a
-    /// walk cut short ranks differently: no row of the window is listed,
-    /// and none resumes it.
-    SortedPastScanOffset,
+    /// A sorted walk paused at its time budget: it ranks its whole scope, so
+    /// it lists no row yet, and the walk resumes where it paused with the rows
+    /// it ranked so far ([`super::standing`]).
+    Paused,
 }

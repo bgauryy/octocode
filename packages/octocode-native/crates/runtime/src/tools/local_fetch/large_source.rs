@@ -41,15 +41,13 @@ use window::{Opened, stream_window};
 pub(super) use crate::tools::source_view::prepare::MAX_STREAM_SOURCE_BYTES;
 /// Lines held by one streamed window; response pages are sized separately.
 const WINDOW_LINES: usize = 5_000;
-/// Bytes one streamed window holds; a longer window is cut at a line end or,
-/// for a single giant line, mid-line: its byte pages start the window at
-/// their own offset, so the rest of the line is the next window.
-pub(super) const WINDOW_BYTES: usize = 4 * 1024 * 1024;
 /// View bytes a byte page's window keeps behind the page: the page finds its
 /// line's start and its secret-scan margin there, as in an in-memory read. Past
 /// every secret the detectors can bound, and a secret that outruns it (a value over
 /// this long, its name out of reach) is the stated limit.
 const BYTE_LOOKBEHIND: usize = 128 * 1024;
+#[cfg(test)]
+use held::WINDOW_BYTES;
 /// Bytes a byte page's window holds: the page with that margin on both sides.
 const BYTE_WINDOW_BYTES: usize = 3 * BYTE_LOOKBEHIND;
 /// A line past this is no key-block line, whatever it spells: a key's own lines are
@@ -99,14 +97,19 @@ struct Streamed {
 }
 
 /// A repair for a request a streamed window cannot serve.
-fn unsupported(q: &LocalFetchQuery, len: u64, reason: &str, next: NextCalls) -> LocalFetchResult {
+fn unsupported(
+    q: &LocalFetchQuery,
+    (len, limits): (u64, crate::security::SourceLimits),
+    reason: &str,
+    next: NextCalls,
+) -> LocalFetchResult {
     let mut result = LocalFetchResult::error(
         local_fetch_query::path(q).to_owned(),
         ErrorCode::LargeSourceWindowOnly,
         format!(
             "This source is {}MB, above the {}MB whole-file read limit, so only bounded line windows are served: {reason}",
             len / (1024 * 1024),
-            super::acquire::MAX_SOURCE_BYTES / (1024 * 1024)
+            limits.whole_source / (1024 * 1024)
         ),
     );
     result.next = Some(next);
@@ -163,17 +166,18 @@ fn serve_source(
         len,
         meta,
         proven: kept.as_deref().map(|kept| (&kept.proven, kept.total_lines)),
+        limits: security.limits(),
     };
     if local_fetch_query::view(q) == ReadView::Content
         && local_fetch_query::block(q)
         && !local_fetch_query::match_strings(q).is_empty()
     {
-        return block_needs_whole_file(q, len);
+        return block_needs_whole_file(q, len, source.limits);
     }
     if local_fetch_query::view(q) != ReadView::Content || local_fetch_query::block(q) {
         return unsupported(
             q,
-            len,
+            (len, source.limits),
             "Transformed views and declaration expansion need the whole file.",
             read_bounded(q),
         );
@@ -215,7 +219,11 @@ fn streamed_warning(len: u64) -> String {
 
 /// A `block` match read parses the whole file to find each hit's
 /// declaration: lead to the same match read without `block`, which streams.
-fn block_needs_whole_file(q: &LocalFetchQuery, len: u64) -> LocalFetchResult {
+fn block_needs_whole_file(
+    q: &LocalFetchQuery,
+    len: u64,
+    limits: crate::security::SourceLimits,
+) -> LocalFetchResult {
     let next = NextCalls {
         read: local_fetch_query::updated(q, serde_json::json!({"block":null}))
             .ok()
@@ -224,7 +232,7 @@ fn block_needs_whole_file(q: &LocalFetchQuery, len: u64) -> LocalFetchResult {
     };
     unsupported(
         q,
-        len,
+        (len, limits),
         "block parses the whole file to find each hit's declaration; the same read without block serves the hits with their context lines.",
         next,
     )

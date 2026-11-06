@@ -24,6 +24,7 @@ pub(super) fn answered(
         "usage": {
             "input_tokens": judged.input_tokens,
             "output_tokens": judged.output_tokens,
+            "calls": judged.provider_calls,
         },
     });
     if let Some(assets) = assets {
@@ -52,6 +53,16 @@ pub(super) fn failed(row: &Row, error: &ClassificationError, captured: Option<&C
     });
     if !error.hints.is_empty() {
         failure["hints"] = json!(error.hints);
+    }
+    // Every request sent counts, a refused one included: it is unbilled, yet
+    // its source left this machine.
+    if error.provider_calls > 0 {
+        let usage = error.usage();
+        failure["usage"] = json!({
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "calls": error.provider_calls,
+        });
     }
     crate::response::result::attach_calls(
         &mut failure,

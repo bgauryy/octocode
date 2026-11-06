@@ -233,7 +233,15 @@ pub async fn execute(
     } else {
         identify(&mut output.data);
     }
-    sanitize_provider_json(security, &mut output.data, Path::new(SCAN_PATH))?;
+    // The row is redacted here, before the output gate sees it: say so with
+    // the shared warning, as the gate does for what it redacts.
+    let redacted = sanitize_provider_json(security, &mut output.data, Path::new(SCAN_PATH))?;
+    if redacted > 0 {
+        crate::response::paging::push_warnings(
+            &mut output.data,
+            [crate::security::redacted_content_warning(redacted)],
+        );
+    }
     remove_nulls(&mut output.data);
     crate::response::result::finish_calls(&mut output.data);
     enforce_response_limit(&output.data, context.budget.max_body_bytes)?;

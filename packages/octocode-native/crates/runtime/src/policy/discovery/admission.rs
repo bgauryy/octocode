@@ -28,6 +28,9 @@ pub(crate) struct WalkSkips {
     /// `node_modules/`) or is a dot entry: reaching it lifts those too.
     pub(crate) ignored_excluded: bool,
     pub(crate) ignored_hidden: bool,
+    /// Octocode's own store directories ([`crate::policy::prune::is_octocode_artifact`]),
+    /// each by its path under the walk root: skipped whatever the flags.
+    pub artifacts: std::collections::BTreeSet<String>,
 }
 
 impl WalkSkips {
@@ -37,6 +40,7 @@ impl WalkSkips {
             (self.ignored.len(), "ignored"),
             (self.hidden.len(), "hidden"),
             (self.pruned.len() + self.generated.len(), "default-excluded"),
+            (self.artifacts.len(), "octocode-artifact"),
         ]
         .into_iter()
         .filter(|(count, _)| *count > 0)
@@ -184,6 +188,15 @@ impl<'a> WalkAdmission<'a> {
             return false;
         }
         let is_dir = is_dir();
+        if crate::policy::prune::is_octocode_artifact(&self.root, path, is_dir) {
+            if self.in_scope(path, is_dir) {
+                let shown = self.shown(path);
+                self.note(|skips| {
+                    skips.artifacts.insert(shown);
+                });
+            }
+            return false;
+        }
         (is_dir && self.engine_prunes) || !self.exclude(path, is_dir)
     }
 

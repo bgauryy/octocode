@@ -46,6 +46,7 @@ pub(super) struct FileRec {
 }
 
 /// Everything one search accumulated: every matched file is kept in `recs`.
+#[derive(Default)]
 pub(super) struct CollectResult {
     pub(super) recs: Vec<FileRec>,
     pub(super) files_searched: u64,
@@ -55,8 +56,6 @@ pub(super) struct CollectResult {
     pub(super) matched_lines: u64,
     /// A per-file only-matching span cap was hit (`maxOnlyMatchingPerFile`).
     pub(super) span_capped: bool,
-    /// The PCRE2 wall-clock deadline was hit (`pcre2Deadline`).
-    pub(super) timed_out: bool,
     /// At least one file exceeded the byte ceiling and was skipped (`fileTooLarge`).
     pub(super) size_skipped: bool,
     /// At least one file was quit as binary (`binaryQuit`); coverage is partial.
@@ -78,9 +77,7 @@ pub(super) struct CollectResult {
 }
 
 /// Shared accumulation state for one search. Walk workers write finished files
-/// and counters here; the PCRE2 driver can read a consistent snapshot of the
-/// files finished so far while a worker is still stuck in a match, and raise
-/// `stop` so every worker quits at its next check.
+/// and counters here, and `stop` makes every worker quit at its next check.
 pub(super) struct CollectState {
     pub(super) recs: Mutex<Vec<FileRec>>,
     pub(super) files_searched: AtomicU64,
@@ -89,7 +86,6 @@ pub(super) struct CollectState {
     pub(super) submatches: AtomicU64,
     pub(super) matched_lines: AtomicU64,
     pub(super) span_capped: AtomicBool,
-    pub(super) timed_out: AtomicBool,
     pub(super) size_skipped: AtomicBool,
     binary_quit: AtomicBool,
     pub(super) binary_files: Mutex<Vec<String>>,
@@ -99,7 +95,7 @@ pub(super) struct CollectState {
     pub(super) depth_cut_dirs: AtomicU32,
     pub(super) skipped_binary_extensions: Mutex<HashMap<String, (u32, BTreeSet<String>)>>,
     pub(super) cancelled: AtomicBool,
-    /// Set when the walk must end now (deadline, cancellation, driver timeout).
+    /// Set when the walk must end now (cancellation, or a PCRE2 window's end).
     pub(super) stop: AtomicBool,
     pub(super) error_count: AtomicU64,
     pub(super) first_error: Mutex<Option<String>>,
@@ -122,7 +118,6 @@ impl CollectState {
             submatches: AtomicU64::new(0),
             matched_lines: AtomicU64::new(0),
             span_capped: AtomicBool::new(false),
-            timed_out: AtomicBool::new(false),
             size_skipped: AtomicBool::new(false),
             binary_quit: AtomicBool::new(false),
             binary_files: Mutex::new(Vec::new()),
@@ -229,7 +224,6 @@ impl CollectState {
             submatches: self.submatches.load(Ordering::Relaxed),
             matched_lines: self.matched_lines.load(Ordering::Relaxed),
             span_capped: self.span_capped.load(Ordering::Relaxed),
-            timed_out: self.timed_out.load(Ordering::Relaxed),
             size_skipped: self.size_skipped.load(Ordering::Relaxed),
             binary_quit: self.binary_quit.load(Ordering::Relaxed),
             binary_files: {
@@ -258,11 +252,7 @@ impl CollectState {
                         names: names.iter().cloned().collect(),
                     })
                     .collect::<Vec<_>>();
-                groups.sort_by(|a, b| {
-                    b.count
-                        .cmp(&a.count)
-                        .then_with(|| a.extension.cmp(&b.extension))
-                });
+                sort_extension_groups(&mut groups);
                 groups
             },
             cancelled: self.cancelled.load(Ordering::Relaxed),
@@ -275,4 +265,111 @@ impl CollectState {
             },
         }
     }
+}
+
+impl CollectResult {
+    /// What `self` and then `later` accumulated, as one search that read
+    /// `self`'s files first: counts add, flags join, lists keep their order
+    /// (binary-quit paths are sorted once, by [`Self::settled`]), and the
+    /// first error stays the earlier one.
+    pub(super) fn merge(mut self, later: Self) -> Self {
+        self.recs.extend(later.recs);
+        self.files_searched += later.files_searched;
+        self.bytes_searched += later.bytes_searched;
+        self.files_matched += later.files_matched;
+        self.submatches += later.submatches;
+        self.matched_lines += later.matched_lines;
+        self.span_capped |= later.span_capped;
+        self.size_skipped |= later.size_skipped;
+        self.binary_quit |= later.binary_quit;
+        self.binary_files.extend(later.binary_files);
+        self.binary_file_count = self
+            .binary_file_count
+            .saturating_add(later.binary_file_count);
+        self.skipped_binary_count = self
+            .skipped_binary_count
+            .saturating_add(later.skipped_binary_count);
+        self.file_terms_dropped = self
+            .file_terms_dropped
+            .saturating_add(later.file_terms_dropped);
+        self.depth_cut_dirs = self.depth_cut_dirs.saturating_add(later.depth_cut_dirs);
+        for group in later.skipped_binary_extensions {
+            match self
+                .skipped_binary_extensions
+                .iter_mut()
+                .find(|known| known.extension == group.extension)
+            {
+                Some(known) => {
+                    known.count = known.count.saturating_add(group.count);
+                    let names = std::mem::take(&mut known.names)
+                        .into_iter()
+                        .chain(group.names)
+                        .collect::<BTreeSet<_>>();
+                    known.names = names.into_iter().collect();
+                }
+                None => self.skipped_binary_extensions.push(group),
+            }
+        }
+        sort_extension_groups(&mut self.skipped_binary_extensions);
+        self.cancelled |= later.cancelled;
+        self.error_count = self.error_count.saturating_add(later.error_count);
+        self.first_error = self.first_error.or(later.first_error);
+        self.pattern_error_count = self
+            .pattern_error_count
+            .saturating_add(later.pattern_error_count);
+        self.test_code_excluded.files = self
+            .test_code_excluded
+            .files
+            .saturating_add(later.test_code_excluded.files);
+        self.test_code_excluded.lines = self
+            .test_code_excluded
+            .lines
+            .saturating_add(later.test_code_excluded.lines);
+        self
+    }
+
+    /// The merged result as one snapshot reads it: binary-quit paths sorted.
+    pub(super) fn settled(mut self) -> Self {
+        self.binary_files.sort();
+        self
+    }
+
+    /// Rough heap bytes of the kept files: what holding them costs.
+    pub(super) fn weight(&self) -> usize {
+        let text = |matched: &TextSearchMatch| 64 + matched.value.len();
+        self.recs
+            .iter()
+            .map(|rec| {
+                std::mem::size_of::<FileRec>()
+                    + rec.path.len()
+                    + rec
+                        .entry
+                        .raw_matches
+                        .iter()
+                        .map(|raw| 32 + raw.line_text.len())
+                        .sum::<usize>()
+                    + rec
+                        .entry
+                        .contexts
+                        .values()
+                        .map(|line| 32 + line.len())
+                        .sum::<usize>()
+                    + rec.entry.prepared.iter().map(text).sum::<usize>()
+                    + rec.om_matches.iter().map(text).sum::<usize>()
+                    + rec.term_counts.len() * std::mem::size_of::<u32>()
+            })
+            .sum::<usize>()
+            + self.binary_files.iter().map(String::len).sum::<usize>()
+            + self.first_error.as_ref().map_or(0, String::len)
+    }
+}
+
+/// Extension groups most files first, then by extension: one order however
+/// the counts were gathered.
+fn sort_extension_groups(groups: &mut [BinaryExtensionCount]) {
+    groups.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.extension.cmp(&b.extension))
+    });
 }

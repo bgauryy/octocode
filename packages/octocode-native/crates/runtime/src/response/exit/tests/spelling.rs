@@ -80,31 +80,40 @@ mod tests {
     );
 }
 
+/// A pattern compiled on first use: [`spelled_codes`] runs once per source file.
+type Pattern = std::sync::LazyLock<regex::Regex>;
+
+macro_rules! pattern {
+    ($regex:expr) => {
+        std::sync::LazyLock::new(|| $regex.expect("pattern"))
+    };
+}
+
 /// `(line, text)` of each contract `errorCode` spelled as a string in
 /// `source`'s production part (a trailing `#[cfg(test)]` module is not).
 fn spelled_codes(source: &str) -> Vec<(usize, String)> {
     use crate::id::error_codes::parse;
-    let test_module = regex::Regex::new(r"\n#\[cfg\(test\)\]\s*\nmod ").expect("pattern");
-    let source = test_module
+    // Compiled once: this runs for every production source file.
+    static TEST_MODULE: Pattern = pattern!(regex::Regex::new(r"\n#\[cfg\(test\)\]\s*\nmod "));
+    let source = TEST_MODULE
         .find(source)
         .map_or(source, |test| &source[..test.start()]);
     // The value of an `errorCode` JSON key is a code whatever it says.
-    let json_value = regex::Regex::new(concat!(
+    static JSON_VALUE: Pattern = pattern!(regex::Regex::new(concat!(
         r#""errorCode"\s*:\s*"([^"]*)""#,
         r#"|\["errorCode"\]\s*=\s*json!\(\s*"([^"]*)""#,
-    ))
-    .expect("pattern");
+    )));
     // A literal compared with a code: only a declared spelling is one.
-    let compared = regex::Regex::new(concat!(
+    static COMPARED: Pattern = pattern!(regex::Regex::new(concat!(
         r#"errorCode"\]?\)?[^;\n]*?[!=]=\s*(?:Some\()?"([A-Za-z]+)""#,
         r#"|\b(?:code|error_code)\s*[!=]=\s*(?:Some\()?"([A-Za-z]+)""#,
         r#"|\bcode:\s*"([A-Za-z]+)""#,
         r#"|matches!\([^,]*\bcode\b[^,]*,\s*"([A-Za-z]+)""#,
-    ))
-    .expect("pattern");
-    let code_fn = regex::Regex::new(r"fn \w*code\w*\([^)]*\)\s*->\s*(?:Option<)?&'static str\s*\{")
-        .expect("pattern");
-    let literal = regex::Regex::new(r#""([A-Za-z]+)""#).expect("pattern");
+    )));
+    static CODE_FN: Pattern = pattern!({
+        regex::Regex::new(r"fn \w*code\w*\([^)]*\)\s*->\s*(?:Option<)?&'static str\s*\{")
+    });
+    static LITERAL: Pattern = pattern!(regex::Regex::new(r#""([A-Za-z]+)""#));
     let line_of = |offset: usize| source[..offset].matches('\n').count() + 1;
     let text_of = |offset: usize| {
         let start = source[..offset].rfind('\n').map_or(0, |at| at + 1);
@@ -114,11 +123,11 @@ fn spelled_codes(source: &str) -> Vec<(usize, String)> {
         source[start..end].trim().to_owned()
     };
     let mut found = std::collections::BTreeMap::new();
-    for captures in json_value.captures_iter(source) {
+    for captures in JSON_VALUE.captures_iter(source) {
         let at = captures.get(0).expect("match").start();
         found.entry(line_of(at)).or_insert_with(|| text_of(at));
     }
-    for captures in compared.captures_iter(source) {
+    for captures in COMPARED.captures_iter(source) {
         let code = captures.iter().skip(1).flatten().next().expect("group");
         if parse(code.as_str()).is_some() {
             found
@@ -126,7 +135,7 @@ fn spelled_codes(source: &str) -> Vec<(usize, String)> {
                 .or_insert_with(|| text_of(code.start()));
         }
     }
-    for head in code_fn.find_iter(source) {
+    for head in CODE_FN.find_iter(source) {
         let mut depth = 1;
         let body = &source[head.end()..];
         let end = body
@@ -140,7 +149,7 @@ fn spelled_codes(source: &str) -> Vec<(usize, String)> {
                 depth == 0
             })
             .map_or(body.len(), |(end, _)| end);
-        for code in literal
+        for code in LITERAL
             .captures_iter(&body[..end])
             .filter_map(|c| c.get(1))
             .filter(|code| parse(code.as_str()).is_some())

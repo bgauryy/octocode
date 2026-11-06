@@ -1,5 +1,5 @@
 use super::MatchQuery;
-use super::scan::{scan_directory, scan_file, sort_files};
+use super::scan::{scan_directory, scan_file};
 use super::snapshot::memo_source_unchanged;
 use super::types::{Scan, Scope};
 use crate::response::result::ToolError;
@@ -17,7 +17,7 @@ pub(super) fn scan_key(q: MatchQuery<'_>, paths: &PathPolicy) -> String {
     crate::digest::json_sha256(&json!([
         paths.identity(),
         q.default_excludes(),
-        super::super::source::MAX_PARSE_SOURCE_BYTES,
+        crate::security::SourceLimits::REAL.whole_source,
         q.capture_text().unwrap_or(false),
         q.provenance(),
         q.test_code()
@@ -25,7 +25,7 @@ pub(super) fn scan_key(q: MatchQuery<'_>, paths: &PathPolicy) -> String {
 }
 
 /// Rough heap bytes of a stored scan, its memo weight.
-fn scan_bytes(scan: &Scan) -> usize {
+pub(super) fn scan_bytes(scan: &Scan) -> usize {
     let mut templates = std::collections::HashSet::new();
     let mut catalogs = std::collections::HashSet::new();
     let diagnostic =
@@ -118,23 +118,23 @@ pub(super) fn stored_scan(
     }
 }
 
-/// A fresh scan of the row's scope and when it started. Every request owns
-/// its scan: identical concurrent requests do not share one.
+/// A fresh scan of the row's scope (its files in walk order, unsorted: see
+/// [`super::scan::sort_files`]) and when it started. Every request owns its
+/// scan: identical concurrent requests do not share one.
 pub(super) fn fresh_scan(
     q: MatchQuery<'_>,
     scope: &Scope,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
-) -> Result<(std::sync::Arc<Scan>, std::time::SystemTime), ToolError> {
+) -> Result<(Scan, std::time::SystemTime), ToolError> {
     let started = octocode_engine::stamp::settle_clock();
-    let mut scan = if scope.is_file {
+    let scan = if scope.is_file {
         scan_file(q, scope, paths, cancel)?
     } else {
-        scan_directory(q, scope, paths, cancel)?
+        scan_directory(q, scope, paths, cancel, None)?
     };
     cancel.check().map_err(ToolError::cancelled)?;
-    sort_files(q, &mut scan.files);
-    Ok((std::sync::Arc::new(scan), started))
+    Ok((scan, started))
 }
 
 /// Keep a fresh scan for the continuation pages of its result, watched for

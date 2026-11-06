@@ -188,3 +188,52 @@ fn listing_paths_resolve_inside_the_repository_or_are_rejected() {
         );
     }
 }
+
+/// A provider tree path is written below the materialize root only when
+/// git itself would check it out: no traversal, no segment a filesystem
+/// normalizes away, and no git directory under any name a case-folding
+/// (HFS, APFS) or NTFS filesystem resolves to `.git` (git's `verify_path`).
+#[test]
+fn materialize_paths_refuse_git_directories_and_normalized_segments() {
+    for path in [
+        "README.md",
+        "src/lib.rs",
+        ".github/workflows/ci.yml",
+        ".gitignore",
+        "sub/.gitmodules",
+        "vendor/foo.git/HEAD",
+        "git~2/x",
+        ".gitx/config",
+    ] {
+        assert!(is_repo_relative(path), "{path} is an ordinary file path");
+    }
+    for path in [
+        "",
+        " ",
+        "/etc/passwd",
+        "../x",
+        "a/../../x",
+        "a\\b",
+        "a/./b",
+        "./a",
+        "a//b",
+        "a/",
+        ".git",
+        ".git/hooks/post-checkout",
+        "sub/.git/config",
+        ".GIT/config",
+        ".Git/HEAD",
+        ".git./config",
+        ".git /config",
+        ".git. . /config",
+        ".git::$INDEX_ALLOCATION/config",
+        "git~1/config",
+        "GIT~1/hooks/x",
+        "sub/git~1./config",
+        ".g\u{200c}it/config",
+        "\u{feff}.git/config",
+        ".gi\u{206a}T/config",
+    ] {
+        assert!(!is_repo_relative(path), "{path:?} must be refused");
+    }
+}

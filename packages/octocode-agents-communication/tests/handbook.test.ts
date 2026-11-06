@@ -71,3 +71,15 @@ test('referenced examples communicate and search from a standalone copied skill'
   assert.equal(call('peers').items.length, 0);
   assert.equal(sent.recipients, 1);
 });
+
+test('skill command returns the one installed routine for every vendor flag',()=>{
+ const response=(vendor?: string)=>JSON.parse(execFileSync(binary,['skill',...(vendor?['--vendor',vendor]:[])],{encoding:'utf8',timeout:10000}));
+ const read=(vendor?: string)=>response(vendor).instructions;
+ const full=read();
+ assert.match(full,/octocodeai\/octocode-agents-communication/);
+ assert.ok(response().packageRoot.endsWith('octocode-agents-communication'));
+ assert.equal(response().referenceRoot,join(response().packageRoot,'docs'));
+ const body=full.replace(/^---\n[\s\S]*?\n---\n/,'');
+ assert.ok(body!==full&&body.startsWith('# Agents communication'));
+ for(const vendor of ['claude','codex','grok','pi','opencode','cursor','generic']) assert.equal(read(vendor),body);
+});

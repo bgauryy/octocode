@@ -81,7 +81,7 @@ impl ToolRuntime {
         input: Value,
         mcp: bool,
     ) -> Result<ToolOutcome, RuntimeError> {
-        let input = contracts::normalized_input(&tool, input);
+        let (input, repairs) = contracts::normalized_input(&tool, input);
         let id = match self.admit_tool(&tool, mcp) {
             Ok(id) => id,
             // A setting the call lacks is reported after its input: an
@@ -106,8 +106,9 @@ impl ToolRuntime {
         let clasify = id.is_clasify();
         let access = page_replay_key("", mcp, &[], &[], admission.github_credential());
         let opened = if let Some(token) = input.get("cursor").and_then(Value::as_str) {
-            contracts::validate(&tool, input.clone())
-                .map_err(|error| super::admission::invalid_input_error(&tool, error))?;
+            contracts::validate(&tool, input.clone()).map_err(|error| {
+                super::admission::invalid_input_error(&tool, error, &self.unpublished_fields(&tool))
+            })?;
             Some(self.open_cursor(id, token, mcp, admission.github_credential())?)
         } else {
             None
@@ -197,6 +198,7 @@ impl ToolRuntime {
         let run = ChannelRun {
             id,
             mcp,
+            can_resume: !admission.persistent_continuations || self.page_replays.persistent,
             options,
             queries,
             rejected_rows,
@@ -217,6 +219,7 @@ impl ToolRuntime {
             access,
             cursors: self.cursors.clone(),
             resume_identity,
+            repairs,
         };
         self.requests
             .execute_blocking_admitted(admission, move |context| {

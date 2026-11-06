@@ -1,6 +1,7 @@
 use super::*;
 use serde_json::json;
 
+mod health;
 mod includes;
 mod python;
 mod questions;
@@ -175,7 +176,7 @@ fn annotate(
         language_id,
         server,
         scope,
-        super::super::receipt::RustAnalysis::of(&config),
+        super::super::receipt::RustAnalysis::of(&config).allowing_build_scripts(true),
         &|| false,
     );
 }
@@ -199,6 +200,19 @@ async fn rust_row_configured(
     query_fields: Value,
     answered: &[&str],
     options: Value,
+) -> Value {
+    rust_row_gated(root, lib, query_fields, answered, options, true).await
+}
+
+/// [`rust_row_configured`] where `allowed` is the host's
+/// `lsp.allowBuildScripts`.
+async fn rust_row_gated(
+    root: &Path,
+    lib: &str,
+    query_fields: Value,
+    answered: &[&str],
+    options: Value,
+    allowed: bool,
 ) -> Value {
     let package = root.join("pkg");
     std::fs::write(package.join("src/lib.rs"), lib).expect("lib");
@@ -238,16 +252,18 @@ async fn rust_row_configured(
     let mut row = json!({"operation":"references","matches":[{"path":"pkg/src/lib.rs"}]});
     let q = query(q);
     let config = configured_rust(&q, options);
+    // rust-analyzer roots at the package's Cargo workspace: here the package.
+    let package_text = package.to_string_lossy().into_owned();
     super::annotate(
         &mut row,
         &q,
         Some("rust"),
         Server {
             anchor: &lib_path,
-            root: &root_text,
+            root: &package_text,
         },
         &scope,
-        super::super::receipt::RustAnalysis::of(&config),
+        super::super::receipt::RustAnalysis::of(&config).allowing_build_scripts(allowed),
         &|| false,
     );
     row

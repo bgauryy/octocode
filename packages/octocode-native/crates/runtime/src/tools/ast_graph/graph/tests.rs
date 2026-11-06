@@ -23,9 +23,9 @@ fn fixture_graph(root: &std::path::Path, exclude: &[&str]) -> super::BuiltGraph 
     .unwrap()
 }
 
-/// A scan whose source correspondence must exceed its item budget stops
-/// with `scopeTooBroad` as soon as that is certain, and its hints name the
-/// directories that hold the files, largest first, as narrower ingests.
+/// A scan whose files must project more rows than a snapshot table holds
+/// stops with `scopeTooBroad` as soon as that is certain, and its hints name
+/// the directories that hold the files, largest first, as narrower ingests.
 #[test]
 fn an_over_budget_scan_stops_early_and_names_narrower_scopes() {
     let dir = crate::tools::test_support::Fixture::new();
@@ -38,8 +38,8 @@ fn an_over_budget_scan_stops_early_and_names_narrower_scopes() {
         &super::GraphScan {
             root: root.to_path_buf(),
             limits: crate::tools::ast_graph::limits::Limits {
-                source_bytes: 1,
-                ..crate::tools::ast_graph::limits::LIMITS
+                table_items: 3,
+                ..*crate::tools::ast_graph::limits::LIMITS
             },
             ..Default::default()
         },
@@ -61,6 +61,85 @@ fn an_over_budget_scan_stops_early_and_names_narrower_scopes() {
     let (big, small) = (hints.find("big"), hints.find("small"));
     assert!(big.is_some() && small.is_some() && big < small, "{hints}");
     assert!(hints.contains("graphBuild {"), "{hints}");
+}
+
+/// A scan whose kept files would pass the build's memory budget stops with
+/// `scopeTooBroad` as soon as the next file passes it, during extraction and
+/// before linking: the message names how far it got and both sizes, and the
+/// hints name the narrower scopes, largest first.
+#[test]
+fn a_scan_past_the_build_budget_stops_early_and_names_narrower_scopes() {
+    let dir = crate::tools::test_support::Fixture::new();
+    for index in 0..6 {
+        dir.write(&format!("big/m{index}.ts"), "export const a = () => 1;\n");
+    }
+    dir.write("small/one.ts", "export const b = () => 2;\n");
+    let root = dir.0.as_path();
+    let build = |build_bytes| {
+        super::build_graph(
+            &super::GraphScan {
+                root: root.to_path_buf(),
+                limits: crate::tools::ast_graph::limits::Limits {
+                    build_bytes,
+                    ..*crate::tools::ast_graph::limits::LIMITS
+                },
+                ..Default::default()
+            },
+            &crate::tools::test_support::workspace_policy(root),
+            &crate::security::ContentSecurity::new(),
+            &crate::execution::cancel::NeverCancel,
+        )
+    };
+    // Each file charges more than one byte: the first one kept passes it.
+    let error = build(1).expect_err("past the build budget");
+    assert_eq!(
+        error.code,
+        octocode_contract_types::ErrorCode::ScopeTooBroad
+    );
+    assert!(
+        error.message.contains("the first 1 of 7 files") && error.message.contains("build budget"),
+        "{}",
+        error.message
+    );
+    let hints = error.hints.join("\n");
+    let (big, small) = (hints.find("big"), hints.find("small"));
+    assert!(big.is_some() && small.is_some() && big < small, "{hints}");
+    assert!(hints.contains("graphBuild {"), "{hints}");
+    // The default budget, half the host's memory, holds this scope.
+    assert_eq!(
+        build(crate::tools::ast_graph::limits::LIMITS.build_bytes)
+            .expect("within the build budget")
+            .facts
+            .len(),
+        7
+    );
+}
+
+/// Source correspondence alone never refuses a scope: readers admit its
+/// origins a block at a time, so a scan whose summed correspondence passes
+/// the source budget still builds every file.
+#[test]
+fn summed_source_correspondence_never_refuses_a_scope() {
+    let dir = crate::tools::test_support::Fixture::new();
+    for index in 0..6 {
+        dir.write(&format!("big/m{index}.ts"), "export const a = () => 1;\n");
+    }
+    let root = dir.0.as_path();
+    let built = super::build_graph(
+        &super::GraphScan {
+            root: root.to_path_buf(),
+            limits: crate::tools::ast_graph::limits::Limits {
+                source_bytes: 1,
+                ..*crate::tools::ast_graph::limits::LIMITS
+            },
+            ..Default::default()
+        },
+        &crate::tools::test_support::workspace_policy(root),
+        &crate::security::ContentSecurity::new(),
+        &crate::execution::cancel::NeverCancel,
+    )
+    .expect("summed correspondence is no snapshot bound");
+    assert_eq!(built.facts.len(), 6);
 }
 
 /// A file whose source correspondence outgrows the per-file budget is a scan
@@ -129,4 +208,40 @@ fn linking_keeps_only_the_argument_slots_projection_links() {
         slots[0].observation,
         GraphArgumentObservation::Reference { .. }
     ));
+}
+
+/// Parallel workers admit files in any order: once one passes the build
+/// budget, every later admission reports that same refusal, so the answer
+/// names the files that passed it, never a count a slower worker reached.
+#[test]
+fn every_admission_after_the_budget_passes_reports_the_first_refusal() {
+    let root = std::path::Path::new("/graph-admission");
+    let entries = (0..3)
+        .map(|index| octocode_engine::types::FileSystemEntry {
+            path: format!("/graph-admission/m{index}.ts"),
+            relative_path: format!("m{index}.ts"),
+            name: format!("m{index}.ts"),
+            entry_type: octocode_engine::types::FileKind::File,
+            size: Some(1),
+            modified_time: None,
+            walk_position: index + 1,
+            stamp: None,
+        })
+        .collect::<Vec<_>>();
+    let scan = super::GraphScan {
+        limits: crate::tools::ast_graph::limits::Limits {
+            build_bytes: 1,
+            ..*crate::tools::ast_graph::limits::LIMITS
+        },
+        ..Default::default()
+    };
+    let admission = super::scope::Admission::new(&scan, root, &entries);
+    let first = admission.admit(0, 2).expect_err("past the build budget");
+    assert!(
+        first.message.contains("the first 1 of 3 files"),
+        "{}",
+        first.message
+    );
+    let later = admission.admit(0, 2).expect_err("still past it");
+    assert_eq!(later, first);
 }

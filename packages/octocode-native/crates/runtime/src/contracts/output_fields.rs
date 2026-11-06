@@ -41,7 +41,7 @@ impl CollectionRoutes {
             if path.is_empty() {
                 break;
             }
-            let key = segment.replace("~1", "/").replace("~0", "~");
+            let key = crate::json_pointer::unescape(segment);
             at = match self.nodes[at].children.get(&key) {
                 Some(next) => *next,
                 None => {

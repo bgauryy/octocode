@@ -12,8 +12,13 @@ use super::is_source_code_path;
 /// (`"x-kubernetes-patch-merge-key": "resourceClaimName"`) names a field, and
 /// a hex digest keyed by a file path (`"bin/with_credentials.mjs": "<sha256>"`)
 /// is a checksum manifest entry. See [`assigns_a_credential`].
-const CREDENTIAL_ASSIGNMENT_PATTERNS: &[&str] =
-    &["envVarSecrets", "dotenvSecretAssignment", "yamlSecretValue"];
+const CREDENTIAL_ASSIGNMENT_PATTERNS: &[&str] = &[
+    "envVarSecrets",
+    "base64EncodedSecrets",
+    "dotenvSecretAssignment",
+    "dotenvFileCredential",
+    "yamlSecretValue",
+];
 
 /// Index-aligned with PATTERNS: the pattern keeps values that are not credentials.
 pub(super) static KEEPS_NON_CREDENTIAL_VALUES: LazyLock<Vec<bool>> = LazyLock::new(|| {
@@ -25,16 +30,59 @@ pub(super) static KEEPS_NON_CREDENTIAL_VALUES: LazyLock<Vec<bool>> = LazyLock::n
 
 /// Whether a credential-assignment match assigns a credential: its `secret`
 /// value is not an identifier name ([`is_identifier_name`]), not a hex
-/// digest keyed by a file path ([`is_file_digest`]), not a statement reading
-/// another name ([`reads_a_name`]) and not a phrase of plain words under an
-/// opaque-string key ([`is_plain_phrase`]). `key` is the line's text before
-/// the value (ending in the key, its quotes and its operator).
+/// digest keyed by a file path ([`is_file_digest`]), not a file system
+/// location ([`is_path_locator`]), not a statement reading another name
+/// ([`reads_a_name`]) and not a phrase of plain words under an opaque-string
+/// key ([`is_plain_phrase`]). `key` is the line's text before the value
+/// (ending in the key, its quotes and its operator).
 pub(super) fn assigns_a_credential(key: &str, secret: &str) -> bool {
     !is_identifier_name(secret)
         && !names_a_locator(key)
         && !is_file_digest(key, secret)
+        && !is_path_locator(secret)
         && !reads_a_name(key, secret)
         && !is_plain_phrase(key, secret)
+}
+
+/// Whether `secret` says where something lives rather than holding it: an
+/// absolute (`/run/secrets/db`), home (`~/.ssh/id_ed25519`) or explicitly
+/// relative (`./certs/key.pem`) path, or a command-line option assigning one
+/// (`--token-file=/var/run/token`). A locator's value is no credential, as a
+/// locator key's is not ([`names_a_locator`]). Every segment reads as a path
+/// segment: lowercase letters, digits, `.`, `_` and `-`, or one capitalized
+/// word (`/Users/Shared`). Base64 can start with `/`, but its mixed-case,
+/// `+`-laden pieces read as neither, so an encoded secret stays redacted.
+fn is_path_locator(secret: &str) -> bool {
+    let path = option_value(secret).unwrap_or(secret);
+    let Some(rest) = ["/", "~/", "./", "../"]
+        .iter()
+        .find_map(|root| path.strip_prefix(root))
+    else {
+        return false;
+    };
+    let rest = rest.strip_suffix('/').unwrap_or(rest);
+    !rest.is_empty()
+        && rest.split('/').all(|segment| {
+            (!segment.is_empty()
+                && segment.bytes().all(|byte| {
+                    byte.is_ascii_lowercase()
+                        || byte.is_ascii_digit()
+                        || matches!(byte, b'.' | b'_' | b'-')
+                }))
+                || pronounceable_word(segment.as_bytes())
+        })
+}
+
+/// The value of a command-line option that assigns one (`--name=value`,
+/// `-name=value`): `None` for any other text.
+fn option_value(text: &str) -> Option<&str> {
+    let option = text.strip_prefix("--").or_else(|| text.strip_prefix('-'))?;
+    let (name, value) = option.split_once('=')?;
+    (name.starts_with(|c: char| c.is_ascii_alphabetic())
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-'))
+    .then_some(value)
 }
 
 /// Locator fields describe where data lives, not the data itself. Recognizable

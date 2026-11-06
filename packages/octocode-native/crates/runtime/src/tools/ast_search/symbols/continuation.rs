@@ -56,7 +56,7 @@ fn key_of(
         q.include_ignored,
         q.include_hidden,
         q.include_provenance,
-        crate::tools::ast_search::source::MAX_PARSE_SOURCE_BYTES,
+        crate::security::SourceLimits::REAL.whole_source,
         walked,
     ]))
 }
@@ -112,9 +112,9 @@ impl Continuation {
     }
 
     /// What the first `count` files of the walk are now
-    /// ([`octocode_engine::structural::ListedFiles`]).
+    /// ([`octocode_engine::digest::ListedFiles`]).
     fn listed(&self, count: usize) -> String {
-        let mut listed = octocode_engine::structural::ListedFiles::default();
+        let mut listed = octocode_engine::digest::ListedFiles::default();
         for (source, stamp) in self.sources.iter().zip(&self.stamps).take(count) {
             listed.add(source, *stamp);
         }

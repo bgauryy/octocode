@@ -15,18 +15,14 @@ pub(crate) struct CapturedSource {
     /// The span key of each packed origin, ascending.
     pub keys: Vec<SpanKey>,
     pub origins: PackedOrigins,
-    admission: (usize, usize),
 }
 
 impl CapturedSource {
-    /// The `(bytes, items)` admitting these origins charges the snapshot's
-    /// source table ([`read_charge`]): a lower bound of that admission, so
-    /// a scan whose running total passes the table's budget can never
-    /// publish.
-    ///
-    /// [`read_charge`]: super::super::limits::read_charge
-    pub(crate) fn admission(&self) -> (usize, usize) {
-        self.admission
+    /// Bytes it holds: its packed origins, their keys and its descriptors.
+    pub(crate) fn bytes(&self) -> usize {
+        self.origins.bytes()
+            + self.keys.capacity() * std::mem::size_of::<SpanKey>()
+            + octocode_engine::json_size::bytes_or(&self.descriptors, 0)
     }
 }
 
@@ -69,15 +65,6 @@ pub(super) fn capture(
     descriptors.snapshots.sort_by(|a, b| a.id.cmp(&b.id));
     descriptors.representations.sort_by(|a, b| a.id.cmp(&b.id));
     descriptors.units.sort_by(|a, b| a.id.cmp(&b.id));
-    let admission = projections
-        .iter()
-        .fold((0_usize, 0_usize), |(bytes, items), origin| {
-            let (more_bytes, more_items) = super::super::limits::read_charge(origin);
-            (
-                bytes.saturating_add(more_bytes),
-                items.saturating_add(more_items),
-            )
-        });
     let origins =
         PackedOrigins::pack(&projections, &descriptors, cancel).map_err(ToolError::source)?;
     keys.shrink_to_fit();
@@ -85,6 +72,5 @@ pub(super) fn capture(
         descriptors,
         keys,
         origins,
-        admission,
     })
 }

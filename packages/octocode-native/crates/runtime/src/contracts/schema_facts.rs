@@ -89,6 +89,16 @@ pub(crate) fn child_schemas<'a>(schema: &'a Value, defs: &'a Value, name: &str) 
     })
 }
 
+/// Schemas for an object value at a key no `properties` names: typed record
+/// entries, as [`child_schemas`] finds them for such a key.
+pub(crate) fn additional_schemas<'a>(schema: &'a Value, defs: &'a Value) -> Vec<&'a Value> {
+    members(schema, defs, |schema| {
+        schema
+            .get("additionalProperties")
+            .filter(|schema| schema.is_object())
+    })
+}
+
 /// Object field names through local references and composition branches.
 pub(crate) fn property_names<'a>(
     schema: &'a Value,

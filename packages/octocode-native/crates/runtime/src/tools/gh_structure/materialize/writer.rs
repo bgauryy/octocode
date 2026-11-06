@@ -79,7 +79,7 @@ impl MaterializeWriter<'_> {
         if !crate::tools::gh_shared::is_repo_relative(&entry.path) {
             self.skips.unreadable.push((
                 entry.path.clone(),
-                "the provider path leaves the materialize root".to_owned(),
+                "the provider path leaves the materialize root or names a git directory".to_owned(),
             ));
             return Ok(true);
         }

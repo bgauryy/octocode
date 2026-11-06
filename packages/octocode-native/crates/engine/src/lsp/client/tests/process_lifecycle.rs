@@ -60,8 +60,12 @@ fn wait_for_graceful_exit_does_not_kill_a_promptly_exiting_process() {
             .spawn()
             .expect("spawn sh");
 
-        let exited_on_own =
-            wait_for_graceful_exit(&mut child, tokio::time::Duration::from_millis(2_000)).await;
+        let exited_on_own = wait_for_graceful_exit(
+            &mut child,
+            tokio::time::Duration::from_millis(2_000),
+            crate::process::TreeSnapshot::default(),
+        )
+        .await;
 
         assert!(
             exited_on_own,
@@ -81,8 +85,12 @@ fn wait_for_graceful_exit_kills_a_process_that_ignores_the_window() {
             .spawn()
             .expect("spawn sh");
 
-        let exited_on_own =
-            wait_for_graceful_exit(&mut child, tokio::time::Duration::from_millis(50)).await;
+        let exited_on_own = wait_for_graceful_exit(
+            &mut child,
+            tokio::time::Duration::from_millis(50),
+            crate::process::TreeSnapshot::default(),
+        )
+        .await;
 
         assert!(
             !exited_on_own,
@@ -254,4 +262,65 @@ async fn hard_kill_reaps_a_setsid_grandchild() {
         }
     }
     assert!(!survived, "setsid grandchild {pid} survived hard kill");
+}
+
+/// A server that exits promptly on `exit` re-parents a descendant that left
+/// its session (jdtls's Gradle daemon): no walk after the exit finds it, so
+/// `stop` must read the tree first and end it too.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn stop_ends_a_detached_daemon_after_a_graceful_exit() {
+    if !node_available() {
+        return;
+    }
+    let tmp = TmpDir::new();
+    let daemon_file = tmp.0.join("octocode-engine-daemon-pid");
+    let (_tmp, root, config) = configurable_server(
+        "octocode-engine-stop-daemon",
+        &[(
+            "FAKE_DAEMON_PID_FILE",
+            daemon_file.to_string_lossy().into_owned(),
+        )],
+        None,
+    );
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    let daemon: i32 = runtime.block_on(async {
+        let client = NativeLspClient::new(config);
+        client.start().await.expect("start");
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !daemon_file.exists() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the daemon never started"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let daemon = std::fs::read_to_string(&daemon_file)
+            .expect("daemon pid")
+            .trim()
+            .parse()
+            .expect("numeric pid");
+        timeout(Duration::from_secs(20), client.stop())
+            .await
+            .expect("stop")
+            .expect("stop");
+        daemon
+    });
+    let gone = wait_until_gone(daemon);
+    if !gone {
+        // SAFETY: the fixture recorded this daemon's pid; end it so the
+        // failure leaves nothing behind.
+        unsafe {
+            libc::kill(daemon, libc::SIGKILL);
+        }
+    }
+    let _ = std::fs::remove_dir_all(root);
+    assert!(
+        gone,
+        "the detached daemon {daemon} outlived the server's stop"
+    );
 }

@@ -9,6 +9,8 @@ pub(crate) struct LinkScope<'a> {
     pub(super) file_paths: &'a [&'a str],
     /// [`link_family`] by file node id (`""` for other nodes).
     pub(super) families: Vec<&'a str>,
+    /// A Go file's package clause by file node id (`""` when unknown).
+    pub(super) go_packages: Vec<&'a str>,
     /// Rust module name → files defining it (`m.rs`, `m/mod.rs`).
     pub(super) modules: HashMap<&'a str, Vec<&'a str>>,
     /// Every scanned Rust file, for module paths resolved segment by segment.
@@ -24,6 +26,14 @@ impl LinkScope<'_> {
             .get(id as usize)
             .copied()
             .filter(|path| !path.is_empty())
+    }
+
+    /// The package clause of Go file node `id`, when its facts name one.
+    pub(super) fn go_package(&self, id: u32) -> Option<&str> {
+        self.go_packages
+            .get(id as usize)
+            .copied()
+            .filter(|package| !package.is_empty())
     }
 
     /// Whether file nodes `a` and `b` share a language family.

@@ -222,6 +222,24 @@ impl Blob<'_> {
         listed
     }
 
+    /// The placeholders `listed` lines show beyond the source lines they
+    /// number: the values this listing redacted.
+    pub(super) fn redactions(&self, listed: &[String]) -> usize {
+        listed
+            .iter()
+            .filter_map(|line| {
+                let (number, shown) = line.split_once(crate::response::numbered::SEPARATOR)?;
+                let raw = self
+                    .raw
+                    .get(number.parse::<usize>().ok()?.checked_sub(1)?)?;
+                Some(
+                    crate::security::placeholders(shown)
+                        .saturating_sub(crate::security::placeholders(raw)),
+                )
+            })
+            .sum()
+    }
+
     /// One line as `"<number>\t<text>"`: hidden in a private-key block,
     /// sanitized otherwise.
     fn numbered(&self, index: usize, security: &impl ContentScan) -> String {

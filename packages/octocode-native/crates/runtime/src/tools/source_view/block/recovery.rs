@@ -25,6 +25,10 @@ fn span_list(spans: &[[usize; 2]]) -> String {
         .map(|&[start, end]| {
             if start == end {
                 start.to_string()
+            } else if end == u32::MAX as usize {
+                // The parser marks a file with more error spans than it
+                // lists as one span to its end.
+                format!("{start} to the end")
             } else {
                 format!("{start}-{end}")
             }
@@ -95,10 +99,30 @@ pub(in crate::tools::source_view) fn outline_recovery_warning(
     path: &str,
     redacted: &[usize],
 ) -> Option<String> {
-    unparsed_note(
+    use octocode_engine::graph::GraphFactCode;
+    // The notes astSearch symbols shows for the same document: which lane
+    // read the file (a nesting past oxc's stack) and a parse or walk that
+    // stopped before the end.
+    let lanes = document
+        .into_iter()
+        .flat_map(|document| &document.diagnostics)
+        .filter(|note| {
+            matches!(
+                note.code,
+                GraphFactCode::ParserFallback
+                    | GraphFactCode::ParseDeadline
+                    | GraphFactCode::TraversalDeadline
+            )
+        })
+        .map(ToString::to_string);
+    let notes = unparsed_note(
         document,
         path,
         redacted,
         "this outline may miss declarations there",
     )
+    .into_iter()
+    .chain(lanes)
+    .collect::<Vec<_>>();
+    (!notes.is_empty()).then(|| notes.join(" "))
 }

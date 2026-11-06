@@ -1,6 +1,7 @@
 //! Canonical paths (memoized per request), search roots and the include
 //! family of a file.
 use super::*;
+use crate::tools::lsp_search::paths::anchor_dir;
 
 tokio::task_local! {
     /// Canonical forms already resolved by this request (see `canonical`).
@@ -46,15 +47,6 @@ pub(in super::super) fn canonical(path: &str) -> String {
             resolved
         })
         .unwrap_or_else(|_| resolve())
-}
-
-/// The directory an anchor stands in: a file holds no project files.
-fn anchor_dir(anchor: &Path) -> &Path {
-    if anchor.is_dir() {
-        anchor
-    } else {
-        anchor.parent().unwrap_or(anchor)
-    }
 }
 
 /// Whether something above `anchor` says where its project ends: a repository

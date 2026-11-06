@@ -339,3 +339,38 @@ fn toml_inline_comment_layouts_are_explicitly_read_only() {
     assert!(error.contains("Inline comments"));
     assert!(!has_inline_comment("token = \"abc#def\""));
 }
+
+/// A management request names an operation, a client and a scope that
+/// client has; each one missing or unsupported is refused, and a workspace
+/// edit lands in the project file under the directory it names.
+#[test]
+fn manage_requests_name_their_operation_client_and_scope() {
+    let dir = tempfile::tempdir().expect("cwd");
+    let cwd = dir.path().canonicalize().expect("canonical");
+    for request in [
+        json!({}),
+        json!({"operation":"rename"}),
+        json!({"operation":"setAgent"}),
+        json!({"operation":"setAgent","client":"cursor"}),
+        json!({"operation":"setAgent","client":"no-such-client","scope":"workspace"}),
+        json!({"operation":"setAgent","client":"cursor","scope":"local"}),
+    ] {
+        assert!(manage(&request, &cwd).is_err(), "{request}");
+    }
+    let path = cwd.join(".cursor/mcp.json");
+    let set = manage(
+        &json!({"operation":"setAgent","client":"cursor","scope":"workspace","revision":config_revision(None),"patch":{"method":"npx"}}),
+        &cwd,
+    )
+    .expect("set");
+    assert!(path.exists(), "{set}");
+    manage(
+        &json!({"operation":"removeAgent","client":"cursor","scope":"workspace","revision":set["revision"]}),
+        &cwd,
+    )
+    .expect("remove");
+    assert_eq!(
+        inspect(&target("cursor", "workspace", &cwd).expect("target"))["status"],
+        "absent"
+    );
+}

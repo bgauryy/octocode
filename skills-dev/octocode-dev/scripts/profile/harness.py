@@ -206,23 +206,63 @@ def oneshot(binary, tool, args, cwd, env, wrapper=()):
     return {'wall': time.perf_counter() - started, 'rc': done.returncode, 'instr': None, 'peak': None}
 
 
-def next_input(content):
-    """The next call of a walk, in the order the contract states: a response split first, then a row's next page."""
+# Channels that continue the same claim (contract `continuationChannels`): `nextPage` is linear; these branch
+# channels resume what a page left out of the same answer, not a wider or a different read.
+SAME_CLAIM = ('expandScan', 'nextCandidatePage', 'continueMaterialize', 'continueWalk', 'continueCommitFiles',
+              'continueCommentBody', 'continueReviewBody', 'nextImporterWindow')
+_CHANNEL = re.compile(r'^(?:nextPage|(?:' + '|'.join(SAME_CLAIM) + r')(?:[2-9]|[1-9][0-9]+)?)$')
+
+
+def continuations(content, tool=None):
+    """Every next call of a walk, as [(channel, input)], in the contract's order: a response split alone when
+    there is one; else each row's `next.nextPage` and same-claim branches, then every collection's
+    `contentPagination.<name>.next` (comments, files, patches, sections, candidates), wherever it sits in the
+    row. A call owned by another tool (`read`, `related`) is no page of this walk."""
     if not isinstance(content, dict):
-        return None
+        return []
     split = content.get('responsePagination')
     if isinstance(split, dict) and split.get('hasMore') and isinstance(split.get('next'), dict):
-        return _as_input(split['next'])
+        found = _as_input(split['next'])
+        return [('responsePagination', found)] if found else []
+    out = []
+
+    def channel_of(holder, where):
+        for key in sorted((k for k in holder if _CHANNEL.match(k)), key=lambda k: (k != 'nextPage', k)):
+            value = holder[key]
+            if isinstance(value, dict) and value.get('tool') not in (None, tool) and tool:
+                continue
+            found = _as_input(value)
+            if found:
+                out.append((f'{where}{key}', found))
+
+    def visit(value, where):
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if key == 'next' and isinstance(child, dict):
+                    channel_of(child, f'{where}next.')
+                elif key not in ('related', 'hints', 'warnings'):
+                    visit(child, f'{where}{key}.' if key != 'data' else where)
+        elif isinstance(value, list):
+            for item in value:
+                visit(item, where)
+
     for row in content.get('results') or []:
-        data = row.get('data') if isinstance(row, dict) else None
-        for holder in (row, data):
-            following = holder.get('next') if isinstance(holder, dict) else None
-            if isinstance(following, dict):
-                for key in sorted((k for k in following if k.startswith(('next', 'read')) and 'Depth' not in k), key=lambda k: (k != 'nextPage', k)):
-                    found = _as_input(following[key])
-                    if found:
-                        return found
-    return None
+        visit(row, '')
+    if not content.get('results'):
+        visit(content, '')
+    seen, unique = set(), []
+    for name, found in out:
+        key = json.dumps(found, sort_keys=True)
+        if key not in seen:
+            seen.add(key)
+            unique.append((name, found))
+    return unique
+
+
+def next_input(content, tool=None):
+    """The first next call of a walk (see continuations), or None."""
+    found = continuations(content, tool)
+    return found[0][1] if found else None
 
 
 def _as_input(value):
@@ -256,7 +296,7 @@ def corpus(rev):
     target = ROOT / '.octocode/octocode-dev/profile' / f'corpus-{rev}'
     workspace = target / 'packages/octocode-native'
     if workspace.exists():
-        return workspace
+        return extras(workspace)
     target.mkdir(parents=True, exist_ok=True)
     archive = subprocess.run(
         ['git', 'archive', '--format=tar', rev, '--', 'packages/octocode-native/crates', 'packages/octocode-native/Cargo.toml',
@@ -270,18 +310,44 @@ def corpus(rev):
     (workspace / 'big').mkdir()
     shutil.move(target / 'packages/octocode-config/contract/tool_types.rs', workspace / 'big/tool_types.rs')
     subprocess.run(['git', 'init', '-q', str(workspace)], check=True)
+    return extras(workspace)
+
+
+def minified_line(size):
+    """One deterministic minified JavaScript line of `size` bytes; a `needle_call` every ~55 bytes."""
+    parts, total, i = [], 0, 0
+    while total < size:
+        part = f'function f{i}(a){{return needle_call(a,{i})}}var v{i}=f{i}(1);'
+        parts.append(part)
+        total += len(part)
+        i += 1
+    return ''.join(parts)[:size]
+
+
+def extras(workspace):
+    """Next-wave fixtures beside the frozen crates, outside `crates/` so no older flow sees them:
+    `longline/` one 1 MiB line, `longline-huge/` one 12 MiB line, `public/vite/` public MIT text for live flows."""
+    for directory, size in (('longline', 1 << 20), ('longline-huge', 12 << 20)):
+        target = workspace / directory / ('bundle.min.js' if directory == 'longline' else 'huge.min.js')
+        if not target.exists() or target.stat().st_size != size + 1:
+            target.parent.mkdir(exist_ok=True)
+            target.write_text(minified_line(size) + '\n')
+    vite = workspace / 'public/vite'
+    if not vite.exists():
+        shutil.copytree(Path(__file__).with_name('fixtures') / 'public-vite', vite)
     return workspace
 
 
 def stub_server(work):
-    """Tool-health's loopback GitHub and registry. Returns (process, url), or (None, reason) when it cannot start."""
+    """Tool-health's loopback GitHub, the registry proxy and OSV. Returns (process, {url, proxyUrl, caFile}),
+    or (None, reason) when it cannot start."""
     url_file = Path(work) / 'stub.url'
     env = {**os.environ, 'STUB_TOKENS': 'profile-fake-token', 'PROF_TMP': str(work)}
     process = subprocess.Popen(['node', str(Path(__file__).with_name('stub.mjs')), str(url_file)], env=env,
                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     for _ in range(300):
         if url_file.exists() and url_file.read_text():
-            return process, url_file.read_text().strip()
+            return process, json.loads(url_file.read_text())
         if process.poll() is not None:
             return None, f'stub did not start: {process.stderr.read()[:300]}'
         time.sleep(0.1)
@@ -289,7 +355,29 @@ def stub_server(work):
     return None, 'stub did not start in 30 s'
 
 
-def stub_env(url):
+def stub_env(stub):
+    """GitHub and the classification provider at the stub; HTTPS registries and OSV through its proxy."""
+    url = stub['url']
     return {'GITHUB_TOKEN': 'profile-fake-token', 'GITHUB_API_URL': f'{url}/api/v3', 'OCTOCODE_ALLOW_PRIVATE_REGISTRY': 'true',
-            'OCTOCODE_CLASSIFICATION_API_HOST': url, 'OCTOCODE_CLASSIFICATION_API': 'profile-fake-token',
+            'OCTOCODE_CLASSIFICATION_API_HOST': url, 'OCTOCODE_CLASSIFICATION_API': 'profile-fake-token', 'OCTOCODE_SECURITY_CHECKS': 'true',
+            'HTTPS_PROXY': stub['proxyUrl'], 'https_proxy': stub['proxyUrl'], 'SSL_CERT_FILE': stub['caFile'], 'SSL_CERT_DIR': '',
             'NO_PROXY': '127.0.0.1,localhost,::1', 'no_proxy': '127.0.0.1,localhost,::1'}
+
+
+def live_env(kind):
+    """The configured classification key from ~/.octocode/.env, for live flows. The value is never printed."""
+    if kind != 'classification':
+        raise SystemExit(f'unknown live kind {kind}')
+    dotenv = Path.home() / '.octocode/.env'
+    for line in dotenv.read_text().splitlines() if dotenv.exists() else ():
+        match = re.match(r'\s*(?:export\s+)?OCTOCODE_CLASSIFICATION_API\s*=\s*[\'"]?([^\'"\s#]+)', line)
+        if match:
+            return {'OCTOCODE_CLASSIFICATION_API': match.group(1)}
+    raise SystemExit('live flow: no OCTOCODE_CLASSIFICATION_API in ~/.octocode/.env')
+
+
+def with_stub(query, stub):
+    """The query with every '{stub}' replaced by the stub's base URL."""
+    if not stub:
+        return query
+    return json.loads(json.dumps(query).replace('{stub}', stub['url']))

@@ -3,14 +3,13 @@
 //! context windows touch. No real provider is involved.
 
 use crate::support::{self, Workspace};
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 /// `TARGET-LINE` when `question` names a target, and the state's text of that
-/// line; otherwise the whole state: what a judge may look at.
+/// line, else the text its label quotes; otherwise the whole state: what a
+/// judge may look at.
 fn judged_text(state: &Value, question: &Value) -> String {
     let target = question["instructions"]["target"].as_str().unwrap_or("");
     let line = target.strip_prefix("line ").map(|rest| {
@@ -25,6 +24,7 @@ fn judged_text(state: &Value, question: &Value) -> String {
     lines
         .lines()
         .find(|row| row.split('\t').next().and_then(|n| n.parse::<u64>().ok()) == Some(line))
+        .or_else(|| target.split_once(": ").map(|(_, quoted)| quoted))
         .unwrap_or_default()
         .to_owned()
 }
@@ -152,6 +152,58 @@ async fn hits_of_one_file_are_one_provider_call_with_one_question_each() {
         1,
         "{sent:?}"
     );
+    // So does the question every target shares; each question carries only
+    // its own target and the classifier.
+    assert_eq!(
+        sent[0].to_string().matches("target line itself").count(),
+        1,
+        "{sent:?}"
+    );
+    for question in questions.values() {
+        assert!(
+            question["instructions"].get("question").is_none(),
+            "{question}"
+        );
+    }
+    runtime.close().await;
+}
+
+/// A hit's line reaches the provider once, in its label, unless it is also a
+/// neighbour's context: the state then holds it for that neighbour.
+#[tokio::test]
+async fn each_hit_line_is_sent_once() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let file = workspace.write("dense.txt", DENSE);
+    let runtime = support::clasify_runtime(&workspace, &server, &[]);
+    for context in [0, 1] {
+        let row = support::run(
+            &runtime,
+            "localSearch",
+            json!({"path":file,"matchString":["needle"],
+                "contextLines":{"before":context,"after":context},
+                "classification":{"predicates":[PREDICATE]}}),
+        )
+        .await;
+        assert_eq!(kept_hit_lines(row.data()), [1, 5, 9], "{}", row.data());
+    }
+    let sent = crate::runtime_clasify::sent(&server).await;
+    assert_eq!(sent.len(), 2, "{sent:?}");
+    for (request, context) in sent.iter().zip([0, 1]) {
+        let body = request.to_string();
+        for text in ["needle KEEP one", "needle drop two", "needle KEEP five"] {
+            assert_eq!(body.matches(text).count(), 1, "context {context}: {body}");
+        }
+    }
+    assert!(sent[0]["state"].get("lines").is_none(), "{:?}", sent[0]);
+    // With one line of context, line 2 (blank) informs both neighbours.
+    assert!(
+        sent[1]["state"]["lines"]
+            .as_str()
+            .is_some_and(|lines| lines.contains("2\t")),
+        "{:?}",
+        sent[1]
+    );
     runtime.close().await;
 }
 
@@ -199,6 +251,42 @@ async fn local_fetch_match_read_judges_each_hit() {
     runtime.close().await;
 }
 
+/// A classified read says what it kept, and that keeping none is not absence.
+#[tokio::test]
+async fn a_classified_read_warns_what_it_kept_and_that_empty_is_not_absence() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let dense = workspace.write("dense.txt", DENSE);
+    let none = workspace.write("none.txt", "needle drop one\n\nneedle drop two\n");
+    let runtime = support::clasify_runtime(&workspace, &server, &[]);
+    let read = async |file: &std::path::Path| {
+        support::run(
+            &runtime,
+            "localFetch",
+            json!({"path":file,"matchString":["needle"],"contextLines":{"before":0,"after":0},
+                "classification":{"predicates":[PREDICATE]}}),
+        )
+        .await
+        .data()
+        .clone()
+    };
+    let some = read(&dense).await;
+    assert_eq!(
+        some["warnings"],
+        json!(["classification kept 3 of 6 hits that pass the classifiers."]),
+        "{some}"
+    );
+    let empty = read(&none).await;
+    let warnings = empty["warnings"].to_string();
+    assert!(
+        warnings.contains("classification kept 0 of 2 hits")
+            && warnings.contains("not absence")
+            && empty["next"]["unfiltered"].is_object(),
+        "{empty}"
+    );
+    runtime.close().await;
+}
+
 /// The whole read has no hits: its chunks stay the unit, and it says so.
 #[tokio::test]
 async fn a_read_without_a_search_counts_chunks() {
@@ -213,69 +301,6 @@ async fn a_read_without_a_search_counts_chunks() {
     )
     .await;
     assert_eq!(row.data()["selection"]["unit"], "chunks", "{}", row.data());
-    runtime.close().await;
-}
-
-const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
-
-async fn github_file(github: &MockServer) {
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/octo/demo/contents/dense.txt"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            json!({"type":"file","encoding":"base64","content":STANDARD.encode(DENSE)}),
-        ))
-        .mount(github)
-        .await;
-}
-
-/// The same hit rule on GitHub: a matchString read and a repo-scoped search.
-#[tokio::test]
-async fn github_reads_and_searches_judge_each_hit() {
-    let server = provider().await;
-    let github = MockServer::builder().start().await;
-    github_file(&github).await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/search/code"))
-        .respond_with(ResponseTemplate::new(200).insert_header("etag", "\"page\"").set_body_json(json!({
-            "total_count":1,"incomplete_results":false,"items":[{
-                "name":"dense.txt","path":"dense.txt","sha":"6",
-                "html_url":format!("https://github.com/octo/demo/blob/{SHA}/dense.txt"),
-                "repository":{"full_name":"octo/demo","html_url":"https://x","url":"https://x"},
-                "text_matches":[{"fragment":"needle","matches":[{"text":"needle","indices":[0,6]}]}]}]
-        })))
-        .mount(&github)
-        .await;
-    let workspace = Workspace::new();
-    let runtime = support::clasify_runtime(&workspace, &server, &support::github_api(&github));
-    let read = support::run(
-        &runtime,
-        "ghGetFileContent",
-        json!({"owner":"octo","repo":"demo","path":"dense.txt","ref":SHA,"matchString":["needle"],
-            "contextLines":{"before":2,"after":2},"classification":{"predicates":[PREDICATE]}}),
-    )
-    .await;
-    let data = read.data();
-    assert_eq!(data["selection"]["unit"], "hits", "{data}");
-    assert_eq!(data["selection"]["totalItems"], 6, "{data}");
-    assert_eq!(data["selection"]["selectedItems"], 3, "{data}");
-    let search = support::run(
-        &runtime,
-        "ghSearchCode",
-        json!({"owner":"octo","repo":"demo","keywords":["needle"],"ref":SHA,
-            "classification":{"predicates":[PREDICATE]}}),
-    )
-    .await;
-    let data = search.data();
-    assert_eq!(data["selection"]["unit"], "hits", "{data}");
-    assert_eq!(data["selection"]["totalItems"], 6, "{data}");
-    assert_eq!(data["selection"]["selectedItems"], 3, "{data}");
-    let lines = data["files"][0]["lines"].as_array().expect("kept lines");
-    assert!(
-        lines
-            .iter()
-            .all(|line| line.as_str().is_some_and(|line| line.contains("KEEP"))),
-        "{data}"
-    );
     runtime.close().await;
 }
 
@@ -294,7 +319,8 @@ async fn a_large_search_walks_every_hit_once() {
     let runtime = support::clasify_runtime(&workspace, &server, &[]);
     let mut query = json!({"path":file,"matchString":["needle"],
         "contextLines":{"before":0,"after":0},"classification":{"predicates":[PREDICATE]}});
-    let (mut kept, mut decided) = (Vec::new(), 0);
+    let mut kept = Vec::new();
+    let mut decided;
     let mut pages = 0;
     loop {
         pages += 1;
@@ -307,8 +333,9 @@ async fn a_large_search_walks_every_hit_once() {
             query = next["input"].clone();
             continue;
         }
+        // Every candidate page counts the whole walk so far.
         let receipt = &data["selection"];
-        decided +=
+        decided =
             receipt["selectedItems"].as_u64().unwrap() + receipt["excludedItems"].as_u64().unwrap();
         let Some(next) = data["next"].get("nextCandidatePage") else {
             break;
@@ -334,4 +361,5 @@ async fn a_large_search_walks_every_hit_once() {
     runtime.close().await;
 }
 
+mod github;
 mod provider_faults;

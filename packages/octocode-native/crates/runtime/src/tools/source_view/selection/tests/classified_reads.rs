@@ -205,7 +205,7 @@ fn a_chain_of_candidate_pages_judges_every_chunk_once() {
         assert!(totals.len() < 5, "the chain ends");
         result = budgeted_read(&text, &serde_json::to_value(&page.query).unwrap(), 3);
     }
-    assert_eq!(totals, [8, 5, 2]);
+    assert_eq!(totals, [8, 8, 8], "each page counts the whole walk");
     let kept = |content: &str| {
         let mut lines = content
             .lines()

@@ -2,8 +2,10 @@
 //! and the reader that owns stdout and routes every inbound message.
 
 use super::super::codec::{Frame, encode_frame, read_frame};
-use super::super::progress::ProgressTracker;
-use super::super::server_requests::{ClientRequestContext, client_response_for};
+use super::super::progress::{HealthLevel, ProgressTracker, ServerHealth};
+use super::super::server_requests::{
+    ClientRequestContext, client_response_for, declined_build_import,
+};
 use super::NOTIFY_BASE_DEADLINE_MS;
 use super::shared::{FailOnExit, Outbound, Shared};
 use crate::error::{Error, RpcError};
@@ -84,6 +86,58 @@ pub(super) async fn read_loop<R>(
     }
 }
 
+/// One jdtls report on loading the project.
+enum ProjectLoad {
+    /// It could not import a project, or reported an `Error` status.
+    Failed(ServerHealth),
+    /// Its project status is `OK` again.
+    Recovered,
+}
+
+impl ProjectLoad {
+    /// The server's health this report leaves.
+    fn health(self) -> Option<ServerHealth> {
+        match self {
+            Self::Failed(health) => Some(health),
+            Self::Recovered => None,
+        }
+    }
+}
+
+/// What jdtls says about loading the project: [`ProjectLoad::Failed`] when
+/// it could not import a project (scoped to that project's directory; a
+/// `language/eventNotification` naming the project and why, sent when
+/// Buildship cannot run its Gradle with this JDK) or reports an `Error`
+/// status; [`ProjectLoad::Recovered`] when its project status is `OK` again;
+/// `None` for anything else, which leaves the last report standing (a
+/// `WARNING` project status follows the failed import and says nothing new).
+fn project_load_report(method: &str, params: Option<&Value>) -> Option<ProjectLoad> {
+    let params = params?;
+    let text = |field: &str| params.get(field).and_then(Value::as_str);
+    if method == "language/eventNotification" {
+        let data = params.get("data")?;
+        let message = data.get("message").and_then(Value::as_str)?;
+        let project = data.get("projectUri").and_then(Value::as_str)?;
+        let project = crate::lsp::uri::uri_to_path(project).unwrap_or_else(|_| project.to_owned());
+        return Some(ProjectLoad::Failed(ServerHealth {
+            level: HealthLevel::Error,
+            message: Some(format!(
+                "The server could not import the project at {project}: {message} Its answers for that project may be empty or incomplete."
+            )),
+            project: Some(project),
+        }));
+    }
+    match (text("type")?, text("message")) {
+        ("ProjectStatus", Some("OK")) => Some(ProjectLoad::Recovered),
+        ("Error", message) => Some(ProjectLoad::Failed(ServerHealth {
+            level: HealthLevel::Error,
+            message: message.map(str::to_owned),
+            project: None,
+        })),
+        _ => None,
+    }
+}
+
 /// Routes one inbound message. `Err` carries a fatal reason.
 async fn dispatch(
     mut message: Map<String, Value>,
@@ -96,6 +150,13 @@ async fn dispatch(
         match (message.remove("id"), method.as_str()) {
             (Some(id), _) => {
                 note_watch_registration(&method, params.as_ref(), shared);
+                if let Some(cost) = declined_build_import(&method, params.as_ref()) {
+                    progress.set_health(Some(ServerHealth {
+                        level: HealthLevel::Warning,
+                        message: Some(cost.to_owned()),
+                        project: None,
+                    }));
+                }
                 let reply = client_response_for(&method, params.as_ref(), context).into_message(id);
                 let frame = encode_frame(&reply).map_err(|error| error.reason)?;
                 let deadline = Instant::now() + Duration::from_millis(REPLY_ENQUEUE_DEADLINE_MS);
@@ -128,6 +189,11 @@ async fn dispatch(
                 }
                 if let Some(quiescent) = field("quiescent").and_then(Value::as_bool) {
                     progress.on_server_status(quiescent).await;
+                }
+            }
+            (None, "language/eventNotification" | "language/status") => {
+                if let Some(report) = project_load_report(&method, params.as_ref()) {
+                    progress.set_health(report.health());
                 }
             }
             (None, "textDocument/publishDiagnostics") => {

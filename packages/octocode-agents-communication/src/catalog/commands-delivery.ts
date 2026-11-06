@@ -118,10 +118,10 @@ export const deliveryCommands: readonly CommandDefinition[] = [
   },
   {
     name: "host-hook",
-    description: "Claude/Codex/Cursor/Grok stdin lifecycle JSON. Bind identity at session start; offer mail on supported post-tool events. Fails open; configure a timeout.",
-    usage: "host-hook --vendor claude|codex|cursor|grok --workspace <path> [--database <file>]",
+    description: "Provider-neutral stdin lifecycle JSON: hook_event_name, session_id, cwd. Bind at SessionStart; deliver on PostToolUse/PostToolUseFailure; leave at SessionEnd. Built-in host envelopes are also accepted. Fails open; configure a host timeout.",
+    usage: "host-hook --vendor <provider> --workspace <path> [--database <file>]",
     cliFlags: ["workspace","database","vendor","session"],
-    cliSchema: {"required":["vendor"],"properties":{"vendor":{"type":"string","enum":["claude","codex","cursor","grok"],"description":"Host receiving the hook configuration."}}},
+    cliSchema: {"required":["vendor"],"properties":{"vendor":{"type":"string","minLength":1,"maxLength":256,"description":"Provider label matching the agent's MCP init vendor."}}},
     result: z.strictObject({
       continue: z.literal(true).optional(),
       additional_context: z.string().optional(),
@@ -130,10 +130,10 @@ export const deliveryCommands: readonly CommandDefinition[] = [
   },
   {
     name: "host-config",
-    description: "Preview Claude/Codex/Cursor/Grok messaging hook config with 10s timeouts; writes no settings or DB. Merge into the documented host location; separate edit guards are optional.",
-    usage: "host-config --vendor claude|codex|cursor|grok --workspace <path> [--database <file>]",
+    description: "Preview Claude/Codex/Cursor/Grok/Octocode messaging hook config with host-compatible events and timeouts; writes no settings or DB. Merge into the documented host location; separate edit guards are optional.",
+    usage: "host-config --vendor claude|codex|cursor|grok|octocode --workspace <path> [--database <file>]",
     cliFlags: ["workspace","database","vendor","session"],
-    cliSchema: {"required":["vendor"],"properties":{"vendor":{"type":"string","enum":["claude","codex","cursor","grok"],"description":"Host receiving the hook configuration."}}},
+    cliSchema: {"required":["vendor"],"properties":{"vendor":{"type":"string","enum":["claude","codex","cursor","grok","octocode"],"description":"Host receiving the hook configuration."}}},
     result: z.strictObject({
       version: z.literal(1).optional(),
       hooks: z.record(z.string(), z.array(z.record(z.string(), z.unknown()))),

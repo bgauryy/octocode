@@ -114,8 +114,6 @@ pub struct TextSearchStats {
 pub enum CapReason {
     /// A file held more only-matching spans than are kept per file.
     MaxOnlyMatchingPerFile,
-    /// The PCRE2 wall-clock deadline stopped the search.
-    Pcre2Deadline,
     /// A file over the byte ceiling was skipped.
     MaxFileSize,
     /// The caller stopped the search.
@@ -129,7 +127,6 @@ impl CapReason {
     pub fn name(self) -> &'static str {
         match self {
             Self::MaxOnlyMatchingPerFile => "maxOnlyMatchingPerFile",
-            Self::Pcre2Deadline => "pcre2Deadline",
             Self::MaxFileSize => "fileTooLarge",
             Self::Cancelled => "cancelled",
             Self::BinaryQuit => "binaryQuit",

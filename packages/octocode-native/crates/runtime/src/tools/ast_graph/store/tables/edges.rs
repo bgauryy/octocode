@@ -220,11 +220,20 @@ impl<'a> Projector<'a> {
     pub(super) fn call_edges(&mut self, resolver: &ExportResolver, symbols: &Symbols) -> CallStats {
         let mut file_paths = vec![""; self.nodes.len()];
         let mut families = vec![""; self.nodes.len()];
+        let mut go_packages = vec![""; self.nodes.len()];
         for (path, id) in &self.file_nodes {
             file_paths[*id as usize] = path;
             families[*id as usize] = link_family(self.lang(path));
+            if let Some(package) = self
+                .built
+                .facts
+                .get(*path)
+                .and_then(|facts| facts.go_package.as_deref())
+            {
+                go_packages[*id as usize] = package;
+            }
         }
-        let scope = link_scope(&file_paths, families, self.workspace);
+        let scope = link_scope(&file_paths, families, go_packages, self.workspace);
         let members = member_index(&symbols.global_names, &symbols.container_names);
         let accepts = |bit: u8| {
             move |id: u32| {

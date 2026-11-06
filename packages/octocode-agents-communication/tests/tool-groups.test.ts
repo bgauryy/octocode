@@ -2,16 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 const { catalog } = await import('../dist/runtime.js');
 
-test('worker discovery exposes five typed capability families', () => {
-  assert.deepEqual(catalog.selectedTools().map(tool => tool.name), ['agents', 'messages', 'leases', 'documents', 'records']);
+test('the full catalog retains five optional capability families', () => {
+  assert.deepEqual(catalog.catalog().tools.map(tool => tool.name), ['agents', 'messages', 'leases', 'documents', 'records']);
 });
 
 test('typed calls reject hidden variants, unrelated fields and identity overrides with precise errors', () => {
   assert.throws(() => catalog.toolCommand('records',{type:'write',input:{type:'checkpoint',data:{}}},'messaging'), /type|enum/);
   assert.throws(() => catalog.toolCommand('messages',{type:'read',input:{to:'peer'}}), /to|additional/);
   assert.throws(() => catalog.toolCommand('agents',{type:'list',input:{},session:'peer'}), /session|additional/);
-  assert.throws(() => catalog.toolCommand('documents',{type:'publish',input:{name:'review.md',content:'proof'}}), /reasoning/);
-  assert.throws(() => catalog.toolCommand('records',{type:'write',input:{type:'event',data:{content:'missing event name'}}}), /name|required/);
+  assert.throws(() => catalog.toolCommand('documents',{type:'publish',input:{name:'review.md',content:'proof'}}, 'review'), /reasoning/);
+  assert.throws(() => catalog.toolCommand('records',{type:'write',input:{type:'event',data:{content:'missing event name'}}}, 'review'), /name|required/);
 });
 
 test('only runtime-owned continuations become executable family calls', () => {

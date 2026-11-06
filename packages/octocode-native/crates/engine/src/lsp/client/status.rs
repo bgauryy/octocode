@@ -14,19 +14,16 @@ pub(crate) const RESUME_REWAIT_MS: u32 = 15_000;
 
 impl NativeLspClient {
     /// Wait for the server to finish any post-`initialized` indexing, returning
-    /// a readiness descriptor so JS can tell a confirmed-idle server apart from
-    /// one that never reported progress or is still busy. The returned string
-    /// is one of `"progressIdle"`, `"settledWithoutProgress"`, or `"timeout"`.
-    pub(crate) async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<String> {
+    /// how the wait ended, so a caller can tell a confirmed-idle server apart
+    /// from one that never reported progress or is still busy.
+    pub(crate) async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<Readiness> {
         let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
         let began = tokio::time::Instant::now();
         let readiness = self
             .inner
             .progress
             .wait_until_idle(timeout_ms, self.settle_ms(self.startup_settle_ms()))
-            .await
-            .as_str()
-            .to_owned();
+            .await;
         self.record_wait(super::waits::WaitKind::Indexing, began);
         {
             let mut slot = self
@@ -34,7 +31,7 @@ impl NativeLspClient {
                 .readiness
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            *slot = Some(readiness.clone());
+            *slot = Some(readiness);
         }
         Ok(readiness)
     }
@@ -159,12 +156,13 @@ impl NativeLspClient {
             .unwrap_or(false)
     }
 
-    pub fn readiness(&self) -> Option<String> {
-        self.inner
+    /// How this server's last readiness wait ended; `None` before its first.
+    pub fn readiness(&self) -> Option<Readiness> {
+        *self
+            .inner
             .readiness
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clone()
     }
 
     /// How long startup waits for a first `$/progress`: none for a server
@@ -193,13 +191,6 @@ impl NativeLspClient {
             .unwrap_or(settle_ms)
     }
 
-    pub(super) fn readiness_is(&self, readiness: Readiness) -> bool {
-        self.inner
-            .readiness
-            .lock()
-            .is_ok_and(|slot| slot.as_deref() == Some(readiness.as_str()))
-    }
-
     pub(crate) fn language_id(&self) -> Option<&str> {
         self.inner.config.language_id.as_deref()
     }
@@ -214,13 +205,10 @@ impl NativeLspClient {
     /// `timeout` means the server already reported progress. The wait holds
     /// a lease, so idle expiry cannot stop the server under it.
     pub(crate) async fn resume_timed_out_readiness(&self, timeout_ms: u32) {
-        let never_waited = self.inner.readiness.lock().is_ok_and(|slot| slot.is_none());
-        let budget = if never_waited {
-            timeout_ms
-        } else if self.readiness_is(Readiness::Timeout) {
-            timeout_ms.min(RESUME_REWAIT_MS)
-        } else {
-            return;
+        let budget = match self.readiness() {
+            None => timeout_ms,
+            Some(Readiness::Timeout) => timeout_ms.min(RESUME_REWAIT_MS),
+            Some(Readiness::ProgressIdle | Readiness::SilentServer) => return,
         };
         let _activity = self.lease();
         let _ = self.wait_for_ready(Some(budget)).await;

@@ -15,14 +15,15 @@ fn graph_content(build: &GraphOutput) -> Value {
     })
 }
 
+/// A build of unchanged inputs answers with the current snapshot itself.
 #[test]
-fn every_build_extracts_unchanged_inputs_without_reusing_a_snapshot() {
+fn a_build_of_unchanged_inputs_answers_with_the_current_snapshot() {
     let dir = fixture();
     let first = ingest_fixture(&dir.0, None);
     assert_eq!(first.class, ExitClass::Success, "{}", first.value);
     let second = ingest_fixture(&dir.0, None);
     assert_fresh_build(&second);
-    assert_ne!(first.value["id"], second.value["id"], "{}", second.value);
+    assert_eq!(first.value["id"], second.value["id"], "{}", second.value);
     assert_eq!(graph_content(&first), graph_content(&second));
     assert!(first.value["counts"]["nodes"].as_u64().unwrap_or(0) > 0);
 }
@@ -34,7 +35,7 @@ fn changed_sources_and_checkpoint_refresh_preserve_fresh_builds() {
     assert_eq!(first.class, ExitClass::Success);
     let second = ingest_fixture(dir.0.as_path(), None);
     assert_fresh_build(&second);
-    assert_ne!(second.value["id"], first.value["id"], "{}", second.value);
+    assert_eq!(second.value["id"], first.value["id"], "{}", second.value);
     assert_eq!(graph_content(&second), graph_content(&first));
     dir.write("app/src/a.ts", "export const a = 5;\n");
     let third = ingest_fixture(dir.0.as_path(), None);

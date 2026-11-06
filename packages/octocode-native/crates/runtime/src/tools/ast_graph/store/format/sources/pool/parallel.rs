@@ -1,13 +1,15 @@
-//! Origins encoded and validated in parallel. Records join the pool and
-//! are charged in reference order, so the pool's bytes, its index and its
-//! budget match a one-at-a-time pass at any width. Charges only grow, so
-//! summing each task's usage enforces the same total caps.
+//! Origins encoded and validated in parallel. Records join the pool in
+//! reference order, so the pool's bytes and its index match a one-at-a-time
+//! pass at any width. Decoding is charged per block of origins, the unit a
+//! reader admits.
 use super::*;
-use octocode_engine::text::analysis::{MapBudget, MapUsage};
 
 /// Origins encoded per window: bounds the records held before they join
 /// the pool.
 pub(super) const WINDOW: usize = 1 << 16;
+
+/// Origins per `SRCO` block: the unit a reader admits.
+pub(super) const BLOCK: usize = super::super::super::blocks::ROWS;
 
 /// One origin's encoded record, with its unit, its range and what decoding
 /// it costs (the index entry's admission charge).
@@ -50,6 +52,19 @@ fn batches(len: usize, width: usize) -> Vec<std::ops::Range<usize>> {
         .collect()
 }
 
+/// [`batches`] whose ranges start at block boundaries, so each block is
+/// admitted whole by one task.
+fn block_batches(len: usize, width: usize) -> Vec<std::ops::Range<usize>> {
+    let size = len
+        .div_ceil(width.saturating_mul(4).max(1))
+        .max(1)
+        .next_multiple_of(BLOCK);
+    (0..len)
+        .step_by(size)
+        .map(|start| start..(start + size).min(len))
+        .collect()
+}
+
 impl OriginPool {
     /// Appends `origins` in order, each as the next reference.
     pub fn extend(
@@ -82,15 +97,15 @@ impl OriginPool {
         record: Record,
         budget: &mut Budget<'_>,
     ) -> Result<u32, SourceError> {
-        if self.index.len() >= LIMITS.table_items {
-            return Err(SourceError::LimitExceeded("graph source origin count"));
-        }
+        // Origins are read a block at a time; their count is bounded only by
+        // the `u32` reference every span names.
         let reference = narrow(self.index.len())?;
         let offset = self.encoded.len();
-        budget.grow(&mut self.encoded, record.bytes.len())?;
+        // The pool's own bytes are the writer's memory, not a reader's
+        // admission: a reader admits one block at a time (below), so the
+        // whole pool is bounded only by what the build holds.
         self.encoded.extend_from_slice(&record.bytes);
         let (bytes, items) = record.decode;
-        budget.charge(bytes, items)?;
         let entry = OriginIndex {
             offset: narrow(offset)?,
             unit: record.unit,
@@ -98,33 +113,49 @@ impl OriginPool {
             bytes: narrow(bytes)?,
             items: narrow(items)?,
         };
-        budget.grow(&mut self.index, 1)?;
         self.index.push(entry);
+        // A reader admits one block of origins at a time: the block this
+        // record joined, with it, must fit one admission.
+        let start = self.index.len() - 1 - (self.index.len() - 1) % BLOCK;
+        if let Err(error) = super::admit_block(&mut budget.scratch(), &self.index[start..]) {
+            self.index.pop();
+            self.encoded.truncate(offset);
+            return Err(error);
+        }
         Ok(reference)
     }
 
     /// Every origin decoded and checked against `descriptors` and its index
-    /// entry, references in parallel; charges are summed in order.
+    /// entry, references in parallel; each block of origins is charged on
+    /// its own, as a reader admits it.
     pub fn validate(
         &self,
         descriptors: &SourceDescriptors,
         budget: &mut Budget<'_>,
     ) -> Result<(), SourceError> {
         let cancel = budget.cancel;
+        let limits = budget.limits();
         let poll = super::super::Poll::new(cancel);
         let stop = || poll.stopped();
-        let mut map = super::super::map_budget(cancel, &stop);
-        let catalog = SourceCatalog::new(descriptors, &mut map)?;
+        let catalog =
+            SourceCatalog::new(descriptors, &mut super::super::map_budget(cancel, &stop))?;
         let width = crate::tools::workers::workers(self.index.len(), None);
-        let mut ranges = batches(self.index.len(), width);
-        // Each range charges its own budgets; charges only grow, so their
-        // sums decide the caps as one pass would.
+        let mut ranges = block_batches(self.index.len(), width);
         let checked = crate::tools::workers::each_parallel(&mut ranges, width, |range| {
-            let mut own = Budget::new(cancel, &LIMITS);
             let own_poll = super::super::Poll::new(cancel);
             let own_stop = || own_poll.stopped();
+            let mut own = Budget::new(cancel, &limits);
             let mut own_map = super::super::map_budget(cancel, &own_stop);
             for reference in range.clone() {
+                // Each block of origins is admitted on its own, as a reader
+                // admits it.
+                if reference % BLOCK == 0 {
+                    own = Budget::new(cancel, &limits);
+                    own_map = super::super::map_budget(cancel, &own_stop);
+                    // The block's index entries, then (below) each decode:
+                    // what [`super::admit_block`] charges.
+                    own.vector_cost::<OriginIndex>(BLOCK.min(self.index.len() - reference))?;
+                }
                 self.checked_origin(
                     narrow(reference)?,
                     descriptors,
@@ -133,60 +164,8 @@ impl OriginPool {
                     &mut own,
                 )?;
             }
-            Ok::<_, SourceError>((own.bytes, own.items, own_map.usage))
+            Ok::<_, SourceError>(())
         });
-        for outcome in checked {
-            let (bytes, items, usage) = outcome?;
-            budget.charge(bytes, items)?;
-            absorb(&mut map, usage)?;
-        }
-        Ok(())
+        checked.into_iter().collect()
     }
-}
-
-/// Adds one task's source-map usage to `map`, refusing past its limits as
-/// the one-at-a-time pass would.
-fn absorb(map: &mut MapBudget<'_>, used: MapUsage) -> Result<(), SourceError> {
-    fn add(
-        value: &mut usize,
-        more: usize,
-        max: usize,
-        name: &'static str,
-    ) -> Result<(), SourceError> {
-        *value = value
-            .checked_add(more)
-            .filter(|total| *total <= max)
-            .ok_or(SourceError::LimitExceeded(name))?;
-        Ok(())
-    }
-    let limits = map.limits;
-    let usage = &mut map.usage;
-    add(
-        &mut usage.representations,
-        used.representations,
-        limits.representations,
-        "representations",
-    )?;
-    add(
-        &mut usage.segments,
-        used.segments,
-        limits.segments,
-        "segments",
-    )?;
-    add(
-        &mut usage.branches,
-        used.branches,
-        limits.branches,
-        "branches",
-    )?;
-    add(
-        &mut usage.contributors,
-        used.contributors,
-        limits.contributors,
-        "contributors",
-    )?;
-    add(&mut usage.bytes, used.bytes, limits.bytes, "bytes")?;
-    add(&mut usage.work, used.work, limits.work, "work")?;
-    usage.peak_temporary_bytes = usage.peak_temporary_bytes.max(used.peak_temporary_bytes);
-    Ok(())
 }

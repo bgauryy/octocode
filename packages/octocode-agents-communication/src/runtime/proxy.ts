@@ -6,6 +6,7 @@ import { Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as catalog from './catalog.js';
+import { callerIdentity } from './caller.js';
 import { databasePath } from './config.js';
 import type { RecordUsageInput } from './catalog-types.generated.js';
 import type { DeliveryStore } from './delivery-types.js';
@@ -158,7 +159,8 @@ export class Loop {
   guidance(peers: string): string {
     const { worker } = this;
     const base = catalog.workerSkill(worker.args.tools);
-    const binding = { session: worker.identity, workspace: worker.store.workspace, coordinationScope: worker.store.coordinationScope, branch: worker.store.known(worker.identity, true).branch, tools: worker.toolNames, presence: 'managed', leaseRenewal: 'managed', delivery: 'managed', instructionsVersion: 1, instructionsSha256: createHash('sha256').update(base, 'utf8').digest('hex') };
+    const identity = worker.store.known(worker.identity, true);
+    const binding = { session: worker.identity, caller: callerIdentity(identity), workspace: worker.store.workspace, coordinationScope: worker.store.coordinationScope, branch: identity.branch, tools: worker.toolNames, presence: 'managed', leaseRenewal: 'managed', delivery: 'managed', instructionsVersion: 1, instructionsSha256: createHash('sha256').update(base, 'utf8').digest('hex') };
     return `Available communication tools: ${encode(worker.toolNames).toString('utf8')}\n\n${base}\n\nCommunication binding: ${encode(binding).toString('utf8')}\n${peers}\nUser task:\n${worker.prompt}`;
   }
 

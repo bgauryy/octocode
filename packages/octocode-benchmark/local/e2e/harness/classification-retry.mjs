@@ -75,9 +75,10 @@ try {
   const retried = await call(query({ retry: 'throttle' }), '429 then success');
   const packets = ctx.mock.classificationRequests.slice(retryStart);
   check('transient failure retries once with identical provider input', retried.calls === 2 && packets.length === 2 && canon(packets[0]) === canon(packets[1]) && verdicts(retried.result).includes(0.1));
-  // The row shows the provider's reported usage; the throttled attempt reported none.
+  // The row shows the provider's reported usage; the throttled attempt reported none,
+  // and `calls` counts both requests the row sent (retries included).
   check('retry usage reports the successful attempt without inventing tokens',
-    canon(row(retried.result)?.usage) === canon({ input_tokens: 10, output_tokens: 2 }),
+    canon(row(retried.result)?.usage) === canon({ input_tokens: 10, output_tokens: 2, calls: 2 }),
     JSON.stringify(row(retried.result)?.usage));
   // Retries are a runtime constant (3); a varied budget is covered by
   // transport::tests::the_retry_budget_bounds_attempts_exactly.

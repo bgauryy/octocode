@@ -7,12 +7,16 @@
 #[cfg(test)]
 pub(super) mod audit;
 mod checks;
+mod kinds;
 mod object;
 mod pattern;
 mod predicates;
 mod relationships;
 mod scalar;
 use super::{ContractValidationError, issue, schema_issue, union};
+use kinds::declared_kind;
+#[cfg(test)]
+use kinds::known_type;
 pub(super) use object::authored_property;
 use object::validate_object;
 use pattern::{compiled_pattern, describe_unreadable_pattern, pattern_message};
@@ -195,12 +199,41 @@ fn validate_schema_with_ref_depth(
     if issues.is_empty() {
         relationships::validate(schema, value, path)?;
         checks::validate(schema, value, path)?;
+    } else {
+        prefer_guidance(&mut issues, schema, value, path)?;
     }
     if issues.is_empty() {
         Ok(())
     } else {
         Err(ContractValidationError { issues })
     }
+}
+
+/// A field's own guidance (an `x-checks` message the contract authored for
+/// it) wins over the generic issues at or below that field: a one-level
+/// score scale reads "score criteria is an array of at least two levels…",
+/// not the bare minimum-length rule. A check that covers no issue here
+/// waits until the value's shape is valid.
+fn prefer_guidance(
+    issues: &mut Vec<super::ValidationIssue>,
+    schema: &Value,
+    value: &mut Value,
+    path: &[String],
+) -> Result<(), ContractValidationError> {
+    let Err(guidance) = checks::validate(schema, value, path) else {
+        return Ok(());
+    };
+    if guidance.is_contract_error() {
+        return Err(guidance);
+    }
+    for check in guidance.issues {
+        let before = issues.len();
+        issues.retain(|issue| !issue.path.starts_with(&check.path));
+        if issues.len() < before {
+            issues.push(check);
+        }
+    }
+    Ok(())
 }
 
 /// Reject a value its schema's `not` accepts.
@@ -238,9 +271,13 @@ fn reject_forbidden(
         }
     };
     if accepted {
-        // `{"not":{}}` forbids the field outright in this variant.
+        // `{"not":{}}` forbids the field outright in this variant; a
+        // description beside it says where the field belongs instead.
         let message = if forbidden.as_object().is_some_and(serde_json::Map::is_empty) {
-            "Field is not allowed in this variant"
+            schema
+                .get("description")
+                .and_then(Value::as_str)
+                .unwrap_or("Field is not allowed in this variant")
         } else {
             "Value matches a forbidden schema"
         };
@@ -322,70 +359,6 @@ fn check_literals(
         ));
     }
     Ok(())
-}
-
-/// The type the value is validated as: the schema's `type`, the declared
-/// type the value has when it lists several, else the value's own.
-fn declared_kind<'s>(
-    schema: &'s Value,
-    value: &Value,
-    path: &[String],
-) -> Result<Option<&'s str>, ContractValidationError> {
-    Ok(match schema.get("type") {
-        Some(Value::String(kind)) => Some(kind.as_str()),
-        Some(Value::Array(kinds)) if !kinds.is_empty() => {
-            for kind in kinds {
-                if !kind.as_str().is_some_and(known_type) {
-                    return Err(issue(
-                        "schema.unsupported-type",
-                        path.to_vec(),
-                        format!("Unsupported schema type: {kind}"),
-                    ));
-                }
-            }
-            let selected = kinds.iter().filter_map(Value::as_str).find(|kind| {
-                *kind == value_type(value)
-                    || (*kind == "integer"
-                        && value.as_f64().is_some_and(|number| number.fract() == 0.0))
-            });
-            Some(selected.ok_or_else(|| {
-                schema_issue(
-                    "schema.type",
-                    path.to_vec(),
-                    format!("Expected one of the declared types: {}", schema["type"]),
-                    schema,
-                    value,
-                )
-            })?)
-        }
-        Some(other) => {
-            return Err(issue(
-                "schema.unsupported-type",
-                path.to_vec(),
-                format!("Unsupported schema type: {other}"),
-            ));
-        }
-        // Keywords such as `required` and `minimum` also apply without `type`.
-        None => Some(value_type(value)),
-    })
-}
-
-fn known_type(kind: &str) -> bool {
-    matches!(
-        kind,
-        "object" | "array" | "string" | "integer" | "number" | "boolean" | "null"
-    )
-}
-
-fn value_type(value: &Value) -> &'static str {
-    match value {
-        Value::Object(_) => "object",
-        Value::Array(_) => "array",
-        Value::String(_) => "string",
-        Value::Number(_) => "number",
-        Value::Bool(_) => "boolean",
-        Value::Null => "null",
-    }
 }
 
 #[cfg(test)]

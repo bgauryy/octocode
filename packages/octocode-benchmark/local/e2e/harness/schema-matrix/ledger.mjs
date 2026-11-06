@@ -30,7 +30,8 @@ export function createLedger(contract) {
         if (key === 'partialReasons' && Array.isArray(value)) for (const reason of value) if (Object.hasOwn(contract.partialReasons, reason)) note(reasons, reason, surface);
       });
       for (const lead of leadsIn(json, schema.get(tool))) {
-        const channel = lead.kind === 'related' ? 'related' : lead.key === 'responsePagination.next' ? 'responsePagination.next' : lead.key;
+        // A named lead outside related[] (calls.repair, next.retry) counts under its own channel, whatever its kind.
+        const channel = lead.container === 'related' ? 'related' : lead.key === 'responsePagination.next' ? 'responsePagination.next' : lead.key;
         note(channels, `${tool}.${channel}`, surface);
         if (lead.kind !== 'related') continue;
         const identity = `${surface} ${lead.tool} ${worker.normalize(canon(lead.input))}`;

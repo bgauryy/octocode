@@ -6,7 +6,7 @@ use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::remaining::{BodyWindows, Remainder};
 use crate::tools::gh_get_history_item::text::{delivered_earlier, shape_comment};
 use crate::tools::gh_get_history_item::util::{array, map_comments};
-use crate::tools::gh_get_history_item::window::{auto_page, page_starting_at};
+use crate::tools::gh_get_history_item::window::{auto_page, page_starting_at_after};
 use crate::tools::gh_get_history_item::{DEFAULT_PAGE_SIZE, HistoryItemRequest, fetch};
 use octocode_github::{GitHubTransport, MAX_PER_PAGE, ProviderError, RequestContext};
 use serde_json::{Map, Value, json};
@@ -39,7 +39,7 @@ pub(super) struct CommentPage {
     /// The page's comment-body windows.
     bodies: BodyWindows,
     /// The private `pageSize` that resumes at the first unshown
-    /// comment ([`page_starting_at`]).
+    /// comment ([`page_starting_at_after`]).
     resume_size: Option<usize>,
 }
 
@@ -69,7 +69,9 @@ impl CommentPage {
     }
 }
 
-/// The saved comment page grid: `pageSize` comments per page.
+/// The saved comment page grid: the page starts at comment
+/// `(page − 1) × pageSize`. The grid only places the page; how many comments
+/// it shows is the response budget's call.
 fn comment_grid(query: &HistoryItemRequest) -> usize {
     gh_get_history_item_query::page_size(query)
         .unwrap_or(DEFAULT_PAGE_SIZE)
@@ -104,12 +106,14 @@ pub(super) async fn comment_batch(
 
 /// One page of an issue's discussion comments, each body windowed, filling
 /// `budget` characters. The page starts at comment
-/// `(page − 1) × pageSize` and shows at most the saved `pageSize` (else up
-/// to one provider batch) of the comments that fit, read from at most two
-/// provider batches. The page resumes at its first unshown comment through a
-/// private `page`/`pageSize` pair that starts there: the saved `pageSize` while
-/// pages fill it, else the widest grid that does ([`page_starting_at`]), so
-/// the public continuation carries only its opaque cursor.
+/// `(page − 1) × pageSize` and shows up to one provider batch of the
+/// comments that fit, read from at most two provider batches: the saved
+/// `pageSize` places the page and never caps it, so a page after a short one
+/// still fills the budget. The page resumes at its first unshown comment
+/// through a private `page`/`pageSize` pair that starts there: the saved
+/// `pageSize` when it does, else the widest grid that does with a later page
+/// number ([`page_starting_at_after`]), so the public continuation carries only
+/// its opaque cursor and page numbers only climb.
 pub(super) async fn issue_comments(
     transport: &GitHubTransport,
     query: &HistoryItemRequest,
@@ -121,8 +125,7 @@ pub(super) async fn issue_comments(
     let page_no = gh_get_history_item_query::page(query).unwrap_or(1);
     let grid = comment_grid(query);
     let start = page_no.saturating_sub(1) * grid;
-    let explicit = gh_get_history_item_query::page_size(query).is_some();
-    let cap = if explicit { grid } else { MAX_PER_PAGE };
+    let cap = MAX_PER_PAGE;
     let mut raw_comments = Vec::new();
     let mut provider_more = false;
     if let Some(first) = first_comment_batch(query) {
@@ -189,10 +192,10 @@ pub(super) async fn issue_comments(
         // The next page and the page size that places it (`nextPage` alone
         // under another size would land on other comments); the size rides
         // the continuation only, as the block describes the page shown.
-        let (page, size) = if explicit && next.is_multiple_of(grid) {
+        let (page, size) = if next.is_multiple_of(grid) {
             (next / grid + 1, grid)
         } else {
-            page_starting_at(next, MAX_PER_PAGE)
+            page_starting_at_after(next, MAX_PER_PAGE, page_no)
         };
         pagination["nextPage"] = json!(page);
         resume_size = Some(size);

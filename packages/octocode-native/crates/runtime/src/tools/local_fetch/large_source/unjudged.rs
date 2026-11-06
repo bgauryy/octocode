@@ -27,6 +27,10 @@ pub(super) struct Masked<'a, S> {
 }
 
 impl<S: ContentScan> ContentScan for Masked<'_, S> {
+    fn limits(&self) -> crate::security::SourceLimits {
+        self.scan.limits()
+    }
+
     fn sanitize(
         &self,
         text: &str,
@@ -52,6 +56,10 @@ impl<S: ContentScan> ContentScan for Masked<'_, S> {
 }
 
 impl<S: ContentScan> ContentScan for Unjudged<'_, S> {
+    fn limits(&self) -> crate::security::SourceLimits {
+        self.scan.limits()
+    }
+
     fn sanitize(
         &self,
         text: &str,
@@ -83,6 +91,23 @@ fn hide_values(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// A wrapped scan judges at the limits of the scan it wraps.
+    #[test]
+    fn wrappers_judge_at_their_scan_s_limits() {
+        let small =
+            crate::security::ContentSecurity::with_limits(crate::security::SourceLimits::SMALL);
+        let masked = super::Masked {
+            scan: &small,
+            masked: true,
+        };
+        let unjudged = super::Unjudged {
+            scan: &small,
+            path_gated: false,
+        };
+        assert_eq!(masked.limits(), crate::security::SourceLimits::SMALL);
+        assert_eq!(unjudged.limits(), crate::security::SourceLimits::SMALL);
+    }
+
     use super::*;
 
     /// A window of a large source may hold a private member with its `kty` out

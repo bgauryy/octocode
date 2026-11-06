@@ -52,9 +52,8 @@ pub(super) fn is_oxc_dialect(file_path: &str, parser: Option<&str>) -> bool {
 }
 
 /// Run an oxc `job` on the deep-stack pool to completion: one file cannot be
-/// paged, and input is bounded by `MAX_PARSE_SIZE` (see
-/// `extractor::whole_file_deadline`). `None` for oversized input or a
-/// non-JS/TS path. oxc can ICE on pathological input; the unwind is contained
+/// paged (see `extractor::whole_file_deadline`); the caller's cancel stops
+/// it. `None` for a non-JS/TS path. oxc can ICE on pathological input; the unwind is contained
 /// so it never aborts the process.
 pub(super) fn on_oxc_worker<T: Send + 'static>(
     content: &str,
@@ -62,7 +61,7 @@ pub(super) fn on_oxc_worker<T: Send + 'static>(
     parser: Option<&str>,
     job: impl FnOnce(&str, &str) -> Option<T> + Send + 'static,
 ) -> Option<T> {
-    if content.len() > crate::signatures::MAX_PARSE_SIZE || !is_oxc_dialect(file_path, parser) {
+    if !is_oxc_dialect(file_path, parser) {
         return None;
     }
     let content = content.to_owned();
@@ -75,8 +74,9 @@ pub(super) fn on_oxc_worker<T: Send + 'static>(
 
 /// Parse JS/TS `content` on the thread arena (`TOKENS` keeps the token
 /// stream) and hand `f` the extension and the parse. `None` for a non-JS/TS
-/// extension, a cancelled job, or a hard parse failure with nothing
-/// recovered: the caller then falls back to the more error-tolerant
+/// extension, a file nested deeper than oxc's stack holds
+/// ([`super::nesting`]), a cancelled job, or a hard parse failure with
+/// nothing recovered: the caller then falls back to the more error-tolerant
 /// tree-sitter path rather than emit a stub.
 pub(super) fn with_js_program<const TOKENS: bool, R>(
     content: &str,
@@ -85,7 +85,9 @@ pub(super) fn with_js_program<const TOKENS: bool, R>(
     f: impl for<'a> FnOnce(String, oxc_parser::ParserReturn<'a>) -> Option<R>,
 ) -> Option<R> {
     let ext = dialect_extension(file_path, parser);
-    if !JS_TS_EXTENSIONS.contains(&ext.as_str()) {
+    if !JS_TS_EXTENSIONS.contains(&ext.as_str())
+        || super::nesting::too_deep(content, &ext).is_some()
+    {
         return None;
     }
     with_thread_allocator(|allocator| {

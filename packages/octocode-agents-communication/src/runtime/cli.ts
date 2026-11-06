@@ -21,7 +21,8 @@ import { Store } from './store.js';
 import { stripNulls } from './store-types.js';
 import { isBlank } from './text.js';
 import { monotonic } from './timing.js';
-import { wellFormed, type Json } from './validation.js';
+import { asObject, wellFormed, type Json } from './validation.js';
+import { boundCaller } from './caller.js';
 import { VERSION } from './version.js';
 import * as view from './view.js';
 import { MAX_FRAME } from './wire.js';
@@ -181,15 +182,18 @@ function delivery(context: Context): DeliveryRuntime {
   };
 }
 
-const READ_ONLY = ['binding', 'fetch', 'peers', 'inbox', 'read_document', 'context', 'check_paths', 'locks', 'check_write', 'health', 'completion-check', 'activity'];
+const READ_ONLY = ['binding', 'fetch', 'peers', 'inbox', 'read_document', 'context', 'check_paths', 'locks', 'check_write', 'health', 'activity'];
 
 /** The typed CLI surface uses the same selected-operation dispatch and continuation projection as MCP. */
 async function capability(command: string, json: string | undefined, args: Arguments, context: Context): Promise<void> {
-  const call = catalog.toolCommand(command, parseJson(context, json ?? '{}'));
+  const value = parseJson(context, json ?? '{}');
+  const call = catalog.toolCommand(command, value, command);
   if (!args.session) throw new ValidationError('--session required');
   const store = new Store(databasePath(args.database), args.workspace, READ_ONLY.includes(call.name), false);
   try {
-    output(context, catalog.toolResult(call.name, await store.call(args.session, call.name, call.input)));
+    const caller = boundCaller(value, store.known(args.session, false));
+    const result = catalog.toolResult(call.name, await store.call(args.session, call.name, call.input));
+    output(context, { ...asObject(result, 'tool result'), _meta: { caller } });
   } finally { store.close(); }
 }
 
@@ -292,7 +296,6 @@ async function run(argv: readonly string[], context: Context): Promise<void> {
       case 'attach': return output(context, store.attach(session, call.input));
       case 'retry_delivery': return output(context, store.retryDelivery(session, call.input));
       case 'record_usage': return output(context, store.recordUsage(session, call.input));
-      case 'completion-check': return output(context, store.completionCheck(session, call.input));
       case 'confirm_delivery':
         store.finishDispatch(session, call.input.items, null);
         return output(context, { submitted: true });

@@ -35,6 +35,7 @@ fn shaped_files_retain_repository_and_commit_identity() {
                                 total: 1,
                                 line_count: 1,
                                 declaration: None,
+                                redacted: 0,
                             },
                         )
                     })

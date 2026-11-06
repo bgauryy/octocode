@@ -1,7 +1,8 @@
 //! The requested line windows a streamed source keeps as it passes once.
 
+/// The window a test's [`Want`] holds: the window every build streams.
 #[cfg(test)]
-use super::WINDOW_BYTES;
+pub(super) const WINDOW_BYTES: usize = crate::security::SourceLimits::REAL.window;
 use super::masks::{Judged, cover, cover_every_value};
 
 /// The lines one streamed window asks for.

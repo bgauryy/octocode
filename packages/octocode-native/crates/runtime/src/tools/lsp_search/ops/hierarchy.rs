@@ -2,6 +2,10 @@
 //! server has no hierarchy support.
 use super::*;
 
+/// The label of a subtype answer that a server's empty
+/// `typeHierarchy/subtypes` left to its implementation answer.
+const SUBTYPES_FROM_IMPLEMENTATION: &str = "The server's type hierarchy listed no subtypes; these rows come from its implementation answer for the type, each checked against the heritage clause it names.";
+
 impl Operation<'_, '_> {
     /// `supertypes`/`subtypes` on a server with no type hierarchy: the
     /// resolved immediate heritage edges in the shared bounded walker.
@@ -308,6 +312,28 @@ impl Operation<'_, '_> {
         };
         let (mut row, importers) =
             hierarchy(self.client, self.sources, self.cancel, request).await?;
+        // A server can prepare the type yet list none of its subtypes while
+        // its implementation answer names them (jdtls on an interface): an
+        // empty subtype answer is checked against the implementation path
+        // before it stands as absence.
+        if lsp_search_query::op(query) == Op::Subtypes
+            && row.get("category").and_then(Value::as_str) == Some("noLocations")
+        {
+            match self.type_hierarchy_without_server_support().await {
+                Ok(mut found)
+                    if found.get("errorCode").is_none()
+                        && found.get("category").and_then(Value::as_str) != Some("noLocations") =>
+                {
+                    crate::response::paging::push_warnings(
+                        &mut found,
+                        [SUBTYPES_FROM_IMPLEMENTATION.to_owned()],
+                    );
+                    return Ok(found);
+                }
+                Err(failure) if failure.is_cancelled() => return Err(failure),
+                _ => return Ok(row),
+            }
+        }
         if let Some(importers) = &importers {
             self.check_code_uses().await?;
             importers.annotate(&mut row, query, self.scope);

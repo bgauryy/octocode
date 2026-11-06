@@ -128,7 +128,7 @@ fn a_selection_that_keeps_no_judged_hit_is_not_absence() {
     assert_eq!((receipt.selected_items, receipt.unknown_items), (0, 0));
     assert!(
         result.warnings.iter().any(|note| note.contains(
-            "every hit was judged and none passed the questions, so none of the 2 hit rows (1 file) is listed. An empty classified result is not absence: the unfiltered search matched them, and `next.unfiltered` lists them."
+            "classification kept 0 of 2 hits that pass the classifiers. An empty classified result is not absence: next.unfiltered lists them all."
         )),
         "{:?}",
         result.warnings
@@ -257,7 +257,7 @@ fn a_chain_of_candidate_pages_judges_every_group_once() {
         assert!(totals.len() < 5, "the chain ends");
         result = search_with(root.path(), row, None, 2).expect("next candidates");
     }
-    assert_eq!(totals, [5, 3, 1], "each page counts the groups it judges");
+    assert_eq!(totals, [5, 5, 5], "each page counts the whole walk");
     seen.sort();
     assert_eq!(seen, expected, "every kept hit once, none twice");
 }
@@ -295,7 +295,7 @@ fn a_candidate_page_chains_under_the_default_classification_context() {
         result = search_with(root.path(), row, None, 2).expect("the candidate page replays");
     }
     totals.push(result.selection.as_ref().expect("receipt").total_items);
-    assert_eq!(totals, [4, 2], "each page judges the groups left");
+    assert_eq!(totals, [4, 4], "each page counts the whole walk");
 }
 
 mod candidates;

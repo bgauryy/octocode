@@ -120,9 +120,32 @@ fn escape_words(escaped: char) -> Option<Vec<String>> {
         's' => vec!["whitespace".into()],
         'r' | 'n' => vec!["line breaks".into()],
         '0' => vec!["NUL".into()],
+        '\\' => vec!["backslashes".into()],
         'p' | 'P' | 'b' | 'B' | 'S' | 'W' | 'D' => return None,
         other => vec![format!("'{other}'")],
     })
+}
+
+/// The character a `\xHH` escape names, read after its `x`.
+fn hex_escape(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<char> {
+    let digits: String = [chars.next()?, chars.next()?].into_iter().collect();
+    char::from_u32(u32::from_str_radix(&digits, 16).ok()?)
+}
+
+/// The words for a `\xHH` escape or a `\xHH-\xHH` range, read after the first
+/// `x`; `None` unless every character it names is an ASCII control character.
+fn hex_class_words(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+    let low = hex_escape(chars)?;
+    let mut ahead = chars.clone();
+    let high = if [ahead.next(), ahead.next(), ahead.next()] == [Some('-'), Some('\\'), Some('x')] {
+        let high = hex_escape(&mut ahead)?;
+        *chars = ahead;
+        high
+    } else {
+        low
+    };
+    (low <= high && (low..=high).all(|c| c.is_ascii_control()))
+        .then(|| "control characters".to_owned())
 }
 
 /// The class after its `[`, through its `]`.
@@ -132,7 +155,10 @@ fn class_atom(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> Option<At
     loop {
         match chars.next()? {
             ']' => break,
-            '\\' => words.extend(escape_words(chars.next()?)?),
+            '\\' => match chars.next()? {
+                'x' => words.push(hex_class_words(chars)?),
+                escaped => words.extend(escape_words(escaped)?),
+            },
             low => {
                 let mut ahead = chars.clone();
                 if ahead.next() == Some('-')
@@ -166,6 +192,30 @@ fn extend_unique(list: &mut Vec<String>, words: &[String]) {
     }
 }
 
+/// One alternative's atoms and repetition counts, read so far.
+#[derive(Default)]
+struct Counted {
+    atoms: usize,
+    counts: Vec<String>,
+    uncounted: bool,
+}
+
+impl Counted {
+    /// Ends the alternative: its one count joins `lengths` (once), or, unless
+    /// it is one class with one count, no length is stated at all.
+    fn close(&mut self, lengths: &mut Option<Vec<String>>) {
+        let counted = std::mem::take(self);
+        match (lengths.as_mut(), counted.counts.as_slice()) {
+            (Some(lengths), [count]) if counted.atoms == 1 && !counted.uncounted => {
+                if !lengths.contains(count) {
+                    lengths.push(count.clone());
+                }
+            }
+            _ => *lengths = None,
+        }
+    }
+}
+
 /// The rule a pattern built from character classes states, in words: what a
 /// value may hold or must not hold, how it starts and how long it is. `None`
 /// for any other pattern (keywords, lookaround, classes that vary by position
@@ -175,17 +225,31 @@ fn plain_rule(pattern: &str) -> Option<String> {
     let mut chars = pattern.chars().peekable();
     let (mut holds, mut refuses, mut starts) = (Vec::new(), Vec::new(), Vec::new());
     let mut prefix = String::new();
-    let (mut at_start, mut grouped, mut seen_atom) = (true, false, false);
-    let mut length = None;
+    let (mut at_start, mut seen_atom) = (true, false);
+    // The value's length, when every alternative is one class with one
+    // count (`[0-9a-f]{40}|[0-9a-f]{64}`) and no group repeats: each
+    // alternative's count; `None` once any alternative is not so.
+    let mut lengths = Some(Vec::new());
+    let mut alternative = Counted::default();
     while let Some(next) = chars.next() {
         let atom = match next {
-            '^' | '$' | ')' | '*' | '+' | '?' => continue,
+            '^' | '$' => continue,
+            '*' | '+' | '?' => {
+                alternative.uncounted = true;
+                continue;
+            }
+            ')' => {
+                if chars.peek().is_some_and(|after| "*+?{".contains(*after)) {
+                    lengths = None;
+                }
+                continue;
+            }
             '|' => {
+                alternative.close(&mut lengths);
                 at_start = true;
                 continue;
             }
             '(' => {
-                grouped = true;
                 if chars.next_if_eq(&'?').is_some() && chars.next()? != ':' {
                     return None;
                 }
@@ -199,7 +263,7 @@ fn plain_rule(pattern: &str) -> Option<String> {
                         digit => counts.push(digit),
                     }
                 }
-                length = Some(counts);
+                alternative.counts.push(counts.replace(',', " to "));
                 continue;
             }
             '[' => class_atom(&mut chars)?,
@@ -223,6 +287,7 @@ fn plain_rule(pattern: &str) -> Option<String> {
             _ => return None,
         };
         seen_atom = true;
+        alternative.atoms += 1;
         match atom {
             Atom::Holds(words) => {
                 if at_start {
@@ -249,10 +314,11 @@ fn plain_rule(pattern: &str) -> Option<String> {
         return None;
     }
     let held = holds.join(", ");
-    if let Some(counts) = length.filter(|_| !grouped) {
+    alternative.close(&mut lengths);
+    if let Some(counts) = lengths.filter(|counts| !counts.is_empty()) {
         return Some(format!(
             "{lead}{subject}must be {} characters from: {held}",
-            counts.replace(',', " to ")
+            counts.join(" or ")
         ));
     }
     let same_start = starts.iter().collect::<std::collections::BTreeSet<_>>()

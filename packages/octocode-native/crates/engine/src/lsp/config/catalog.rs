@@ -100,6 +100,7 @@ fn server_for_file(
             options.octocode_home.as_deref(),
             options.index_home(),
         );
+        super::invocation::pin_tsserver(&mut config, options);
         return Some(config);
     }
 

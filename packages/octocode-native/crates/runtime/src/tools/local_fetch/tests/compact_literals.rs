@@ -7,6 +7,9 @@ fn unnumber(content: &str) -> String {
         .collect()
 }
 
+/// YAML stays as it is under compact, so compact is never smaller than the
+/// content view of the same lines: the content view is served, every value
+/// and source number exact.
 #[test]
 fn compact_yaml_preserves_values_and_exact_source_numbers() {
     let t = Fixture::new();
@@ -28,17 +31,24 @@ fn compact_yaml_preserves_values_and_exact_source_numbers() {
         ] {
             let result = fetch(&qj(&path, fields), &Paths(t.0.clone()));
             assert!(result.error.is_none(), "{result:?}");
-            let content = result.content.as_deref().expect("content");
-            assert_eq!(unnumber(content), expected, "{extension}");
-            let labels: Vec<usize> = content
-                .lines()
-                .map(|line| {
-                    line.split_once('\t')
-                        .expect("gutter")
-                        .0
-                        .parse()
-                        .expect("number")
-                })
+            assert_eq!(result.view, None, "{extension}");
+            assert_eq!(
+                result
+                    .view_fallback
+                    .as_ref()
+                    .map(|fallback| fallback.reason.as_str()),
+                Some("not-smaller"),
+                "{extension}"
+            );
+            assert_eq!(
+                result.content.as_deref(),
+                Some(expected.as_str()),
+                "{extension}"
+            );
+            let labels: Vec<usize> = result
+                .source_line_ranges
+                .iter()
+                .flat_map(|range| range.start..=range.end)
                 .collect();
             assert_eq!(labels, numbers, "{extension}");
         }
@@ -69,12 +79,12 @@ fn compact_ranges_keep_the_literal_context_outside_the_selection() {
     for (extension, source, expected) in [
         (
             "js",
-            "const value = `first\n  // payload  \n\n  last`;\n// remove\nconst n = 1;\n",
+            "const value = `first\n  // payload  \n\n  last`;\n// remove\nconst n = 1; // remove\n",
             "2\t  // payload  \n3\t\n4\t  last`;\n--\n6\tconst n = 1;",
         ),
         (
             "py",
-            "value = \"\"\"first\n  # payload  \n\n  last\"\"\"\n# remove\nn = 1\n",
+            "value = \"\"\"first\n  # payload  \n\n  last\"\"\"\n# remove\nn = 1  # remove\n",
             "2\t  # payload  \n3\t\n4\t  last\"\"\"\n--\n6\tn = 1",
         ),
     ] {

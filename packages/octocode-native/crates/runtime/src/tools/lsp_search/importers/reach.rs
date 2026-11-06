@@ -319,11 +319,12 @@ impl AnchorModule {
         ) {
             return false;
         }
-        let Some(content) =
-            crate::tools::source::read_bounded(target, octocode_engine::signatures::MAX_PARSE_SIZE)
-                .ok()
-                .and_then(|bytes| super::super::source::admitted_text(&bytes).ok())
-        else {
+        let Some(content) = crate::tools::source::read_bounded(
+            target,
+            crate::security::SourceLimits::REAL.whole_source,
+        )
+        .ok()
+        .and_then(|bytes| super::super::source::admitted_text(&bytes).ok()) else {
             return true;
         };
         self.reaches(&file, &content, relays, Reading::Relay)
@@ -373,7 +374,7 @@ pub(super) fn read_checked(policy: &PathPolicy, file: &str) -> Option<String> {
     let valid = policy.validate_read(file).ok()?;
     let bytes = crate::tools::source::read_bounded(
         &valid.canonical,
-        octocode_engine::signatures::MAX_PARSE_SIZE,
+        crate::security::SourceLimits::REAL.whole_source,
     )
     .ok()?;
     super::super::source::admitted_text(&bytes).ok()

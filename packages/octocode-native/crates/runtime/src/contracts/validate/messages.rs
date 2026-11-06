@@ -2,10 +2,15 @@ use super::{ContractValidationError, ValidationIssue, query_label, sibling_requi
 use serde_json::Value;
 
 /// Projects transport-neutral validation issues into the stable tool-error
-/// envelope. `mcp` selects the schema pointer: MCP clients read the tool's
-/// `inputSchema`; only the CLI has the `schema` command.
+/// envelope. `unpublished` names the row fields the schema this runtime
+/// publishes lacks (a classification field without a provider): no repair
+/// offers one.
 #[must_use]
-pub fn format_input_error(tool_name: &str, error: &ContractValidationError) -> Value {
+pub fn format_input_error(
+    tool_name: &str,
+    error: &ContractValidationError,
+    unpublished: &[String],
+) -> Value {
     // A request field inside a row explains every other issue of that row
     // (the row lacks its own fields because it was never a row).
     let misplaced = error
@@ -31,7 +36,12 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError) -> V
             let path = issue.path.join(".");
             // One wording for an unknown field, alone or beside other issues.
             if issue.rule_id == "schema.unknown-field" {
-                return unknown_field_message(tool_name, issue, unselected_row(error, issue));
+                return unknown_field_message(
+                    tool_name,
+                    issue,
+                    unselected_row(error, issue),
+                    unpublished,
+                );
             }
             let message = match required_guidance(issue) {
                 Some(guidance) => format!("{} ({guidance})", issue.message),
@@ -92,7 +102,12 @@ fn unselected_row(error: &ContractValidationError, issue: &ValidationIssue) -> b
 /// top-level row field to move, the row field it belongs inside, or removal
 /// with the closest known field. In a row without its selector, the fields
 /// of every form are the allowed ones.
-fn unknown_field_message(tool_name: &str, issue: &ValidationIssue, unselected: bool) -> String {
+fn unknown_field_message(
+    tool_name: &str,
+    issue: &ValidationIssue,
+    unselected: bool,
+    unpublished: &[String],
+) -> String {
     let query = query_label(&issue.path);
     let field = issue.path.last().map(String::as_str).unwrap_or("unknown");
     if let Some(alone) = misplaced_request_field(tool_name, issue) {
@@ -109,8 +124,12 @@ fn unknown_field_message(tool_name: &str, issue: &ValidationIssue, unselected: b
             "'{field}' is not allowed in this form of {query}; it requires {requires}."
         );
     }
+    let published = |name: &&str| !unpublished.iter().any(|hidden| hidden == name);
     let row_fields = if issue.path.len() == 3 {
         authored_row_fields(tool_name)
+            .into_iter()
+            .filter(|name| published(&name.as_str()))
+            .collect()
     } else {
         Vec::new()
     };
@@ -124,12 +143,20 @@ fn unknown_field_message(tool_name: &str, issue: &ValidationIssue, unselected: b
             .into_iter()
             .flatten()
             .filter_map(Value::as_str)
+            .filter(|name| issue.path.len() != 3 || published(name))
             .collect::<Vec<_>>()
     };
     let candidates = known
         .iter()
         .copied()
         .chain(row_fields.iter().map(String::as_str));
+    // A known guess with more than one reading names its field (a guess with
+    // one reading never gets here: it was read as that field).
+    if issue.path.len() == 3
+        && let Some(meant) = crate::contracts::meant_field(tool_name, field)
+    {
+        return format!("Unknown field '{field}' in {query}; use '{meant}'.");
+    }
     if let Some(meant) = super::repair::closest(field, candidates) {
         return format!("Unknown field '{field}' in {query}; use '{meant}'.");
     }

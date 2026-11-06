@@ -61,7 +61,10 @@ pub(super) fn fetch_ranges(
     // line count are the file's, not the range's. A proved source reads its
     // windows as the page reaches them, in growing runs: a page budget often
     // stops long before the last one.
-    let wants = ones.iter().map(|(_, span)| span.want()).collect::<Vec<_>>();
+    let wants = ones
+        .iter()
+        .map(|(_, span)| span.want(source.limits.window))
+        .collect::<Vec<_>>();
     let mut held = std::collections::VecDeque::new();
     let (mut read, mut run) = (
         0,
@@ -154,7 +157,12 @@ pub(super) fn fetch_ranges(
     }
     let mut parts = parts.into_iter();
     let Some(mut result) = parts.next() else {
-        return unsupported(q, len, "no line range was requested.", read_bounded(q));
+        return unsupported(
+            q,
+            (len, source.limits),
+            "no line range was requested.",
+            read_bounded(q),
+        );
     };
     join_parts(&mut result, parts);
     // Each window held its lines; one line says it for all, on the read's

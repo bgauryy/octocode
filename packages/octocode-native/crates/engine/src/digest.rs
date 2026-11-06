@@ -3,6 +3,11 @@
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+mod listed;
+
+pub use listed::ListedFiles;
+pub(crate) use listed::stamp_of;
+
 pub fn sha256(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }

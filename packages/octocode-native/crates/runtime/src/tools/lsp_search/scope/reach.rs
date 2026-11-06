@@ -68,9 +68,11 @@ impl Reach {
         if path.extension().is_none_or(|ext| ext != "rs") {
             return None;
         }
-        let bytes =
-            crate::tools::source::read_bounded(path, octocode_engine::signatures::MAX_PARSE_SIZE)
-                .ok()?;
+        let bytes = crate::tools::source::read_bounded(
+            path,
+            crate::security::SourceLimits::REAL.whole_source,
+        )
+        .ok()?;
         let content = super::super::source::admitted_text(&bytes).ok()?;
         let document = crate::tools::declarations::file_document(&content, &site.path)?;
         let declared = rust::declared(&document, &content, (site.line, site.character), symbol)?;

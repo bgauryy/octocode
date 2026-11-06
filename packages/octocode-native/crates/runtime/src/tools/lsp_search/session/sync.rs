@@ -15,7 +15,7 @@ pub(in crate::tools::lsp_search) async fn sync_document(
     sources: &mut SourceCache<'_>,
     client: &octocode_engine::lsp::client::NativeLspClient,
     cancel: &dyn CancellationCheck,
-) -> Result<Option<String>, Exit> {
+) -> Result<Option<Readiness>, Exit> {
     if let Some(document) = document {
         let path = target.path.clone();
         // A building index is no load to wait for: the row says it is partial.

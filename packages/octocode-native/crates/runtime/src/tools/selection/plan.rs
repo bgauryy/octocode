@@ -1,18 +1,48 @@
 //! The selection plan: disjoint selected/related/excluded partitions, the
 //! eligible ordinals the candidate budget left unjudged, and the pool its
 //! candidate page judges from; sealed and compressed, it is the replay token.
-use super::{Candidate, Outcome};
+use super::Candidate;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use octocode_contract_types::{
-    Selection, SelectionFailure, SelectionScope, SelectionStatus, SelectionUnit,
-};
+use octocode_contract_types::{SelectionFailure, SelectionScope, SelectionStatus, SelectionUnit};
 use octocode_engine::num::saturating_u32;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashSet;
 
-/// Version 10 lets a failed ordinal also be unjudged, so a later page retries it.
-pub(super) const VERSION: u8 = 10;
+mod finish;
+
+/// Version 11 carries the earlier candidate pages' counts, so every page of a
+/// chain reports the whole walk.
+pub(super) const VERSION: u8 = 11;
+
+/// What the candidate pages before this one decided or left unknown: their
+/// share of the walk, so each page's receipt counts the whole of it.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+pub(super) struct Tally {
+    pub(super) selected: u32,
+    pub(super) related: u32,
+    pub(super) excluded: u32,
+    /// Undecided for good: answered unsure, failed, or never judgeable.
+    pub(super) unknown: u32,
+    /// Within `unknown`: never answered (a failure or no state to judge).
+    pub(super) unanswered: u32,
+    /// Why the first earlier page left units unanswered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) reason: Option<String>,
+}
+
+impl Tally {
+    fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+
+    fn items(&self) -> usize {
+        [self.selected, self.related, self.excluded, self.unknown]
+            .iter()
+            .map(|&count| count as usize)
+            .sum()
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(super) struct Plan {
@@ -45,7 +75,18 @@ pub(super) struct Plan {
     /// instead of replaying a judged page.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(super) opens: bool,
+    /// The earlier candidate pages of this chain.
+    #[serde(default, skip_serializing_if = "Tally::is_empty")]
+    pub(super) carried: Tally,
+    /// This page's pooled ordinals that got no answer: failed for good, or
+    /// with no state to judge.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub(super) unanswered: u32,
     pub(super) checksum: String,
+}
+
+fn is_zero(count: &u32) -> bool {
+    *count == 0
 }
 
 /// Half-open ordinal runs as one flat list of gaps and lengths (each run's
@@ -139,6 +180,8 @@ impl Plan {
             unjudged: Vec::new(),
             pool: Vec::new(),
             opens: false,
+            carried: Tally::default(),
+            unanswered: 0,
             checksum: String::new(),
         }
     }
@@ -164,7 +207,7 @@ impl Plan {
             "scope":self.scope, "unit":self.unit, "selected":self.selected,
             "related":self.related, "excluded":self.excluded, "total":self.total, "reason":self.reason,
             "unjudged":self.unjudged, "pool":self.pool, "opens":self.opens,
-            "failures":self.failures,
+            "failures":self.failures, "carried":self.carried, "unanswered":self.unanswered,
         }))
     }
 
@@ -236,6 +279,9 @@ impl Plan {
                 .pool
                 .last()
                 .is_some_and(|&[_, end]| usize::try_from(end).map_or(true, |end| end > total))
+            // The earlier pages and this pool are the whole walk.
+            || self.carried.items().checked_add(self.pool_size()) != Some(total)
+            || self.carried.unanswered > self.carried.unknown
         {
             return false;
         }
@@ -275,12 +321,21 @@ impl Plan {
                 && seen.is_empty()
                 && self.status == SelectionStatus::Partial;
         }
-        let size = self.pool_size();
         match self.status {
-            SelectionStatus::Complete => judged == size,
-            SelectionStatus::Partial => judged < size,
+            SelectionStatus::Complete => {
+                judged <= self.pool_size() && self.unjudged.is_empty() && self.answered_all()
+            }
+            SelectionStatus::Partial => {
+                judged < self.pool_size() || !self.unjudged.is_empty() || !self.answered_all()
+            }
             SelectionStatus::Unavailable => judged == 0,
         }
+    }
+
+    /// Whether every unit of the walk outside this page's unjudged ones got
+    /// an answer, an unsure one included.
+    fn answered_all(&self) -> bool {
+        self.unanswered == 0 && self.failures.is_empty() && self.carried.unanswered == 0
     }
 
     /// The ordinals decided: selected, related or excluded.
@@ -288,81 +343,45 @@ impl Plan {
         self.selected.len() + self.related.len() + self.excluded.len()
     }
 
-    /// Completes the plan once every pooled ordinal is decided; otherwise
-    /// names why the rest stay unknown: the candidate budget left some of
-    /// the pool unadmitted (`omitted`), else the first failure.
+    /// Completes the plan once every unit of the walk was judged, an unsure
+    /// answer included, and none is left for a later candidate page; else
+    /// it stays partial. Names why units stay unknown: the candidate budget
+    /// left some of the pool unadmitted (`omitted`), else the first failure,
+    /// else the judge's unsure answers, else an earlier page's reason.
     pub(super) fn settle(&mut self, admitted: usize, omitted: &str) {
         let size = self.pool_size();
-        if self.judged() == size {
-            self.status = SelectionStatus::Complete;
+        let pending = self.unjudged_ordinals().count();
+        let retried = self.failures.len()
+            - self
+                .failures
+                .iter()
+                .filter(|failure| {
+                    u32::try_from(failure.candidate)
+                        .is_ok_and(|ordinal| !in_runs(&self.unjudged, ordinal))
+                })
+                .count();
+        // Pooled ordinals never admitted nor left for later had no state to
+        // judge; failures not retried got no answer either.
+        let unadmitted = size.saturating_sub(admitted);
+        let deferred = pending.saturating_sub(retried);
+        self.unanswered =
+            saturating_u32(unadmitted.saturating_sub(deferred) + (self.failures.len() - retried));
+        self.status = if pending == 0 && self.answered_all() {
+            SelectionStatus::Complete
         } else {
-            self.reason = Some(if admitted < size {
+            SelectionStatus::Partial
+        };
+        self.reason = if self.judged() < size {
+            Some(if admitted < size {
                 omitted.into()
             } else {
                 self.failures.first().map_or_else(
                     || "classificationUnknown".to_owned(),
                     |failure| failure.error_code.to_string(),
                 )
-            });
-        }
-    }
-
-    pub(super) fn finish(mut self) -> Outcome {
-        self.selected.sort_unstable();
-        self.related.sort_unstable();
-        self.excluded.sort_unstable();
-        self.seal();
-        let selected = self.selected.iter().map(|&i| i as usize).collect();
-        let related = self.related.iter().map(|&i| i as usize).collect();
-        let excluded = self.excluded.iter().map(|&i| i as usize).collect();
-        let unjudged = self.unjudged_ordinals().map(|i| i as usize).collect();
-        let size = i64::try_from(self.pool_size()).unwrap_or(i64::MAX);
-        let receipt = Selection {
-            status: self.status,
-            scope: self.scope,
-            unit: self.unit,
-            selected_items: octocode_engine::num::saturating_i64(self.selected.len()),
-            excluded_items: octocode_engine::num::saturating_i64(self.excluded.len()),
-            related_items: std::num::NonZeroU64::new(self.related.len() as u64),
-            unknown_items: size - octocode_engine::num::saturating_i64(self.judged()),
-            total_items: size,
-            reason: self.reason.clone(),
-            failures: self.failures.clone(),
-            usage: None,
+            })
+        } else {
+            self.carried.reason.clone()
         };
-        #[expect(
-            clippy::expect_used,
-            reason = "Plan has only serializable fields and compression writes to an in-memory Vec"
-        )]
-        let encode = |plan: &Self| {
-            let mut encoder =
-                flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
-            serde_json::to_writer(&mut encoder, plan).expect("selection plan is serializable");
-            URL_SAFE_NO_PAD.encode(encoder.finish().expect("in-memory compression"))
-        };
-        let next_candidates = (!self.unjudged.is_empty()).then(|| {
-            let mut opening = Self::new(
-                self.binding.clone(),
-                self.total as usize,
-                SelectionStatus::Partial,
-                self.scope,
-                self.unit,
-                None,
-            );
-            opening.pool = self.unjudged.clone();
-            opening.opens = true;
-            opening.seal();
-            encode(&opening)
-        });
-        Outcome {
-            selected,
-            related,
-            excluded,
-            unjudged,
-            receipt,
-            token: encode(&self),
-            pool: self.pool,
-            next_candidates,
-        }
     }
 }

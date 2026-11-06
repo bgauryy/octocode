@@ -1,4 +1,5 @@
-//! graphBuild: extract, build, redact and publish a snapshot for each request.
+//! graphBuild: extract, build, redact and publish a snapshot, or answer an
+//! unchanged scope with its current one.
 use super::*;
 use crate::tools::ast_graph::limits::{LIMITS, Limits};
 use crate::tools::ast_graph::progress;
@@ -13,6 +14,7 @@ mod settled;
 mod snapshot;
 #[cfg(test)]
 mod tests;
+mod unchanged;
 use publication::finish_checkpoint;
 #[cfg(test)]
 pub(super) use publication::publish;
@@ -73,6 +75,18 @@ pub(super) fn ingest_with_registry(
         Ok(identity) => identity,
         Err(error) => return GraphOutput::error(error.code, error.message),
     };
+    let build_identity = unchanged::build_identity(options, cargo, &registry_identity);
+    if let Some(receipt) = unchanged::reuse(
+        options,
+        &home,
+        paths,
+        &build_identity,
+        &registry_identity,
+        cancel,
+        started,
+    ) {
+        return receipt;
+    }
     let scan = Scan {
         cargo,
         registry,
@@ -92,6 +106,9 @@ pub(super) fn ingest_with_registry(
         Ok(built) => built,
         Err(output) => return output,
     };
+    if let Some(pause) = built.paused {
+        return snapshot::paused(&built.root, pause);
+    }
     let build_ms = crate::num::millis_of(started.elapsed());
     let projection = match project_graph(&mut built, paths, security, cancel, limits) {
         Ok(projection) => projection,
@@ -152,6 +169,7 @@ pub(super) fn ingest_with_registry(
             build_ms,
             registry,
             registry_identity: &registry_identity,
+            build_identity: &build_identity,
             limits,
         },
         cancel,

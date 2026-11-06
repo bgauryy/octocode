@@ -1,7 +1,8 @@
 //! Tool exposure by surface. CLI exposes every tool except one whose
-//! [`required_setting`] is unset; MCP adds its configuration gates. Provider
-//! readiness is checked by invocation, never by discovery. Execution still
-//! enforces credentials and security.
+//! [`required_setting`] is unset; MCP adds its configuration gates, the
+//! opt-ins among them ([`mcp_opt_in`]). Provider readiness is checked by
+//! invocation, never by discovery. Execution still enforces credentials and
+//! security.
 
 use crate::config::{ConfigFieldSpec, ConfigOutput, RuntimeSurface, field};
 use crate::id::ToolId;
@@ -122,25 +123,35 @@ pub fn classification_key(config: &ConfigOutput) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
-/// The setting a tool does not exist without, on every surface: discovery and
+/// The setting a tool does not run without, on every surface: discovery and
 /// instructions leave the tool out, and a direct CLI call answers what to set.
 /// An optional tool joins by naming its setting here and its
 /// `MCP_TOOL_INSTRUCTIONS` block in core.
 const fn required_setting(id: ToolId) -> Option<&'static ConfigFieldSpec> {
     match id {
         ToolId::Clasify => Some(field::CLASSIFICATION_API),
+        _ => None,
+    }
+}
+
+/// The opt-in an MCP host needs before it offers a tool that runs without
+/// any setting: the CLI always offers it, and a CLI call is the user's own
+/// request (securityCheck sends the package name to OSV only when run).
+const fn mcp_opt_in(id: ToolId) -> Option<&'static ConfigFieldSpec> {
+    match id {
+        ToolId::GhCloneRepo => Some(field::TOOLS_ENABLE_CLONE),
         ToolId::SecurityCheck => Some(field::TOOLS_ENABLE_SECURITY_CHECK),
         _ => None,
     }
 }
 
-/// Settings MCP exposure needs. Family comes from the contract; clone adds its
-/// own opt-in, and [`required_setting`] applies here too. Hiding public clasify
-/// never disables goals on other tools: the credential stays separate.
+/// Settings MCP exposure needs. Family comes from the contract; the opt-ins
+/// ([`mcp_opt_in`]) and [`required_setting`] apply here too. Hiding public
+/// clasify never disables goals on other tools: the credential stays separate.
 fn prerequisites(id: ToolId) -> impl Iterator<Item = &'static ConfigFieldSpec> {
     [
         id.is_local().then_some(field::LOCAL_ENABLED),
-        (id == ToolId::GhCloneRepo).then_some(field::TOOLS_ENABLE_CLONE),
+        mcp_opt_in(id),
         required_setting(id),
     ]
     .into_iter()

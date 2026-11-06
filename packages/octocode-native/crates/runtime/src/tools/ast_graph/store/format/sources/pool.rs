@@ -150,12 +150,38 @@ impl OriginPool {
         descriptors: &SourceDescriptors,
     ) -> Result<Self, SourceError> {
         let count = input.count()?;
-        let (index, offset) = read_entries(input, count, descriptors)?;
+        // Admitted a block at a time, as a reader admits the blocks it reads:
+        // each block's entries and records on their own charge.
+        let mut index = Vec::new();
+        let mut offset = 0u32;
+        let mut left = count;
+        while left > 0 {
+            let rows = left.min(parallel::BLOCK);
+            let mut admission = input.budget.scratch();
+            let mut block = Input {
+                reader: Reader {
+                    bytes: input.reader.bytes,
+                    at: input.reader.at,
+                    what: input.reader.what,
+                },
+                budget: &mut admission,
+            };
+            let (entries, length) = read_entries(&mut block, rows, descriptors)?;
+            input.reader.at = block.reader.at;
+            index.extend(entries.into_iter().map(|entry| OriginIndex {
+                offset: entry.offset + offset,
+                ..entry
+            }));
+            offset = offset
+                .checked_add(length)
+                .ok_or_else(|| invalid("source origin index overflows u32"))?;
+            left -= rows;
+        }
         let records = input
             .reader
             .take(offset as usize)
             .map_err(|_| invalid("truncated source origin records"))?;
-        let encoded = input.budget.copy(records)?;
+        let encoded = records.to_vec();
         input.finish()?;
         Ok(Self {
             encoded,
@@ -165,8 +191,15 @@ impl OriginPool {
     }
     /// Index entries (record length, unit, range, decode charge), then the
     /// encoded records.
+    /// The output is the writer's own memory: values are checked against
+    /// their `u32` columns, never charged as a reader's admission.
     pub fn write(&self, out: &mut Vec<u8>, budget: &mut Budget<'_>) -> Result<(), SourceError> {
-        budget.put(out, self.index.len())?;
+        let put = |out: &mut Vec<u8>, value: usize| -> Result<(), SourceError> {
+            budget.check()?;
+            writer::put(out, u64::from(narrow(value)?));
+            Ok(())
+        };
+        put(out, self.index.len())?;
         for (reference, entry) in self.index.iter().enumerate() {
             let end = self
                 .index
@@ -180,19 +213,18 @@ impl OriginPool {
                 entry.bytes as usize,
                 entry.items as usize,
             ] {
-                budget.put(out, value)?;
+                put(out, value)?;
             }
         }
-        budget.grow(out, self.encoded.len())?;
         out.extend_from_slice(&self.encoded);
         Ok(())
     }
+    /// What a reader admits: each block on its own ([`admit_block`]).
     pub fn admit_read(&self, budget: &mut Budget<'_>) -> Result<(), SourceError> {
-        budget.vector_cost::<OriginIndex>(self.index.len())?;
-        for entry in &self.index {
-            budget.charge(entry.bytes as usize, entry.items as usize)?;
+        for block in self.index.chunks(parallel::BLOCK) {
+            admit_block(&mut budget.scratch(), block)?;
         }
-        budget.charge(self.encoded.len(), 0)
+        Ok(())
     }
     /// One origin, decoded and validated against `catalog` and its index entry.
     pub fn checked_origin(
@@ -250,6 +282,20 @@ fn read_entries(
         index.push(entry);
     }
     Ok((index, offset))
+}
+
+/// What admitting one block of origins charges: its index entries, then
+/// every origin's decode. The writer, the publication preflight and every
+/// reader charge a block exactly this, each block on its own budget.
+pub(super) fn admit_block(
+    admission: &mut Budget<'_>,
+    entries: &[OriginIndex],
+) -> Result<(), SourceError> {
+    admission.vector_cost::<OriginIndex>(entries.len())?;
+    for entry in entries {
+        admission.charge(entry.bytes as usize, entry.items as usize)?;
+    }
+    Ok(())
 }
 
 fn narrow(value: usize) -> Result<u32, SourceError> {

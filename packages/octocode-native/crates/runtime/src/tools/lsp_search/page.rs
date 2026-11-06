@@ -11,13 +11,15 @@ pub(super) struct Target {
     pub(super) root_only: bool,
     pub(super) config: octocode_engine::lsp::types::LspLanguageServerConfig,
     /// The server to use when `config` (octocode's native tsgo) fails to
-    /// start; `None` where there is no substitute.
-    pub(super) fallback: Option<octocode_engine::lsp::types::LspLanguageServerConfig>,
+    /// start, routed only when asked: none where there is no substitute.
+    pub(super) fallback: Fallback,
     /// Why the server runs at another root than the one inferred for the
     /// file: a warning every row of the request carries.
     pub(super) root_note: Option<String>,
     /// What is wrong with the configuration behind this route.
     pub(super) config_notes: Vec<String>,
+    /// `lsp.allowBuildScripts`: whether a `rustContext` may run build scripts.
+    pub(super) allow_build_scripts: bool,
 }
 
 impl Target {
@@ -37,7 +39,48 @@ impl Target {
     pub(super) fn server_resolves(&self) -> bool {
         use octocode_engine::lsp::config::server_command_resolves;
         server_command_resolves(&self.config)
-            || self.fallback.as_ref().is_some_and(server_command_resolves)
+            || self.fallback.config().is_some_and(server_command_resolves)
+    }
+}
+
+/// Where the target's file would route without octocode's native TypeScript
+/// server. Routing it resolves the file's server twice, so it runs only on a
+/// path that needs it (a start that failed, a row saying whether one could
+/// start), once per request.
+pub(super) struct Fallback {
+    pub(super) path: String,
+    pub(super) workspace: String,
+    pub(super) root_only: bool,
+    pub(super) discovery: octocode_engine::lsp::config::LspDiscoveryOptions,
+    pub(super) routed:
+        std::sync::OnceLock<Option<octocode_engine::lsp::types::LspLanguageServerConfig>>,
+}
+
+impl Fallback {
+    /// A fallback already routed to `config`.
+    #[cfg(test)]
+    pub(super) fn known(
+        config: Option<octocode_engine::lsp::types::LspLanguageServerConfig>,
+    ) -> Self {
+        Self {
+            path: String::new(),
+            workspace: String::new(),
+            root_only: false,
+            discovery: Default::default(),
+            routed: std::sync::OnceLock::from(config),
+        }
+    }
+
+    pub(super) fn config(&self) -> Option<&octocode_engine::lsp::types::LspLanguageServerConfig> {
+        self.routed
+            .get_or_init(|| {
+                if self.root_only {
+                    typescript_server_fallback_for_workspace_root(&self.workspace, &self.discovery)
+                } else {
+                    typescript_server_fallback(&self.path, &self.workspace, &self.discovery)
+                }
+            })
+            .as_ref()
     }
 }
 
@@ -193,7 +236,11 @@ pub(super) async fn run_target(
         pool,
     )
     .await?;
-    sync_watched_files(&scope, &session.client, cancel).await?;
+    // An outline reads only the anchor, which its open synchronized: no other
+    // file's change bears on it, so it walks no scope.
+    if lsp_search_query::op(query) != Op::DocumentSymbols {
+        sync_watched_files(&scope, &session.client, cancel).await?;
+    }
     // One request reads each snippet file once, however many responses
     // name it.
     let snippet_policy = snippet_policy(paths).shared_reads();
@@ -247,43 +294,24 @@ pub(super) async fn run_target(
             EmptyAnswer::StillLoading => break failure::still_indexing(query),
         }
     };
-    if needs_text_scan(query, language_id, &result)
-        && let Some(name) = lsp_search_query::symbol_name(query)
-    {
-        scope.text_files(name, paths, cancel).await?;
-        scope.check_code_uses(name, cancel).await?;
-        // Ask the server what each file's spelling names: only one it cannot
-        // place elsewhere can be a use it missed.
-        if server_coverage::lacks_signal(language_id)
-            && server_coverage::lists_no_use(&result)
-            && !target.root_only
-            && scope
-                .text_only_files(name)
-                .is_some_and(|files| !files.is_empty())
-        {
-            let checked = importers::verified_anchors(
-                &session.client,
-                &mut sources,
-                &snippet_policy,
-                cancel,
-                importers::ImporterSearch {
-                    symbol: name,
-                    scope: &scope,
-                    declaration: super::anchor::Position {
-                        path: &target.path,
-                        line: anchor.line,
-                        character: anchor.character,
-                    },
-                    known_files: &std::collections::HashSet::new(),
-                    window: importers::WindowRequest::default(),
-                    proof: importers::SiteProof::DefinitionChain,
-                    reads_imports: false,
-                },
-            )
-            .await
-            .map_err(|failure| crashed(query, &target.uri, &session.config, failure))?;
-            scope.answer(checked.rejected);
-        }
+    unanswered::check(
+        unanswered::Request {
+            query,
+            target,
+            session: &session,
+            scope: &scope,
+            anchor: &anchor,
+            snippet_policy: &snippet_policy,
+            paths,
+            cancel,
+        },
+        &mut sources,
+        &result,
+    )
+    .await?;
+    let answers_sites = matches!(lsp_search_query::op(query), Op::References | Op::Callers);
+    if answers_sites && let Some(name) = lsp_search_query::symbol_name(query) {
+        scope.check_answer_gaps(name, cancel).await?;
     }
     annotate(
         &mut result,
@@ -294,6 +322,9 @@ pub(super) async fn run_target(
         anchor.resolved_symbol,
         &|| cancel.check().is_err(),
     );
+    if answers_sites {
+        failure::flag_answer_gaps(&mut result, query, &scope, paths);
+    }
     importers::flag_markup_importers(
         &mut result,
         query,
@@ -303,7 +334,7 @@ pub(super) async fn run_target(
         cancel,
     )
     .await?;
-    if matches!(lsp_search_query::op(query), Op::References | Op::Callers) {
+    if answers_sites {
         locations::attach_read_lead(&mut result);
     }
     let mut row = with_next(query, result);
@@ -341,20 +372,11 @@ pub(super) fn crashed(
     )
 }
 
-/// Whether coverage annotation may flag `row` with a text lead: an
-/// incoming, name-anchored, non-error row of a language with a coverage
-/// signal. Its `textOnlyFiles` needs the scope's text scan first.
-pub(super) fn needs_text_scan(
-    query: &LspSearchQuery,
-    language_id: Option<&str>,
-    row: &Value,
-) -> bool {
-    use octocode_engine::lsp::family::{is_c_family, is_typescript_family};
+/// Whether coverage annotation may flag `row` with a text lead: an incoming,
+/// name-anchored, non-error row, in any language: every answer can miss a file.
+/// Its `textOnlyFiles` needs the scope's text scan first.
+pub(super) fn needs_text_scan(query: &LspSearchQuery, row: &Value) -> bool {
     inferred_project::is_incoming(lsp_search_query::operation(query))
-        && (is_typescript_family(language_id)
-            || is_c_family(language_id)
-            || matches!(language_id, Some("python" | "rust"))
-            || server_coverage::lists_no_use(row))
         && lsp_search_query::symbol_name(query).is_some_and(|name| !name.trim().is_empty())
         && row.get("status").and_then(Value::as_str) != Some("error")
 }

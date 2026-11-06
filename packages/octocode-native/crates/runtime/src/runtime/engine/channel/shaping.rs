@@ -45,13 +45,16 @@ impl ChannelRun {
         rows: Vec<Value>,
         context: &ExecutionContext,
     ) -> Result<(Sanitized, Value), ExecutionError> {
+        let envelope = rows::envelope(self.id, rows);
+        let before = rows::placeholders_per_row(&envelope);
         let mut structured = self.dispatcher.security.seal_output(
-            rows::envelope(self.id, rows),
+            envelope,
             self.output.redact_emails && self.id.is_github(),
             || context.check(),
         )?;
         let mut response_query = self.response_query.clone();
         structured.edit(|structured| {
+            rows::warn_redacted_rows(structured, &before);
             if self.id.selects_provider_page() {
                 crate::tools::selection::apply_sanitized_rows(
                     self.id,
@@ -81,7 +84,7 @@ impl ChannelRun {
                 crate::tools::clasify::sections::Runtime {
                     sessions: &self.section_sessions,
                     access: self.access,
-                    can_resume: self.mcp || self.replays.0.persistent,
+                    can_resume: self.can_resume,
                 },
             )?;
             return Ok(EvaluatedRows {

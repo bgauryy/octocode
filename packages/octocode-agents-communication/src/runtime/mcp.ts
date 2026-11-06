@@ -9,6 +9,7 @@ import { VERSION } from './version.js';
 import { MAX_FRAME } from './wire.js';
 import { compact, compactAscii, parseJsonBytes } from './json-text.js';
 import { McpBinding, initTool, type McpArgs } from './mcp-binding.js';
+import { boundCaller, callerIdentity, type Caller } from './caller.js';
 
 const ERRORS = { parse: -32700, request: -32600, method: -32601 } as const;
 const IDLE_TICK_MS = 100;
@@ -117,7 +118,9 @@ async function callTool(binding: McpBinding, selection: string | undefined, conn
   const params = request.params ?? {};
   const name = 'name' in params ? params.name : '';
   let args: unknown = 'arguments' in params ? params.arguments : {};
+  let caller: Caller | undefined;
   try {
+    if (binding.session) caller = callerIdentity(binding.store!.known(binding.session, false));
     if (!wellFormed(args)) throw new ValidationError('Invalid tool arguments: lone surrogate in a string');
     if (!binding.session) {
       if (name !== 'init') throw new ValidationError('Call init before using communication tools');
@@ -128,15 +131,17 @@ async function callTool(binding: McpBinding, selection: string | undefined, conn
         await binding.close();
         throw failure;
       }
-      return { changed: true, result: { content: [{ type: 'text', text: compact({ ...binding.describe(), managed: binding.managed, instructions: binding.instructions() }) }] } };
+      const description = binding.describe();
+      return { changed: true, result: { _meta: { caller: description.caller }, content: [{ type: 'text', text: compact({ ...description, managed: binding.managed, instructions: binding.instructions() }) }] } };
     }
     if (typeof name !== 'string') throw new ValidationError(`Unknown tool: ${String(name)}`);
     args = catalog.keyedInput(name, args, `mcp:${createHash('sha256').update(`${connection}:${compact(request.id)}`).digest('hex')}`);
     const call = catalog.toolCommand(name, args, selection);
+    caller = boundCaller(args, caller!);
     const value = await binding.store!.call(binding.session, call.name, call.input);
-    return { changed: false, result: { content: [{ type: 'text', text: compact(catalog.toolResult(call.name, value)) }] } };
+    return { changed: false, result: { _meta: { caller }, content: [{ type: 'text', text: compact(catalog.toolResult(call.name, value)) }] } };
   } catch (failure) {
-    return { changed: false, result: { isError: true, content: [{ type: 'text', text: describe(failure) }] } };
+    return { changed: false, result: { ...(caller ? { _meta: { caller } } : {}), isError: true, content: [{ type: 'text', text: describe(failure) }] } };
   }
 }
 

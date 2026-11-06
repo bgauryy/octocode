@@ -123,7 +123,7 @@ pub(super) fn read_edges(
     strings: u32,
 ) -> Result<(), String> {
     let node_count = tables.node_bound()?;
-    let count = edges.count()?;
+    let count = edges.rows()?;
     if count > LIMITS.edges {
         return Err("graph edge table exceeds item limit; re-ingest a narrower scope".into());
     }

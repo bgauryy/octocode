@@ -11,6 +11,15 @@ pub(in crate::tools::source_view) struct SourceLines {
 }
 
 impl SourceLines {
+    /// The 0-based raw line a line page resumes at to show the view line
+    /// at 0-based `view_line` next: the raw line behind it, or the source
+    /// end past the last view line.
+    pub(in crate::tools::source_view) fn raw_offset(&self, view_line: usize) -> usize {
+        self.lines
+            .get(view_line)
+            .map_or(self.total, |line| line - 1)
+    }
+
     /// The source line of every line of a gutter-numbered view (`N\t…`);
     /// `None` when a line carries no number or the numbers do not ascend.
     pub(in crate::tools::source_view) fn of_gutter(view: &str, total: usize) -> Option<Self> {

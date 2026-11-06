@@ -13,6 +13,17 @@ impl ChannelRun {
         Pending::new(self.access, None)
     }
 
+    pub(super) fn retain_cursors(
+        &self,
+        pending: Pending,
+        context: &ExecutionContext,
+    ) -> Result<(), ExecutionError> {
+        if !self.can_resume && !pending.is_empty() {
+            return Err(ExecutionError::ContinuationLifetime);
+        }
+        self.cursors.retain(pending, context)
+    }
+
     pub(super) fn retain_pending(
         &self,
         mut pending: Pending,
@@ -34,7 +45,7 @@ impl ChannelRun {
             }
         }
         pending.bind_github_identity(identity);
-        self.cursors.retain(pending, context)
+        self.retain_cursors(pending, context)
     }
 
     pub(super) fn publish(

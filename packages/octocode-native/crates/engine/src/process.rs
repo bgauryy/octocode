@@ -41,7 +41,9 @@ use proc_table::{children_from_table, read_proc_table};
 pub use teardown::exited_without_reaping;
 #[cfg(unix)]
 pub(crate) use teardown::wait_for_exit_without_reaping;
-pub use teardown::{kill_tree, kill_tree_blocking};
+pub use teardown::{
+    TreeSnapshot, kill_tree, kill_tree_blocking, kill_tree_blocking_with, kill_tree_with,
+};
 
 /// Upper bound on the processes one tree walk visits, so a fork bomb cannot
 /// make the walk itself unbounded.

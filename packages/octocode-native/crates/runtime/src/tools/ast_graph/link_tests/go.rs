@@ -183,8 +183,10 @@ fn go_generic_functions_and_methods_link() {
     );
 }
 
-/// An internal test file is the package; an external `_test` package
-/// reaches it through its import. A non-test file never sees test files.
+/// An internal test file is the package, so its bare names bind as surely
+/// as a non-test file's; an external `_test` package reaches the package
+/// only through its import, and its own files only among themselves. A
+/// non-test file never sees test files.
 #[test]
 fn go_test_packages_bind_like_go_test_builds_them() {
     let temp = fixture(&[
@@ -197,7 +199,11 @@ fn go_test_packages_bind_like_go_test_builds_them() {
         ),
         (
             "store/external_test.go",
-            "package store_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/app/store\"\n)\n\nfunc TestExternal(t *testing.T) { store.New() }\n",
+            "package store_test\n\nimport (\n\t\"testing\"\n\n\t\"example.com/app/store\"\n)\n\nfunc TestExternal(t *testing.T) { store.New() }\n\nfunc TestBare(t *testing.T) { New(); external() }\n",
+        ),
+        (
+            "store/helper_ext_test.go",
+            "package store_test\n\nfunc external() {}\n\nfunc fixtureStore() {}\n",
         ),
         (
             "store/prod.go",
@@ -211,11 +217,20 @@ fn go_test_packages_bind_like_go_test_builds_them() {
     );
     assert_eq!(
         call_edges(root, "store/internal_test.go#fixtureStore"),
-        [edge("store/helper.go#New", "same-package", "medium")]
+        [edge("store/helper.go#New", "same-package", "high")]
     );
     assert_eq!(
         call_edges(root, "store/external_test.go#TestExternal"),
         [edge("store/helper.go#New", "namespace", "high")]
+    );
+    assert_eq!(
+        call_edges(root, "store/external_test.go#TestBare"),
+        [edge(
+            "store/helper_ext_test.go#external",
+            "same-package",
+            "high"
+        )],
+        "a bare name in `store_test` never binds `store`'s declarations"
     );
     assert_eq!(call_edges(root, "store/prod.go#prod"), []);
 }

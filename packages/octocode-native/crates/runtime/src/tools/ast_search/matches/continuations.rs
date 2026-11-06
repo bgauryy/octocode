@@ -69,16 +69,7 @@ pub(super) fn attach_match_continuations(
         }
     }
     if let Some(offset) = expand_scan.filter(|_| !more && !has_more_matches) {
-        insert_next(
-            &mut out["calls"],
-            AstSearchChannel::ExpandScan,
-            continuation_with(q, Move::ScanWindow(offset), cut.pin).ok_or_else(|| {
-                ToolError::new(
-                    ErrorCode::OutputContractViolation,
-                    "astSearch could not build the scan window's continuation",
-                )
-            })?,
-        );
+        insert_expand_scan(q, out, Some(offset), cut.pin)?;
         super::super::scan_window::mark_resumed(out);
     }
     // The lean structural representation may withhold a body or captures.
@@ -98,6 +89,27 @@ pub(super) fn attach_match_continuations(
     }
     Ok(())
 }
+/// `next.expandScan`: the window after the `offset` candidates a cut scan
+/// evaluated, bound to `pin`, what those candidates are. A cut with no
+/// position past them to resume at is a defect of the response.
+pub(super) fn insert_expand_scan(
+    q: MatchQuery<'_>,
+    out: &mut Value,
+    offset: Option<u64>,
+    pin: &str,
+) -> Result<(), ToolError> {
+    let call = offset
+        .and_then(|offset| continuation_with(q, Move::ScanWindow(offset), pin))
+        .ok_or_else(|| {
+            ToolError::new(
+                ErrorCode::OutputContractViolation,
+                "astSearch could not build the scan window's continuation",
+            )
+        })?;
+    insert_next(&mut out["calls"], AstSearchChannel::ExpandScan, call);
+    Ok(())
+}
+
 /// A query that does not compile against one file leads to that file's
 /// syntax tree, where the node shapes a pattern or rule names are read.
 pub(super) fn tree_repair(mut error: ToolError, q: MatchQuery<'_>, scope: &Scope) -> ToolError {

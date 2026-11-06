@@ -343,10 +343,16 @@ fn a_declaration_only_answer_past_the_budget_stays_partial_with_its_evidence() {
     let row = server.references();
     assert_eq!(row["matchCount"], 1, "{row}");
     assert_eq!(row["isPartial"], true, "{row}");
-    assert_eq!(row["partialReasons"], json!(["languageServerIndexing"]));
+    // The use on line 2 the server never lists is named too.
+    assert_eq!(
+        row["partialReasons"],
+        json!(["languageServerIndexing", "serverUnanswered"])
+    );
 }
 
-/// An idle server's declaration-only answer stands: the name is unused.
+/// An idle server's declaration-only answer stands: it is asked once, not
+/// judged a load. The use it leaves out in the file it answers (`helper();`
+/// on line 2) is named, not taken for absence.
 #[test]
 fn a_declaration_only_answer_from_an_idle_server_stands() {
     if !crate::tools::test_support::require_node() {
@@ -355,6 +361,7 @@ fn a_declaration_only_answer_from_an_idle_server_stands() {
     let server = Loading::new("silent", "go", Duration::from_millis(300));
     let row = server.references();
     assert_eq!(row["matchCount"], 1, "{row}");
-    assert_ne!(row["isPartial"], true, "{row}");
+    assert_eq!(row["partialReasons"], json!(["serverUnanswered"]), "{row}");
+    assert!(row.to_string().contains("a.ts:2"), "{row}");
     assert_eq!(server.asked(), 1, "{row}");
 }

@@ -19,6 +19,7 @@ pub(crate) use output::Output;
 mod types;
 mod verify;
 mod walked;
+mod window;
 pub use executor::execute_local_search;
 #[cfg(test)]
 pub use types::LocalSearchResult;

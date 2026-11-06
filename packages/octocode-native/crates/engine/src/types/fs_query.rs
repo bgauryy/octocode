@@ -56,7 +56,8 @@ pub struct FileSystemQueryOptions {
     pub regex: Option<String>,
     /// List only files or only directories (other entries are still walked).
     pub entry_type: Option<EntryType>,
-    /// Match only empty files or directories.
+    /// `true` matches only empty files and directories, `false` only the
+    /// others.
     pub empty: Option<bool>,
     /// Inclusive modification-time bounds, as absolute instants.
     pub modified_from: Option<std::time::SystemTime>,
@@ -104,6 +105,12 @@ pub struct FileSystemQueryOptions {
     /// `time_budget` starts after them, so a resumed walk always inspects
     /// new entries.
     pub skip_entries: Option<u32>,
+    /// Leading entries (walk order) the walk lists and counts as new ones
+    /// before `time_budget` starts: a walk that lost what an earlier walk
+    /// of the same query kept (another process, an eviction) redoes that
+    /// part whole and still inspects new entries past it. The budget starts
+    /// after the later of this and `skip_entries`.
+    pub budget_after: Option<u32>,
     /// Where the walk `skip_entries` resumes stood. When it was made by a
     /// walk of the same shape at exactly that position, the resumed walk
     /// continues from it and replays nothing; otherwise it is ignored and

@@ -76,10 +76,14 @@ npm-published core pinned at the repo root and gates releases.
 `<Tool>Input` (bulk envelope), and `<Tool>Output` (result envelope). A schema
 core names — `.meta({ id })` or `.meta({ title })` — becomes one global type
 (`ChunkType`, `MinifyMode`, `ResponseScope`, `AstRule`, …); give a vocabulary
-shared across tools a title in core. Everything else is named by position
-(`LocalSearchQueryCaseMode`), so an unrelated contract change never renames a
-type. Two shapes under one name, or a recursive schema core left unnamed, fail
-generation.
+shared across tools a title in core. Other shapes are named by position
+(`LocalSearchQueryCaseMode`). In the Rust projection, repeated anonymous string
+constraints share a definition named from those constraints: the same validation
+compiles once instead of once per field. Named core types remain distinct, and
+use-site defaults remain at their fields. Native callers infer anonymous field
+types rather than depending on their generated names. Unrelated contract changes
+do not rename these types. Two shapes under one core name, or a recursive schema
+core left unnamed, fail generation.
 
 **Faithful Rust shapes.** typify drops a string `const` and flattens `anyOf`,
 so the bundle states both precisely: a string `const` becomes a one-value
@@ -89,7 +93,9 @@ When branches share a discriminator value, variants are named from it
 (deterministic). Boolean `const`s remain a contract-validator check.
 
 The Rust header carries the core contract fingerprint and pins the bundle's SHA-256,
-so `--check` (run by `build` and `lint`) detects staleness without cargo.
+and `--check` regenerates and compares the complete body as well as the header.
+Both config and tool generation write only changed files through `scripts/generated-files.ts`,
+preserving Cargo's freshness checks when their contracts are unchanged.
 Regenerating needs `cargo install cargo-typify --version 0.8.0 --locked`. Where core's
 output schema is open (`unknown[]` payloads), the generated type is open too:
 tightening a payload shape is a core schema change, never a hand-written type.

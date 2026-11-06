@@ -186,26 +186,8 @@ function streaming(t: TestContext, args: readonly string[], env: NodeJS.ProcessE
   return { output, stop, closed, stderr: () => stderr };
 }
 
-test('completion-check results satisfy their schema', async t => {
-  const f = fixture(t, { git: true });
-  const call = cliCall(f.workspace, f.file);
-  const sender = (await call('join', { name: 'sender', vendor: 'generic' })).id as string;
-  const recipient = (await call('join', { name: 'recipient', vendor: 'claude' })).id as string;
-  const claude = { transport: 'claude', endpoint: join(f.workspace, 'unused.sock'), vendorSession: 'native-recipient' };
-  await call('attach', claude, recipient);
-  const event = { hook_event_name: 'Stop', stop_hook_active: false, session_id: 'native-recipient', cwd: f.workspace };
-  conforms('completion-check', await call('completion-check', event, recipient));
-  await call('send_message', {parts: [{ text: 'Review this?' }], replyRequired: true,  to: recipient, reasoning: REASON, wake: 'action' }, sender);
-  await call('attach', { transport: 'raw' }, recipient);
-  await call('hook', { format: 'json' }, recipient);
-  await call('attach', claude, recipient);
-  const blocked = await call('completion-check', event, recipient);
-  assert.equal(blocked.decision, 'block');
-  conforms('completion-check', blocked);
-});
-
 test('host-hook results satisfy their schema for every hook vendor', t => {
-  for (const vendor of ['cursor', 'grok', 'claude', 'codex']) {
+  for (const vendor of ['cursor', 'grok', 'claude', 'codex', 'independent-provider']) {
     const f = fixture(t, { git: true });
     const flags = ['--workspace', f.workspace, '--database', f.file];
     const names = vendor === 'cursor' ? ['sessionStart', 'beforeSubmitPrompt', 'postToolUse'] : vendor === 'grok' ? ['SessionStart', 'UserPromptSubmit', 'PostToolUse'] : ['SessionStart', 'UserPromptSubmit', 'PostToolUse'];

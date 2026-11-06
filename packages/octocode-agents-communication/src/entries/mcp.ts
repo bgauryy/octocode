@@ -12,6 +12,7 @@ Or create a connection-owned identity:
   npx -y @octocodeai/octocode-agents-communication --managed --vendor generic --name <unique-name> --workspace <repo>
 
 Optional: --database <sqlite-file>, --tools messaging|review|editing|<comma-separated-names>.
+Default tools: peer discovery, messages and read-only history. Any provider label is accepted.
 Managed identities and their leases expire when this connection closes.
 Use an existing --session for identity and leases that survive a CLI invocation.
 

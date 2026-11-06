@@ -231,3 +231,36 @@ fn an_alias_extension_yields_the_facts_of_its_canonical_extension() {
         "a stub's class bases are read"
     );
 }
+
+/// A module-level value nested past any thread stack is read, and still
+/// settled: `FLAG` holds `TYPE_CHECKING` through 100,000 parentheses, `not`s
+/// or `and`s, so the import it guards is a type import. A recursive read of
+/// the value aborted the process on a 2 MiB runtime worker.
+#[test]
+fn python_values_nested_past_the_stack_are_read_and_settled() {
+    const LEVELS: usize = 100_000;
+    let values = [
+        format!("{}TYPE_CHECKING{}", "(".repeat(LEVELS), ")".repeat(LEVELS)),
+        format!("{}TYPE_CHECKING", "not not ".repeat(LEVELS / 2)),
+        format!("TYPE_CHECKING{}", " and TYPE_CHECKING".repeat(LEVELS)),
+    ];
+    for value in values {
+        let source =
+            format!("from typing import TYPE_CHECKING\nFLAG = {value}\nif FLAG:\n    import pkg\n");
+        let kinds = std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(move || {
+                crate::signatures::extract_graph_facts(&source, "deep.py")
+                    .expect("facts")
+                    .imports
+                    .into_iter()
+                    .filter(|import| import.specifier == "pkg")
+                    .map(|import| import.import_kind)
+                    .collect::<Vec<_>>()
+            })
+            .expect("thread")
+            .join()
+            .expect("no panic");
+        assert_eq!(kinds, ["type"]);
+    }
+}

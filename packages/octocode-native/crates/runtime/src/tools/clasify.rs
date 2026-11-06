@@ -120,7 +120,8 @@ pub(crate) fn call(
             .collect::<Vec<_>>()
     });
     context.check()?;
-    let outcomes = outcomes.into_iter().collect::<Result<Vec<_>, _>>()?;
+    let mut outcomes = outcomes.into_iter().collect::<Result<Vec<_>, _>>()?;
+    settle_shared_spend(&mut outcomes);
     let mut output = Vec::with_capacity(parsed.len());
     let mut kinds = Vec::with_capacity(parsed.len());
     for (row, outcome) in parsed.iter().zip(outcomes) {
@@ -129,6 +130,7 @@ pub(crate) fn call(
                 judged,
                 captured,
                 assets,
+                ..
             } => {
                 kinds.push(judged.as_ref().err().map(error_kind));
                 output.push(match judged {
@@ -209,9 +211,68 @@ enum RowOutcome {
         judged: Result<Judged, ClassificationError>,
         captured: Option<Box<Captured>>,
         assets: Option<Value>,
+        /// The evaluation's identity: rows with one share one request.
+        identity: Option<crate::tools::judgment::shared::Identity>,
     },
     Models(Result<Value, ClassificationError>),
     Sections(Result<sections::Outcome, ClassificationError>),
+}
+
+/// Identical rows share one provider request, and whichever asked first
+/// sent it. The first of them in input order carries the request's spend
+/// (tokens and calls); every later twin carries none, so the rows' usage
+/// sums to what was billed and reads the same on every run.
+fn settle_shared_spend(outcomes: &mut [RowOutcome]) {
+    let mut lead = std::collections::HashMap::new();
+    for index in 0..outcomes.len() {
+        let RowOutcome::Judgment {
+            identity: Some(identity),
+            ..
+        } = &outcomes[index]
+        else {
+            continue;
+        };
+        let first = *lead.entry(*identity).or_insert(index);
+        if first == index {
+            continue;
+        }
+        let spend = take_spend(&mut outcomes[index]);
+        add_spend(&mut outcomes[first], spend);
+    }
+}
+
+/// The calls a row's outcome counts, cleared with its tokens.
+fn take_spend(outcome: &mut RowOutcome) -> (u64, u64) {
+    let RowOutcome::Judgment { judged, .. } = outcome else {
+        return (0, 0);
+    };
+    match judged {
+        Ok(judged) => {
+            let spend = (judged.provider_calls, judged.known_usage_calls);
+            (judged.input_tokens, judged.output_tokens) = (0, 0);
+            (judged.provider_calls, judged.known_usage_calls) = (0, 0);
+            spend
+        }
+        Err(error) => {
+            let spend = (error.provider_calls, 0);
+            error.provider_calls = 0;
+            error.reported_usage = None;
+            spend
+        }
+    }
+}
+
+fn add_spend(outcome: &mut RowOutcome, (calls, known): (u64, u64)) {
+    let RowOutcome::Judgment { judged, .. } = outcome else {
+        return;
+    };
+    match judged {
+        Ok(judged) => {
+            judged.provider_calls = judged.provider_calls.saturating_add(calls);
+            judged.known_usage_calls = judged.known_usage_calls.saturating_add(known);
+        }
+        Err(error) => error.provider_calls = error.provider_calls.saturating_add(calls),
+    }
 }
 
 #[cfg(test)]

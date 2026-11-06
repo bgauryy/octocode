@@ -166,7 +166,10 @@ pub(super) fn into_row(mut data: Value, results: &[SourceResult], view: View) ->
         .collect::<Vec<_>>();
     if results.iter().all(|result| result.resume.is_none()) {
         data["advisories"] = match view {
-            View::Brief => advisories.iter().map(|row| row.brief()).collect(),
+            View::Brief => super::record::advisory_groups(&advisories)
+                .iter()
+                .map(|group| super::record::group_brief(group))
+                .collect(),
             View::Whole => serde_json::to_value(&advisories).unwrap_or_else(|_| json!([])),
         };
     }

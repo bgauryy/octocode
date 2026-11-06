@@ -54,6 +54,9 @@ pub(super) struct ManifestInput<'a> {
     pub(super) build_ms: u64,
     pub(super) registry: octocode_engine::signatures::languages::RegistryView<'a>,
     pub(super) registry_identity: &'a str,
+    /// The build's options, parsers and versions as one digest: equal over
+    /// an unchanged tree means the same snapshot.
+    pub(super) build_identity: &'a str,
 }
 
 pub(super) fn manifest(input: &ManifestInput) -> Value {
@@ -94,6 +97,7 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
         "formatVersion": format::FORMAT_VERSION,
         "analysisVersion": ANALYSIS_VERSION,
         "registryIdentity": input.registry_identity,
+        "buildIdentity": input.build_identity,
         "registryExtensions": input.registry.extensions(octocode_engine::text::analysis::AnalysisOperation::GraphFacts),
         "id": input.id,
         "scope": input.scope,

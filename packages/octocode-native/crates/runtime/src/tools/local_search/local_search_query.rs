@@ -90,6 +90,15 @@ pub(crate) fn max_depth(q: &LocalSearchQuery) -> Option<u32> {
         max_depth.map(|depth| saturating_u32(depth.get()).saturating_sub(1))
     )
 }
+/// Candidates, in walk order, the paused windows of a PCRE2 search searched
+/// (see [`super::window`]).
+pub(crate) fn scan_offset(q: &LocalSearchQuery) -> Option<u32> {
+    common!(
+        q,
+        scan_offset,
+        scan_offset.map(|offset| saturating_u32(offset.get()))
+    )
+}
 pub(crate) fn snapshot(q: &LocalSearchQuery) -> Option<&str> {
     common!(q, snapshot, snapshot.as_deref().map(String::as_str))
 }

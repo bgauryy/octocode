@@ -2,7 +2,7 @@
 //! `PATH`, and the node that runs it.
 
 use crate::lsp::commands::is_executable_path;
-use crate::lsp::types::ServerSource;
+use crate::lsp::types::{LspLanguageServerConfig, ServerSource};
 use std::path::{Path, PathBuf};
 
 /// Where the TypeScript server may be looked up when it is not on `PATH`.
@@ -104,6 +104,46 @@ pub(in crate::lsp::config) fn resolve_typescript_server_cli(
                 .and_then(|cwd| find_node_module_file_from(cwd, CLI))
                 .map(from(ServerSource::Workspace))
         })
+}
+
+/// typescript-language-server takes tsserver from the workspace's own
+/// `node_modules/typescript` before its own, which runs repository code on a
+/// JavaScript or TypeScript query. Unless the workspace is trusted (the rule of
+/// [`TypeScriptServerSearch::new`]), `tsserver.path` names the TypeScript that Node
+/// resolves from the server's CLI; a path the configuration already sets stays.
+pub(in crate::lsp::config) fn pin_tsserver(
+    config: &mut LspLanguageServerConfig,
+    workspace_trusted: bool,
+) {
+    if workspace_trusted {
+        return;
+    }
+    let Some(tsserver) = server_cli(config)
+        .as_deref()
+        .and_then(Path::parent)
+        .and_then(|dir| find_node_module_file_from(dir, "typescript/lib/tsserver.js"))
+    else {
+        return;
+    };
+    let pin = serde_json::json!({ "tsserver": { "path": tsserver.to_string_lossy() } });
+    super::super::defaults::merge_default_options(config, pin);
+}
+
+/// The typescript-language-server CLI a configuration runs: `node <cli.mjs>`, or
+/// the command itself (on `PATH`, a link to `cli.mjs`), resolved through links.
+fn server_cli(config: &LspLanguageServerConfig) -> Option<PathBuf> {
+    let command = Path::new(&config.command);
+    let cli = if is_node_executable(command) {
+        PathBuf::from(config.args.as_ref()?.first()?)
+    } else if is_typescript_server_command(&config.command) {
+        which::which(command).ok()?
+    } else {
+        return None;
+    };
+    let cli = std::fs::canonicalize(&cli).unwrap_or(cli);
+    cli.to_string_lossy()
+        .contains("typescript-language-server")
+        .then_some(cli)
 }
 
 fn is_typescript_server_command(command: &str) -> bool {

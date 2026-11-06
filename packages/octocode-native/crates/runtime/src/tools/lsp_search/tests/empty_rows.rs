@@ -1,11 +1,14 @@
 use super::*;
 use serde_json::json;
 
-fn annotated_empty(
+/// `annotate_empty_includes` on an empty row, with `allowed` the host's
+/// `lsp.allowBuildScripts`.
+fn annotated_empty_gated(
     query: &LspSearchQuery,
     category: &str,
     message: &str,
     available: bool,
+    allowed: bool,
 ) -> serde_json::Value {
     let config = super::server_context::rust_server_config(
         lsp_search_query::rust_context(query)
@@ -15,10 +18,20 @@ fn annotated_empty(
     annotate_empty_includes(
         &mut row,
         query,
-        RustAnalysis::of(&config).build_scripts,
+        RustAnalysis::of(&config).allowing_build_scripts(allowed),
         &|| false,
     );
     row
+}
+
+/// The host allows build scripts: an executable rerun is offered.
+fn annotated_empty(
+    query: &LspSearchQuery,
+    category: &str,
+    message: &str,
+    available: bool,
+) -> serde_json::Value {
+    annotated_empty_gated(query, category, message, available, true)
 }
 
 #[test]
@@ -131,6 +144,31 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         json!(["buildScriptsOff"]),
         "{tipped}"
     );
+    // The host has not allowed build scripts: the same row offers no lead
+    // that would be refused, stays partial, and its note names the opt-in.
+    let refused = annotated_empty_gated(&scripted, "noLocations", "none", true, false);
+    assert!(
+        crate::tools::test_support::checks::find_related_call(&refused, "lspSearch", |_| true)
+            .is_none(),
+        "{refused}"
+    );
+    assert_eq!(
+        refused["partialReasons"],
+        json!(["buildScriptsOff"]),
+        "{refused}"
+    );
+    assert_eq!(
+        refused["hints"].as_array().map(Vec::len),
+        Some(1),
+        "{refused}"
+    );
+    let opt_in = super::super::receipt::BUILD_SCRIPTS_OPT_IN;
+    assert!(
+        refused["hints"][0]
+            .as_str()
+            .is_some_and(|hint| hint.contains(opt_in) && hint.contains("repository code")),
+        "{refused}"
+    );
     let built = requery(
         &scripted,
         serde_json::json!({"rustContext": {"buildScripts": true}}),
@@ -144,7 +182,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
     annotate_empty_includes(
         &mut inherited,
         &scripted,
-        RustAnalysis::of(&configured).build_scripts,
+        RustAnalysis::of(&configured).allowing_build_scripts(true),
         &|| false,
     );
     assert!(inherited.get("hints").is_none(), "{inherited}");
@@ -161,7 +199,13 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         false,
     );
     let before = unavailable.clone();
-    annotate_empty_includes(&mut unavailable, &scripted, false, &|| false);
+    annotate_empty_includes(
+        &mut unavailable,
+        &scripted,
+        RustAnalysis::of(&super::server_context::rust_server_config(json!({})))
+            .allowing_build_scripts(true),
+        &|| false,
+    );
     assert_eq!(
         unavailable, before,
         "unavailable providers cannot report an empty semantic result or a build-script repair"

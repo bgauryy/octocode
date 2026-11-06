@@ -105,7 +105,11 @@ async fn run_tree(
         Err(error) => error,
     };
     let error = classify_unresolved_sha(provider, query, context, error).await;
-    let path = query.path.as_deref().unwrap_or_default().trim_matches('/');
+    let path = query
+        .path
+        .as_deref()
+        .map_or("", String::as_str)
+        .trim_matches('/');
     let requested = query.ref_.as_ref().map(|value| value.as_str());
     // A path failure comes after its ref resolved: its leads pin that commit,
     // and name a renamed repository as it is now.
@@ -165,11 +169,19 @@ async fn run_tree(
 /// continuations and its recovery leads all name one path; `None` when it
 /// already does. A path climbing above the root is invalid input.
 fn listed_at(query: &GhStructureQueryTree) -> Result<Option<GhStructureQueryTree>, ProviderError> {
-    let Some(requested) = query.path.as_deref() else {
+    let Some(requested) = query.path.as_deref().map(String::as_str) else {
         return Ok(None);
     };
     let path = crate::tools::gh_shared::listing_path(requested)?;
-    Ok((path != requested).then(|| GhStructureQueryTree {
+    if path == requested {
+        return Ok(None);
+    }
+    let path = path
+        .parse()
+        .map_err(|error: octocode_contract_types::error::ConversionError| {
+            ProviderError::new(ProviderErrorKind::Validation, error.to_string())
+        })?;
+    Ok(Some(GhStructureQueryTree {
         path: Some(path),
         ..query.clone()
     }))
@@ -248,7 +260,9 @@ impl Scope {
             .map(|glob| PathFilter::new(glob))
             .collect::<Result<Vec<_>, _>>()?;
         let filter = (!filters.is_empty()).then_some(filters);
-        let path = crate::tools::gh_shared::listing_path(query.path.as_deref().unwrap_or(""))?;
+        let path = crate::tools::gh_shared::listing_path(
+            query.path.as_deref().map_or("", String::as_str),
+        )?;
         // A name search and a materialize take every level unless the caller
         // bounds them: both select files, and a folder is not one.
         let depth = match query.max_depth {

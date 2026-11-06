@@ -90,7 +90,8 @@ pub(super) fn shape_file_page(
     });
     let listed = rows.as_array().is_some_and(|rows| !rows.is_empty());
     // Files it could not search may hold the literal: no empty answer then.
-    let match_removed_all = patches && in_scope > 0 && unsearched.is_empty() && kept == 0;
+    let match_removed_all =
+        super::text::needle(query).is_some() && in_scope > 0 && unsearched.is_empty() && kept == 0;
     let cursors = DiffCursors::of_file_page(
         &mut page,
         patch_window.and_then(SpanFacts::next_offset),
@@ -154,12 +155,14 @@ fn file_rows(files: Vec<Value>, query: &HistoryItemRequest) -> (Value, Option<Sp
     (rows, Some(page.stream))
 }
 
-/// The literal a read filters changed files by: its `matchString`, when it
-/// reads patches (an inventory lists every file).
+/// The literal a read filters changed files by: its `matchString`, searched
+/// in each file's patch whether the page shows patches or lists the files,
+/// as on a pull request. A file with no hit is dropped and counted; one with
+/// no patch to search is listed as unsearched.
 pub(super) fn patch_needle(
     query: &HistoryItemRequest,
 ) -> Option<std::sync::Arc<super::matcher::Matcher>> {
-    super::text::needle(query).filter(|_| query.include_diff())
+    super::text::needle(query)
 }
 
 /// List the files a `matchString` could not search (`!reason path`, as on

@@ -60,6 +60,23 @@ impl ContentScan for Safe {
         ))
     }
 }
+/// [`Safe`] judging sources at [`crate::security::SourceLimits::SMALL`]: a
+/// fixture past a limit is a fraction of a megabyte.
+pub(super) struct SmallSafe;
+impl ContentScan for SmallSafe {
+    fn sanitize(
+        &self,
+        text: &str,
+        path: &Path,
+    ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
+        Safe.sanitize(text, path)
+    }
+
+    fn limits(&self) -> crate::security::SourceLimits {
+        crate::security::SourceLimits::SMALL
+    }
+}
+
 /// Read `req` under `paths` with the redacting test scan, no cancellation,
 /// default regex and no response window.
 fn fetch(req: &LocalFetchQuery, paths: &impl PathAccess) -> LocalFetchResult {
@@ -153,6 +170,7 @@ mod stale_cursors;
 mod streamed;
 mod symbols;
 mod views;
+mod whole_walks;
 mod wire;
 
 /// One extracted document supplies the outline and its declaration spans.

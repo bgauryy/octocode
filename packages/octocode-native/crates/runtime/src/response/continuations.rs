@@ -24,7 +24,7 @@ pub(crate) fn finalize(
     })?;
     let mut issues = Vec::new();
     for path in positions.into_iter().rev() {
-        let pointer = pointer(&path);
+        let pointer = crate::json_pointer::of(&path);
         let origin = path
             .first()
             .filter(|key| key.as_str() == "results")
@@ -143,7 +143,7 @@ pub(crate) fn walk_handles(structured: &Value, walks: &[Vec<String>]) -> Vec<Str
     let mut handles = Vec::new();
     for walk in walks {
         if let Some(handle) = structured
-            .pointer(&format!("{}/input/cursor", pointer(walk)))
+            .pointer(&format!("{}/input/cursor", crate::json_pointer::of(walk)))
             .and_then(Value::as_str)
             && !handles.iter().any(|known| known == handle)
         {
@@ -160,7 +160,7 @@ pub(crate) fn hoist(structured: &mut Value, walks: &[Vec<String>], tool: ToolId,
         remove_at(structured, walk);
         let parent = &walk[..walk.len() - 1];
         if structured
-            .pointer(&pointer(parent))
+            .pointer(&crate::json_pointer::of(parent))
             .and_then(Value::as_object)
             .is_some_and(serde_json::Map::is_empty)
         {
@@ -173,34 +173,21 @@ pub(crate) fn hoist(structured: &mut Value, walks: &[Vec<String>], tool: ToolId,
     });
 }
 
+/// Call `visit` with every call at a position `tool`'s output schema declares
+/// in `structured`, and its path, in document order.
 pub fn visit_calls(
     tool: ToolId,
     structured: &Value,
     visit: &mut dyn FnMut(&Value, &[String]),
 ) -> Result<(), ContractValidationError> {
-    let contract = contracts::tool_contract(tool).map_err(|message| defect(&[], message))?;
-    let schema = &contract["outputSchema"];
-    walk(
-        structured,
-        &[schema],
-        &schema["$defs"],
-        &mut Vec::new(),
-        visit,
-    );
-    Ok(())
-}
-
-fn pointer(path: &[String]) -> String {
-    path.iter()
-        .map(|part| format!("/{}", part.replace('~', "~0").replace('/', "~1")))
-        .collect()
+    call_tree::visit(tool, structured, visit).map_err(|message| defect(&[], message))
 }
 
 fn remove_at(value: &mut Value, path: &[String]) {
     let Some((last, parent)) = path.split_last() else {
         return;
     };
-    match value.pointer_mut(&pointer(parent)) {
+    match value.pointer_mut(&crate::json_pointer::of(parent)) {
         Some(Value::Object(object)) => {
             object.remove(last);
         }
@@ -213,53 +200,6 @@ fn remove_at(value: &mut Value, path: &[String]) {
     }
 }
 
-fn walk(
-    value: &Value,
-    schemas: &[&Value],
-    defs: &Value,
-    path: &mut Vec<String>,
-    visit: &mut dyn FnMut(&Value, &[String]),
-) {
-    let declared_call = schemas.iter().any(|schema| {
-        !contracts::property_schemas(schema, defs, "kind").is_empty()
-            && !contracts::property_schemas(schema, defs, "tool").is_empty()
-            && !contracts::property_schemas(schema, defs, "input").is_empty()
-    });
-    if declared_call && super::result::is_call(value) {
-        visit(value, path);
-        return;
-    }
-    match value {
-        Value::Array(items) => {
-            let declared = schemas
-                .iter()
-                .flat_map(|schema| contracts::item_schemas(schema, defs))
-                .collect::<Vec<_>>();
-            if declared.is_empty() {
-                return;
-            }
-            for (index, item) in items.iter().enumerate() {
-                path.push(index.to_string());
-                walk(item, &declared, defs, path, visit);
-                path.pop();
-            }
-        }
-        Value::Object(object) => {
-            for (key, child) in object {
-                let declared = schemas
-                    .iter()
-                    .flat_map(|schema| contracts::child_schemas(schema, defs, key))
-                    .collect::<Vec<_>>();
-                if !declared.is_empty() {
-                    path.push(key.clone());
-                    walk(child, &declared, defs, path, visit);
-                    path.pop();
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
+mod call_tree;
 #[cfg(test)]
 mod tests;

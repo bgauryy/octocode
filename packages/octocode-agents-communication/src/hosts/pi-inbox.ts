@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { openSync, closeSync, realpathSync } from 'node:fs';
 import { relative, isAbsolute, sep } from 'node:path';
 import { registerBoundTools } from './pi-extension.js';
+import { callerIdentity } from '../runtime/caller.js';
 import { bindingArgs, readBinding, runtimeCommand, type PiContext, type PiHost, type PiMessage } from './shared/command.js';
 import { piEditGuard } from './shared/pi-edit-guard.js';
 import { LedgerReceipts } from './shared/pi-ledger.js';
@@ -32,7 +33,6 @@ export interface PiInboxOptions {
   session?: string;
   tools?: string;
   requireLeases?: boolean;
-  completionCheck?: boolean;
   disableCacheWarming?: boolean;
   enabled?: (context: PiContext) => boolean;
   onBinding?: (binding: PiBinding | null) => void;
@@ -41,7 +41,6 @@ export interface PiInboxOptions {
 const hosts = new WeakMap<object, { controller: PiInboxController; tools: string | undefined; requireLeases: boolean }>();
 const peerType = 'octocode-peer';
 const identityType = 'octocode-identity';
-const recoveryType = 'octocode-completion';
 /** A whole token count, as a provider reports it. */
 const isCount = (value: unknown): value is number => Number.isInteger(value);
 const pause = () => new Promise(resolve => setImmediate(resolve));
@@ -82,7 +81,6 @@ export function registerPiInbox(pi: PiHost, options: PiInboxOptions = {}): PiInb
   const pending = new Map<string, Receipt>();
   let binding: PiBinding | undefined, context: PiContext | undefined, timer: NodeJS.Timeout | undefined, polling: Promise<void> | undefined, active = false, starting = false, stopped = true, generation = 0, idle = idleMin, deliveries = 0;
   let lifecycle = Promise.resolve(), lifecycleRevision = 0;
-  let workCycle = 0, recoveredCycle = -1, completion: Promise<void> | undefined;
   const cancelled = new Error('Pi communication lifecycle superseded');
   const serial = <T>(run: () => Promise<T>): Promise<T> => { const next = lifecycle.then(run); lifecycle = next.then(() => undefined, () => undefined); return next; };
   const invalidate = () => { stopped = true; generation += 1; clearTimeout(timer); };
@@ -180,7 +178,6 @@ export function registerPiInbox(pi: PiHost, options: PiInboxOptions = {}): PiInb
         return;
       }
       deliveries += 1;
-      if (action === true) workCycle += 1;
       if (typeof content !== 'string' || !content) throw new Error('Communication CLI must provide canonical hook context; rebuild the skill bundle');
       const wanted: Receipt[] = items.map(({ id, dispatchToken }) => {
         if (dispatchToken === undefined) throw new Error('Communication CLI must provide dispatch tokens for a deferred hook; rebuild the skill bundle');
@@ -212,17 +209,12 @@ export function registerPiInbox(pi: PiHost, options: PiInboxOptions = {}): PiInb
   if (typeof maxItems !== 'number' || !Number.isSafeInteger(maxItems) || maxItems < 1) throw new Error('Invalid confirmation batch limit in communication catalog');
   const confirmationLimit: number = maxItems;
   registerBoundTools(pi, { tools, getBinding: currentBinding });
-  if (options.completionCheck !== undefined && typeof options.completionCheck !== 'boolean') throw new Error('completionCheck must be boolean');
-  if (options.completionCheck) pi.on('input', event => {
-    if (currentBinding() && event.source !== 'extension') workCycle += 1;
-  });
   if (requireLeases) pi.on('tool_call', piEditGuard(currentBinding, isBoundContext));
   if (options.disableCacheWarming) pi.on('cache_warming_decision', () => ({ action: 'stop' }));
   const stop = async () => {
     invalidate();
     await polling;
     await maintenance?.catch(() => {});
-    await completion;
     pending.clear();
     ledger.reset();
     try { if (binding?.session) await call('leave'); }
@@ -240,8 +232,6 @@ export function registerPiInbox(pi: PiHost, options: PiInboxOptions = {}): PiInb
       active = false;
       starting = false;
       idle = idleMin;
-      workCycle = 0;
-      recoveredCycle = -1;
       if (options.enabled && !options.enabled(ctx)) return;
       try {
         const vendorSession = ctx.sessionManager.getSessionId();
@@ -269,9 +259,11 @@ export function registerPiInbox(pi: PiHost, options: PiInboxOptions = {}): PiInb
         assertCurrent();
         lastHeartbeat = Date.now();
         stopped = false;
-        const identity = { ...binding!, leases: 'managed' };
+        const caller = callerIdentity(await call('binding'));
+        assertCurrent();
+        const identity = { ...binding!, caller, leases: 'managed' };
         await persist({ customType: identityType,
-          content: `Communication session: ${binding.session}. Use bound tools for DB-audited coordination. The host maintains presence, renews live owned leases and delivers peer context; acquire before editing, unlock when done, and reacquire expired leases. Action messages wake an idle agent and passive messages wait. Skip manual setup, renewal and inbox polling. Lease guard: ${requireLeases ? 'write/edit checked before execution' : 'not configured'}; shell/custom tools and OS writes are not fenced.`,
+          content: `Communication session: ${binding.session}. Include caller: ${JSON.stringify(caller)} on each bound tool call to introduce yourself. The runtime supplies omitted caller metadata and rejects mismatches. Use bound tools to exchange messages and data. The host maintains presence and delivers peer context. Agents own planning and task completion. Action messages wake an idle agent and passive messages wait. Skip manual setup, renewal and inbox polling.${tools.some(tool => tool.name === 'leases') ? ` The host renews live owned leases; acquire before editing, unlock when done, and reacquire expired leases. Lease guard: ${requireLeases ? 'write/edit checked before execution' : 'not configured'}; shell/custom tools and OS writes are not fenced.` : ''}`,
           display: false, details: identity }, () => entries().some(e => matches(e, identityType, d => d.session === identity.session && d.database === identity.database && d.leases === 'managed')), generation);
         assertCurrent();
         await recover();
@@ -327,26 +319,10 @@ export function registerPiInbox(pi: PiHost, options: PiInboxOptions = {}): PiInb
     context = ctx;
     active = false;
     idle = idleMin;
-    // Only a completed agent run may authorize recovery. Polling passive mail
-    // never calls this check, and recovery itself does not reset the cycle budget.
-    const expectedGeneration = generation, cycle = workCycle;
+    const expectedGeneration = generation;
     setImmediate(() => {
-      const current = () => expectedGeneration === generation && currentBinding() === target
-        && isBoundContext(ctx) && cycle === workCycle && !active && !starting;
-      if (!current()) return;
-      if (!options.completionCheck || recoveredCycle === cycle || completion) { void drain(); return; }
-      completion = (async () => {
-        await confirmPending();
-        if (!current()) return;
-        const result = await call('completion-check', { hook_event_name: 'Stop', stop_hook_active: false,
-          session_id: target.vendorSession, cwd: target.workspace });
-        if (!current() || result.decision !== 'block' || result.reason === undefined || !result.pending?.length) return;
-        recoveredCycle = cycle;
-        pi.sendMessage({ customType: recoveryType, content: result.reason, display: true,
-          details: { session: target.session, database: target.database, pending: result.pending } },
-        { triggerTurn: true, deliverAs: 'followUp' });
-      })().catch(error => console.error(`Communication completion: ${error.message}`))
-        .finally(() => { completion = undefined; if (current()) void drain(); });
+      if (expectedGeneration === generation && currentBinding() === target
+        && isBoundContext(ctx) && !active && !starting) void drain();
     });
   });
   pi.on('message_end', async (event, ctx) => {

@@ -17,6 +17,10 @@ pub(super) struct RustAttributes {
     pub(super) test_path: Option<String>,
     pub(super) unsupported: bool,
     pub(super) cfg_test: bool,
+    /// The start byte of the first attribute of the run that begins its
+    /// line. The attributes belong to the item, so a test span starts there;
+    /// one after other code on its line leaves that line to the code.
+    pub(super) line_start: Option<usize>,
 }
 
 /// Context carried down the single graph-fact traversal, so no Rust collector
@@ -127,14 +131,20 @@ pub(super) fn rust_child_contexts(
     let mut contexts = Vec::with_capacity(children.len());
     for (index, child) in children.iter().enumerate() {
         let attributes = match run_start {
-            Some(start) => fold_rust_attributes(
-                children[start..index]
-                    .iter()
-                    .rev()
-                    .copied()
-                    .filter(|item| item.kind() == "attribute_item"),
-                content,
-            ),
+            Some(start) => {
+                let run = || {
+                    children[start..index]
+                        .iter()
+                        .copied()
+                        .filter(|item| item.kind() == "attribute_item")
+                };
+                RustAttributes {
+                    line_start: run()
+                        .map(|attribute| attribute.start_byte())
+                        .find(|&at| begins_line(content, at)),
+                    ..fold_rust_attributes(run().rev(), content)
+                }
+            }
             None => RustAttributes::default(),
         };
         contexts.push(RustContext {
@@ -152,6 +162,16 @@ pub(super) fn rust_child_contexts(
         }
     }
     contexts
+}
+
+/// Whether only whitespace precedes byte `at` on its line.
+fn begins_line(content: &str, at: usize) -> bool {
+    let before = content.get(..at).unwrap_or_default();
+    before
+        .rsplit_once('\n')
+        .map_or(before, |(_, line)| line)
+        .trim()
+        .is_empty()
 }
 
 pub(super) fn rust_inner_unsupported(node: Node<'_>, content: &str) -> bool {

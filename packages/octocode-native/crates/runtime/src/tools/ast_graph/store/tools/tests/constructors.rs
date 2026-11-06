@@ -71,7 +71,11 @@ fn constructor_boundaries_retain_sites_without_borrowing_unrelated_bindings() {
             ("unsupported-constructor-form".into(), 4),
         ])
     );
-    let rebuilt = call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    let rebuilt = call(
+        &dir.0,
+        ToolId::GraphBuild,
+        json!({"path":"app","refresh":true}),
+    );
     assert_ne!(rebuilt["id"], built["id"], "{rebuilt}");
     assert_eq!(rebuilt["counts"], built["counts"]);
     assert_eq!(rebuilt["linkage"], built["linkage"]);

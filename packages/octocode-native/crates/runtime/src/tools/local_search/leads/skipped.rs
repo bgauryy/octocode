@@ -41,13 +41,17 @@ impl Found<'_> {
                 .as_ref()
                 .is_some_and(|observed| observed.entries.iter().any(|entry| entry.cause == cause))
         };
-        use octocode_contract_types::SkippedPathCause::{DefaultExcluded, Hidden, Ignored};
+        use octocode_contract_types::SkippedPathCause::{
+            DefaultExcluded, Hidden, Ignored, OctocodeArtifact,
+        };
         let (root, skipped) = (self.root, self.skipped);
         let walked = under(root, Ignored, &skipped.ignored)
             .chain(under(root, DefaultExcluded, &skipped.pruned))
             .chain(under(root, DefaultExcluded, &skipped.generated))
             .chain(under(root, Hidden, &skipped.hidden))
             .filter(|skip| !named(skip.cause))
+            // No flag lifts these: they stay out of the includeSkipped lead.
+            .chain(under(root, OctocodeArtifact, &skipped.artifacts))
             .chain(crate::tools::leads::skipped::unlifted(
                 &self.root.to_string_lossy(),
                 &skipped.withheld,

@@ -5,8 +5,9 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { binary, jsonCall, spawnSync, tempWorkspace, tempDir } from './helpers.ts';
+import { database as runtimeDatabase } from '../dist/runtime.js';
 
-const LIMIT = 504;
+const LIMIT = runtimeDatabase.SQLITE_UNIX_DATABASE_PATH_BYTES;
 const bytes = (path: string) => Buffer.byteLength(path);
 
 /** A database path of exactly `total` bytes below `base`: directory names of 100 bytes, then a file name (each component <= 255). */
@@ -21,7 +22,7 @@ function pathOf(base: string, total: number): string {
 
 const join_ = (workspace: string, database: string) => spawnSync(binary, ['join', JSON.stringify({ name: 'agent', vendor: 'generic' }), '--workspace', workspace, '--database', database], { encoding: 'utf8' });
 
-test('Given a database path at the SQLite limit, when an agent joins, then the database opens and takes writes', t => {
+test('Given a database path at the Unix SQLite limit, when an agent joins, then the database opens and takes writes', { skip: process.platform === 'win32' }, t => {
   const workspace = tempWorkspace(t, 'communication-path-', { real: true });
   const database = pathOf(tempWorkspace(t, 'communication-path-db-', { real: true }), LIMIT);
   const call = jsonCall(binary, workspace, database, { stdio: 'pipe' });
@@ -30,7 +31,7 @@ test('Given a database path at the SQLite limit, when an agent joins, then the d
   assert.equal(existsSync(database), true);
 });
 
-test('Given a database path one byte over the limit, when an agent joins, then the error names the limit and the length and nothing is created', t => {
+test('Given a database path one byte over the Unix limit, when an agent joins, then the error names the limit and the length and nothing is created', { skip: process.platform === 'win32' }, t => {
   const workspace = tempWorkspace(t, 'communication-path-', { real: true });
   const base = tempWorkspace(t, 'communication-path-db-', { real: true });
   const database = pathOf(base, LIMIT + 1);
@@ -41,7 +42,7 @@ test('Given a database path one byte over the limit, when an agent joins, then t
   assert.equal(existsSync(join(base, 'd'.repeat(100))), false, 'no directory is created for a path SQLite cannot open');
 });
 
-test('Given a short symlink to a long directory, when the resolved path passes the limit, then the resolved length decides', t => {
+test('Given a short symlink to a long directory, when the resolved path passes the Unix limit, then the resolved length decides', { skip: process.platform === 'win32' }, t => {
   const workspace = tempWorkspace(t, 'communication-path-', { real: true });
   const base = tempWorkspace(t, 'communication-path-db-', { real: true });
   const target = join(base, 'real', 'd'.repeat(100), 'd'.repeat(100), 'd'.repeat(100));
@@ -54,4 +55,11 @@ test('Given a short symlink to a long directory, when the resolved path passes t
   const run = join_(workspace, join(link, name(LIMIT + 1)));
   assert.notEqual(run.status, 0);
   assert.match(run.stderr, new RegExp(`Database path is ${LIMIT + 1} bytes after resolving symlinks`));
+});
+
+test('Windows delegates path limits to its VFS rather than using the Unix byte limit', t => {
+  const base = tempWorkspace(t, 'communication-vfs-policy-', { real: true });
+  const long = pathOf(base, LIMIT + 1);
+  assert.doesNotThrow(() => runtimeDatabase.checkPathLength(long, 'win32'));
+  for (const platform of ['darwin', 'linux'] as const) assert.throws(() => runtimeDatabase.checkPathLength(long, platform), /Database path/);
 });

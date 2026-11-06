@@ -29,6 +29,7 @@ pub(super) fn select(
         skipped,
         mut diagnostics,
         withheld,
+        artifacts,
         pruned,
         walk_errors,
         test_code_excluded,
@@ -152,9 +153,17 @@ pub(super) fn select(
         recovered,
         // One counted entry per cause and rule, as every local walk states it.
         skipped_paths: skipped::skipped_paths(
-            skipped::under(canonical, SkippedPathCause::DefaultExcluded, &pruned).chain(
-                skipped::unlifted(&canonical.to_string_lossy(), &withheld, walk_errors.into()),
-            ),
+            skipped::under(canonical, SkippedPathCause::DefaultExcluded, &pruned)
+                .chain(skipped::under(
+                    canonical,
+                    SkippedPathCause::OctocodeArtifact,
+                    &artifacts,
+                ))
+                .chain(skipped::unlifted(
+                    &canonical.to_string_lossy(),
+                    &withheld,
+                    walk_errors.into(),
+                )),
             false,
             truncated,
         )?,

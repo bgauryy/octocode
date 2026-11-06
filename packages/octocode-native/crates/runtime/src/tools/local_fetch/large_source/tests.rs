@@ -5,6 +5,14 @@ use crate::execution::cancel::NeverCancel;
 use octocode_contract_types::LocalFetchQuery;
 use sha2::{Digest, Sha256};
 
+/// The limits these reads judge at: windows of a part of a megabyte.
+const LIMITS: crate::security::SourceLimits = crate::security::SourceLimits::SMALL;
+
+/// Bytes that take a source past the whole-file ceiling of [`LIMITS`].
+fn past_whole() -> usize {
+    LIMITS.whole_source + LIMITS.whole_source / 10
+}
+
 fn opened(path: &Path) -> std::fs::File {
     std::fs::File::open(path).expect("open")
 }
@@ -45,7 +53,7 @@ fn fetch(
         &std::fs::metadata(file.path()).expect("meta"),
         None,
         share,
-        &crate::security::ContentSecurity::new(),
+        &crate::security::ContentSecurity::with_limits(LIMITS),
         &NeverCancel,
     )
 }

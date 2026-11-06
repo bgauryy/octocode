@@ -30,7 +30,7 @@ use std::sync::Arc;
 
 mod pins;
 
-pub(super) use pins::{ListingDigest, PinnedWalk, pinned, pins};
+pub(super) use pins::{ListingDigest, PinnedWalk, Pins, pinned, pins, ranked_pins};
 
 /// A whole-scope listing's entries in listing order, and what its windows read
 /// beside their own rows.
@@ -63,12 +63,58 @@ impl Ranked {
 
 static RANKED: PageMemo<Proven<Ranked>> = PageMemo::new();
 
+/// The pin of the ranking each listing shape ([`shape_key`]) last kept, so a
+/// repeat of its first window is served from [`RANKED`] while that ranking's
+/// proof holds, instead of walking the scope again.
+static FIRSTS: PageMemo<String> = PageMemo::new();
+
+#[cfg(test)]
+thread_local! {
+    /// Whether this thread's first windows may be read from [`FIRSTS`].
+    static SERVES_FIRSTS: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+/// While the guard lives, this thread walks every first window, as a process
+/// that kept nothing would: for a test of how the walk itself runs.
+#[cfg(test)]
+pub(super) struct WalkingFirsts(bool);
+
+#[cfg(test)]
+pub(super) fn walking_firsts() -> WalkingFirsts {
+    WalkingFirsts(SERVES_FIRSTS.replace(false))
+}
+
+#[cfg(test)]
+impl Drop for WalkingFirsts {
+    fn drop(&mut self) {
+        SERVES_FIRSTS.set(self.0);
+    }
+}
+
+/// Whether a first window may be read from the listing its shape kept.
+#[cfg(test)]
+fn serves_firsts() -> bool {
+    SERVES_FIRSTS.get()
+}
+
+/// Whether a first window may be read from the listing its shape kept.
+#[cfg(not(test))]
+const fn serves_firsts() -> bool {
+    true
+}
+
+/// What a listing's rows depend on before any row: its walk, view, sort and
+/// layout ([`ListingDigest::new`]), never its window or page.
+pub(super) fn shape_key<Q: Listing>(q: &Q, root: &Path) -> String {
+    ListingDigest::new(q, root).hex()
+}
+
 /// Keep a whole-scope listing whose first window is `walk`, under the digest
 /// its next window pins. Its proof holds every directory and rule file it
 /// read, and with a view that shows metadata every entry, since later windows
 /// show them; `walk` proves its own pages by the directories and its own rows.
 pub(super) fn keep_ranked(
-    (pin, policy): (String, &str),
+    (pin, policy, shape): (String, &str, Option<String>),
     (paths, root): (&PathPolicy, &Path),
     walk: &mut Walked,
     entries: Vec<FileSystemEntry>,
@@ -117,6 +163,10 @@ pub(super) fn keep_ranked(
         dirs,
     };
     let bytes = ranked.weight() + proof.weight();
+    if let Some(shape) = shape {
+        let weight = shape.len() + pin.len();
+        FIRSTS.put(shape, policy.to_owned(), weight, pin.clone());
+    }
     RANKED.put_proven(pin, policy.to_owned(), bytes, proof, Arc::new(ranked));
 }
 
@@ -129,8 +179,20 @@ pub(super) fn ranked_window<Q: Listing>(
     policy: &str,
     requested: usize,
 ) -> Option<Walked> {
-    let pin = pinned(q).filter(|_| !q.early_exit())?;
-    let ranked = RANKED.current(pin, policy)?;
+    if q.early_exit() {
+        return None;
+    }
+    // A first window (no pin yet) is the ranking its shape last kept: a
+    // repeat on an unchanged scope reads it instead of walking again.
+    let first = q.page() == 1 && q.scan_offset() == 0 && q.walk_offset() == 0;
+    let pin = match pinned(q) {
+        Some(pin) => pin.to_owned(),
+        None if first && q.snapshot().is_none() && serves_firsts() => {
+            FIRSTS.get(&shape_key(q, root), policy, Clone::clone)?
+        }
+        None => return None,
+    };
+    let ranked = RANKED.current(&pin, policy)?;
     let total = ranked.entries.len();
     let start = q.scan_offset().min(total);
     let end = q.scan_offset().saturating_add(requested).min(total);
@@ -140,8 +202,8 @@ pub(super) fn ranked_window<Q: Listing>(
         (root, security),
     );
     let mut walk = Walked::served(rows, &ranked.meta, q.scan_offset(), ranked.dirs.clone());
-    walk.meta.pinned_before = Some(pin.to_owned());
-    walk.meta.pins_through = Some(pin.to_owned());
+    walk.meta.pinned_before = (!first).then(|| pin.clone());
+    walk.meta.pins_through = Some(pin);
     rows::group(&mut walk.rows, &q.sort(), q.view());
     Some(walk)
 }

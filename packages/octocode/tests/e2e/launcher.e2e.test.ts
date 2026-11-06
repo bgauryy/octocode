@@ -88,13 +88,14 @@ function expectUnfilteredCatalog(beta: string, key: string) {
   expect(new Set(names).size).toBe(names.length);
   expect(names).toEqual(
     expect.arrayContaining([
-      'clasify',
       'ghCloneRepo',
       'graphBuild',
       'graphQuery',
       'localFetch',
     ])
   );
+  // Only a key makes clasify callable, so the catalog names it only then.
+  expect(names.includes('clasify')).toBe(key !== '');
 }
 
 describe.skipIf(!ready)('launcher → native binary e2e', () => {

@@ -5,9 +5,9 @@
 //! in the module that spells it: its own items, the names its imports bind
 //! and builtins or the prelude. A same-named item in another module is a
 //! different binding, so the graph-wide fallback never applies. Go (gopls)
-//! adds the files of the caller's package: its directory, without the
-//! `_test.go` files a non-test build never compiles. Dot imports bind
-//! through the import itself.
+//! adds the files of the caller's package: its directory's files under the
+//! caller's package clause, without the `_test.go` files a non-test build
+//! never compiles. Dot imports bind through the import itself.
 use super::linker::{BareScope, Linked, Linker, Site};
 use super::*;
 
@@ -21,27 +21,40 @@ impl Linker<'_> {
         }
     }
 
-    /// A bare Go name declared once in the caller's package. A `_test.go`
-    /// caller may belong to the external `_test` package, which sees the
-    /// package's names only through an import: that binding stays medium.
+    /// A bare Go name declared once in the caller's package: the files of
+    /// its directory whose package clause is the caller's. A `_test.go` file
+    /// in the directory's package compiles into it, so it sees the package's
+    /// names as surely as a non-test file; an external `<pkg>_test` file is
+    /// a separate package that reaches them only through its import. A
+    /// non-test caller never sees `_test.go` files. Only when a clause is
+    /// unknown can a test caller not tell which package it is in: medium.
     pub(super) fn same_go_package(&self, site: &Site, candidates: &[u32]) -> Option<Linked> {
-        let caller_path = self.scope.path(self.file_of(site.caller))?;
+        let caller_file = self.file_of(site.caller);
+        let caller_path = self.scope.path(caller_file)?;
         let caller_dir = crate::tools::ast_graph::paths::parent(caller_path);
         let caller_test = caller_path.ends_with("_test.go");
+        let caller_package = self.scope.go_package(caller_file);
+        let mut clauses_known = caller_package.is_some();
         let in_package = candidates
             .iter()
             .copied()
             .filter(|id| {
-                self.scope.path(self.file_of(*id)).is_some_and(|path| {
+                let file = self.file_of(*id);
+                self.scope.path(file).is_some_and(|path| {
                     crate::tools::ast_graph::paths::parent(path) == caller_dir
                         && (caller_test || !path.ends_with("_test.go"))
+                        && match (caller_package, self.scope.go_package(file)) {
+                            (Some(caller), Some(target)) => caller == target,
+                            _ => true,
+                        }
                 })
             })
             .collect::<Vec<_>>();
         let [only] = in_package.as_slice() else {
             return None;
         };
-        let confidence = if caller_test {
+        clauses_known &= self.scope.go_package(self.file_of(*only)).is_some();
+        let confidence = if caller_test && !clauses_known {
             Confidence::Medium
         } else {
             Confidence::High

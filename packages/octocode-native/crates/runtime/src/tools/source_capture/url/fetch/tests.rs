@@ -1,19 +1,57 @@
 use super::*;
 
+/// One internal answer denies the whole host, and the refusal names only
+/// the host as given: no resolved address, and the same refusal for a name
+/// with no address, so a caller cannot map an internal network through it.
 #[test]
-fn one_internal_answer_denies_the_whole_host() {
+fn one_internal_answer_denies_the_whole_host_without_naming_it() {
     let host = Host::Domain("docs.example.org".to_owned());
     let mixed = vec![
         "93.184.216.34:443".parse().unwrap(),
         "10.0.0.5:443".parse().unwrap(),
     ];
-    let error = public_addresses(&host, mixed).unwrap_err();
-    assert_eq!(error.code, ErrorCode::SecurityValidationFailed);
-    assert!(error.message.contains("10.0.0.5"), "{}", error.message);
-    let error = public_addresses(&host, Vec::new()).unwrap_err();
-    assert_eq!(error.code, ErrorCode::ClassificationContextFailed);
+    let private = public_addresses(&host, mixed).unwrap_err();
+    assert_eq!(private.code, ErrorCode::SecurityValidationFailed);
+    assert!(
+        private.message.contains("docs.example.org"),
+        "{}",
+        private.message
+    );
+    assert!(!private.message.contains("10.0.0.5"), "{}", private.message);
+    let empty = public_addresses(&host, Vec::new()).unwrap_err();
+    assert_eq!(
+        (empty.code, &empty.message, &empty.hints),
+        (private.code, &private.message, &private.hints)
+    );
     let one = vec!["93.184.216.34:443".parse().unwrap()];
     assert_eq!(public_addresses(&host, one.clone()).unwrap(), one);
+}
+
+/// A name that does not resolve is refused exactly as a name that resolves
+/// to a private address (RFC 6761: `.invalid` never resolves).
+#[tokio::test]
+async fn an_unresolvable_name_is_refused_like_a_private_one() {
+    let handle = tokio::runtime::Handle::current();
+    let network = budgeted(&handle, budget(MAX_BODY_BYTES));
+    let unresolvable = network
+        .request(&Url::parse("https://docs.example.invalid/").unwrap())
+        .await
+        .err()
+        .expect("no address");
+    let private = public_addresses(
+        &Host::Domain("docs.example.invalid".to_owned()),
+        vec!["127.0.0.1:443".parse().unwrap()],
+    )
+    .unwrap_err();
+    assert_eq!(
+        (
+            unresolvable.code,
+            &unresolvable.message,
+            &unresolvable.hints
+        ),
+        (private.code, &private.message, &private.hints)
+    );
+    assert_eq!(unresolvable.code, ErrorCode::SecurityValidationFailed);
 }
 
 use std::net::TcpListener;
@@ -243,6 +281,9 @@ fn a_loopback_or_private_host_is_refused_before_connecting() {
         "https://localhost:9/",
         "https://169.254.169.254/latest/meta-data/",
         "https://10.0.0.1:9/",
+        "https://[64:ff9b:1::1]:9/",
+        "https://[::ffff:127.0.0.1]:9/",
+        "https://198.18.0.1:9/",
     ] {
         let error = network(&runtime)
             .get(&Url::parse(address).unwrap())

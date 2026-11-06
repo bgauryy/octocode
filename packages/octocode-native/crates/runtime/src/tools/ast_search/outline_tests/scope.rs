@@ -35,7 +35,7 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     let large = root.0.join("large.rs");
     std::fs::write(
         &large,
-        "// x\n".repeat(crate::tools::ast_search::source::MAX_PARSE_SOURCE_BYTES / 5 + 1),
+        "// x\n".repeat(crate::security::SourceLimits::REAL.whole_source / 5 + 1),
     )
     .expect("large");
     for query in [

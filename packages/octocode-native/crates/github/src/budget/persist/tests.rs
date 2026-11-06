@@ -133,6 +133,33 @@ async fn a_cooldown_on_an_async_worker_does_not_wait_for_the_peer_lock() {
     }
 }
 
+/// A shared reservation reads and writes the state file on the blocking
+/// pool, never on the async worker that polls the request (here the
+/// current-thread runtime's only worker, the test thread).
+#[tokio::test]
+async fn a_shared_reservation_does_its_file_io_off_the_async_worker() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let key = LimiterKey::new("ghe.example", Some("tok"));
+    let budget = GitHubBudget::relaxed();
+    let state = budget.key_state(&key, Some(dir.path()));
+    let file = dir.path().join(key.file_name());
+    let worker = std::thread::current().id();
+    state
+        .reserve_shared(
+            Instant::now() + Duration::from_secs(5),
+            &octocode_io::cancellation::Cancellation::new(),
+            |_| (),
+        )
+        .await
+        .expect("reserved");
+    let io = super::io_threads(&file);
+    assert_eq!(io.len(), 2, "one read and one write of {}", file.display());
+    assert!(
+        io.iter().all(|thread| *thread != worker),
+        "state file IO ran on the async worker"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn the_persisted_budget_file_is_owner_only() {

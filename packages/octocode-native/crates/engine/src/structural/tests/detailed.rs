@@ -138,7 +138,7 @@ fn content_of_exactly(byte_len: usize) -> String {
 
 #[test]
 fn search_rejects_oversize_content() {
-    const CAP: usize = crate::signatures::MAX_PARSE_SIZE;
+    const CAP: usize = crate::security::MAX_CONTENT_SIZE;
     let content = content_of_at_least(CAP + 1);
     assert!(content.len() > CAP, "fixture must be over the cap");
     let Err(err) = search(&content, "ts", Some("target($X)"), None) else {
@@ -156,7 +156,7 @@ fn search_rejects_oversize_content() {
 
 #[test]
 fn search_accepts_content_at_cap() {
-    const CAP: usize = crate::signatures::MAX_PARSE_SIZE;
+    const CAP: usize = crate::security::MAX_CONTENT_SIZE;
     let content = content_of_exactly(CAP);
     assert_eq!(content.len(), CAP, "fixture must be exactly at the cap");
     let matches = search(&content, "ts", Some("target($X)"), None)
@@ -167,7 +167,7 @@ fn search_accepts_content_at_cap() {
 
 #[test]
 fn search_detailed_reports_oversize_as_truncated() {
-    const CAP: usize = crate::signatures::MAX_PARSE_SIZE;
+    const CAP: usize = crate::security::MAX_CONTENT_SIZE;
     let content = content_of_at_least(CAP + 1);
     assert!(content.len() > CAP, "fixture must be over the cap");
     let result = evaluate_source(&content, "a.ts", "ts", Some("target($X)"), None);
@@ -187,7 +187,7 @@ fn search_detailed_reports_oversize_as_truncated() {
 
 #[test]
 fn search_detailed_accepts_content_at_cap() {
-    const CAP: usize = crate::signatures::MAX_PARSE_SIZE;
+    const CAP: usize = crate::security::MAX_CONTENT_SIZE;
     let content = content_of_exactly(CAP);
     assert_eq!(content.len(), CAP, "fixture must be exactly at the cap");
     let result = evaluate_source(&content, "a.ts", "ts", Some("target($X)"), None);
@@ -260,7 +260,7 @@ fn every_demand_counts_the_same_matches_and_a_priced_file_rebuilds_them() {
             Some("$A"),
             None,
             digest,
-            crate::signatures::MAX_PARSE_SIZE as u64,
+            crate::security::MAX_CONTENT_SIZE as u64,
             &|| false,
         )
         .expect("rebuild");
@@ -293,7 +293,7 @@ fn every_demand_counts_the_same_matches_and_a_priced_file_rebuilds_them() {
                 Some("$A"),
                 None,
                 changed.source_sha256.as_deref().expect("digest"),
-                crate::signatures::MAX_PARSE_SIZE as u64,
+                crate::security::MAX_CONTENT_SIZE as u64,
                 &|| false,
             )
             .expect("rebuild"),

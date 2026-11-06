@@ -54,10 +54,10 @@ fn concurrent_requests_replace_serially_and_validation_fails_closed() {
     assert_eq!(values[0].location.commit_sha, values[1].location.commit_sha);
 
     // A traversal owner never reaches the clone: the contract rejects it.
+    let mut invalid = serde_json::to_value(query()).expect("fixture query");
+    invalid["owner"] = serde_json::json!("../escape");
     assert!(
-        "../escape"
-            .parse::<octocode_contract_types::GhCloneRepoQueryOwner>()
-            .is_err(),
+        serde_json::from_value::<GhCloneRepoQuery>(invalid).is_err(),
         "the contract rejects a traversal owner"
     );
     assert!(

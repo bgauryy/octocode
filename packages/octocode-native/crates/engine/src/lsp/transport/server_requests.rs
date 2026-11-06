@@ -40,6 +40,32 @@ impl ClientResponse {
     }
 }
 
+/// Action titles with which Metals asks to import a build (`Messages.scala`
+/// `ImportBuild`, `ImportBuildChanges`). Importing runs the project's build tool,
+/// repository code, so the prompt is declined, and then Metals analyses only the
+/// files open in it.
+const BUILD_IMPORT_ACTIONS: [&str; 2] = ["Import build", "Import changes"];
+
+/// What declining `method` costs, when it is a server's prompt to import its
+/// build: said as the server's health, since the server reports nothing itself.
+pub(super) fn declined_build_import(method: &str, params: Option<&Value>) -> Option<&'static str> {
+    let asks_import = method == "window/showMessageRequest"
+        && params
+            .and_then(|params| params.get("actions"))
+            .and_then(Value::as_array)
+            .is_some_and(|actions| {
+                actions.iter().any(|action| {
+                    action
+                        .get("title")
+                        .and_then(Value::as_str)
+                        .is_some_and(|title| BUILD_IMPORT_ACTIONS.contains(&title))
+                })
+            });
+    asks_import.then_some(
+        "the server asked to import the build and Octocode declined, because importing runs the project's build tool; it analyses only the files open in it, so uses in other files are missing.",
+    )
+}
+
 pub(super) fn client_response_for(
     method: &str,
     params: Option<&Value>,

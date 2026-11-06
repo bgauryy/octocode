@@ -1,11 +1,12 @@
-//! Symbols outlines: skeletons, comment lines, over-long lines and the size cap.
+//! Symbols outlines: declaration rows, comment lines, over-long rows, and no size cap.
 
 use super::*;
 
-/// A few over-long declaration lines (generated one-line structs) keep
-/// the outline, verbatim; an outline made mostly of them is minified.
+/// A row past the outline's line width lists the heads of the declarations
+/// it holds, each to the end of its name, so a minified or deeply nested
+/// line keeps every declaration and the rows around it stay as written.
 #[test]
-fn long_declaration_lines_keep_the_outline_unless_they_dominate_it() {
+fn an_over_long_row_lists_the_heads_of_its_declarations() {
     let mut source = String::new();
     for i in 0..200 {
         source.push_str(&format!(
@@ -16,22 +17,50 @@ fn long_declaration_lines_keep_the_outline_unless_they_dominate_it() {
         .map(|i| format!("pub field_{i}: usize"))
         .collect::<Vec<_>>()
         .join(", ");
-    let long = format!("pub struct Generated {{ {fields} }}");
-    assert!(long.len() > super::super::outline::OUTLINE_MAX_LINE_CHARS);
+    let long = format!("pub struct Generated {{ {fields} }} pub fn after() {{}}");
+    assert!(long.chars().count() > super::super::outline::OUTLINE_MAX_LINE_CHARS);
     source.push_str(&long);
     source.push('\n');
     let outline = extract_signatures_inner(&source, "lib.rs").expect("outline");
     assert!(
-        outline.contains(&long),
-        "the long declaration stays verbatim"
+        outline.contains("pub fn run199(value: usize) -> usize"),
+        "{outline}"
     );
-    assert!(outline.contains("pub fn run199(value: usize) -> usize"));
+    let row = outline
+        .lines()
+        .find(|row| row.contains("Generated"))
+        .unwrap_or_else(|| panic!("a row for the long line in {outline}"));
+    assert!(
+        row.ends_with("\tpub struct Generated … pub fn after …"),
+        "{row}"
+    );
 
-    let minified = format!("{long}\n{long}\npub fn tail() {{\n    let x = 1;\n}}\n");
-    assert_eq!(
-        extract_signatures_inner(&minified, "lib.rs"),
-        Err(OutlineUnavailable::Minified)
+    // An unclosed expression nested past any parser's stack, on one line.
+    let deep = format!(
+        "function marker() {{ return 1; }}\nconst x = {};\n",
+        "(".repeat(50_000)
     );
+    let outline = extract_signatures_inner(&deep, "deep.js").expect("outline");
+    assert!(
+        outline.contains("1\tfunction marker() { return 1; }"),
+        "{outline}"
+    );
+    assert!(outline.len() < 200, "{outline}");
+}
+
+/// A namespace or module body holds statements, as a file does: its outline
+/// is its declarations. A type's body lists its member rows; a closing row,
+/// alone or before a comment, is never one.
+#[test]
+fn only_a_type_body_lists_its_member_rows() {
+    let source = "namespace ns {\nstatic_assert(sizeof(int) == 4);\nclass A {\n  int field;\n  void m() {\n    run();\n  }\n};  // class A\n}  // namespace ns\n";
+    let outline = extract_signatures_inner(source, "a.cpp").expect("outline");
+    for row in ["\tclass A {", "\t  int field;", "\t  void m() {"] {
+        assert!(outline.contains(row), "{row:?} in {outline}");
+    }
+    for text in ["static_assert", "run();", "// class A", "// namespace ns"] {
+        assert!(!outline.contains(text), "{text:?} in {outline}");
+    }
 }
 
 /// Comment lines follow the file's own grammar: `#` comments Python,
@@ -53,14 +82,31 @@ fn a_missing_outline_names_its_reason() {
         Err(OutlineUnavailable::UnsupportedLanguage)
     );
     assert_eq!(
-        extract_signatures_inner(&"x".repeat(MAX_PARSE_SIZE + 1), "big.rs"),
-        Err(OutlineUnavailable::TooLarge)
-    );
-    assert_eq!(
         extract_signatures_inner("fn a() {}\n", "tiny.rs"),
         Err(OutlineUnavailable::NotSmaller)
     );
-    assert_eq!(OutlineUnavailable::Minified.as_str(), "minified-lines");
+    assert_eq!(
+        extract_signatures_inner("// only a comment\n", "empty.rs"),
+        Err(OutlineUnavailable::NoDeclarations)
+    );
+}
+
+/// No size refuses an outline: a source as large as a whole read admits
+/// outlines in full; the parse's linear work bound is what stops a parse.
+#[test]
+fn a_source_as_large_as_a_whole_read_outlines_in_full() {
+    let body = "fn f() {\n    let x = 1;\n    x\n}\n";
+    let count = crate::security::MAX_CONTENT_SIZE / body.len();
+    let source = (0..count)
+        .map(|i| body.replace("fn f", &format!("fn f{i}")))
+        .collect::<String>();
+    let outline = extract_signatures_inner(&source, "big.rs").expect("outline");
+    assert_eq!(outline.lines().count(), count);
+    assert!(
+        outline.ends_with(&format!("\tfn f{}() {{", count - 1)),
+        "{}",
+        &outline[outline.len() - 80..]
+    );
 }
 
 /// Gutters are unpadded so the content-view minifier (which trims
@@ -81,10 +127,7 @@ fn skeleton_gutters_are_uniform_after_minification() {
     }
     let mut views = Vec::new();
     for (path, text) in [("lib.rs", &source), ("mod.py", &python)] {
-        let skeleton = extract(text, path).expect("skeleton");
-        let minified = crate::minify::apply::apply_content_view_minification_inner(&skeleton, path);
-        views.push(skeleton);
-        views.push(minified);
+        views.push(extract(text, path).expect("skeleton"));
     }
     for view in &views {
         for line in view.lines() {
@@ -243,9 +286,12 @@ fn tree_sitter_code_extracts_and_drops_bodies() {
     .is_some());
 }
 
-// ── size cap ──────────────────────────────────────────────────────────────
+/// One-line declarations outline to the source itself plus gutters.
 #[test]
-fn oversized_input_returns_none_without_parsing() {
-    let src = "function f(){ return 1; }\n".repeat(45_000); // ~1.17MB
-    assert!(extract(&src, "big.ts").is_none());
+fn an_outline_of_one_line_declarations_is_no_smaller_than_its_source() {
+    let src = "function f(){ return 1; }\n".repeat(45_000);
+    assert_eq!(
+        extract_signatures_inner(&src, "big.ts"),
+        Err(OutlineUnavailable::NotSmaller)
+    );
 }

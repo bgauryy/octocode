@@ -98,6 +98,9 @@ pub struct RepositorySearchItem {
     pub open_issues_count: usize,
     #[serde(default)]
     pub visibility: String,
+    /// GitHub's private flag, beside `visibility` (absent on older servers).
+    #[serde(default)]
+    pub private: bool,
     #[serde(default)]
     pub topics: Vec<String>,
     pub created_at: Option<String>,

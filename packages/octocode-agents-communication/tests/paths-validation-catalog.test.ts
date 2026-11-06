@@ -191,8 +191,8 @@ test('every catalog pattern compiles as a JavaScript RegExp with the u flag', ()
 test('tool selection, help and accessors derive from the one catalog, and the skill text is the packaged OPERATING.md', () => {
   const dump = catalog.catalog();
   const names = (tools: JsonRecord[]) => tools.map((tool: JsonRecord) => tool.name);
-  const all = names(catalog.selectedTools());
-  assert.deepEqual(all, names(dump.tools));
+  const all = names(catalog.catalog().tools);
+  assert.deepEqual(names(catalog.selectedTools()), names(catalog.selectedTools('messaging')));
   for (const name of all) assert.equal(catalog.definition(name).name, name, 'every family has a CLI command definition');
   // A custom selection returns exactly its tools, in catalog order whatever the selection order.
   assert.deepEqual(names(catalog.selectedTools('records,agents')), all.filter(name => name === 'agents' || name === 'records'));

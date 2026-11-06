@@ -86,7 +86,7 @@ pub(super) fn finish_pr(
     wants: &Sections,
     plan: &PrPlan,
     shaped: ShapedPr,
-    graphql_fallback: Option<String>,
+    (graphql_fallback, graphql_warnings): (Option<String>, Vec<String>),
 ) -> ToolData {
     let ShapedPr {
         row,
@@ -145,6 +145,7 @@ pub(super) fn finish_pr(
     let merge_read = files.merge_read.filter(|_| patches);
     attach_leads(&mut out, files.side_reads, menu, merge_read);
     lead_with_comment_reads(&mut out, comment_reads);
+    push_warnings(&mut out, graphql_warnings);
     if let Some(reason) = graphql_fallback {
         out["graphqlFallback"] = json!(reason);
     }

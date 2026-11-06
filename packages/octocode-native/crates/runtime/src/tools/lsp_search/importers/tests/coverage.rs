@@ -291,7 +291,7 @@ async fn ignored_files_the_check_cannot_decide_stay_unchecked() {
     let copy = write("copy.ts", "export function x() {}\n");
     let large = write(
         "large.js",
-        &"// x\n".repeat(octocode_engine::signatures::MAX_PARSE_SIZE / 5 + 1),
+        &"// x\n".repeat(crate::security::SourceLimits::REAL.whole_source / 5 + 1),
     );
     let mut files = vec![importer.clone(), copy, large.clone()];
     // More files than any fixed bound once held: every one is checked.
@@ -323,5 +323,76 @@ async fn ignored_files_the_check_cannot_decide_stay_unchecked() {
         ignored.unchecked,
         vec![large],
         "only the file the parser refuses"
+    );
+}
+
+/// A failed scan names what failed: the candidate list, the anchor's own
+/// declaration, or each candidate with its cause (unread or unopened, or
+/// unresolved by the server), never only "could not read, open, or resolve
+/// every candidate".
+#[test]
+fn a_failed_scan_names_its_step_and_each_candidate_with_its_cause() {
+    let query: LspSearchQuery = serde_json::from_value(json!({
+        "operation": "references", "path": "/r/a.c", "symbolName": "dictFind", "line": 1
+    }))
+    .expect("query");
+    let scope = Scope::new("/r".into(), Vec::new());
+    let warning_of = |importers: Importers| {
+        let mut row = json!({"status": "success"});
+        importers.annotate(&mut row, &query, &scope);
+        assert_eq!(row["coverage"]["importerScan"], SCAN_FAILED, "{row}");
+        assert_eq!(row["isPartial"], true, "{row}");
+        row["warnings"].to_string()
+    };
+    let list = warning_of(Importers {
+        failed: true,
+        failure: ScanFailure::CandidateList,
+        ..Importers::default()
+    });
+    assert!(
+        list.contains("could not list the files that spell this name"),
+        "{list}"
+    );
+    let files = candidates(4);
+    let Cut::Window(window) = Window::cut(files.clone(), WindowRequest::default()) else {
+        panic!("window 1 is never stale");
+    };
+    let anchor = warning_of(Importers {
+        window: Some(window),
+        failed: true,
+        failure: ScanFailure::AnchorDeclaration,
+        ..Importers::default()
+    });
+    assert!(anchor.contains("anchor's own declaration"), "{anchor}");
+    assert!(anchor.contains("none of the 4 candidate files"), "{anchor}");
+    let Cut::Window(window) = Window::cut(files.clone(), WindowRequest::default()) else {
+        panic!("window 1 is never stale");
+    };
+    let named = warning_of(Importers {
+        window: Some(window),
+        failed: true,
+        failure: ScanFailure::Candidates,
+        unverified: vec![files[1].clone(), files[2].clone()],
+        unopened: vec![files[2].clone()],
+        ..Importers::default()
+    });
+    let relative = |file: &str| {
+        std::path::Path::new(file)
+            .strip_prefix("/r")
+            .map_or(file.to_owned(), |path| path.to_string_lossy().into_owned())
+    };
+    assert!(
+        named.contains(&format!(
+            "{} could not be read or opened",
+            relative(&files[2])
+        )),
+        "{named}"
+    );
+    assert!(
+        named.contains(&format!(
+            "resolved no occurrence in {}",
+            relative(&files[1])
+        )),
+        "{named}"
     );
 }

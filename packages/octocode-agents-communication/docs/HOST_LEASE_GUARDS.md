@@ -21,7 +21,7 @@ One read snapshot checks active identity and live owned file/tree coverage, plus
 | Pi other profiles | None by default | Set `requireLeases:true`; same capability receipt |
 | Claude guard | `Write`, `Edit`, `MultiEdit`, `NotebookEdit` | `--config` stderr receipt `configured:false` (settings preview only) |
 | OpenCode guard | `write`, `edit` | Explicit plugin factory and native-session map; import alone installs nothing |
-| Claude/Codex/Cursor/Grok message hooks | None | `host-config` stderr receipt `configured:false`, no edit operations; Claude guard is a separate opt-in |
+| Claude/Codex/Cursor/Grok/Octocode message hooks | None | `host-config` stderr receipt `configured:false`, no edit operations; Claude guard is a separate opt-in |
 | Codex | No bundled guard | `host-config --vendor codex` previews messaging hooks only |
 
 Native settings stay unchanged on stdout; a preview receipt never claims a host loaded a hook. Before you rely on admission, check in the real host that an unleased structured write is blocked and a leased one succeeds.

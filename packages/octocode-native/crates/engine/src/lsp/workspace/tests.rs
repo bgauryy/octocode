@@ -335,6 +335,43 @@ fn multi_module_projects_root_at_their_top() {
     assert_eq!(PathBuf::from(resolved), python.0);
 }
 
+/// elasticsearch: `settings.gradle` lists its projects in a variable and
+/// scans directories for more, so no `include` line names `server` or
+/// `x-pack/plugin/core`. Gradle builds a module with no settings file from
+/// the nearest settings file above it, so that is the server's root.
+#[test]
+fn a_gradle_module_roots_at_the_build_whose_settings_sit_above_it() {
+    let top = TmpDir::new();
+    fs::create_dir_all(top.join(".git")).expect("repository");
+    fs::write(
+        top.join("settings.gradle"),
+        b"List projects = [\n  'server',\n]\ninclude projects.toArray(new String[0])\naddSubProjects('', new File(rootProject.projectDir, 'x-pack'))\n",
+    )
+    .expect("settings");
+    fs::write(top.join("build.gradle"), b"").expect("root build");
+    for module in ["server", "x-pack/plugin/core"] {
+        let dir = top.join(module);
+        let sources = dir.join("src/main/java/org/example");
+        fs::create_dir_all(&sources).expect("sources");
+        fs::write(dir.join("build.gradle"), b"").expect("module build");
+        let file = sources.join("A.java");
+        fs::write(&file, b"class A {}").expect("A.java");
+        let resolved =
+            resolve_workspace_root_for_file(file.to_string_lossy().into_owned()).expect("resolve");
+        assert_eq!(PathBuf::from(resolved), top.0, "{module}");
+    }
+    // A build of its own (its own settings file) stays its own root.
+    let own = top.join("integration-tests/gradle");
+    fs::create_dir_all(own.join("src")).expect("own build");
+    fs::write(own.join("settings.gradle"), b"").expect("own settings");
+    fs::write(own.join("build.gradle"), b"").expect("own build script");
+    let file = own.join("src").join("B.java");
+    fs::write(&file, b"class B {}").expect("B.java");
+    let resolved =
+        resolve_workspace_root_for_file(file.to_string_lossy().into_owned()).expect("resolve");
+    assert_eq!(PathBuf::from(resolved), own);
+}
+
 #[cfg(unix)]
 mod includes_memo;
 

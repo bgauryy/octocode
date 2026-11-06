@@ -56,12 +56,23 @@ pub(super) fn download_error(error: reqwest::Error) -> String {
 
 pub(super) async fn fetch_following_redirects(
     url: &str,
+    file: tokio::fs::File,
+) -> Result<tokio::fs::File, String> {
+    follow_redirects(url, file, &host_allowed, MAX_DOWNLOAD_BYTES).await
+}
+
+/// [`fetch_following_redirects`] with the hop check and the size limit given,
+/// so a test serves the asset from a loopback fixture.
+pub(super) async fn follow_redirects(
+    url: &str,
     mut file: tokio::fs::File,
+    allowed: &dyn Fn(&str) -> bool,
+    limit: u64,
 ) -> Result<tokio::fs::File, String> {
     let client = download_client(READ_TIMEOUT)?;
     let mut current = url.to_string();
     for _ in 0..=MAX_REDIRECTS {
-        if !host_allowed(&current) {
+        if !allowed(&current) {
             let host = url::Url::parse(&current)
                 .ok()
                 .and_then(|u| u.host_str().map(str::to_string))
@@ -87,10 +98,10 @@ pub(super) async fn fetch_following_redirects(
             return Err(format!("Download failed: HTTP {}", status.as_u16()));
         }
         if let Some(len) = response.content_length()
-            && len > MAX_DOWNLOAD_BYTES
+            && len > limit
         {
             return Err(format!(
-                "Download exceeds the {MAX_DOWNLOAD_BYTES}-byte limit (Content-Length {len})"
+                "Download exceeds the {limit}-byte limit (Content-Length {len})"
             ));
         }
         use futures_util::StreamExt;
@@ -100,10 +111,8 @@ pub(super) async fn fetch_following_redirects(
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(download_error)?;
             written = written.saturating_add(chunk.len() as u64);
-            if written > MAX_DOWNLOAD_BYTES {
-                return Err(format!(
-                    "Download exceeds the {MAX_DOWNLOAD_BYTES}-byte limit"
-                ));
+            if written > limit {
+                return Err(format!("Download exceeds the {limit}-byte limit"));
             }
             file.write_all(&chunk)
                 .await

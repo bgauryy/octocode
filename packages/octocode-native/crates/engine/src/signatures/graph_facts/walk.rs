@@ -137,8 +137,11 @@ pub(super) fn visit_node(
                     || super::rust_cfg::inner_cfg_requires_test_among(&children, content))
             {
                 let range = line_index.range(node);
-                acc.test_lines
-                    .push([range.start.line + 1, range.end.line + 1]);
+                let start = context
+                    .attributes
+                    .line_start
+                    .map_or(range.start.line, |at| line_index.position(at).line);
+                acc.test_lines.push([start + 1, range.end.line + 1]);
                 context.test = true;
             }
         }

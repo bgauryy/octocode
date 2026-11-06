@@ -33,7 +33,7 @@ const REASONS = [
     query: TARGET, reasons: ['cfgGatedFiles'], script: answerLibOnly,
   }),
   scene('hierarchyParentUnanchored', {
-    files: ROOTS, query: CALL_ROOT, reasons: ['hierarchyParentUnanchored'],
+    files: ROOTS, query: CALL_ROOT, reasons: ['hierarchyParentUnanchored'], allow: ['lead.execution'],
     script: base => ({ answers: [callRoot(base),
       { method: 'callHierarchy/incomingCalls', item: 'root', result: [{ from: item(base, 'src/lib.rs', 1, 'good'), fromRanges: [range(1, 0)] }, { from: { ...item(base, 'src/lib.rs', 2, ''), name: '' }, fromRanges: [range(2, 0)] }] },
       { method: 'callHierarchy/incomingCalls', result: fanOut(base, 52, 'x') }] }),
@@ -69,7 +69,7 @@ const REASONS = [
     script: base => ({ answers: [{ method: 'textDocument/prepareTypeHierarchy', result: [{ ...item(base, 'model.ts', 0, 'Shape'), kind: 11 }] }, { method: 'typeHierarchy/subtypes', item: 'Shape', result: [{ ...item(base, 'model.ts', 1, 'Square'), kind: 5 }] }, { method: 'typeHierarchy/subtypes', error: REPLIES.error }] }),
   }),
   scene('hierarchyFanOutLimit', {
-    files: ROOTS, query: CALL_ROOT, reasons: ['hierarchyFanOutLimit'],
+    files: ROOTS, query: CALL_ROOT, reasons: ['hierarchyFanOutLimit'], allow: ['lead.execution'],
     script: base => ({ answers: [callRoot(base), { method: 'callHierarchy/incomingCalls', item: 'root', result: fanOut(base, 1, 'hub') }, { method: 'callHierarchy/incomingCalls', result: fanOut(base, 60, 'x') }] }),
   }),
   scene('hierarchyNodeLimit', {
@@ -83,7 +83,7 @@ const REASONS = [
   }),
   scene('declarationClipped', {
     files: { ...TS_PROJECT, 'a.ts': `export function f() {\n${'  body();\n'.repeat(70)}}\nf();\n` },
-    query: { path: '$DIR/a.ts', symbolName: 'f', line: 72, operation: 'definition' }, reasons: ['declarationClipped'], channels: ['readDeclaration'],
+    query: { path: '$DIR/a.ts', symbolName: 'f', line: 72, operation: 'definition', view: 'content' }, reasons: ['declarationClipped'], channels: ['readDeclaration'],
     script: base => ({ answers: [{ method: 'textDocument/definition', result: [{ targetUri: `${base}/a.ts`, targetRange: { start: { line: 0, character: 0 }, end: { line: 71, character: 1 } }, targetSelectionRange: range(0, 16) }] }] }),
   }),
   scene('definitionHopFailed', {
@@ -93,11 +93,11 @@ const REASONS = [
   }),
   scene('diagnosticsNotPublished', {
     files: { ...TS_PROJECT, 'a.ts': 'const a = 1;\n' }, query: { path: '$DIR/a.ts', operation: 'diagnostic' }, reasons: ['diagnosticsNotPublished'],
-    script: () => ({ capabilities: { diagnosticProvider: undefined } }),
+    script: () => ({ capabilities: { diagnosticProvider: null } }),
   }),
   scene('diagnosticsTruncated', {
     files: { ...TS_PROJECT, 'a.ts': 'const a = 1;\n' }, query: { path: '$DIR/a.ts', operation: 'diagnostic' }, reasons: ['diagnosticsTruncated'],
-    script: () => ({ capabilities: { diagnosticProvider: undefined }, afterOpen: [{ method: 'textDocument/publishDiagnostics', params: { diagnostics: Array.from({ length: 2001 }, () => ({ range: range(0, 0), severity: 2, message: 'scripted' })) } }] }),
+    script: () => ({ capabilities: { diagnosticProvider: null }, afterOpen: [{ method: 'textDocument/publishDiagnostics', params: { diagnostics: Array.from({ length: 2001 }, () => ({ range: range(0, 0), severity: 2, message: 'scripted' })) } }] }),
   }),
   scene('documentAnalysisErrors', {
     files: { ...TS_PROJECT, 'a.ts': 'broken here\n\n\n\nconst x = 1;\n' }, query: { path: '$DIR/a.ts', symbolName: 'x', line: 5, operation: 'definition' }, reasons: ['documentAnalysisErrors'],
@@ -164,9 +164,9 @@ const CODES = [
   scene('requestFailed', { files: { ...TS_PROJECT, 'a.ts': 'function f() {}\n' }, query: { path: '$DIR/a.ts', symbolName: 'f', line: 1, operation: 'hover' }, codes: ['requestFailed'], script: () => ({ answers: [{ method: 'textDocument/hover', error: { code: -32002, message: 'scripted' } }] }) }),
   scene('serverCrashed', { files: { ...TS_PROJECT, 'a.ts': 'function f() {}\n' }, query: { path: '$DIR/a.ts', symbolName: 'f', line: 1, operation: 'hover' }, codes: ['serverCrashed'], script: () => ({ answers: [{ method: 'textDocument/hover', exit: true }] }) }),
   scene('serverUnavailable', { files: { 'a.xyz': 'f\n' }, query: { path: '$DIR/a.xyz', symbolName: 'f', line: 1, operation: 'definition' }, codes: ['serverUnavailable'], script: () => ({}) }),
-  scene('workspaceRootInvalid', { files: {}, query: { workspaceRoot: '$DIR/nope', operation: 'workspaceSymbol', symbolQuery: 'f' }, codes: ['workspaceRootInvalid'], script: () => ({}) }),
+  scene('workspaceRootInvalid', { files: { 'a.ts': 'export const f = 1;\n' }, query: { workspaceRoot: '$DIR/a.ts', operation: 'workspaceSymbol', symbolQuery: 'f' }, codes: ['workspaceRootInvalid'], script: () => ({}) }),
   scene('fileTooLarge', { files: { ...TS_PROJECT, 'big.ts': { sparse: 8 * 1024 * 1024 + 1, head: 'function f() {}\n' } }, query: { path: '$DIR/big.ts', symbolName: 'f', line: 1, operation: 'definition' }, codes: ['fileTooLarge'], script: () => ({}) }),
-  scene('documentSyncFailed', { files: { ...TS_PROJECT, 'big.ts': { sparse: 2 * 1024 * 1024, head: 'export const a = 1;\n' } }, query: { path: '$DIR/big.ts', operation: 'documentSymbols' }, codes: ['documentSyncFailed'], script: () => ({ pauseAfterInitialized: true }) }),
+  scene('documentSyncFailed', { files: { ...TS_PROJECT, 'big.ts': `export const a = 1;\n${'// filler line for a large didOpen\n'.repeat(60_000)}` }, query: { path: '$DIR/big.ts', operation: 'documentSymbols' }, codes: ['documentSyncFailed'], script: () => ({ pauseAfterInitialized: true }) }),
 ];
 
 export const LSP_SCENARIOS = [...REASONS, ...CODES];

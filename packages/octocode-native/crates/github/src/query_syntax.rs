@@ -2,7 +2,8 @@
 //! name validation shared by code, repository, and history search.
 //!
 //! Every caller-supplied value is emitted as either a bare word that GitHub
-//! cannot read as syntax, or one quoted phrase that cannot close early. That
+//! cannot read as syntax, or one quoted phrase whose inner quotes are escaped,
+//! so it cannot close early. That
 //! keeps a keyword such as `"hello" NOT` from splicing a boolean operator onto
 //! the next qualifier, and keeps an owner such as `a OR is:public` from
 //! widening the scope.
@@ -37,20 +38,26 @@ fn closed_phrase(value: &str) -> bool {
     }
 }
 
-/// Quote `value` as one phrase. Double quotes and backslashes are dropped:
-/// GitHub search ignores them inside terms and cannot escape them reliably,
-/// so keeping them would let the phrase close early.
+/// Quote `value` as one phrase. Double quotes and backslashes inside it are
+/// escaped (`\"`, `\\`), as GitHub search reads them in a phrase: the phrase
+/// cannot close early, and a keyword that spells quotes (`"name": "ws"` in
+/// JSON) matches them; dropping them finds nothing there. A value of only
+/// quotes, backslashes and whitespace has nothing to search.
 pub fn search_phrase(value: &str) -> String {
-    let cleaned = value
-        .chars()
-        .map(|c| if c == '"' || c == '\\' { ' ' } else { c })
-        .collect::<String>();
-    let cleaned = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
-    if cleaned.is_empty() {
-        String::new()
-    } else {
-        format!("\"{cleaned}\"")
+    let words = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if words.chars().all(|c| matches!(c, '"' | '\\' | ' ')) {
+        return String::new();
     }
+    let mut phrase = String::with_capacity(words.len() + 2);
+    phrase.push('"');
+    for c in words.chars() {
+        if matches!(c, '"' | '\\') {
+            phrase.push('\\');
+        }
+        phrase.push(c);
+    }
+    phrase.push('"');
+    phrase
 }
 
 /// One literal keyword term; empty when nothing searchable remains.
@@ -124,15 +131,20 @@ mod tests {
         assert_eq!(quote_search_keyword("fix login"), "\"fix login\"");
         assert_eq!(quote_search_keyword("already"), "already");
         assert_eq!(quote_search_keyword("\"exact phrase\""), "\"exact phrase\"");
-        assert_eq!(quote_search_keyword("\"hello\" NOT"), "\"hello NOT\"");
+        assert_eq!(quote_search_keyword("\"hello\" NOT"), r#""\"hello\" NOT""#);
         assert_eq!(
             quote_search_keyword("x\" OR is:public"),
-            "\"x OR is:public\""
+            r#""x\" OR is:public""#
+        );
+        // JSON text keeps its quotes: GitHub matches `"name": "ws"` only so.
+        assert_eq!(
+            quote_search_keyword("\"name\": \"ws\""),
+            r#""\"name\": \"ws\"""#
         );
         assert_eq!(quote_search_keyword("repo:other/x"), "\"repo:other/x\"");
         assert_eq!(quote_search_keyword("-excluded"), "\"-excluded\"");
         assert_eq!(quote_search_keyword("NOT"), "\"NOT\"");
-        assert_eq!(quote_search_keyword("trail\\"), "\"trail\"");
+        assert_eq!(quote_search_keyword("trail\\"), r#""trail\\""#);
         assert_eq!(quote_search_keyword("\"\""), "");
     }
 
@@ -141,7 +153,7 @@ mod tests {
         assert_eq!(qualifier_value("rust"), "rust");
         assert_eq!(qualifier_value("Common Lisp"), "\"Common Lisp\"");
         assert_eq!(qualifier_value("\"a b\""), "\"a b\"");
-        assert_eq!(qualifier_value("\"a\" OR b"), "\"a OR b\"");
+        assert_eq!(qualifier_value("\"a\" OR b"), r#""\"a\" OR b""#);
         assert_eq!(qualifier_value("x)"), "\"x)\"");
     }
 

@@ -19,7 +19,6 @@ pub(super) struct Coverage {
     pub(super) binary_files: String,
     /// The returned files whose values are decoded text, not UTF-8 bytes.
     pub(super) not_utf8_files: Option<String>,
-    pub(super) pcre2_deadline: bool,
     pub(super) skip_hint: Option<String>,
     /// include/exclude filtered out every file: nothing was searched.
     pub(super) scope_miss: bool,
@@ -94,7 +93,6 @@ impl Coverage {
                 .as_deref()
                 .filter(|files| !files.is_empty())
                 .map(|files| binary_file_list(files, saturating_u32(files.len()), output_root)),
-            pcre2_deadline: cap_has(CapReason::Pcre2Deadline),
             scope_miss: !root.is_file()
                 && stats.files_searched == 0
                 && skip_hint.is_none()
@@ -158,11 +156,6 @@ impl Coverage {
             warnings.push(format!(
                 "notUtf8: {files} not valid UTF-8: match values are decoded text (Latin-1, or U+FFFD for invalid bytes), as localFetch reads the file, not verbatim bytes."
             ));
-        }
-        if self.pcre2_deadline {
-            warnings.push(
-                "The PCRE2 (regex:\"pcre2\") search stopped at its wall-clock deadline; results cover only the files finished before it.".into(),
-            );
         }
         if self.binary_cut {
             warnings.push(format!(

@@ -196,6 +196,12 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
             .into_iter()
             .chain(anchor_answered),
     );
+    if lsp_search_query::op(query) == Op::Callers {
+        scope.answer_lines(
+            true,
+            std::iter::once((anchor.path.to_owned(), anchor.line)).chain(caller_sites(&items)),
+        );
+    }
     for (_, walk) in &mut walks {
         failures.append(&mut walk.failures);
     }
@@ -276,6 +282,26 @@ fn production_first(items: &mut [Value], root: &str) {
 /// Every file a walk's answer covers: the anchor, each listed node and call
 /// site file, the verified importers, and the candidates the server showed
 /// to name another declaration.
+/// The call sites of the anchor's direct callers, by caller file and
+/// zero-based line: what a `callers` answer lists of each file it answers.
+fn caller_sites(items: &[Value]) -> impl Iterator<Item = (String, u32)> + '_ {
+    items
+        .iter()
+        .filter(|item| item["level"].as_u64().is_none_or(|level| level == 1))
+        .filter_map(|item| {
+            let path = item
+                .pointer("/from/path")
+                .or_else(|| item.get(CALLER_PATH))
+                .and_then(Value::as_str)?;
+            let ranges = item["fromRanges"].as_array()?;
+            Some(ranges.iter().filter_map(move |range| {
+                let line = range["startLine"].as_u64()?.checked_sub(1)?;
+                Some((path.to_owned(), u32::try_from(line).ok()?))
+            }))
+        })
+        .flatten()
+}
+
 fn answer_files(anchor: &str, items: &[Value], importers: Option<&Importers>) -> Vec<String> {
     let mut files = vec![anchor.to_owned()];
     for item in items {

@@ -5,11 +5,15 @@ description: "Coordinate agents across sessions, hosts or worktrees through a sh
 
 # Agents communication
 
+For installation, MCP wiring or hook repair, use `octocode-communication-bootstrap`; this skill owns ongoing communication.
+
 Use native coordination inside one Octocode or Pi team (Pi provides `coordinate`, `sendMessage` and `agent`). Use this package across teams, hosts or worktrees sharing a local SQLite database. Its A2A-inspired message parts and named evidence documents have no remote endpoint, authentication, AgentCard or Task API.
 
 ## Choose the interface
 
-Prefer connected MCP. Follow its binding, lifecycle instructions and discovered schemas. If only `init` is visible, initialize with your name and vendor, then refresh discovery. Call `agents`, `messages`, `leases`, `documents` and `records` as exposed with `{type,input}`. Report an unavailable capability. Never guess a session ID, change identity or switch to CLI to bypass a profile.
+Prefer connected MCP. Follow its binding, lifecycle instructions and discovered schemas. If only `init` is visible, initialize with your name and vendor, then refresh discovery. The default exposes `agents`, `messages` and `records/read`; documents, record writes and leases are optional. Call exposed tools with `{caller,type,input}` using your binding’s caller identity. Agents own planning and task state; this layer transports messages and data. Report an unavailable capability. Never guess a session ID, change identity or switch to CLI to bypass a profile.
+
+Introduce yourself using your existing agent name, provider/host label (`vendor`), and exact native ID (`vendorSession`) when known. For every communication tool call, copy `binding.caller` beside `type` and `input`: `{id,name,vendor,vendorSession?}`. `id` is the returned database identity, not an invented or borrowed native ID. The runtime fills omitted caller metadata from the binding, rejects mismatches and returns `_meta.caller`; generated continuations remain executable unchanged.
 
 ## Run the CLI
 
@@ -22,7 +26,7 @@ npx -y @octocodeai/octocode-agents-communication /cli skill --json
 
 Read the returned `instructions` before coordinating. The response supplies `packageRoot` and `referenceRoot`; resolve guide filenames under `referenceRoot`. Both interfaces accept `--workspace`. Pass `--session ID` on each identity-bound CLI call. Without `/cli` the executable starts MCP with `--session ID`, `--managed --name NAME --vendor HOST`, or `init` for an unbound connection.
 
-- **Peers and edits.** Reuse your binding or `join` if none, then inspect `peers`. Acquire shared paths before editing. On conflict, coordinate a handoff with the lease owner or take disjoint work. Follow the returned `next` with `wait:true` and edit the contested path only after the grant. Pi's file tools honor leases in the default and registered databases (`DB.md`); shell and OS writes can bypass them. Release finished leases with `unlock` and `leave` only an identity you own.
+- **Peers and edits.** Reuse your binding or `join` if none, then inspect `peers`. When the binding enables path coordination, acquire shared paths before editing. On conflict, coordinate a handoff with the lease owner or take disjoint work. Follow the returned `next` with `wait:true` and edit the contested path only after the grant. Pi's file tools honor leases in the default and registered databases (`DB.md`); shell and OS writes can bypass them. Release finished leases with `unlock` and `leave` only an identity you own.
 - **Mail and evidence.** Read inbox at task boundaries. Send text, JSON data or URL references in `parts`. Set `replyRequired:true` for a correlated outcome and `contextId` to group progress. Complete handled requests with an outcome and reply parts; acknowledge handled FYIs silently. Payloads cannot transfer leases, add recipients or rewrite artifact references. Follow the guide's “Share evidence and continue reads” for paging and checkpoints. See the [request and reply examples](../../packages/octocode-agents-communication/docs/WORKFLOW.md#request-progress-and-final-answer).
 - **Inputs and host commands.** Use `<command> --help`, `schema <command>` or examples in `COMMANDS.md`. Use `schema types` and `schema type NAME` without workspace, database or session flags. `attach` joins an existing session. Grok supports `attach --transport grok` with the ACP bridge and `listen`, or host hooks. `run` starts a Claude, Codex or Pi worker only when requested.
 

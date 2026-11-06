@@ -4,11 +4,16 @@ use super::*;
 /// by hand.
 pub(in super::super) fn pack(tag: &[u8; 4], flat: &[u8]) -> Result<Vec<u8>, ToolError> {
     let mut r = Reader::new(flat, "encoder records");
-    let rows = r.count().map_err(|error| corrupt(&error))?;
+    let rows = r.rows().map_err(|error| corrupt(&error))?;
     let mut directory = directory_start(rows)?;
     let mut bodies = Vec::new();
     let start = (PREFIX + rows.div_ceil(ROWS) * ENTRY) as u64;
     let mut emit = |body: Body<'_>| {
+        let stored = seal(tag, body.bytes)?;
+        let body = Body {
+            bytes: &stored,
+            ..body
+        };
         directory_entry(&mut directory, &body, start + bodies.len() as u64);
         bodies.extend_from_slice(body.bytes);
         Ok(())
@@ -56,4 +61,41 @@ fn malformed_encoding_and_extreme_block_ranges_return_errors() {
         digest: [0; 32],
     };
     assert!(validate_ranges(b"NODE", &[block], 1).is_err());
+}
+
+/// Evidence strings and origin blocks are stored deflated and read back
+/// byte for byte; other blocks are stored as they are. A stored body that
+/// inflates to any length but its recorded one is refused.
+#[test]
+fn sealed_blocks_round_trip_and_shrink() {
+    let raw = br#"{"recipient":"a.go:1:9:recipient","group":0,"assessment":{"status":"parsed"}}"#
+        .repeat(64);
+    for tag in [b"STRE", b"SRCO"] {
+        let stored = seal(tag, &raw).expect("seal");
+        assert!(
+            stored.len() * 4 < raw.len(),
+            "{} of {}",
+            stored.len(),
+            raw.len()
+        );
+        assert_eq!(open(&stored).expect("open"), raw);
+    }
+    for tag in [b"NODE", b"DECL"] {
+        assert_eq!(seal(tag, &raw).expect("seal"), raw);
+    }
+    let mut stored = seal(b"STRE", &raw).expect("seal");
+    let mut longer = Vec::new();
+    writer::put(&mut longer, raw.len() as u64 + 1);
+    let header = {
+        let mut header = Vec::new();
+        writer::put(&mut header, raw.len() as u64);
+        header.len()
+    };
+    longer.extend_from_slice(&stored[header..]);
+    assert!(open(&longer).is_err(), "a body shorter than its length");
+    stored.truncate(stored.len() - 4);
+    assert!(open(&stored).is_err(), "a truncated body");
+    let mut huge = Vec::new();
+    writer::put(&mut huge, LIMITS.snapshot_bytes as u64 + 1);
+    assert!(open(&huge).is_err(), "a length past the snapshot bound");
 }

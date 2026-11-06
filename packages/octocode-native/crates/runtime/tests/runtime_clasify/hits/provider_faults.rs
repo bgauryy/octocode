@@ -3,19 +3,24 @@
 use super::*;
 
 /// A provider slower than any page guess still answers, on every route: only
-/// the request time of the network layer bounds one call.
+/// the request time of the network layer bounds one call. The budget is small,
+/// so the wait is short; the answer comes at three quarters of it, which leaves
+/// a loaded machine its slack.
 #[tokio::test]
 async fn a_slow_provider_is_waited_for_on_every_route() {
+    let limits = octocode_native::execution::RuntimeLimits {
+        network_timeout: std::time::Duration::from_secs(4),
+        ..support::FIXTURE_LIMITS
+    };
+    let delay = limits.network_timeout * 3 / 4;
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
-        .respond_with(|request: &Request| {
-            answer(request).set_delay(std::time::Duration::from_secs(11))
-        })
+        .respond_with(move |request: &Request| answer(request).set_delay(delay))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
     let file = workspace.write("dense.txt", DENSE);
-    let runtime = support::clasify_runtime(&workspace, &server, &[]);
+    let runtime = workspace.runtime_with(&support::provider_env(&server, &[]), limits);
     let row = support::run(
         &runtime,
         "localSearch",

@@ -120,3 +120,47 @@ fn socket_directory_must_be_private() {
     std::fs::set_permissions(&sockets, std::fs::Permissions::from_mode(0o755)).expect("chmod");
     assert!(private_dir(&sockets, uid).is_none());
 }
+
+/// A warm server listening on `socket` that reads one request line and
+/// answers `reply`; the request it read.
+fn answering(socket: &std::path::Path, reply: &'static str) -> std::thread::JoinHandle<String> {
+    use std::io::{BufRead as _, Write as _};
+    let listener = std::os::unix::net::UnixListener::bind(socket).expect("bind");
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().expect("accept");
+        let mut request = String::new();
+        std::io::BufReader::new(&stream)
+            .read_line(&mut request)
+            .expect("request");
+        (&stream).write_all(reply.as_bytes()).expect("reply");
+        request
+    })
+}
+
+/// `cache clear` stops every warm server and goes on only when each
+/// confirms its calls drained; no socket directory has nothing to stop, and
+/// one another user could enter is refused.
+#[test]
+fn stopping_and_waiting_needs_each_servers_drain_confirmation() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let temp = tempfile::tempdir().expect("temp");
+    assert_eq!(stop_and_wait_in(temp.path()), Ok(()), "no servers");
+    let uid = std::fs::metadata(temp.path()).expect("meta").uid();
+    let (dir, _) = socket_dir(temp.path());
+    private_dir(&dir, uid).expect("private");
+
+    let confirmed = answering(&dir.join("serve-a.sock"), "{\"stopped\":true}\n");
+    assert_eq!(stop_and_wait_in(temp.path()), Ok(()));
+    let request: serde_json::Value =
+        serde_json::from_str(&confirmed.join().expect("server")).expect("JSON request");
+    assert_eq!(request, json!({"stop": true, "drain": true}));
+    std::fs::remove_file(dir.join("serve-a.sock")).expect("unbind");
+
+    let unconfirmed = answering(&dir.join("serve-b.sock"), "{\"stopped\":false}\n");
+    assert!(stop_and_wait_in(temp.path()).is_err());
+    unconfirmed.join().expect("server");
+    std::fs::remove_file(dir.join("serve-b.sock")).expect("unbind");
+
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    assert!(stop_and_wait_in(temp.path()).is_err(), "a shared directory");
+}

@@ -75,6 +75,7 @@ pub fn sanitize_byte_page(
     raw: Page,
     source_path: &std::path::Path,
     security: &impl ContentScan,
+    scans: &WindowScans,
 ) -> Result<Option<(Page, bool)>, (ErrorCode, String)> {
     if raw.out_of_range || raw.text.is_empty() {
         return Ok(Some((raw, false)));
@@ -98,15 +99,56 @@ pub fn sanitize_byte_page(
     let window_end = line_end((end + PAGE_SCAN_MARGIN_BYTES).min(bytes.len()));
     for (from, to) in [(window_start, window_end), (0, bytes.len())] {
         let window = &view[from..to];
-        let (clean, _) = security.sanitize(window, source_path)?;
-        if clean == window {
+        let clean = scans.scanned((from, to), window, |window| {
+            security
+                .sanitize(window, source_path)
+                .map(|(clean, _)| clean)
+        })?;
+        let Some(clean) = clean else {
             return Ok(Some((raw, false)));
-        }
+        };
         if let Some(page) = map_clean_window(view, from, window, &clean, &raw) {
             return Ok(Some((page, true)));
         }
     }
     Ok(None)
+}
+
+/// The latest byte-page window scan of one view, by the window's offsets in
+/// that view. Every byte page of a line longer than a page scans the same
+/// window (the whole line and its margins), so a walk that replays its view
+/// ([`crate::tools::source_view::retained`]) scans that window once instead
+/// of once per page. It holds the scan's output only, and one window at a
+/// time; a view is fixed text, so its offsets name the window exactly.
+#[derive(Default)]
+pub struct WindowScans(std::sync::Mutex<Option<WindowScan>>);
+
+/// A scanned window: its offsets, and its text when the scan changed it.
+type WindowScan = ((usize, usize), Option<std::sync::Arc<str>>);
+
+impl WindowScans {
+    /// `window`, at `span` of the view, as `scan` leaves it: `None` when the
+    /// scan changes nothing. A failed scan is not kept.
+    fn scanned<E>(
+        &self,
+        span: (usize, usize),
+        window: &str,
+        scan: impl FnOnce(&str) -> Result<String, E>,
+    ) -> Result<Option<std::sync::Arc<str>>, E> {
+        let mut kept = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some((at, clean)) = kept.as_ref()
+            && *at == span
+        {
+            return Ok(clean.clone());
+        }
+        let clean = scan(window)?;
+        let clean = (clean != window).then(|| std::sync::Arc::from(clean));
+        *kept = Some((span, clean.clone()));
+        Ok(clean)
+    }
 }
 
 /// Unchanged text after a placeholder used to find where its span ends.

@@ -6,7 +6,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ROOT, SKILL_COLLECTIONS } from './lib/workspaces.mjs';
 import { skillTestCommand } from './lib/skill-tests.mjs';
-import { cargoIsRunning, exceedsSize, NATIVE_DEBUG_LIMIT_BYTES, nativeDebugDir } from './lib/native-target.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // CI never builds native: native artifacts are built locally (`build:all` / `build:publish`).
@@ -32,13 +31,7 @@ const SKILLS_COMMON = [yarn('workspace', '@octocodeai/skills-common', 'lint'), y
 /** task → [description, steps]; extra CLI args go to the last step. */
 const TASKS = {
   build: ['Release-mode build of every workspace (native host only, slow)', [health('run', 'build', '--parallel')]],
-  'build:dev': ['Fast debug build of every workspace (native host only, default locally); runs clean:cache first when native target/debug is over 50 GiB and no other cargo is running', () => {
-    const stale = exceedsSize(nativeDebugDir(), NATIVE_DEBUG_LIMIT_BYTES);
-    const busy = stale && cargoIsRunning();
-    if (busy) console.log('dev build:dev: native target/debug is over 50 GiB, but another cargo is running, so skipping clean:cache');
-    else if (stale) console.log('dev build:dev: native target/debug is over 50 GiB, running clean:cache first');
-    return [...(stale && !busy ? TASKS['clean:cache'][1] : []), health('run', 'build', '--parallel', '--prefer', 'build:dev')];
-  }],
+  'build:dev': ['Fast debug build of every workspace (native host only, default locally); shared cache cleanup is a separate explicit task', [health('run', 'build', '--parallel', '--prefer', 'build:dev')]],
   'build:ci': ['Resolution check, then release build without benchmark or native', [script('prepublish.mjs'), health('run', 'build', '--parallel', ...CI_EXCLUDE)]],
   'build:publish': ['Resolution check, all-platform native build, MCP publish build', [script('prepublish.mjs'), yarn('workspace', '@octocodeai/octocode-native', 'build:all'), yarn('workspace', 'octocode-mcp', 'build')]],
   test: ['Run every workspace test script', [health('run', 'test')]],

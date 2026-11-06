@@ -156,7 +156,11 @@ fn growing_in_memory_source_stops_at_guard_with_specific_recovery() {
         panic!("a source past the guard stops there");
     };
     assert_eq!(len, MAX_SOURCE_BYTES + 1);
-    let result = source_too_large("growing.txt", len, SourceSizeLimit::InMemoryGrowth);
+    let result = source_too_large(
+        "growing.txt",
+        len,
+        SourceSizeLimit::InMemoryGrowth(MAX_SOURCE_BYTES),
+    );
     assert_eq!(result.error_code, Some(ErrorCode::FileTooLarge));
     assert!(
         result

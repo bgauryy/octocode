@@ -152,22 +152,55 @@ pub(super) fn facts_from_tree(
     })
 }
 
-/// The zero-based lines where [`facts_from_tree`] would name a declaration
-/// `name` in `tree`, without reading the rest of the file: a declaration's name
-/// lies inside its node, so only nodes that spell `name` are entered, and the
-/// walk does the same per-node work. `None` when only the whole walk can tell:
-/// `name` is not one identifier, what declares it depends on code elsewhere in
-/// the file (a GoogleTest include), or a Rust macro body declares it. Which
-/// bodies that walk reads depends on the file's other macros, imports and body
-/// count; it reads no body this one does not, so a body declaring nothing here
-/// declares nothing there.
-pub(crate) fn declared_lines_from_tree(
+/// Where [`facts_from_tree`] would name `name` in a file: the zero-based lines
+/// of its declarations' names, and every line a call whose callee ends in
+/// `name` spans (`None` when only the whole walk can tell).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NamedSites {
+    pub declared: Vec<usize>,
+    pub called: Option<Vec<usize>>,
+}
+
+fn declared_in(acc: &GraphAccumulator, name: &str) -> Vec<usize> {
+    acc.declarations
+        .iter()
+        .filter(|declaration| declaration.name == name)
+        .map(|declaration| declaration.selection_range.start.line as usize)
+        .collect()
+}
+
+fn called_in(acc: &GraphAccumulator, name: &str) -> Vec<usize> {
+    acc.calls
+        .iter()
+        .filter(|call| {
+            call.callee
+                .rsplit_once(['.', ':'])
+                .map_or(call.callee.as_str(), |(_, last)| last)
+                == name
+        })
+        .flat_map(|call| call.range.start.line as usize..=call.range.end.line as usize)
+        .collect()
+}
+
+/// What one walk of only the nodes that spell `name` reads: `read` of its
+/// accumulator, and again after the Rust macro bodies it found (`None` when it
+/// found none). A declaration's name, a call's callee and a heritage clause's
+/// base lie inside their nodes, so only nodes that spell `name` are entered,
+/// and the walk does the same per-node work as [`facts_from_tree`]. `None` when
+/// only the whole walk can tell: `name` is not one identifier, or what the file
+/// declares depends on code elsewhere in it (a GoogleTest include). Which
+/// bodies the whole walk reads depends on the file's other macros, imports and
+/// body count; it reads no body this one does not, so a body naming nothing
+/// here names nothing there.
+fn narrow_walk<T>(
     content: &str,
     file_path: &str,
     extension: &str,
     tree: &tree_sitter::Tree,
     name: &str,
-) -> Option<Vec<usize>> {
+    declarations_only: bool,
+    read: impl Fn(&GraphAccumulator) -> T,
+) -> Option<(T, Option<T>)> {
     if name.is_empty() || !name.chars().all(crate::text::is_ident_char) {
         return None;
     }
@@ -177,11 +210,13 @@ pub(crate) fn declared_lines_from_tree(
     if matches!(ext.as_str(), "cpp" | "cu") && content.contains("gtest/gtest.h") {
         return None;
     }
+    let mut acc = GraphAccumulator::new(file_path, &ext);
     let root = tree.root_node();
     if ext == "go" && go::package_header(root, content).build_excluded {
-        return Some(Vec::new());
+        return Some((read(&acc), None));
     }
-    let mut acc = GraphAccumulator::new(file_path, &ext);
+    acc.declarations_only = declarations_only;
+    acc.call_adapter = entry.call_adapter;
     acc.visibility_adapter = entry.visibility_adapter;
     acc.export_forwarding_node = entry.export_forwarding_node;
     acc.js_fallback = js_fallback::is_fallback_lane(&ext);
@@ -191,28 +226,70 @@ pub(crate) fn declared_lines_from_tree(
     if !visit_node(root, content, &positions, &mut acc, deadline, &[], None) {
         return None;
     }
-    let named = |acc: &GraphAccumulator| {
-        acc.declarations
-            .iter()
-            .filter(|declaration| declaration.name == name)
-            .map(|declaration| declaration.selection_range.start.line as usize)
-            .collect::<Vec<_>>()
-    };
-    let walked = named(&acc);
-    if !acc.macro_bodies.is_empty() {
-        acc.source_templates = crate::text::analysis::SourceTemplates::new(
-            content,
-            crate::text::analysis::Producer::new(format!("tree-sitter-facts:{ext}"), "6"),
-            crate::text::analysis::AnalysisOperation::GraphFacts,
-        )
-        .ok()?;
-        if !visit_macro_bodies(content, &entry.language, &positions, &mut acc, deadline)
-            || named(&acc).len() != walked.len()
-        {
-            return None;
-        }
+    let walked = read(&acc);
+    if acc.macro_bodies.is_empty() {
+        return Some((walked, None));
     }
-    Some(walked)
+    acc.source_templates = crate::text::analysis::SourceTemplates::new(
+        content,
+        crate::text::analysis::Producer::new(format!("tree-sitter-facts:{ext}"), "6"),
+        crate::text::analysis::AnalysisOperation::GraphFacts,
+    )
+    .ok()?;
+    if !visit_macro_bodies(content, &entry.language, &positions, &mut acc, deadline) {
+        return None;
+    }
+    Some((walked, Some(read(&acc))))
+}
+
+/// The [`NamedSites`] of `name` in `tree` as [`facts_from_tree`] would find
+/// them, from a [`narrow_walk`]. `None` when only the whole walk can tell, or a
+/// Rust macro body declares the name; the calls alone are unknown when a macro
+/// body calls it.
+pub(crate) fn named_sites_from_tree(
+    content: &str,
+    file_path: &str,
+    extension: &str,
+    tree: &tree_sitter::Tree,
+    name: &str,
+) -> Option<NamedSites> {
+    let read = |acc: &GraphAccumulator| (declared_in(acc, name), called_in(acc, name));
+    let ((declared, called), after) =
+        narrow_walk(content, file_path, extension, tree, name, false, read)?;
+    match after {
+        Some((declared_after, _)) if declared_after != declared => None,
+        // A body calling the name may be one the whole walk does not read.
+        Some((_, called_after)) if called_after != called => Some(NamedSites {
+            declared,
+            called: None,
+        }),
+        _ => Some(NamedSites {
+            declared,
+            called: Some(called),
+        }),
+    }
+}
+
+/// The declarations whose heritage clause names `name`, with those edges, as
+/// [`facts_from_tree`] would record them, from a declarations-only
+/// [`narrow_walk`]: a document holding just them. `None` when only the whole
+/// walk can tell, or a Rust macro body adds one.
+pub(crate) fn named_heritage_from_tree(
+    content: &str,
+    file_path: &str,
+    extension: &str,
+    tree: &tree_sitter::Tree,
+    name: &str,
+) -> Option<GraphFactsDocument> {
+    let read = |acc: &GraphAccumulator| GraphFactsDocument {
+        declarations: acc.declarations.clone(),
+        edges: acc.edges.clone(),
+        ..GraphFactsDocument::default()
+    };
+    match narrow_walk(content, file_path, extension, tree, name, true, read)? {
+        (walked, Some(after)) if after.edges != walked.edges => None,
+        (walked, _) => Some(walked),
+    }
 }
 
 fn language_label(ext: &str, language_id: Option<&str>) -> String {

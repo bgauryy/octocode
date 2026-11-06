@@ -183,8 +183,8 @@ pub(super) fn fingerprint(
     format!("{SNAPSHOT_SCHEME}{SNAPSHOT_VERSION}:{}", identity.finish())
 }
 
-const SNAPSHOT_SCHEME: &str = "lexical-live-v";
-const SNAPSHOT_VERSION: u32 = 8;
+pub(super) const SNAPSHOT_SCHEME: &str = "lexical-live-v";
+pub(super) const SNAPSHOT_VERSION: u32 = 8;
 
 /// The cap reasons as one stable text, as the snapshot fingerprint binds
 /// them: comma-joined names in their fixed order, `None` when uncapped.
@@ -226,9 +226,10 @@ pub(super) fn malformed_snapshot(query: &LocalSearchQuery) -> Option<ToolError> 
 /// carry the caller's intent: they stay out of [`query_key`], so a
 /// continuation may change them and keep its snapshot. Every other field
 /// is search semantics, including any field the contract adds later.
-const NON_SEMANTIC_FIELDS: [&str; 5] = [
+const NON_SEMANTIC_FIELDS: [&str; 6] = [
     "page",
     "matchPage",
+    "scanOffset",
     "snapshot",
     "selection",
     "classification",

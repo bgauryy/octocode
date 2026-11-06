@@ -70,6 +70,7 @@ pub(super) fn cut_page<'a>(
         view: &view.text,
         budget,
         source_lines: source_lines.as_ref(),
+        scans: &view.scans,
     };
     let mut scanned = scan_page(&q, &window, source_path, security, source, ext.start)?;
     if let Some(origin) = facts.byte_origin
@@ -139,7 +140,11 @@ pub(super) fn page_result(
     );
     if pg.pagination.offset == 0 {
         warn_unmatchable(q, source, ext, &mut warnings);
-        warnings.extend(selection_outcome.and_then(super::super::selection::Chosen::disclosure));
+        warnings.extend(
+            selection_outcome
+                .into_iter()
+                .flat_map(super::super::selection::Chosen::disclosure),
+        );
     }
     let out_of_range = pg.out_of_range;
     let token = selection_outcome.map(|chosen| chosen.outcome.token.as_str());
@@ -191,14 +196,10 @@ pub(super) fn page_result(
         matched_lines,
         match_keys,
         blocks,
-        // Under a classifier the row counts what it kept, as its receipt does:
-        // the hits it judged are `selection.totalItems`.
+        // Under a classifier the row counts what this page kept; the
+        // receipt counts the whole walk.
         selected_match_count: selection_outcome
-            .map(|chosen| {
-                octocode_engine::num::saturating_usize(
-                    u64::try_from(chosen.outcome.receipt.selected_items).unwrap_or_default(),
-                )
-            })
+            .map(|chosen| chosen.outcome.selected.len())
             .or(ext.count),
         modified: (view.mode != Some(ReadView::Symbols))
             .then(|| facts.modified.clone())
@@ -237,7 +238,8 @@ pub(super) fn page_result(
         && result
             .selection
             .as_ref()
-            .is_some_and(|receipt| receipt.total_items > 0 && receipt.selected_items == 0)
+            .is_some_and(|receipt| receipt.total_items > 0)
+        && selection_outcome.is_some_and(|chosen| chosen.outcome.selected.is_empty())
     {
         result.status = ReadStatus::Empty;
     }

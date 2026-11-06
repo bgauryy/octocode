@@ -24,6 +24,7 @@ pub(crate) use npm::registry::invalid_registry_url;
 pub(crate) use npmrc::npm_authorization;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 pub use release_ref::{ReleaseTag, ReleaseTags, TagCommitFuture, TagFuture};
+pub(crate) use types::alias_groups;
 pub use types::{
     Advisory, ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState,
     ResolvedNpmRegistry, TerminalLimit,

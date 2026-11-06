@@ -164,6 +164,8 @@ fn a_default_equivalent_rust_context_shares_the_default_server() {
     assert_ne!(key(serde_json::json!({"buildScripts": true})), default);
     let mut expected = octocode_engine::lsp::config::rust_analyzer_headless_options();
     expected["cargo"]["buildScripts"]["enable"] = serde_json::json!(true);
+    // Build scripts run repository code anyway: the wrapper blanks go with them.
+    expected["cargo"]["extraEnv"] = serde_json::json!({});
     assert_eq!(scripts, expected, "only the named field changes");
     let cfgs = rust_server_config(serde_json::json!({"cfgs": ["tokio_unstable"]}))
         .initialization_options

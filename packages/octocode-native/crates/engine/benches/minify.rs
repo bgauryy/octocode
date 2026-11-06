@@ -1,10 +1,9 @@
 //! Micro-benchmarks for the minify hot path.
 //!
-//! `applyContentViewMinification` is the agent-readable minify entry point: for
-//! JS/TS it runs the OXC parse → semantic → codegen pipeline (the expensive
-//! path), while CSS uses lightweight comment and whitespace cleanup. Both are
-//! CPU-bound and called on nearly every file the tools surface, so this sweeps
-//! three JS sizes plus two CSS sizes to track their costs independently.
+//! `apply_content_view_minification` is the compact view's entry point: for a
+//! language with a grammar it parses the source and lays out the lines; CSS has
+//! no grammar and only loses whitespace. This sweeps three JS sizes plus two
+//! CSS sizes to track their costs independently.
 
 use std::hint::black_box;
 

@@ -16,7 +16,11 @@
 use super::{handoff::*, types::*};
 use crate::security::ContentSecurity;
 
+mod match_keys;
+pub(super) use match_keys::annotate_match_keys;
+
 /// One declaration of a file's outline, 1-based lines.
+#[derive(Clone)]
 struct Declaration {
     kind: String,
     name: String,
@@ -26,11 +30,29 @@ struct Declaration {
     end: u32,
 }
 
+#[derive(Clone)]
 pub(super) struct Outline {
     declarations: Vec<Declaration>,
 }
 
+/// Outlines by the digest of the text they outline and its path, so a text
+/// a page, a later page or a repeat already outlined is not parsed again.
+static OUTLINES: crate::tools::page_memo::PageMemo<std::sync::Arc<Outline>> =
+    crate::tools::page_memo::PageMemo::new();
+
 impl Outline {
+    /// The heap this outline holds.
+    fn weight(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + self
+                .declarations
+                .iter()
+                .map(|item| {
+                    std::mem::size_of::<Declaration>() + item.kind.capacity() + item.name.capacity()
+                })
+                .sum::<usize>()
+    }
+
     /// The outline of `source`; `None` when no extractor supports the file.
     /// It reads the typed declarations document of one fresh parse
     /// ([`crate::tools::declarations::file_document`]), owned by this
@@ -152,7 +174,7 @@ pub(super) fn shown_bytes(
     source: &std::path::Path,
     expected: super::sources::Expected,
 ) -> Option<Vec<u8>> {
-    let limit = octocode_engine::signatures::MAX_PARSE_SIZE;
+    let limit = crate::security::SourceLimits::REAL.whole_source;
     let bytes = super::sources::read_entry(source, limit)?;
     if let super::sources::Expected::Stored(stored) = expected
         && stored != Some(octocode_engine::digest::sha256_digest(&bytes))
@@ -161,68 +183,6 @@ pub(super) fn shown_bytes(
     }
     Some(bytes)
 }
-
-/// Set `matchKeys` on each shown JSON or TOML file with hit rows: the key
-/// path of every hit line, read from the file's current bytes, in page
-/// order while the page stays within `page_budget`. Returns the note for
-/// files whose keys did not fit, never dropped silently.
-pub(super) fn annotate_match_keys(
-    files: &mut [SearchFile],
-    output_root: &std::path::Path,
-    page_budget: usize,
-    expected: &dyn Fn(&std::path::Path) -> super::sources::Expected,
-    security: &ContentSecurity,
-) -> Option<String> {
-    let mut used = octocode_engine::json_size::bytes(&*files).unwrap_or(usize::MAX);
-    let mut over_budget = 0usize;
-    for file in files.iter_mut() {
-        let source = output_root.join(&file.path);
-        let Some(rows) = file.matches.as_ref().filter(|rows| !rows.is_empty()) else {
-            continue;
-        };
-        if !crate::tools::match_keys::is_keyed_path(&source) {
-            continue;
-        }
-        let mut lines = rows
-            .iter()
-            .flat_map(row_lines)
-            .filter(|line| *line > 0)
-            .map(|line| line as usize)
-            .collect::<Vec<_>>();
-        lines.sort_unstable();
-        lines.dedup();
-        let limit = octocode_engine::signatures::MAX_PARSE_SIZE;
-        let Some(bytes) = shown_bytes(&source, expected(&source)) else {
-            continue;
-        };
-        let Ok(text) = security.decode_source_bytes(&bytes, limit) else {
-            continue;
-        };
-        let keys = crate::tools::match_keys::line_key_paths(&source, &text, &lines);
-        if keys.is_empty() {
-            continue;
-        }
-        let added =
-            octocode_engine::json_size::bytes(&crate::tools::match_keys::MatchKeyRows(&keys))
-                .unwrap_or(usize::MAX)
-                .saturating_add(MATCH_KEYS_FIELD_CHARS);
-        if over_budget == 0 && used.saturating_add(added) <= page_budget {
-            used += added;
-            file.match_keys = keys;
-        } else {
-            over_budget += 1;
-        }
-    }
-    (over_budget > 0).then(|| {
-        let noun = if over_budget == 1 { "file" } else { "files" };
-        format!(
-            "Key paths (matchKeys) omitted on {over_budget} later {noun} to keep the page within its size budget."
-        )
-    })
-}
-
-/// Serialized chars around a file's key map.
-const MATCH_KEYS_FIELD_CHARS: usize = ",\"matchKeys\":".len();
 
 /// Largest file outlined for `enclosing` names. Parsing is linear (a 4.5 MB
 /// generated Rust file took 1 s of a 1.2 s search, 2026-10-08) and files this
@@ -239,9 +199,21 @@ pub(super) fn outline_of(
     if bytes.len() > ENCLOSING_MAX_BYTES {
         return None;
     }
-    let limit = octocode_engine::signatures::MAX_PARSE_SIZE;
+    let digest = octocode_engine::digest::sha256(bytes);
+    let path = source.to_string_lossy();
+    if let Some(kept) = OUTLINES.get(&digest, &path, |kept| Outline::clone(kept)) {
+        return Some(kept);
+    }
+    let limit = crate::security::SourceLimits::REAL.whole_source;
     let text = security.decode_source_bytes(bytes, limit).ok()?;
-    super::enclosing::Outline::of(&text, &source.to_string_lossy())
+    let outline = std::sync::Arc::new(super::enclosing::Outline::of(&text, &path)?);
+    OUTLINES.put(
+        digest,
+        path.into_owned(),
+        outline.weight(),
+        std::sync::Arc::clone(&outline),
+    );
+    Some(Outline::clone(&outline))
 }
 
 /// Lines a shown row stands for: every matched line of a merged block.

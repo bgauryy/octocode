@@ -1,6 +1,5 @@
 use super::file_search::*;
 use super::mode::*;
-use super::pcre2::*;
 use super::result::*;
 use super::sink::*;
 use super::state::*;
@@ -35,6 +34,7 @@ mod spans;
 mod term_counts;
 mod test_code;
 mod walk_parity;
+mod windows;
 
 struct AllowAll;
 

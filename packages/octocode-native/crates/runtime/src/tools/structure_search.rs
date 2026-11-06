@@ -7,14 +7,16 @@ mod memo;
 mod output;
 mod probe;
 use crate::response::result::Continuation;
-use listing::{Listing, Move};
+use cut::Move;
+use listing::Listing;
 use octocode_contract_types::{
-    ErrorCode, LocalFetchQuery, LocalFetchQuerySymbols, LocalFetchQuerySymbolsPath,
-    LocalFetchQuerySymbolsView, StructureSearchQuery, StructureSearchQueryTree,
-    StructureSearchQueryTreeOperation, StructureSearchQueryTreePath, StructureSearchView,
+    ErrorCode, LocalFetchQuery, LocalFetchQuerySymbols, LocalFetchQuerySymbolsView,
+    StructureSearchQuery, StructureSearchQueryTree, StructureSearchQueryTreeOperation,
+    StructureSearchView,
 };
 mod resume;
 mod rows;
+mod standing;
 #[cfg(test)]
 mod tests;
 mod tree;
@@ -73,7 +75,7 @@ fn file_root(file: &std::path::Path, paths: &crate::policy::path::PathPolicy) ->
         ErrorCode::NotADirectory,
         format!("{name} is a file, not a directory; read it with localFetch or list its parent."),
     );
-    if let Ok(path) = LocalFetchQuerySymbolsPath::try_from(name) {
+    if let Ok(path) = name.parse() {
         let lead = Continuation::related_query(LocalFetchQuery::Symbols(LocalFetchQuerySymbols {
             limit: None,
             main_goal: None,
@@ -155,7 +157,7 @@ fn continuation<Q: Listing>(query: &Q, to: Move) -> Continuation {
 /// `None` when the listed path is no valid tree path (it always is: both
 /// operations share the path contract).
 fn narrow_scope(query: &impl Listing) -> Option<Value> {
-    let path = StructureSearchQueryTreePath::try_from(query.path()).ok()?;
+    let path = query.path().parse().ok()?;
     Some(
         Continuation::related_query(StructureSearchQuery::Tree(StructureSearchQueryTree {
             default_excludes: None,
@@ -249,28 +251,18 @@ fn walked(
     walk().map(|walk| (std::sync::Arc::new(walk), false))
 }
 
-/// A walk cut by time lists at most `window_end` rows (the earlier windows'
-/// and this one's), the first ones in walk order: the window ends at the
-/// last of them (`walk_position`), and the walk
-/// resumed there reaches the rows after it. Cut anywhere else (the best rows
-/// by a sort of a walk that timing cut short) the window could not tell the
-/// resume which rows it dropped, and two windows would overlap or leave a gap.
-/// Entries are in walk order; the root entry (position 0) is no row. A
-/// listing that is not in walk order (`in_walk_order`) cannot skip the
-/// `scan_offset` rows an earlier window listed over a walk cut short: the
-/// window lists nothing.
+/// A walk-order walk cut by time lists at most `window_end` rows (the
+/// earlier windows' and this one's), the first ones in walk order: the window
+/// ends at the last of them (`walk_position`), and the walk resumed there
+/// reaches the rows after it. Entries are in walk order; the root entry
+/// (position 0) is no row. A sorted walk is never cut here: its paused windows
+/// keep what they ranked ([`standing`]).
 fn end_window(
     native: &mut octocode_engine::types::FileSystemQueryResult,
     window_end: usize,
-    scan_offset: usize,
-    in_walk_order: bool,
 ) -> TimeWindow {
     if native.time_cut.is_none() {
         return TimeWindow::Whole;
-    }
-    if scan_offset > 0 && !in_walk_order {
-        native.entries.clear();
-        return TimeWindow::SortedPastScanOffset;
     }
     let mut rows = native
         .entries

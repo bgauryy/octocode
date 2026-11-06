@@ -211,14 +211,20 @@ impl Chosen {
         self.outcome.next_candidates()
     }
 
-    /// The provider's error when the view is returned unfiltered.
-    pub(super) fn disclosure(&self) -> Option<String> {
-        let error = self.provider.as_ref()?;
-        Some(crate::tools::selection::unclassified_warning(
-            error,
-            "this read",
-            "its content is",
-        ))
+    /// The provider's error when the view is returned unfiltered; else,
+    /// when classification left units out, what it kept
+    /// ([`crate::tools::selection::kept_note`]).
+    pub(super) fn disclosure(&self) -> Vec<String> {
+        if let Some(error) = &self.provider {
+            return vec![crate::tools::selection::unclassified_warning(
+                error,
+                "this read",
+                "its content is",
+            )];
+        }
+        crate::tools::selection::kept_note(&self.outcome, self.outcome.selected.len())
+            .into_iter()
+            .collect()
     }
 
     /// Exactly the unknown chunks as plain `ranges` reads of `query`'s file,

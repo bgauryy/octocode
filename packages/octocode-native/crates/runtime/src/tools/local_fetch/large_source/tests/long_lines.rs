@@ -3,7 +3,6 @@
 use super::*;
 
 const TOKEN: &str = "ghp_aB3dE5gH7jK9mN1pQ3sT5vX7zA9cE1gI3kM5";
-const MIB: usize = 1024 * 1024;
 
 fn line_of(size: usize, tokens: &[usize]) -> Vec<u8> {
     let mut text = b"word ".repeat(size / 5 + 1);
@@ -50,11 +49,12 @@ fn walk(file: &tempfile::NamedTempFile) -> (String, usize) {
 /// With no secret, the walk is the line, byte for byte, in pages of any place.
 #[test]
 fn a_long_line_is_reached_once_over_every_page() {
-    for size in [10 * MIB, 11 * MIB] {
+    let page = crate::tools::source_view::pagination::LINE_PAGE_BYTES;
+    for size in [LIMITS.whole_source, past_whole()] {
         let text = line_of(size, &[]);
         let file = temp(&text);
         let (shown, pages) = walk(&file);
-        assert!(pages > 100, "{pages}");
+        assert!(pages >= size / page, "{pages} pages of {size} bytes");
         assert_eq!(shown.len(), text.len(), "{size}");
         assert_eq!(shown.as_bytes(), text.as_slice(), "{size}");
     }
@@ -66,13 +66,15 @@ fn a_long_line_is_reached_once_over_every_page() {
 fn no_value_leaks_at_a_page_or_window_edge() {
     let page = crate::tools::source_view::pagination::LINE_PAGE_BYTES;
     let mut tokens = (1..40).map(|at| at * page - 20 + at).collect::<Vec<_>>();
-    tokens.extend((1..3).map(|at| at * 4 * MIB - 21));
+    tokens.extend((1..3).map(|at| at * LIMITS.window - 21));
     tokens.extend((1..4).map(|at| at * super::super::BYTE_LOOKBEHIND - 21));
     tokens.extend((1..4).map(|at| at * super::super::BYTE_WINDOW_BYTES - 21));
     // Far enough apart for each to stand alone.
     tokens.sort_unstable();
     tokens.dedup_by(|later, kept| *later - *kept < 2 * TOKEN.len());
-    let text = line_of(11 * MIB, &tokens);
+    // Long enough to hold every edge the tokens sit on.
+    let size = past_whole().max(4 * super::super::BYTE_WINDOW_BYTES);
+    let text = line_of(size, &tokens);
     let file = temp(&text);
     let (shown, _) = walk(&file);
     // Words and placeholders only: the rest is the source's, once.
@@ -99,7 +101,7 @@ fn no_value_leaks_at_a_page_or_window_edge() {
 /// of one line reads it about once, whatever its length.
 #[test]
 fn a_later_page_reads_only_around_itself() {
-    let text = line_of(11 * MIB, &[]);
+    let text = line_of(past_whole(), &[]);
     let file = temp(&text);
     let first = fetch(
         &file,
@@ -133,7 +135,10 @@ fn a_later_page_reads_only_around_itself() {
     let page = fetch(&file, &next, None);
     assert_eq!(page.status, ReadStatus::Success);
     let read = source_bytes_read() - before;
-    assert!(read < 4 * MIB, "{read} bytes read for one page");
+    assert!(
+        read < 2 * super::super::BYTE_WINDOW_BYTES,
+        "{read} bytes read for one page"
+    );
 }
 
 /// A page's margin is sized by the detectors: no bounded secret can reach past it.

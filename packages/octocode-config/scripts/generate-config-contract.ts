@@ -2,12 +2,12 @@
 // contract JSON and its JSON Schema, the TypeScript field metadata, and the settings reference.
 // `--check` fails when a committed output is stale.
 import { readFileSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { contractFromDeclaration } from './config-contract/declaration/index.ts';
 import { renderConfigurationPage } from './config-contract/documentation.ts';
 import { renderContractJson, renderContractSchema } from './config-contract/emit.ts';
 import { renderTypeScript } from './config-contract/typescript.ts';
+import { readGenerated, writeGenerated } from './generated-files.ts';
 
 const path = (relative: string): string => fileURLToPath(new URL(relative, import.meta.url));
 
@@ -30,12 +30,12 @@ export function generateConfigContract(): GeneratedFile[] {
   ];
 }
 
-async function main(): Promise<void> {
+function main(): void {
   const files = generateConfigContract();
   if (process.argv.includes('--check')) {
     const stale: string[] = [];
     for (const file of files) {
-      const current = await readFile(file.path, 'utf8').catch(() => '');
+      const current = readGenerated(file.path);
       if (current !== file.content) stale.push(file.path);
     }
     if (stale.length > 0) {
@@ -45,7 +45,7 @@ async function main(): Promise<void> {
     }
     return;
   }
-  await Promise.all(files.map(file => writeFile(file.path, file.content)));
+  for (const file of files) writeGenerated(file.path, file.content);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) await main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();

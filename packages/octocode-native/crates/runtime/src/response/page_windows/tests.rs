@@ -274,3 +274,23 @@ fn weighted_items_count_their_rows_against_the_limit() {
     let cut = select_weighted(Paging::of(Some(4), usize::MAX), &sizes, Some(&rows), 2);
     assert_eq!((cut.range, cut.pages, cut.more), (2..3, 3, true));
 }
+
+/// `window_holding` inverts `page_budget`: its window's page holds the
+/// characters asked for, from tiny to past the capture limit, never fewer.
+#[test]
+fn a_window_holding_n_characters_has_a_page_budget_of_at_least_n() {
+    for chars in [
+        0,
+        1,
+        ROW_SKELETON_CHARS,
+        16_384,
+        131_072,
+        10 << 20,
+        usize::MAX,
+    ] {
+        assert!(
+            page_budget(Some(window_holding(chars))) >= chars.min(usize::MAX - ROW_SKELETON_CHARS),
+            "{chars}"
+        );
+    }
+}

@@ -36,9 +36,8 @@ use super::server_requests::ClientRequestContext;
 use crate::error::{Error, Result};
 use serde_json::{Value, json};
 use shared::{CancelOnDrop, FailOnExit, Outbound, Shared, cancel_message, closed_error};
-use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use tasks::{read_loop, write_loop};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot};
@@ -94,9 +93,7 @@ impl JsonRpcConnection {
     {
         let (outbound, outbound_rx) = mpsc::channel(WRITER_QUEUE_FRAMES);
         let shared = Arc::new(Shared {
-            pending: Mutex::new(Some(HashMap::new())),
-            failed: AtomicBool::new(false),
-            failure_reason: Mutex::new(None),
+            state: Shared::new_state(),
             outbound,
             push_diagnostics: PushDiagnosticsStore::new(),
             partial_results: PartialResultStore::default(),

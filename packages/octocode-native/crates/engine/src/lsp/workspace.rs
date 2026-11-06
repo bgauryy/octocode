@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 mod cargo;
 mod includes;
 mod modules;
-pub use cargo::{cargo_workspace_root, declares_cargo_workspace};
+pub use cargo::{cargo_manifest, cargo_workspace_root, declares_cargo_workspace};
 #[cfg(test)]
 use includes::{PACKAGE_FILES_READ, cargo_package_build_script};
 pub use includes::{PackageIncludes, cargo_package_includes};
@@ -189,8 +189,10 @@ fn c_project_root(directory: &Path) -> Option<PathBuf> {
 /// `[tool.pyright]` or `[tool.uv.workspace]` table, above a Python package;
 /// the Maven `pom.xml` whose `<modules>` list the module, or the Gradle
 /// `settings.gradle(.kts)` that includes it, above a Java module (walked
-/// up while each parent lists the one below). `None` keeps the nearest
-/// root.
+/// up while each parent lists the one below); a Gradle module with no
+/// settings file of its own then roots where Gradle finds its build: the
+/// nearest settings file above it, however that file names its projects (a
+/// list, a directory scan). `None` keeps the nearest root.
 fn multi_module_root_above(file_path: &str, root: &Path) -> Option<PathBuf> {
     let extension = Path::new(file_path).extension()?.to_str()?;
     let mut parents = root.parent().into_iter().flat_map(Path::ancestors);
@@ -208,6 +210,14 @@ fn multi_module_root_above(file_path: &str, root: &Path) -> Option<PathBuf> {
                 && (maven_lists_module(parent, name) || gradle_includes_module(parent, name))
             {
                 module = parent.to_path_buf();
+            }
+            if is_gradle_module(&module)
+                && let Some(build) = module
+                    .ancestors()
+                    .skip(1)
+                    .find(|dir| has_gradle_settings(dir))
+            {
+                module = build.to_path_buf();
             }
             (module != root).then_some(module)
         }
@@ -241,10 +251,26 @@ fn maven_lists_module(parent: &Path, name: &str) -> bool {
     })
 }
 
+const GRADLE_SETTINGS: [&str; 2] = ["settings.gradle", "settings.gradle.kts"];
+
+/// Whether `dir` holds a Gradle settings file: the root of a Gradle build.
+fn has_gradle_settings(dir: &Path) -> bool {
+    GRADLE_SETTINGS.iter().any(|name| dir.join(name).is_file())
+}
+
+/// Whether `dir` is a Gradle project that is not a build's root: a build
+/// script and no settings file.
+fn is_gradle_module(dir: &Path) -> bool {
+    ["build.gradle", "build.gradle.kts"]
+        .iter()
+        .any(|name| dir.join(name).is_file())
+        && !has_gradle_settings(dir)
+}
+
 /// Whether `parent/settings.gradle` or `settings.gradle.kts` includes the
 /// project `name` (`include 'name'`, `include(":name")`, `include("a:name")`).
 fn gradle_includes_module(parent: &Path, name: &str) -> bool {
-    ["settings.gradle", "settings.gradle.kts"]
+    GRADLE_SETTINGS
         .iter()
         .filter_map(|settings| std::fs::read_to_string(parent.join(settings)).ok())
         .any(|text| {

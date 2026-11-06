@@ -32,9 +32,12 @@ use std::path::Path;
 
 mod gates;
 mod includes;
+mod projects;
 use gates::*;
 pub(super) use includes::package_includes;
 use includes::{annotate_includes, record_text_coverage};
+use projects::annotate_unanswered;
+pub(super) use projects::answer_settled_files;
 
 pub(super) const DYNAMIC_REASON: crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::DynamicDispatch;
@@ -109,20 +112,28 @@ pub(super) fn annotate(
             // A workspace symbol is a declaration the server found: no use
             // of it is missing.
             if lsp_search_query::op(query) != Op::WorkspaceSymbol {
-                annotate_includes(
-                    row,
-                    query,
-                    server.anchor,
-                    scope,
-                    rust.build_scripts,
-                    stopped,
-                );
+                annotate_includes(row, query, server.anchor, scope, rust, stopped);
             }
             annotate_rust(row, query, server.root, scope, rust.all_features, stopped);
+            // An answer naming no use stands only where the server placed every
+            // spelling elsewhere: a server that has not taken in an edit, or
+            // has not loaded the files, answers empty too. An answer listing
+            // uses speaks for its workspace; a file no gate or include explains
+            // lies in a crate outside it.
+            if lists_no_use(row) {
+                annotate_unanswered(row, query, scope, None);
+            } else if row.get("isPartial").and_then(Value::as_bool) != Some(true) {
+                annotate_unanswered(row, query, scope, Some(server.root));
+            }
         }
         // The rest have no signal of their own, and a server that loaded no
         // project answers empty just like one that found nothing.
-        _ if lacks_signal(language_id) => annotate_unanswered(row, query, scope),
+        // An answer listing uses speaks for the server's whole project; one that
+        // lists none may come from a server that loaded nothing.
+        _ if lacks_signal(language_id) => {
+            let project = (!lists_no_use(row)).then_some(server.root);
+            annotate_unanswered(row, query, scope, project);
+        }
         _ => {}
     }
 }
@@ -130,16 +141,25 @@ pub(super) fn annotate(
 /// A server that says it is not working (rust-analyzer on a manifest it cannot
 /// load) still answers, often empty, and its protocol calls that settled. On any
 /// operation the row is partial, in the server's own words, and leads to the text.
+/// A report about one project of several the server loaded (jdtls on a Gradle
+/// build it cannot import) concerns only rows whose anchor (`anchor`, a
+/// canonical path) or listed results lie in that project.
 pub(super) fn flag_server_health(
     row: &mut Value,
     query: &LspSearchQuery,
     health: Option<octocode_engine::lsp::client::ServerHealth>,
+    anchor: &str,
     scope: &Scope,
 ) {
     let Some(health) = health else {
         return;
     };
     if !row.is_object() || row.get("status").and_then(Value::as_str) == Some("error") {
+        return;
+    }
+    if let Some(project) = &health.project
+        && !touches_project(row, anchor, &scope.root, Path::new(project))
+    {
         return;
     }
     let level = health.level.as_str();
@@ -192,36 +212,13 @@ pub(super) fn lists_no_use(row: &Value) -> bool {
         })
 }
 
-/// Whether this language has no coverage signal of its own, so an answer naming
-/// no use must be checked ([`annotate_unanswered`]).
+/// Whether this language has no coverage signal of its own, so its answers are
+/// checked ([`annotate_unanswered`]).
 pub(super) fn lacks_signal(language_id: Option<&str>) -> bool {
     use octocode_engine::lsp::family::{is_c_family, is_typescript_family};
     !(is_c_family(language_id)
         || is_typescript_family(language_id)
         || matches!(language_id, Some("python" | "rust")))
-}
-
-/// A server that lists no use while files it could not prove are another symbol
-/// spell the name in code may not have loaded them: partial, with the lexical
-/// lead. `page::run_target` has asked the server about each such file, and marked
-/// those whose name resolves elsewhere answered, so a truly unused name stays
-/// clean however common it is.
-fn annotate_unanswered(row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
-    if lsp_search_query::op(query) == Op::WorkspaceSymbol || !lists_no_use(row) {
-        return;
-    }
-    let Some(files) = lsp_search_query::symbol_name(query)
-        .filter(|name| !name.trim().is_empty())
-        .and_then(|name| scope.text_only_files(name))
-        .filter(|files| !files.is_empty())
-    else {
-        return;
-    };
-    let note = format!(
-        "The server lists no use of this name, but {} other file(s) spell it in code: its project may not cover them.",
-        files.len()
-    );
-    super::failure::flag_partial(row, query, UNANSWERED_REASON, Some(&note), scope);
 }
 
 /// Where the server answered: the anchor file and the server's workspace
@@ -352,3 +349,27 @@ fn lists_reason(row: &Value, reason: crate::response::paging::PartialReason) -> 
 
 #[cfg(test)]
 mod tests;
+
+/// Whether `anchor` or a result `row` lists (a `path` or `uri`, relative paths
+/// under `root`) lies in `project`. Follow-up calls (`related`, `next`) are
+/// leads, not results.
+fn touches_project(row: &Value, anchor: &str, root: &str, project: &Path) -> bool {
+    fn listed(value: &Value, root: &Path, project: &Path) -> bool {
+        match value {
+            Value::Object(fields) => {
+                fields
+                    .iter()
+                    .any(|(key, value)| match (key.as_str(), value) {
+                        ("related" | "next" | "hints" | "warnings" | "notices", _) => false,
+                        ("path", Value::String(path)) => root.join(path).starts_with(project),
+                        ("uri", Value::String(uri)) => octocode_engine::lsp::uri::uri_to_path(uri)
+                            .is_ok_and(|path| Path::new(&path).starts_with(project)),
+                        _ => listed(value, root, project),
+                    })
+            }
+            Value::Array(items) => items.iter().any(|item| listed(item, root, project)),
+            _ => false,
+        }
+    }
+    Path::new(anchor).starts_with(project) || listed(row, Path::new(root), project)
+}

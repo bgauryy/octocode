@@ -51,9 +51,8 @@ async fn timed_out_document_open_keeps_waiting_until_project_progress_finishes()
             client
                 .open_document_and_wait(path.clone(), content, Some(400), Some(1_000))
                 .await
-                .expect("sync while loading")
-                .as_deref(),
-            Some("timeout"),
+                .expect("sync while loading"),
+            Some(Readiness::Timeout),
             "attempt {attempt} must disclose the unfinished load of the cached document"
         );
     }
@@ -62,9 +61,8 @@ async fn timed_out_document_open_keeps_waiting_until_project_progress_finishes()
         client
             .open_document_and_wait(path.clone(), content, Some(400), Some(1_000))
             .await
-            .expect("sync after load")
-            .as_deref(),
-        Some("progressIdle")
+            .expect("sync after load"),
+        Some(Readiness::ProgressIdle)
     );
     assert_eq!(
         client

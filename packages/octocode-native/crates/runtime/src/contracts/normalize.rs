@@ -14,16 +14,27 @@ use crate::id::ToolId;
 /// reports one branch's issues at a time.
 const MAX_ROUNDS: usize = 4;
 
+mod guesses;
+pub(crate) use guesses::meant_field;
+
 /// `input` as the contract takes it, when one lossless reading exists;
 /// otherwise unchanged, so validation names what is wrong with what was sent.
-pub(crate) fn normalized_input(tool_name: &str, input: Value) -> Value {
+/// The notes say which sent fields were read as declared ones
+/// ([`guesses`]): the call states them, so the caller learns the field.
+pub(crate) fn normalized_input(tool_name: &str, input: Value) -> (Value, Vec<String>) {
     let Some(id) = ToolId::from_name(tool_name) else {
-        return input;
+        return (input, Vec::new());
     };
     let mut input = shaped(id, input);
     if !input.get("queries").is_some_and(Value::is_array) {
-        return input;
+        return (input, Vec::new());
     }
+    let notes = guesses::read(id, &mut input);
+    (repaired(tool_name, id, input), notes)
+}
+
+/// [`normalized_input`]'s value repairs of a shaped request.
+fn repaired(tool_name: &str, id: ToolId, mut input: Value) -> Value {
     let sent = input.clone();
     let query_schema = super::tool_contract(id)
         .map(|tool| tool["querySchema"].clone())
@@ -245,7 +256,7 @@ fn repair_selection(input: &mut Value, issue: &ValidationIssue) -> bool {
                     .iter()
                     .all(|field| field == "include" || field == "exclude")
         });
-    let Some(at) = input.pointer_mut(&pointer(parent)) else {
+    let Some(at) = input.pointer_mut(&crate::json_pointer::of(parent)) else {
         return false;
     };
     if !takes_selection || at.get("include").is_some() || at.get("exclude").is_some() {
@@ -263,12 +274,6 @@ fn is_list_item(path: &[String]) -> bool {
             .is_some_and(|segment| segment.parse::<usize>().is_ok())
 }
 
-fn pointer(path: &[String]) -> String {
-    path.iter()
-        .map(|segment| format!("/{}", segment.replace('~', "~0").replace('/', "~1")))
-        .collect()
-}
-
 /// A row without `operation` whose fields only one operation accepts means that
 /// operation. Several accepting it, or none, leaves the choice to the caller.
 fn repair_operation(
@@ -283,7 +288,10 @@ fn repair_operation(
     if queries != "queries" || field != "operation" || issue.rule_id != "schema.required" {
         return false;
     }
-    let Some(row) = input.pointer(&pointer(&issue.path[..2])).cloned() else {
+    let Some(row) = input
+        .pointer(&crate::json_pointer::of(&issue.path[..2]))
+        .cloned()
+    else {
         return false;
     };
     let accepting: Vec<&String> = operations
@@ -369,7 +377,7 @@ fn repair_values(
         let Some(repaired) = super::validate::repaired_value(schema, defs, received) else {
             continue;
         };
-        if let Some(at) = input.pointer_mut(&pointer(&issue.path))
+        if let Some(at) = input.pointer_mut(&crate::json_pointer::of(&issue.path))
             && *at == *received
         {
             *at = repaired;

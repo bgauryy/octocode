@@ -1,6 +1,13 @@
-//! How many threads one query's parallel work runs on: the one core-count
-//! rule every per-row fan-out sizes itself by, so concurrent rows and
-//! concurrent calls split the cores instead of each taking every core.
+//! How many threads one query's parallel work runs on: the core-count rule
+//! every per-row fan-out in the runtime sizes itself by, so concurrent rows
+//! and concurrent calls split the cores instead of each taking every core.
+//!
+//! The engine's file scans are the exception: `astSearch` matching
+//! (`structural/files.rs`) and the fact scan (`fact_scan/evaluate/ordered.rs`)
+//! run on rayon's one global pool, as many threads as cores. Concurrent
+//! scans queue on that one pool rather than each starting its own threads, so
+//! the cores are not oversubscribed, but a scan does not shrink to
+//! [`cpu::host`]'s share while other rows are computing.
 
 use octocode_engine::cpu;
 

@@ -41,7 +41,8 @@ fn ts_config() -> LspLanguageServerConfig {
 /// memory after `initialized`; `FAKE_INDEX_MS` reports one `$/progress`
 /// indexing wave of that length after `initialized`; `FAKE_PID_FILE` records
 /// the server pid; `FAKE_CHILD_PID_FILE` starts a child after `initialized`
-/// and records its pid.
+/// and records its pid; `FAKE_DAEMON_PID_FILE` starts one in its own session
+/// (as jdtls starts a Gradle daemon) and records its pid.
 #[cfg(any(unix, windows))]
 const CONFIGURABLE_SERVER: &str = r#"#!/usr/bin/env node
 const fs = require('fs');
@@ -60,6 +61,13 @@ function handle(msg) {
     if (process.env.FAKE_CHILD_PID_FILE) {
       const child = require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
       fs.writeFileSync(process.env.FAKE_CHILD_PID_FILE, String(child.pid));
+    }
+    if (process.env.FAKE_DAEMON_PID_FILE) {
+      const daemon = require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore', detached: true });
+      daemon.unref();
+      const file = process.env.FAKE_DAEMON_PID_FILE;
+      fs.writeFileSync(file + '.tmp', String(daemon.pid));
+      fs.renameSync(file + '.tmp', file);
     }
     const mb = Number(process.env.FAKE_ALLOC_MB || 0);
     for (let i = 0; i < mb; i++) hold.push(Buffer.alloc(1 << 20, 1));

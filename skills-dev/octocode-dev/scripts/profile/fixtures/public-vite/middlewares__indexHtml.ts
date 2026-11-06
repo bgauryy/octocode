@@ -1,0 +1,632 @@
+import fs from 'node:fs'
+import fsp from 'node:fs/promises'
+import path from 'node:path'
+import MagicString from 'magic-string'
+import type { DefaultTreeAdapterMap, Token } from 'parse5'
+import type { SourceMapInput } from 'rolldown'
+import type { Connect } from '#dep-types/connect'
+import type { PreviewServer, ResolvedConfig, ViteDevServer } from '../..'
+import { cleanUrl, moduleUrlToBrowserUrl } from '../../../shared/utils'
+import { getNodeAssetAttributes } from '../../assetSource'
+import { CLIENT_PUBLIC_PATH, FS_PREFIX } from '../../constants'
+import { getHmrImplementation } from '../../plugins/clientInjections'
+import type { IndexHtmlTransformHook } from '../../plugins/html'
+import {
+  addToHTMLProxyCache,
+  applyHtmlTransforms,
+  extractImportExpressionFromClassicScript,
+  findNeedTransformStyleAttribute,
+  getScriptInfo,
+  htmlEnvHook,
+  htmlProxyResult,
+  injectCspNonceMetaTagHook,
+  injectNonceAttributeTagHook,
+  nodeIsElement,
+  overwriteAttrValue,
+  postImportMapHook,
+  preImportMapHook,
+  removeViteIgnoreAttr,
+  resolveHtmlTransforms,
+  traverseHtml,
+} from '../../plugins/html'
+import { checkPublicFile } from '../../publicDir'
+import {
+  ensureWatchedFile,
+  getHash,
+  injectQuery,
+  isCSSRequest,
+  isDevServer,
+  isJSRequest,
+  isParentDirectory,
+  normalizePath,
+  processSrcSetSync,
+  tryStatSync,
+} from '../../utils'
+import { browserUrlToModuleUrl, moduleUrlToFilePath } from '../moduleUrl'
+import {
+  BasicMinimalPluginContext,
+  basePluginContextMeta,
+} from '../pluginContainer'
+import { send } from '../send'
+import { getCodeWithSourcemap, injectSourcesContent } from '../sourcemap'
+import { checkLoadingAccess, respondWithAccessDenied } from './static'
+
+interface AssetNode {
+  start: number
+  end: number
+  code: string
+}
+
+interface InlineStyleAttribute {
+  index: number
+  location: Token.Location
+  code: string
+}
+
+export function createDevHtmlTransformFn(
+  config: ResolvedConfig,
+): (
+  server: ViteDevServer,
+  url: string,
+  html: string,
+  originalUrl?: string,
+) => Promise<string> {
+  const [preHooks, normalHooks, postHooks] = resolveHtmlTransforms(
+    config.plugins,
+  )
+  const transformHooks = [
+    preImportMapHook(config),
+    injectCspNonceMetaTagHook(config),
+    ...preHooks,
+    htmlEnvHook(config),
+    devHtmlHook,
+    ...normalHooks,
+    ...postHooks,
+    injectNonceAttributeTagHook(config),
+    postImportMapHook(config),
+  ]
+  const pluginContext = new BasicMinimalPluginContext(
+    { ...basePluginContextMeta, watchMode: true },
+    config.logger,
+  )
+  return (
+    server: ViteDevServer,
+    url: string,
+    html: string,
+    originalUrl?: string,
+  ): Promise<string> => {
+    return applyHtmlTransforms(html, transformHooks, pluginContext, {
+      path: url,
+      filename: getHtmlFilename(url, server),
+      server,
+      originalUrl,
+    })
+  }
+}
+
+function getHtmlFilename(url: string, server: ViteDevServer) {
+  return moduleUrlToFilePath(
+    decodeURIComponent(cleanUrl(url)),
+    server.config.root,
+  )
+}
+
+function shouldPreTransform(url: string, config: ResolvedConfig) {
+  return (
+    !checkPublicFile(url, config) && (isJSRequest(url) || isCSSRequest(url))
+  )
+}
+
+const wordCharRE = /\w/
+
+function isBareRelative(url: string) {
+  return wordCharRE.test(url[0]) && !url.includes(':')
+}
+
+function getHtmlDirnameForRelativeUrl(htmlPath: string): string {
+  return htmlPath.endsWith('/') ? htmlPath : path.posix.dirname(htmlPath)
+}
+
+const multipleLeadingSlashesRE = /^\/{2,}/g
+
+const processNodeUrl = (
+  url: string,
+  useSrcSetReplacer: boolean,
+  config: ResolvedConfig,
+  htmlPath: string,
+  originalUrl?: string,
+  server?: ViteDevServer,
+  isClassicScriptLink?: boolean,
+): string => {
+  // prefix with base (dev only, base is never relative)
+  const replacer = (url: string) => {
+    if (
+      (url[0] === '/' && url[1] !== '/') ||
+      // #3230 if some request url (localhost:3000/a/b) return to fallback html, the relative assets
+      // path will add `/a/` prefix, it will caused 404.
+      //
+      // skip if url contains `:` as it implies a url protocol or Windows path that we don't want to replace.
+      //
+      // rewrite `./index.js` -> `localhost:5173/a/index.js`.
+      // rewrite `../index.js` -> `localhost:5173/index.js`.
+      // rewrite `relative/index.js` -> `localhost:5173/a/relative/index.js`.
+      ((url[0] === '.' || isBareRelative(url)) &&
+        originalUrl &&
+        originalUrl !== '/' &&
+        htmlPath === '/index.html')
+    ) {
+      url = path.posix.join(config.base, url)
+    }
+
+    let preTransformUrl: string | undefined
+
+    if (!isClassicScriptLink && shouldPreTransform(url, config)) {
+      if (url[0] === '/' && url[1] !== '/') {
+        preTransformUrl = url
+      } else if (url[0] === '.' || isBareRelative(url)) {
+        preTransformUrl = path.posix.join(
+          config.base,
+          getHtmlDirnameForRelativeUrl(htmlPath),
+          url,
+        )
+      }
+    }
+
+    if (server) {
+      let decodedUrl: string
+      try {
+        decodedUrl = decodeURI(preTransformUrl || url)
+      } catch {
+        // Malformed uri. Skip pre-transform.
+        return url
+      }
+      const moduleUrl = browserUrlToModuleUrl(decodedUrl, config.decodedBase)
+      const mod =
+        server.environments.client.moduleGraph.urlToModuleMap.get(moduleUrl)
+      if (mod && mod.lastHMRTimestamp > 0) {
+        url = injectQuery(url, `t=${mod.lastHMRTimestamp}`)
+      }
+
+      if (preTransformUrl) {
+        preTransformRequest(server, moduleUrl)
+      }
+    }
+
+    return url
+  }
+
+  const processedUrl = useSrcSetReplacer
+    ? processSrcSetSync(url, ({ url }) => replacer(url))
+    : replacer(url)
+  return processedUrl
+}
+const devHtmlHook: IndexHtmlTransformHook = async (
+  html,
+  { path: htmlPath, filename, server, originalUrl },
+) => {
+  // There's no way to express a relative URL that starts with `//`. URLs starting with `//` is relative to the scheme.
+  // The relative URL is needed to generate the URL in script tags and link tags.
+  // We replace `//` with `/` here for workaround, which is the best we can do.
+  if (htmlPath.startsWith('//')) {
+    htmlPath = htmlPath.replace(multipleLeadingSlashesRE, '/')
+  }
+
+  const { config, watcher } = server!
+  const base = config.base || '/'
+  const decodedBase = config.decodedBase || '/'
+
+  let proxyModulePath: string
+  let proxyModuleUrl: string
+
+  const trailingSlash = htmlPath.endsWith('/')
+  if (!trailingSlash && tryStatSync(filename)?.isFile()) {
+    ensureWatchedFile(watcher, filename, config.root)
+    // If htmlPath is a /@fs/ URL (e.g. vitest-browser always uses this form
+    // for testerHtmlPath), normalise to an absolute FS path so proxyCacheUrl
+    // is always root-relative.
+    proxyModulePath = htmlPath.startsWith(FS_PREFIX) ? filename : htmlPath
+    proxyModuleUrl = htmlPath
+  } else {
+    // There are users of vite.transformIndexHtml calling it with url '/'
+    // for SSR integrations #7993, filename is root for this case
+    // A user may also use a valid name for a virtual html file
+    // Mark the path as virtual in both cases so sourcemaps aren't processed
+    // and ids are properly handled
+    const validPath = `${htmlPath}${trailingSlash ? 'index.html' : ''}`
+    proxyModulePath = `\0${validPath}`
+    proxyModuleUrl = proxyModulePath
+  }
+  const s = new MagicString(html)
+  let inlineModuleIndex = -1
+  // The key to the proxyHtml cache is decoded, as it will be compared
+  // against decoded URLs by the HTML plugins.
+  const proxyCacheUrl = decodeURI(
+    cleanUrl(proxyModulePath).replace(normalizePath(config.root), ''),
+  )
+  const styleUrl: AssetNode[] = []
+  const inlineStyles: InlineStyleAttribute[] = []
+  const inlineModuleUrls: string[] = []
+
+  const addInlineModule = (
+    node: DefaultTreeAdapterMap['element'],
+    ext: 'js',
+  ) => {
+    inlineModuleIndex++
+
+    const contentNode = node.childNodes[0] as DefaultTreeAdapterMap['textNode']
+
+    const code = contentNode.value
+
+    let map: SourceMapInput | undefined
+    if (proxyModulePath[0] !== '\0') {
+      map = new MagicString(html)
+        .snip(
+          contentNode.sourceCodeLocation!.startOffset,
+          contentNode.sourceCodeLocation!.endOffset,
+        )
+        .generateMap({ hires: 'boundary' })
+      map.sources = [filename]
+      map.file = filename
+    }
+
+    // add HTML Proxy to Map
+    addToHTMLProxyCache(config, proxyCacheUrl, inlineModuleIndex, { code, map })
+
+    // inline js module. convert to src="proxy" (dev only, base is never relative)
+    const moduleUrl = `${proxyModuleUrl}?html-proxy&index=${inlineModuleIndex}.${ext}`
+    inlineModuleUrls.push(moduleUrl)
+    const browserUrl = moduleUrlToBrowserUrl(moduleUrl, decodedBase)
+
+    s.update(
+      node.sourceCodeLocation!.startOffset,
+      node.sourceCodeLocation!.endOffset,
+      `<script type="module" src="${browserUrl}"></script>`,
+    )
+    preTransformRequest(server!, moduleUrl)
+  }
+
+  await traverseHtml(html, filename, config.logger.warn, (node) => {
+    if (!nodeIsElement(node)) {
+      return
+    }
+
+    // script tags
+    if (node.nodeName === 'script') {
+      const { src, srcSourceCodeLocation, isModule, isIgnored } =
+        getScriptInfo(node)
+
+      if (isIgnored) {
+        removeViteIgnoreAttr(s, node.sourceCodeLocation!)
+      } else if (src) {
+        const processedUrl = processNodeUrl(
+          src.value,
+          /* useSrcSetReplacer */ false,
+          config,
+          htmlPath,
+          originalUrl,
+          server,
+          !isModule,
+        )
+        if (processedUrl !== src.value) {
+          overwriteAttrValue(s, srcSourceCodeLocation!, processedUrl)
+        }
+      } else if (isModule && node.childNodes.length) {
+        addInlineModule(node, 'js')
+      } else if (node.childNodes.length) {
+        const scriptNode = node.childNodes.at(
+          -1,
+        ) as DefaultTreeAdapterMap['textNode']
+        for (const {
+          url,
+          start,
+          end,
+        } of extractImportExpressionFromClassicScript(scriptNode)) {
+          const processedUrl = processNodeUrl(
+            url,
+            false,
+            config,
+            htmlPath,
+            originalUrl,
+          )
+          if (processedUrl !== url) {
+            s.update(start, end, processedUrl)
+          }
+        }
+      }
+    }
+
+    const inlineStyle = findNeedTransformStyleAttribute(node)
+    if (inlineStyle) {
+      inlineModuleIndex++
+      inlineStyles.push({
+        index: inlineModuleIndex,
+        location: inlineStyle.location!,
+        code: inlineStyle.attr.value,
+      })
+    }
+
+    if (node.nodeName === 'style' && node.childNodes.length) {
+      const children = node.childNodes[0] as DefaultTreeAdapterMap['textNode']
+      styleUrl.push({
+        start: children.sourceCodeLocation!.startOffset,
+        end: children.sourceCodeLocation!.endOffset,
+        code: children.value,
+      })
+    }
+
+    // elements with [href/src] attrs
+    const assetAttributes = getNodeAssetAttributes(
+      node,
+      config.html?.additionalAssetSources,
+    )
+    for (const attr of assetAttributes) {
+      if (attr.type === 'remove') {
+        s.remove(attr.location.startOffset, attr.location.endOffset)
+      } else {
+        const processedUrl = processNodeUrl(
+          attr.value,
+          attr.type === 'srcset',
+          config,
+          htmlPath,
+          originalUrl,
+        )
+        if (processedUrl !== attr.value) {
+          overwriteAttrValue(s, attr.location, processedUrl)
+        }
+      }
+    }
+  })
+
+  // invalidate the module so the newly cached contents will be served
+  const clientModuleGraph = server?.environments.client.moduleGraph
+  if (clientModuleGraph) {
+    await Promise.all(
+      inlineModuleUrls.map(async (url) => {
+        const module = await clientModuleGraph._getUnresolvedUrlToModule(url)
+        if (module) {
+          clientModuleGraph.invalidateModule(module)
+        }
+      }),
+    )
+  }
+
+  await Promise.all([
+    ...styleUrl.map(async ({ start, end, code }, index) => {
+      const url = `${proxyModulePath}?html-proxy&direct&index=${index}.css`
+
+      // ensure module in graph after successful load
+      const mod =
+        await server!.environments.client.moduleGraph.ensureEntryFromUrl(
+          url,
+          false,
+        )
+
+      const result =
+        await server!.environments.client.pluginContainer.transform(
+          code,
+          mod.id!,
+        )
+      let content = ''
+      if (result.map && 'version' in result.map) {
+        if (result.map.mappings) {
+          await injectSourcesContent(result.map, proxyModulePath, config.logger)
+        }
+        content = getCodeWithSourcemap('css', result.code, result.map)
+      } else {
+        content = result.code
+      }
+      s.overwrite(start, end, content)
+    }),
+    ...inlineStyles.map(async ({ index, location, code }) => {
+      // will transform with css plugin and cache result with css-post plugin
+      const url = `${proxyModulePath}?html-proxy&inline-css&style-attr&index=${index}.css`
+
+      const mod =
+        await server!.environments.client.moduleGraph.ensureEntryFromUrl(
+          url,
+          false,
+        )
+
+      await server?.environments.client.pluginContainer.transform(code, mod.id!)
+
+      const hash = getHash(cleanUrl(mod.id!))
+      const result = htmlProxyResult.get(`${hash}_${index}`)
+      overwriteAttrValue(s, location, result ?? '')
+    }),
+  ])
+
+  html = s.toString()
+
+  return {
+    html,
+    tags: [
+      {
+        tag: 'script',
+        attrs: {
+          type: 'module',
+          src: path.posix.join(base, CLIENT_PUBLIC_PATH),
+        },
+        injectTo: 'head-prepend',
+      },
+    ],
+  }
+}
+
+export function indexHtmlMiddleware(
+  root: string,
+  server: ViteDevServer | PreviewServer,
+): Connect.NextHandleFunction {
+  const isDev = isDevServer(server)
+  const fullBundle = isDev && server.environments.client.bundledDev
+
+  // Keep the named function. The name is visible in debug logs via `DEBUG=connect:dispatcher ...`
+  return async function viteIndexHtmlMiddleware(req, res, next) {
+    if (res.writableEnded) {
+      return next()
+    }
+
+    const url = req.url && cleanUrl(req.url)
+    // htmlFallbackMiddleware appends '.html' to URLs
+    if (url?.endsWith('.html') && req.headers['sec-fetch-dest'] !== 'script') {
+      if (fullBundle) {
+        let pathname
+        try {
+          pathname = decodeURIComponent(url)
+        } catch {
+          // ignore malformed URI
+          return next()
+        }
+        const filePath = pathname.slice(1) // remove first /
+
+        let file = fullBundle.memoryFiles.get(filePath)
+        if (!file && fullBundle.hasBuildOutput) {
+          return next()
+        }
+        const secFetchDest = req.headers['sec-fetch-dest']
+        const isDocumentRequest = [
+          'document',
+          'iframe',
+          'frame',
+          'fencedframe',
+          '',
+          undefined,
+        ].includes(secFetchDest)
+        if (
+          isDocumentRequest &&
+          ((await fullBundle.triggerBundleRegenerationIfStale()) ||
+            file === undefined)
+        ) {
+          file = { source: await generateFallbackHtml(server as ViteDevServer) }
+        }
+        if (!file) {
+          return next()
+        }
+
+        const html =
+          typeof file.source === 'string'
+            ? file.source
+            : Buffer.from(file.source)
+        const headers = server.config.server.headers
+        return send(req, res, html, 'html', { headers, etag: file.etag })
+      }
+
+      let filePath: string
+      if (isDev) {
+        filePath = moduleUrlToFilePath(decodeURIComponent(url), root)
+      } else {
+        filePath = normalizePath(
+          path.resolve(path.join(root, decodeURIComponent(url))),
+        )
+      }
+
+      if (isDev) {
+        const servingAccessResult = checkLoadingAccess(server.config, filePath)
+        if (servingAccessResult === 'denied') {
+          return respondWithAccessDenied(filePath, server, res)
+        }
+        if (servingAccessResult === 'fallback') {
+          return next()
+        }
+        servingAccessResult satisfies 'allowed'
+      } else {
+        // `server.fs` options does not apply to the preview server.
+        // But we should disallow serving files outside the output directory.
+        if (!isParentDirectory(root, filePath)) {
+          return next()
+        }
+      }
+
+      if (fs.existsSync(filePath)) {
+        const headers = isDev
+          ? server.config.server.headers
+          : server.config.preview.headers
+
+        try {
+          let html = await fsp.readFile(filePath, 'utf-8')
+          if (isDev) {
+            html = await server.transformIndexHtml(url, html, req.originalUrl)
+          }
+          return send(req, res, html, 'html', { headers })
+        } catch (e) {
+          return next(e)
+        }
+      }
+    }
+    next()
+  }
+}
+
+/** Warm a decoded ModuleURL for a client-side HTML dependency. */
+function preTransformRequest(server: ViteDevServer, url: string) {
+  if (!server.config.server.preTransformRequests) return
+
+  server.warmupRequest(url)
+}
+
+async function generateFallbackHtml(server: ViteDevServer) {
+  const hmrRuntime = await getHmrImplementation(server.config)
+  // The charset must be declared: the inlined HMR runtime contains non-ASCII
+  // characters, and without it browsers may decode this page with a legacy
+  // encoding (e.g. GBK), corrupting the inline module script below.
+  return /* html */ `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <script>globalThis.__vite_is_fallback_page__ = true</script>
+  <script type="module">
+    ${hmrRuntime.replaceAll('</script>', '<\\/script>')}
+  </script>
+  <style>
+    :root {
+      --page-bg: #ffffff;
+      --text-color: #1d1d1f;
+      --spinner-track: #f5f5f7;
+      --spinner-accent: #0071e3;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page-bg: #1e1e1e;
+        --text-color: #f5f5f5;
+        --spinner-track: #424242;
+      }
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      background-color: var(--page-bg);
+      color: var(--text-color);
+    }
+
+    .container {
+      margin: auto;
+      padding: 2rem;
+      text-align: center;
+      border-radius: 1rem;
+    }
+
+    .spinner {
+      width: 3rem;
+      height: 3rem;
+      margin: 2rem auto;
+      border: 3px solid var(--spinner-track);
+      border-top-color: var(--spinner-accent);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg) } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Bundling in progress</h1>
+    <p>The page will automatically reload when ready.</p>
+    <div class="spinner"></div>
+  </div>
+</body>
+</html>
+`
+}

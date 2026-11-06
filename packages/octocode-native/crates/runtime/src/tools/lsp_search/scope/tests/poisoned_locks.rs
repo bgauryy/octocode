@@ -28,19 +28,23 @@ fn a_poisoned_answer_still_records_what_the_server_answered() {
 fn a_poisoned_anchor_still_records_its_site_and_lines() {
     let scope = Scope::new("/w".into(), vec!["*.rs".into()]);
     poison(&scope.site);
-    poison(&scope.anchor_lines);
+    poison(&scope.listed);
     scope.anchor_site("/w/a.rs", 3, 7);
-    scope.answer_anchor_lines("/w/a.rs", 3, [4]);
+    scope.answer_lines(false, [("/w/a.rs", 3), ("/w/a.rs", 4)]);
     let site = scope
         .site
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     assert_eq!(site.as_ref().expect("the site").line, 3);
-    let lines = scope
-        .anchor_lines
+    let listed = scope
+        .listed
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    assert!(lines.as_ref().expect("the lines").1.contains(&4));
+    assert!(
+        listed
+            .lines_of("/w/a.rs")
+            .is_some_and(|lines| lines.contains(&4))
+    );
 }
 
 /// The scan's files stay known: without them `text_only_files` has nothing to say.

@@ -204,6 +204,8 @@ fn an_opening_token_with_decisions_is_stale() {
     );
     plan.pool = vec![[1, 3]];
     plan.opens = true;
+    // Ordinals 0 and 3 belong to the pages before it.
+    plan.carried.excluded = 2;
     plan.seal();
     let valid = |plan: &Plan| {
         plan.valid(

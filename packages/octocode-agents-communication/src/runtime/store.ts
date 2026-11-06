@@ -3,9 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { statSync } from 'node:fs';
 import * as activity from './activity.js';
 import * as catalog from './catalog.js';
-import { completionCheck } from './completion.js';
 import { execute, openDatabase, query, rowInteger, rowOptionalText, rowText, transaction, type Database, type Row, type SqlValue } from './database.js';
-import type { AttachInput, ClaudeInbound, CommandInputs, CommandResults, HostInboundData, CompleteInput, CompletionCheckInput, RecordUsageInput, RetryDeliveryInput, SendMessageInput } from './catalog-types.generated.js';
+import type { AttachInput, ClaudeInbound, CommandInputs, CommandResults, HostInboundData, CompleteInput, RecordUsageInput, RetryDeliveryInput, SendMessageInput } from './catalog-types.generated.js';
 import type { DeliveryApi, Dispatched, Staged } from './delivery-types.js';
 import * as delivery from './dispatch.js';
 import * as outcomes from './dispatch-outcomes.js';
@@ -19,7 +18,7 @@ import { inboxItem, sessionRow, type Session } from './rows.js';
 import { Registration, register } from './registry.js';
 import { context, readDocument, shareDocument } from './documents.js';
 import * as sessions from './sessions.js';
-import type { AttachmentHost } from './store-types.js';
+import type { StoreHost } from './store-types.js';
 import { stripNulls } from './store-types.js';
 import { truncateCodePoints } from './text.js';
 import { HOUR_MS, now } from './timing.js';
@@ -33,7 +32,7 @@ const INBOX_COLUMNS = 'm.id,m.sender,s.name AS senderName,m.parts,m.outcome,m.re
 /** What `send` stores: a send_message input, or the final reply `complete` builds from its own input. */
 type Outgoing = SendMessageInput & { replyTo?: number; outcome?: CompleteInput['outcome'] };
 
-export class Store implements AttachmentHost, DeliveryApi {
+export class Store implements StoreHost, DeliveryApi {
   readonly workspace: string;
   readonly coordinationScope: string;
   readonly database: string;
@@ -258,10 +257,6 @@ export class Store implements AttachmentHost, DeliveryApi {
     const result = catalog.page(rows.map(inboxItem), false, 'inbox', { after });
     this.idleInbox = rows.length ? null : state;
     return result;
-  }
-
-  completionCheck(session: string, input: CompletionCheckInput): CommandResults['completion-check'] {
-    return completionCheck(this, session, input);
   }
 
   peersChanged(session: string, consumer: string, generation: string): boolean {

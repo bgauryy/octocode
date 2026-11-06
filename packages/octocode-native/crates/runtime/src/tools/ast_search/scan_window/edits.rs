@@ -17,12 +17,16 @@ fn fixture() -> Fixture {
     root
 }
 
-/// The two operations whose directory scans resume by `scanOffset`.
-fn queries(root: &Fixture) -> [Value; 3] {
+/// The queries whose directory scans resume by `scanOffset`, in walk order
+/// and in a ranked order (whose cut windows list nothing until the last).
+const QUERIES: usize = 4;
+
+fn queries(root: &Fixture) -> [Value; QUERIES] {
     [
         json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"pub fn source() {}"}}),
         json!({"operation":"match","path":root.0,"parser":"rust","view":"files","rule":{"pattern":"pub fn source() {}"}}),
         json!({"operation":"symbols","path":root.0}),
+        json!({"operation":"match","path":root.0,"parser":"rust","sort":{"by":"matchCount","order":"desc"},"rule":{"pattern":"pub fn source() {}"}}),
     ]
 }
 
@@ -82,7 +86,7 @@ fn walk(root: &Fixture, query: Value, edits_after: usize, edit: impl FnOnce()) -
 }
 
 fn every_query(edit: impl Fn(&Fixture), expected: impl Fn(&[String]) -> Vec<String>, case: &str) {
-    for at in 0..3 {
+    for at in 0..QUERIES {
         let root = fixture();
         let query = queries(&root)[at].clone();
         let _window = super::test_window(2);
@@ -125,7 +129,7 @@ fn inserting_a_file_before_the_cut_repeats_no_file() {
 }
 
 fn restarts(edit: impl Fn(&Fixture), edits_after: usize, case: &str) {
-    for at in 0..3 {
+    for at in 0..QUERIES {
         let root = fixture();
         let query = queries(&root)[at].clone();
         let _window = super::test_window(2);
@@ -176,7 +180,7 @@ fn an_edit_of_the_first_window_restarts_a_later_one() {
 /// it gets there.
 #[test]
 fn a_file_added_past_the_cut_is_listed_once_with_no_restart() {
-    for at in 0..3 {
+    for at in 0..QUERIES {
         let root = fixture();
         let query = queries(&root)[at].clone();
         let _window = super::test_window(2);
@@ -196,7 +200,7 @@ fn a_file_added_past_the_cut_is_listed_once_with_no_restart() {
 
 #[test]
 fn an_unchanged_scan_lists_every_file_once() {
-    for at in 0..3 {
+    for at in 0..QUERIES {
         let root = fixture();
         let query = queries(&root)[at].clone();
         let _window = super::test_window(3);

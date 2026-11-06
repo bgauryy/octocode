@@ -4,7 +4,7 @@
 #[cfg(test)]
 use super::extraction::extract;
 use super::types::*;
-use super::{no_match::*, outline::*, prepare::*};
+use super::{no_match::*, prepare::*};
 use crate::execution::cancel::CancellationCheck;
 use crate::security::scan::ContentScan;
 use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadView};
@@ -12,10 +12,12 @@ use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadView};
 mod classified;
 mod compact;
 mod page;
+mod select;
 mod warnings;
 
 use classified::{SelectionInput, refused_selection_input, select_no_match, select_view_chunks};
 use page::{cut_page, page_result};
+use select::select_view;
 
 pub(crate) use classified::unsupported_selection;
 
@@ -64,7 +66,7 @@ pub(crate) fn process_fetched_content_selected<S: ContentScan>(
     // A continuation page of these bytes replays the view its cursor's
     // first page built, and only cuts its own page from it.
     let retention =
-        super::retained::Retention::of::<S>(q, &sha256, (source_path, provider_path), facts);
+        super::retained::Retention::of(q, &sha256, (source_path, provider_path), facts, security);
     if let Some(kept) = retention.as_ref().and_then(|kept| kept.replay(q)) {
         let page = Page {
             source: &kept.source,
@@ -76,8 +78,13 @@ pub(crate) fn process_fetched_content_selected<S: ContentScan>(
     }
     // A range or match read of bytes already scanned at this path reuses that
     // scan; a cancelled row still ends in `prepare_source`.
-    let scan =
-        super::retained::ScannedSource::of::<S>(q, &sha256, (source_path, provider_path), facts);
+    let scan = super::retained::ScannedSource::of(
+        q,
+        &sha256,
+        (source_path, provider_path),
+        facts,
+        security,
+    );
     let scanned = scan.as_ref().and_then(|scan| scan.get(q));
     let mut source = match scanned.as_deref() {
         Some(scanned) if cancel.check().is_ok() => scanned.shared(),
@@ -119,14 +126,18 @@ pub(crate) fn process_fetched_content_selected<S: ContentScan>(
     if ext.count == Some(0) {
         return select_no_match(&selection_input, no_match(q, &source));
     }
-    let mut view = select_view(
+    let mut view = match select_view(
         q,
         &mut ext,
         &mut source.redacted_lines,
         source_path,
         security,
         &source.text,
-    );
+        cancel,
+    ) {
+        Ok(view) => view,
+        Err(reason) => return no_outline(q, reason, source.total_lines),
+    };
     let selection_outcome = match select_view_chunks(
         &selection_input,
         &source.text,
@@ -241,98 +252,30 @@ pub(super) struct View {
     pub(super) fallback: Option<ViewFallback>,
     /// The view's note for its first page (an outline's recovered parse).
     pub(super) note: Option<String>,
-    /// Every text the view and its source hold passed the source-wide
-    /// secret scan, so later pages may replay them (see `retained`).
-    pub(super) sanitized: bool,
+    /// The view's latest byte-page window scan, which a replayed walk's
+    /// later pages reuse (see `retained`).
+    pub(super) scans: super::pagination::WindowScans,
 }
 
-/// Apply the requested `view` to the extracted text. A match read
-/// stays verbatim evidence; an outline the file type cannot give falls
-/// back to the standard view.
-fn select_view(
-    q: &LocalFetchQuery,
-    ext: &mut super::extraction::Extraction,
-    source_redactions: &mut Vec<(usize, usize)>,
-    source_path: &std::path::Path,
-    security: &impl ContentScan,
-    full_source: &str,
-) -> View {
-    let requested = local_fetch_query::view(q);
-    let selected = std::mem::take(&mut ext.text);
-    // matchString reads are verbatim source; the tool description says so,
-    // so the row carries no fallback notice. Byte windows address the
-    // selected view (a numbered walk pages an oversized line by view bytes),
-    // so they take no view of their own here.
-    // Their preparation scanned the whole source (see `prepare_source`).
-    if local_fetch_query::has_matches(q) {
-        return View {
-            text: selected,
-            mode: None,
-            fallback: None,
-            note: None,
-            sanitized: true,
-        };
-    }
-    // A range read's source passed the same scan; a whole read's did not.
-    let scanned = local_fetch_query::has_ranges(q);
-    // Every transformed view keeps the citation gutter (`N\t`): the standard
-    // view numbers each kept line with its source line, the outline uses the
-    // same separator in every language.
-    let standard_view = |selected: &str| {
-        compact::render(
-            full_source,
-            selected,
-            local_fetch_query::path(q),
-            ext.source_lines.as_deref(),
-        )
-    };
-    let view = |text, mode| View {
-        text,
-        mode,
-        fallback: None,
-        note: None,
-        sanitized: scanned,
-    };
-    match requested {
-        ReadView::Content => view(selected, None),
-        ReadView::Compact => view(standard_view(&selected), Some(ReadView::Compact)),
-        ReadView::Symbols => {
-            match symbols_view(&selected, local_fetch_query::path(q), source_path, security) {
-                super::outline::SymbolsView {
-                    outline: Ok(outline),
-                    warning,
-                    redacted_lines,
-                    sanitized,
-                } => {
-                    // The outline shows the placeholders its render put in: the
-                    // page counts them as source-wide redactions.
-                    add_redacted_lines(source_redactions, &redacted_lines);
-                    View {
-                        // An outline from a recovered parse says where it is
-                        // blind, once: on the outline's first page.
-                        note: warning,
-                        sanitized: sanitized || scanned,
-                        ..view(outline, Some(ReadView::Symbols))
-                    }
-                }
-                // `viewFallback` is the typed notice of the applied view.
-                super::outline::SymbolsView {
-                    outline: Err(reason),
-                    ..
-                } => View {
-                    text: standard_view(&selected),
-                    mode: Some(ReadView::Compact),
-                    fallback: Some(ViewFallback {
-                        requested: ReadView::Symbols,
-                        applied: ReadView::Compact,
-                        reason: reason.as_str().into(),
-                    }),
-                    note: None,
-                    sanitized: scanned,
-                },
-            }
-        }
-    }
+/// The row of a symbols read no outline or compaction can stand in for:
+/// the reason (the outline's, then the compact view's), and the reads that
+/// still answer: the file's own lines page by page, or its matching lines
+/// with `matchString`.
+fn no_outline(q: &LocalFetchQuery, reason: String, total_lines: usize) -> LocalFetchResult {
+    let path = local_fetch_query::path(q);
+    let mut result = LocalFetchResult::error(
+        path.to_owned(),
+        ErrorCode::SymbolsUnsupported,
+        format!(
+            "No symbols outline ({reason}). Read the lines with the related read, or select them with matchString."
+        ),
+    );
+    result.total_lines = Some(total_lines);
+    result.next = local_fetch_query::read_lead(path).map(|read| NextCalls {
+        read: Some(FetchCall::related(read)),
+        ..NextCalls::default()
+    });
+    result
 }
 
 /// The one shape of a page asked past the end of its view, whatever reads

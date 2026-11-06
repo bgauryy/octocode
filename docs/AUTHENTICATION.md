@@ -82,7 +82,7 @@ The classification key authorizes inline `classification` and `clasify` requests
 | `OCTOCODE_CLASSIFICATION_API_HOST` | Optional API root (default `https://api.typesafe.ai`), `classification.apiHost` in `.octocoderc`. HTTPS except on loopback. Home-only. [Change it](CONFIGURATION.md#change-the-classification-host) |
 
 - The key follows [configuration precedence](CONFIGURATION.md#where-every-value-comes-from), with `classification.api` as its settings-file fallback. It never appears in resolved configuration output.
-- A present-but-blank `OCTOCODE_CLASSIFICATION_API=` in the process environment disables classification requests, even when a file has a key. It hides `clasify` from MCP; the CLI command stays listed and reports the missing credential when invoked.
+- A present-but-blank `OCTOCODE_CLASSIFICATION_API=` in the process environment disables classification requests, even when a file has a key. It hides `clasify` from MCP and from the CLI command list; a direct `octocode clasify` call reports the missing credential.
 
 ## npm registry credentials
 

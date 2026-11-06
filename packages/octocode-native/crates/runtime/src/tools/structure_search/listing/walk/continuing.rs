@@ -9,6 +9,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 pub(super) struct Continuing {
     /// Walk entries before this walk's own.
     pub(super) walk_offset: u32,
+    /// Walk entries this walk lists as its own before its time budget starts:
+    /// a sorted walk that lost what its paused windows kept redoes them.
+    pub(super) budget_after: u32,
     pub(super) kept: Option<resume::Kept>,
     /// Where the walk starts, when something kept says.
     pub(super) resume: Option<WalkCursor>,
@@ -22,9 +25,33 @@ impl Continuing {
         q: &Q,
         root: &std::path::Path,
         walking: Walking<'_>,
-        carried: Option<&Carried>,
+        (carried, ranked): (Option<&Carried>, super::steps::Ranked<'_>),
         resumes: &Resumes<'_>,
     ) -> Self {
+        // A sorted walk resumes where its paused windows stand, the rows
+        // before it already ranked; with nothing kept it walks from the
+        // first entry.
+        match ranked {
+            super::steps::Ranked::Resumed(standing) => {
+                return Self {
+                    walk_offset: q.walk_offset(),
+                    budget_after: 0,
+                    kept: None,
+                    resume: standing.cursor.clone(),
+                    replay: None,
+                };
+            }
+            super::steps::Ranked::Unkept => {
+                return Self {
+                    walk_offset: 0,
+                    budget_after: q.walk_offset(),
+                    kept: None,
+                    resume: None,
+                    replay: None,
+                };
+            }
+            super::steps::Ranked::WalkOrder => {}
+        }
         let walk_offset = carried.map_or(q.walk_offset(), |carried| carried.cursor.position());
         let kept = carried
             .is_none()
@@ -37,6 +64,7 @@ impl Continuing {
             .then(|| Arc::new(Mutex::new(windows::ListingDigest::new(q, root))));
         Self {
             walk_offset,
+            budget_after: 0,
             kept,
             resume,
             replay,

@@ -39,19 +39,34 @@ pub(crate) fn validate_counts(t: &GraphTables, limits: &Limits) -> Result<(), St
     Ok(())
 }
 
-/// The record dictionary's count and both dictionaries' expanded bytes.
+/// The dictionaries' count and expanded bytes as readers admit them: the
+/// record strings (`STRS`) whole, the evidence strings (`STRE`) one block
+/// at a time.
 fn validate_strings(encoder: &writer::Encoder<'_>, limits: &Limits) -> Result<(), String> {
     let (items, string_bytes) = (limits.table_items, limits.string_bytes);
-    if encoder.texts.len() > items {
+    // Record strings are read whole; evidence strings a block at a time, so
+    // the two together are bounded only by the `u32` id every column holds.
+    if encoder.records > items || u32::try_from(encoder.texts.len()).is_err() {
         return Err(format!(
             "graph STRS table exceeds the reader's {items}-item limit; this is a terminal snapshot bound, ingest a narrower scope"
         ));
     }
-    encoder.texts.iter().try_fold(0_usize, |total, text| {
-        total.checked_add(text.len()).filter(|bytes| *bytes <= string_bytes)
-    }).ok_or_else(|| format!(
-        "graph STRS table exceeds the reader's {string_bytes}-byte expanded string limit; this is a terminal snapshot bound, ingest a narrower scope"
-    ))?;
+    let fits = |texts: &[&str]| {
+        texts
+            .iter()
+            .try_fold(0_usize, |total, text| {
+                total
+                    .checked_add(text.len())
+                    .filter(|bytes| *bytes <= string_bytes)
+            })
+            .is_some()
+    };
+    let records = &encoder.texts[..encoder.records];
+    if !fits(records) || !encoder.evidence_texts().chunks(blocks::ROWS).all(fits) {
+        return Err(format!(
+            "graph STRS table exceeds the reader's {string_bytes}-byte expanded string limit; this is a terminal snapshot bound, ingest a narrower scope"
+        ));
+    }
     Ok(())
 }
 
@@ -71,7 +86,7 @@ mod tests {
             table_items: items,
             edges,
             string_bytes,
-            ..LIMITS
+            ..*LIMITS
         };
         validate_counts(encoder.tables, &limits)?;
         validate_strings(encoder, &limits)

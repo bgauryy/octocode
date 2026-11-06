@@ -34,6 +34,7 @@ pub(super) fn reuse_checkout(
         .map_err(policy_denied)?;
     let mut result = plan.result(reference, clone_dir, checkout);
     result.location.cloned_at = storage::completed_at(clone_dir);
+    result.location.reused = true;
     Ok(Some(result))
 }
 

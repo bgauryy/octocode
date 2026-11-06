@@ -32,6 +32,8 @@ pub(super) struct Lines {
 }
 
 /// Explicit context determines whether hit values carry source-line prefixes.
+/// `query` is the call as it ran ([`render`] repairs it first), so
+/// `contextLines: 3` reads as the `{"before":3,"after":3}` it ran as.
 fn context_requested(query: &Value) -> bool {
     let context = &query["queries"][0]["contextLines"];
     ["before", "after"]
@@ -45,12 +47,17 @@ fn context_requested(query: &Value) -> bool {
 /// of a batch under its own heading; `None` only when the result does not
 /// match its tool's output schema, which prints its JSON. `cwd` is the
 /// caller's directory: a root equal to it needs no note.
+///
+/// `query` is the call as sent; it is read as the runtime ran it, so a
+/// shorthand the runtime repairs (scalar `contextLines`, a bare row) prints
+/// exactly as its contract form does.
 pub(super) fn render(
     tool: ToolId,
     structured: &Value,
     query: &Value,
     cwd: Option<&std::path::Path>,
 ) -> Option<Lines> {
+    let query = &octocode_native::contracts::input_as_run(tool.as_str(), query.clone());
     let (display, calls) = follow::separate_calls(tool, structured)?;
     let mut lines = match display.get("results").and_then(Value::as_array) {
         Some(rows) if rows.len() == 1 => render_data(tool, &display, query, cwd)

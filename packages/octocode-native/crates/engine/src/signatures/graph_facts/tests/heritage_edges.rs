@@ -113,3 +113,55 @@ fn heritage_edges_name_their_unresolved_base() {
     assert_eq!(extends.from, class.id);
     assert_eq!(extends.to, "Base");
 }
+
+/// The clause dispatch sends a grammar to the C++-style base clause only
+/// when it is not one of the named forms; no named form's grammar has a
+/// class or struct specifier node, so no node of theirs is read twice.
+#[test]
+fn named_heritage_forms_have_no_base_class_specifiers() {
+    for entry in crate::signatures::languages::all_entries() {
+        let clauses = super::super::heritage::Clauses::of(entry.extensions[0]);
+        if clauses == super::super::heritage::Clauses::BaseClass {
+            continue;
+        }
+        for kind in ["class_specifier", "struct_specifier"] {
+            assert_eq!(
+                entry.language.id_for_node_kind(kind, true),
+                0,
+                "{} ({clauses:?}) has a {kind} node",
+                entry.name
+            );
+        }
+    }
+}
+
+/// Go records embedded types as `embeds` and never names a supertype, so a
+/// subtype scan can skip its files; every other heritage form may.
+#[test]
+fn only_go_heritage_never_names_a_supertype() {
+    let go = "package a\n\ntype S struct {\n\tQuerier\n}\n\ntype R interface {\n\tQuerier\n}\n";
+    assert!(heritage(go, "a.go").is_empty());
+    assert!(
+        facts_json(go, "a.go")["edges"]
+            .as_array()
+            .expect("edges")
+            .iter()
+            .any(|edge| edge["relation"] == "embeds")
+    );
+    assert!(!crate::signatures::may_name_supertypes(go, "a.go"));
+    for (source, path) in [
+        ("trait A: B {}\n", "lib.rs"),
+        ("class A(B):\n    pass\n", "m.py"),
+        ("class A extends B {}\n", "A.java"),
+        ("class A : B {}\n", "A.cs"),
+        ("class A : public B {};\n", "a.cpp"),
+        ("class A extends B\n", "a.scala"),
+        ("class A extends B {}\n", "a.ts"),
+        ("plain text\n", "notes.txt"),
+    ] {
+        assert!(
+            crate::signatures::may_name_supertypes(source, path),
+            "{path}"
+        );
+    }
+}

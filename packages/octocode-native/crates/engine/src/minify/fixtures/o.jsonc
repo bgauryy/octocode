@@ -1,0 +1,7 @@
+{
+  // comment
+  "a": 1, /* c */
+  "url": "http://x", // url
+  "it's": "yes",
+  "b": [1, 2,],
+}

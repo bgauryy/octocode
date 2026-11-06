@@ -33,7 +33,6 @@ Each example runs after you replace IDs, paths and placeholders. For every optio
 | `retry_delivery` | Explicitly retry an inspected staged or uncertain attempt; duplication is possible. A submitted attempt (host accepted it) is refused, never resent. | `agent retry_delivery '{"message":17,"reason":"Receiver inspection confirms retry is needed"}'` |
 | `host-config` | Generate a hook settings preview to merge into the host. | `comm host-config --vendor codex` |
 | `host-hook` | Host hook handler; consumes actual host event JSON on stdin. | `comm host-hook --vendor codex < /absolute/host-event.json` |
-| `completion-check` | Optional Claude Stop recovery guard; host supplies stop-event JSON. | `agent completion-check - < /absolute/stop-event.json` |
 | `mcp` | Expose bound tools to a host; managed mode owns lifecycle. | `comm mcp --managed --name reviewer --vendor claude --tools review` |
 | `run` | Launch a requested new worker, not message delivery. | `comm run --vendor codex --model HOST_MODEL --prompt 'Review the API' --tools review` |
 | `share_document` | Store immutable larger evidence with optional contextual summary; an ADR revision names the document it supersedes. | `agent share_document '{"name":"api-review.md","content":"Evidence...","reasoning":"Preserve review","context":{"summary":"API compatibility review","path":"src/api.ts"}}'` |

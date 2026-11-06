@@ -91,6 +91,23 @@ pub(super) fn match_snapshot(q: MatchQuery<'_>, scope: &Scope, scan: &Scan) -> S
         // Row shape version (v4: `matchCount`, object rows, 1-based columns); an older cursor
         // restarts instead of mixing shapes across pages.
         MATCH_ROWS_VERSION,
+        scan_fields(q, scope),
+        q.scan_offset(),
+        &scan.source_digest,
+        ordered
+    ]);
+    // A later window's pages answer for the windows before it too.
+    match &scan.listed_before {
+        Some(before) => crate::digest::json_sha256(&json!([bound, before])),
+        None => crate::digest::json_sha256(&bound),
+    }
+}
+
+/// The query fields that decide which files a scan evaluates, what it keeps
+/// of their matches and their order. Fields the continuation normalizes to a
+/// default are taken by their effective value.
+pub(super) fn scan_fields(q: MatchQuery<'_>, scope: &Scope) -> serde_json::Value {
+    json!([
         scope.canonical.to_string_lossy(),
         q.rule(),
         q.scope(),
@@ -106,13 +123,5 @@ pub(super) fn match_snapshot(q: MatchQuery<'_>, scope: &Scope, scan: &Scan) -> S
         // Always present: validation stamps the contract defaults.
         q.sort().unwrap_or_default(),
         q.result_view().as_deref().unwrap_or_default(),
-        q.scan_offset(),
-        &scan.source_digest,
-        ordered
-    ]);
-    // A later window's pages answer for the windows before it too.
-    match &scan.listed_before {
-        Some(before) => crate::digest::json_sha256(&json!([bound, before])),
-        None => crate::digest::json_sha256(&bound),
-    }
+    ])
 }

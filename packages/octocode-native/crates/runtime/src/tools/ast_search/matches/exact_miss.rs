@@ -156,7 +156,7 @@ pub(super) fn rule_scan(
     if rule_scope.is_file {
         scan_file(rule_query, &rule_scope, paths, cancel)
     } else {
-        scan_directory(rule_query, &rule_scope, paths, cancel)
+        scan_directory(rule_query, &rule_scope, paths, cancel, None)
     }
     .ok()
 }

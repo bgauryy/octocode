@@ -82,6 +82,16 @@ impl<'a> Reader<'a> {
         }
         Ok(count)
     }
+    /// A blocked section's row count, checked against the bytes left only:
+    /// its rows are bounded where they are read, a whole table by its
+    /// reader's row bound, an evidence block by its own rows.
+    pub(super) fn rows(&mut self) -> Result<usize, String> {
+        let count = usize::try_from(self.var()?).map_err(|_| self.truncated())?;
+        if count > self.bytes.len() - self.at {
+            return Err(self.truncated());
+        }
+        Ok(count)
+    }
     pub(super) fn var_vec(&mut self) -> Result<Vec<u32>, String> {
         let count = self.count()?;
         (0..count).map(|_| self.var_u32()).collect()
@@ -273,6 +283,8 @@ pub(super) fn read_section_table(
         }
         let decoded = if blocks::blocked(&tag) {
             std::borrow::Cow::Owned(blocks::unpack(&tag, bytes)?)
+        } else if blocks::sealed(&tag) {
+            std::borrow::Cow::Owned(blocks::open(bytes)?)
         } else {
             std::borrow::Cow::Borrowed(bytes)
         };

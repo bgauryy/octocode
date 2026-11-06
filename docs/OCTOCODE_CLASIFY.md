@@ -156,7 +156,7 @@ which units reach you.
 ```mermaid
 flowchart TD
     accTitle: How inline classification selects hits
-    accDescr: The search or read runs normally. Each search hit is a unit; a read with no search is split into chunks. A file's hits share one Jev request, one question per hit, its context lines in the shared state. A hit with any predicate over 0.5 on direct evidence is returned with its window; near misses, exclusions and undecided hits are counted in the receipt but hidden. A page stops at its budget and the next page takes the rest.
+    accDescr: The search or read runs normally. Each search hit is a unit; a read with no search is split into chunks. A file's hits share one Jev request, one question per hit; the shared state holds the context lines and the question text once. A hit with any predicate over 0.5 on direct evidence is returned with its window; near misses, exclusions and undecided hits are counted in the receipt but hidden. A page stops at its budget and the next page takes the rest.
     T["Search or read runs normally"] --> U["Units: each hit<br/>(a read with no search: chunks)"]
     U --> J["One request per file<br/>one question per hit, all predicates"]
     J --> K{"Any predicate over 0.5<br/>on direct evidence?"}
@@ -167,12 +167,18 @@ flowchart TD
 
 **The hit is the unit.** Each hit gets its own verdict: context lines inform it but never pass it, so
 a kept hit's window can show lines that did not pass, and `matchedLines` names the kept hits. The
-hits of one file share one provider request, so the state is sent once; on the frozen fixtures this
-judged every hit right at context 0, ±2 and ±3, at about a third of the tokens of one call per hit.
+hits of one file share one provider request, so the state is sent once, with the question text every
+hit shares; each hit's question carries only its line and the predicate, and a hit line is sent once
+unless it is also a neighbour's context. On the frozen fixtures this judged every hit right at
+context 0, ±2 and ±3, at about a third of the tokens of one call per hit.
 A read with no search has no hit to ask about: it is judged in chunks (declarations or line windows),
 each kept whole. `selection.unit` says which.
 
-The receipt (`selection`) counts every unit, and continuations reach the rest:
+The receipt (`selection`) counts every unit of the walk: each candidate page adds its verdicts to
+the pages before it, so the last one holds the whole tally. `status` is `complete` once every unit
+was judged, with unsure answers counted in `unknownItems`, and `partial` while some wait for
+`next.nextCandidatePage` or got no answer; the warning says which of the unknown units are not
+judged yet. Continuations reach the rest:
 
 | Continuation | Use it when |
 |---|---|

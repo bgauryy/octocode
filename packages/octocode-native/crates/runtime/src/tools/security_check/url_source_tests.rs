@@ -116,7 +116,7 @@ fn package_pages_name_their_package_and_version() {
 
 /// Refused before any request: a registry never hears a repository's name.
 #[test]
-fn a_repository_page_is_refused_with_its_go_module_form() {
+fn a_repository_page_is_refused_with_its_coordinates() {
     let refused = parse("https://github.com/acme/private.git").expect_err("refused");
     assert!(
         refused.reason.contains("is a repository"),
@@ -129,8 +129,8 @@ fn a_repository_page_is_refused_with_its_go_module_form() {
         refused.reason
     );
     assert_eq!(
-        refused.go_module.as_deref(),
-        Some("github.com/acme/private")
+        refused.repository,
+        Some(("acme".to_owned(), "private".to_owned()))
     );
     assert!(parse("https://pypi.org/project/requests").is_ok());
 }
@@ -211,7 +211,7 @@ fn anything_else_says_it_cannot_be_resolved() {
         let why = parse(text).expect_err(text);
         assert!(why.reason.contains(text), "{}", why.reason);
         assert!(why.reason.contains("nothing was sent"), "{}", why.reason);
-        assert_eq!(why.go_module, None);
+        assert_eq!(why.repository, None);
     }
     assert!(
         parse("https://example.com/x")

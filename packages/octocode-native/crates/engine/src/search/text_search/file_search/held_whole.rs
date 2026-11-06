@@ -24,13 +24,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
         work: MatchWork,
     ) -> std::io::Result<FileOutcome> {
         let bytes = read_prefix(file, file.metadata()?.len())?;
-        let mut sink = CollectSink::new(
-            self.matcher,
-            work,
-            self.deadline,
-            self.stop,
-            (self.words, self.terms),
-        );
+        let mut sink = CollectSink::new(self.matcher, work, self.stop, (self.words, self.terms));
         sink.test_code = self.opts.test_code.as_ref().map(|scope| (scope, path));
         sink.source = Some(path);
         sink.inspect_deferred = self
@@ -52,13 +46,8 @@ impl<M: Matcher> FileSearcher<'_, M> {
                 let prefix_searcher = self
                     .prefix_searcher
                     .get_or_insert_with(|| build_searcher(opts, context, BinaryDetection::none()));
-                let mut prefix_sink = CollectSink::new(
-                    self.matcher,
-                    work,
-                    self.deadline,
-                    self.stop,
-                    (self.words, self.terms),
-                );
+                let mut prefix_sink =
+                    CollectSink::new(self.matcher, work, self.stop, (self.words, self.terms));
                 prefix_sink.source = Some(path);
                 prefix_searcher.search_slice(self.matcher, prefix, &mut prefix_sink)?;
                 let mut outcome = FileOutcome::from(prefix_sink);

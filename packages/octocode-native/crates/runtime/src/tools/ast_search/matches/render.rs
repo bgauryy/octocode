@@ -74,7 +74,16 @@ pub(super) fn render_match_page(
     // on page 1, in `skippedPaths`, like localSearch's walk.
     let root = scope.canonical.to_string_lossy();
     let errors = &scan.walk_errors;
-    let skips = crate::tools::leads::skipped::unlifted(&root, &scan.withheld, errors.into());
+    let skips = crate::tools::leads::skipped::under(
+        &scope.canonical,
+        octocode_contract_types::SkippedPathCause::OctocodeArtifact,
+        &scan.artifacts,
+    )
+    .chain(crate::tools::leads::skipped::unlifted(
+        &root,
+        &scan.withheld,
+        errors.into(),
+    ));
     if q.page() == 1
         && let Some(paths) = crate::tools::leads::skipped::skipped_paths(skips, false, truncated)?
     {

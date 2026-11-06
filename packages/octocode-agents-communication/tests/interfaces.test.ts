@@ -33,7 +33,7 @@ test('all canonical operations expose contextual help with no unexplained flags'
   assert.ok(complete);
   assert.match(commandHelp(spec, complete), /EXAMPLES[\s\S]*--message 1/);
 });
-test('CLI preserves identities and leases across invocations; default MCP borrows them', t => {
+test('CLI preserves identities and leases across invocations; bound MCP borrows them', t => {
   const workspace = tempWorkspace(t, 'communication-interfaces-', { real: true });
   const common = ['--workspace', workspace, '--database', join(workspace, 'db.sqlite')];
   const identity = launch(['join', '--name', 'reviewer', '--vendor', 'generic', ...common]);
@@ -46,7 +46,7 @@ test('CLI preserves identities and leases across invocations; default MCP borrow
     { jsonrpc: '2.0', id: 2, method: 'tools/list' },
     { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'leases', arguments: { type: 'list', input: {} } } },
   ].map(message => JSON.stringify(message)).join('\n')}\n`;
-  const output = execFileSync(process.execPath, [entry, '--session', identity.id, '--workspace', workspace, '--database', join(workspace, 'db.sqlite')], { input, encoding: 'utf8', timeout: 10000 }).trim().split('\n').map((line): JsonRecord => JSON.parse(line));
+  const output = execFileSync(process.execPath, [entry, '--tools', 'editing', '--session', identity.id, '--workspace', workspace, '--database', join(workspace, 'db.sqlite')], { input, encoding: 'utf8', timeout: 10000 }).trim().split('\n').map((line): JsonRecord => JSON.parse(line));
   const reply = (id: number): JsonRecord => {
     const row = output.find(candidate => candidate.id === id);
     assert.ok(row, `No response for request ${id}`);

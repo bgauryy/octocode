@@ -41,6 +41,7 @@ const CANONICAL = [
   'OCTOCODE_LSP_AUTO_INSTALL',
   'OCTOCODE_TRUST_PROJECT_LSP_CONFIG',
   'OCTOCODE_LSP_TRUST_FETCHED_CODE',
+  'OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS',
   // Storage mode decides what persists on disk: home-trusted only.
   'OCTOCODE_STORAGE_MODE',
   'OCTOCODE_CARGO',
@@ -52,6 +53,9 @@ const CANONICAL = [
   'WORKSPACE_ROOT',
   'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
   'OCTOCODE_CLASSIFICATION_API_HOST',
+  // The classification key turns on provider calls that carry evidence: a
+  // repository must not supply its own account's key.
+  'OCTOCODE_CLASSIFICATION_API',
   // The OAuth app a login or refresh uses: a repository must not choose it.
   'OCTOCODE_GITHUB_CLIENT_ID',
   // An API endpoint receives its key: a repository must not choose it.

@@ -216,7 +216,8 @@ test('host hooks answer with an empty output for subagents, foreign events, wron
   io.readInput = () => Buffer.from('[1]');
   await hostHooks.run({ vendor: 'claude', workspace: f.workspace, database: f.file }, io);
   assert.deepEqual(output, [{}]);
-  await assert.rejects(Promise.resolve().then(() => hostHooks.vendor({ vendor: 'nope', workspace: f.workspace })), /--vendor claude\|codex\|cursor\|grok required/);
+  assert.equal(hostHooks.vendor({ vendor: 'independent-provider', workspace: f.workspace }), 'independent-provider');
+  assert.throws(() => hostHooks.vendor({ vendor: ' ', workspace: f.workspace }), /Invalid vendor: blank/);
 });
 
 test('host context budgets: oversized bodies become fetch references; released rows return to ready', async t => {

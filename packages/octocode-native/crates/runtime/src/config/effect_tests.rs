@@ -209,6 +209,21 @@ fn trust_fetched_code_reaches_server_discovery() {
     assert!(roots(json!({"lsp":{"trustFetchedCode":true}})).is_empty());
 }
 
+/// `lsp.allowBuildScripts` reaches the settings every lspSearch call reads,
+/// and is off unless set.
+#[test]
+fn allow_build_scripts_reaches_lsp_search() {
+    let home = tempfile::tempdir().expect("home");
+    let cwd = tempfile::tempdir().expect("cwd");
+    let allowed = |rc: Value| {
+        runtime(home.path(), cwd.path(), &rc)
+            .lsp_execution_config()
+            .allow_build_scripts
+    };
+    assert!(!allowed(json!({})));
+    assert!(allowed(json!({"lsp":{"allowBuildScripts":true}})));
+}
+
 /// `security.credentialFiles: allow` opens credential-named files to local
 /// reads and searches, with secret values still redacted, and keeps saved work
 /// off disk. Graphs and classifier reads never read them.

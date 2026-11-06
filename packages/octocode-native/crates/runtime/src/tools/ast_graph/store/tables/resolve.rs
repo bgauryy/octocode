@@ -63,10 +63,12 @@ pub(super) fn member_index<'a>(
 pub(super) type MemberIndex<'a> = HashMap<(&'a str, &'a str), Vec<u32>>;
 
 /// Language-family, Rust module and workspace-crate lookups for graph-wide
-/// and qualified call paths; `families` is [`link_family`] by file node id.
+/// and qualified call paths; `families` is [`link_family`] and
+/// `go_packages` the Go package clause by file node id.
 pub(super) fn link_scope<'a>(
     file_paths: &'a [&'a str],
     families: Vec<&'a str>,
+    go_packages: Vec<&'a str>,
     workspace: &Workspace,
 ) -> LinkScope<'a> {
     let mut modules = HashMap::<&str, Vec<&str>>::new();
@@ -93,6 +95,7 @@ pub(super) fn link_scope<'a>(
     LinkScope {
         file_paths,
         families,
+        go_packages,
         modules,
         rust_files,
         crate_dirs,

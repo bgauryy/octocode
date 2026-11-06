@@ -27,7 +27,6 @@ pub(super) fn feature_languages() -> Vec<LanguageEntry> {
             // enables syntax anchoring when a trusted custom server is used.
             language_id: Some("asm"),
             language: tree_sitter_asm::LANGUAGE.into(),
-            body_query: ASM_BODY_QUERY,
             comment_style: CommentStyle::Asm,
         },
         // Scala: function bodies stripped; class/object/trait bodies kept so
@@ -50,7 +49,6 @@ pub(super) fn feature_languages() -> Vec<LanguageEntry> {
             also_parses: &[],
             language_id: Some("scala"),
             language: tree_sitter_scala::LANGUAGE.into(),
-            body_query: SCALA_BODY_QUERY,
             comment_style: CommentStyle::C,
         },
         #[cfg(feature = "tree-sitter-cpp")]
@@ -73,7 +71,6 @@ pub(super) fn feature_languages() -> Vec<LanguageEntry> {
             also_parses: &["h"],
             language_id: Some("cpp"),
             language: tree_sitter_cpp::LANGUAGE.into(),
-            body_query: CPP_BODY_QUERY,
             comment_style: CommentStyle::C,
         },
         #[cfg(feature = "tree-sitter-cuda")]
@@ -94,7 +91,6 @@ pub(super) fn feature_languages() -> Vec<LanguageEntry> {
             also_parses: &[],
             language_id: Some("cuda"),
             language: tree_sitter_cuda::LANGUAGE.into(),
-            body_query: CPP_BODY_QUERY,
             comment_style: CommentStyle::C,
         },
         #[cfg(feature = "tree-sitter-c-sharp")]
@@ -118,7 +114,6 @@ pub(super) fn feature_languages() -> Vec<LanguageEntry> {
             also_parses: &[],
             language_id: Some("csharp"),
             language: tree_sitter_c_sharp::LANGUAGE.into(),
-            body_query: CS_BODY_QUERY,
             comment_style: CommentStyle::C,
         },
     ]

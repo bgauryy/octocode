@@ -2,7 +2,6 @@
 //! what a walk that continues checks against it. Rows alone decide: when the
 //! entries a window passes list what the windows before it listed, what comes
 //! after them lists every other row exactly once, whatever else moved around them.
-use super::super::files::is_traversal;
 use super::super::listing::Listing;
 use super::super::rows::{self, Lines, Ranking};
 use octocode_engine::digest::HashWriter;
@@ -84,11 +83,10 @@ pub(in crate::tools::structure_search) struct PinnedWalk {
     pub(in crate::tools::structure_search) continues: bool,
 }
 
-/// Hash `ranking`'s entries for a listing of more than one window: resumed,
-/// past its first (`scanOffset`), or with one to come (`continues`, or a time
-/// cut). A walk cut by time hashes its rows in walk order, what its resume can
-/// replay and with no line count (a stamp shows what would change one); a sorted
-/// one past `scanOffset` lists nothing, so pins nothing.
+/// Hash `ranking`'s entries for a walk-order listing (`tree`, `files` by
+/// traversal; a sorted one pins by [`ranked_pins`]) of more than one window:
+/// resumed, past its first (`scanOffset`), or with one to come (`continues`,
+/// or a time cut).
 pub(in crate::tools::structure_search) fn pins<Q: Listing>(
     q: &Q,
     root: &Path,
@@ -102,41 +100,29 @@ pub(in crate::tools::structure_search) fn pins<Q: Listing>(
         time_cut,
         continues,
     } = walk;
-    let traversal = is_traversal(&q.sort());
     let whole_window = passed.is_none() && !time_cut && q.scan_offset() == 0 && !continues;
-    let lists_nothing = time_cut && !traversal && q.scan_offset() > 0;
-    if !listing || whole_window || lists_nothing {
+    if !listing || whole_window {
         return Pins::default();
     }
     let mut digest = passed.unwrap_or_else(|| ListingDigest::new(q, root));
-    let mut walk_order;
-    let order = if time_cut {
-        walk_order = ranking.order().to_vec();
-        walk_order.sort_unstable();
-        walk_order.as_slice()
-    } else {
-        ranking.order()
-    };
-    // Rows reached in walk order are the ones listed first; a sorted window
-    // pins all of its rows.
-    let listed =
-        (!carried && (traversal || time_cut || q.scan_offset() == 0)).then_some(q.scan_offset());
+    // Rows reached in walk order are the ones listed first.
+    let listed = (!carried).then_some(q.scan_offset());
     let mut at_listed = None;
-    for (at, &entry) in order.iter().enumerate() {
+    for (at, &entry) in ranking.order().iter().enumerate() {
         if listed == Some(at) {
             at_listed = Some(digest.hex());
         }
         let lines = lines.get(entry).copied().flatten().filter(|_| !time_cut);
         rows::digest_entry(&mut digest.0, &entries[entry], lines);
     }
-    if listed == Some(order.len()) {
+    if listed == Some(ranking.order().len()) {
         at_listed = Some(digest.hex());
     }
     let mut pins = Pins::default();
     if let Some(pin) = pinned(q) {
         // A listing that walks its whole scope pinned its whole scope, unless
         // the pin is a resume's: only the rows through the end can settle that.
-        let settled = if q.early_exit() || !traversal {
+        let settled = if q.early_exit() {
             at_listed
         } else {
             at_listed.filter(|at_listed| at_listed == pin)
@@ -150,4 +136,48 @@ pub(in crate::tools::structure_search) fn pins<Q: Listing>(
     }
     pins.through = Some(digest);
     pins
+}
+
+/// What a sorted listing's walk pins: every row of its scope in walk order,
+/// so the digest is the same however its time budget split the walk.
+/// `running` holds the rows the windows it paused walked; the walk's own rows
+/// are the ranked entries past the first `kept` (the rows those windows kept).
+/// A paused walk pins nothing yet and hands its digest on; a listing of one
+/// window, never paused, hashes nothing.
+pub(in crate::tools::structure_search) fn ranked_pins<Q: Listing>(
+    q: &Q,
+    (entries, lines, ranking): (&[FileSystemEntry], &[Option<Lines>], &Ranking),
+    (running, kept): (Option<ListingDigest>, usize),
+    (paused, continues): (bool, bool),
+    root: &Path,
+) -> (Pins, Option<ListingDigest>) {
+    let whole_window =
+        running.is_none() && !paused && !continues && q.scan_offset() == 0 && q.walk_offset() == 0;
+    if whole_window {
+        return (Pins::default(), None);
+    }
+    let mut digest = running.unwrap_or_else(|| ListingDigest::new(q, root));
+    let mut own = ranking
+        .order()
+        .iter()
+        .copied()
+        .filter(|&at| at >= kept)
+        .collect::<Vec<_>>();
+    own.sort_unstable();
+    for at in own {
+        rows::digest_entry(
+            &mut digest.0,
+            &entries[at],
+            lines.get(at).copied().flatten(),
+        );
+    }
+    if paused {
+        return (Pins::default(), Some(digest));
+    }
+    let pins = Pins {
+        before: pinned(q).map(|_| digest.hex()),
+        through: Some(digest),
+        owed: None,
+    };
+    (pins, None)
 }

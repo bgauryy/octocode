@@ -27,7 +27,9 @@ pub(super) struct CompiledQuery {
     /// The `names`, `extensions` and `regex` filters.
     pub(super) name_filter: NameFilter,
     pub(super) entry_type: Option<EntryType>,
-    pub(super) empty: bool,
+    /// `Some(true)` lists only empty files and directories, `Some(false)`
+    /// only the others.
+    pub(super) empty: Option<bool>,
     pub(super) modified_from: Option<std::time::SystemTime>,
     pub(super) modified_to: Option<std::time::SystemTime>,
     pub(super) accessed_from: Option<std::time::SystemTime>,
@@ -51,6 +53,9 @@ pub(super) struct CompiledQuery {
     pub(super) time_budget: Option<std::time::Duration>,
     /// Leading entries (walk order) an earlier walk inspected: replayed.
     pub(super) skip_entries: u32,
+    /// Leading entries (walk order) inspected before the time budget starts:
+    /// the replayed ones and [`FileSystemQueryOptions::budget_after`]'s.
+    pub(super) budget_from: u32,
     /// Which walk a [`WalkCursor`](crate::types::fs_resume::WalkCursor) belongs to: everything here that decides
     /// the order and the directories of the walk.
     pub(super) shape: u64,
@@ -136,7 +141,7 @@ impl CompiledQuery {
             include_ignored,
             include_hidden,
         } = options.ignore;
-        let metadata_filtered = options.empty.unwrap_or(false)
+        let metadata_filtered = options.empty.is_some()
             || options.modified_from.is_some()
             || options.modified_to.is_some()
             || options.accessed_from.is_some()
@@ -161,7 +166,7 @@ impl CompiledQuery {
             show_hidden: include_hidden,
             name_filter,
             entry_type: options.entry_type,
-            empty: options.empty.unwrap_or(false),
+            empty: options.empty,
             modified_from: options.modified_from,
             modified_to: options.modified_to,
             accessed_from: options.accessed_from,
@@ -180,6 +185,10 @@ impl CompiledQuery {
             limit: options.limit.map_or(usize::MAX, |n| n as usize),
             time_budget: options.time_budget,
             skip_entries: options.skip_entries.unwrap_or(0),
+            budget_from: options
+                .skip_entries
+                .unwrap_or(0)
+                .max(options.budget_after.unwrap_or(0)),
             shape,
             window_rows: options.window_rows,
             lists: options.lists,

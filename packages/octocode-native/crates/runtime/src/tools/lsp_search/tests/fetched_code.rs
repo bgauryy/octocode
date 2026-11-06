@@ -12,18 +12,18 @@ use std::collections::BTreeMap;
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 
-struct World {
+pub(super) struct World {
     _dir: tempfile::TempDir,
     home: PathBuf,
     os_home: PathBuf,
-    cwd: PathBuf,
+    pub(super) cwd: PathBuf,
     marker: PathBuf,
 }
 
 impl World {
     /// A home whose `lsp-servers.json` routes `.rs` to the recording server,
     /// and a working directory holding an ordinary checkout.
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self::at(Path::new("home"), Path::new("home"), Path::new("work"))
     }
 
@@ -73,7 +73,7 @@ impl World {
         dir
     }
 
-    fn runtime(
+    pub(super) fn runtime(
         &self,
         env: &[(&str, &str)],
         home_rc: &Value,
@@ -114,7 +114,7 @@ impl World {
         .expect("runtime")
     }
 
-    fn started(&self) -> bool {
+    pub(super) fn started(&self) -> bool {
         self.marker.exists()
     }
 }
@@ -126,7 +126,7 @@ fn project(dir: &Path) {
     std::fs::write(dir.join("src/lib.rs"), "pub fn target() {}\n").expect("source");
 }
 
-async fn call(runtime: &ToolRuntime, row: Value) -> Value {
+pub(super) async fn call(runtime: &ToolRuntime, row: Value) -> Value {
     let admission = runtime.admit("fetched".into()).expect("admitted");
     let outcome = runtime
         .execute(

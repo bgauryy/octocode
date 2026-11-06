@@ -31,7 +31,7 @@ fn note_read() {
 }
 
 /// Whether [`count_listed`] answers `opts` as its walk would: a Rust or literal
-/// pattern (PCRE2 needs its deadline driver), with no scope that reads more
+/// pattern (PCRE2 runs on its own worker driver), with no scope that reads more
 /// of a file than its matches (`testCode`, `fileHas`, `fileLacks`).
 #[must_use]
 pub fn listable(opts: &TextSearchOptions) -> bool {
@@ -92,7 +92,6 @@ pub fn count_listed(
                 context: SearchContext::default(),
                 // Only whether a line matched: no span or value is kept.
                 work: match_work(Mode::CountLines, false),
-                deadline: None,
                 stop: &stop,
                 keep_head: false,
                 copy: false,

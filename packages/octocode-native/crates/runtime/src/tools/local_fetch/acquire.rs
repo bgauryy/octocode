@@ -18,7 +18,8 @@ pub(crate) const MAX_SOURCE_BYTES: u64 = octocode_engine::security::MAX_CONTENT_
 #[derive(Clone, Copy)]
 pub(super) enum SourceSizeLimit {
     Streaming,
-    InMemoryGrowth,
+    /// A source that grew past the in-memory guard it was read under.
+    InMemoryGrowth(u64),
 }
 
 pub(super) fn source_too_large(path: &str, len: u64, limit: SourceSizeLimit) -> LocalFetchResult {
@@ -30,11 +31,11 @@ pub(super) fn source_too_large(path: &str, len: u64, limit: SourceSizeLimit) -> 
             ),
             "No selection lifts this source-size ceiling; choose a smaller text source or split it outside localFetch.".to_owned(),
         ),
-        SourceSizeLimit::InMemoryGrowth => {
-            let mib = MAX_SOURCE_BYTES / (1024 * 1024);
+        SourceSizeLimit::InMemoryGrowth(guard) => {
+            let mib = guard / (1024 * 1024);
             (
                 format!(
-                    "Source grew past the in-memory read guard: at least {len} bytes (guard: {MAX_SOURCE_BYTES} bytes / {mib} MiB); the read stopped."
+                    "Source grew past the in-memory read guard: at least {len} bytes (guard: {guard} bytes / {mib} MiB); the read stopped."
                 ),
                 format!(
                     "Retry a bounded line window once the source stops changing; sources over {mib} MiB stream, up to the 1 GiB ceiling."

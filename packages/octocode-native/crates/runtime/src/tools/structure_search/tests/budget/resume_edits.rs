@@ -104,8 +104,10 @@ fn removing_a_listed_entry_loses_no_row_after_the_cut() {
     for (operation, shape) in shapes() {
         let root = flat();
         let (first, next) = cut(&root, query(operation, &root, &shape), STEP * 6);
-        let victim = first.first().expect("the window lists rows").clone();
         let mut expected = whole(&root, &query(operation, &root, &shape));
+        // A paused sorted window lists no row: the first entry in walk order
+        // is one its walk passed.
+        let victim = first.first().unwrap_or(&expected[0]).clone();
         expected.retain(|row| *row != victim);
         std::thread::sleep(Duration::from_millis(20));
         std::fs::remove_file(file_of(&root, &victim)).expect("remove");
@@ -180,13 +182,20 @@ fn editing_a_listed_file_restarts_a_walk_that_showed_its_metadata() {
         }
         let root = flat();
         let (first, next) = cut(&root, query(operation, &root, &shape), STEP * 6);
-        let edited = file_of(&root, first.first().expect("the window lists rows"));
+        let listed = whole(&root, &query(operation, &root, &shape));
+        // A paused sorted window showed no row, so nothing it showed went
+        // stale: the walk lists the edited tree, every row once.
+        let paused = first.is_empty();
+        let edited = file_of(&root, first.first().unwrap_or(&listed[0]));
         std::thread::sleep(Duration::from_millis(20));
         std::fs::write(edited, "fn longer() {}\n").expect("edit");
-        assert!(
-            matches!(follow(&root.0, first, next, UNSPENT), Ended::Stale),
-            "{operation} {shape}"
-        );
+        let ended = follow(&root.0, first, next, UNSPENT);
+        if paused {
+            assert!(matches!(ended, Ended::Rows(_)), "{operation} {shape}");
+            exactly_once(ended, listed, &format!("{operation} {shape}"));
+        } else {
+            assert!(matches!(ended, Ended::Stale), "{operation} {shape}");
+        }
     }
 }
 

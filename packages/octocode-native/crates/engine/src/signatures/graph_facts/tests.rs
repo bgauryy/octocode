@@ -1,5 +1,6 @@
 use super::references::inline_format_captures;
 use super::*;
+use crate::graph::GraphFactsDocument;
 use crate::text::extension_of;
 use serde_json::Value;
 

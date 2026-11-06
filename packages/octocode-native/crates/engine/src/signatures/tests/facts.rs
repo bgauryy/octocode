@@ -2,40 +2,8 @@
 
 use super::*;
 
-/// The declarations-only extraction (outlines, enclosing names) skips
-/// calls, argument observations, reference counts and import uses, and keeps every other
-/// fact identical to the full graph extraction, in every grammar.
 /// A `language` override outlines declarations only: the same
 /// declarations as the full facts under that grammar, and no call facts.
-#[test]
-fn signatures_with_declarations_equal_the_two_separate_extractions() {
-    for (path, source) in [
-        (
-            "lib.rs",
-            "use std::fmt;\n\npub struct Point { x: f64 }\n\nimpl Point {\n    pub fn norm(&self) -> f64 {\n        let squared = self.x * self.x;\n        squared.sqrt()\n    }\n}\n\nfn helper() -> u8 {\n    let value = 1;\n    value + 1\n}\n",
-        ),
-        (
-            "app.py",
-            "import os\n\nclass Box:\n    def size(self):\n        total = 0\n        for item in self.items:\n            total += 1\n        return total\n",
-        ),
-        (
-            "main.ts",
-            "export function run(value: number): number {\n  const doubled = value * 2;\n  return doubled + 1;\n}\nexport class Widget {\n  render() {\n    return 1;\n  }\n}\n",
-        ),
-        ("notes.txt", "plain text\n"),
-    ] {
-        let (outline, declarations) = extract_signatures_with_declarations(source, path);
-        let alone = extract_signatures_inner(source, path);
-        assert_eq!(outline, alone, "{path}");
-        assert_eq!(
-            declarations.and_then(|facts| serde_json::to_value(facts).ok()),
-            extract_declarations_document(source, path)
-                .and_then(|facts| serde_json::to_value(facts).ok()),
-            "{path}"
-        );
-    }
-}
-
 #[test]
 fn an_override_outlines_declarations_without_call_facts() {
     let source = "fn make() -> u8 { helper(); 1 }\nfn helper() {}\n";

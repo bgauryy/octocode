@@ -175,12 +175,10 @@ export async function activate(
     updateStatusBar(false, isAuthenticated);
 
     if (initialAuthStatus.authenticated) {
+      const { tokenSource, accountName } = initialAuthStatus;
+      const account = accountName ? ` as ${accountName}` : '';
       outputChannel.appendLine(
-        `GitHub authenticated via ${initialAuthStatus.tokenSource}${
-          initialAuthStatus.accountName
-            ? ` as ${initialAuthStatus.accountName}`
-            : ''
-        }`
+        `GitHub authenticated via ${tokenSource}${account}`
       );
     }
 

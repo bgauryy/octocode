@@ -30,11 +30,6 @@ export interface StoreHost extends RecordsHost {
   peersChanged(session: string, consumer: string, generation: string): boolean;
 }
 
-/** A host that can also read an attachment row (completion check); `Store` provides it through `dispatch.attachment`. */
-export interface AttachmentHost extends StoreHost {
-  attachment(session: string): CommandResults['attach'];
-}
-
 export type { Database };
 
 /** A record whose own keys must keep their nulls (an envelope with path, from, type, timestamp and data). */

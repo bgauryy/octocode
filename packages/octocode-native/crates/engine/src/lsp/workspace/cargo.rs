@@ -3,15 +3,15 @@
 use super::{CARGO_MANIFEST, lexical};
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 
+mod manifest;
 mod targets;
+pub use manifest::cargo_manifest;
 pub(super) use targets::TargetRoots;
 
-pub(super) fn manifest(directory: &Path) -> Option<toml::Table> {
-    std::fs::read_to_string(directory.join(CARGO_MANIFEST))
-        .ok()?
-        .parse()
-        .ok()
+pub(super) fn manifest(directory: &Path) -> Option<Arc<toml::Table>> {
+    cargo_manifest(directory)
 }
 
 /// Whether the parsed manifest declares a workspace.
@@ -118,7 +118,7 @@ fn contains_package(
         {
             continue;
         }
-        let tables = std::iter::once(&member).chain(
+        let tables = std::iter::once(&*member).chain(
             member
                 .get("target")
                 .and_then(toml::Value::as_table)
@@ -342,5 +342,23 @@ mod tests {
         );
         assert!(!declares_cargo_workspace(&root));
         assert_eq!(resolved(&root), root);
+    }
+
+    /// A manifest is parsed once while it is unchanged, and again once edited.
+    #[test]
+    fn a_manifest_is_parsed_once_until_it_changes() {
+        let root = crate::test_support::TmpDir::new();
+        let package = write(&root.0, "pkg", "[package]\nname = \"a\"\n");
+        crate::stamp::settle_written_so_far();
+        let first = cargo_manifest(&package).expect("parsed");
+        let again = cargo_manifest(&package).expect("parsed");
+        assert!(
+            Arc::ptr_eq(&first, &again),
+            "an unchanged manifest is not parsed again"
+        );
+        std::fs::write(package.join(CARGO_MANIFEST), "[package]\nname = \"bb\"\n").expect("edit");
+        crate::stamp::settle_written_so_far();
+        let edited = cargo_manifest(&package).expect("parsed");
+        assert_eq!(edited["package"]["name"].as_str(), Some("bb"));
     }
 }

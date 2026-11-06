@@ -15,6 +15,7 @@ mod commands;
 mod downloads;
 mod install;
 mod provision;
+mod reports;
 mod three_way;
 
 fn parse(args: &[&str]) -> Result<LspServerCommand, clap::Error> {

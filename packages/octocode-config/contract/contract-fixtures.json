@@ -4275,7 +4275,7 @@
           "filters",
           "isMerged"
         ],
-        "message": "An open pull request cannot be merged."
+        "message": "isMerged:true selects merged pull requests, and those are closed: drop state or set state:\"closed\"."
       }
     ]
   },

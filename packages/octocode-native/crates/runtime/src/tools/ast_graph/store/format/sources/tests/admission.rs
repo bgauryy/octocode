@@ -33,35 +33,48 @@ fn publication_read_preflight_matches_actual_allocation_and_items() {
     }
 }
 
+/// Each block of origins is admitted on its own, by the writer, the
+/// publication preflight and the reader alike: its index entries and every
+/// origin's decode. A block of one origin whose decode charges six items
+/// charges seven, so it is refused at six and admitted at seven, whatever
+/// the pool's other blocks charge.
 #[test]
-fn index_items_are_admitted_before_publication_at_tiny_boundary() {
+fn origin_blocks_are_admitted_on_their_own_at_tiny_boundary() {
     let (descriptors, origins) = fixture();
+    let bound = |items| budget::Budget::new(&NeverCancel, &bounded(usize::MAX, items));
+    let mut refused = pool::OriginPool::default();
+    assert!(matches!(
+        refused.extend(&[&origins[1]], &descriptors, &mut bound(6)),
+        Err(SourceError::LimitExceeded(_))
+    ));
+    assert_eq!(
+        refused,
+        pool::OriginPool::default(),
+        "a refused origin is not kept"
+    );
     let mut pool = pool::OriginPool::default();
-    let mut old_writer = budget::Budget::new(&NeverCancel, &bounded(usize::MAX, 6));
-    pool.extend(&[&origins[1]], &descriptors, &mut old_writer)
+    pool.extend(&[&origins[1]], &descriptors, &mut bound(7))
         .unwrap();
-    assert_eq!(old_writer.items, 6);
+    assert_eq!(pool.get(0).unwrap().items, 6);
     let mut encoded = Vec::new();
     pool.write(
         &mut encoded,
         &mut budget::Budget::new(&NeverCancel, &LIMITS),
     )
     .unwrap();
-    let mut old_reader = budget::Budget::new(&NeverCancel, &bounded(usize::MAX, 6));
-    let mut input = budget::Input::new(&encoded, &mut old_reader);
+    let mut narrow = bound(6);
     assert!(matches!(
-        pool::OriginPool::read(&mut input, &descriptors),
+        pool::OriginPool::read(&mut budget::Input::new(&encoded, &mut narrow), &descriptors),
         Err(SourceError::LimitExceeded(_))
     ));
-    // This is the preflight now called by production validation before publish.
-    let mut admission = budget::Budget::new(&NeverCancel, &bounded(usize::MAX, 6));
+    // This is the preflight production validation calls before publish.
     assert!(matches!(
-        pool.admit_read(&mut admission),
+        pool.admit_read(&mut bound(6)),
         Err(SourceError::LimitExceeded(_))
     ));
-    let mut admission = budget::Budget::new(&NeverCancel, &bounded(usize::MAX, 7));
+    let mut admission = bound(7);
     pool.admit_read(&mut admission).unwrap();
-    let mut reader = budget::Budget::new(&NeverCancel, &bounded(usize::MAX, 7));
+    let mut reader = bound(7);
     pool::OriginPool::read(&mut budget::Input::new(&encoded, &mut reader), &descriptors).unwrap();
     assert_eq!(
         (admission.bytes, admission.items),

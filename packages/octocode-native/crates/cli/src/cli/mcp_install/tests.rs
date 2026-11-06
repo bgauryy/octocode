@@ -5,6 +5,7 @@ use serde_json::json;
 mod clients;
 mod entries;
 mod lifecycle;
+mod output;
 
 fn spec(id: &str) -> &'static ClientSpec {
     mcp_clients::client(id).expect("supported client")

@@ -3,6 +3,7 @@ mod local_fetch;
 mod local_search;
 mod lsp_ast;
 mod paths;
+mod real_limits;
 mod sandbox;
 mod surface;
 mod walks;

@@ -3,7 +3,6 @@
 //! the document, and resolved the anchor.
 
 use super::anchor::Position;
-use super::cancellable;
 use super::failure::{
     ALIAS_RECOVERY_FAILED, IMPORTER_REQUEST_FAILED, LspFailure, RequestFailures,
     mark_diagnostics_unpublished, no_answer, partial_with_related_rerun, shown_paths,
@@ -25,6 +24,7 @@ use super::scope::Scope;
 use super::source::{SourceCache, filter_authorized_items};
 use super::walk::{HierarchyRequest, ImporterRecovery, hierarchy};
 use super::{LspSearchQuery, Op};
+use super::{Readiness, cancellable};
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::tools::lsp_search::lsp_search_query;
@@ -342,7 +342,7 @@ impl Operation<'_, '_> {
                     self.language_id,
                     source.as_ref().map(|source| source.content.as_str()),
                     self.budget,
-                    readiness.as_deref(),
+                    readiness,
                 ))
             }
             Op::WorkspaceSymbol => self.workspace_symbol().await,
@@ -361,7 +361,7 @@ fn outline_row(
     language_id: Option<&str>,
     content: Option<&str>,
     budget: usize,
-    readiness: Option<&str>,
+    readiness: Option<Readiness>,
 ) -> Value {
     if octocode_engine::lsp::family::is_typescript_family(language_id)
         && let Some(content) = content

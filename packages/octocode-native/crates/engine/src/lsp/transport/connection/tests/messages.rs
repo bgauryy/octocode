@@ -140,6 +140,44 @@ async fn rust_analyzer_server_status_keeps_its_last_health() {
     assert_eq!(progress.health(), None, "ok clears the failure");
 }
 
+/// Declining Metals' build import leaves it analysing open files only: the server
+/// is then not fully working, and says nothing more itself.
+#[tokio::test(start_paused = true)]
+async fn a_declined_build_import_is_kept_as_the_servers_health() {
+    let (client_w, server_r) = duplex(64 * 1024);
+    let (server_w, client_r) = duplex(64 * 1024);
+    let progress = ProgressTracker::new();
+    let _connection =
+        JsonRpcConnection::new(client_r, client_w, context(), Arc::clone(&progress), None);
+    let mut server = Server {
+        reader: BufReader::new(server_r),
+        writer: server_w,
+    };
+    let prompt = |id: u64, title: &str| {
+        json!({"jsonrpc":"2.0","id":id,"method":"window/showMessageRequest","params":{
+            "type":3,"message":"New sbt workspace detected, would you like to import the build?",
+            "actions":[{"title":title},{"title":"Not now"}]}})
+    };
+    server.send(prompt(1, "Open logs")).await;
+    assert_eq!(server.read_message().await["result"], Value::Null);
+    assert_eq!(progress.health(), None, "a prompt that imports nothing");
+    server.send(prompt(2, "Import build")).await;
+    assert_eq!(
+        server.read_message().await["result"],
+        Value::Null,
+        "still declined"
+    );
+    let reported = progress.health().expect("the declined import is kept");
+    assert_eq!(reported.level, crate::lsp::transport::HealthLevel::Warning);
+    assert!(
+        reported
+            .message
+            .as_deref()
+            .is_some_and(|message| message.contains("import the build")),
+        "{reported:?}"
+    );
+}
+
 #[tokio::test(start_paused = true)]
 async fn connection_is_alive_until_the_server_stream_closes() {
     let (connection, server) = connect();
@@ -248,4 +286,54 @@ async fn rpc_errors_are_typed_through_the_connection() {
         connection.is_alive(),
         "an RPC error is not a transport fault"
     );
+}
+
+/// jdtls reports a project it could not import (its Gradle cannot run on this
+/// JDK) as a `language/eventNotification` naming the project: the server is
+/// then not answering for it, which is its health until a project status of
+/// `OK`; the `WARNING` status that follows the failure keeps it.
+#[tokio::test(start_paused = true)]
+async fn a_failed_project_import_is_the_servers_health_until_the_project_is_ok() {
+    let (client_w, server_r) = duplex(64 * 1024);
+    let (server_w, client_r) = duplex(64 * 1024);
+    let progress = ProgressTracker::new();
+    let _connection =
+        JsonRpcConnection::new(client_r, client_w, context(), Arc::clone(&progress), None);
+    let mut server = Server {
+        reader: BufReader::new(server_r),
+        writer: server_w,
+    };
+    let mut active = progress.subscribe();
+    let message = "Can't use Java 27.0.1.0.3 and Gradle 9.7.1 to import Gradle project server.";
+    server
+        .send(json!({"jsonrpc":"2.0","method":"language/eventNotification","params":{"eventType":300,"data":{"projectUri":"file:///repo/server/","message":message,"highestJavaVersion":"26"}}}))
+        .await;
+    server
+        .send(json!({"jsonrpc":"2.0","method":"language/status","params":{"type":"ProjectStatus","message":"WARNING"}}))
+        .await;
+    // A progress wave after them shows both were read, in order.
+    server
+        .send(json!({"jsonrpc":"2.0","method":"$/progress","params":{"token":"fence","value":{"kind":"begin","title":"t"}}}))
+        .await;
+    tokio::time::timeout(Duration::from_secs(5), active.wait_for(|count| *count == 1))
+        .await
+        .expect("notifications read")
+        .expect("tracker alive");
+    let reported = progress.health().expect("the failed import is kept");
+    assert_eq!(reported.level, crate::lsp::transport::HealthLevel::Error);
+    assert_eq!(reported.project.as_deref(), Some("/repo/server/"));
+    let text = reported.message.unwrap_or_default();
+    assert!(text.contains("/repo/server"), "{text}");
+    assert!(text.contains(message), "{text}");
+    server
+        .send(json!({"jsonrpc":"2.0","method":"language/status","params":{"type":"ProjectStatus","message":"OK"}}))
+        .await;
+    server
+        .send(json!({"jsonrpc":"2.0","method":"$/progress","params":{"token":"fence","value":{"kind":"end"}}}))
+        .await;
+    tokio::time::timeout(Duration::from_secs(5), active.wait_for(|count| *count == 0))
+        .await
+        .expect("notifications read")
+        .expect("tracker alive");
+    assert_eq!(progress.health(), None, "an OK project status clears it");
 }

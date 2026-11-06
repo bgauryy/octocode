@@ -7,6 +7,7 @@ import { initialize } from './sessions.js';
 import { Store } from './store.js';
 import { isBlank } from './text.js';
 import { mcpInstructions } from './mcp-instructions.js';
+import { callerIdentity } from './caller.js';
 
 export interface McpArgs {
   session?: string;
@@ -95,14 +96,15 @@ export class McpBinding {
 
   describe() {
     const store = this.store!;
-    return { session: this.session, workspace: store.workspace, coordinationScope: store.coordinationScope,
-      branch: store.known(this.session).branch ?? null, tools: catalog.selectedTools(this.args.tools).map(tool => tool.name) };
+    const identity = store.known(this.session);
+    return { session: this.session, caller: callerIdentity(identity), workspace: store.workspace, coordinationScope: store.coordinationScope,
+      branch: identity.branch ?? null, tools: catalog.selectedTools(this.args.tools).map(tool => tool.name) };
   }
 
   instructions(): string {
     return this.session
       ? mcpInstructions(this.describe(), this.managed, catalog.selectedTools(this.args.tools))
-      : 'Call init with your name and vendor. Use vendorSession only if the host supplied its exact current ID; never copy a peer identity or infer one from hook files. Follow the returned tools and instructions.';
+      : 'Introduce yourself with init: preserve your existing agent name and vendor (provider/host label). Supply vendorSession when you know your exact current native ID; never invent it or copy a peer identity. Initialization returns binding.caller to include on subsequent tool calls. Follow the returned tools and instructions.';
   }
 
   async close(): Promise<void> {

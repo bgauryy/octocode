@@ -3,7 +3,7 @@ use super::*;
 use crate::execution::cancel::CancellationCheck;
 use crate::response::source_evidence;
 use octocode_engine::text::analysis::{
-    AnalysisMembership, ByteRange, Encoding, OriginBranch, OriginProjection, SourceDescriptors,
+    AnalysisMembership, Encoding, OriginBranch, OriginProjection, SourceDescriptors,
 };
 
 pub(super) struct ProjectedOrigin {
@@ -57,7 +57,10 @@ fn is_identity(
         && representation.source_digest == digest
         && representation.byte_length == snapshot.byte_length
         && representation.source_ids.as_slice() == [raw.source_id.as_str()]
-        && unit.regions.as_slice() == [ByteRange::new(0, snapshot.byte_length)]
+        && unit.regions.iter().any(|region| {
+            region.start_byte <= segment.source_range.start_byte
+                && segment.source_range.end_byte <= region.end_byte
+        })
 }
 
 pub(super) fn range(
@@ -221,10 +224,10 @@ impl Graph {
 mod tests {
     use super::*;
     use crate::execution::cancel::NeverCancel;
-    use octocode_engine::text::analysis::{Contribution, UnmappedReason};
+    use octocode_engine::text::analysis::{ByteRange, Contribution, UnmappedReason};
 
     #[test]
-    fn compact_identity_requires_the_complete_single_raw_utf8_representation() {
+    fn compact_identity_requires_the_span_copied_from_its_single_raw_utf8_source() {
         let table = super::super::super::format::evidence_tests::source_fixture();
         let origin = table
             .origin(
@@ -247,9 +250,18 @@ mod tests {
         utf16.snapshots[0].encoding = Encoding::Utf16Le;
         utf16.snapshots[0].bom_bytes = 2;
         alternatives.push(("UTF-16", origin.clone(), utf16));
+        // A unit that parsed part of the file (a macro body) still reads the
+        // row's bytes where the file has them: what it read holds the span.
         let mut partial = descriptors.clone();
         partial.units[0].regions = vec![ByteRange::new(0, 8)];
-        alternatives.push(("partial analyzed region", origin.clone(), partial));
+        assert!(is_identity(&origin, &partial, "a.py", &digest));
+        let mut elsewhere = descriptors.clone();
+        elsewhere.units[0].regions = vec![ByteRange::new(8, 12)];
+        alternatives.push((
+            "span outside the analyzed regions",
+            origin.clone(),
+            elsewhere,
+        ));
         let mut multiple = descriptors.clone();
         multiple.representations[0]
             .source_ids

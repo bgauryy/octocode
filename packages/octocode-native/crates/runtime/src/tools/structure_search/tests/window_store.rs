@@ -111,6 +111,33 @@ fn a_listing_past_its_window_walks_its_scope_once_at_any_page_size() {
     }
 }
 
+/// A repeat of a listing walked whole, on an unchanged scope, reads the
+/// listing its first call kept: the same rows and snapshot, no walk. An edit
+/// fails the kept proof, so the repeat walks again and shows it.
+#[test]
+fn a_repeated_whole_listing_reads_its_kept_listing_until_the_scope_changes() {
+    for (operation, extra) in ranked() {
+        let root = fixture();
+        let row = listing(&root, operation, &extra);
+        let (first, _) = with_window(WINDOW_ROWS, || first_window(&root, row.clone()));
+        let before = listing_walks();
+        let (again, _) = with_window(WINDOW_ROWS, || first_window(&root, row.clone()));
+        assert_eq!(listing_walks() - before, 0, "{operation} {extra}: {again}");
+        assert_eq!(paths(&again), paths(&first), "{operation} {extra}");
+        assert_eq!(again["snapshot"], first["snapshot"], "{operation} {extra}");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        root.write("d0/f0.rs", "x\n".repeat(90));
+        root.write("d9/new.rs", "x\n");
+        let before = listing_walks();
+        let (changed, _) = with_window(WINDOW_ROWS, || first_window(&root, row.clone()));
+        assert_eq!(listing_walks() - before, 1, "{operation} {extra}");
+        assert_ne!(
+            changed["snapshot"], first["snapshot"],
+            "{operation} {extra}"
+        );
+    }
+}
+
 #[test]
 fn a_walk_order_listing_past_its_window_replays_no_earlier_entry() {
     struct Counting(AtomicUsize);

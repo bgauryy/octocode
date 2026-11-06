@@ -226,13 +226,15 @@ pub(super) fn type_document(
 ) -> Result<std::sync::Arc<GraphFactsDocument>, String> {
     let document = crate::tools::declarations::graph_facts(content, path)
         .ok_or_else(|| format!("Type heritage parsing unavailable for {path}"))?;
-    // Every tree-sitter document carries the static syntax-only caveat; it
-    // marks no gap. Any other diagnostic (recovered parse, deadline, Rust
-    // attributes) means declarations or heritage clauses may be missing.
+    // Every tree-sitter document carries the static syntax-only caveat, and
+    // a linking caveat (an unexpanded Rust macro's imports, module
+    // attributes) leaves every parsed declaration and its own heritage
+    // clause whole: neither marks a gap. Any other diagnostic (recovered
+    // parse, deadline) means declarations or heritage clauses may be missing.
     let gaps = document
         .diagnostics
         .iter()
-        .filter(|note| note.code != GraphFactCode::SyntaxOnly)
+        .filter(|note| note.code != GraphFactCode::SyntaxOnly && !note.code.is_linking_only())
         .map(ToString::to_string)
         .collect::<Vec<_>>();
     if !document.error_lines.is_empty()

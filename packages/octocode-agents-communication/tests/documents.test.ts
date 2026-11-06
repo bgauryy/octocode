@@ -57,7 +57,7 @@ test('MCP document publication enforces and exposes the canonical intent contrac
     { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'documents', arguments: { type: 'publish', input } } },
     { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'documents', arguments: { type: 'publish', input: { ...input, reasoning: 'Explain why this path needs review' } } } },
   ].map(frame => JSON.stringify(frame)).join('\n')}\n`;
-  const rows = execFileSync(binary, ['mcp', '--workspace', f.workspace, '--database', f.database, '--session', f.a.id], { input: frames, encoding: 'utf8' }).trim().split('\n').map((line): JsonRecord => JSON.parse(line));
+  const rows = execFileSync(binary, ['mcp', '--tools', 'review', '--workspace', f.workspace, '--database', f.database, '--session', f.a.id], { input: frames, encoding: 'utf8' }).trim().split('\n').map((line): JsonRecord => JSON.parse(line));
   const publish = rows[0].result.tools.find((tool: JsonRecord) => tool.name === 'documents').inputSchema.oneOf.find((branch: JsonRecord) => branch.properties.type.const === 'publish');
   assert.ok(publish.properties.input.required.includes('reasoning'));
   assert.equal(rows[1].result.isError, true);

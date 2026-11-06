@@ -23,16 +23,20 @@ const SHARED_LAYERS: &[&[(&str, &str)]] = &[
         ROOT,
         "tools.rs: walk, path and outline helpers every layer may use",
     )],
-    // Imports no `tools/` module, so every shared module may size its fan-out.
-    &[(
-        "workers",
-        "the one per-query fan-out width: the batch's core share, a cap, the items",
-    )],
+    // Import no `tools/` module, so every shared module may size its fan-out
+    // and keep by the store.
+    &[
+        (
+            "workers",
+            "the one per-query fan-out width: the batch's core share, a cap, the items",
+        ),
+        ("page_memo", "results kept for continuation pages"),
+    ],
     &[
         ("bounded_process", "bounded subprocess runner"),
         (
             "declarations",
-            "request-owned single-file declaration facts",
+            "single-file declaration facts, kept by text digest in the one process store",
         ),
         (
             "empty_walk",
@@ -63,7 +67,6 @@ const SHARED_LAYERS: &[&[(&str, &str)]] = &[
         // Reads empty_walk's walk and globs.
         ("ast_rule", "AST rule parsing shared by the ast tools"),
         ("leads", "follow-up queries one tool offers into another"),
-        ("page_memo", "results kept for continuation pages"),
         (
             "selection",
             "bounded relevance ordering for local search files and fetch windows, judged through the judgment evaluator",

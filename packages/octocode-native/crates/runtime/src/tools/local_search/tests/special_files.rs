@@ -79,7 +79,8 @@ fn a_fifo_or_link_in_place_of_a_source_is_never_reread() {
             let stored = manifest::read_source(read.to_string_lossy().into_owned(), &[], 1024);
             (
                 stored.is_none(),
-                verify::read_key_scan_bytes(&read).is_none(),
+                verify::read_key_scan_bytes(&read, crate::security::SourceLimits::REAL.key_scan)
+                    .is_none(),
                 enclosing::shown_bytes(&read, crate::tools::local_search::sources::Expected::Fresh)
                     .is_none(),
                 sources::read_entry(&read, 1024).is_none(),
@@ -91,7 +92,9 @@ fn a_fifo_or_link_in_place_of_a_source_is_never_reread() {
         assert!(entry, "{} is not re-read", swapped.display());
     }
     assert!(manifest::read_source(real.to_string_lossy().into_owned(), &[], 1024).is_some());
-    assert!(verify::read_key_scan_bytes(&real).is_some());
+    assert!(
+        verify::read_key_scan_bytes(&real, crate::security::SourceLimits::REAL.key_scan).is_some()
+    );
     assert_eq!(
         enclosing::shown_bytes(&real, crate::tools::local_search::sources::Expected::Fresh)
             .as_deref(),

@@ -198,7 +198,7 @@ fn a_missing_sparse_path_leads_to_its_near_miss_or_its_nearest_directory() {
     let bench = Bench::new();
     let context = bench.context();
     let commit = bench.fixture.first_commit.clone();
-    let failed = |path: Vec<GhCloneRepoQueryPathsItem>| {
+    let failed = |path| {
         let missing = clone_pinned(
             &bench.fixture,
             &GhCloneRepoQuery {

@@ -6,7 +6,6 @@ use super::{CloneContext, GhCloneRepoQuery, git};
 use crate::id::ToolId;
 use crate::response::result::Continuation;
 use crate::tools::leads::find_file::closest_name;
-use octocode_contract_types::{GhCloneRepoQueryPathsItem, GhCloneRepoQueryRef};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -64,12 +63,12 @@ pub(super) fn sparse_next(
     let paths = query
         .paths
         .iter()
-        .map(|path| GhCloneRepoQueryPathsItem::try_from(corrected(path).as_str()))
+        .map(|path| corrected(path).parse())
         .collect::<Result<Vec<_>, _>>()
         .ok()?;
     let repair = GhCloneRepoQuery {
         paths,
-        ref_: Some(GhCloneRepoQueryRef::try_from(commit.as_str()).ok()?),
+        ref_: Some(commit.parse().ok()?),
         ..query.clone()
     };
     let lead = Continuation::related_query(repair).build();

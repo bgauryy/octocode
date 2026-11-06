@@ -18,7 +18,19 @@ fn clipped_counts_match_all_reachable_entries_without_counting_the_listing_root(
                 query["entryType"] = json!(kind);
             }
             let pages = with_window(1, || walk_pages(&root.0, query));
-            assert_eq!(pages[0]["totalAvailable"], expected, "{}", pages[0]);
+            // A walk that covered its scope counts every reachable entry
+            // exactly, and a window cut only pages it: nothing is clipped.
+            assert_eq!(
+                pages[0]["pagination"]["totalItems"], expected,
+                "{}",
+                pages[0]
+            );
+            assert_eq!(
+                pages[0]["pagination"]["countScope"], "complete",
+                "{}",
+                pages[0]
+            );
+            assert!(pages[0].get("isPartial").is_none(), "{}", pages[0]);
             let entries = pages
                 .iter()
                 .flat_map(paths)
@@ -159,7 +171,17 @@ fn a_ranked_listing_continues_its_ranking_window_by_window() {
         .collect::<Vec<_>>();
     assert_eq!(order, expected);
     assert!(pages.iter().all(|out| out.get("terminalLimit").is_none()));
-    assert_eq!(pages[0]["totalAvailable"], 30, "{}", pages[0]);
+    // Each window pages one complete ranking: its top rows are final, so no
+    // page is partial or clipped, and the total is the ranking's, exactly,
+    // with no page count before the later windows are cut.
+    for out in &pages {
+        assert!(out.get("isPartial").is_none(), "{out}");
+        assert!(out.get("clipped").is_none(), "{out}");
+    }
+    let first = &pages[0]["pagination"];
+    assert_eq!(first["totalItems"], 30, "{}", pages[0]);
+    assert_eq!(first["countScope"], "complete", "{}", pages[0]);
+    assert!(first.get("totalPages").is_none(), "{}", pages[0]);
 }
 
 /// A window's walk continues by one `nextPage` at most, on its last page:
@@ -169,7 +191,7 @@ fn a_ranked_listing_continues_its_ranking_window_by_window() {
 /// still continues.
 #[test]
 fn a_window_offers_at_most_one_walk_continuation() {
-    use super::super::listing::Move;
+    use super::super::cut::Move;
     let maximum = super::super::max_entries();
     let mut seen = std::collections::BTreeSet::new();
     for limit_cut in [false, true] {
@@ -177,7 +199,7 @@ fn a_window_offers_at_most_one_walk_continuation() {
             for time_window in [
                 TimeWindow::Whole,
                 TimeWindow::EndedAtRows,
-                TimeWindow::SortedPastScanOffset,
+                TimeWindow::Paused,
             ] {
                 for requested in [10, maximum] {
                     for total_pages in [1, 2] {

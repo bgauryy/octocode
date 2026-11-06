@@ -98,7 +98,7 @@ pub(super) fn select_scoped(
     let mut usage = ClassificationUsage::default();
     let bound = binding(query, source, runtime);
     // A saved plan replays; a token opening a candidate page judges its pool.
-    let mut pool = Vec::new();
+    let (mut pool, mut carried) = (Vec::new(), super::plan::Tally::default());
     if let Some(token) = prior {
         let plan = decode(token)
             .filter(|plan| plan.valid(&bound, candidates.len(), scope, unit))
@@ -106,7 +106,7 @@ pub(super) fn select_scoped(
         if !plan.opens {
             return Ok(finish(plan, &usage));
         }
-        pool = plan.pool;
+        (pool, carried) = (plan.pool, plan.carried);
     }
     let mut plan = Plan::new(
         bound,
@@ -117,6 +117,7 @@ pub(super) fn select_scoped(
         None,
     );
     plan.pool = pool;
+    plan.carried = carried;
     let pool_size = plan.pool_size();
     if let Some(reason) = skip_reason(runtime, unsupported, candidates.len()) {
         plan.status = if candidates.is_empty() && reason == "noCandidates" {
@@ -170,6 +171,8 @@ pub(super) fn select_scoped(
     };
     plan.mark_unjudged(candidates, &admitted);
     if admitted.is_empty() {
+        // Nothing in the pool had a state to judge.
+        plan.unanswered = octocode_engine::num::saturating_u32(pool_size);
         plan.reason = Some(omitted_reason.into());
         return Ok(finish(plan, &usage));
     }
@@ -292,7 +295,7 @@ where
         clippy::expect_used,
         reason = "sanitization preserves nonempty text or substitutes a nonempty redaction marker"
     )]
-    let sanitized = crate::security::ContentSecurity
+    let sanitized = crate::security::ContentSecurity::new()
         .sanitize_text(text, None)
         .content
         .into_owned()

@@ -1,6 +1,55 @@
 //! Unloaded C/C++ includes.
 use super::*;
 
+/// Until the host allows build scripts (`lsp.allowBuildScripts`), the same
+/// partial row offers no rerun that would be refused: it keeps its reason and
+/// its one notice names the opt-in instead.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn build_scripts_off_offers_no_rerun_until_allowed() {
+    let dir = include_fixture();
+    let root = dir.path().canonicalize().expect("root");
+    let method = "impl R { fn include_diff(&self) -> bool { true } }\n";
+    let generated = format!("include!(concat!(env!(\"OUT_DIR\"), \"/gen.rs\"));\n{method}");
+    let options = octocode_engine::lsp::config::rust_analyzer_headless_options();
+    let refused = rust_row_gated(
+        &root,
+        &generated,
+        json!({}),
+        &["lib.rs"],
+        options.clone(),
+        false,
+    )
+    .await;
+    assert_eq!(
+        refused["partialReasons"],
+        json!([BUILD_SCRIPTS_REASON]),
+        "{refused}"
+    );
+    let notice = refused["notices"][0].as_str().unwrap_or_default();
+    assert!(
+        notice.contains(crate::tools::lsp_search::receipt::BUILD_SCRIPTS_OPT_IN)
+            && notice.contains("repository code"),
+        "{refused}"
+    );
+    assert!(
+        !refused["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "lspSearch"),
+        "{refused}"
+    );
+    let allowed = rust_row_gated(&root, &generated, json!({}), &["lib.rs"], options, true).await;
+    assert!(
+        allowed["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|call| call["tool"] == "lspSearch"),
+        "{allowed}"
+    );
+}
+
 /// A method reached through `Deref` to a type the package `include!`s
 /// does not resolve while rust-analyzer cannot load that source: the
 /// server answers with the declaration alone. Files that use the name in

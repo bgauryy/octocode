@@ -54,7 +54,7 @@ fn a_narrow_response_window_keeps_byte_pages_a_sensible_size() {
 #[test]
 fn a_streamed_line_longer_than_its_window_is_read_to_its_last_byte() {
     let fixture = Fixture::new();
-    let line = positional(super::super::large_source::WINDOW_BYTES + 900_000);
+    let line = positional(crate::security::SourceLimits::REAL.window + 900_000);
     // Streamed sources are those over the in-memory ceiling.
     let outside = (super::super::acquire::MAX_SOURCE_BYTES as usize).saturating_sub(line.len())
         / "outside\n".len()
@@ -90,4 +90,52 @@ fn a_streamed_line_longer_than_its_window_is_read_to_its_last_byte() {
     let read = fetch(&past, &paths);
     assert!(read.out_of_range, "{read:?}");
     assert_eq!(read.pagination.expect("pagination").total_bytes, view.len());
+}
+
+/// A clasify capture keeps every page it reads, and every page reads, scans
+/// and digests the whole source: its reader window holds the capture's whole
+/// budget, so a selection within it is one page (one source pass), a single
+/// line as much as many short ones. Under the caller's response share, one
+/// long line read in 16 KiB byte pages cost one full pass per page.
+#[test]
+fn a_capture_reads_a_selection_within_its_budget_in_one_page() {
+    let fixture = Fixture::new();
+    let paths = Paths(fixture.0.clone());
+    let budget = 300_000;
+    let caller = crate::execution::ExecutionContext {
+        cancellation: octocode_io::cancellation::Cancellation::new(),
+        deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
+        response_window: Some(131_072),
+        github_credential: None,
+    };
+    let reader = crate::tools::source_capture::reader_context(&caller, budget);
+    assert_eq!(reader.deadline, caller.deadline, "the call's own deadline");
+    let one_line = positional(budget);
+    let many_lines = positional(budget - budget / 50)
+        .as_bytes()
+        .chunks(49)
+        .map(|chunk| format!("{}\n", std::str::from_utf8(chunk).expect("ascii")))
+        .collect::<String>();
+    for (name, source) in [("bundle.min.js", one_line), ("rows.txt", many_lines)] {
+        assert!(source.len() <= budget, "{name} fits the budget");
+        let path = fixture.write(name, &source);
+        let read = execute_local_fetch(
+            &q(&path),
+            &paths,
+            &Safe,
+            &NeverCancel,
+            reader.response_window,
+            None,
+        );
+        assert_eq!(read.status, ReadStatus::Success, "{name}: {read:?}");
+        assert!(
+            read.next
+                .as_ref()
+                .and_then(|next| next.continue_window.as_ref())
+                .is_none(),
+            "{name}: one page, {:?}",
+            read.pagination
+        );
+        assert_eq!(read.content.as_deref(), Some(source.as_str()), "{name}");
+    }
 }

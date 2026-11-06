@@ -8,8 +8,10 @@ use memo::{SCANS, fresh_scan, remember_scan, scan_key, stored_scan};
 use octocode_engine::num::saturating_u32;
 use octocode_engine::structural::{StructuralDemand, StructuralDetailedMatch};
 use qualified::qualified_miss;
+use query::OwnedMatch;
 use render::{file_page, render_match_page};
 use rows::{MatchRow, diag, match_value};
+use scan::sort_files;
 use scope::{Inapplicable, compile_in_grammars, infer_grammar, resolve_scope};
 use serde_json::Value;
 use snapshot::{interrupted_rescan, match_snapshot};
@@ -72,6 +74,61 @@ fn window_moved(q: MatchQuery<'_>, scan: &types::Scan) -> bool {
         .is_some_and(|pin| q.scan_offset() > 0 && scan.listed_before.as_ref() != Some(&pin))
 }
 
+/// What a fresh scan of a row's window answers.
+enum Fresh {
+    /// The answer itself: a moved window's restart, or a ranked window the
+    /// time budget paused ([`standing`]).
+    Answered(Value),
+    /// The scan, sorted, and when it started; with a ranked scan's last
+    /// window, the query its pages answer as (its first window's).
+    Scanned(
+        Option<Box<OwnedMatch>>,
+        Box<types::Scan>,
+        std::time::SystemTime,
+    ),
+}
+
+/// A fresh scan of `q`'s window: a ranked order's windows add up to the whole
+/// scope before any file is listed, and its later pages scan the whole scope.
+fn fresh_window(
+    q: MatchQuery<'_>,
+    scope: &types::Scope,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+    continues: bool,
+) -> Result<Fresh, ToolError> {
+    let ranked = !scope.is_file && standing::ranks_whole_scope(q);
+    let (mut scan, mut started) = if continues && ranked {
+        standing::rescan(q, scope, paths, cancel)?
+    } else {
+        fresh_scan(q, scope, paths, cancel)?
+    };
+    let moved = || {
+        Fresh::Answered(crate::response::result::stale_snapshot(
+            crate::response::result::restart_query(ToolId::AstSearch, &q.to_value()),
+        ))
+    };
+    if !continues && window_moved(q, &scan) {
+        return Ok(moved());
+    }
+    let mut from_start = None;
+    if !continues && ranked {
+        match standing::advance(q, scope, paths, cancel, (scan, started))? {
+            standing::Ranked::Paused(page) => return Ok(Fresh::Answered(page)),
+            standing::Ranked::Moved => return Ok(moved()),
+            standing::Ranked::Whole(whole, first_started) => {
+                (scan, started) = (*whole, first_started);
+                from_start = Some(Box::new(q.at_scan_start()));
+            }
+        }
+    }
+    sort_files(
+        from_start.as_deref().map_or(q, OwnedMatch::query),
+        &mut scan.files,
+    );
+    Ok(Fresh::Scanned(from_start, Box::new(scan), started))
+}
+
 fn run_match(
     q: MatchQuery<'_>,
     paths: &PathPolicy,
@@ -89,18 +146,22 @@ fn run_match(
         .filter(|_| continues)
         .and_then(|snapshot| stored_scan(&snapshot, &key, &scope));
     let fresh = stored.is_none();
-    let (scan, started) = match stored {
-        Some(scan) => (scan, octocode_engine::stamp::settle_clock()),
-        None => fresh_scan(q, &scope, paths, cancel)?,
+    // The query a ranked scan's last window answers as: its first window's.
+    let from_start;
+    let (q, scan, started) = match stored {
+        Some(scan) => (q, scan, octocode_engine::stamp::settle_clock()),
+        None => match fresh_window(q, &scope, paths, cancel, continues)? {
+            Fresh::Answered(out) => return Ok(out),
+            Fresh::Scanned(whole, scan, started) => {
+                from_start = whole;
+                let q = from_start.as_deref().map_or(q, OwnedMatch::query);
+                (q, std::sync::Arc::from(scan), started)
+            }
+        },
     };
-    if !continues && window_moved(q, &scan) {
-        return Ok(crate::response::result::stale_snapshot(
-            crate::response::result::restart_query(ToolId::AstSearch, &q.to_value()),
-        ));
-    }
     let mut scope = scope;
     let grammars = compile_in_grammars(q, &scope, &scan);
-    scope.inferred = infer_grammar(q, &scope, &scan, &grammars)?;
+    scope.inferred = infer_grammar(q, &scope, &scan, &grammars, paths, cancel)?;
     let inapplicable = Inapplicable::of(q, &scan);
     let snapshot = match_snapshot(q, &scope, &scan);
     // A page number without a snapshot asks for that page of a fresh scan;
@@ -282,6 +343,7 @@ mod rows;
 mod scan;
 mod scope;
 mod snapshot;
+mod standing;
 mod types;
 pub use query::MatchQuery;
 
@@ -312,3 +374,6 @@ mod page_rows_tests;
 
 #[cfg(test)]
 mod unsaid_tests;
+
+#[cfg(test)]
+mod standing_tests;

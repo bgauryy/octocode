@@ -2,6 +2,7 @@ use super::*;
 use octocode_contract_types::ErrorCode;
 
 mod failures;
+mod guard;
 mod hits;
 mod key_formats;
 mod large_sources;
@@ -64,98 +65,6 @@ fn a_page_rereads_only_the_files_it_shows() {
     assert!(
         !shown.contains(&token),
         "the secret stays redacted: {shown}"
-    );
-}
-
-#[test]
-fn source_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
-    let security = ContentSecurity::new();
-    let mut file = octocode_engine::types::TextSearchFile {
-        term_counts: Vec::new(),
-        path: "gone.txt".into(),
-        match_count: 1,
-        matches: vec![octocode_engine::types::TextSearchMatch {
-            deferred: None,
-            line: 1,
-            last_line: None,
-            column: 0,
-            byte_offset: 0,
-            value: "…token = ghp_abcdefghijklmnop".into(),
-            value_digest: <sha2::Sha256 as sha2::Digest>::digest(
-                "…token = ghp_abcdefghijklmnop".as_bytes(),
-            )
-            .into(),
-            count: None,
-            rank: None,
-        }],
-        source: None,
-    };
-    let missing = tempfile::tempdir()
-        .expect("fixture directory")
-        .path()
-        .join("gone.txt");
-    let verified = verify::guard_source_secrets(
-        &mut file,
-        &missing,
-        crate::tools::local_search::sources::Expected::Fresh,
-        0..10,
-        &verify::ValueCheck {
-            security: &security,
-            match_only: false,
-            cancel: &NeverCancel,
-        },
-    )
-    .expect("not cancelled");
-    assert_eq!(verified, verify::Verification::Unverified);
-    assert!(!file.matches[0].value.contains("ghp_"));
-    assert!(file.matches[0].value.contains("REDACTED"));
-}
-
-/// A source that shrank or was replaced after the search no longer holds
-/// the matched line, so the clipped value cannot be verified.
-#[test]
-fn source_secret_guard_fails_closed_when_the_match_line_is_gone() {
-    let security = ContentSecurity::new();
-    let root = tempfile::tempdir().expect("fixture directory");
-    let source = root.path().join("shrunk.txt");
-    fs::write(&source, "one line now\n").expect("fixture");
-    let mut file = octocode_engine::types::TextSearchFile {
-        term_counts: Vec::new(),
-        path: "shrunk.txt".into(),
-        match_count: 1,
-        matches: vec![octocode_engine::types::TextSearchMatch {
-            deferred: None,
-            line: 40,
-            last_line: None,
-            column: 0,
-            byte_offset: 0,
-            value: "…token = ghp_abcdefghijklmnop".into(),
-            value_digest: <sha2::Sha256 as sha2::Digest>::digest(
-                "…token = ghp_abcdefghijklmnop".as_bytes(),
-            )
-            .into(),
-            count: None,
-            rank: None,
-        }],
-        source: None,
-    };
-    let verified = verify::guard_source_secrets(
-        &mut file,
-        &source,
-        crate::tools::local_search::sources::Expected::Fresh,
-        0..10,
-        &verify::ValueCheck {
-            security: &security,
-            match_only: false,
-            cancel: &NeverCancel,
-        },
-    )
-    .expect("not cancelled");
-    assert_eq!(verified, verify::Verification::Unverified);
-    assert!(
-        !file.matches[0].value.contains("ghp_"),
-        "{}",
-        file.matches[0].value
     );
 }
 
@@ -259,7 +168,10 @@ fn code_after_a_literal_key_marker_stays_readable() {
 /// not), while innocent base64 outside any block stays readable.
 #[test]
 fn late_key_bodies_in_large_sources_stay_redacted() {
-    let filler = "let filler_value = 0;\n".repeat(560_000);
+    let limits = crate::security::SourceLimits::SMALL;
+    let line = "let filler_value = 0;\n";
+    let lines = usize::try_from(limits.key_scan).expect("fits") / line.len() + 1_000;
+    let filler = line.repeat(lines);
     let body = "MIIEpQIBAAKCAQEAinteriorKeyBodyQWERTYAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     let innocent = "QUJDREVGR0hJSktMTU5PUFFSU1RVinnocentB64VldYWVowMTIzNDU2Nzg5";
     let terminated = format!(
@@ -268,24 +180,30 @@ fn late_key_bodies_in_large_sources_stay_redacted() {
     let unterminated =
         format!("{innocent}\n{filler}-----BEGIN OPENSSH PRIVATE KEY-----\n{body}\n{body}\n");
     for content in [&terminated, &unterminated] {
-        assert!(content.len() as u64 > 10 * 1024 * 1024);
+        assert!(content.len() as u64 > limits.key_scan);
         for view in ["matchOnly", "content"] {
-            let found = search_fixture(
+            let found = search_fixture_at(
                 &[("big.txt", content.as_str())],
                 ls_query(
                     serde_json::json!({"matchString": ["interior"], "view": view}),
                     None,
                 ),
+                limits,
             );
-            assert_eq!(found["files"][0]["matches"][0]["line"], 560_003, "{found}");
+            assert_eq!(
+                found["files"][0]["matches"][0]["line"],
+                lines + 3,
+                "{found}"
+            );
             assert!(!all_values(&found).contains("interior"), "{found}");
         }
-        let readable = search_fixture(
+        let readable = search_fixture_at(
             &[("big.txt", content.as_str())],
             ls_query(
                 serde_json::json!({"matchString": ["innocentB64"], "view": "content", "contextLines": {"before":0,"after":0}}),
                 None,
             ),
+            limits,
         );
         assert!(all_values(&readable).contains(innocent), "{readable}");
     }

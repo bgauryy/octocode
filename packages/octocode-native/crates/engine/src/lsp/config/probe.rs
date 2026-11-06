@@ -161,3 +161,21 @@ pub fn server_command_resolves(config: &LspLanguageServerConfig) -> bool {
     }
     true
 }
+
+/// Why `config`'s server must not start: the rustup proxy would run the
+/// toolchain a workspace toolchain file names by `path`, a program the
+/// repository chose. `None` for any other launch.
+pub fn repository_toolchain_refusal(config: &LspLanguageServerConfig) -> Option<String> {
+    if !is_rust_analyzer_command(&config.command) {
+        return None;
+    }
+    let file = super::invocation::rustup::repository_toolchain(
+        &super::invocation::rustup::RustupView::current(),
+        Path::new(&config.workspace_root),
+        &config.command,
+    )?;
+    Some(format!(
+        "rust-analyzer was not started: {} names a toolchain by path, and the rustup proxy would run that directory's rust-analyzer, a program from the repository. To run it anyway, name it as the server command in ~/.octocode/lsp-servers.json; use localSearch or localFetch meanwhile.",
+        file.display()
+    ))
+}

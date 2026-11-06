@@ -264,3 +264,59 @@ async fn commit_patch_view_numbers_both_sides_and_reads_each_side() {
     }
     runtime.close().await;
 }
+
+/// A patch the output gate redacts says so: the row carries the shared
+/// `redactedContent` warning once (as a file read does), and a clean patch
+/// carries none.
+#[tokio::test]
+async fn a_redacted_patch_says_it_is_not_verbatim() {
+    let server = MockServer::builder().start().await;
+    let sha = "abc123def456abc123def456abc123def456abc1";
+    let clean = "def456abc123def456abc123def456abc123def4";
+    let token = format!("ghp_{}", "a".repeat(37));
+    for (commit, patch) in [
+        (
+            sha,
+            format!("@@ -0,0 +1,2 @@\n+[default]\n+token = {token}"),
+        ),
+        (clean, "@@ -1 +1 @@\n-a\n+b".to_owned()),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/commits/{commit}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "sha": commit,
+                "commit": {"message": "add config", "author": {"name": "A", "date": "2024-01-01T00:00:00Z"}},
+                "files": [{"filename": "conf/app.ini", "status": "added", "additions": 2, "deletions": 0,
+                           "patch": patch}]
+            })))
+            .mount(&server)
+            .await;
+    }
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let read = |commit: &str| json!({"operation":"commit","owner":"a","repo":"b","ref":commit,"sections":["patches"]});
+    let outcome = call(&runtime, "ghGetHistoryItem", read(sha))
+        .await
+        .expect("commit patches");
+    let data = row_data(&outcome);
+    checks::assert_absent(data, &token);
+    let warnings = data["warnings"].as_array().cloned().unwrap_or_default();
+    let redacted = warnings
+        .iter()
+        .filter(|warning| {
+            warning
+                .as_str()
+                .is_some_and(|text| text.starts_with("redactedContent"))
+        })
+        .count();
+    assert_eq!(redacted, 1, "{data}");
+    let outcome = call(&runtime, "ghGetHistoryItem", read(clean))
+        .await
+        .expect("clean patches");
+    assert!(
+        row_data(&outcome).get("warnings").is_none(),
+        "{}",
+        row_data(&outcome)
+    );
+    runtime.close().await;
+}

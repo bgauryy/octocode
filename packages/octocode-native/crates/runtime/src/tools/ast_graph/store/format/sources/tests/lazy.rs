@@ -38,11 +38,13 @@ fn accessed_admission_validates_only_the_origins_read() {
     let lazy = accessed(&malformed, &NeverCancel).unwrap();
     assert_eq!(read(&lazy, 0).unwrap(), fixture().1[0]);
     assert!(read(&lazy, 1).is_err(), "a read origin is validated");
+    // Neither read charges the origins as one table: a full read validates
+    // each block on its own budget, a lazy one each origin it reads.
     let mut full = budget::Budget::new(&NeverCancel, &LIMITS);
     decode_with_budget(&encoded, &mut full).unwrap();
     let mut index = budget::Budget::new(&NeverCancel, &LIMITS);
     decode_admitted(&encoded, &mut index, Admission::Accessed).unwrap();
-    assert!(index.items < full.items && index.bytes < full.bytes);
+    assert_eq!((index.items, index.bytes), (full.items, full.bytes));
 }
 
 #[test]

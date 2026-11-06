@@ -246,7 +246,20 @@ fn build(
     {
         out.value["related"] = json!([lead]);
     }
+    resume_paused(&mut out, query);
     out
+}
+
+/// A paused build's `next.expandScan`: the same request, never a refresh,
+/// which would discard the checkpoints it resumes from.
+fn resume_paused(out: &mut GraphOutput, query: &GraphBuildQuery) {
+    if out.value.get("progress").is_some() {
+        let resume = GraphBuildQuery {
+            refresh: false,
+            ..query.clone()
+        };
+        out.value["next"] = json!({"expandScan": Continuation::continued_query(resume).build()});
+    }
 }
 
 /// One validated graphBuild row: ingest a snapshot of its path.

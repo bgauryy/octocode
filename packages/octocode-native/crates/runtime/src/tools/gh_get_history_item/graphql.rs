@@ -10,10 +10,11 @@ use super::window::{MAX_COLLECTION_BATCHES, MAX_FILE_BATCHES, MAX_PR_COMMIT_BATC
 use super::{HistoryItemRequest, ItemOperation};
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::sections::Section;
-use octocode_github::{GitHubTransport, ProviderError, RequestContext};
+use octocode_github::{GitHubTransport, GraphQlError, ProviderError, RequestContext};
 use serde_json::{Value, json};
 
 mod document;
+mod errors;
 mod projection;
 #[cfg(test)]
 mod tests;
@@ -21,6 +22,7 @@ mod tests;
 use document::{
     COMMITS, CONNECTION_PAGE, Connection, DISCUSSION, FILES, LABELS, REVIEWS, pull_request_document,
 };
+use errors::{connection_warning, describe_errors, error_field, graphql_failure};
 pub(super) use projection::{
     GraphqlCollection, map_graphql_comments, map_graphql_commits, map_graphql_files,
     map_graphql_reviews,
@@ -36,6 +38,9 @@ pub(super) struct GraphqlPr {
     pub(super) discussion: GraphqlCollection,
     pub(super) reviews: GraphqlCollection,
     pub(super) commits: GraphqlCollection,
+    /// One warning per connection GraphQL answered with `errors[]`: REST
+    /// read it instead, and the warning names each error's path and text.
+    pub(super) warnings: Vec<String>,
 }
 
 /// What GraphQL serves for one read: the wanted collections that no filter
@@ -106,23 +111,6 @@ pub(super) enum GraphqlOutcome {
     Served(Box<GraphqlPr>),
 }
 
-/// Why a GraphQL answer carried no data: the first error's class and text.
-fn graphql_failure(errors: &[octocode_github::GraphQlError]) -> String {
-    errors.first().map_or_else(
-        || "GraphQL returned no pull request".to_owned(),
-        |error| {
-            let class = error
-                .error_type
-                .as_deref()
-                .or_else(|| error.extensions.get("code").and_then(Value::as_str));
-            match class {
-                Some(class) => format!("{class}: {}", error.message),
-                None => error.message.clone(),
-            }
-        },
-    )
-}
-
 /// Fetch the PR and its wanted collections in one GraphQL request, then
 /// read on from each connection's end cursor until its first page is held.
 pub(super) async fn graphql_pull_request(
@@ -158,18 +146,6 @@ pub(super) async fn graphql_pull_request(
     if pr.is_null() {
         return Ok(GraphqlOutcome::Failed(graphql_failure(&page.errors)));
     }
-    // Every label, page by page within the request's deadline: a label the
-    // read could not reach stays disclosed (`labelsClipped`).
-    read_on(
-        transport,
-        context,
-        &variables,
-        &mut pr,
-        &LABELS,
-        usize::MAX,
-        usize::MAX,
-    )
-    .await?;
     let collection_page = gh_get_history_item_query::collection_page_size(query);
     let file_page = super::inventory::file_page_size(query, false);
     // Each wanted connection, the nodes its first page needs, and the
@@ -195,13 +171,67 @@ pub(super) async fn graphql_pull_request(
             MAX_PR_COMMIT_BATCHES,
         ),
     ];
+    // An error beside the data nulls what its path names. Inside a wanted
+    // connection it leaves only that connection to REST; anywhere else (a
+    // header field, the labels, the pull request itself) no GraphQL field
+    // can be trusted, and REST serves the whole read.
+    let in_connection = |error: &GraphQlError| {
+        error_field(error).is_some_and(|field| {
+            plans
+                .iter()
+                .any(|(connection, wanted, ..)| *wanted && connection.key == field)
+        })
+    };
+    if !page.errors.iter().all(in_connection) {
+        return Ok(GraphqlOutcome::Failed(graphql_failure(&page.errors)));
+    }
+    // Every label, page by page within the request's deadline: a label the
+    // read could not reach stays disclosed (`labelsClipped`). A labels page
+    // answered with errors leaves the header to REST.
+    let mut label_errors = Vec::new();
+    read_on(
+        transport,
+        context,
+        &variables,
+        &mut pr,
+        &LABELS,
+        (usize::MAX, usize::MAX),
+        &mut label_errors,
+    )
+    .await?;
+    if !label_errors.is_empty() {
+        return Ok(GraphqlOutcome::Failed(label_errors.join("; ")));
+    }
     let mut states = [GraphqlCollection::Unused; 4];
+    let mut warnings = Vec::new();
     for (slot, (connection, wanted, need, max_pages)) in states.iter_mut().zip(plans) {
-        if wanted {
-            *slot = read_on(
-                transport, context, &variables, &mut pr, connection, need, max_pages,
-            )
-            .await?;
+        if !wanted {
+            continue;
+        }
+        let errors = page
+            .errors
+            .iter()
+            .filter(|error| error_field(error) == Some(connection.key))
+            .collect::<Vec<_>>();
+        if !errors.is_empty() {
+            // Its nodes are untrusted: REST reads the connection whole.
+            *slot = GraphqlCollection::Incomplete;
+            warnings.push(connection_warning(connection, &describe_errors(errors)));
+            continue;
+        }
+        let mut page_errors = Vec::new();
+        *slot = read_on(
+            transport,
+            context,
+            &variables,
+            &mut pr,
+            connection,
+            (need, max_pages),
+            &mut page_errors,
+        )
+        .await?;
+        if !page_errors.is_empty() {
+            warnings.push(connection_warning(connection, &page_errors.join("; ")));
         }
     }
     let [files, discussion, reviews, commits] = states;
@@ -210,6 +240,7 @@ pub(super) async fn graphql_pull_request(
         discussion,
         reviews,
         commits,
+        warnings,
         raw: map_graphql_pr_metadata(&pr),
         source: pr,
     })))
@@ -217,18 +248,19 @@ pub(super) async fn graphql_pull_request(
 
 /// Read `connection` on from its end cursor, appending every page's nodes
 /// to `pr`, until it ends, `need` nodes are held, or `max_pages` pages were
-/// read; then its state. A connection the PR counts is never read on: REST
-/// reads the rest in one wave ([`Connection::total`]). A continuation that
-/// fails (other than by cancellation or timeout) leaves the connection to
-/// REST.
+/// read (`(need, max_pages)`); then its state. A connection the PR counts is
+/// never read on: REST reads the rest in one wave ([`Connection::total`]). A
+/// continuation that fails (other than by cancellation or timeout) leaves
+/// the connection to REST; one answered with `errors[]` is not appended,
+/// and `errors` receives its described errors.
 async fn read_on(
     transport: &GitHubTransport,
     context: &RequestContext,
     variables: &Value,
     pr: &mut Value,
     connection: &Connection,
-    need: usize,
-    max_pages: usize,
+    (need, max_pages): (usize, usize),
+    errors: &mut Vec<String>,
 ) -> Result<GraphqlCollection, ProviderError> {
     let mut pages = 1;
     loop {
@@ -267,6 +299,10 @@ async fn read_on(
             }
             Err(_) => return Ok(GraphqlCollection::Incomplete),
         };
+        if !answer.errors.is_empty() {
+            errors.push(describe_errors(&answer.errors));
+            return Ok(GraphqlCollection::Incomplete);
+        }
         let Some(page) = answer
             .data
             .as_mut()

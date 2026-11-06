@@ -208,16 +208,17 @@ fn full_content_resumes_numbered_lines_after_one_oversized_line() {
     let file = t.0.join("strings.ts");
     let mut source = String::new();
     for i in 1..=1_000 {
-        source.push_str(&format!("export const before_{i} = {i};\n"));
+        source.push_str(&format!("  export const before_{i} = {i};\n"));
     }
     source.push_str(&format!("const table = \"{}\";\n", "x".repeat(27_500)));
     for i in 1..=300 {
-        source.push_str(&format!("export const after_{i} = {i};\n"));
+        source.push_str(&format!("  export const after_{i} = {i};\n"));
     }
     fs::write(&file, &source).expect("fixture");
     let mut query = q(&file);
 
-    // The standard view: every line carries its source number (`N\t`).
+    // The compact view (it drops the indentation): every line carries its
+    // source number (`N\t`).
     amend(
         &mut query,
         serde_json::json!({"view":Some(ReadView::Compact)}),
@@ -257,7 +258,7 @@ fn full_content_resumes_numbered_lines_after_one_oversized_line() {
     let view = source
         .lines()
         .enumerate()
-        .map(|(index, line)| format!("{}\t{line}\n", index + 1))
+        .map(|(index, line)| format!("{}\t{}\n", index + 1, line.trim_start()))
         .collect::<String>();
     // The numbered view ends without the source's final newline.
     let (text, view) = (text.trim_end_matches('\n'), view.trim_end_matches('\n'));

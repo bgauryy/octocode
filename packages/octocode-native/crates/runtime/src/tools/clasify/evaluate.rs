@@ -13,6 +13,7 @@ fn rejected(error: ClassificationError, captured: Option<Box<Captured>>) -> RowO
         judged: Err(error),
         captured,
         assets: None,
+        identity: None,
     }
 }
 
@@ -79,7 +80,7 @@ pub(super) fn evaluate_row(
     let state = super::rows::contextual_state(&state, row.context.as_deref());
     // One request's time starts when it runs, after the capture.
     let budget = evaluator.budget(context.deadline, context.cancellation.clone());
-    let mut judged = dispatcher.handle().block_on(evaluator.evaluate_once(
+    let (mut judged, identity) = dispatcher.handle().block_on(evaluator.evaluate_once(
         evaluations,
         EvaluationInput {
             state: &state,
@@ -100,5 +101,6 @@ pub(super) fn evaluate_row(
         judged,
         captured,
         assets: assets.map(|assets| assets.provenance),
+        identity,
     }
 }

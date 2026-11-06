@@ -9,6 +9,8 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier, mpsc};
 
+mod resumed_builds;
+
 /// A repository holding two scopes, `a/` and `b/`.
 fn workspace() -> Fixture {
     let dir = Fixture::new();
@@ -198,12 +200,9 @@ fn concurrent_ingests_of_one_scope_publish_each_computed_snapshot() {
         !job.exists(),
         "completed concurrent jobs release their artifacts"
     );
+    // The scope is unchanged since: the next build answers with the latest.
     let again = run(&root, "a", &NeverCancel);
-    assert_eq!(again.value["extraction"]["reusedFiles"], 0);
-    assert_eq!(
-        again.value["extraction"]["parsedFiles"],
-        again.value["scan"]["filesScanned"]
-    );
+    assert_eq!(id(&again), *snapshots.last().unwrap(), "{}", again.value);
     assert_eq!(again.value["sha256"], outputs[0].value["sha256"]);
 }
 
@@ -272,92 +271,68 @@ fn a_waiting_ingest_never_cleans_live_staging_and_its_wait_cancels() {
     assert_eq!(published.class, ExitClass::Success, "{}", published.value);
 }
 
-/// A deadline that falls once `stop_at` extraction artifacts are committed.
-struct Deadline {
-    job: PathBuf,
-    stop_at: usize,
-}
-
-fn artifacts(job: &Path) -> usize {
-    std::fs::read_dir(job)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "fact"))
-        .count()
-}
-
-impl CancellationCheck for Deadline {
-    fn check(&self) -> Result<(), String> {
-        if artifacts(&self.job) >= self.stop_at {
-            return Err("deadline reached".into());
-        }
-        Ok(())
-    }
-}
-
-/// A scope larger than one deadline's work completes across builds: each
-/// stopped build keeps its committed extraction and says so, and the next
-/// resumes from it until the whole scope publishes.
+/// A build of an unchanged scope answers with its current snapshot and
+/// builds nothing; an edit, other options or `refresh` build again.
 #[test]
-fn a_scope_past_one_deadline_completes_across_builds() {
-    let dir = Fixture::new();
-    std::fs::create_dir_all(dir.0.join(".git")).expect("git marker");
-    // Files run as wide as the parse pool, each checking the deadline
-    // before it starts: a scope many times that width is cut mid-scope.
-    let width = std::thread::available_parallelism().map_or(1, usize::from);
-    let files = (0..(8 * width).max(32))
-        .map(|id| {
-            (
-                format!("f{id:03}.ts"),
-                format!("export function f{id}() {{ return {id}; }}\n"),
-            )
-        })
-        .collect::<Vec<_>>();
-    let files = files
-        .iter()
-        .map(|(name, text)| (name.as_str(), text.as_str()))
-        .collect::<Vec<_>>();
-    crate::tools::ast_graph::test_support::write_under(&dir, "big", &files);
-    let root = dir.0.canonicalize().expect("root");
-    let job = super::super::super::graph::checkpoint::job_path(
-        &root.join(".octocode/graph/.facts"),
-        &root.join("big"),
-    );
-    let mut stopped = 0;
-    let receipt = loop {
-        let deadline = Deadline {
-            stop_at: artifacts(&job) + 3,
-            job: job.clone(),
-        };
-        let out = run(&root, "big", &deadline);
-        if out.class == ExitClass::Success {
-            break out;
+fn an_unchanged_scope_reuses_its_current_snapshot() {
+    let dir = workspace();
+    let root = dir.0.to_path_buf();
+    let builds = Rc::new(AtomicUsize::new(0));
+    let counted = Rc::clone(&builds);
+    hooks::set(move |point, _| {
+        if point == Point::Build {
+            counted.fetch_add(1, Ordering::Relaxed);
         }
-        assert_eq!(out.value["errorCode"], "cancelled", "{}", out.value);
-        assert!(
-            out.value["hints"]
-                .as_array()
-                .is_some_and(|hints| hints.iter().any(|hint| hint == RESUME_HINT)),
-            "{}",
-            out.value
-        );
-        stopped += 1;
-        assert!(
-            stopped < files.len(),
-            "every stopped build commits progress"
-        );
+    });
+    let ingest_with = |options: IngestOptions| {
+        ingest(
+            &options,
+            &workspace_policy(&root),
+            &ContentSecurity::new(),
+            &NeverCancel,
+            None,
+        )
     };
-    assert!(stopped >= 2, "the scope needed more than one deadline");
+    let options = IngestOptions {
+        path: root.join("a").canonicalize().expect("scope"),
+        workspace: Some(root.clone()),
+        ..IngestOptions::default()
+    };
+    let first = ingest_with(options.clone());
+    assert_eq!(first.class, ExitClass::Success, "{}", first.value);
+    let again = ingest_with(options.clone());
+    assert_eq!(again.class, ExitClass::Success, "{}", again.value);
+    assert_eq!(id(&again), id(&first), "{}", again.value);
     assert_eq!(
-        receipt.value["scan"]["filesScanned"],
-        files.len(),
-        "{}",
-        receipt.value
+        builds.load(Ordering::Relaxed),
+        1,
+        "the unchanged scope was rebuilt"
     );
-    assert!(
-        receipt.value["extraction"]["resumedFiles"].as_u64() > Some(0),
-        "{}",
-        receipt.value
+    for key in ["counts", "calls", "linkage", "scan", "sha256", "root"] {
+        assert_eq!(again.value[key], first.value[key], "{key}");
+    }
+    let refreshed = ingest_with(IngestOptions {
+        refresh: true,
+        ..options.clone()
+    });
+    assert_ne!(id(&refreshed), id(&first), "refresh always rebuilds");
+    let excluded = ingest_with(IngestOptions {
+        exclude: vec!["lib.ts".into()],
+        ..options.clone()
+    });
+    assert_ne!(id(&excluded), id(&refreshed), "other options build again");
+    let back = ingest_with(options.clone());
+    assert_ne!(
+        id(&back),
+        id(&excluded),
+        "the newest snapshot was built with other options"
+    );
+    dir.write("a/lib.ts", "export function f() { return 42; }\n");
+    let edited = ingest_with(options);
+    assert_ne!(id(&edited), id(&back), "an edit builds again");
+    assert_eq!(builds.load(Ordering::Relaxed), 5);
+    assert_eq!(
+        std::fs::read_to_string(root.join(".octocode/graph").join(LATEST_FILE)).expect("latest"),
+        id(&edited)
     );
 }

@@ -185,6 +185,12 @@ pub(crate) async fn execute(
         code_output::index_commits(&mut items, &data.items, query);
     }
     let reads = code_output::shape_files(&mut items, query, resolution);
+    if reads.redacted > 0 {
+        crate::response::paging::push_warnings(
+            &mut value,
+            [crate::security::redacted_content_warning(reads.redacted)],
+        );
+    }
     if content_reads > 0 {
         value["contentReads"] = json!(content_reads);
     }

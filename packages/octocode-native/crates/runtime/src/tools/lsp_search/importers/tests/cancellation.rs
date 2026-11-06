@@ -1,9 +1,9 @@
 //! The blocking scan worker stops on cancel, deadline and drop.
 use super::*;
 
-/// Cancels once `flag` is set, or once `deadline` passes (as a timeout).
+/// Cancels once `signal` is raised, or once `deadline` passes (as a timeout).
 struct LiveCancel {
-    flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    signal: octocode_io::cancellation::Cancellation,
     deadline: Option<std::time::Instant>,
 }
 
@@ -15,10 +15,16 @@ impl CancellationCheck for LiveCancel {
         {
             return Err("Timeout".into());
         }
-        if self.flag.load(std::sync::atomic::Ordering::SeqCst) {
+        if self.signal.is_cancelled() {
             return Err("Cancelled".into());
         }
         Ok(())
+    }
+    fn deadline(&self) -> Option<std::time::Instant> {
+        self.deadline
+    }
+    fn signal(&self) -> Option<&octocode_io::cancellation::Cancellation> {
+        Some(&self.signal)
     }
 }
 
@@ -50,9 +56,9 @@ fn observed_worker(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_running_worker_stops_when_the_request_is_cancelled_after_launch() {
-    let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let signal = octocode_io::cancellation::Cancellation::new();
     let cancel = LiveCancel {
-        flag: flag.clone(),
+        signal: signal.clone(),
         deadline: None,
     };
     let (started_tx, started_rx) = std::sync::mpsc::channel();
@@ -61,7 +67,7 @@ async fn a_running_worker_stops_when_the_request_is_cancelled_after_launch() {
         started_rx
             .recv_timeout(std::time::Duration::from_secs(10))
             .expect("worker started");
-        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        signal.cancel();
     });
     let failure = blocking_cancellable(&cancel, observed_worker(started_tx, finished_tx))
         .await
@@ -80,7 +86,7 @@ async fn a_running_worker_stops_when_the_request_is_cancelled_after_launch() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_deadline_expiring_during_the_scan_stops_the_worker_as_a_timeout() {
     let cancel = LiveCancel {
-        flag: std::sync::Arc::default(),
+        signal: octocode_io::cancellation::Cancellation::new(),
         deadline: Some(std::time::Instant::now() + std::time::Duration::from_millis(150)),
     };
     let (started_tx, started_rx) = std::sync::mpsc::channel();

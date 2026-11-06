@@ -204,6 +204,13 @@ impl NativeLspClient {
         // for the whole teardown makes a stop that overlaps a start wait for
         // it, then shut down the connection and child it published.
         let mut child_guard = self.inner.child.lock().await;
+        // Read the tree while the server is alive: once it exits, a
+        // descendant in its own session (jdtls's Gradle daemon) is
+        // re-parented away and no later walk finds it.
+        let tree = match child_guard.as_ref().and_then(tokio::process::Child::id) {
+            Some(pid) => crate::process::TreeSnapshot::read(pid).await,
+            None => crate::process::TreeSnapshot::default(),
+        };
         let connection = self.inner.connection.lock().await.take();
         if let Some(connection) = connection {
             // A fixed second: an evicted server mid-index shows progress for
@@ -224,8 +231,12 @@ impl NativeLspClient {
             *guard = None;
         }
         if let Some(mut child) = child_guard.take() {
-            wait_for_graceful_exit(&mut child, Duration::from_millis(GRACEFUL_EXIT_TIMEOUT_MS))
-                .await;
+            wait_for_graceful_exit(
+                &mut child,
+                Duration::from_millis(GRACEFUL_EXIT_TIMEOUT_MS),
+                tree,
+            )
+            .await;
         }
         drop(child_guard);
         // Release the memory-cap Job Object only after the child is reaped;

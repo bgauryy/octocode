@@ -24,14 +24,15 @@ fn coordinate(kind: ArtifactType, name: String, version: Option<String>) -> Opti
 #[derive(Debug, Eq, PartialEq)]
 pub(super) struct Unresolved {
     pub reason: String,
-    /// A repository page's Go module form, the one package it might name.
-    pub go_module: Option<String>,
+    /// A repository page's `(owner, repo)`: its manifest names the package
+    /// it publishes, in whatever ecosystem.
+    pub repository: Option<(String, String)>,
 }
 
 fn unresolved(reason: String) -> Unresolved {
     Unresolved {
         reason,
-        go_module: None,
+        repository: None,
     }
 }
 
@@ -59,22 +60,22 @@ pub(super) fn parse(text: &str) -> Result<Coordinate, Unresolved> {
     if let Some(repository) = github_repository(&url) {
         return Err(Unresolved {
             reason: format!(
-                "{text} is a repository, not a package. Not checked; nothing was sent. Name the package it publishes with operation package."
+                "{text} is a repository, not a package. Not checked; nothing was sent. Its manifest (package.json, go.mod, Cargo.toml, pyproject.toml, ...) names the package it publishes: check that with operation package."
             ),
-            go_module: Some(format!("github.com/{repository}")),
+            repository: Some(repository),
         });
     }
     from_page(&url).ok_or_else(no_package)
 }
 
-/// `owner/repo` of a github.com page.
-fn github_repository(url: &Url) -> Option<String> {
+/// `(owner, repo)` of a github.com page.
+fn github_repository(url: &Url) -> Option<(String, String)> {
     if url.host_str()?.trim_start_matches("www.") != "github.com" {
         return None;
     }
     let mut segments = url.path_segments()?.filter(|segment| !segment.is_empty());
     let (owner, repo) = (segments.next()?, segments.next()?);
-    Some(format!("{owner}/{}", repo.trim_end_matches(".git")))
+    Some((owner.to_owned(), repo.trim_end_matches(".git").to_owned()))
 }
 
 fn from_page(url: &Url) -> Option<Coordinate> {

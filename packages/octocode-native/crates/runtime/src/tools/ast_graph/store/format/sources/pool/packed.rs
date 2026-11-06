@@ -31,6 +31,11 @@ impl PackedOrigins {
         Ok(Self { encoded, ends })
     }
 
+    /// Bytes the packed origins hold.
+    pub(crate) fn bytes(&self) -> usize {
+        self.encoded.capacity() + self.ends.capacity() * std::mem::size_of::<u32>()
+    }
+
     /// The packed origins, decoded in order against the `descriptors` they
     /// were packed with.
     fn unpack<'a>(

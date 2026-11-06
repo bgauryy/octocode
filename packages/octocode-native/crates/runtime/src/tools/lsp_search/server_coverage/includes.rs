@@ -17,7 +17,7 @@ pub(super) fn annotate_includes(
     query: &LspSearchQuery,
     anchor: &str,
     scope: &Scope,
-    build_scripts: bool,
+    rust: super::super::receipt::RustAnalysis,
     stopped: &dyn Fn() -> bool,
 ) {
     let Some(includes) = package_includes(anchor, stopped) else {
@@ -66,9 +66,10 @@ pub(super) fn annotate_includes(
         );
         flag_noted(row, query, SHARED_MODULE_REASON, note, scope);
     }
-    if includes.generated.is_empty() || build_scripts {
+    if includes.generated.is_empty() || rust.build_scripts {
         return;
     }
+    let allowed = rust.build_scripts_allowed;
     // Which load hides a missed file is not known: when the outside include
     // may hide it too, the rerun (~2 GB) can recover nothing, so the text
     // check comes first and the rerun is no lead.
@@ -77,7 +78,14 @@ pub(super) fn annotate_includes(
     // risk ([`BUILD_SCRIPTS_COST`]); an offered rerun carries the call, so
     // the note names the lead instead of restating it, and the `findText`
     // lead is the text check.
-    let note = if outside {
+    let opt_in = super::super::receipt::BUILD_SCRIPTS_OPT_IN;
+    let note = if !allowed {
+        // Refused until the host opts in: no rerun is offered, so the note
+        // says what the opt-in is.
+        format!(
+            "rust-analyzer did not run this package's build scripts, so uses through the types they generate are missing; rustContext.buildScripts, which {BUILD_SCRIPTS_COST}, is refused until you opt in: {opt_in}."
+        )
+    } else if outside {
         format!(
             "rust-analyzer also did not run this package's build scripts; confirm the missing uses with {} first: rustContext {{buildScripts:true}} loads only the generated types, never the outside include, and {BUILD_SCRIPTS_COST}.",
             text_check()
@@ -90,7 +98,8 @@ pub(super) fn annotate_includes(
     flag_noted(row, query, BUILD_SCRIPTS_REASON, note, scope);
     // The rerun repeats the whole walk: offered once, on its first page,
     // and only where the reason holds alone.
-    if !continues_a_page(query)
+    if allowed
+        && !continues_a_page(query)
         && !outside
         && lists_reason(row, BUILD_SCRIPTS_REASON)
         && let Some(rerun) = super::super::failure::next_action(query, BUILD_SCRIPTS_REASON)

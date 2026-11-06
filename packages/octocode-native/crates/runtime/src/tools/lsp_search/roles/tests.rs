@@ -175,3 +175,26 @@ async fn a_header_prototype_is_a_declaration() {
         );
     }
 }
+
+/// Each page of an answer assigns the roles of its rows again; the
+/// declarations parse of a file read before is the kept one.
+#[tokio::test(flavor = "current_thread")]
+async fn a_later_page_reads_each_files_kept_declarations() {
+    let root = Fixture::new();
+    let source = "package a\n\nfunc NewHead() {}\n\nfunc use() {\n\tNewHead()\n}\n";
+    let path = root.write("head.go", source);
+    // The path the rows' uri names, as roles read it.
+    let file =
+        uri_to_path(&octocode_engine::lsp::uri::path_to_uri(&path.to_string_lossy()).expect("uri"));
+    let sites = [("NewHead", 0), ("NewHead", 1)];
+    for _page in 0..2 {
+        assert_eq!(
+            roles(&root, "head.go", source, &sites).await,
+            ["declaration", "call"]
+        );
+    }
+    assert_eq!(
+        crate::tools::declarations::parses::of("declarations", &file),
+        1
+    );
+}

@@ -74,8 +74,8 @@ export const sections: ContractInput['sections'] = {
       enableSecurityCheck: {
         type: 'boolean',
         default: false,
-        description: 'Expose securityCheck on MCP and the CLI: it asks OSV (api.osv.dev, operated by Google) about packages, sending each public package name and version it checks. Off, the tool is absent from both surfaces and sends nothing.',
-        notes: 'Home-only, so a repository can turn it off but cannot turn it on.',
+        description: 'Expose securityCheck through MCP: it asks OSV (api.osv.dev, operated by Google) about packages, sending each public package name and version it checks. Off, MCP leaves it out and sends nothing. The CLI always offers it, and a CLI call sends the package name to OSV only when you run it. Restart MCP after changing this setting.',
+        notes: 'Home-only, so a repository can turn it off for MCP but cannot turn it on.',
         env: { name: 'OCTOCODE_SECURITY_CHECKS', dotenv: 'home', workspaceNarrowsTo: 'false' },
       },
     },
@@ -113,6 +113,13 @@ export const sections: ContractInput['sections'] = {
         description: 'Let lspSearch start language servers on code Octocode fetched: ghCloneRepo and ghStructure materialize checkouts and URL captures under its home. Off by default, because a language server can run code from the repository it opens; text, AST and graph tools read that code without running anything.',
         notes: 'Security-sensitive: turning it on lets a repository you fetched run code on this machine when lspSearch opens it. Home-only, so a repository cannot turn it on.',
         env: { name: 'OCTOCODE_LSP_TRUST_FETCHED_CODE', dotenv: 'home', workspaceNarrowsTo: 'false' },
+      },
+      allowBuildScripts: {
+        type: 'boolean',
+        default: false,
+        description: 'Let lspSearch run a Rust workspace\'s Cargo build scripts and procedural macros when a query\'s rustContext sets buildScripts or procMacros. Off by default: they are repository code, so such a query is refused (errorCode policy) and the default rust-analyzer, which runs none, answers every other query.',
+        notes: 'Security-sensitive: turning it on lets any lspSearch call, in any client mode, run the build scripts and proc macros of the workspace it names. Home-only, so a repository cannot turn it on.',
+        env: { name: 'OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS', dotenv: 'home', workspaceNarrowsTo: 'false' },
       },
       prewarm: {
         type: 'enum',
@@ -176,11 +183,11 @@ export const sections: ContractInput['sections'] = {
         default: null,
         credential: true,
         description: 'Classification provider API key. A nonblank value exposes clasify and read-tool classifiers in MCP and the CLI; without one, a CLI clasify call answers where to get a key. Discovery makes no provider request.',
-        env: { name: 'OCTOCODE_CLASSIFICATION_API', dotenv: 'all', normalize: 'trim' },
+        env: { name: 'OCTOCODE_CLASSIFICATION_API', dotenv: 'home', normalize: 'trim' },
         displayDefault: 'unset (classification off)',
         group: 'Classification',
         docsUrl: 'https://docs.typesafe.ai/introduction',
-        notes: 'Credential values are omitted from resolved configuration and diagnostics.',
+        notes: 'Credential values are omitted from resolved configuration and diagnostics. Home-only, so a repository cannot turn classification on or send your evidence under its own provider account.',
       },
       apiHost: {
         type: 'url',

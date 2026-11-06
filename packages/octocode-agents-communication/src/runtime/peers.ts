@@ -29,7 +29,7 @@ export function peerSnapshot(host: StoreHost, session: string): PeerSnapshot {
     size += length;
     items.push(row);
   }
-  const summary = query(host.db, 'SELECT coalesce((SELECT revision FROM peer_revisions WHERE workspace=?2),0) AS revision,count(*) AS active FROM sessions WHERE expiresAt>?1 AND workspace IN (SELECT value FROM json_each(?4)) AND id<>?3', [at, host.coordinationScope, session, scopes])[0]!;
+  const summary = query(host.db, 'SELECT coalesce((SELECT revision FROM peer_revisions WHERE coordinationScope=?2),0) AS revision,count(*) AS active FROM sessions WHERE expiresAt>?1 AND workspace IN (SELECT value FROM json_each(?4)) AND id<>?3', [at, host.coordinationScope, session, scopes])[0]!;
   return { items, next: more && items.length ? rowText(items.at(-1)!, 'id') : null, summary };
 }
 

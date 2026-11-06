@@ -7,7 +7,7 @@
 
 use crate::graph::{
     GraphFactCall, GraphFactCode, GraphFactDeclaration, GraphFactDiagnostic, GraphFactEdge,
-    GraphFactExport, GraphFactImport, GraphFactRustModule, GraphFactsDocument,
+    GraphFactExport, GraphFactImport, GraphFactRustModule,
 };
 
 use super::languages;
@@ -192,16 +192,14 @@ impl GraphAccumulator {
     }
 }
 
-pub(crate) use from_tree::declared_lines_from_tree;
+pub use from_tree::NamedSites;
+pub(crate) use from_tree::{named_heritage_from_tree, named_sites_from_tree};
 
 pub(crate) fn extract_graph_facts_with_metadata_with_extension(
     content: &str,
     file_path: &str,
     extension: &str,
 ) -> Option<super::GraphFactsExtraction> {
-    if content.len() > crate::signatures::MAX_PARSE_SIZE {
-        return None;
-    }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         extract_graph_facts_with_metadata_inner(content, file_path, extension)
     }))
@@ -253,28 +251,6 @@ pub(super) fn extract_facts_before(
     )
 }
 
-/// The declarations-only facts of `content` from `tree`, a parse of it in
-/// the grammar of `extension` another reader already made (the symbols
-/// outline): one parse serves both (`None`: the parse ran out of time, and
-/// the facts say they are incomplete, as an own parse would). `None` when
-/// graph facts have no such grammar.
-pub(crate) fn declaration_facts_from_tree(
-    content: &str,
-    file_path: &str,
-    extension: &str,
-    tree: Option<&tree_sitter::Tree>,
-    deadline: std::time::Instant,
-) -> Option<GraphFactsDocument> {
-    if content.len() > crate::signatures::MAX_PARSE_SIZE {
-        return None;
-    }
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        facts_from_tree(content, file_path, extension, deadline, true, tree)
-    }))
-    .unwrap_or(None)
-    .map(|extraction| extraction.facts)
-}
-
 pub fn graph_fact_extensions() -> Vec<String> {
     let mut exts: Vec<String> = languages::supported_extensions()
         .into_iter()
@@ -283,6 +259,12 @@ pub fn graph_fact_extensions() -> Vec<String> {
     exts.sort();
     exts.dedup();
     exts
+}
+
+/// Whether the heritage clauses of the grammar `extension` names can name a
+/// supertype (`extends` / `implements`); Go's only record `embeds`.
+pub(crate) fn names_supertypes(extension: &str) -> bool {
+    heritage::Clauses::of(canonical_extension(extension)).names_supertypes()
 }
 
 /// The first extension of the language `ext` belongs to (`pyi` → `py`).

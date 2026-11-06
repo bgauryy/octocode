@@ -36,7 +36,11 @@ function evidence(tool, rows) {
 }
 function selectedIdentity(tool, state, identity, scope) {
   if (tool === 'ghSearchCode') return identity === state.path;
-  if (tool === 'localSearch') return state.lines.split('\n').some(row => identity.startsWith(`${path.relative(scope.cwd, path.resolve(scope.query.path, state.path))}:${row.slice(0, row.indexOf('\t'))}:`));
+  if (tool === 'localSearch') {
+    // A hit's own line is quoted in its question's target label, not repeated in the state's window.
+    const lines = [...(state.lines ?? '').split('\n').filter(Boolean).map(row => row.slice(0, row.indexOf('\t'))), ...state.targets.flatMap(target => /^lines? (\d+)/.exec(target)?.[1] ?? [])];
+    return lines.some(line => identity.startsWith(`${path.relative(scope.cwd, path.resolve(scope.query.path, state.path))}:${line}:`));
+  }
   const line = Number(identity.slice(0, identity.indexOf(':')));
   return state.sourceLineRanges.some(([start, end]) => line >= start && line <= end);
 }
@@ -67,7 +71,7 @@ async function oneSurface(ctx, tool, { surface, setup, token }) {
     assert.ok(receipt, JSON.stringify(rows));
     checks.push(['selection.partition', report.failures.length === 0 && validPartition(receipt), { failures: report.failures, receipt }]);
     const selectedEvidence = evidence(tool, selected);
-    const selectedStates = provider.sent.filter(entry => setup.decide(entry.request.state) === 'selected').map(entry => entry.request.state);
+    const selectedStates = provider.sent.filter(entry => setup.decide(entry.request.state) === 'selected').map(entry => ({ ...entry.request.state, targets: Object.values(entry.request.questions ?? {}).map(question => question.instructions?.target).filter(Boolean) }));
     checks.push(['selection.retry', provider.sent.filter(entry => same(entry.request, provider.sent[0].request)).length === 2, provider.sent.length]);
     checks.push(['selection.context', provider.sent.length > 0 && provider.sent.every(entry => entry.headers['typesafe-danger-zone-long-context'] === 'true' && entry.request.state.context === classification.context), provider.sent.length]);
     const before = provider.sent.length;

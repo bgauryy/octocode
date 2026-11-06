@@ -118,13 +118,14 @@ async fn from_url(
 ) -> Result<Value, ArtifactError> {
     let found = url_source::parse(text).map_err(|why| {
         let mut error = ArtifactError::new(ErrorCode::InvalidInput, why.reason);
-        if let Some(module) = why.go_module {
-            let mut row = brief.clone();
-            row.insert("operation".into(), json!("package"));
-            row.insert("ecosystem".into(), json!("go"));
-            row.insert("packageName".into(), json!(module));
-            let lead = Continuation::related(ToolId::SecurityCheck, Value::Object(row)).build();
-            error.calls = Some(Box::new(json!({ "repair": lead })));
+        // The repository's root tree shows the manifest that names its
+        // package; GitHub already hosts the repository, and no registry or
+        // OSV hears its name.
+        if let Some((owner, repo)) = &why.repository {
+            let lead = crate::tools::gh_shared::RepoPath::root(owner, repo)
+                .lead(ToolId::GhStructure)
+                .build();
+            error.calls = Some(Box::new(json!({ "viewTree": lead })));
         }
         error
     })?;

@@ -1,7 +1,9 @@
 use super::output::{Printed, Stream};
 use super::parse::parse_args_from;
+use super::{Command, OutputMode, dispatch, lsp_provision, start_failed};
 use octocode_contract_types::ErrorCode;
 use octocode_native::runtime::RuntimeError;
+use octocode_native::runtime::{HostOptions, ToolRuntime};
 use serde_json::json;
 
 /// A terminal gets indented JSON, a pipe one compact line, whatever the
@@ -100,7 +102,7 @@ fn rejected_calls_print_the_runtime_projection() {
     let invalid = || RuntimeError {
         code: ErrorCode::InvalidInput,
         message: error.to_string(),
-        payload: Some(Box::new(contracts::format_input_error(tool, &error))),
+        payload: Some(Box::new(contracts::format_input_error(tool, &error, &[]))),
         validation_issues: None,
     };
     let json_out = Printed::finish(tool, Err(invalid()), true, &json!({}), None);
@@ -238,4 +240,84 @@ fn execution_deadline_exceeds_the_worst_cold_lsp_budget() {
         octocode_native::execution::DEFAULT_TIMEOUT.as_millis()
             > u128::from(octocode_engine::lsp::MAX_COLD_LSP_EXECUTION_BUDGET_MS)
     );
+}
+
+/// A runtime in a fresh home; its GitHub host is not github.com, so no
+/// command asks a credential store for a token.
+fn fixture_runtime(home: &std::path::Path) -> ToolRuntime {
+    let env = [
+        ("OCTOCODE_HOME", home.to_string_lossy().into_owned()),
+        ("GITHUB_API_URL", "https://ghe.example/api/v3".to_owned()),
+    ]
+    .map(|(key, value)| (key.to_owned(), value));
+    ToolRuntime::from_host(HostOptions {
+        cwd: Some(home.to_path_buf()),
+        env: Some(env.into_iter().collect()),
+        ..HostOptions::default()
+    })
+    .expect("fixture runtime")
+}
+
+/// Commands that need a runtime reach their owner through `dispatch`; one
+/// that never reaches it (a tool, `serve`, `mcp`) is a usage error there,
+/// and so is a schema request for a tool that does not exist.
+#[tokio::test(flavor = "current_thread")]
+async fn dispatch_routes_runtime_commands_to_their_owner() {
+    let dir = tempfile::tempdir().expect("home");
+    let runtime = fixture_runtime(dir.path());
+    for json in [false, true] {
+        let mode = OutputMode::from(json);
+        assert_eq!(dispatch(Command::Mcp, &runtime, mode).await, 2);
+        assert_eq!(
+            dispatch(
+                Command::LspServer {
+                    command: lsp_provision::LspServerCommand::List
+                },
+                &runtime,
+                mode
+            )
+            .await,
+            0
+        );
+        assert_eq!(
+            dispatch(
+                Command::Schema {
+                    tool: Some("noSuchTool".into()),
+                    view: None,
+                    select: None
+                },
+                &runtime,
+                mode
+            )
+            .await,
+            2
+        );
+        assert_eq!(
+            dispatch(
+                Command::Schema {
+                    tool: Some("localSearch".into()),
+                    view: Some("variants".into()),
+                    select: None
+                },
+                &runtime,
+                mode
+            )
+            .await,
+            0
+        );
+    }
+}
+
+/// A runtime that cannot start exits by its error's class in either output.
+#[test]
+fn a_runtime_that_cannot_start_exits_by_its_error_class() {
+    for json in [false, true] {
+        let error = RuntimeError {
+            code: ErrorCode::InvalidInput,
+            message: "bad host options".into(),
+            payload: None,
+            validation_issues: None,
+        };
+        assert_eq!(start_failed(&error, OutputMode::from(json)), 2);
+    }
 }

@@ -171,6 +171,9 @@ pub(crate) struct FileFacts {
     /// 1-based `[start, end]` spans of code compiled only under test (Rust
     /// `#[cfg(test)]` items): their edges and declarations are test code.
     pub test_lines: Vec<[u32; 2]>,
+    /// A Go file's package clause. A `_test.go` file whose clause is its
+    /// directory's package is that package; one in `<pkg>_test` is not.
+    pub go_package: Option<String>,
 }
 
 impl FileFacts {
@@ -316,6 +319,16 @@ pub(crate) struct BuiltGraph {
     pub diagnostics: Vec<Diagnostic>,
     pub namespace_targets: BTreeSet<String>,
     pub star_reexporters: BTreeMap<String, Vec<String>>,
+    /// Set when extraction paused at its call's budget; then nothing else is.
+    pub paused: Option<ExtractionPause>,
+}
+
+/// A checkpointed build whose extraction paused at its call's budget:
+/// nothing was linked; the next call of the same input resumes it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct ExtractionPause {
+    pub committed_files: usize,
+    pub remaining_files: usize,
 }
 
 #[derive(Clone, Debug, Default)]

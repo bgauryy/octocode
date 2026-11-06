@@ -16,7 +16,10 @@ pub(super) fn sanitize_items(
     security: &impl ContentScan,
 ) -> Result<(), ProviderError> {
     let mut all = Value::Array(std::mem::take(items));
-    let result = sanitize_provider_json(security, &mut all, Path::new("github-history"));
+    // Items are redacted whole, before rows window them: a count here would
+    // name values no row shows.
+    let result =
+        sanitize_provider_json(security, &mut all, Path::new("github-history")).map(|_| ());
     if let Value::Array(sanitized) = all {
         *items = sanitized;
     }

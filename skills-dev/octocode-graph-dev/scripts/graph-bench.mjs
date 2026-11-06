@@ -147,16 +147,16 @@ function ingestRow(ing, r) {
 }
 
 // Callers of every definition named `probe`, as files.
-async function callerFiles(pages, ids) {
+export async function callerFiles(pages, ids) {
   const files = new Set();
   const row = { definitions: ids.length, rows: 0, files: 0, ms: 0, bytes: 0, pagesComplete: true };
   for (const id of ids) {
-    const cl = await pages({ operation: 'callers', target: id, confidence: 'low', limit: 1000 });
-    row.rows += cl.rows.length;
+    const cl = await pages({ operation: 'callers', target: id, confidence: 'low', limit: 1000, view: 'files' });
+    row.rows += cl.rows.reduce((sum, file) => sum + file.edges, 0);
     row.ms += cl.ms;
     row.bytes += cl.bytes;
     row.pagesComplete &&= cl.pagesComplete;
-    for (const x of cl.rows) files.add(fileOf(x.id ?? x.from ?? x.src));
+    for (const x of cl.rows) files.add(x.file);
   }
   row.files = files.size;
   return { files, row };

@@ -292,25 +292,20 @@ fn graph_build_reports_progress_on_stderr_and_the_result_on_stdout() {
         lines.last().is_some_and(|line| line.contains(id)),
         "{lines:?}"
     );
+    // An unchanged scope answers with its current snapshot: the same id,
+    // its progress naming the reuse, the result still on stdout.
     let again = workspace
         .cli()
         .args(["graphBuild", "--json", BUILD_APP])
         .output()
         .expect("graphBuild again");
-    // Every build recomputes: an unchanged rebuild publishes its own
-    // snapshot and reports the same progress, never a reused one.
     assert_eq!(again.status.code(), Some(0), "{}", stderr(&again));
     let again_result = compact_line(stdout(&again));
     let again_id = again_result
         .pointer("/results/0/data/id")
         .and_then(Value::as_str)
         .unwrap_or_else(|| panic!("snapshot id: {again_result}"));
-    assert_ne!(again_id, id, "{again_result}");
-    assert_eq!(
-        again_result.pointer("/results/0/data/reused"),
-        None,
-        "{again_result}"
-    );
+    assert_eq!(again_id, id, "{again_result}");
     let again_lines = stderr(&again)
         .lines()
         .map(str::to_owned)
@@ -318,13 +313,46 @@ fn graph_build_reports_progress_on_stderr_and_the_result_on_stdout() {
     assert!(
         again_lines
             .iter()
-            .any(|line| line.contains("parsed 2/2 files")),
+            .all(|line| line.starts_with("graphBuild: ") && !line.contains("parsed ")),
         "{again_lines:?}"
     );
     assert!(
         again_lines
             .last()
-            .is_some_and(|line| line.contains("published ") && line.contains(again_id)),
+            .is_some_and(|line| line.contains("reused ") && line.contains(id)),
         "{again_lines:?}"
+    );
+    // `refresh` builds again: a new snapshot, the full progress.
+    let refreshed = workspace
+        .cli()
+        .args([
+            "graphBuild",
+            "--json",
+            r#"{"queries":[{"path":"app","refresh":true}]}"#,
+        ])
+        .output()
+        .expect("graphBuild refresh");
+    assert_eq!(refreshed.status.code(), Some(0), "{}", stderr(&refreshed));
+    let refreshed_result = compact_line(stdout(&refreshed));
+    let refreshed_id = refreshed_result
+        .pointer("/results/0/data/id")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| panic!("snapshot id: {refreshed_result}"));
+    assert_ne!(refreshed_id, id, "{refreshed_result}");
+    let refreshed_lines = stderr(&refreshed)
+        .lines()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    assert!(
+        refreshed_lines
+            .iter()
+            .any(|line| line.contains("parsed 2/2 files")),
+        "{refreshed_lines:?}"
+    );
+    assert!(
+        refreshed_lines
+            .last()
+            .is_some_and(|line| line.contains("published ") && line.contains(refreshed_id)),
+        "{refreshed_lines:?}"
     );
 }

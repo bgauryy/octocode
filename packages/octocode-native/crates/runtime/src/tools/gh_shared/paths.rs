@@ -8,7 +8,9 @@ use octocode_github::{
 use serde_json::{Value, json};
 
 /// A non-empty repository-relative path that stays below the directory it is
-/// joined to: no root, drive, `.`/`..` segment or backslash.
+/// joined to and that git itself would check out: no root, drive, backslash,
+/// empty, `.` or `..` segment (so no `./`, `//` or trailing `/`), and no
+/// segment a filesystem resolves to a git directory ([`is_git_directory`]).
 pub(crate) fn is_repo_relative(path: &str) -> bool {
     let value = std::path::Path::new(path);
     !path.trim().is_empty()
@@ -17,6 +19,34 @@ pub(crate) fn is_repo_relative(path: &str) -> bool {
         && value
             .components()
             .all(|component| matches!(component, std::path::Component::Normal(_)))
+        && path
+            .split('/')
+            .all(|segment| !matches!(segment, "" | "." | "..") && !is_git_directory(segment))
+}
+
+/// Whether a path segment names `.git` on some filesystem, as git's
+/// `verify_path` refuses it: case-folded, with the code points HFS+/APFS
+/// ignore removed, and with NTFS's trailing dots and spaces, alternate data
+/// stream (`::$INDEX_ALLOCATION`) and short name (`git~1`).
+fn is_git_directory(segment: &str) -> bool {
+    let visible: String = segment.chars().filter(|&c| !is_hfs_ignorable(c)).collect();
+    [".git", "git~1"].iter().any(|name| {
+        visible
+            .get(..name.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(name))
+            && visible[name.len()..]
+                .split(':')
+                .next()
+                .is_some_and(|tail| tail.chars().all(|c| matches!(c, '.' | ' ')))
+    })
+}
+
+/// The code points HFS+ drops when it compares names (git's `next_hfs_char`).
+fn is_hfs_ignorable(c: char) -> bool {
+    matches!(
+        c,
+        '\u{200c}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{206a}'..='\u{206f}' | '\u{feff}'
+    )
 }
 
 /// A read or listing whose path (not repository or ref) did not resolve.

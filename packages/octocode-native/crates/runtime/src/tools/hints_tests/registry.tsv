@@ -128,6 +128,7 @@ shared	tools/bounded_process/capture.rs	[stderr cut: {error}]
 shared	tools/bounded_process/capture.rs	[stderr truncated at {STDERR_BYTES} bytes]
 clasify	tools/clasify/evaluate.rs	Supply the text to judge.
 clasify	tools/clasify/recovery.rs	Each image question re-reads its images: ask fewer image questions per call, or crop the image.
+clasify	tools/clasify/recovery.rs	source takes text; a PNG or JPEG image is judged under assets, as the clasify call in related[] does.
 clasify	tools/clasify/sections.rs	Copy nextPage unchanged, or start a fresh sections request.
 clasify	tools/clasify/sections.rs	Use persistent storage across CLI calls or a long-lived MCP runtime; start a fresh sections request explicitly if the saved plan expired.
 clasify	tools/clasify/sections/capture.rs	Use its pinned raw reader or assess a narrower resource set.
@@ -169,6 +170,7 @@ ghStructure	tools/gh_structure/traverse/entries.rs	{path} ({label})
 shared	tools/judgment.rs	Set OCTOCODE_CLASSIFICATION_API.
 shared	tools/judgment.rs	Set a model identifier without credentials.
 shared	tools/judgment/batch.rs	Inspect the current clasify query schema.
+shared	tools/judgment/batch.rs	Not retried in the provider's {}-token long-context window: this request cannot be shown to fit it.
 shared	tools/judgment/batch.rs	Split the source with ranges or resources, send fewer images, or shorten the questions.
 shared	tools/leads/broaden.rs	No match with these filters: each related[] request drops one; run it only if the wider scope still answers the question.
 shared	tools/leads/skipped.rs	At least 
@@ -200,6 +202,7 @@ lspSearch	tools/lsp_search/failure/leads.rs	coverage.outOfReachFiles counts file
 lspSearch	tools/lsp_search/failure/paging.rs	{stage}: {total} server {requests} failed ({} distinct errors; most frequent, {count}×: {message}); the locations they would add are missing.
 lspSearch	tools/lsp_search/failure/paging.rs	{stage}: {total} server {requests} failed: {message}; the locations they would add are missing.
 lspSearch	tools/lsp_search/failure/rows.rs	A name a build script generates (include! of OUT_DIR) has no location until build scripts run; the rerun with rustContext.buildScripts enabled {BUILD_SCRIPTS_COST}.
+lspSearch	tools/lsp_search/failure/rows.rs	A name a build script generates (include! of OUT_DIR) has no location while build scripts do not run; rustContext {{buildScripts:true}}, which {BUILD_SCRIPTS_COST}, is refused until you opt in: {opt_in}.
 lspSearch	tools/lsp_search/failure/rows.rs	A name a build script generates (include! of OUT_DIR) resolves only with rustContext {{buildScripts:true}}, which {BUILD_SCRIPTS_COST}.
 lspSearch	tools/lsp_search/failure/rows.rs	A name defined in source this package include!s from outside its directory never resolves in rust-analyzer: read it with localSearch.
 lspSearch	tools/lsp_search/importers.rs	The scan for gitignored files that spell this name did not finish, so importers among them are unverified; a localSearch with includeIgnored reads them.
@@ -214,7 +217,7 @@ lspSearch	tools/lsp_search/importers/coverage.rs	{count} import it
 lspSearch	tools/lsp_search/importers/coverage.rs	{count} nested repositories
 lspSearch	tools/lsp_search/importers/coverage.rs	{} could not be checked for an import (unreadable, larger than {} MiB, or unparsable)
 lspSearch	tools/lsp_search/inferred_project/compile_database.rs	Generate compile_commands.json for clangd (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON), or use astSearch/localSearch.
-lspSearch	tools/lsp_search/ops/diagnostics.rs	Proc-macros and build scripts are off by default (they run repository code), so rust-analyzer reports unexpanded macros; pass rustContext {buildScripts:true, procMacros:true} to expand them.
+lspSearch	tools/lsp_search/ops/diagnostics.rs	Proc-macros and build scripts are off by default (they run repository code), so rust-analyzer reports unexpanded macros; pass rustContext {buildScripts:true, procMacros:true} to expand them once lsp.allowBuildScripts is on (home .octocoderc, or OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS=true in the process environment or the home .env); until then such a query is refused.
 lspSearch	tools/lsp_search/ops/hierarchy.rs	{} implementation(s) are source:"{SCAN_SOURCE}" (matched by name).
 lspSearch	tools/lsp_search/ops/lookups.rs	workspaceRoot-only search found no {searched} source file to load a project; pass path for a file in the symbol's project.
 lspSearch	tools/lsp_search/ops/lookups.rs	workspaceRoot-only search used the {searched} server; this root also holds {} unsearched projects.
@@ -237,6 +240,12 @@ lspSearch	tools/lsp_search/server_coverage.rs	workspace/symbol has no completene
 lspSearch	tools/lsp_search/session/waits.rs	This call waited {} for the {server} language server to load the project; later calls reuse the loaded server without that wait.
 lspSearch	tools/lsp_search/session/waits.rs	This call waited {} for the {server} language server to start; later calls reuse the running server without that wait.
 lspSearch	tools/lsp_search/walk/outcome.rs	{out_of_policy} hierarchy items the path policy does not let this tool read were omitted.
+shared	tools/selection.rs	 (none on this page)
+shared	tools/selection.rs	 ({shown} on this page)
+shared	tools/selection.rs	 An empty classified result is not absence: next.unfiltered lists them all.
+shared	tools/selection.rs	; none is left to judge, and {} {} unknown
+shared	tools/selection.rs	; {} not judged yet: next.nextCandidatePage judges them
+shared	tools/selection.rs	classification kept {} of {} that pass the classifiers
 shared	tools/selection/provider_page.rs	Not judged: the classification egress withholds credential-named files, so nothing of these was read or sent to the provider: {}.
 shared	tools/source_capture.rs	A ghGetFileContent read without classification returns this file redacted and sends nothing to a provider.
 shared	tools/source_capture.rs	Correct the source query; it is the reader's own row.

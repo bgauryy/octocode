@@ -24,6 +24,21 @@ pub enum MatchQuery<'a> {
     Summary(&'a AstSearchQueryMatchView),
 }
 
+/// A `match` query the runtime owns, in either form.
+pub(super) enum OwnedMatch {
+    Content(AstSearchQueryMatch0),
+    Summary(AstSearchQueryMatchView),
+}
+
+impl OwnedMatch {
+    pub(super) fn query(&self) -> MatchQuery<'_> {
+        match self {
+            Self::Content(query) => MatchQuery::Content(query),
+            Self::Summary(query) => MatchQuery::Summary(query),
+        }
+    }
+}
+
 /// Binds `$field` from whichever form `$query` is.
 macro_rules! either_form {
     ($query:expr, $field:ident => $value:expr) => {
@@ -165,6 +180,24 @@ impl<'a> MatchQuery<'a> {
         match self {
             Self::Content(query) => moved!(query, AstSearchQuery::Match0),
             Self::Summary(query) => moved!(query, AstSearchQuery::MatchView),
+        }
+    }
+
+    /// This query as its scan's first window asks it: no `scanOffset` and no
+    /// pin of windows before it. A ranked scan's last window answers as this
+    /// query ([`super::standing`]).
+    pub(super) fn at_scan_start(self) -> OwnedMatch {
+        macro_rules! started {
+            ($query:expr, $variant:path) => {{
+                let mut query = $query.clone();
+                query.scan_offset = None;
+                query.snapshot = None;
+                $variant(query)
+            }};
+        }
+        match self {
+            Self::Content(query) => started!(query, OwnedMatch::Content),
+            Self::Summary(query) => started!(query, OwnedMatch::Summary),
         }
     }
 

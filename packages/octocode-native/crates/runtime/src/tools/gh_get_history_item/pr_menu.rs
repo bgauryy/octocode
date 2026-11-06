@@ -1,6 +1,7 @@
 //! The pull-request read menu: the public query a continuation starts from,
 //! the section menu, and the merge-commit read.
 use super::patch::locate::{distinctive_added_lines, hunk_windows};
+use super::patch_hop::includable;
 use super::util::merge;
 use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, ItemOperation, Sections};
 use crate::id::ToolId;
@@ -169,6 +170,7 @@ pub(super) fn pr_next_menu(query: &HistoryItemRequest, review: &[String], raw: &
         body_offered = true;
     }
     if !patches && has_files {
+        let review = includable(&target, review);
         let covers_all = changed_files.is_some_and(|files| review.len() as u64 >= files);
         if !review.is_empty() && !covers_all {
             // The query is exact; which files answer the question is a

@@ -25,7 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from flows import CORPUS_REV, FLOWS
-from harness import NATIVE, can_count, corpus, queries, stub_env, stub_server
+from harness import NATIVE, can_count, corpus, queries, stub_env, stub_server, with_stub
 from profile import count, fmt
 
 BASELINE = Path(__file__).with_name('perf-baseline.json')
@@ -72,7 +72,7 @@ def measure(binary, selected, reps, cwd):
     try:
         for item in selected:
             extra = stub_env(url) if item['stub'] else {}
-            counted = count(binary, item, queries(item['query']), cwd, extra, reps)
+            counted = count(binary, item, queries(with_stub(item['query'], url if item['stub'] else None)), cwd, extra, reps)
             if counted['errors']:
                 raise SystemExit(f"{item['id']} answered with errors: {counted['errors']}. A broken request is no measurement.")
             rows[item['id']] = counted

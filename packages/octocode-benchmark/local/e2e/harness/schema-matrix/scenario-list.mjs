@@ -47,4 +47,11 @@ const NOT_HOLDING = new Set([
   'reason.parseRecovered'
 ]);
 
-export const SCENARIOS = [...REFUSAL_SCENARIOS, ...CODE_SCENARIOS, ...LEAD_SCENARIOS, ...REASON_SCENARIOS].filter(scenario => !NOT_HOLDING.has(scenario.id));
+const ALL = [...REFUSAL_SCENARIOS, ...CODE_SCENARIOS, ...LEAD_SCENARIOS, ...REASON_SCENARIOS];
+/** OCTOCODE_MATRIX_PARKED=only runs the parked ones, =with runs every scenario; OCTOCODE_MATRIX_SCENARIOS=id,... narrows to those ids. */
+const parked = process.env.OCTOCODE_MATRIX_PARKED;
+const ids = new Set((process.env.OCTOCODE_MATRIX_SCENARIOS ?? '').split(',').filter(Boolean));
+export const PARKED = NOT_HOLDING;
+export const SCENARIOS = ALL
+  .filter(scenario => (parked === 'only' ? NOT_HOLDING.has(scenario.id) : parked === 'with' || !NOT_HOLDING.has(scenario.id)))
+  .filter(scenario => !ids.size || ids.has(scenario.id));

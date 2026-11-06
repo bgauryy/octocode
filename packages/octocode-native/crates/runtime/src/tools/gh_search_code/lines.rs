@@ -49,6 +49,10 @@ pub(super) enum FileHits {
         /// holds it: a `matchString` + `block` read returns that whole
         /// declaration.
         declaration: Option<String>,
+        /// Secret-shaped values `lines` show as placeholders (beyond any
+        /// literal placeholder of the source): the row's text is then not
+        /// verbatim.
+        redacted: usize,
     },
     /// The blob was read but no line holds a keyword (index lag or
     /// tokenization differences): keep the index fragments.
@@ -228,7 +232,9 @@ pub(super) fn scan(
     let hits = blob.hits(found, &needles, goal);
     let anchor = blob.anchor(&hits, &needles, security);
     let lines = blob.listing(&hits, window, security);
+    let redacted = blob.redactions(&lines);
     FileHits::Lines {
+        redacted,
         declaration: blob.declaration(&hits, anchor.best, security),
         lines,
         matched: hits.iter().map(Hit::number).collect(),

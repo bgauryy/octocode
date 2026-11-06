@@ -85,16 +85,29 @@ pub(super) fn naming(exit: Exit, receipt: Value) -> Exit {
 /// analysis, so neither changes the server configuration.
 const RUST_ANALYZER_DEFAULT_CFGS: [&str; 2] = ["debug_assertions", "miri"];
 
+/// What a Rust server's options make it run, and whether this host lets a
+/// query turn build scripts on (`lsp.allowBuildScripts`).
 #[derive(Clone, Copy)]
 pub(super) struct RustAnalysis {
     pub(super) build_scripts: bool,
     pub(super) all_features: bool,
     proc_macros: bool,
+    /// Whether a `rustContext` may enable build scripts here. Off, a row
+    /// offers no rerun that does and its note names the opt-in.
+    pub(super) build_scripts_allowed: bool,
 }
 
 impl RustAnalysis {
     pub(super) fn of(config: &LspLanguageServerConfig) -> Self {
         Self::from_options(config.initialization_options.as_ref())
+    }
+
+    /// The same analysis, with `allowed` the host's `lsp.allowBuildScripts`.
+    pub(super) fn allowing_build_scripts(self, allowed: bool) -> Self {
+        Self {
+            build_scripts_allowed: allowed,
+            ..self
+        }
     }
 
     fn from_options(options: Option<&Value>) -> Self {
@@ -111,6 +124,7 @@ impl RustAnalysis {
                 .and_then(|value| value.pointer("/procMacro/enable"))
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
+            build_scripts_allowed: false,
         }
     }
 
@@ -123,6 +137,26 @@ impl RustAnalysis {
         }
         Ok(())
     }
+}
+
+/// How to opt in to build scripts: the one statement every note and the
+/// refusal share. Home-only, as `lsp.trustFetchedCode` is.
+pub(super) const BUILD_SCRIPTS_OPT_IN: &str = "set lsp.allowBuildScripts in the home .octocoderc, or OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS=true in the process environment or the home .env; a workspace cannot";
+
+/// Whether the query's `rustContext` asks to run build scripts or proc
+/// macros (which rust-analyzer builds through Cargo).
+pub(super) fn requests_build_scripts(query: &LspSearchQuery) -> bool {
+    lsp_search_query::rust_context(query).is_some_and(|context| {
+        context.build_scripts == Some(true) || context.proc_macros == Some(true)
+    })
+}
+
+/// Why `lspSearch` refuses a `rustContext` that runs build scripts or proc
+/// macros, what it would run, and how to opt in.
+pub(super) fn build_scripts_refusal() -> String {
+    format!(
+        "lspSearch starts no rust-analyzer that runs build scripts or procedural macros: rustContext.buildScripts and procMacros would run this workspace's Cargo build scripts and proc macros, which is repository code, and this server was not told to allow that. Drop them to use the default rust-analyzer, which runs none; localSearch and astSearch read the same code without running anything. To opt in, {BUILD_SCRIPTS_OPT_IN}."
+    )
 }
 
 /// Overlay an explicit `rustContext` onto the resolved rust-analyzer options.
@@ -176,6 +210,7 @@ pub(super) fn apply_rust_context(
     if let Some(proc_macros) = context.proc_macros {
         set("/procMacro/enable", json!(proc_macros), json!(false));
     }
+    octocode_engine::lsp::config::allow_build_wrappers(&mut options);
     RustAnalysis::from_options(Some(&options)).validate()?;
     if !context.cfgs.is_empty() {
         let cfgs = context

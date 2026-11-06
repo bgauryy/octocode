@@ -40,7 +40,7 @@ pub(super) struct WindowSpan {
 }
 
 impl WindowSpan {
-    pub(super) fn want(&self) -> Want {
+    pub(super) fn want(&self, window: usize) -> Want {
         Want {
             first: self.first,
             last: self.last,
@@ -48,7 +48,7 @@ impl WindowSpan {
             room: if self.byte_page {
                 super::BYTE_WINDOW_BYTES
             } else {
-                super::WINDOW_BYTES
+                window
             },
         }
     }
@@ -112,6 +112,8 @@ pub(super) struct Opened<'a> {
     /// The request's earlier pass over the whole source, with its line
     /// count: windows are read from its checkpoints, not streamed again.
     pub(super) proven: Option<(&'a Proven, usize)>,
+    /// The scanner's limits: a line window holds [`SourceLimits::window`] bytes.
+    pub(super) limits: crate::security::SourceLimits,
 }
 
 impl Opened<'_> {
@@ -146,7 +148,7 @@ pub(super) fn stream_window(
     let span = window_span(q);
     // One span streams exactly one window.
     let streamed = source
-        .windows(&[span.want()], cancel)
+        .windows(&[span.want(source.limits.window)], cancel)
         .and_then(|mut windows| windows.pop().ok_or_else(|| "no window streamed".to_owned()));
     match streamed {
         Ok(streamed) => serve_window(q, streamed, span, source, modified, share, security, cancel),

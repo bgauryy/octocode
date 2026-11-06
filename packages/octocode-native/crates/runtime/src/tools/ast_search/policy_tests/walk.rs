@@ -275,8 +275,7 @@ fn an_empty_match_beside_parsed_files_names_the_ignored_ones() {
 fn a_skipped_file_is_one_skip_with_one_diagnostic() {
     let root = Fixture::new();
     root.write("a.ts", "foo(1);\n");
-    let large =
-        "foo(2);\n".repeat(crate::tools::ast_search::source::MAX_PARSE_SOURCE_BYTES / 8 + 1);
+    let large = "foo(2);\n".repeat(crate::security::SourceLimits::REAL.whole_source / 8 + 1);
     root.write("big.ts", large);
     std::fs::write(
         root.0.join("bin.ts"),

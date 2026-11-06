@@ -121,17 +121,11 @@ pub(super) struct Extracted<'a> {
     pub(super) tally: super::super::limits::Tally,
 }
 
-pub(super) fn extract<'a>(
-    scan: &GraphScan,
-    root: &Path,
-    paths: &'a PathPolicy,
-    security: &'a ContentSecurity,
-    cancel: &dyn CancellationCheck,
-    registry: RegistryView<'_>,
-) -> Result<Extracted<'a>, ToolError> {
-    // The one default prune (a git-tracked `build/` is scanned, as every
-    // local tool walks it); the credential stores are the path policy's.
-    let options = GraphFactsScanOptions {
+/// The scan options of a graph build of `root`: the one default prune (a
+/// git-tracked `build/` is scanned, as every local tool walks it); the
+/// credential stores are the path policy's.
+fn scan_options(scan: &GraphScan, root: &Path) -> GraphFactsScanOptions {
+    GraphFactsScanOptions {
         path: root.to_string_lossy().into_owned(),
         default_exclude_dir: Some(crate::policy::prune::walk_names(true, &[])),
         exclude: (!scan.exclude.is_empty()).then(|| scan.exclude.clone()),
@@ -143,7 +137,41 @@ pub(super) fn extract<'a>(
         language_globs: (!scan.language_globs.is_empty())
             .then(|| crate::tools::ast_rule::language_globs(&scan.language_globs)),
         ignore: octocode_engine::types::IgnorePolicy::default(),
-    };
+    }
+}
+
+/// Name the files past the per-file budget among the scan's gaps, sorted
+/// with them.
+fn name_declined(
+    skipped: &mut Vec<octocode_engine::types::GraphFactsScanDiagnostic>,
+    declined: Vec<String>,
+) {
+    if declined.is_empty() {
+        return;
+    }
+    skipped.extend(declined.into_iter().map(|relative_path| {
+        octocode_engine::types::GraphFactsScanDiagnostic {
+            relative_path,
+            code: octocode_engine::fact_scan::SOURCE_BUDGET_EXCEEDED.to_owned(),
+            message: "file's source correspondence exceeds the per-file budget".to_owned(),
+        }
+    }));
+    skipped.sort_unstable_by(|left, right| left.relative_path.cmp(&right.relative_path));
+}
+
+pub(super) fn extract<'a>(
+    scan: &GraphScan,
+    root: &Path,
+    paths: &'a PathPolicy,
+    security: &'a ContentSecurity,
+    turn: &super::turn::ExtractionTurn<'_>,
+    registry: RegistryView<'_>,
+) -> Result<Extracted<'a>, ToolError> {
+    // The walk runs under the request alone; parsing and capture under the
+    // turn, which may end extraction before the request does.
+    let request = turn.request();
+    let cancel: &dyn CancellationCheck = turn;
+    let options = scan_options(scan, root);
     let admission_of_walk = || {
         crate::policy::discovery::WalkAdmission::new(
             paths.discovery_walk(),
@@ -159,6 +187,8 @@ pub(super) fn extract<'a>(
     let discovery = admission_of_walk();
     let admit = |path: &Path, file_type| discovery.admit(path, file_type, |_| true);
     let capture_error = std::sync::Mutex::new(None);
+    let walk_stop = || request.check().is_err();
+    let walk_error = |error| ToolError::graph_scan(&error, request);
     let stop = || {
         cancel.check().is_err()
             || capture_error
@@ -168,19 +198,28 @@ pub(super) fn extract<'a>(
     };
     let scan_error = |error| ToolError::graph_scan(&error, cancel);
     let walk = octocode_engine::fact_scan::walk_graph_fact_files_with_registry(
-        &options, &admit, &stop, registry,
+        &options, &admit, &walk_stop, registry,
     )
-    .map_err(scan_error)?;
+    .map_err(walk_error)?;
     // Its own admission: what this walk withholds was counted by the one above.
     let markup_discovery = admission_of_walk();
     let markup = octocode_engine::fact_scan::walk_script_markup_files(
         &options,
         &|path: &Path, file_type| markup_discovery.admit(path, file_type, |_| true),
-        &stop,
+        &walk_stop,
     )
-    .map_err(scan_error)?
+    .map_err(walk_error)?
     .entries;
-    let job = checkpoint::Job::open(scan, root, &walk.entries, paths, security, registry, cancel)?;
+    turn.record_walk(walk.entries.len());
+    let job = checkpoint::Job::open(
+        scan,
+        root,
+        &walk.entries,
+        paths,
+        security,
+        registry,
+        request,
+    )?;
     let parsing = crate::tools::ast_graph::progress::Parsing::new(walk.entries.len());
     let admission = super::scope::Admission::new(scan, root, &walk.entries);
     // Files past the per-file budget: the map declines them (a filtered
@@ -219,21 +258,33 @@ pub(super) fn extract<'a>(
                     }
                     Err(error) => return Err(error),
                 };
-                admission.admit(&source, view.facts.declarations.len())?;
-                match &job {
-                    Some(job) => job.keep(view, source).map(Some),
+                let source_bytes = source.bytes();
+                // The facts' encoded size: their artifact's, else their
+                // JSON's, which the artifact encodes.
+                let (kept, fact_bytes) = match &job {
+                    Some(job) => job.keep(view, source)?,
                     None => {
                         let marks = super::super::classify::SourceMarks::of(
                             view.relative_path,
                             view.content,
                         );
-                        Ok(Some(Kept::Memory(Box::new((
-                            view.to_entry(),
-                            marks,
-                            source,
-                        )))))
+                        let fact_bytes =
+                            octocode_engine::json_size::bytes_or(view.facts, usize::MAX);
+                        (
+                            Kept::Memory(Box::new((view.to_entry(), marks, source))),
+                            fact_bytes,
+                        )
                     }
-                }
+                };
+                admission.admit(
+                    view.facts.declarations.len(),
+                    super::super::limits::build_charge(
+                        fact_bytes,
+                        view.facts.declarations.len(),
+                        source_bytes,
+                    ),
+                )?;
+                Ok(Some(kept))
             };
             match capture() {
                 Ok(kept) => kept,
@@ -257,23 +308,12 @@ pub(super) fn extract<'a>(
     }
     let mut facts = facts.map_err(scan_error)?;
     parsing.finish();
-    let declined = declined
-        .into_inner()
-        .unwrap_or_else(PoisonError::into_inner);
-    if !declined.is_empty() {
-        facts
-            .skipped
-            .extend(declined.into_iter().map(|relative_path| {
-                octocode_engine::types::GraphFactsScanDiagnostic {
-                    relative_path,
-                    code: octocode_engine::fact_scan::SOURCE_BUDGET_EXCEEDED.to_owned(),
-                    message: "file's source correspondence exceeds the per-file budget".to_owned(),
-                }
-            }));
-        facts
-            .skipped
-            .sort_unstable_by(|left, right| left.relative_path.cmp(&right.relative_path));
-    }
+    name_declined(
+        &mut facts.skipped,
+        declined
+            .into_inner()
+            .unwrap_or_else(PoisonError::into_inner),
+    );
     let reused_files = reused_files.load(std::sync::atomic::Ordering::Relaxed);
     Ok(Extracted {
         facts,

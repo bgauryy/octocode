@@ -331,11 +331,13 @@ fn quotas_and_io_failures_do_not_commit_incomplete_artifacts() {
         reused: false,
     };
     let source = capture::capture(&view, &NeverCancel).unwrap();
+    // Past the budget for encoded in-memory copies the file is still linked,
+    // from its decoded facts; it is only not checkpointed.
     job.state().memory_bytes = LIMITS.memory_only_bytes;
-    assert_eq!(
-        job.keep(&view, source).err().unwrap().code,
-        ErrorCode::ScopeTooBroad
-    );
+    assert!(matches!(
+        job.keep(&view, source),
+        Ok((super::super::scan::Kept::Memory(_), _))
+    ));
     assert_eq!(job.progress().checkpointed_files, 0);
     assert!(!job.target("secret.ts").exists());
     // The same lower-level durable writer reports real filesystem failure, not a cache miss.

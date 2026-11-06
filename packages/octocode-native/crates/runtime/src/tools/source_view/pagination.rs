@@ -4,7 +4,7 @@ use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
 
 mod sanitize;
 mod source_lines;
-pub use sanitize::{sanitize_byte_page, sanitize_line_page};
+pub use sanitize::{WindowScans, sanitize_byte_page, sanitize_line_page};
 pub(super) use source_lines::SourceLines;
 
 pub struct Page {
@@ -97,12 +97,20 @@ pub(super) fn page_within(
     budget: LineBudget,
     source: Option<&SourceLines>,
 ) -> Page {
-    if let Some(source) = source
-        && local_fetch_query::unit(q) == ReadProgressUnit::Lines
-    {
+    let Some(source) = source else {
+        return view_page(content, q, budget);
+    };
+    if local_fetch_query::unit(q) == ReadProgressUnit::Lines {
         return raw_line_page(content, q, budget, source);
     }
-    view_page(content, q, budget)
+    // A byte page of an oversized view line resumes line paging after it, in
+    // the raw lines a line page counts, never at the view line's own index.
+    let mut page = view_page(content, q, budget);
+    page.pagination.resume_line = page
+        .pagination
+        .resume_line
+        .map(|view_line| source.raw_offset(view_line));
+    page
 }
 
 /// A line page over raw source lines (see [`page_within`]): the view page
@@ -136,16 +144,15 @@ fn raw_line_page(
     );
     let mut page = view_page_limited(content, &view_q, budget, count.max(1));
     page.out_of_range = offset > 0 && offset >= source.total;
-    let raw_of = |view_index: usize| lines.get(view_index).map(|line| line - 1);
     let pagination = &mut page.pagination;
     if pagination.unit == ReadProgressUnit::Bytes {
         // One oversized view line pages by view bytes; line paging resumes
         // at the raw line after it.
-        pagination.resume_line = pagination.resume_line.and_then(raw_of);
+        pagination.resume_line = pagination.resume_line.map(|line| source.raw_offset(line));
         return page;
     }
     let end = page.view_lines.1.max(first);
-    let next = raw_of(end).unwrap_or(source.total).max(offset);
+    let next = source.raw_offset(end).max(offset);
     let has_more = end < lines.len();
     *pagination = Pagination {
         unit: ReadProgressUnit::Lines,

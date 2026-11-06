@@ -1,42 +1,53 @@
 PRAGMA application_id=1329678147;
-PRAGMA user_version=8;
+PRAGMA user_version=9;
 
 CREATE TABLE workspaces (
-  workspace TEXT PRIMARY KEY, coordinationScope TEXT NOT NULL
-);
+  workspace TEXT PRIMARY KEY CHECK(length(trim(workspace))>0),
+  coordinationScope TEXT NOT NULL CHECK(length(trim(coordinationScope))>0)
+) STRICT;
 CREATE INDEX workspaces_scope ON workspaces(coordinationScope,workspace);
 CREATE TRIGGER workspaces_immutable BEFORE UPDATE ON workspaces BEGIN
   SELECT RAISE(ABORT,'Workspace coordination scope is immutable');
 END;
 
 CREATE TABLE sessions (
-  id TEXT PRIMARY KEY, workspace TEXT NOT NULL, name TEXT NOT NULL, vendor TEXT NOT NULL,
-  vendorSession TEXT, branch TEXT, expiresAt INTEGER NOT NULL,
+  id TEXT PRIMARY KEY CHECK(length(trim(id))>0), workspace TEXT NOT NULL REFERENCES workspaces(workspace),
+  name TEXT NOT NULL CHECK(length(name) BETWEEN 1 AND 256 AND length(trim(name))>0),
+  vendor TEXT NOT NULL CHECK(length(vendor) BETWEEN 1 AND 256 AND length(trim(vendor))>0),
+  vendorSession TEXT CHECK(vendorSession IS NULL OR (length(vendorSession) BETWEEN 1 AND 256 AND length(trim(vendorSession))>0)),
+  branch TEXT, expiresAt INTEGER NOT NULL,
   task TEXT NOT NULL DEFAULT '' CHECK(length(task)<=256), status TEXT NOT NULL DEFAULT 'unknown'
-  CHECK(status IN ('available','busy','blocked','unknown')));
+  CHECK(status IN ('available','busy','blocked','unknown')), UNIQUE(id,workspace)) STRICT;
+
+CREATE TRIGGER sessions_identity_immutable BEFORE UPDATE OF id,workspace,vendor ON sessions
+WHEN NEW.id IS NOT OLD.id OR NEW.workspace IS NOT OLD.workspace OR NEW.vendor IS NOT OLD.vendor BEGIN
+  SELECT RAISE(ABORT,'Agent identity is immutable; create a new session');
+END;
 
 CREATE TABLE subscriptions (
-  session TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, topic TEXT NOT NULL,
+  session TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE, topic TEXT NOT NULL CHECK(length(topic) BETWEEN 1 AND 256),
   PRIMARY KEY(session, topic)
-  );
+  ) STRICT;
 
 CREATE TABLE leases (
   id INTEGER PRIMARY KEY AUTOINCREMENT, workspace TEXT NOT NULL, path TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK(kind IN ('file','tree')), owner TEXT NOT NULL REFERENCES sessions(id),
+  kind TEXT NOT NULL CHECK(kind IN ('file','tree')), owner TEXT NOT NULL,
   acquiredAt INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec')*1000 AS INTEGER)),
   refreshedAt INTEGER NOT NULL DEFAULT (CAST(unixepoch('subsec')*1000 AS INTEGER)),
   expiresAt INTEGER NOT NULL CHECK(expiresAt<=refreshedAt+600000),
-  reasoning TEXT NOT NULL, pathKey TEXT NOT NULL);
+  reasoning TEXT NOT NULL, pathKey TEXT NOT NULL,
+  FOREIGN KEY(owner,workspace) REFERENCES sessions(id,workspace)) STRICT;
 
 -- One queued lock request per identity. It holds nothing; the runtime grants
 -- every target at once when all are free, oldest wait first.
 CREATE TABLE lease_waits (
   id INTEGER PRIMARY KEY AUTOINCREMENT, workspace TEXT NOT NULL,
-  owner TEXT NOT NULL UNIQUE REFERENCES sessions(id),
+  owner TEXT NOT NULL UNIQUE,
   targets TEXT NOT NULL CHECK(json_valid(targets) AND json_array_length(targets) BETWEEN 1 AND 32),
   reasoning TEXT NOT NULL CHECK(length(trim(reasoning))>0),
   leaseTtlMs INTEGER NOT NULL CHECK(leaseTtlMs BETWEEN 1000 AND 600000),
-  createdAt INTEGER NOT NULL, expiresAt INTEGER NOT NULL CHECK(expiresAt>createdAt));
+  createdAt INTEGER NOT NULL, expiresAt INTEGER NOT NULL CHECK(expiresAt>createdAt),
+  FOREIGN KEY(owner,workspace) REFERENCES sessions(id,workspace)) STRICT;
 
 CREATE TABLE "messages" (
   id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT NOT NULL REFERENCES sessions(id),
@@ -48,7 +59,7 @@ CREATE TABLE "messages" (
   CHECK(typeof(ttlMs)='integer' AND ttlMs BETWEEN 1000 AND 86400000),
   outcome TEXT CHECK(outcome IS NULL OR outcome IN ('completed','failed','rejected','canceled')),
   CHECK((replyTo IS NULL)=(outcome IS NULL)), UNIQUE(sender, key)
-  );
+  ) STRICT;
 
 -- One projection owns the public message payload for both history reads and full-text indexing.
 CREATE VIEW message_payload AS
@@ -62,7 +73,7 @@ CREATE TABLE deliveries (
   recipient TEXT NOT NULL REFERENCES sessions(id), acknowledgedAt INTEGER,
   claimedBy TEXT, claimUntil INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(message, recipient)
-  );
+  ) STRICT;
 
 CREATE TABLE dispatches (
   message INTEGER NOT NULL, recipient TEXT NOT NULL,
@@ -71,37 +82,59 @@ CREATE TABLE dispatches (
   attemptedAt INTEGER NOT NULL, submittedAt INTEGER, error TEXT,
   PRIMARY KEY(message,recipient),
   FOREIGN KEY(message,recipient) REFERENCES deliveries(message,recipient)
-);
+) STRICT;
 
 CREATE TABLE records (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  path TEXT NOT NULL CHECK(length(trim(path))>0),
+  path TEXT NOT NULL REFERENCES workspaces(workspace) CHECK(length(trim(path))>0),
   "from" TEXT NOT NULL REFERENCES sessions(id), "to" TEXT,
   type TEXT NOT NULL CHECK(length(trim(type))>0),
   timestamp INTEGER NOT NULL CHECK(typeof(timestamp)='integer' AND timestamp>=0),
   branch TEXT, data TEXT NOT NULL CHECK(json_valid(data)),
   entityId TEXT, key TEXT, UNIQUE("from",type,key)
-);
+) STRICT;
 
 CREATE TABLE "attachments" (
   session TEXT PRIMARY KEY REFERENCES sessions(id),
   transport TEXT NOT NULL CHECK(transport IN ('raw','claude','codex','opencode','grok')),
   endpoint TEXT, updatedAt INTEGER NOT NULL
-);
+) STRICT;
 
 CREATE TABLE documents (
   id INTEGER PRIMARY KEY REFERENCES records(id),
-  workspace TEXT NOT NULL, name TEXT NOT NULL,
+  workspace TEXT NOT NULL REFERENCES workspaces(workspace), name TEXT NOT NULL,
   UNIQUE(workspace,name)
-);
+) STRICT;
 
-CREATE TABLE peer_revisions (workspace TEXT PRIMARY KEY, revision INTEGER NOT NULL);
+CREATE TABLE peer_revisions (coordinationScope TEXT PRIMARY KEY, revision INTEGER NOT NULL CHECK(revision>=0)) STRICT;
 
 CREATE TABLE peer_views (
   session TEXT NOT NULL REFERENCES sessions(id), consumer TEXT NOT NULL,
-  generation TEXT NOT NULL, snapshot TEXT NOT NULL CHECK(json_valid(snapshot)),
+  generation TEXT NOT NULL, snapshot TEXT NOT NULL CHECK(json_valid(snapshot) AND json_type(snapshot)='object'),
   PRIMARY KEY(session,consumer)
-);
+) STRICT;
+
+CREATE TRIGGER deliveries_scope BEFORE INSERT ON deliveries
+WHEN EXISTS(SELECT 1 FROM messages WHERE id=NEW.message) AND EXISTS(SELECT 1 FROM sessions WHERE id=NEW.recipient)
+AND NOT EXISTS (
+  SELECT 1 FROM messages m JOIN sessions sender ON sender.id=m.sender
+  JOIN workspaces origin ON origin.workspace=sender.workspace
+  JOIN sessions recipient ON recipient.id=NEW.recipient
+  JOIN workspaces destination ON destination.workspace=recipient.workspace
+  WHERE m.id=NEW.message AND origin.coordinationScope=destination.coordinationScope
+) BEGIN
+  SELECT RAISE(ABORT,'Delivery recipient must share the sender repository scope');
+END;
+
+CREATE TRIGGER deliveries_identity_immutable BEFORE UPDATE OF message,recipient ON deliveries
+WHEN NEW.message IS NOT OLD.message OR NEW.recipient IS NOT OLD.recipient BEGIN
+  SELECT RAISE(ABORT,'Delivery identity is immutable');
+END;
+
+CREATE TRIGGER dispatches_identity_immutable BEFORE UPDATE OF message,recipient ON dispatches
+WHEN NEW.message IS NOT OLD.message OR NEW.recipient IS NOT OLD.recipient BEGIN
+  SELECT RAISE(ABORT,'Dispatch identity is immutable');
+END;
 
 CREATE INDEX leases_scope ON leases(workspace, expiresAt);
 
@@ -145,7 +178,7 @@ CREATE TRIGGER records_no_delete BEFORE DELETE ON records BEGIN
 END;
 
 CREATE TRIGGER message_immutable BEFORE UPDATE ON messages
-WHEN NEW.sender IS NOT OLD.sender OR NEW.target IS NOT OLD.target OR NEW.topic IS NOT OLD.topic OR NEW.parts IS NOT OLD.parts OR NEW.key IS NOT OLD.key OR NEW.ttlMs IS NOT OLD.ttlMs OR NEW.replyRequired IS NOT OLD.replyRequired OR NEW.outcome IS NOT OLD.outcome BEGIN
+WHEN NEW.id IS NOT OLD.id OR NEW.sender IS NOT OLD.sender OR NEW.target IS NOT OLD.target OR NEW.topic IS NOT OLD.topic OR NEW.parts IS NOT OLD.parts OR NEW.key IS NOT OLD.key OR NEW.ttlMs IS NOT OLD.ttlMs OR NEW.replyRequired IS NOT OLD.replyRequired OR NEW.outcome IS NOT OLD.outcome BEGIN
   SELECT RAISE(ABORT,'Message content is immutable');
 END;
 
@@ -217,7 +250,7 @@ CREATE TRIGGER messages_reply_visible BEFORE INSERT ON messages
 WHEN NEW.replyTo IS NOT NULL AND NOT EXISTS (
   SELECT 1 FROM messages parent JOIN sessions author ON author.id=parent.sender
   JOIN sessions sender ON sender.id=NEW.sender
-  WHERE parent.id=NEW.replyTo AND coalesce((SELECT coordinationScope FROM workspaces WHERE workspace=author.workspace),author.workspace)=coalesce((SELECT coordinationScope FROM workspaces WHERE workspace=sender.workspace),sender.workspace)
+  WHERE parent.id=NEW.replyTo AND (SELECT coordinationScope FROM workspaces WHERE workspace=author.workspace)=(SELECT coordinationScope FROM workspaces WHERE workspace=sender.workspace)
     AND (parent.sender=NEW.sender OR EXISTS (SELECT 1 FROM deliveries d WHERE d.message=parent.id AND d.recipient=NEW.sender))
     AND NEW.contextId IS parent.contextId
 ) BEGIN
@@ -254,8 +287,8 @@ WHEN typeof(NEW.pathKey)<>'text' OR substr(NEW.pathKey,1,1)<>'/' BEGIN
   SELECT RAISE(ABORT,'pathKey is required: "/" + NFD(casefold(NFD(component))) per path component');
 END;
 
-CREATE TRIGGER leases_path_immutable BEFORE UPDATE OF workspace,path,kind,owner,pathKey,acquiredAt ON leases
-WHEN NEW.workspace IS NOT OLD.workspace OR NEW.path IS NOT OLD.path OR NEW.kind IS NOT OLD.kind
+CREATE TRIGGER leases_path_immutable BEFORE UPDATE OF id,workspace,path,kind,owner,pathKey,acquiredAt ON leases
+WHEN NEW.id IS NOT OLD.id OR NEW.workspace IS NOT OLD.workspace OR NEW.path IS NOT OLD.path OR NEW.kind IS NOT OLD.kind
   OR NEW.owner IS NOT OLD.owner OR NEW.pathKey IS NOT OLD.pathKey OR NEW.acquiredAt IS NOT OLD.acquiredAt BEGIN
   SELECT RAISE(ABORT,'Lease scope is immutable; acquire a new lease');
 END;
@@ -273,7 +306,7 @@ CREATE TRIGGER documents_no_delete BEFORE DELETE ON documents BEGIN
 END;
 
 CREATE TRIGGER record_session_update AFTER UPDATE ON sessions
-WHEN NEW.branch IS NOT OLD.branch OR NEW.name IS NOT OLD.name OR NEW.vendorSession IS NOT OLD.vendorSession OR NEW.branch IS NOT OLD.branch OR NEW.expiresAt<OLD.expiresAt
+WHEN NEW.branch IS NOT OLD.branch OR NEW.name IS NOT OLD.name OR NEW.vendorSession IS NOT OLD.vendorSession OR NEW.expiresAt<OLD.expiresAt
   OR (OLD.expiresAt<=CAST(unixepoch('subsec')*1000 AS INTEGER) AND NEW.expiresAt>OLD.expiresAt) BEGIN
   INSERT INTO records(path,"from","to",type,timestamp,branch,data,entityId,key) VALUES((SELECT workspace FROM sessions WHERE id=NEW.id),NEW.id,NULL,CASE WHEN NEW.expiresAt<OLD.expiresAt AND NEW.expiresAt<=CAST(unixepoch('subsec')*1000 AS INTEGER) THEN 'coordinate.out' ELSE 'coordinate.update' END,CAST(unixepoch('subsec')*1000 AS INTEGER),(SELECT branch FROM sessions WHERE id=NEW.id),json_patch('{}',json_object('name',NEW.name,'vendor',NEW.vendor,'vendorSession',NEW.vendorSession,'task',NEW.task,'status',NEW.status,'expiresAt',NEW.expiresAt)),NEW.id,NULL);
 END;
@@ -302,19 +335,19 @@ WHEN NEW.task IS NOT OLD.task OR NEW.status IS NOT OLD.status BEGIN
 END;
 
 CREATE TRIGGER session_directory_insert AFTER INSERT ON sessions BEGIN
-  INSERT INTO peer_revisions VALUES(coalesce((SELECT coordinationScope FROM workspaces WHERE workspace=NEW.workspace),NEW.workspace),1)
-  ON CONFLICT(workspace) DO UPDATE SET revision=revision+1;
+  INSERT INTO peer_revisions SELECT coordinationScope,1 FROM workspaces WHERE workspace=NEW.workspace
+  ON CONFLICT(coordinationScope) DO UPDATE SET revision=revision+1;
 END;
 
 CREATE TRIGGER session_directory_update AFTER UPDATE OF name,task,status,vendorSession,branch,expiresAt ON sessions
 WHEN NEW.name IS NOT OLD.name OR NEW.task IS NOT OLD.task OR NEW.status IS NOT OLD.status
   OR NEW.vendorSession IS NOT OLD.vendorSession OR NEW.branch IS NOT OLD.branch OR NEW.expiresAt<OLD.expiresAt
   OR (OLD.expiresAt<=CAST(unixepoch('subsec')*1000 AS INTEGER) AND NEW.expiresAt>OLD.expiresAt) BEGIN
-  UPDATE peer_revisions SET revision=revision+1 WHERE workspace=coalesce((SELECT coordinationScope FROM workspaces WHERE workspace=NEW.workspace),NEW.workspace);
+  UPDATE peer_revisions SET revision=revision+1 WHERE coordinationScope=(SELECT coordinationScope FROM workspaces WHERE workspace=NEW.workspace);
 END;
 
 CREATE TRIGGER session_directory_delete AFTER DELETE ON sessions BEGIN
-  UPDATE peer_revisions SET revision=revision+1 WHERE workspace=coalesce((SELECT coordinationScope FROM workspaces WHERE workspace=OLD.workspace),OLD.workspace);
+  UPDATE peer_revisions SET revision=revision+1 WHERE coordinationScope=(SELECT coordinationScope FROM workspaces WHERE workspace=OLD.workspace);
 END;
 
 CREATE TRIGGER records_scope BEFORE INSERT ON records

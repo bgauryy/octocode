@@ -44,7 +44,11 @@ async fn the_text_lead_reads_misses_inside_the_anchor_file() {
                 .await
                 .expect("scan");
             scope.answer([lib_path.clone()]);
-            scope.answer_anchor_lines(&lib_path, 1, covered);
+            scope.answer_lines(
+                false,
+                std::iter::once((lib_path.as_str(), 1))
+                    .chain(covered.iter().map(|line| (lib_path.as_str(), *line))),
+            );
             let mut row = json!({"operation":"references","matches":[{"path":"pkg/src/lib.rs"}]});
             annotate(
                 &mut row,

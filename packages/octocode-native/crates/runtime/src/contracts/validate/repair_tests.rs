@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 fn first_line(tool: &str, input: Value) -> String {
     let rows = match prepare_rows(tool, input) {
         Err(error) => {
-            return format_input_error(tool, &error)["error"]
+            return format_input_error(tool, &error, &[])["error"]
                 .as_str()
                 .unwrap()
                 .into();
@@ -20,7 +20,7 @@ fn first_line(tool: &str, input: Value) -> String {
         .into_iter()
         .find_map(Result::err)
         .expect("the input is rejected");
-    format_input_error(tool, &error)["error"]
+    format_input_error(tool, &error, &[])["error"]
         .as_str()
         .unwrap()
         .to_owned()

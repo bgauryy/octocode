@@ -40,6 +40,14 @@ impl<'a> Budget<'a> {
             ticks: std::cell::Cell::new(0),
         }
     }
+    /// The bounds this budget charges against, as [`Limits`].
+    pub fn limits(&self) -> Limits {
+        Limits {
+            source_bytes: self.max_bytes,
+            table_items: self.max_items,
+            ..*LIMITS
+        }
+    }
     /// A fresh charge for one item within this pass: same limits, request
     /// and deadline, without polling the request on its first step. The
     /// pass that hands these out polls once per item with [`Self::check`],
@@ -139,15 +147,6 @@ impl<'a> Budget<'a> {
             .map_err(|_| SourceError::LimitExceeded("graph source string allocation"))?;
         self.charge(out.capacity().saturating_sub(value.len()), 0)?;
         out.push_str(value);
-        Ok(out)
-    }
-    pub fn copy(&mut self, value: &[u8]) -> Result<Vec<u8>, SourceError> {
-        self.charge(value.len(), 0)?;
-        let mut out = Vec::new();
-        out.try_reserve_exact(value.len())
-            .map_err(|_| SourceError::LimitExceeded("graph source byte allocation"))?;
-        self.charge(out.capacity().saturating_sub(value.len()), 0)?;
-        out.extend_from_slice(value);
         Ok(out)
     }
     pub fn put(&mut self, out: &mut Vec<u8>, value: usize) -> Result<(), SourceError> {
