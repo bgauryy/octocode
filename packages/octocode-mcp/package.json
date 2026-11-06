@@ -81,7 +81,6 @@
     "command": "octocode-mcp",
     "args": []
   },
-  "mcpName": "io.github.bgauryy/octocode-mcp",
   "publishConfig": {
     "access": "public"
   },
