@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.bgauryy/octocode",
+  "description": "Model Context Protocol (MCP) server for advanced GitHub repository analysis and code discovery. Provides AI assistants with powerful tools to search, analyze, and understand codebases across GitHub.",
+  "repository": { "url": "https://github.com/bgauryy/octocode", "source": "github" },
+  "version": "18.2.3",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "octocode-mcp",
+      "version": "18.2.3",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        { "name": "OCTOCODE_TOKEN", "description": "GitHub token (OCTOCODE_TOKEN, GH_TOKEN or GITHUB_TOKEN). Scopes: repo, read:user, read:org.", "isRequired": false, "format": "string", "isSecret": true }
+      ]
+    }
+  ]
+}
