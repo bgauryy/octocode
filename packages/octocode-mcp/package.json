@@ -1,5 +1,6 @@
 {
   "name": "octocode-mcp",
+  "mcpName": "io.github.bgauryy/octocode",
   "description": "Model Context Protocol (MCP) server for advanced GitHub repository analysis and code discovery. Provides AI assistants with powerful tools to search, analyze, and understand codebases across GitHub.",
   "version": "18.2.2",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
