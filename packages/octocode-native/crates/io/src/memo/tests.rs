@@ -278,3 +278,48 @@ fn the_running_sweeper_releases_an_idle_memo_by_itself() {
     assert_eq!(Arc::strong_count(&far), 2);
     assert_eq!(budget.used(), 1);
 }
+
+/// Charged bytes count toward the entry, the memo and the budget alike.
+#[test]
+fn a_charge_grows_the_entry_memo_and_budget_together() {
+    let budget = budget!(100);
+    let memo = Memo::<&str, u8>::new(budget);
+    memo.insert("a", 1, 10, None);
+    for _ in 0..3 {
+        assert!(memo.charge("a", 7));
+    }
+    assert_eq!(memo.contents().1, 31);
+    assert_eq!(budget.used(), 31);
+    assert!(!memo.charge("missing", 1), "no entry, no charge");
+    assert_eq!(budget.used(), 31);
+}
+
+/// A charge the budget cannot hold without reclaiming is refused whole,
+/// and the entry keeps its weight: reclaiming could evict that entry.
+#[test]
+fn a_charge_past_the_budget_is_refused_and_changes_nothing() {
+    let budget = budget!(20);
+    let memo = Memo::<&str, u8>::new(budget);
+    memo.insert("a", 1, 20, None);
+    assert!(!memo.charge("a", 1));
+    assert_eq!((memo.contents().1, budget.used()), (20, 20));
+    assert!(memo.get("a").is_some(), "the charged entry stays");
+}
+
+/// Concurrent charges are counted exactly once each.
+#[test]
+fn concurrent_charges_keep_totals_exact() {
+    let budget = budget!(1_000_000);
+    let memo = Arc::new(Memo::<&str, u8>::new(budget));
+    memo.insert("a", 1, 1, None);
+    let threads: Vec<_> = (0..8)
+        .map(|_| {
+            let memo = Arc::clone(&memo);
+            std::thread::spawn(move || (0..500).filter(|_| memo.charge("a", 3)).count())
+        })
+        .collect();
+    let charged: usize = threads.into_iter().map(|t| t.join().expect("thread")).sum();
+    assert_eq!(charged, 4000);
+    assert_eq!(memo.contents().1, 1 + 3 * charged);
+    assert_eq!(budget.used(), 1 + 3 * charged);
+}

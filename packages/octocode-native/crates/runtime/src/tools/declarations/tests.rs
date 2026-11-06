@@ -1,6 +1,41 @@
 use super::*;
 
 #[test]
+fn an_unsupported_grammar_still_reuses_its_negative_result() {
+    let source = "not a supported source file";
+    let path = format!(
+        "/store-unsupported-{}/source.unsupported",
+        std::process::id()
+    );
+    assert!(graph_facts(source, &path).is_none());
+    assert!(graph_facts(source, &path).is_none());
+    assert_eq!(parses::facts_of(&path), 1);
+}
+
+#[test]
+fn a_cancelled_parse_does_not_poison_the_next_live_request() {
+    let source = "export class Left implements Base {}";
+    let path = format!("/store-cancelled-{}/left.ts", std::process::id());
+    let stopped = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let cancelled =
+        octocode_engine::deep_stack::while_stoppable(&stopped, || graph_facts(source, &path));
+    assert!(cancelled.is_none(), "a stopped extraction has no document");
+    let live = graph_facts(source, &path).expect("the next live request parses the source");
+    assert_eq!(
+        *live,
+        octocode_engine::signatures::extract_graph_facts(source, &path).expect("engine")
+    );
+    assert!(
+        live.declarations
+            .iter()
+            .any(|declaration| declaration.name == "Left")
+    );
+    let kept = graph_facts(source, &path).expect("the live document is reusable");
+    assert!(Arc::ptr_eq(&live, &kept));
+    assert_eq!(parses::facts_of(&path), 2);
+}
+
+#[test]
 fn a_text_read_again_is_its_kept_document() {
     let source = "/// Doc.\nfn first() {\n    1;\n}\nfn second() {}\n";
     let path = format!("/store-kept-{}/a.rs", std::process::id());

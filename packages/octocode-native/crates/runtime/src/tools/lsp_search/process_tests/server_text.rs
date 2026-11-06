@@ -97,7 +97,6 @@ fn sealed(root: &Path, script: &Path, row: Value) -> Value {
             character: 6,
             language_id: Some("typescript"),
             budget: 16_000,
-            response_window: None,
         }
         .run()
         .await
@@ -193,7 +192,6 @@ fn a_failing_server_shows_neither_its_stderr_nor_a_secret_in_its_error() {
             character: 6,
             language_id: Some("typescript"),
             budget: 16_000,
-            response_window: None,
         }
         .run()
         .await;

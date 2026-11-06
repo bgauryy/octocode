@@ -262,14 +262,22 @@ impl RowPlan {
                     data.extend(fields.clone());
                 }
                 keep_row_next(&mut value, PartShare::of(p.part, p.of));
-                let continues = value
+                let mut marker = value
                     .as_object_mut()
-                    .and_then(|row| row.shift_remove("rowPart"))
-                    .and_then(|mut marker| marker.get_mut("continues").map(Value::take));
+                    .and_then(|row| row.shift_remove("rowPart"));
+                let mut take = |key: &str| {
+                    marker
+                        .as_mut()
+                        .and_then(|marker| marker.get_mut(key).map(Value::take))
+                };
+                let (continues, text) = (take("continues"), take("text"));
                 if p.of > 1 {
                     value["rowPart"] = json!({"part": p.part, "of": p.of});
                     if let Some(continues) = continues {
                         value["rowPart"]["continues"] = continues;
+                    }
+                    if let Some(text) = text {
+                        value["rowPart"]["text"] = text;
                     }
                 }
                 self.arena

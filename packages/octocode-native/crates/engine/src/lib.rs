@@ -19,7 +19,7 @@
 )]
 
 pub mod cpu;
-pub(crate) mod deep_stack;
+pub mod deep_stack;
 pub mod digest;
 pub mod error;
 pub mod fact_scan;

@@ -1,6 +1,7 @@
 //! Provider batch loading and the public page of a window.
 
 use super::*;
+use crate::security::scan::Passthrough;
 use crate::tools::gh_shared::test_support::{default_context, one_shot_provider};
 use serde_json::json;
 use wiremock::matchers::{method, path, query_param};
@@ -36,29 +37,89 @@ fn commit_file_limit_uses_raw_extent_and_preserves_existing_caps() {
     }
 }
 
-/// Mount provider batch `page` of `/files` (100 items each, `total` in
-/// all), answering after `delay` and expecting `reads` requests.
-async fn mount_batch(server: &MockServer, page: usize, total: usize, reads: u64) {
+/// How long a batch takes to answer. Requests that arrive within one such delay
+/// of each other were sent together; a later one waited for an answer.
+const BATCH_DELAY: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// When each batch request reached the server.
+#[derive(Clone, Default)]
+struct Arrivals(std::sync::Arc<std::sync::Mutex<Vec<std::time::Instant>>>);
+
+impl Arrivals {
+    /// The groups of requests sent together: the count of rounds the load
+    /// needed, whatever the time its answers took.
+    fn waves(&self) -> usize {
+        let mut times = self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        times.sort();
+        let mut waves = 0;
+        let mut started: Option<std::time::Instant> = None;
+        for time in times {
+            if started.is_none_or(|first| time.duration_since(first) >= BATCH_DELAY) {
+                waves += 1;
+                started = Some(time);
+            }
+        }
+        waves
+    }
+}
+
+/// One batch's answer: records its arrival, then answers after [`BATCH_DELAY`].
+struct Batch {
+    answer: ResponseTemplate,
+    arrivals: Arrivals,
+}
+
+impl wiremock::Respond for Batch {
+    fn respond(&self, _: &wiremock::Request) -> ResponseTemplate {
+        self.arrivals
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(std::time::Instant::now());
+        self.answer.clone().set_delay(BATCH_DELAY)
+    }
+}
+
+/// The answer of provider batch `page` of `/files` (100 items each, `total` in
+/// all), with the `Link` header that names its successor and the last page.
+fn batch_answer(server: &MockServer, page: usize, total: usize) -> ResponseTemplate {
     let items = ((page - 1) * MAX_PER_PAGE..(page * MAX_PER_PAGE).min(total))
         .map(|n| json!({"filename": format!("f{n}")}))
         .collect::<Vec<_>>();
-    let mut answer = ResponseTemplate::new(200)
-        .set_delay(std::time::Duration::from_millis(300))
-        .set_body_json(items);
+    let mut answer = ResponseTemplate::new(200).set_body_json(items);
     if page * MAX_PER_PAGE < total {
         answer = answer.insert_header(
             "link",
             format!(
-                "<{}/api/v3/files?page={}>; rel=\"next\"",
-                server.uri(),
-                page + 1
+                "<{uri}/api/v3/files?page={}>; rel=\"next\", <{uri}/api/v3/files?page={}>; rel=\"last\"",
+                page + 1,
+                total.div_ceil(MAX_PER_PAGE),
+                uri = server.uri()
             ),
         );
     }
+    answer
+}
+
+/// Mount provider batch `page` of `/files`, expecting `reads` requests.
+async fn mount_batch(
+    server: &MockServer,
+    arrivals: &Arrivals,
+    page: usize,
+    total: usize,
+    reads: u64,
+) {
     Mock::given(method("GET"))
         .and(path("/api/v3/files"))
         .and(query_param("page", page.to_string()))
-        .respond_with(answer)
+        .respond_with(Batch {
+            answer: batch_answer(server, page, total),
+            arrivals: arrivals.clone(),
+        })
         .expect(reads)
         .mount(server)
         .await;
@@ -78,17 +139,17 @@ fn spec(page_size: usize, filtered: bool, total: Option<usize>) -> WindowSpec {
 
 /// An unfiltered page whose files span several provider batches, with
 /// the provider total known, reads those batches at once and in order:
-/// three 300 ms batches take about one batch's time, not three.
+/// the three batches go out in one wave, not three.
 #[tokio::test]
 async fn a_page_spanning_batches_reads_them_at_once_in_order() {
     let server = MockServer::builder().start().await;
+    let arrivals = Arrivals::default();
     for page in 1..=3 {
-        mount_batch(&server, page, 1000, 1).await;
+        mount_batch(&server, &arrivals, page, 1000, 1).await;
     }
     let provider = one_shot_provider(&server);
-    let started = std::time::Instant::now();
     let loaded = load_window(
-        &provider.transport,
+        &Source::new(&provider.transport, &Passthrough),
         &["files"],
         spec(250, false, Some(1000)),
         |_| true,
@@ -96,11 +157,7 @@ async fn a_page_spanning_batches_reads_them_at_once_in_order() {
     )
     .await
     .expect("window");
-    assert!(
-        started.elapsed() < std::time::Duration::from_millis(800),
-        "{:?}",
-        started.elapsed()
-    );
+    assert_eq!(arrivals.waves(), 1, "the three batches go out together");
     assert_eq!(loaded.items.len(), 300);
     let names = loaded
         .items
@@ -117,15 +174,16 @@ async fn a_page_spanning_batches_reads_them_at_once_in_order() {
 #[tokio::test]
 async fn a_prefetched_batch_is_never_read_again() {
     let server = MockServer::builder().start().await;
-    mount_batch(&server, 1, 250, 0).await;
-    mount_batch(&server, 2, 250, 1).await;
-    mount_batch(&server, 3, 250, 1).await;
+    let arrivals = Arrivals::default();
+    mount_batch(&server, &arrivals, 1, 250, 0).await;
+    mount_batch(&server, &arrivals, 2, 250, 1).await;
+    mount_batch(&server, &arrivals, 3, 250, 1).await;
     let provider = one_shot_provider(&server);
     let first = (0..100)
         .map(|n| json!({"filename": format!("f{n}")}))
         .collect::<Vec<_>>();
     let loaded = load_window(
-        &provider.transport,
+        &Source::new(&provider.transport, &Passthrough),
         &["files"],
         WindowSpec {
             prefetched: Some((1, (json!(first), true))),
@@ -180,13 +238,14 @@ fn a_page_past_an_exhausted_window_is_empty_and_flagged_not_clamped() {
 async fn a_collection_scan_reads_past_three_thousand_items() {
     let total = 30 * MAX_PER_PAGE + 50;
     let server = MockServer::builder().start().await;
+    let arrivals = Arrivals::default();
     for page in 1..=total.div_ceil(MAX_PER_PAGE) {
-        mount_batch(&server, page, total, 1).await;
+        mount_batch(&server, &arrivals, page, total, 1).await;
     }
     let provider = one_shot_provider(&server);
     let wanted = format!("f{}", total - 1);
     let loaded = load_window(
-        &provider.transport,
+        &Source::new(&provider.transport, &Passthrough),
         &["files"],
         WindowSpec {
             max_batches: MAX_COLLECTION_BATCHES,
@@ -207,4 +266,83 @@ async fn a_collection_scan_reads_past_three_thousand_items() {
     let mut page = json!({});
     mark_capped(&mut page, loaded.state.capped);
     assert!(page.get("terminalLimit").is_none(), "{page}");
+}
+
+/// A filtered scan with no count known up front (a commit's files) reads its
+/// first batch, learns the batch count from the `Link` header's last page,
+/// and loads the rest at once: the other four go out in one wave: two waves, not five.
+#[tokio::test]
+async fn a_scan_without_a_known_total_loads_the_linked_batches_at_once() {
+    let total = 5 * MAX_PER_PAGE;
+    let server = MockServer::builder().start().await;
+    let arrivals = Arrivals::default();
+    for page in 1..=5 {
+        mount_batch(&server, &arrivals, page, total, 1).await;
+    }
+    let provider = one_shot_provider(&server);
+    let loaded = load_window(
+        &Source::new(&provider.transport, &Passthrough),
+        &["files"],
+        spec(10, true, None),
+        |_| false,
+        &default_context(),
+    )
+    .await
+    .expect("window");
+    assert_eq!(
+        arrivals.waves(),
+        2,
+        "the first batch, then the other four together"
+    );
+    let names = loaded
+        .items
+        .iter()
+        .map(|item| item["filename"].as_str().unwrap_or_default().to_owned())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        (0..total).map(|n| format!("f{n}")).collect::<Vec<_>>()
+    );
+    assert!(loaded.state.exhausted && !loaded.state.capped);
+}
+
+/// A batch that fails inside a concurrent wave fails the whole load: the
+/// batches that answered are not returned as a partial inventory.
+#[tokio::test]
+async fn a_batch_that_fails_inside_a_wave_fails_the_load_without_a_partial_inventory() {
+    let total = 5 * MAX_PER_PAGE;
+    let server = MockServer::builder().start().await;
+    let arrivals = Arrivals::default();
+    mount_batch(&server, &arrivals, 1, total, 1).await;
+    for page in [2, 3, 5] {
+        Mock::given(method("GET"))
+            .and(path("/api/v3/files"))
+            .and(query_param("page", page.to_string()))
+            .respond_with(Batch {
+                answer: batch_answer(&server, page, total),
+                arrivals: arrivals.clone(),
+            })
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/api/v3/files"))
+        .and(query_param("page", "4"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&server)
+        .await;
+    let provider = one_shot_provider(&server);
+    let failed = load_window(
+        &Source::new(&provider.transport, &Passthrough),
+        &["files"],
+        spec(10, true, None),
+        |_| false,
+        &default_context(),
+    )
+    .await;
+    assert!(
+        failed.is_err(),
+        "a failed batch is an error, not a shorter inventory"
+    );
+    assert_eq!(arrivals.waves(), 2, "the failure happened inside the wave");
 }

@@ -102,6 +102,10 @@ pub struct ArtifactItem {
     /// than the registry's `ref`: the response warns with it.
     #[serde(skip)]
     pub tag_differs: Option<super::ReleaseTag>,
+    /// GitHub answered for the repository the registry names: it is gone, or
+    /// reached through a redirect (renamed). The response warns with it.
+    #[serde(skip)]
+    pub repository_status: Option<RepositoryStatus>,
     /// `${…}` properties the declared dependencies name that the release's
     /// own metadata does not define (a Maven parent POM's): the response
     /// states them.
@@ -111,9 +115,82 @@ pub struct ArtifactItem {
     /// prerelease: the response warns with it.
     #[serde(skip)]
     pub only_prerelease: bool,
+    /// The module's latest `go.mod` retracts this Go version: the response
+    /// warns with the reason it gives.
+    #[serde(skip)]
+    pub retraction: Option<Retraction>,
+    /// What a provider could not read or settle while building the row, each
+    /// stated whole: the response adds every one as a warning, so a missing
+    /// fact reads as unknown, never as absent.
+    #[serde(skip)]
+    pub disclosures: Vec<String>,
+    /// The page path of a source link into a GitHub `tree`/`blob`, whose
+    /// directory is not placed until the ref's extent is known.
+    #[serde(skip)]
+    pub(crate) link_below_ref: Option<LinkBelowRef>,
+}
+
+/// A source link's path below `tree`/`blob`: the ref and the directory
+/// below it, as one run of segments a ref's own `/` may span.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct LinkBelowRef {
+    /// The link as the registry gave it.
+    pub link: String,
+    /// At least two segments: the ref's first, then the rest.
+    pub segments: Vec<String>,
+}
+
+/// A retracted Go version's retraction, with the rationale its module
+/// gives (a comment on the `retract` directive), when it gives one.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Retraction {
+    pub reason: Option<String>,
+}
+
+/// What GitHub says of the repository a registry row names, when it says
+/// anything but "there".
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RepositoryStatus {
+    /// GitHub has no such repository (deleted, private, or never there).
+    Missing,
+    /// GitHub redirects it to another name: renamed or transferred.
+    Moved,
 }
 
 impl ArtifactItem {
+    /// Records what a commit check of the row's repository showed about the
+    /// repository itself. A repository that is gone names no ref a lead can
+    /// pin, so the row keeps none.
+    pub(crate) fn note_repository(&mut self, check: super::release_ref::CommitCheck) {
+        use super::release_ref::CommitCheck;
+        match check {
+            CommitCheck::RepositoryMissing => {
+                self.repository_status = Some(RepositoryStatus::Missing);
+                self.source_ref = None;
+                self.source_tag = false;
+            }
+            CommitCheck::FoundAfterRedirect => {
+                self.repository_status = Some(RepositoryStatus::Moved);
+            }
+            CommitCheck::Found | CommitCheck::Missing => {}
+        }
+    }
+
+    /// Takes the source link a registry gives (a repository, or a page of
+    /// one) as the row's repository. A link into a GitHub page below a ref
+    /// cannot place its directory yet, since a ref may contain `/`: the page
+    /// path waits in `link_below_ref` for [`super::link_directory::settle`].
+    pub(crate) fn set_source_link(&mut self, link: &str) {
+        let Some(found) = super::util::source_link(link) else {
+            return;
+        };
+        self.repository = Some(found.repository);
+        self.link_below_ref = found.ref_path.map(|segments| LinkBelowRef {
+            link: link.to_owned(),
+            segments,
+        });
+    }
+
     pub(crate) fn new(artifact_type: ArtifactType, name: String, registry_url: String) -> Self {
         Self {
             artifact_type,
@@ -145,8 +222,12 @@ impl ArtifactItem {
             source_tag: false,
             tag_differs: None,
             missing_ref: None,
+            repository_status: None,
             unresolved_properties: Vec::new(),
             only_prerelease: false,
+            retraction: None,
+            disclosures: Vec::new(),
+            link_below_ref: None,
         }
     }
 }

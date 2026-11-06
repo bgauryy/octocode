@@ -3,15 +3,14 @@
 /// The window a test's [`Want`] holds: the window every build streams.
 #[cfg(test)]
 pub(super) const WINDOW_BYTES: usize = crate::security::SourceLimits::REAL.window;
-use super::masks::{Judged, cover, cover_every_value};
 
 /// The lines one streamed window asks for.
 #[derive(Clone, Copy)]
 pub(super) struct Want {
     pub(super) first: usize,
     pub(super) last: usize,
-    /// Bytes of those lines the window skips before it holds any: a byte
-    /// page starts its window behind its own offset ([`super::BYTE_LOOKBEHIND`]).
+    /// Bytes of those lines' sealed view the window skips before it holds
+    /// any: a byte page's own offset.
     pub(super) from: usize,
     /// Bytes the window holds at most.
     pub(super) room: usize,
@@ -66,8 +65,19 @@ pub(super) struct Held {
     pub(super) first: usize,
     last: usize,
     /// Bytes of the requested lines still to skip before the window starts
-    /// (moved on to the next character boundary).
+    /// (moved on to the next character boundary), keyed: their sealed count
+    /// placed on the source once its first byte is known ([`SealMap::keyed`]).
     from: usize,
+    /// The want's offset in the sealed view.
+    sealed_from: usize,
+    /// Source bytes of the requested lines seen so far.
+    range: Option<std::ops::Range<usize>>,
+    /// The source byte the window starts at (a key placeholder's line start).
+    window_source: Option<usize>,
+    /// The source byte the current line starts at.
+    line_source: usize,
+    /// The window's lines its seal redacted, with their placeholders.
+    pub(super) redacted: Vec<(usize, usize)>,
     /// Bytes `window` holds at most.
     room: usize,
     pub(super) window: Vec<u8>,
@@ -93,10 +103,11 @@ pub(super) struct Held {
     runs: Vec<Run>,
     /// The source byte the last run reaches.
     run_end: Option<usize>,
-    /// The window holds masks of secret bytes.
-    pub(super) masked: bool,
-    /// Those masks hide every value ([`Judged::EveryValue`]).
+    /// The window hides every value ([`super::masks::Judged::EveryValue`]).
     pub(super) every_value: bool,
+    /// A sealed offset of this window could not be placed on the source's
+    /// bytes: sealing it fails the read.
+    unplaced: bool,
 }
 
 impl Held {
@@ -105,6 +116,11 @@ impl Held {
             first: want.first,
             last: want.last,
             from: want.from,
+            sealed_from: want.from,
+            range: None,
+            window_source: None,
+            line_source: 0,
+            redacted: Vec::new(),
             room: want.room,
             window: Vec::new(),
             start: None,
@@ -118,61 +134,33 @@ impl Held {
             full: false,
             runs: Vec::new(),
             run_end: None,
-            masked: false,
             every_value: false,
+            unplaced: false,
         }
     }
 
     /// Take one piece of `line` (up to and including its newline, if any), which
-    /// starts at byte `source` of the source.
-    fn push(&mut self, piece: &[u8], line: usize, source: usize) {
+    /// starts at byte `source` of the source; `map` places a sealed offset.
+    fn push(&mut self, piece: &[u8], line: usize, source: usize, map: Option<&SealMap>) {
         if !(self.first..=self.last).contains(&line) {
             return;
+        }
+        let range = self.range.get_or_insert_with(|| {
+            if let Some(map) = map {
+                match map.keyed(source, self.sealed_from) {
+                    Some(from) => self.from = from,
+                    None => self.unplaced = true,
+                }
+            }
+            source..source
+        });
+        range.end = source + piece.len();
+        if self.view_pos == self.line_view_start {
+            self.line_source = source;
         }
         let start = self.view_pos;
         self.view_pos += piece.len();
         self.hold(start, piece, line, Some(source));
-    }
-
-    /// Hide what `judged` says is secret. The window keeps its length, so its
-    /// place in the view stands.
-    fn mask(&mut self, judged: &Judged) {
-        let len = self.window.len();
-        self.masked = match judged {
-            Judged::EveryValue(named) => {
-                let cut = self.start.is_some_and(|start| start.cut);
-                self.every_value = cover_every_value(&mut self.window, cut, *named);
-                self.every_value
-            }
-            Judged::Exact(spans) if spans.is_empty() => false,
-            Judged::Exact(spans) => {
-                let mut masked = false;
-                for (index, run) in self.runs.iter().enumerate() {
-                    let Some(source) = run.source else {
-                        continue;
-                    };
-                    let end = self
-                        .runs
-                        .get(index + 1)
-                        .map_or(len, |next| next.at)
-                        .min(len);
-                    if run.at >= end {
-                        continue;
-                    }
-                    let to_source = source + (end - run.at);
-                    let first = spans.partition_point(|span| span.range.end <= source);
-                    for span in spans[first..]
-                        .iter()
-                        .take_while(|span| span.range.start < to_source)
-                    {
-                        let from = run.at + span.range.start.saturating_sub(source);
-                        let to = (run.at + (span.range.end - source)).min(end);
-                        masked |= cover(&mut self.window, from, to, span.form);
-                    }
-                }
-                masked
-            }
-        };
     }
 
     /// Keep `bytes`, which sit at `start` of the requested lines' bytes and at
@@ -197,6 +185,7 @@ impl Held {
             return;
         }
         if self.window.is_empty() {
+            self.window_source = Some(source.map_or(self.line_source, |source| source + skip));
             self.start = Some(WindowStart {
                 base: start + skip,
                 line,
@@ -283,7 +272,9 @@ impl Held {
 }
 
 mod lines;
+mod seal;
 pub(super) use lines::{InLine, WindowLines};
+pub(super) use seal::SealMap;
 
 #[cfg(test)]
 mod tests;

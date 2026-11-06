@@ -94,6 +94,10 @@ pub struct TextSearchStats {
     /// their values are decoded text (Latin-1, or U+FFFD for invalid bytes,
     /// as [`crate::text::Decoded::interior`] reads them), not verbatim bytes.
     pub not_utf8_files: Option<Vec<String>>,
+    /// Matched files that start with a UTF-8 byte-order mark, in path
+    /// order: the search dropped it, as localFetch does, so line 1's
+    /// columns and byte offsets count the text after it.
+    pub utf8_bom_files: Option<Vec<String>>,
     /// Files binary from their leading bytes (a NUL before any text, or
     /// after a short header that matched nothing), skipped as opaque
     /// binary. Nothing text-searchable was lost, so they are not a coverage gap.
@@ -112,8 +116,6 @@ pub struct TextSearchStats {
 /// A limit that ended a text search before it covered its scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CapReason {
-    /// A file held more only-matching spans than are kept per file.
-    MaxOnlyMatchingPerFile,
     /// A file over the byte ceiling was skipped.
     MaxFileSize,
     /// The caller stopped the search.
@@ -126,7 +128,6 @@ impl CapReason {
     /// The reason's wire name (`capReason`, `partialReasons`).
     pub fn name(self) -> &'static str {
         match self {
-            Self::MaxOnlyMatchingPerFile => "maxOnlyMatchingPerFile",
             Self::MaxFileSize => "fileTooLarge",
             Self::Cancelled => "cancelled",
             Self::BinaryQuit => "binaryQuit",
@@ -238,6 +239,10 @@ pub struct TextSearchOptions {
     /// [`DEFAULT_MAX_SEARCH_FILE_BYTES`]. Guards against OOM on pathological
     /// multi-GB single-line files.
     pub max_file_bytes: Option<u32>,
+    /// The bytes the search's collected evidence may hold before it is
+    /// refused ([`ErrorKind::ResourceExhausted`](crate::error::ErrorKind::ResourceExhausted)).
+    /// `None` is the process memory budget ([`crate::memory::MEMORY`]).
+    pub max_held_bytes: Option<usize>,
     /// How values are kept and whether each kept file's bytes are hashed.
     pub values: SourceValues,
     /// What a [`SourceValues::Deferred`] search does with a line while its

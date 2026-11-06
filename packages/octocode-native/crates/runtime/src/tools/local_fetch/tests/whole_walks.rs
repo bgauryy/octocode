@@ -197,11 +197,23 @@ fn every_byte_page_of_a_one_line_walk_equals_its_cold_read() {
                 execute_local_fetch(query, &paths, &security, &NeverCancel, Some(WINDOW), None);
             assert_eq!(*warm, cold, "{view}: page {index}");
         }
+        // Offsets count the redacted view: a page end that would split a
+        // token's placeholder moves back before it, and the next page
+        // starts with the whole placeholder.
         let cut = lengths(&pages);
-        assert!(cut[0] > first, "{view}: the first page ends inside a token");
+        let starts_marked =
+            |index: usize| {
+                pages[index].1.content.as_deref().is_some_and(|text| {
+                    text.starts_with(octocode_engine::security::REDACTION_PREFIX)
+                })
+            };
         assert!(
-            cut[6..cut.len() - 1].iter().any(|length| *length > first),
-            "{view}: a late page ends inside a token: {cut:?}"
+            cut[0] < first && starts_marked(1),
+            "{view}: the first page ends before the token"
+        );
+        assert!(
+            (6..cut.len() - 1).any(|index| cut[index] < first && starts_marked(index + 1)),
+            "{view}: a late page ends before a token: {cut:?}"
         );
         let text: String = pages
             .iter()

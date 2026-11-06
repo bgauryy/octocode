@@ -4,6 +4,7 @@ use octocode_contract_types::ErrorCode;
 
 mod cancellation;
 mod coverage;
+mod coverage_failure;
 mod identity;
 mod windows;
 

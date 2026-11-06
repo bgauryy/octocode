@@ -1,5 +1,5 @@
 //! The GitHub release-tag double artifact tests share.
-use super::super::release_ref::{ReleaseTags, TagCommitFuture, TagFuture};
+use super::super::release_ref::{CommitCheck, CommitFuture, ReleaseTags, TagCommitFuture};
 use std::sync::Mutex;
 
 /// GitHub's answer to every release-ref check: the refs that exist
@@ -7,6 +7,8 @@ use std::sync::Mutex;
 /// Records every check.
 pub(crate) struct KnownTags {
     answer: Answer,
+    /// What every commit check answers about the repository, when set.
+    repository: Option<CommitCheck>,
     seen: Mutex<Vec<String>>,
 }
 
@@ -19,6 +21,7 @@ impl KnownTags {
     pub(crate) fn new(known: Vec<&'static str>) -> Self {
         Self {
             answer: Answer::Known(known),
+            repository: None,
             seen: Mutex::new(Vec::new()),
         }
     }
@@ -26,8 +29,15 @@ impl KnownTags {
     pub(crate) fn always(exists: Option<bool>) -> Self {
         Self {
             answer: Answer::Always(exists),
+            repository: None,
             seen: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Every commit check answers `check` whatever the commit.
+    pub(crate) fn with_repository(mut self, check: CommitCheck) -> Self {
+        self.repository = Some(check);
+        self
     }
 
     /// Every check, as `owner/repo@ref`, in order.
@@ -67,27 +77,31 @@ impl ReleaseTags for KnownTags {
         Box::pin(async move { commit })
     }
 
-    fn commit_exists<'a>(
+    fn commit_check<'a>(
         &'a self,
         owner: &'a str,
         repo: &'a str,
         commit: &'a str,
-    ) -> TagFuture<'a> {
-        self.known(owner, repo, commit)
-    }
-}
-
-impl KnownTags {
-    fn known<'a>(&'a self, owner: &'a str, repo: &'a str, reference: &'a str) -> TagFuture<'a> {
-        let name = format!("{owner}/{repo}@{reference}");
-        let exists = match &self.answer {
-            Answer::Known(known) => Some(known.contains(&name.as_str())),
-            Answer::Always(exists) => *exists,
-        };
+    ) -> CommitFuture<'a> {
+        let name = format!("{owner}/{repo}@{commit}");
+        let check = self.repository.or_else(|| match &self.answer {
+            Answer::Known(known) => Some(if known.contains(&name.as_str()) {
+                CommitCheck::Found
+            } else {
+                CommitCheck::Missing
+            }),
+            Answer::Always(exists) => exists.map(|exists| {
+                if exists {
+                    CommitCheck::Found
+                } else {
+                    CommitCheck::Missing
+                }
+            }),
+        });
         self.seen
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .push(name);
-        Box::pin(async move { exists })
+        Box::pin(async move { check })
     }
 }

@@ -69,30 +69,63 @@ fn is_private_key_path(path: Option<&Path>) -> bool {
 /// only key text is hidden (see [`KeyBlockState`]): code after a literal marker
 /// string stays readable.
 pub(crate) fn redact_private_key_blocks(content: &str) -> (std::borrow::Cow<'_, str>, bool) {
+    let (text, edits) = private_key_blocks_hidden(content);
+    (text, !edits.is_empty())
+}
+
+/// [`redact_private_key_blocks`] with what it replaced of `content`, by byte
+/// position: empty when it changed nothing.
+pub(crate) fn private_key_blocks_hidden(
+    content: &str,
+) -> (std::borrow::Cow<'_, str>, octocode_engine::security::Edits) {
     if !may_hold_key_marker(content) {
-        return (content.into(), false);
+        return (content.into(), octocode_engine::security::Edits::default());
     }
-    let mut out = String::with_capacity(content.len());
     let mut block = KeyBlockState::default();
-    let mut changed = false;
-    for (i, line) in content.lines().enumerate() {
-        if i > 0 {
-            out.push('\n');
-        }
-        if block.push_line(line) {
-            changed = true;
-            out.push_str(&hide_key_line(line));
+    match hide_lines(content, |line| {
+        block.push_line(line).then(|| hide_key_line(line))
+    }) {
+        Some((text, edits)) => (text.into(), edits),
+        None => (content.into(), octocode_engine::security::Edits::default()),
+    }
+}
+
+/// `text` rewritten line by line as [`str::lines`] splits it, joined by `\n`
+/// with its final line break kept, and what that replaced by byte position: a
+/// line `hide` returns a text for goes whole, and a `\r` the split drops goes
+/// alone. `None` when `hide` changes no line.
+fn hide_lines(
+    text: &str,
+    mut hide: impl FnMut(&str) -> Option<String>,
+) -> Option<(String, octocode_engine::security::Edits)> {
+    let mut out = String::with_capacity(text.len());
+    let mut replaced = Vec::new();
+    let mut hid_any = false;
+    let mut start = 0;
+    for piece in text.split_inclusive('\n') {
+        let (line, carriage) = match piece.strip_suffix('\n') {
+            Some(body) => body
+                .strip_suffix('\r')
+                .map_or((body, false), |line| (line, true)),
+            None => (piece, false),
+        };
+        let end = start + line.len();
+        if let Some(hidden) = hide(line) {
+            hid_any = true;
+            replaced.push((start..end, hidden.len()));
+            out.push_str(&hidden);
         } else {
             out.push_str(line);
         }
+        if carriage {
+            replaced.push((end..end + 1, 0));
+        }
+        if piece.ends_with('\n') {
+            out.push('\n');
+        }
+        start += piece.len();
     }
-    if !changed {
-        return (content.into(), false);
-    }
-    if content.ends_with('\n') {
-        out.push('\n');
-    }
-    (out.into(), true)
+    hid_any.then(|| (out, octocode_engine::security::Edits::of_pass(replaced)))
 }
 
 /// Placeholder emitted for a redacted private-key fragment. Shared by the
@@ -138,31 +171,23 @@ pub(crate) fn private_key_block_line_ranges(content: &str) -> Vec<(u32, u32)> {
 /// Redaction is line-for-line, preserving the leaf's line count so the tool's
 /// reported line ranges remain accurate.
 fn redact_split_private_key(text: &str, file_path: Option<&Path>) -> Option<String> {
+    split_private_key_hidden(text, file_path).map(|(text, _)| text)
+}
+
+/// [`redact_split_private_key`] with what it replaced of `text`, by byte
+/// position.
+fn split_private_key_hidden(
+    text: &str,
+    file_path: Option<&Path>,
+) -> Option<(String, octocode_engine::security::Edits)> {
     let has_boundary = text.lines().any(is_private_key_boundary);
     if !has_boundary && !is_private_key_path(file_path) {
         return None;
     }
-    let mut changed = false;
-    let redacted: Vec<String> = text
-        .lines()
-        .map(|line| {
-            if is_private_key_boundary(line) || is_key_body_line(line) || opens_with_body_run(line)
-            {
-                changed = true;
-                hide_key_line(line)
-            } else {
-                line.to_owned()
-            }
-        })
-        .collect();
-    if !changed {
-        return None;
-    }
-    let mut out = redacted.join("\n");
-    if text.ends_with('\n') {
-        out.push('\n');
-    }
-    Some(out)
+    hide_lines(text, |line| {
+        (is_private_key_boundary(line) || is_key_body_line(line) || opens_with_body_run(line))
+            .then(|| hide_key_line(line))
+    })
 }
 
 /// 1-based inclusive line ranges of `text` that a row cut from it cannot be
@@ -247,7 +272,7 @@ impl ContentSecurity {
             path.as_deref(),
             self.limits.whole_source,
         );
-        self.guard_native(native, file_path)
+        self.guard_native(native, content.len(), file_path)
     }
 
     /// Sanitize one string leaf of a tool result about the file at
@@ -317,9 +342,12 @@ impl ContentSecurity {
         });
     }
 
+    /// `native`, the scan of a text of `len` bytes, with the split-key guard
+    /// applied after it. A failed scan hides the whole text.
     fn guard_native<'a>(
         &self,
         native: octocode_engine::error::Result<SanitizationResult<'a>>,
+        len: usize,
         file_path: Option<&Path>,
     ) -> SanitizationResult<'a> {
         let native = native.unwrap_or_else(|error| SanitizationResult {
@@ -327,12 +355,16 @@ impl ContentSecurity {
             has_secrets: true,
             secrets_detected: vec!["sanitizer-failure".to_owned()],
             warnings: vec![error.to_string()],
+            edits: octocode_engine::security::Edits::of_pass([(
+                0..len,
+                octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.len(),
+            )]),
         });
         // Guard against a multi-line private key that a bounded read/search
         // window split across its BEGIN/END boundary (the anchored built-in
         // patterns only match a complete block, so a single-boundary window
         // would otherwise leak the body).
-        if let Some(guarded) = redact_split_private_key(&native.content, file_path) {
+        if let Some((guarded, guard)) = split_private_key_hidden(&native.content, file_path) {
             let mut secrets = native.secrets_detected;
             secrets.push(SPLIT_KEY_SECRET.to_owned());
             return SanitizationResult {
@@ -340,6 +372,7 @@ impl ContentSecurity {
                 has_secrets: true,
                 warnings: vec![format!("{} secret(s) redacted", secrets.len())],
                 secrets_detected: secrets,
+                edits: native.edits.then(&guard),
             };
         }
         native

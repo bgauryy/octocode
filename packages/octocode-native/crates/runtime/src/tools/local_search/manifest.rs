@@ -13,10 +13,10 @@
 //! proves the submitted query still derives the stored snapshot before
 //! serving it.
 use super::super::page_memo::PageMemo;
-use super::layout::FilePrice;
+use super::layout::{FilePrice, StreamCuts};
 use super::packed::{Encoded, Packed};
 use super::sources::Digest;
-use super::verify::Redaction;
+use super::verify::{JudgedWindows, Redaction};
 use super::walked::Walked;
 use crate::policy::discovery::WalkSkips;
 use octocode_engine::stamp::Proof;
@@ -37,9 +37,54 @@ struct Scan {
     query_key: String,
     redaction: Option<Arc<Redaction>>,
     skipped: Arc<WalkSkips>,
-    prices: Arc<NamePrices>,
+    learned: Arc<Learned>,
     /// What the walk searched, unchanged since the walk.
     proof: Proof,
+}
+
+/// What the pages cut from one scan learned of it. Every page of the scan
+/// shares it, so a continuation reuses what an earlier page derived from
+/// the same stored value. A stored scan weighs what its first page learned;
+/// a later page adds at most an entry per row, window or page the stored
+/// value already holds.
+#[derive(Default)]
+pub(crate) struct Learned {
+    /// The names its cuts priced.
+    pub(super) prices: NamePrices,
+    /// The row windows its pages judged (see [`JudgedWindows`]).
+    pub(super) judged: JudgedWindows,
+    /// Its stream cut (see [`StreamCuts`]).
+    pub(super) cuts: StreamCuts,
+}
+
+impl Learned {
+    fn weight(&self) -> usize {
+        self.prices.weight() + self.judged.weight() + self.cuts.weight()
+    }
+
+    /// Charge what its pages learn from now on to `bill`: the scan was stored
+    /// and weighed, and a later entry must not grow it uncharged.
+    fn bill_to(&self, bill: impl Fn(usize) -> bool + Send + Sync + 'static) {
+        let bill: Arc<dyn Fn(usize) -> bool + Send + Sync> = Arc::new(bill);
+        self.prices.1.set(Arc::clone(&bill));
+        self.judged.billing().set(bill);
+    }
+}
+
+/// Where entries a stored scan learns are charged; none before it is stored
+/// (it is weighed whole then). Set once.
+#[derive(Default)]
+pub(super) struct Billing(std::sync::OnceLock<Arc<dyn Fn(usize) -> bool + Send + Sync>>);
+
+impl Billing {
+    pub(super) fn set(&self, bill: Arc<dyn Fn(usize) -> bool + Send + Sync>) {
+        let _ = self.0.set(bill);
+    }
+
+    /// Whether `bytes` more may be kept: charged, or nothing bills them yet.
+    pub(super) fn charge(&self, bytes: usize) -> bool {
+        self.0.get().is_none_or(|bill| bill(bytes))
+    }
 }
 
 /// The enclosing-name prices the page cuts of one scan learned, by scanned
@@ -49,7 +94,7 @@ struct Scan {
 /// A stored scan weighs the prices its first page learned; a later page
 /// adds at most one owner per hit line the stored value already holds.
 #[derive(Default)]
-pub struct NamePrices(std::sync::Mutex<HashMap<String, FilePrice>>);
+pub struct NamePrices(std::sync::Mutex<HashMap<String, FilePrice>>, Billing);
 
 impl NamePrices {
     fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, FilePrice>> {
@@ -74,7 +119,8 @@ impl NamePrices {
             .collect()
     }
 
-    /// Keep `priced` (by index into `files`).
+    /// Keep `priced` (by index into `files`): each new price once charged, or
+    /// priced again by a later page when the store refuses its bytes.
     pub(super) fn learn(
         &self,
         files: &[octocode_engine::types::TextSearchFile],
@@ -82,8 +128,11 @@ impl NamePrices {
     ) {
         let mut prices = self.lock();
         for (index, price) in priced {
-            if let Some(file) = files.get(index) {
-                prices.entry(file.path.clone()).or_insert(price);
+            if let Some(file) = files.get(index)
+                && !prices.contains_key(&file.path)
+                && self.1.charge(file.path.len() + price.weight())
+            {
+                prices.insert(file.path.clone(), price);
             }
         }
     }
@@ -108,8 +157,8 @@ pub struct Fresh {
     pub skipped: Arc<WalkSkips>,
     /// What the walk searched (see [`Walked`]).
     pub walked: Walked,
-    /// The names its page cut priced (see [`NamePrices`]).
-    pub prices: Arc<NamePrices>,
+    /// What its page learned (see [`Learned`]).
+    pub(super) learned: Arc<Learned>,
 }
 
 /// A stored scan whose walk is unchanged since it was stored.
@@ -128,8 +177,8 @@ pub struct Stored {
     /// What the stored walk left out (policy-withheld, ignored,
     /// default-excluded, hidden).
     pub skipped: Arc<WalkSkips>,
-    /// The names its page cuts priced so far.
-    pub prices: Arc<NamePrices>,
+    /// What its pages learned so far.
+    pub(super) learned: Arc<Learned>,
 }
 
 /// Stored scans, weighed by their kept bytes against the one process budget
@@ -173,12 +222,12 @@ pub fn get_checked(snapshot: &str, policy: &str, cancelled: &dyn Fn() -> bool) -
                     scan.query_key.clone(),
                     scan.redaction.clone(),
                     Arc::clone(&scan.skipped),
-                    Arc::clone(&scan.prices),
+                    Arc::clone(&scan.learned),
                 ),
                 scan.proof.clone(),
             )
         },
-        |(value, sources, query_key, redaction, skipped, prices)| {
+        |(value, sources, query_key, redaction, skipped, learned)| {
             Some(Stored {
                 value: value.unpack_checked(cancelled)?,
                 digests: sources
@@ -188,7 +237,7 @@ pub fn get_checked(snapshot: &str, policy: &str, cancelled: &dyn Fn() -> bool) -
                 query_key,
                 redaction,
                 skipped,
-                prices,
+                learned,
             })
         },
     )
@@ -209,7 +258,7 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
         redaction,
         skipped,
         walked,
-        prices,
+        learned,
     } = fresh;
     if walked.untracked || walked.oversize {
         return;
@@ -258,13 +307,19 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
             read.is_some() && sources.get(*index).map(|source| source.digest) == *read
         })
         .then_some(redaction);
+    // Verdicts a later page learns grow the stored scan: each is charged to
+    // it when learned, as what is learned up to here is weighed below.
+    {
+        let snapshot = snapshot.clone();
+        learned.bill_to(move |bytes| STORE.charge(&snapshot, bytes));
+    }
     let derived = sources
         .iter()
         .map(|source| source.path.len())
         .sum::<usize>()
         + redaction.as_ref().map_or(0, Redaction::weight)
         + walked.weight()
-        + prices.weight();
+        + learned.weight();
     let Some(proof) = walked.proof() else {
         return;
     };
@@ -284,7 +339,7 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
             query_key,
             redaction: redaction.map(Arc::new),
             skipped,
-            prices,
+            learned,
             proof,
         },
     );

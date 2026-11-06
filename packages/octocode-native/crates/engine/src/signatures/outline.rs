@@ -238,18 +238,21 @@ fn row_text(line: &str, heads: &[&GraphFactDeclaration]) -> String {
     }
     let mut heads = heads.to_vec();
     heads.sort_by_key(|declaration| declaration.selection_range.start.character);
+    // One index of the row serves every declaration on it.
+    let index = crate::text::LineIndex::tree_sitter(line);
+    let utf16_byte = |column: u32| index.position_to_byte(line, 0, column) as usize;
     let mut text = String::new();
     for declaration in heads {
-        let name_start = utf16_byte(line, declaration.selection_range.start.character);
+        let name_start = utf16_byte(declaration.selection_range.start.character);
         let name_end =
             if declaration.selection_range.end.line == declaration.selection_range.start.line {
-                utf16_byte(line, declaration.selection_range.end.character)
+                utf16_byte(declaration.selection_range.end.character)
             } else {
                 line.len()
             }
             .max(name_start);
         let start = if declaration.range.start.line == declaration.selection_range.start.line {
-            utf16_byte(line, declaration.range.start.character).min(name_start)
+            utf16_byte(declaration.range.start.character).min(name_start)
         } else {
             0
         };
@@ -270,19 +273,6 @@ fn row_text(line: &str, heads: &[&GraphFactDeclaration]) -> String {
     }
     text.push_str(ELIDED);
     text
-}
-
-/// The byte offset in `line` of UTF-16 column `column` (graph positions
-/// count UTF-16 code units), on a char boundary; past the end, its length.
-fn utf16_byte(line: &str, column: u32) -> usize {
-    let mut units = 0usize;
-    for (byte, character) in line.char_indices() {
-        if units >= column as usize {
-            return byte;
-        }
-        units += character.len_utf16();
-    }
-    line.len()
 }
 
 /// Marks a row the outline cut: the row's line range reads the rest.

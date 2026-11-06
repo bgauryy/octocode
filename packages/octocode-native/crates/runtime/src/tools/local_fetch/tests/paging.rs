@@ -48,7 +48,7 @@ fn utf8_byte_progress_reconstructs_the_complete_line() {
 }
 
 #[test]
-fn a_mid_character_byte_offset_snaps_to_the_character_start() {
+fn a_mid_character_byte_offset_is_refused_with_a_restart() {
     let t = Fixture::new();
     let p = t.0.join("mb.txt");
     fs::write(&p, "abc語def\n").expect("fixture");
@@ -60,13 +60,12 @@ fn a_mid_character_byte_offset_snaps_to_the_character_start() {
         ),
         &paths,
     );
-    assert_eq!(r.error_code, None, "{r:?}");
-    assert_eq!(r.content.as_deref(), Some("語def\n"), "{r:?}");
+    assert_eq!(r.error_code, Some(ErrorCode::InvalidPagination), "{r:?}");
     assert!(
-        r.warnings
-            .iter()
-            .any(|warning| warning.contains("starts at its first byte, 3")),
-        "{:?}",
-        r.warnings
+        r.next
+            .as_ref()
+            .and_then(|next| next.restart.as_ref())
+            .is_some(),
+        "{r:?}"
     );
 }

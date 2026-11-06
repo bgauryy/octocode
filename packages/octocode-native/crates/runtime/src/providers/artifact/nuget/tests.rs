@@ -329,3 +329,63 @@ fn compare_versions_orders_semver_correctly() {
         Ordering::Greater
     );
 }
+
+/// A nuspec that names a repository but no build commit leaves the release
+/// ref to the tag probe: the plain `13.0.4` tag the repository holds.
+#[tokio::test]
+async fn a_nuspec_without_a_commit_is_pinned_to_the_release_tag_the_repository_holds() {
+    let registration = json!({"items": [{
+        "upper": "13.0.4",
+        "items": [{"catalogEntry": {"id": "Newtonsoft.Json", "version": "13.0.4"}}]
+    }]});
+    let mut index = service_index();
+    index["resources"].as_array_mut().unwrap().push(json!({
+        "@type": "PackageBaseAddress/3.0.0",
+        "@id": "https://api.nuget.org/v3-flatcontainer/"
+    }));
+    let http = RouteHttp::routes(vec![
+        (REGISTRATION, registration),
+        ("/v3/index.json", index),
+    ])
+    .bytes(
+        "/v3-flatcontainer/newtonsoft.json/13.0.4/newtonsoft.json.nuspec",
+        br#"<package><metadata><repository type="git" url="https://github.com/JamesNK/Newtonsoft.Json" /></metadata></package>"#,
+    );
+    let b = test_budget();
+    let tags = super::super::test_http::KnownTags::new(vec!["JamesNK/Newtonsoft.Json@13.0.4"]);
+    let client = RegistryClient {
+        tags: Some(&tags),
+        ..RegistryClient::new(&http, &b)
+    };
+    let q = artifact_query(
+        json!({"operation":"resolve","ecosystem": ArtifactType::Nuget, "packageName": "Newtonsoft.Json"}),
+        None,
+    );
+    let page = nuget(&q, &ArtifactProviderState::default(), &client)
+        .await
+        .expect("nuget exact");
+    let item = &page.artifacts[0];
+    assert_eq!(item.source_ref.as_deref(), Some("13.0.4"));
+    assert!(item.source_tag);
+}
+
+/// A project or repository link into a monorepo directory names the
+/// repository and the directory separately.
+#[tokio::test]
+async fn a_link_into_a_monorepo_directory_names_the_repository_and_the_directory() {
+    let source = "https://github.com/o/r/tree/main/src/Pkg";
+    for row in [
+        json!({"id": "P", "projectUrl": source}),
+        json!({"id": "P", "repository": {"url": source}}),
+    ] {
+        let mut rows = [item(row.as_object().expect("row")).unwrap()];
+        let tags = super::super::test_http::KnownTags::new(vec!["o/r@main"]);
+        super::super::test_http::settle_links(&mut rows, &tags).await;
+        let [artifact] = rows;
+        assert_eq!(
+            artifact.repository.as_deref(),
+            Some("https://github.com/o/r")
+        );
+        assert_eq!(artifact.repository_directory.as_deref(), Some("src/Pkg"));
+    }
+}

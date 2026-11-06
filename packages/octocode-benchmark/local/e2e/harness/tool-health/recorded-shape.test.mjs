@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { declaredUnread, fieldsOf, matcher, outputText, shapeDrift, shapeOf, trimmed, uncarried, xmlFields } from './recorded-shape.mjs';
+import { declaredUnread, fieldsOf, matcher, outputText, shapeDrift, shapeOf, trimmed, uncarried, uncarriedExchanges, xmlFields } from './recorded-shape.mjs';
 import { recordedJson } from './recorded-answers.mjs';
 
 test('a key naming data reads as one path, a declared map too', () => {
@@ -67,4 +67,52 @@ test('XML answers have field paths; plain text has none', () => {
   assert.ok(shapeOf(fieldsOf({ body: xml })).has('project.dependencies.dependency[*].artifactId.text'));
   assert.equal(fieldsOf({ body: 'module example.test/x\n' }), undefined);
   assert.deepEqual(fieldsOf({ body: { a: 1 } }), { a: 1 });
+});
+test('repository carriers retain source identity across URI transports and owner/repo fields', () => {
+  const fields = { project: { scm: { url: { text: 'scm:git:ssh://git@GITHUB.com:22/acme/Widget.git/' } } } };
+  const repositories = ['project.scm.url.text'];
+  const output = outputText({ artifacts: [{ owner: 'acme', repo: 'Widget' }] });
+  assert.deepEqual(uncarried(fields, output, { repositories }), []);
+  for (const changed of [
+    { owner: 'other', repo: 'Widget' }, { owner: 'acme', repo: 'Different' },
+    { repository: 'https://elsewhere.test/acme/Widget' },
+    { repository: 'https://github.com/acme/Widget?ref=another' },
+    { repository: 'https://github.com/acme/Widget/child' },
+  ]) assert.deepEqual(uncarried(fields, outputText(changed), { repositories }), repositories);
+  assert.deepEqual(uncarried(fields, output), repositories, 'only declared repository fields normalize');
+});
+
+test('repository identity does not merge sibling owner/repo fields or arbitrary URI values', () => {
+  const fields = { repository: 'ssh://git@example.test:22/team/Package.git/' };
+  const repositories = ['repository'];
+  assert.deepEqual(uncarried(fields, outputText({ repository: 'https://example.test/team/Package' }), { repositories }), []);
+  assert.deepEqual(uncarried(fields, outputText({ repository: 'https://example.test/team/package' }), { repositories }), repositories, 'URI paths remain case-sensitive');
+  const github = { repository: 'https://github.com/team/Package.git' };
+  assert.deepEqual(uncarried(github, outputText([{ owner: 'team' }, { repo: 'Package' }]), { repositories }), repositories);
+  assert.deepEqual(uncarried({ license: 'https://example.test/license.git/' }, outputText({ repository: 'https://example.test/license' }), { repositories }), ['license']);
+});
+test('a parent exchange omission never waives the same field of the requested child', () => {
+  const exchanges = [
+    { status: 200, body: { project: { description: 'Child description' } } },
+    { status: 200, body: { project: { description: 'Parent build metadata' } }, unread: ['project.description'] },
+  ];
+  assert.deepEqual(uncarriedExchanges(exchanges, outputText({ description: 'Child description' })), []);
+  assert.deepEqual(uncarriedExchanges(exchanges, outputText({ description: 'Parent build metadata' })), ['project.description']);
+  assert.deepEqual(uncarriedExchanges(exchanges, '', { unread: ['project.description'] }), []);
+});
+test('excluding a POM license URL never makes it evidence for the SCM source', () => {
+  const exchanges = [{ status: 200, body: '<project><licenses><license><url>https://licenses.example.test/custom</url></license></licenses><scm><url>https://github.com/team/source.git</url></scm></project>', unread: ['project.licenses.license.url'] }];
+  const options = { repositories: ['project.scm.url.text'] };
+  assert.deepEqual(uncarriedExchanges(exchanges, outputText({ owner: 'team', repo: 'source' }), options), []);
+  assert.deepEqual(uncarriedExchanges(exchanges, outputText({ repository: 'https://licenses.example.test/custom' }), options), ['project.scm.url.text']);
+});
+test('a declared release day keeps its date, and a verified tag keeps its namespace', () => {
+  const release = { Time: '2020-01-14T19:28:13Z' };
+  assert.deepEqual(uncarried(release, outputText({ publishedAt: '2020-01-14' }), { dates: ['Time'] }), []);
+  assert.deepEqual(uncarried(release, outputText({ publishedAt: '2020-01-15' }), { dates: ['Time'] }), ['Time']);
+  assert.deepEqual(uncarried(release, outputText({ publishedAt: '2020-01-14' })), ['Time'], 'only declared date projections drop time precision');
+  const tag = { ref: 'refs/tags/v1.2.3' };
+  assert.deepEqual(uncarried(tag, outputText({ ref: 'v1.2.3', verification: 'tag' })), []);
+  assert.deepEqual(uncarried(tag, outputText({ ref: 'v1.2.4', verification: 'tag' })), ['ref']);
+  assert.deepEqual(uncarried(tag, outputText({ ref: 'v1.2.3', verification: 'defaultBranch' })), ['ref']);
 });

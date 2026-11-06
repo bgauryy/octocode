@@ -1,13 +1,9 @@
 //! The secret scan of one returned page and the warnings it raises.
 
-use super::extraction::line_count;
-use super::pagination::{SourceLines, page_within, sanitize_byte_page, sanitize_line_page};
+use super::pagination::{SourceLines, page_within};
 use super::prepare::*;
-use super::types::*;
-use super::view::single_line_query;
-use crate::security::scan::ContentScan;
 use crate::tools::source_view::local_fetch_query;
-use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadProgressUnit};
+use octocode_contract_types::LocalFetchQuery;
 
 /// One returned page after the secret scan.
 pub(super) struct ScannedPage {
@@ -25,124 +21,34 @@ pub(super) struct ScannedPage {
 
 /// How a page is cut from a view: the page's query, the view text, the
 /// bytes one line page may hold, the raw source lines a transformed view
-/// pages in (see [`page_within`]), and the view's kept window scan.
+/// pages in (see [`page_within`]).
 #[derive(Clone, Copy)]
 pub(super) struct PageWindow<'a> {
     pub(super) query: &'a LocalFetchQuery,
     pub(super) view: &'a str,
     pub(super) budget: super::pagination::LineBudget,
     pub(super) source_lines: Option<&'a SourceLines>,
-    pub(super) scans: &'a super::pagination::WindowScans,
 }
 
-/// Cut the page and scan it for secrets. A line or byte page is scanned on
-/// its own window (see `sanitize_line_page` / `sanitize_byte_page`); a
-/// complete view, or a window whose scan fails, takes the whole-view scan,
-/// which owns the typed security-limit recovery.
-pub(super) fn scan_page(
-    q: &LocalFetchQuery,
-    cut: &PageWindow<'_>,
-    source_path: &std::path::Path,
-    security: &impl ContentScan,
-    source: &Source<'_>,
-    first_line: Option<usize>,
-) -> Result<ScannedPage, Box<LocalFetchResult>> {
+/// Cut the page from its view. Every view is cut from a source redacted whole
+/// before any view was built (a streamed window from its sealed view,
+/// [`ByteOrigin`]), so the page is never scanned again, and only the
+/// placeholders it shows count.
+pub(super) fn page_of(cut: &PageWindow<'_>) -> ScannedPage {
     let PageWindow {
-        query: page_q,
-        view: selected,
+        query,
+        view,
         budget,
         source_lines,
-        scans,
     } = *cut;
-    {
-        let raw = page_within(selected, page_q, budget, source_lines);
-        let literal = placeholders(&raw.text);
-        let windowed = if raw.pagination.unit == ReadProgressUnit::Lines {
-            sanitize_line_page(selected, raw, source_path, security).unwrap_or(None)
-        } else {
-            sanitize_byte_page(selected, raw, source_path, security, scans).unwrap_or(None)
-        };
-        // Page sanitizers keep line counts, so a redacted page still maps
-        // onto source lines.
-        if let Some((page, redacted)) = windowed {
-            let redactions = if redacted {
-                placeholders(&page.text).saturating_sub(literal)
-            } else {
-                0
-            };
-            return Ok(ScannedPage {
-                page,
-                redacted,
-                redactions,
-                empty: selected.is_empty(),
-                lines_kept: true,
-                warnings: vec![],
-            });
-        }
+    ScannedPage {
+        page: page_within(view, query, budget, source_lines),
+        redacted: false,
+        redactions: 0,
+        empty: view.is_empty(),
+        lines_kept: true,
+        warnings: vec![],
     }
-    let (safe, warnings) = match security.sanitize(selected, source_path) {
-        Ok(scanned) => scanned,
-        Err((code, _)) if code == ErrorCode::ContentSecurityLimit => {
-            return Err(Box::new(security_limit(q, code, source, first_line)));
-        }
-        Err((code, message)) => {
-            return Err(Box::new(LocalFetchResult::error(
-                local_fetch_query::path(q).to_owned(),
-                code,
-                message,
-            )));
-        }
-    };
-    // A whole-view scan maps onto source lines only when it kept the count.
-    let lines_kept = safe == selected || line_count(&safe) == line_count(selected);
-    let page = page_within(&safe, page_q, budget, source_lines.filter(|_| lines_kept));
-    let redacted = safe != selected;
-    // The same page of the unscanned view, when the scan kept its lines;
-    // otherwise every placeholder past the view's literal ones counts.
-    let redactions = match redacted {
-        false => 0,
-        true if lines_kept => placeholders_added(
-            &page_within(selected, page_q, budget, source_lines).text,
-            &page.text,
-        ),
-        true => placeholders_added(selected, &safe),
-    };
-    Ok(ScannedPage {
-        page,
-        redacted,
-        redactions,
-        empty: safe.is_empty(),
-        lines_kept,
-        warnings,
-    })
-}
-
-/// The selected view is too large to scan: a terminal row that offers one
-/// source line instead.
-fn security_limit(
-    q: &LocalFetchQuery,
-    code: ErrorCode,
-    source: &Source<'_>,
-    first_line: Option<usize>,
-) -> LocalFetchResult {
-    let mut result = LocalFetchResult::error(
-        local_fetch_query::path(q).to_owned(),
-        code,
-        "The selected content view exceeds the secret scanner size limit. Byte windows cannot safely split unscanned content. Select a smaller source-line range.".into(),
-    );
-    result.total_lines = Some(source.total_lines);
-    result.terminal_limit(PartialReason::SecuritySelectedView);
-    if source.total_lines > 1
-        && (local_fetch_query::start_line(q).is_none()
-            || local_fetch_query::start_line(q) != local_fetch_query::end_line(q))
-    {
-        let line = first_line.or(local_fetch_query::start_line(q)).unwrap_or(1);
-        result.next = Some(NextCalls {
-            read_bounded_lines: single_line_query(q, line).map(FetchCall::related),
-            ..NextCalls::default()
-        });
-    }
-    result
 }
 
 /// Redacted text is not the source: say so, as localSearch does. Only the

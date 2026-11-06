@@ -12,6 +12,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 mod fallback;
 mod pages;
+mod redaction;
 mod references;
 
 const BASE: &str = "1111111111111111111111111111111111111111";

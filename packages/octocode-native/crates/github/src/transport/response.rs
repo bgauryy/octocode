@@ -62,6 +62,39 @@ pub(super) async fn read_bounded(
         })
 }
 
+/// The target of the `Link` header part carrying `relation`
+/// (`rel="next"`), if any.
+fn link_target<'a>(value: &'a str, relation: &str) -> Option<&'a str> {
+    value
+        .split(',')
+        .find(|part| part.contains(relation))
+        .map(|part| {
+            part.trim()
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .trim_start_matches('<')
+                .trim_end_matches('>')
+        })
+}
+
+/// The `page` query value of a pagination link.
+fn link_page(url: &Url) -> Option<u64> {
+    url.query_pairs()
+        .find(|(key, _)| key == "page")
+        .and_then(|(_, value)| value.parse::<u64>().ok())
+}
+
+/// The last page number the `Link` header names (`rel="last"`): how many
+/// pages the list holds at the request's `per_page`. `None` when the header
+/// names none (a single page, or a provider that omits it).
+pub(crate) fn last_page(headers: &HeaderMap) -> Option<usize> {
+    let value = headers.get("link")?.to_str().ok()?;
+    let last = Url::parse(link_target(value, "rel=\"last\"")?).ok()?;
+    link_page(&last).and_then(|page| usize::try_from(page).ok())
+}
+
 pub(super) fn parse_next(
     headers: &HeaderMap,
     endpoint: &GitHubEndpoint,
@@ -69,20 +102,7 @@ pub(super) fn parse_next(
     let Some(value) = headers.get("link").and_then(|v| v.to_str().ok()) else {
         return Ok(None);
     };
-    let link = |relation: &str| {
-        value
-            .split(',')
-            .find(|part| part.contains(relation))
-            .map(|part| {
-                part.trim()
-                    .split(';')
-                    .next()
-                    .unwrap_or_default()
-                    .trim()
-                    .trim_start_matches('<')
-                    .trim_end_matches('>')
-            })
-    };
+    let link = |relation: &str| link_target(value, relation);
     let Some(raw) = link("rel=\"next\"") else {
         return Ok(None);
     };
@@ -95,11 +115,7 @@ pub(super) fn parse_next(
             "GitHub pagination link changed origin",
         ));
     }
-    let page = |url: &Url| {
-        url.query_pairs()
-            .find(|(key, _)| key == "page")
-            .and_then(|(_, value)| value.parse::<u64>().ok())
-    };
+    let page = link_page;
     // GitHub may advertise next=N+1 alongside last=N on a full final page.
     // Only comparable numbered links establish that next is past the end.
     if let Some(last) = link("rel=\"last\"").and_then(|raw| Url::parse(raw).ok())

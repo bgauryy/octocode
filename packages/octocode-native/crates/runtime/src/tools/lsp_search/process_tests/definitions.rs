@@ -60,7 +60,6 @@ fn nested_definition_failure_keeps_location_with_partial_provenance() {
                 character: 6,
                 language_id: Some("typescript"),
                 budget: 16_000,
-                response_window: None,
             }
             .run()
             .await
@@ -158,7 +157,6 @@ fn a_definition_outside_the_read_roots_is_reported_withheld() {
                 character: 6,
                 language_id: Some("typescript"),
                 budget: 16_000,
-                response_window: None,
             }
             .run()
             .await;
@@ -256,7 +254,6 @@ fn definition_chain(
             character,
             language_id: Some("typescript"),
             budget: 16_000,
-            response_window: None,
         }
         .run()
         .await

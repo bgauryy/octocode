@@ -9,10 +9,11 @@ use super::text::needle;
 use super::util::str_at;
 use super::{HistoryItemRequest, validation};
 use crate::response::result::ToolData;
+use crate::tools::gh_get_history_item::Source;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::sections::Section;
 use load::{InlineWindow, load_inline, load_pr};
-use octocode_github::{GitHubTransport, ProviderError, RequestContext};
+use octocode_github::{ProviderError, RequestContext};
 use serde_json::{Value, json};
 use shape::shape_pr;
 
@@ -25,7 +26,7 @@ pub(super) use files::FileOutcome;
 pub(super) use shape::ShapedPr;
 
 pub(super) async fn pull_request(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<ToolData, ProviderError> {
@@ -36,13 +37,13 @@ pub(super) async fn pull_request(
     let ((mut graphql, graphql_fallback), inline) =
         if graphql_complete_collection_eligible(query) && wants.has(Section::ReviewComments) {
             let (fast, inline) = tokio::try_join!(
-                fast_path(transport, query, context),
-                load_inline(transport, query, context, &plan, None),
+                fast_path(source, query, context),
+                load_inline(source, query, context, &plan, None),
             )?;
             (fast, InlineWindow::Prefetched(inline))
         } else {
             (
-                fast_path(transport, query, context).await?,
+                fast_path(source, query, context).await?,
                 InlineWindow::Pending,
             )
         };
@@ -52,7 +53,7 @@ pub(super) async fn pull_request(
         .map(|served| std::mem::take(&mut served.warnings))
         .unwrap_or_default();
     let loads = load_pr(
-        transport,
+        source,
         query,
         context,
         &wants,
@@ -74,7 +75,7 @@ pub(super) async fn pull_request(
             ),
         )));
     }
-    let shaped = shape_pr(transport, query, context, &wants, &plan, loads).await?;
+    let shaped = shape_pr(source, query, context, &wants, &plan, loads).await?;
     let mut data = finish_pr(
         query,
         &wants,
@@ -131,14 +132,14 @@ fn pin_head_pages(value: &mut Value, head: &str, number: u64) {
 /// The GraphQL fast path. REST serves whatever GraphQL could not; a failed
 /// fast path keeps its reason, and a cancelled or expired request stops here.
 async fn fast_path(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<(Option<GraphqlPr>, Option<String>), ProviderError> {
     if !graphql_complete_collection_eligible(query) {
         return Ok((None, None));
     }
-    match graphql_pull_request(transport, query, context).await {
+    match graphql_pull_request(source, query, context).await {
         Ok(GraphqlOutcome::Served(pr)) => Ok((Some(*pr), None)),
         Ok(GraphqlOutcome::Unavailable) => Ok((None, None)),
         Ok(GraphqlOutcome::Failed(reason)) => Ok((None, Some(reason))),

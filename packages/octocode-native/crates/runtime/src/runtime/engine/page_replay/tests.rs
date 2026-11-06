@@ -1,7 +1,7 @@
 use super::*;
 use crate::execution::ExecutionContext;
 use crate::id::ToolId;
-use crate::runtime::engine::cursors::{Pending, Registry, SavedWork};
+use crate::runtime::engine::cursors::{Registry, SavedWork};
 use octocode_io::cancellation::Cancellation;
 use std::time::{Duration, Instant};
 
@@ -38,11 +38,15 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
             policy,
         )
     };
+    let mut expired_tokens = Vec::new();
     for (index, policy) in [legacy, previous, current.clone()].into_iter().enumerate() {
         let writer = make(policy.clone());
-        let mut pending = Pending::new(access, None);
+        let mut pending = writer.pending(access, None);
         for work in [
             SavedWork::ToolResume { index: Some(0) },
+            SavedWork::Rows {
+                indices: vec![0, 1],
+            },
             SavedWork::ResponsePage {
                 rows: None,
                 cursor: Cursor {
@@ -64,7 +68,7 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
             make(policy.clone())
                 .open(ToolId::LocalFetch, &token, access)
                 .expect("same version reopens from disk");
-            pending = Pending::new(access, None);
+            pending = writer.pending(access, None);
             if policy == current {
                 assert!(
                     runtime
@@ -73,6 +77,7 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
                         .is_ok()
                 );
             } else {
+                expired_tokens.push(token.clone());
                 let result = runtime
                     .execute(
                         runtime.admit(format!("old-plan-{index}-{token}")).unwrap(),
@@ -88,6 +93,22 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
                 assert!(runtime.github_services.get().is_none());
             }
         }
+    }
+    // Current issuance must not make any previously refused token usable.
+    for token in expired_tokens {
+        let result = runtime
+            .execute(
+                runtime.admit(format!("reissued-plan-{token}")).unwrap(),
+                "localFetch".into(),
+                json!({"cursor": token}),
+                super::super::Channel::Mcp,
+            )
+            .await;
+        let Err(error) = result else {
+            panic!("current issuance resurrected an old plan's handle");
+        };
+        assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
+        assert!(runtime.github_services.get().is_none());
     }
     runtime.close().await;
 }

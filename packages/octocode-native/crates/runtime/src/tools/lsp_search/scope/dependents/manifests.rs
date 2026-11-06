@@ -32,7 +32,7 @@ impl Identity {
         let file = nearest(anchor, name)?;
         let identity = match extension {
             "go" => {
-                let text = std::fs::read_to_string(&file).ok()?;
+                let text = octocode_engine::lsp::config_file::read_utf8(&file).ok()?;
                 text.lines()
                     .find_map(|line| line.trim().strip_prefix("module "))
                     .map(|path| Self::Go(path.trim().trim_matches('"').to_owned()))?
@@ -43,7 +43,7 @@ impl Identity {
                 Self::Cargo(name.to_owned())
             }
             _ => {
-                let pom = std::fs::read_to_string(&file).ok()?;
+                let pom = octocode_engine::lsp::config_file::read_utf8(&file).ok()?;
                 let (own, parent) = project_tags(&pom);
                 Self::Maven {
                     group: tag(&own, "groupId").or_else(|| tag(&parent, "groupId"))?,
@@ -70,9 +70,8 @@ impl Identity {
 /// a file this does not read counts.
 pub(super) fn depends_on(path: &Path, identity: &Identity) -> bool {
     match identity {
-        Identity::Go(module) => {
-            std::fs::read_to_string(path).map_or(true, |text| go_requires(&text, module))
-        }
+        Identity::Go(module) => octocode_engine::lsp::config_file::read_utf8(path)
+            .map_or(true, |text| go_requires(&text, module)),
         Identity::Cargo(name) => path
             .parent()
             .and_then(octocode_engine::lsp::workspace::cargo_manifest)
@@ -85,7 +84,7 @@ pub(super) fn depends_on(path: &Path, identity: &Identity) -> bool {
             if path.file_name().is_some_and(|name| name != "pom.xml") {
                 return true;
             }
-            std::fs::read_to_string(path).map_or(true, |pom| {
+            octocode_engine::lsp::config_file::read_utf8(path).map_or(true, |pom| {
                 maven_requires(&pom, group, artifact, version.as_deref())
             })
         }
@@ -201,7 +200,7 @@ fn project_tags(pom: &str) -> (String, String) {
     ] {
         let (open, close) = (format!("<{section}>"), format!("</{section}>"));
         while let Some(start) = own.find(&open)
-            && let Some(end) = own[start..].find(&close)
+            && let Some(end) = own.get(start..).and_then(|rest| rest.find(&close))
         {
             own.replace_range(start..start + end + close.len(), "");
         }
@@ -214,10 +213,9 @@ fn blocks<'a>(text: &'a str, name: &str) -> impl Iterator<Item = &'a str> + 'a {
     let (open, close) = (format!("<{name}>"), format!("</{name}>"));
     let mut rest = text;
     std::iter::from_fn(move || {
-        let start = rest.find(&open)? + open.len();
-        let end = start + rest[start..].find(&close)?;
-        let inner = &rest[start..end];
-        rest = &rest[end + close.len()..];
+        let (_, content) = rest.split_once(&open)?;
+        let (inner, tail) = content.split_once(&close)?;
+        rest = tail;
         Some(inner)
     })
 }

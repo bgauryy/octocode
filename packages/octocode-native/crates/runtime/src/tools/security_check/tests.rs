@@ -144,6 +144,80 @@ async fn an_advisory_id_reads_its_record_and_a_missing_one_is_not_clean() {
     );
 }
 
+/// OSV ids are case-sensitive and a few keep a lower-case part: the id the caller
+/// wrote is asked first and never rewritten when OSV knows it.
+#[tokio::test]
+async fn a_mixed_case_advisory_id_is_found_as_given() {
+    let id = "openSUSE-SU-2019:0174-1";
+    let path = "/v1/vulns/openSUSE-SU-2019%3A0174-1";
+    let http = RouteHttp::new().json(path, json!({"id": id, "summary": "SUSE update"}));
+    let data = answer(&http, json!({"operation": "advisory", "id": id}))
+        .await
+        .expect("row");
+    assert_eq!(data["advisories"][0]["id"], id);
+    assert!(data.get("warnings").is_none(), "{data}");
+    assert_eq!(http.targets(), [path]);
+}
+
+/// A spelling OSV does not know falls back to the usual one once, and says so.
+#[tokio::test]
+async fn a_lower_case_advisory_id_resolves_through_one_disclosed_retry() {
+    let http = RouteHttp::new().json(
+        "/v1/vulns/GHSA-5crp-9r3c-p9vr",
+        json!({"id": "GHSA-5crp-9r3c-p9vr", "summary": "Axios"}),
+    );
+    let data = answer(
+        &http,
+        json!({"operation": "advisory", "id": "ghsa-5crp-9r3c-p9vr"}),
+    )
+    .await
+    .expect("row");
+    assert_eq!(data["advisories"][0]["id"], "GHSA-5crp-9r3c-p9vr");
+    assert_eq!(
+        http.targets(),
+        [
+            "/v1/vulns/ghsa-5crp-9r3c-p9vr",
+            "/v1/vulns/GHSA-5crp-9r3c-p9vr"
+        ]
+    );
+    let warnings = data["warnings"].to_string();
+    assert!(
+        warnings.contains("ghsa-5crp-9r3c-p9vr") && warnings.contains("GHSA-5crp-9r3c-p9vr"),
+        "{warnings}"
+    );
+}
+
+#[tokio::test]
+async fn an_id_in_the_canonical_spelling_is_asked_once() {
+    let http = RouteHttp::new();
+    let error = answer(
+        &http,
+        json!({"operation": "advisory", "id": "CVE-0000-0000"}),
+    )
+    .await
+    .expect_err("not found");
+    assert_eq!(error.code, ErrorCode::NotFound);
+    assert_eq!(http.targets(), ["/v1/vulns/CVE-0000-0000"]);
+}
+
+#[tokio::test]
+async fn an_id_unknown_in_both_spellings_is_not_found_and_names_both() {
+    let http = RouteHttp::new();
+    let error = answer(
+        &http,
+        json!({"operation": "advisory", "id": "cve-0000-0000"}),
+    )
+    .await
+    .expect_err("not found");
+    assert_eq!(error.code, ErrorCode::NotFound);
+    assert_eq!(http.targets().len(), 2);
+    assert!(
+        error.message.contains("cve-0000-0000") && error.message.contains("CVE-0000-0000"),
+        "{}",
+        error.message
+    );
+}
+
 /// The schema: nothing else leaves, and a caller cannot hand in OSV's token.
 #[test]
 fn the_contract_admits_only_the_public_form() {

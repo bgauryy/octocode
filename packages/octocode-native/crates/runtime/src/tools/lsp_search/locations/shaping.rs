@@ -150,7 +150,7 @@ pub(in super::super) async fn hide_lines_a_row_cannot_judge(
         let mut line = first;
         let mut out = String::with_capacity(content.len());
         for record in content.split_inclusive('\n') {
-            if record.starts_with("… ") && record.contains(" more lines omitted") {
+            if is_omission_marker(record) {
                 out.push_str(record);
                 continue;
             }
@@ -171,8 +171,16 @@ pub(in super::super) async fn hide_lines_a_row_cannot_judge(
     }
 }
 
+/// Whether a `content` record is an unnumbered omission marker: the lines
+/// [`cap_declaration_content`] left out, or the bytes a byte window
+/// (`byte_window`) left out before or after it.
+fn is_omission_marker(record: &str) -> bool {
+    record.starts_with("… ")
+        && (record.contains(" more lines omitted") || record.contains(" bytes omitted "))
+}
+
 /// Partial reason of a row whose declaration body was clipped at
-/// [`MAX_DECLARATION_CONTENT_LINES`].
+/// [`MAX_DECLARATION_CONTENT_LINES`] or to its byte window.
 pub(super) const DECLARATION_CLIPPED: crate::response::paging::PartialReason =
     crate::response::paging::PartialReason::DeclarationClipped;
 
@@ -274,16 +282,15 @@ pub(in super::super) fn compact_location(value: Value) -> Value {
 pub(in super::super) const RECOVERED_ALIAS: &str = "recoveredAlias";
 
 /// `content` with each source line prefixed by its one-based number and a
-/// tab (`<line>\t<text>`, as localFetch reads are numbered), from `start`. A
-/// trailing omission marker (see [`cap_declaration_content`]) stays
-/// unnumbered.
+/// tab (`<line>\t<text>`, as localFetch reads are numbered), from `start`.
+/// Omission markers ([`is_omission_marker`]) stay unnumbered.
 pub(super) fn number_content(content: &str, start: u64) -> String {
     let mut out = String::with_capacity(content.len() + content.len() / 8);
     let mut line = start;
     // A row's content has no final line ending, whichever page carries it.
     let content = content.strip_suffix('\n').unwrap_or(content);
     for record in content.split_inclusive('\n') {
-        if record.starts_with("… ") && record.contains(" more lines omitted") {
+        if is_omission_marker(record) {
             out.push_str(record);
         } else {
             crate::response::numbered::push_numbered(&mut out, line, record);
@@ -354,7 +361,13 @@ pub(super) fn normalize_display_range(value: &Value) -> Option<Value> {
         .get("endLine")
         .or_else(|| value.get("end_line"))
         .and_then(Value::as_u64)?;
-    Some(json!({ "startLine": start, "endLine": end }))
+    let mut window = json!({ "startLine": start, "endLine": end });
+    // A link's one-based declaration start column, where a byte window of a
+    // long declaration line starts (`byte_window`).
+    if let Some(character) = value.get("startCharacter").and_then(Value::as_u64) {
+        window["startCharacter"] = json!(character);
+    }
+    Some(window)
 }
 
 #[cfg(test)]

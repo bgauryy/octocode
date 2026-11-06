@@ -1,5 +1,7 @@
 // Language-server states from a scripted protocol server: its answers are the fixture,
 // so each row shows how native reports what the server did, not what a compiler knows.
+import { contract } from '../contract.mjs';
+
 const range = (line, character, length = 1) => ({ start: { line, character }, end: { line, character: character + length } });
 const loc = (uri, line, character, length = 1) => ({ uri, range: range(line, character, length) });
 const item = (base, file, line, name) => ({ name, kind: 12, uri: `${base}/${file}`, range: range(line, 0, 20), selectionRange: range(line, 0, 1) });
@@ -17,6 +19,38 @@ const fanOut = (base, count, prefix) => Array.from({ length: count }, (_, index)
 const CALL_ROOT = { path: '$DIR/src/lib.rs', symbolName: 'root', line: 1, operation: 'callers', depth: 2 };
 const callRoot = base => ({ method: 'textDocument/prepareCallHierarchy', result: [item(base, 'src/lib.rs', 0, 'root')] });
 const ROOTS = { ...CARGO, 'src/lib.rs': `pub fn root() {}\n${Array.from({ length: 300 }, (_, index) => `pub fn n${index}() {}`).join('\n')}\n` };
+
+// The default context is only the symbol line. Select the body explicitly,
+// and make one body line exceed the native row window to provoke its read.
+const DECLARATION = `export function f() {\n  body(); // ${'x'.repeat(contract.limits.defaultResponseChars)}\n${'  body();\n'.repeat(69)}}\nf();\n`;
+const DECLARATION_END = DECLARATION.split('\n').findIndex(line => line === '}');
+
+// Every graph node occupies its own real declaration; names alone do not
+// distinguish nodes because native keys them by URI and selection range.
+function cappedNodeScene() {
+  const parents = Array.from({ length: 50 }, (_, index) => `n${index}`);
+  const children = name => Array.from({ length: 45 }, (_, index) => `${name}child${index}`);
+  const names = ['root', ...parents, ...parents.flatMap(children)];
+  const lines = new Map(names.map((name, index) => [name, index]));
+  const source = names.map(name => `pub fn ${name}() {}`).join('\n') + '\n';
+  const node = (base, name) => ({
+    ...item(base, 'src/lib.rs', lines.get(name), name),
+    range: range(lines.get(name), 0, `pub fn ${name}() {}`.length),
+    selectionRange: range(lines.get(name), 7, name.length),
+  });
+  const incoming = (base, parent, names) => ({
+    method: 'callHierarchy/incomingCalls', item: parent,
+    result: names.map(name => ({ from: node(base, name), fromRanges: [range(lines.get(parent), 7, parent.length)] })),
+  });
+  return {
+    files: { ...CARGO, 'src/lib.rs': source },
+    script: base => ({ answers: [
+      ...names.map(name => ({ method: 'textDocument/prepareCallHierarchy', word: name, result: [node(base, name)] })),
+      incoming(base, 'root', parents),
+      ...parents.map(name => incoming(base, name, children(name))),
+    ] }),
+  };
+}
 
 const REASONS = [
   scene('aliasRecoveryFailed', {
@@ -73,8 +107,7 @@ const REASONS = [
     script: base => ({ answers: [callRoot(base), { method: 'callHierarchy/incomingCalls', item: 'root', result: fanOut(base, 1, 'hub') }, { method: 'callHierarchy/incomingCalls', result: fanOut(base, 60, 'x') }] }),
   }),
   scene('hierarchyNodeLimit', {
-    files: ROOTS, query: { ...CALL_ROOT, depth: 3 }, reasons: ['hierarchyNodeLimit'],
-    script: base => ({ answers: [callRoot(base), { method: 'callHierarchy/incomingCalls', item: 'root', result: fanOut(base, 50, 'n') }, ...Array.from({ length: 50 }, (_, index) => ({ method: 'callHierarchy/incomingCalls', item: `n${index}`, result: fanOut(base, 45, `m${index}x`) }))] }),
+    ...cappedNodeScene(), query: { ...CALL_ROOT, depth: 3 }, reasons: ['hierarchyNodeLimit'],
   }),
   scene('hierarchyCandidateLimit', {
     files: { ...TS_PROJECT, 'a.ts': `export class Base {}\n${Array.from({ length: 205 }, (_, index) => `class C${index} extends Base {}`).join('\n')}\n` },
@@ -82,9 +115,9 @@ const REASONS = [
     script: base => ({ capabilities: { typeHierarchyProvider: false }, answers: [{ method: 'textDocument/implementation', result: Array.from({ length: 205 }, (_, index) => loc(`${base}/a.ts`, index + 1, 6, 2)) }] }),
   }),
   scene('declarationClipped', {
-    files: { ...TS_PROJECT, 'a.ts': `export function f() {\n${'  body();\n'.repeat(70)}}\nf();\n` },
-    query: { path: '$DIR/a.ts', symbolName: 'f', line: 72, operation: 'definition', view: 'content' }, reasons: ['declarationClipped'], channels: ['readDeclaration'],
-    script: base => ({ answers: [{ method: 'textDocument/definition', result: [{ targetUri: `${base}/a.ts`, targetRange: { start: { line: 0, character: 0 }, end: { line: 71, character: 1 } }, targetSelectionRange: range(0, 16) }] }] }),
+    files: { ...TS_PROJECT, 'a.ts': DECLARATION },
+    query: { path: '$DIR/a.ts', symbolName: 'f', line: DECLARATION.split('\n').findIndex(line => line === 'f();') + 1, operation: 'definition', view: 'content', contextLines: { before: 0, after: DECLARATION_END } }, reasons: ['declarationClipped'], channels: ['readDeclaration'],
+    script: base => ({ answers: [{ method: 'textDocument/definition', result: [{ targetUri: `${base}/a.ts`, targetRange: { start: { line: 0, character: 0 }, end: { line: DECLARATION_END, character: 1 } }, targetSelectionRange: range(0, 16) }] }] }),
   }),
   scene('definitionHopFailed', {
     files: { ...TS_PROJECT, 'a.ts': "import { b } from './b';\nb();\n", 'b.ts': "export { b } from './c';\n", 'c.ts': 'export function b() {}\n' },

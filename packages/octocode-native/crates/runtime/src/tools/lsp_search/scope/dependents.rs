@@ -210,7 +210,12 @@ fn read_dependents(
     let mut read = Read::default();
     read.watched.push(own);
     let mut by_root = BTreeMap::<PathBuf, Vec<PathBuf>>::new();
-    for entry in ignore::WalkBuilder::new(root).build().flatten() {
+    // The one walk policy of every local tool: dependency and build output
+    // and credential stores are never entered.
+    for entry in crate::tools::pruned_walk(root, std::iter::empty())
+        .build()
+        .flatten()
+    {
         if stopped() {
             return None;
         }

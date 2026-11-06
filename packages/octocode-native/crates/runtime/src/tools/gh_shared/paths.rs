@@ -32,12 +32,14 @@ fn is_git_directory(segment: &str) -> bool {
     let visible: String = segment.chars().filter(|&c| !is_hfs_ignorable(c)).collect();
     [".git", "git~1"].iter().any(|name| {
         visible
-            .get(..name.len())
-            .is_some_and(|head| head.eq_ignore_ascii_case(name))
-            && visible[name.len()..]
-                .split(':')
-                .next()
-                .is_some_and(|tail| tail.chars().all(|c| matches!(c, '.' | ' ')))
+            .split_at_checked(name.len())
+            .is_some_and(|(head, tail)| {
+                head.eq_ignore_ascii_case(name)
+                    && tail
+                        .split(':')
+                        .next()
+                        .is_some_and(|tail| tail.chars().all(|c| matches!(c, '.' | ' ')))
+            })
     })
 }
 

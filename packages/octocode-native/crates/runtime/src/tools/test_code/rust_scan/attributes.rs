@@ -47,10 +47,13 @@ impl<'t> Pass<'t> {
         };
         self.tokens = ahead;
         if !inner && !self.opaque() && self.pending.attributes_from.is_none() {
-            let line_start = self.content[..hash.start]
-                .rfind('\n')
-                .map_or(0, |at| at + 1);
-            if self.content[line_start..hash.start].trim().is_empty() {
+            // `hash` is the ASCII '#' token, hence a character boundary.
+            let before = self.content.split_at(hash.start).0;
+            if before
+                .rsplit('\n')
+                .next()
+                .is_some_and(|line| line.trim().is_empty())
+            {
                 self.pending.attributes_from = Some(hash.line);
             }
         }
@@ -58,7 +61,10 @@ impl<'t> Pass<'t> {
         if self.opaque() || !matches!(name, Some(Token::Word("cfg" | "path" | "cfg_attr"))) {
             return true;
         }
-        let meaning = self.meaning(&self.content[hash.start..=end.start]);
+        // The accepted ASCII '#' and ']' tokens bound the entire attribute.
+        let tail = self.content.split_at(hash.start).1;
+        let attribute = tail.split_at(end.start - hash.start + 1).0;
+        let meaning = self.meaning(attribute);
         if inner {
             if meaning.test {
                 self.gate_enclosing();

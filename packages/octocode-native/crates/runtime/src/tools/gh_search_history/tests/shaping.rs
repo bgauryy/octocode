@@ -48,6 +48,21 @@ fn pull_request_rows_normalize_merged_state_from_list_and_search_shapes() {
     assert!(closed.get("mergedAt").is_none());
 }
 
+/// A commit with several parents is a merge: its row says so, and an
+/// ordinary one carries no flag.
+#[test]
+fn merge_commits_are_marked() {
+    let commit = |parents: serde_json::Value| {
+        map_commit_list(
+            json!({"sha":"abc","commit":{"message":"x","author":{"name":"Dev"}},
+            "parents": parents}),
+        )
+    };
+    assert_eq!(commit(json!([{"sha":"a"},{"sha":"b"}]))["merge"], true);
+    assert!(commit(json!([{"sha":"a"}])).get("merge").is_none());
+    assert!(commit(json!([])).get("merge").is_none());
+}
+
 /// Row diet: commit authors are a login (else name) without email, list
 /// rows drop the message body, issue rows drop updatedAt and empty
 /// labels, PR rows drop empty labels and zero comment counts.

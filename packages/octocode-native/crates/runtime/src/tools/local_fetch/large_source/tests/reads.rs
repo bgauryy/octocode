@@ -142,11 +142,11 @@ fn a_streamed_source_with_a_late_nul_is_binary() {
 /// source exactly once: no gap, no duplicate, no key byte.
 #[test]
 fn a_walk_across_a_giant_key_body_reconstructs_the_sanitized_source_once() {
-    let mut text = "x".repeat(2 * BYTE_LOOKBEHIND + 17);
+    let mut text = "x".repeat(2 * STRETCH + 17);
     text.push_str("\r\n-----BEGIN PRIVATE KEY-----\r\n");
-    text.push_str(&"A".repeat(2 * BYTE_LOOKBEHIND + 5));
+    text.push_str(&"A".repeat(2 * STRETCH + 5));
     text.push_str("\r\n-----END PRIVATE KEY-----\r\n\r\n");
-    text.push_str(&"€".repeat(BYTE_LOOKBEHIND));
+    text.push_str(&"€".repeat(STRETCH));
     let mut keys = crate::security::KeyBlockState::default();
     let expected: String = text
         .split_inclusive('\n')

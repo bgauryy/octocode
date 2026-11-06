@@ -14,6 +14,7 @@ use super::window::{
 use super::{HistoryItemRequest, ItemOperation, validation};
 use crate::response::paging::push_warnings;
 use crate::response::result::{ToolData, remove_nulls};
+use crate::tools::gh_get_history_item::Source;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_shared::dates::utc_date;
 use octocode_github::{GitHubProvider, ProviderError, RequestContext};
@@ -21,10 +22,10 @@ use serde_json::{Value, json};
 
 pub(super) async fn commit(
     provider: &GitHubProvider,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<ToolData, ProviderError> {
-    let transport = &provider.transport;
     let reference =
         gh_get_history_item_query::reference(query).ok_or_else(|| validation("ref is required"))?;
     let scope = FileScope::from_query(query).map_err(|message| validation(&message))?;
@@ -62,7 +63,7 @@ pub(super) async fn commit(
             .await?
     };
     let mut loaded = load_window_with(
-        transport,
+        source,
         &[
             "repos",
             gh_get_history_item_query::owner(query),

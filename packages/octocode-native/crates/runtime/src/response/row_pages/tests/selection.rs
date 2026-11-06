@@ -74,11 +74,32 @@ fn budget_selection_preserves_every_row_across_varied_shapes() {
                 let part = row["rowPart"]["part"].as_u64().unwrap_or(1);
                 let of = row["rowPart"]["of"].as_u64().unwrap_or(1);
                 parts[index].push((part, of));
-                notes[index].extend(row["data"].get("note").cloned());
+                match (row.pointer("/rowPart/text"), row["data"].get("note")) {
+                    (Some(text), Some(Value::String(part))) if text == "/data/note" => {
+                        let last: &mut Value = notes[index].last_mut().expect("a first part");
+                        *last =
+                            Value::String(format!("{}{part}", last.as_str().unwrap_or_default()));
+                    }
+                    (_, note) => notes[index].extend(note.cloned()),
+                }
+                // A part continuing a string continues the item that holds
+                // it: its first item's text appends to the last one seen.
+                let mut continued = row.pointer("/rowPart/text").is_some();
                 for file in row["data"]["files"].as_array().expect("files") {
                     assert_eq!(file["path"], "a");
-                    seen[index]
-                        .extend(file["matches"].as_array().expect("matches").iter().cloned());
+                    for item in file["matches"].as_array().expect("matches") {
+                        if std::mem::take(&mut continued) {
+                            let last: &mut Value = seen[index].last_mut().expect("a first part");
+                            let text = format!(
+                                "{}{}",
+                                last["text"].as_str().unwrap_or_default(),
+                                item["text"].as_str().unwrap_or_default()
+                            );
+                            last["text"] = Value::String(text);
+                            continue;
+                        }
+                        seen[index].push(item.clone());
+                    }
                 }
                 if let Some(facts) = row["data"].get("rateLimit") {
                     assert_eq!(part, 1, "provider facts belong to the first/whole part");

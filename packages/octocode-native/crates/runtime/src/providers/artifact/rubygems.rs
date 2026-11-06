@@ -33,9 +33,7 @@ fn gem(row: &serde_json::Map<String, Value>) -> Result<ArtifactItem, ArtifactErr
             .and_then(|value| string(value.get("source_code_uri")))
     });
     if let Some(link) = link {
-        artifact.repository = super::util::github_repository(&link)
-            .or_else(|| super::util::canonical_repository(&link));
-        artifact.repository_directory = super::util::github_repo_dir(&link);
+        artifact.set_source_link(&link);
         artifact.source_ref = artifact
             .version
             .as_deref()
@@ -59,6 +57,16 @@ fn gem(row: &serde_json::Map<String, Value>) -> Result<ArtifactItem, ArtifactErr
                 .collect()
         });
     Ok(artifact)
+}
+
+/// An exact gem as a page, its source pinned to the upstream release tag when
+/// the registry named no ref (rubygems.org never names a commit).
+async fn pinned(mut artifact: ArtifactItem, client: &RegistryClient<'_>) -> ArtifactProviderPage {
+    if let Some(version) = artifact.version.clone() {
+        let name = artifact.package_name.clone();
+        super::release_ref::pin_release_tag(&mut artifact, &name, &version, None, client).await;
+    }
+    ArtifactProviderPage::single(artifact)
 }
 
 /// Rows rubygems.org serves per search page: fixed, whatever `per_page`
@@ -85,10 +93,8 @@ pub(crate) async fn rubygems(
         else {
             return Ok(ArtifactProviderPage::empty(Some(0)));
         };
-        return Ok(ArtifactProviderPage::single(gem(object_for(
-            &response,
-            ArtifactType::Rubygems,
-        )?)?));
+        let artifact = gem(object_for(&response, ArtifactType::Rubygems)?)?;
+        return Ok(pinned(artifact, client).await);
     }
     // A page that crosses an API page boundary reads the next one; a short
     // API page is the last.
@@ -168,10 +174,8 @@ async fn exact_release(
         .json(ArtifactType::Rubygems, url, true, None, None, JSON)
         .await?
     {
-        return Ok(ArtifactProviderPage::single(gem(object_for(
-            &response,
-            ArtifactType::Rubygems,
-        )?)?));
+        let artifact = gem(object_for(&response, ArtifactType::Rubygems)?)?;
+        return Ok(pinned(artifact, client).await);
     }
     let listing = parse_url(&format!(
         "https://rubygems.org/api/v1/versions/{gem_path}.json"
@@ -296,16 +300,53 @@ mod tests {
             .expect("row"))
         .expect("row");
         assert_eq!((row.dependencies, row.published_at), (None, None));
-        let monorepo = gem(json!({"name": "x", "version": "1",
+        let mut monorepo = [gem(json!({"name": "x", "version": "1",
             "source_code_uri": "https://github.com/o/r/tree/main/gems/x"})
         .as_object()
         .expect("row"))
-        .expect("row");
+        .expect("row")];
+        let tags = super::super::test_http::KnownTags::new(vec!["o/r@main"]);
+        super::super::test_http::settle_links(&mut monorepo, &tags).await;
+        let [monorepo] = monorepo;
         assert_eq!(
             monorepo.repository.as_deref(),
             Some("https://github.com/o/r")
         );
         assert_eq!(monorepo.repository_directory.as_deref(), Some("gems/x"));
         assert_eq!(monorepo.source_ref, None, "a branch is no release ref");
+    }
+
+    /// A gem whose source link names no release ref (nokogiri's repository
+    /// root) is pinned to the upstream tag of its version: `v1.19.4`.
+    #[tokio::test]
+    async fn a_gem_without_a_release_ref_is_pinned_to_its_upstream_tag() {
+        let http = RouteHttp::always(json!({
+            "name": "nokogiri", "version": "1.19.4",
+            "source_code_uri": "https://github.com/sparklemotion/nokogiri/tree/v1.19.4/lib",
+            "metadata": {"source_code_uri": "https://github.com/sparklemotion/nokogiri"}
+        }));
+        let b = test_budget();
+        let tags = super::super::test_http::KnownTags::new(vec!["sparklemotion/nokogiri@v1.19.4"]);
+        let client = RegistryClient {
+            tags: Some(&tags),
+            ..RegistryClient::new(&http, &b)
+        };
+        for version in [None, Some("1.19.4")] {
+            let mut query =
+                json!({"operation":"resolve","ecosystem":"rubygems","packageName":"nokogiri"});
+            if let Some(version) = version {
+                query["version"] = json!(version);
+            }
+            let page = rubygems(
+                &super::super::query::artifact_query(query, None),
+                &Default::default(),
+                &client,
+            )
+            .await
+            .expect("nokogiri");
+            let item = &page.artifacts[0];
+            assert_eq!(item.source_ref.as_deref(), Some("v1.19.4"), "{version:?}");
+            assert!(item.source_tag, "{version:?}");
+        }
     }
 }

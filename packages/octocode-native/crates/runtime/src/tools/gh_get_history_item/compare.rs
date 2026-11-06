@@ -10,10 +10,11 @@ use super::{HistoryItemRequest, ItemOperation, fetch, validation};
 use crate::response::paging::push_warnings;
 use crate::response::result::wire_query;
 use crate::response::result::{Continuation, ToolData};
+use crate::tools::gh_get_history_item::Source;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::sections::Section;
 use octocode_contract_types::GhGetHistoryItemQuery;
-use octocode_github::{GitHubProvider, GitHubTransport, ProviderError, RequestContext};
+use octocode_github::{GitHubProvider, ProviderError, RequestContext};
 use serde_json::{Value, json};
 
 mod identity;
@@ -30,10 +31,10 @@ use trees::tree_changed_files;
 
 pub(super) async fn compare(
     provider: &GitHubProvider,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<ToolData, ProviderError> {
-    let transport = &provider.transport;
     let page = gh_get_history_item_query::page(query).unwrap_or(1);
     let per = gh_get_history_item_query::collection_page_size(query);
     // Omitted sections read both lists; named sections read what they name.
@@ -59,7 +60,7 @@ pub(super) async fn compare(
         more,
         base_sha,
         head_sha,
-    } = read_comparison(provider, query, context, wants_commits).await?;
+    } = read_comparison(provider, source, query, context, wants_commits).await?;
     let capped = raw
         .get("files")
         .and_then(Value::as_array)
@@ -68,7 +69,7 @@ pub(super) async fn compare(
     // other changed path (two reads); the cap stays only when a tree is
     // truncated or unreadable.
     let tree_files = if wants_files && capped {
-        tree_changed_files(transport, query, &raw, &head_sha, context).await
+        tree_changed_files(source, query, &raw, &head_sha, context).await
     } else {
         None
     };
@@ -211,11 +212,11 @@ struct Comparison {
 /// `wants_commits`, else the first commit page beside the whole file list).
 async fn read_comparison(
     provider: &GitHubProvider,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
     wants_commits: bool,
 ) -> Result<Comparison, ProviderError> {
-    let transport = &provider.transport;
     let page = gh_get_history_item_query::page(query).unwrap_or(1);
     let per = gh_get_history_item_query::collection_page_size(query);
     let base =
@@ -245,7 +246,7 @@ async fn read_comparison(
     // page, so a files-only read asks for the first commit page.
     let (commit_page, commit_per) = if wants_commits { (page, per) } else { (1, per) };
     let (raw, link_more) = fetch(
-        transport,
+        source,
         &[
             "repos",
             gh_get_history_item_query::owner(query),
@@ -265,7 +266,7 @@ async fn read_comparison(
     let (base_sha, mut head_sha) = compare_identity(&raw, base, &head);
     if head.contains(':') {
         head_sha = pin_fork_head(
-            transport,
+            source,
             query,
             &refs,
             &raw,
@@ -290,7 +291,7 @@ async fn read_comparison(
 /// one more read of the last page
 /// (one commit) names it. A head with no commits ahead is the merge base.
 async fn pin_fork_head(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     refs: &str,
     raw: &Value,
@@ -317,7 +318,7 @@ async fn pin_fork_head(
         return Ok(sha);
     }
     let (last_page, _) = fetch(
-        transport,
+        source,
         &[
             "repos",
             gh_get_history_item_query::owner(query),

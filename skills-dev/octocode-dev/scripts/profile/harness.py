@@ -172,8 +172,11 @@ class Mcp:
             try:
                 content = json.loads(result['content'][0]['text'])
             except (ValueError, LookupError, TypeError):
-                content = {}
-        return {**out, 'content': content, 'error': row_error(content), 'bytes': sum(len(part.get('text', '')) for part in result.get('content', []))}
+                content = None
+        error = row_error(content)
+        if result.get('isError') and (not error or error == 'noJson'):
+            error = '\n'.join(part.get('text', '') for part in result.get('content', [])) or 'toolError'
+        return {**out, 'content': content, 'error': error, 'bytes': sum(len(part.get('text', '')) for part in result.get('content', []))}
 
     def close(self, patience=30):
         try:

@@ -6,6 +6,8 @@ import { statusClass } from '../tool-health/driver.mjs';
 const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const ordered = rows => rows.map(canon).toSorted(byText);
 const short = value => JSON.stringify(value)?.slice(0, 600);
+const credentialHeader = /^(?:authorization|proxy-authorization|cookie|set-cookie|(?:x-)?api-key)$/i;
+const providerReceipt = headers => headers.map(entry => Object.fromEntries(Object.entries(entry).filter(([name]) => !credentialHeader.test(name))));
 
 export function firstDifference(expected, actual) {
   const a = ordered(expected), b = ordered(actual);
@@ -39,6 +41,9 @@ function refusalProblem(root, refusal, cls) {
   return code === refusal ? [] : [['refusal', `expected ${refusal}, got ${code ?? cls}: ${short(root)}`]];
 }
 
+/** A refusal can prove only the input fields its own policy actually judged. */
+const valuesProved = (spec, testCase, refusal) => (refusal && spec.refusalValues ? spec.refusalValues(testCase) : testCase.values);
+
 /** One surface's judgment of a row: refusal, admission, evidence, order. */
 async function judge(spec, worker, { testCase, surface, walked, expected, refusal }) {
   const { pages, report } = walked;
@@ -63,21 +68,26 @@ async function judge(spec, worker, { testCase, surface, walked, expected, refusa
 
 export async function runRow(worker, spec, testCase, ledger) {
   const failures = [];
-  const fail = (check, surface, detail) => failures.push({ id: testCase.id, tool: testCase.tool, surface, check, detail, input: testCase.input });
+  const fail = failure => failures.push({ id: testCase.id, tool: testCase.tool, input: testCase.input, ...failure });
   const input = spec.resolve ? spec.resolve(worker.context, testCase.input) : testCase.input;
   const refusal = spec.refusal?.(worker.context, testCase);
   const expected = refusal ? null : spec.truth?.(worker.context, testCase);
   const evidence = {};
+  const observations = {};
   const passed = new Set();
   for (const surface of worker.surfaces) {
     worker.context.providerHeaders.length = 0;
     const walked = await walkOn(worker, { surface, tool: testCase.tool, input, ledger });
+    // A check may consume the provider receipt. Keep full failed-row evidence
+    // before judgment, without retaining credential-bearing request headers.
+    const observation = { pages: walked.pages, providerHeaders: providerReceipt(worker.context.providerHeaders) };
+    observations[surface] = observation;
     const verdict = await judge(spec, worker, { testCase, surface, walked, expected, refusal });
-    for (const [check, detail] of verdict.problems) fail(check, surface, detail);
+    for (const [check, detail] of verdict.problems) fail({ check, surface, detail, observation });
     if (verdict.evidence) evidence[surface] = verdict.evidence;
     if (!verdict.problems.length) passed.add(surface);
   }
   const parity = evidence.cli && evidence.mcp ? firstDifference(evidence.cli, evidence.mcp) : null;
-  if (parity) fail('parity', 'both', JSON.stringify(parity));
-  return { failures, passed, hasOracle: !!expected || !!refusal || !!spec.judge };
+  if (parity) fail({ check: 'parity', surface: 'both', detail: JSON.stringify(parity), observations });
+  return { failures, passed, hasOracle: !!expected || !!refusal || !!spec.judge, provedValues: valuesProved(spec, testCase, refusal) };
 }

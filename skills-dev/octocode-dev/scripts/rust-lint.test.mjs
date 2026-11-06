@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { adopt, collect, compare, ratchetConfig, ratchetKey, serialize, shrink } from './rust-lint.mjs';
+import { RATCHET, adopt, clippyArgs, collect, compare, ratchetConfig, ratchetKey, serialize, shrink } from './rust-lint.mjs';
 
 const record = (code, message, file, line = 1, kind = ['lib']) => ({
   reason: 'compiler-message',
@@ -62,4 +62,20 @@ test('the file is stable: sorted keys and a note', () => {
 test('the ratchet config keeps clippy.toml settings and replaces only its bans', () => {
   const base = 'a = 1\ndisallowed-methods = [\n    { path = "x" },\n]\nb = 2\n';
   assert.equal(ratchetConfig(base, 'disallowed-methods = ["y"]\n'), 'a = 1\nb = 2\ndisallowed-methods = ["y"]\n');
+});
+
+test('ratchet cfg and lint flags reach rustc for production and all-target passes', () => {
+  for (const allTargets of [false, true]) {
+    const args = clippyArgs(allTargets);
+    const separator = args.indexOf('--');
+    assert.equal(args[0], 'clippy');
+    assert.equal(args.includes('--all-targets'), allTargets);
+    assert.equal(args.includes('--all-features'), true);
+    assert.equal(args.includes('--locked'), true);
+    assert.equal(args.includes('--workspace'), true);
+    assert.equal(args.includes('--message-format=json'), true);
+    assert.equal(args.slice(0, separator).includes('--cfg'), false);
+    assert.deepEqual(args.slice(separator + 1, separator + 3), ['--cfg', 'octocode_clippy_ratchet']);
+    assert.deepEqual(args.slice(separator + 3), RATCHET.flatMap(lint => ['-W', lint]));
+  }
 });

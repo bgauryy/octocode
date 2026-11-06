@@ -44,6 +44,9 @@ pub(in crate::tools::local_search) struct ValueCheck<'a, C> {
     pub(in crate::tools::local_search) security: &'a ContentSecurity,
     pub(in crate::tools::local_search) match_only: bool,
     pub(in crate::tools::local_search) cancel: &'a C,
+    /// The stored scan's judged windows, reused for a source whose read
+    /// proved the stored digest (`None`: judge every window afresh).
+    pub(in crate::tools::local_search) judged: Option<&'a settle::JudgedWindows>,
 }
 
 /// [`guard_source_secrets`] over the reader `open` returns, opened only
@@ -60,6 +63,7 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
         security,
         match_only,
         cancel,
+        judged: known,
     } = *check;
     if expected == Expected::Stored(None) {
         return Ok(Verification::Changed);
@@ -123,7 +127,7 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
         let scan = (read.source_wide || !read.key_ranges.is_empty())
             .then(|| settle::whole_source_scan(&read, source, security))
             .flatten();
-        let none = std::collections::BTreeSet::new();
+        let none = std::collections::BTreeMap::new();
         if read.unclassified || !read.source_wide || scan.is_some() {
             return Ok((read, digest, scan, none));
         }
@@ -135,11 +139,11 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
             None => (read, digest, None, none),
         })
     });
-    let (read, scan, masked) = match judged {
+    let (read, proven, scan, masked) = match judged {
         Ok((_, Some(digest), ..)) if expected != Expected::Stored(Some(digest)) => {
             return Ok(Verification::Changed);
         }
-        Ok((read, _, scan, masked)) if !read.unclassified => (read, scan, masked),
+        Ok((read, proven, scan, masked)) if !read.unclassified => (read, proven, scan, masked),
         Ok(_) | Err(VerifyReadError::Io) => {
             for matched in shown.iter_mut() {
                 matched.value = UNVERIFIED_PLACEHOLDER.to_owned();
@@ -162,7 +166,7 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
         },
         source,
         security,
-        match_only,
+        (match_only, known.zip(proven)),
     ))
 }
 

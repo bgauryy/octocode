@@ -24,8 +24,13 @@ impl Form {
         }
     }
 
-    /// `text` with what this form names replaced, line for line.
-    pub(super) fn redact(self, text: &str, placeholder: &str) -> String {
+    /// `text` with what this form names replaced, line for line, and each
+    /// replaced range of `text` with the bytes it became.
+    pub(super) fn redact(
+        self,
+        text: &str,
+        placeholder: &str,
+    ) -> (String, Vec<(Range<usize>, usize)>) {
         let ranges = match self {
             Self::SecretInYaml => yaml_secret::secret_blocks(text),
             Self::SecretInJson => objects::walk(text).secret_values,
@@ -37,9 +42,14 @@ impl Form {
 
 /// `text` with each of `ranges` replaced by `placeholder`, keeping its line count.
 /// A range inside another goes with it; one holding only blanks hides nothing.
-fn replace_ranges(text: &str, mut ranges: Vec<Range<usize>>, placeholder: &str) -> String {
+fn replace_ranges(
+    text: &str,
+    mut ranges: Vec<Range<usize>>,
+    placeholder: &str,
+) -> (String, Vec<(Range<usize>, usize)>) {
     ranges.sort_unstable_by_key(|range| range.start);
     let mut out = String::with_capacity(text.len());
+    let mut replaced = Vec::new();
     let mut from = 0;
     for range in ranges {
         if range.end <= from || text[range.clone()].trim().is_empty() {
@@ -47,14 +57,16 @@ fn replace_ranges(text: &str, mut ranges: Vec<Range<usize>>, placeholder: &str) 
         }
         let start = range.start.max(from);
         out.push_str(&text[from..start]);
+        let shown_from = out.len();
         if range.start >= from {
             out.push_str(placeholder);
         }
         let hidden = &text[start..range.end];
         let line_breaks = hidden.bytes().filter(|byte| *byte == b'\n').count();
         out.extend(std::iter::repeat_n('\n', line_breaks));
+        replaced.push((start..range.end, out.len() - shown_from));
         from = range.end;
     }
     out.push_str(&text[from..]);
-    out
+    (out, replaced)
 }

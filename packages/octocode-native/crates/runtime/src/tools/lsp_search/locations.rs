@@ -19,6 +19,7 @@ use crate::tools::lsp_search::lsp_search_query;
 use octocode_contract_types::LspSearchQuery;
 use serde_json::{Value, json};
 
+mod byte_window;
 mod rows;
 mod shaping;
 mod snapshots;
@@ -97,19 +98,8 @@ pub(super) async fn locations(
     provider: &str,
     snippets: Vec<impl serde::Serialize>,
     budget: usize,
-    response_window: Option<usize>,
 ) -> Value {
-    salted_locations(
-        query,
-        sources,
-        kind,
-        provider,
-        snippets,
-        None,
-        budget,
-        response_window,
-    )
-    .await
+    salted_locations(query, sources, kind, provider, snippets, None, budget).await
 }
 
 /// [`locations`] whose snapshot also covers `salt` (the importer candidate
@@ -122,7 +112,6 @@ pub(super) async fn salted_locations(
     snippets: Vec<impl serde::Serialize>,
     salt: Option<&str>,
     budget: usize,
-    _response_window: Option<usize>,
 ) -> Value {
     // Defense in depth: the engine already refused unauthorized snippet
     // reads; any location still naming an unauthorized path is dropped.
@@ -196,32 +185,59 @@ async fn location_page(
     // The files view summarizes per file, so
     // the page unit becomes a file summary.
     let grouped = lsp_search_query::view(query) == "files";
-    let entries = if grouped {
+    let mut entries = if grouped {
         group_by_file(locations)
     } else {
         locations.to_vec()
     };
-    let sizes = location_sizes(&entries, grouped, lsp_search_query::context_lines(query));
-    let (page, pagination, next_page) = paginate(
-        &entries,
+    let context_lines = lsp_search_query::context_lines(query);
+    // A declaration too long for a page is windowed before the page is cut,
+    // so the cut counts the window.
+    let mut windows = if grouped || context_lines.is_some() {
+        Vec::new()
+    } else {
+        byte_window::window_long_declarations(&mut entries, budget, sources).await
+    };
+    let sizes = location_sizes(&entries, grouped, context_lines);
+    let (range, pagination, next_page) = page_window(
         lsp_search_query::page(query).unwrap_or(1),
         &Pages::of(query, budget, &sizes, &snapshot),
     );
+    let mut page = entries[range.clone()].to_vec();
     let mut declaration_reads: Vec<crate::response::result::Continuation> = Vec::new();
+    let mut line_reads: Vec<Value> = Vec::new();
+    let mut unsealed: Vec<byte_window::Unsealed> = Vec::new();
     let (key, rows) = if grouped {
         ("files", json!(page))
     } else {
         // Context lines are read for this page only, not the whole set.
-        let mut page = page;
-        if let Some(context_lines) = lsp_search_query::context_lines(query) {
+        if let Some(context_lines) = context_lines {
             for location in &mut page {
                 apply_context_lines(location, context_lines, sources).await;
             }
+            // A context window too long for the page is a byte window from
+            // its anchor, as a long declaration is.
+            for window in byte_window::window_long_declarations(&mut page, budget, sources)
+                .await
+                .into_iter()
+                .flatten()
+            {
+                line_reads.extend(window.related);
+                unsealed.extend(window.unsealed);
+                declaration_reads.extend(window.read);
+            }
         } else {
-            declaration_reads = page
-                .iter_mut()
-                .filter_map(cap_declaration_content)
-                .collect();
+            for (location, index) in page.iter_mut().zip(range) {
+                let read = match windows.get_mut(index).and_then(Option::take) {
+                    Some(window) => {
+                        line_reads.extend(window.related);
+                        unsealed.extend(window.unsealed);
+                        window.read
+                    }
+                    None => cap_declaration_content(location),
+                };
+                declaration_reads.extend(read);
+            }
         }
         hide_lines_a_row_cannot_judge(&mut page, sources).await;
         let page = page.into_iter().map(public_location).collect::<Vec<_>>();
@@ -247,6 +263,14 @@ async fn location_page(
             ),
             n => row["next"][format!("readDeclaration{}", n + 1)] = read.build(),
         }
+    }
+    // A declaration no window could be cut for: partial, for its cause.
+    for cause in unsealed {
+        crate::response::paging::mark_partial(&mut row, cause.reason, &[cause.warning]);
+    }
+    // The line before a windowed declaration, read whole from byte 0.
+    for read in line_reads {
+        crate::response::result::attach_related(&mut row, read);
     }
     row
 }

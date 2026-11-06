@@ -163,6 +163,7 @@ mod match_windows;
 mod next_page_walks;
 mod paging;
 mod paths;
+mod redacted_windows;
 mod redaction;
 mod regex_dialects;
 mod source;

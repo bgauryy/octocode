@@ -32,7 +32,7 @@ pub(crate) enum FilePrice {
     /// The owner of each hit line inside a declaration, by line (a line
     /// outside every declaration has none, as has every line of a file
     /// without an outline).
-    Owners(Arc<HashMap<u32, Owner>>),
+    Owners(Arc<HashMap<(u32, u32), Owner>>),
     /// The file could not be read for its outline: its rows reserve
     /// [`ENCLOSING_RESERVE_CHARS`] each.
     Unread,
@@ -54,10 +54,11 @@ impl FilePrice {
                     file.matches
                         .iter()
                         .filter_map(|matched| {
-                            let owner = outline.label(outline.owner(matched.line)?)?;
+                            let at = (matched.line, matched.byte_offset);
+                            let owner = outline.label(outline.owner(at.0, at.1)?)?;
                             let full = ENCLOSING_FIELD_CHARS
                                 + octocode_engine::json_size::utf16_units(&owner).unwrap_or(0);
-                            Some((matched.line, Owner { full }))
+                            Some((at, Owner { full }))
                         })
                         .collect()
                 })
@@ -68,7 +69,7 @@ impl FilePrice {
     /// Bytes this price keeps, as a stored scan weighs it.
     pub(crate) fn weight(&self) -> usize {
         match self {
-            Self::Owners(owners) => owners.len() * std::mem::size_of::<(u32, Owner)>(),
+            Self::Owners(owners) => owners.len() * std::mem::size_of::<((u32, u32), Owner)>(),
             Self::Unread => 0,
         }
     }
@@ -200,7 +201,7 @@ impl PageCosts {
         }
         match self.owners.get(&index) {
             Some(FilePrice::Owners(owners)) => owners
-                .get(&matched.line)
+                .get(&(matched.line, matched.byte_offset))
                 .map_or(RowName::None, |owner| RowName::Owned(*owner)),
             Some(FilePrice::Unread) => RowName::Reserved,
             None if outlined_language(std::path::Path::new(&file.path)) => RowName::Reserved,
@@ -209,6 +210,21 @@ impl PageCosts {
     }
 
     pub(super) fn row(&self, matched: &octocode_engine::types::TextSearchMatch) -> usize {
+        #[cfg(test)]
+        PRICED.with(|priced| priced.set(priced.get() + 1));
         row_chars(matched, self.span_columns)
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Rows this thread's page cuts priced, for tests that pin how much of a
+    /// scan a page prices.
+    static PRICED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Rows priced by page cuts on this thread so far.
+#[cfg(test)]
+pub(crate) fn priced_on_this_thread() -> usize {
+    PRICED.with(std::cell::Cell::get)
 }

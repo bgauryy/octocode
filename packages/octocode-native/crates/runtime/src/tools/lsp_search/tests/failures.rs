@@ -142,10 +142,14 @@ fn path_policy_denials_are_file_access_failures_not_missing_servers() {
     ] {
         let refused = LspFailure::path_denied(crate::policy::PolicyError::new(code, "refused"));
         let text = tip(&refused, &serde_json::Value::Null);
+        // A missing path takes the shared, tool-neutral recovery.
+        let lists = if code == crate::policy::PolicyErrorCode::NotFound {
+            "parent directory"
+        } else {
+            "structureSearch"
+        };
         assert!(
-            text.contains("structureSearch")
-                && text.contains("retry with")
-                && text.contains("exact listed"),
+            text.contains(lists) && text.contains("retry with") && text.contains("exact listed"),
             "{code:?}: {text}"
         );
     }

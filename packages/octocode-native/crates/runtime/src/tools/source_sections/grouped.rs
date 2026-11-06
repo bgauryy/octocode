@@ -1,5 +1,7 @@
 //! Section pages for assessment: adjacent small sections share one page, so a
-//! file of many short declarations is not one provider call per item.
+//! file of many short declarations is not one provider call per item. A page
+//! is only a share of the section grain, so a file that fits one section
+//! still splits into pages an answer can point into.
 use super::{Section, visit};
 use std::ops::Range;
 use std::path::Path;
@@ -8,8 +10,15 @@ use std::path::Path;
 /// members' names in source order.
 pub(crate) const GROUP_KIND: &str = "declarations";
 
+/// A merged page holds at most this share of the section grain
+/// (`target_chars`), the same share a section's supporting context gets. Whole
+/// pages at the full grain made every file under one section's size a single
+/// page, which no answer could narrow.
+const PAGE_SHARE: usize = 4;
+
 /// [`visit`], with consecutive byte-contiguous sections merged while their
-/// combined target stays within `target_chars`. A merged page keeps the first
+/// combined target stays within a share of `target_chars` (a section already
+/// larger than the share stays alone). A merged page keeps the first
 /// member's supporting context and covers exactly its members' bytes, so
 /// every selected byte still belongs to exactly one target.
 pub(crate) fn visit_grouped<E>(
@@ -20,11 +29,12 @@ pub(crate) fn visit_grouped<E>(
     mut emit: impl FnMut(Section) -> Result<bool, E>,
 ) -> Result<bool, E> {
     let mut pending: Option<Group> = None;
+    let page_chars = target_chars / PAGE_SHARE;
     let complete = visit(source, path, selected, target_chars, |section| {
         let chars = source[section.target.clone()].chars().count();
         if let Some(group) = &mut pending
             && group.section.target.end == section.target.start
-            && group.chars.saturating_add(chars) <= target_chars
+            && group.chars.saturating_add(chars) <= page_chars
         {
             group.join(section, chars);
             return Ok(true);

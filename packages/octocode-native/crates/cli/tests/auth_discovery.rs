@@ -64,8 +64,11 @@ async fn native_cli_status_uses_host_scoped_gh_and_preserves_json() {
         .unwrap();
     assert!(
         output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
+        "status: {}; stdout: {}; stderr: {}; gh calls: {:?}",
+        output.status,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+        std::fs::read_to_string(workspace.home.join("gh-calls"))
     );
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["tokenSource"], "gh-cli");

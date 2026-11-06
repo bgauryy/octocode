@@ -42,6 +42,7 @@ mod answered;
 mod code_use_memo;
 mod dependents;
 pub(super) use dependents::Dependents;
+mod fingerprint;
 mod ignored_index;
 mod listing;
 mod paths;
@@ -52,10 +53,12 @@ mod reach;
 mod scan;
 mod spelling_index;
 mod text;
+use fingerprint::{Fingerprint, fingerprint};
+pub(super) use fingerprint::{same_file, written_since};
 pub(super) use paths::{canonical, canonical_uri, widest_authorized_dir, with_canonical_memo};
 pub(super) use question::Question;
-use scan::{Fingerprint, fingerprint, scan_text};
-pub(super) use scan::{IgnoredMentions, same_file, written_since};
+pub(super) use scan::IgnoredMentions;
+use scan::scan_text;
 pub(super) use text::imports_in_code;
 
 /// Project files whose edits change what a language server answers.
@@ -304,7 +307,7 @@ impl WalkInputs {
         stopped: &(dyn Fn() -> bool + Sync),
     ) -> Option<Fingerprint> {
         fingerprint(
-            &scan::FingerprintScope {
+            &fingerprint::FingerprintScope {
                 root: &self.root,
                 server_root: self.server_root.as_deref(),
                 include: &self.include,

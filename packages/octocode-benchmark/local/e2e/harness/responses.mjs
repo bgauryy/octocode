@@ -338,6 +338,37 @@ function gapAfter(record, previousEnd) {
   return Boolean(gap && Number(gap[1]) > previousEnd);
 }
 
+/**
+ * A walk's result rows in page order with every string-window part joined: a part whose
+ * `rowPart.text` names a JSON pointer (in the joined row's indexes) appends its own string
+ * there to the previous part of the same row, so each windowed string reads exactly once.
+ * A later part narrows each array on the way to the element it continues, so its own string
+ * is found by taking that single element at every array step. Other rows pass unchanged.
+ */
+export function joinTextParts(rows) {
+  const out = [];
+  for (const row of rows) {
+    const pointer = row?.rowPart?.text;
+    const previous = typeof pointer === 'string' ? out.findLast(item => item.index === row.index) : undefined;
+    if (!previous) {
+      out.push(structuredClone(row));
+      continue;
+    }
+    const steps = pointer.split('/').slice(1).map(step => step.replaceAll('~1', '/').replaceAll('~0', '~'));
+    let own = row;
+    let target = previous;
+    for (const [at, step] of steps.entries()) {
+      own = Array.isArray(own) ? own[0] : own?.[step];
+      if (at === steps.length - 1) break;
+      target = target?.[step];
+    }
+    const last = steps.at(-1);
+    if (typeof own !== 'string' || typeof target?.[last] !== 'string') throw new Error(`rowPart.text ${pointer} names no string to continue`);
+    target[last] += own;
+  }
+  return out;
+}
+
 export function rowData(entry, index = 0) {
   const row = entry.sc?.results?.[index];
   return row?.data;

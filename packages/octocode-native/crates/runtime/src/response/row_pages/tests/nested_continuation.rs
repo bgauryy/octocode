@@ -43,15 +43,22 @@ pub(super) fn continued_elements(marker: &Value) -> Vec<(String, usize)> {
 
 /// Concatenate `part` onto `joined` at pointer `at`: a continued array's
 /// first item merges into the element the marker names, which must be the
-/// last one joined so far; any other item is appended; repeated context
-/// scalars must agree.
-pub(super) fn merge(joined: &mut Value, part: Value, at: &str, continued: &[(String, usize)]) {
+/// last one joined so far; any other item is appended; the string
+/// `rowPart.text` names (`text`) is appended to; repeated context scalars
+/// must agree.
+pub(super) fn merge(
+    joined: &mut Value,
+    part: Value,
+    at: &str,
+    continued: &[(String, usize)],
+    text: Option<&str>,
+) {
     match (joined, part) {
         (Value::Object(joined), Value::Object(part)) => {
             for (key, value) in part {
                 let pointer = format!("{at}/{key}");
                 match joined.get_mut(&key) {
-                    Some(slot) => merge(slot, value, &pointer, continued),
+                    Some(slot) => merge(slot, value, &pointer, continued, text),
                     None => {
                         joined.insert(key, value);
                     }
@@ -72,10 +79,12 @@ pub(super) fn merge(joined: &mut Value, part: Value, at: &str, continued: &[(Str
                     first,
                     &format!("{at}/{index}"),
                     continued,
+                    text,
                 );
             }
             joined.extend(items);
         }
+        (Value::String(joined), Value::String(part)) if text == Some(at) => joined.push_str(&part),
         (joined, part) => assert_eq!(*joined, part, "{at}: repeated context changed"),
     }
 }
@@ -105,7 +114,13 @@ fn parts_split_several_levels_deep_join_back_exactly_once() {
                 let continued = continued_elements(marker);
                 match joined.as_mut() {
                     None => joined = Some(row["data"].clone()),
-                    Some(joined) => merge(joined, row["data"].clone(), "/data", &continued),
+                    Some(joined) => merge(
+                        joined,
+                        row["data"].clone(),
+                        "/data",
+                        &continued,
+                        row["rowPart"]["text"].as_str(),
+                    ),
                 }
             }
         }

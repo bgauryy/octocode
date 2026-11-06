@@ -18,7 +18,7 @@ counts are written under `results/`; `results/summary.json` identifies the suite
 | `grammar` | Runtime grammar inventory and every owned extension on CLI and MCP: declarations, call captures, UTF-16 positions, syntax-tree extent, all fetch views, exact source search, file-type filters, structure files/tree, and strict LSP definition/reference protocol fixtures. Complete tiny-page walks and transport parity. |
 | `classification-retry` | Shared requests, retry bounds, usage accounting, persistent versus memory caches, account isolation, and exact judgment identity across fresh CLI processes |
 | `provider-shapes` | Real recorded provider answers (below): every field a provider sends reaches the output or is declared `unread`, and the output meets the published contract |
-| `tool-health` | Every generated contract tool (currently 16) on CLI and MCP: published input/output validation, transport status, malformed admission without provider work, batch behavior, advanced operations and field effects, exact cursor walks, typed related calls and transport parity. The isolated MCP configuration enables graph, clone and classification tools. |
+| `tool-health` | Every generated contract tool on CLI and MCP: published input/output validation, transport status, malformed admission without provider work, batch behavior, advanced operations and field effects, exact cursor walks, typed related calls and transport parity. The isolated MCP configuration enables graph, clone and classification tools. |
 
 `node skills-dev/octocode-dev/scripts/dev.mjs test:tools` runs every hermetic suite but `grammar`; `test:e2e` runs them all.
 Its optional `--deep` explores additional related calls. The loopback provider

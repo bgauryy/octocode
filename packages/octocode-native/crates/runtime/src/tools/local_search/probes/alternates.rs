@@ -4,7 +4,7 @@
 //! file is read once; a walk whose record cannot serve runs them as its own
 //! probes. A probe says how many files, never what they hold.
 
-use super::{probe_walked, query_walk, within_budget};
+use super::{probe_walked, query_walk, within_work};
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::tools::local_search::executor::Scanned;
@@ -216,8 +216,8 @@ impl<'q> Alternates<'q> {
         {
             #[cfg(test)]
             LISTED_PASSES.with(|passes| passes.set(passes.get() + 1));
-            let (counts, cut) =
-                within_budget(cancel, |stopped| count_listed(asked, files, stopped));
+            let (files, cut) = within_work(files);
+            let counts = count_listed(asked, files, &|| cancel.check().is_err());
             if let Ok(counts) = counts {
                 return counts
                     .into_iter()

@@ -13,6 +13,7 @@ use url::Url;
 
 use octocode_io::retry::Backoff;
 
+pub(crate) use response::last_page;
 use response::{sso_directive, sso_parameter};
 
 use super::{

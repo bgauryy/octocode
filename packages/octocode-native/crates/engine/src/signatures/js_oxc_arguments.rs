@@ -54,6 +54,7 @@ pub(super) fn collect(
                 .scope_flags(node.scope_id())
                 .contains_direct_eval()
     });
+    let owners = call_owners(semantic, declarations);
     let mut sites = Vec::new();
     for node in semantic.nodes().iter() {
         if job_cancelled() {
@@ -89,18 +90,9 @@ pub(super) fn collect(
         };
         let source_range = bytes(span);
         let call = by_call_span.get(&(span.start, span.end)).copied();
-        let owner = declarations
-            .iter()
-            .filter(|d| {
-                d.source_range
-                    .as_ref()
-                    .is_some_and(|s| s.start_byte <= span.start && span.end <= s.end_byte)
-            })
-            .min_by_key(|d| {
-                d.source_range
-                    .as_ref()
-                    .map_or(u32::MAX, |s| s.end_byte - s.start_byte)
-            });
+        let owner = owners
+            .get(&(span.start, span.end))
+            .map(|&index| &declarations[index]);
         let parse_assessment = assessment(parsed, positions, span, owner);
         let mut slots = Vec::new();
         if let Some(arguments) = arguments {
@@ -188,6 +180,70 @@ fn argument_group_span(
         .find(|token| &source[token.start() as usize..token.end() as usize] == "(")
         .map_or(span.end, oxc_parser::Token::start);
     Span::new(start, span.end)
+}
+
+/// The owner of each call, `new` and tagged template ([`innermost_owners`]).
+fn call_owners(
+    semantic: &Semantic<'_>,
+    declarations: &[GraphFactDeclaration],
+) -> HashMap<(u32, u32), usize> {
+    let spans = semantic
+        .nodes()
+        .iter()
+        .filter_map(|node| match node.kind() {
+            AstKind::CallExpression(call) => Some(call.span),
+            AstKind::NewExpression(call) => Some(call.span),
+            AstKind::TaggedTemplateExpression(call) => Some(call.span),
+            _ => None,
+        })
+        .map(|span| (span.start, span.end))
+        .collect::<Vec<_>>();
+    innermost_owners(declarations, &spans)
+}
+
+/// The index of the declaration owning each of `spans` (byte `(start,
+/// end)`): the shortest whose source range holds it, the first of equally
+/// short ones in `declarations` order. One sweep in start order instead of a
+/// scan of every declaration per span: the declarations open by a span's
+/// start are kept by length, and one that ended before it can hold no later
+/// span, so it leaves. A span no declaration holds has no entry.
+pub(super) fn innermost_owners(
+    declarations: &[GraphFactDeclaration],
+    spans: &[(u32, u32)],
+) -> HashMap<(u32, u32), usize> {
+    use std::collections::BTreeSet;
+    let mut ranges = declarations
+        .iter()
+        .enumerate()
+        .filter_map(|(index, d)| {
+            d.source_range
+                .as_ref()
+                .map(|s| (s.start_byte, s.end_byte, index))
+        })
+        .collect::<Vec<_>>();
+    ranges.sort_unstable();
+    let mut queries = spans.to_vec();
+    queries.sort_unstable();
+    queries.dedup();
+    let mut ranges = ranges.into_iter().peekable();
+    // By (length, declaration order), and by end for leaving.
+    let (mut open, mut ending) = (BTreeSet::new(), BTreeSet::new());
+    let mut owners = HashMap::with_capacity(queries.len());
+    for (start, end) in queries {
+        while let Some(&(from, to, index)) = ranges.peek().filter(|range| range.0 <= start) {
+            open.insert((to - from, index, to));
+            ending.insert((to, to - from, index));
+            ranges.next();
+        }
+        while let Some(&(to, length, index)) = ending.first().filter(|first| first.0 < start) {
+            ending.remove(&(to, length, index));
+            open.remove(&(length, index, to));
+        }
+        if let Some(&(_, index, _)) = open.iter().find(|(_, _, to)| end <= *to) {
+            owners.insert((start, end), index);
+        }
+    }
+    owners
 }
 
 fn assessment(

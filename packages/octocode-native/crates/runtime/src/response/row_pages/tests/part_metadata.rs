@@ -79,7 +79,13 @@ fn later_parts_carry_page_context_and_describe_the_row_once() {
                 let continued = continued_elements(&part["rowPart"]["continues"]);
                 match joined.as_mut() {
                     None => joined = Some(part["data"].clone()),
-                    Some(joined) => merge(joined, part["data"].clone(), "/data", &continued),
+                    Some(joined) => merge(
+                        joined,
+                        part["data"].clone(),
+                        "/data",
+                        &continued,
+                        part["rowPart"]["text"].as_str(),
+                    ),
                 }
             }
             assert_eq!(

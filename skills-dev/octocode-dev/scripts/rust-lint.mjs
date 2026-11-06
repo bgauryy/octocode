@@ -7,7 +7,8 @@
 //   --adopt:         adds the entries of a lint newly added to RATCHET; a reviewed change, once per lint
 // Ratchets judge production code only, by crate rather than by file, because the 400-line limit moves code
 // between files all the time. A site the rule should really allow says why, in the code:
-//   #[expect(clippy::disallowed_methods, reason = "...")]
+//   #[cfg_attr(octocode_clippy_ratchet, expect(clippy::disallowed_methods, reason = "..."))]
+// Only this mode loads the bans and enables that cfg, so plain Clippy has no unfulfilled expectation.
 // The banned paths and their reasons are in packages/octocode-native/clippy-ratchet.toml.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -143,10 +144,14 @@ function writeConfig() {
   return dir;
 }
 
-function clippy(allTargets, confDir) {
+/** Cargo/rustc arguments for this ratchet only; pair with ratchetConfig's custom bans. */
+export function clippyArgs(allTargets = false) {
   const flags = RATCHET.flatMap(lint => ['-W', lint]);
-  const args = ['clippy', '--locked', '--workspace', ...(allTargets ? ['--all-targets'] : []), '--all-features', '--message-format=json', '--', ...flags];
-  const run = spawnSync('cargo', args, {
+  return ['clippy', '--locked', '--workspace', ...(allTargets ? ['--all-targets'] : []), '--all-features', '--message-format=json', '--', '--cfg', 'octocode_clippy_ratchet', ...flags];
+}
+
+function clippy(allTargets, confDir) {
+  const run = spawnSync('cargo', clippyArgs(allTargets), {
     cwd: NATIVE,
     env: { ...process.env, CLIPPY_CONF_DIR: confDir },
     encoding: 'utf8',
@@ -200,7 +205,7 @@ function main() {
     for (const { key, crate, had, has } of stale) console.error(`stale baseline: ${key} in ${crate} ${had} → ${has}; run rust-lint.mjs --write`);
   }
   for (const { key, crate, had, has, files } of grown) {
-    console.error(`new violation: ${key} in ${crate}, ${had} → ${has}. Look in: ${files.join(', ')}. Fix the code, the baseline only shrinks; a site that must stay says why with #[expect(..., reason)]`);
+    console.error(`new violation: ${key} in ${crate}, ${had} → ${has}. Look in: ${files.join(', ')}. Fix the code, the baseline only shrinks; a ratchet-only exception says why with #[cfg_attr(octocode_clippy_ratchet, expect(..., reason))]`);
   }
   const problems = grown.length + (process.argv.includes('--write') ? 0 : stale.length);
   if (!problems) console.log('rust-lint: clippy clean, baseline up to date');

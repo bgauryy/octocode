@@ -21,8 +21,9 @@ test('a precision drop or a new ingest failure is a regression; a recall drop is
   assert.equal(by.go.regression, true);
   assert.deepEqual(by.tsx.notes, ['recall down']);
   assert.equal(by.tsx.regression, false);
-  assert.deepEqual(by.rust.notes, ['ingest failed']);
+  assert.deepEqual(by.rust.notes, ['ingest failed', 'after measurement invalid: scopeTooBroad']);
   assert.equal(by.rust.regression, true);
+  assert.equal(by.rust.invalid, true);
 });
 
 test('a row missing from the second run is named, and newly missed files are listed', () => {
@@ -43,6 +44,16 @@ test('a row only in the second run is marked new', () => {
   const [r] = compare([], [row('cuda', 0.95, 1)]);
   assert.deepEqual(r.notes, ['new row']);
   assert.equal(r.regression, false);
+});
+
+test('precision keeps a single false positive visible in a large caller set', () => {
+  const expected = new Set(Array.from({ length: 250 }, (_, i) => `src/${i}.rs`));
+  const before = { ...row('rust', 1, 1), recall: fileRecall(expected, expected) };
+  const after = { ...before, recall: fileRecall(expected, new Set([...expected, 'wrong.rs'])) };
+  assert.equal(after.recall.precision, expected.size / (expected.size + 1));
+  const [result] = compare([before], [after]);
+  assert.equal(result.regression, true);
+  assert.deepEqual(result.newExtra, ['wrong.rs']);
 });
 
 test('every battery case names a distinct repository and a probe', () => {

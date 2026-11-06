@@ -10,7 +10,7 @@
 //! is kept per proxy, workspace and environment with the stamps of everything
 //! rustup reads to give it ([`inputs_of`]), and asked again as soon as one differs.
 use crate::lsp::commands::is_executable_path;
-use crate::lsp::config::probe::{COMMAND_PROBE_TIMEOUT, probe_command_stdout};
+use crate::lsp::config::probe::{ProbeError, probe_command_stdout};
 use crate::stamp::{Proof, settle_clock};
 use octocode_io::memo::Memo;
 use std::ffi::OsString;
@@ -92,8 +92,9 @@ pub(in crate::lsp::config) fn toolchain_component(
 ///
 /// rustup runs in the workspace root, where it reads overrides and toolchain
 /// files, with `RUSTUP_AUTO_INSTALL=0`: rustup 1.29 otherwise installs a
-/// missing toolchain (a download) to answer. Bounded by
-/// [`COMMAND_PROBE_TIMEOUT`]; blocking.
+/// missing toolchain (a download) to answer. It runs until it answers or its
+/// caller stops ([`probe_command_stdout`]); an unanswered question returns
+/// `None` and is not kept, so the next call asks again. Blocking.
 pub(in crate::lsp::config) fn selected_component(
     view: &RustupView,
     proxy: &Path,
@@ -116,9 +117,12 @@ pub(in crate::lsp::config) fn selected_component(
     let started = settle_clock();
     // Read before rustup runs: a change while it runs reads as a change.
     let inputs = inputs_of(view, proxy, &rustup, workspace_root);
-    let binary = ask_rustup(&rustup, proxy, workspace_root).filter(|binary| {
-        view.toolchain.is_some() || naming_toolchain_file(workspace_root, Some(binary)).is_none()
-    });
+    let binary = ask_rustup(&rustup, proxy, workspace_root)
+        .ok()?
+        .filter(|binary| {
+            view.toolchain.is_some()
+                || naming_toolchain_file(workspace_root, Some(binary)).is_none()
+        });
     if let Some(mut inputs) = inputs {
         if let Some(binary) = &binary {
             inputs.follow(binary.clone());
@@ -136,16 +140,32 @@ pub(in crate::lsp::config) fn selected_component(
     binary
 }
 
-fn ask_rustup(rustup: &Path, proxy: &Path, workspace_root: &Path) -> Option<PathBuf> {
+/// rustup's answer: `Ok(Some)` the binary it names, `Ok(None)` that the
+/// selected toolchain has none (a failure exit, or no executable named), or
+/// the probe error when rustup gave no answer.
+fn ask_rustup(
+    rustup: &Path,
+    proxy: &Path,
+    workspace_root: &Path,
+) -> Result<Option<PathBuf>, ProbeError> {
+    let Some(name) = proxy.file_name() else {
+        return Ok(None);
+    };
     let mut which = Command::new(rustup);
     which
         .arg("which")
-        .arg(proxy.file_name()?)
+        .arg(name)
         .current_dir(workspace_root)
         .env("RUSTUP_AUTO_INSTALL", "0");
-    let stdout = probe_command_stdout(&mut which, COMMAND_PROBE_TIMEOUT)?;
-    let binary = PathBuf::from(String::from_utf8(stdout).ok()?.trim());
-    is_executable_path(&binary).then_some(binary)
+    let stdout = match probe_command_stdout(&mut which) {
+        Ok(stdout) => stdout,
+        Err(ProbeError::Exited(_)) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    Ok(String::from_utf8(stdout)
+        .ok()
+        .map(|text| PathBuf::from(text.trim()))
+        .filter(|binary| is_executable_path(binary)))
 }
 
 /// What one answer of rustup is an answer to.
@@ -231,7 +251,7 @@ fn naming_toolchain_file(workspace: &Path, binary: Option<&Path>) -> Option<Path
             .iter()
             .map(|name| dir.join(name))
             .find(|file| {
-                std::fs::read_to_string(file)
+                crate::lsp::config_file::read_utf8(file)
                     .ok()
                     .and_then(|text| toolchain_path(&text))
                     .is_some_and(|path| {

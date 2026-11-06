@@ -2,14 +2,12 @@
 //! nothing behind the skipped paths leads nowhere.
 
 use super::*;
-use crate::tools::empty_walk::with_probe_budget;
-
 /// These judge what a finished probe found; `scope.rs` covers one that ran out.
-const FINISHES: std::time::Duration = std::time::Duration::from_secs(60);
+use crate::tools::empty_walk::{FINISHES, with_probe_limits};
 
 #[test]
 fn a_match_behind_a_skipped_path_is_named_and_its_lead_lifts_only_that() {
-    with_probe_budget(FINISHES, a_match_is_named_on_every_scenario);
+    with_probe_limits(FINISHES, a_match_is_named_on_every_scenario);
 }
 
 fn a_match_is_named_on_every_scenario() {
@@ -69,7 +67,7 @@ fn a_match_is_named_on_every_scenario() {
 
 #[test]
 fn nothing_behind_the_skipped_paths_leads_nowhere() {
-    with_probe_budget(FINISHES, || {
+    with_probe_limits(FINISHES, || {
         for tool in tools() {
             for scenario in SCENARIOS {
                 let label = describe(&tool, scenario);

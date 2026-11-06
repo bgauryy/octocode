@@ -19,7 +19,7 @@ mod qualified;
 mod unsaid;
 
 use compile::effective_pattern_root;
-pub use qualified::QualifiedPattern;
+pub use qualified::{QualifiedPattern, Separator};
 use unsaid::declares;
 
 /// Budget on `$$$` multi-metavar split attempts within a single top-level

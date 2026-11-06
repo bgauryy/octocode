@@ -150,16 +150,7 @@ impl Operation<'_, '_> {
         provider: &str,
         found: Vec<impl serde::Serialize>,
     ) -> Value {
-        locations(
-            self.query,
-            self.sources,
-            kind,
-            provider,
-            found,
-            self.budget,
-            self.response_window,
-        )
-        .await
+        locations(self.query, self.sources, kind, provider, found, self.budget).await
     }
 
     pub(super) async fn workspace_symbol(self) -> Result<Value, LspFailure> {

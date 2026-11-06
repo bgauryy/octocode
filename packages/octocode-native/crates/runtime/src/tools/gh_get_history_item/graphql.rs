@@ -8,9 +8,10 @@
 
 use super::window::{MAX_COLLECTION_BATCHES, MAX_FILE_BATCHES, MAX_PR_COMMIT_BATCHES};
 use super::{HistoryItemRequest, ItemOperation};
+use crate::tools::gh_get_history_item::Source;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::sections::Section;
-use octocode_github::{GitHubTransport, GraphQlError, ProviderError, RequestContext};
+use octocode_github::{GraphQlError, ProviderError, RequestContext};
 use serde_json::{Value, json};
 
 mod document;
@@ -114,11 +115,11 @@ pub(super) enum GraphqlOutcome {
 /// Fetch the PR and its wanted collections in one GraphQL request, then
 /// read on from each connection's end cursor until its first page is held.
 pub(super) async fn graphql_pull_request(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<GraphqlOutcome, ProviderError> {
-    if !transport.graphql_available(context) {
+    if !source.graphql_available(context) {
         return Ok(GraphqlOutcome::Unavailable);
     }
     let Some(number) = gh_get_history_item_query::number(query) else {
@@ -134,7 +135,7 @@ pub(super) async fn graphql_pull_request(
     for (variable, first) in bound {
         variables[variable] = json!(first);
     }
-    let mut page = transport
+    let mut page = source
         .execute_pull_request_graphql(&document, variables.clone(), context)
         .await?;
     let mut pr = page
@@ -190,7 +191,7 @@ pub(super) async fn graphql_pull_request(
     // answered with errors leaves the header to REST.
     let mut label_errors = Vec::new();
     read_on(
-        transport,
+        source,
         context,
         &variables,
         &mut pr,
@@ -221,7 +222,7 @@ pub(super) async fn graphql_pull_request(
         }
         let mut page_errors = Vec::new();
         *slot = read_on(
-            transport,
+            source,
             context,
             &variables,
             &mut pr,
@@ -234,6 +235,8 @@ pub(super) async fn graphql_pull_request(
             warnings.push(connection_warning(connection, &page_errors.join("; ")));
         }
     }
+    // Redacted whole, before any row is mapped, filtered or windowed.
+    source.redact_bodies(&mut pr)?;
     let [files, discussion, reviews, commits] = states;
     Ok(GraphqlOutcome::Served(Box::new(GraphqlPr {
         files,
@@ -254,7 +257,7 @@ pub(super) async fn graphql_pull_request(
 /// the connection to REST; one answered with `errors[]` is not appended,
 /// and `errors` receives its described errors.
 async fn read_on(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     context: &RequestContext,
     variables: &Value,
     pr: &mut Value,
@@ -289,7 +292,7 @@ async fn read_on(
         let mut next = variables.clone();
         next[connection.variable] = json!(CONNECTION_PAGE);
         next["after"] = json!(cursor);
-        let mut answer = match transport
+        let mut answer = match source
             .execute_pull_request_graphql(&connection.continuation_document(), next, context)
             .await
         {

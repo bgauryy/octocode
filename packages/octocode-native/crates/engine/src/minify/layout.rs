@@ -51,6 +51,13 @@ pub(super) fn whitespace_only(source: &str) -> Vec<KeptLine> {
             let ending = if kept.text.ends_with('\n') { "\n" } else { "" };
             let body = kept.text.trim_end_matches([' ', '\t', '\r', '\n']).len();
             (body > 0).then(|| {
+                #[cfg_attr(
+                    octocode_clippy_ratchet,
+                    expect(
+                        clippy::disallowed_methods,
+                        reason = "The whitespace-only view removes only trailing ASCII whitespace; trim_end_matches supplies a UTF-8 boundary, not an evidence-size cap"
+                    )
+                )]
                 kept.text.truncate(body);
                 kept.text.push_str(ending);
                 kept

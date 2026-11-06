@@ -54,7 +54,8 @@ These are code constants, not settings (one owner: `RuntimeLimits` in `packages/
 
 | Limit | Value |
 |---|---|
-| Network request timeout | 30 s |
+| Network request timeout (GitHub, registries) | 30 s |
+| Classification request time | none of its own: the call's tool-call budget decides, since a model's time follows its input and the provider documents no limit |
 | Retries after a failed request | 3 |
 | Automatic response page | 20,000 characters (`responseChars` per call, up to 50,000) |
 | URL captures | 24 h retention |

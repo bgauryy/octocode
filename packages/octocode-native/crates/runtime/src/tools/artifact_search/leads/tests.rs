@@ -1,5 +1,5 @@
 //! Release-source labels, source leads and repair leads.
-use super::{github_repo_dir, label_release_source, source_leads, source_warning};
+use super::{advisory_lead, label_release_source, source_leads, source_warning};
 use crate::providers::artifact::ArtifactItem;
 use octocode_contract_types::ArtifactType;
 use serde_json::json;
@@ -109,26 +109,6 @@ fn a_default_branch_source_warns_that_it_may_be_another_version() {
     assert_eq!(source_warning(&discovery), None);
 }
 
-#[test]
-fn parses_monorepo_subdirectories() {
-    let dir = |url| github_repo_dir(url);
-    assert_eq!(
-        dir("https://github.com/BurntSushi/ripgrep/tree/master/crates/ignore").as_deref(),
-        Some("crates/ignore")
-    );
-    assert_eq!(
-        dir("https://github.com/o/r/tree/main/packages/x/").as_deref(),
-        Some("packages/x")
-    );
-    assert_eq!(
-        dir("https://github.com/o/r/blob/main/crates/a/Cargo.toml").as_deref(),
-        Some("crates/a")
-    );
-    assert_eq!(dir("https://github.com/o/r/tree/main"), None);
-    assert_eq!(dir("https://github.com/o/r#readme"), None);
-    assert_eq!(dir("git+https://github.com/o/r.git"), None);
-}
-
 /// The row is the one source of the label; a discovery row
 /// without a ref gets none, and a rubygems tag URL is a registry ref.
 #[test]
@@ -198,5 +178,20 @@ fn peer_dependencies_are_one_list_shape() {
             .expect("row")
             .get("peerDependencies")
             .is_none()
+    );
+}
+
+/// An exact row leads to the advisories OSV lists for the version it resolved,
+/// on every registry; a row with no version leads to none.
+#[test]
+fn an_exact_row_leads_to_its_advisories() {
+    let mut row = item(ArtifactType::Pypi, "https://github.com/o/r");
+    assert!(advisory_lead(&row).is_none());
+    row.version = Some("1.2.3".into());
+    let lead = advisory_lead(&row).expect("lead");
+    assert_eq!(lead["tool"], "securityCheck", "{lead}");
+    assert_eq!(
+        lead["input"]["queries"][0],
+        json!({"operation":"package","ecosystem":"pypi","packageName":"x","version":"1.2.3"})
     );
 }

@@ -40,7 +40,7 @@ impl Home {
 
 /// Retain `observed` as a continuation of `access` and name its handle.
 fn issue(registry: &Registry, access: u8, identity: &str, observed: ProviderEvidence) -> String {
-    let mut pending = Pending::new([access; 32], Some(identity.into()));
+    let mut pending = registry.pending([access; 32], Some(identity.into()));
     pending.own_evidence(TOOL, observed);
     let token = pending.insert(
         TOOL,

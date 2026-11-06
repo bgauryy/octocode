@@ -1,5 +1,5 @@
 // Behavior of the store (src/runtime/store.ts and its capability modules) over real temporary databases: sessions,
-// opaque multipart messages, correlation, wildcard delivery and paging. Reads of previous releases are in database-legacy-compat.test.ts.
+// opaque multipart messages, correlation, wildcard delivery and paging. Schema refusal checks are in database.test.ts.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { JsonRecord } from './json-record.ts';

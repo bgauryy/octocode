@@ -1,6 +1,7 @@
-/// Bump when response planning changes page boundaries. Replay storage and
-/// issued handles share this version so a new binary cannot reinterpret offsets.
-pub(crate) const ROW_PLAN_VERSION: u32 = 14;
+/// Bump when page boundaries or persisted continuation state change. Replay
+/// storage and issued handles share this version so a new binary cannot
+/// reinterpret offsets or load incompatible saved work.
+pub(crate) const ROW_PLAN_VERSION: u32 = 15;
 
 pub(crate) mod issued;
 

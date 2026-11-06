@@ -10,14 +10,11 @@
 //! looks a value up, and a cursor whose snapshot names other bytes ends as
 //! a stale snapshot before any lookup, so a changed file never replays.
 //!
-//! Secrets: the page scan is what protects output, and it runs on every
-//! page cut from a kept view as it does on a first page (`render` cuts and
-//! scans; see `page_scan`). So a kept view may be the unscanned source of a
-//! whole read: its replayed pages equal their cold reads. Private-key
-//! blocks were redacted across the whole source before any view was built,
-//! so a block spanning page windows stays redacted on every replayed page.
-//! The key holds the scanner's limits, so a scan that reads the source
-//! differently never replays another's view.
+//! Secrets: a kept view was built from a source redacted whole before any
+//! view or window existed (`prepare_source`), so a replayed page is cut from
+//! the same redacted view a cold read builds, and equals it. The key holds
+//! the scanner's limits, so a scan that reads the source differently never
+//! replays another's view.
 //!
 //! Lifetime: a value is kept only by a page that issues a next page, and
 //! lives as issued continuation state does ([`PageMemo`]): in process
@@ -92,7 +89,7 @@ pub(super) struct ScannedSource {
 
 impl ScannedSource {
     /// The key of a range or match read of whole `sha256` bytes; `None` for
-    /// any other read (a whole read scans only its page, and a streamed window
+    /// any other read (a whole read's walk keeps its view in [`Retention`], and a streamed window
     /// is not a source).
     pub(super) fn of<S: ContentScan>(
         q: &LocalFetchQuery,
@@ -200,10 +197,8 @@ impl Retention {
             return;
         }
         let source = owned(source);
-        // The view's window-scan slot may come to hold up to one more copy
-        // of the view's text (see `pagination::WindowScans`).
         let weight = source.text.len()
-            + 2 * view.text.len()
+            + view.text.len()
             + ext.text.len()
             + std::mem::size_of::<usize>()
                 * (ext.source_lines.as_ref().map_or(0, Vec::len)

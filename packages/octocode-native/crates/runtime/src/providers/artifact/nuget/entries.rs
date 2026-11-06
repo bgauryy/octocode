@@ -32,8 +32,11 @@ pub(super) fn item(row: &Map<String, Value>) -> Result<ArtifactItem, ArtifactErr
     // usually omits it entirely even when the nuspec carries one. projectUrl
     // is only a repository when it names a repo on a source host; any other
     // projectUrl stays a homepage.
-    artifact.repository = repository_url(row.get("repository"))
-        .or_else(|| artifact.homepage.clone().filter(|url| is_source_repo(url)));
+    if let Some(link) = repository_url(row.get("repository"))
+        .or_else(|| artifact.homepage.clone().filter(|url| is_source_repo(url)))
+    {
+        artifact.set_source_link(&link);
+    }
     Ok(artifact)
 }
 

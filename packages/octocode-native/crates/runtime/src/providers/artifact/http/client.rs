@@ -207,6 +207,50 @@ impl RegistryClient<'_> {
         );
     }
 
+    /// A fact derived from one immutable registry resource (a crate
+    /// version's archive), kept under the registry's origin and the
+    /// derivation's `name`, and answered unasked ever after
+    /// ([`Reuse::Pinned`]): the resource cannot change. `derive` runs on a
+    /// miss only; `None` from it (the read failed) is kept nowhere.
+    pub(crate) async fn derived_fact(
+        &self,
+        origin: &Url,
+        name: &str,
+        derive: impl std::future::Future<Output = Option<String>>,
+    ) -> Option<String> {
+        let scope = Partition::new(origin.origin().ascii_serialization(), None::<&SecretString>)
+            .identity()
+            .to_owned();
+        let identity = format!("DERIVED {name}");
+        let kept = self
+            .answers
+            .and_then(|store| store.load(&scope, &identity))
+            .filter(|saved| saved.reuse(true, None, now_millis()) == Reuse::Pinned);
+        if let Some(kept) = kept {
+            return Some(kept.answer.body.as_str().to_owned());
+        }
+        let fact = derive.await?;
+        if let Some(store) = self.answers {
+            store.save(
+                &scope,
+                &identity,
+                SavedAnswer {
+                    answer: ProviderAnswer {
+                        request: identity.clone(),
+                        status: 200,
+                        headers: Vec::new(),
+                        body: fact.clone().into(),
+                        next: None,
+                        not_found: None,
+                    },
+                    observed_ms: now_millis(),
+                    redirected: false,
+                },
+            );
+        }
+        Some(fact)
+    }
+
     /// Stream an archive until the selected entry is reached or the body ends.
     pub(crate) async fn stream(
         &self,

@@ -6,7 +6,9 @@
 //! `enclosing` index on the hit (`line` is the name line),
 //! so a caller can cite or address the function a hit sits in without
 //! reading it: `symbolName` + `line` anchor lspSearch, `line`–`endLine` is a
-//! localFetch range. A hit on a declaration's own name line names the
+//! localFetch range. Containment is by (line, byte), so on a one-line
+//! (minified) file each hit names the declaration its byte sits in. A hit
+//! on a declaration's name line up to the end of its name names the
 //! declaration around that one. Every hit row inside a declaration names
 //! it, so no row reads as having none. A declaration search (`fn foo`)
 //! names the owners of declaring hits only. A searched symbol whose
@@ -19,6 +21,10 @@ use crate::security::ContentSecurity;
 mod match_keys;
 pub(super) use match_keys::annotate_match_keys;
 
+/// A source position: 1-based line, then the UTF-8 byte within it (the
+/// unit of a hit's `byte_offset`).
+type At = (u32, u32);
+
 /// One declaration of a file's outline, 1-based lines.
 #[derive(Clone)]
 struct Declaration {
@@ -28,6 +34,11 @@ struct Declaration {
     line: u32,
     start: u32,
     end: u32,
+    /// Where the declaration starts and ends (exclusive), and where its
+    /// name ends: what [`Outline::owner`] compares a hit with.
+    from: At,
+    to: At,
+    name_end: At,
 }
 
 #[derive(Clone)]
@@ -59,32 +70,55 @@ impl Outline {
     /// request and never a JSON round trip.
     pub(super) fn of(source: &str, canonical_path: &str) -> Option<Self> {
         let document = crate::tools::declarations::file_document(source, canonical_path)?;
+        // Graph positions count UTF-16 columns on `\n` lines; hits count
+        // bytes on the same lines.
+        let index = octocode_engine::text::LineIndex::tree_sitter(source);
+        let at = |position: &octocode_engine::graph::GraphPosition| -> At {
+            let byte = index.position_to_byte(source, position.line, position.character);
+            let line_start = index
+                .line_start(position.line as usize)
+                .map_or(0, octocode_engine::num::saturating_u32);
+            (
+                position.line.saturating_add(1),
+                byte.saturating_sub(line_start),
+            )
+        };
         let declarations = document
             .declarations
             .iter()
             .filter(|item| !item.name.is_empty())
             .map(|item| {
                 let start = item.range.start.line.saturating_add(1);
+                let from = at(&item.range.start);
                 Declaration {
                     kind: item.kind.clone(),
                     name: item.name.clone(),
                     line: item.selection_range.start.line.saturating_add(1),
                     start,
                     end: item.range.end.line.saturating_add(1).max(start),
+                    from,
+                    to: at(&item.range.end).max(from),
+                    name_end: at(&item.selection_range.end),
                 }
             })
             .collect();
         Some(Self { declarations })
     }
 
-    /// The innermost declaration spanning `line` other than one named on
-    /// `line` itself (its index in the outline).
-    pub(super) fn owner(&self, line: u32) -> Option<usize> {
+    /// The innermost declaration whose range holds the hit at `byte` of
+    /// `line`, other than one whose header the hit sits in up to its name
+    /// (its index in the outline). A hit at a declaration's end is past it;
+    /// an empty range holds the hits of its own line.
+    pub(super) fn owner(&self, line: u32, byte: u32) -> Option<usize> {
+        let hit = (line, byte);
         self.declarations
             .iter()
             .enumerate()
-            .filter(|(_, d)| d.start <= line && line <= d.end && d.line != line)
-            .min_by_key(|(_, d)| (d.end - d.start, std::cmp::Reverse(d.start)))
+            .filter(|(_, d)| {
+                let holds = d.from <= hit && (hit < d.to || (d.from == d.to && line == d.to.0));
+                holds && !(line == d.line && hit < d.name_end)
+            })
+            .min_by_key(|(_, d)| (std::cmp::Reverse(d.from), d.to))
             .map(|(index, _)| index)
     }
 
@@ -100,11 +134,11 @@ impl Outline {
         })
     }
 
-    /// The innermost declaration spanning `line` other than one named on
-    /// `line` itself.
+    /// The innermost declaration holding the hit at `byte` of `line`
+    /// ([`Self::owner`]).
     #[cfg(test)]
-    pub(super) fn enclosing(&self, line: u32) -> Option<super::types::Enclosing> {
-        self.label(self.owner(line)?)
+    pub(super) fn enclosing(&self, line: u32, byte: u32) -> Option<super::types::Enclosing> {
+        self.label(self.owner(line, byte)?)
     }
 
     /// Whether `line` is the name line of a declaration named `name`.
@@ -345,7 +379,7 @@ pub(super) fn row_owners(
                     .any(|line| outline.declares(symbol, *line))
             });
             named
-                .then(|| outline.owner(row_lines(row)[0]))
+                .then(|| outline.owner(row_lines(row)[0], row.byte_offset))
                 .flatten()
                 .and_then(|owner| outline.label(owner))
         })

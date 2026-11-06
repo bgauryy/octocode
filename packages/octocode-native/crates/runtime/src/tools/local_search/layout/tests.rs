@@ -110,7 +110,7 @@ fn cut_page(
                     .matches
                     .iter()
                     .filter(|_| !nameless)
-                    .map(|m| (m.line, Owner { full: 60 }))
+                    .map(|m| ((m.line, m.byte_offset), Owner { full: 60 }))
                     .collect();
                 (index, FilePrice::Owners(Arc::new(owners)))
             })
@@ -118,8 +118,15 @@ fn cut_page(
     };
     let mut pricing = NamePricing::new(known, &mut outline);
     let request = query(serde_json::json!({"page": page}));
-    let layout =
-        Layout::cut(&request, &paths, root, &mut parsed, 6_000, &mut pricing).expect("cut");
+    let layout = Layout::cut(
+        &request,
+        &paths,
+        root,
+        &mut parsed,
+        6_000,
+        (&mut pricing, None),
+    )
+    .expect("cut");
     let priced = pricing.priced;
     outlined.sort_unstable();
     (layout, priced, outlined)

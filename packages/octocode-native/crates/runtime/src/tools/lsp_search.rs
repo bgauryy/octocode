@@ -228,8 +228,11 @@ pub(super) async fn blocking_cancellable<T: Send + 'static>(
     }
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let _stop_worker = StopOnDrop(std::sync::Arc::clone(&stop));
+    // A deep-stack parse the work waits on stops with it.
     let worker = tokio::task::spawn_blocking(move || {
-        work(&|| stop.load(std::sync::atomic::Ordering::Relaxed))
+        octocode_engine::deep_stack::while_stoppable(&stop, || {
+            work(&|| stop.load(std::sync::atomic::Ordering::Relaxed))
+        })
     });
     Ok(cancellable(cancel, worker).await?.ok())
 }

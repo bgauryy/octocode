@@ -12,10 +12,15 @@ use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 use octocode_io::retry::classify_status;
 use serde_json::Value;
 
+mod retract;
+mod retraction;
 mod search;
+mod source;
 
+use retraction::{Retracted, go_mod_text, go_retraction};
 pub(super) use search::GO_SEARCH_CAP;
 use search::{go_cursor, go_page_key, go_search, go_token, go_walk};
+use source::{go_module_directory, go_source_ref, go_vanity_directory};
 
 /// An exact Go module or package lookup on pkg.go.dev, pinned to
 /// `query.version()` when one is given.
@@ -141,29 +146,42 @@ async fn go_exact(
             }
         }
     }
-    artifact.dependencies = go_dependencies(&artifact, client).await;
+    // Neither the path nor the proxy named a ref: the upstream release tag of
+    // the version pins the source, spelled the way the go command spells it
+    // for the module's place in its repository.
+    if artifact.source_ref.is_none()
+        && let Some(version) = artifact.version.clone()
+    {
+        let directory = artifact
+            .repository_directory
+            .clone()
+            .or_else(|| go_vanity_directory(&artifact));
+        super::release_ref::pin_go_release_tag(
+            &mut artifact,
+            directory.as_deref(),
+            &version,
+            client,
+        )
+        .await;
+    }
+    let go_mod = go_mod_text(&artifact, client).await;
+    artifact.dependencies = go_mod.as_deref().map(go_requirements);
+    // A module retracts versions in the `go.mod` of a later one: a version
+    // the caller named may be one of them. The unversioned lookup answers
+    // the latest release, which no retraction can name.
+    if version.is_some() {
+        match go_retraction(&artifact, go_mod.as_deref(), client).await? {
+            Retracted::Yes(retraction) => artifact.retraction = Some(retraction),
+            Retracted::No => {}
+            Retracted::Unchecked(why) => artifact.disclosures.push(format!(
+                "{} {}: retraction unchecked, {why}; a retracted version would not show here.",
+                artifact.package_name,
+                artifact.version.as_deref().unwrap_or_default()
+            )),
+        }
+    }
     drop_restated_go_paths(&mut artifact);
     Ok(ArtifactProviderPage::single(artifact))
-}
-
-/// The module version's direct requirements from its `go.mod` on the
-/// module proxy. Best-effort: `None` (unknown) when the proxy has none.
-async fn go_dependencies(
-    artifact: &ArtifactItem,
-    client: &RegistryClient<'_>,
-) -> Option<Vec<String>> {
-    let (module, version) = (
-        artifact.module_path.as_deref()?,
-        artifact.version.as_deref()?,
-    );
-    let url = parse_url(&format!(
-        "https://proxy.golang.org/{}/@v/{}.mod",
-        go_proxy_escape(module),
-        super::util::encode_component(version)
-    ))
-    .ok()?;
-    let go_mod = client.text(ArtifactType::Go, url, true).await.ok()??;
-    Some(go_requirements(&go_mod))
 }
 
 /// `require` directives of a `go.mod` as `module version`, in file order:
@@ -332,55 +350,6 @@ fn go_version(requested: Option<&str>) -> Result<Option<String>, ArtifactError> 
             format!("Go lookups take an exact version or latest, not \"{spec}\"."),
         )),
     }
-}
-
-/// The VCS ref a Go module version names: a pseudo-version's commit, or the
-/// release tag (prefixed by the module's directory inside its repository;
-/// a major-version suffix is never part of that prefix).
-fn go_source_ref(artifact: &ArtifactItem) -> Option<String> {
-    let version = artifact.version.as_deref()?;
-    let version = version.strip_suffix("+incompatible").unwrap_or(version);
-    // vX.Y.Z-yyyymmddhhmmss-abcdefabcdef (also with a .0./-0. base).
-    if let Some(commit) = version
-        .rsplit_once('-')
-        .map(|(_, tail)| tail)
-        .filter(|tail| tail.len() == 12 && version.matches('-').count() >= 2)
-        .and_then(|tail| commit_sha(Some(&Value::String(tail.to_owned()))))
-    {
-        return Some(commit);
-    }
-    let directory = go_module_directory(artifact)?;
-    Some(if directory.is_empty() {
-        version.to_owned()
-    } else {
-        format!("{directory}/{version}")
-    })
-}
-
-/// The module's directory inside its repository, from its path under the
-/// repository root: `service/s3` for `github.com/aws/aws-sdk-go-v2/service/s3`
-/// (empty at the root; a major-version suffix is never part of it). `None`
-/// for a vanity path that does not start with the repository.
-fn go_module_directory(artifact: &ArtifactItem) -> Option<String> {
-    let module = artifact.module_path.as_deref()?;
-    let repository = artifact.repository.as_deref()?;
-    let root = repository
-        .split_once("://")
-        .map_or(repository, |(_, rest)| rest)
-        .trim_end_matches('/')
-        .trim_end_matches(".git");
-    let dir = module.strip_prefix(root)?;
-    if !(dir.is_empty() || dir.starts_with('/')) {
-        return None;
-    }
-    let mut segments: Vec<&str> = dir.split('/').filter(|part| !part.is_empty()).collect();
-    if segments.last().is_some_and(|last| {
-        last.strip_prefix('v')
-            .is_some_and(|major| !major.is_empty() && major.bytes().all(|b| b.is_ascii_digit()))
-    }) {
-        segments.pop();
-    }
-    Some(segments.join("/"))
 }
 
 #[cfg(test)]

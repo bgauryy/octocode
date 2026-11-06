@@ -147,6 +147,8 @@ fn paged_match_windows_map_source_ranges_around_marker() {
     assert_eq!(lines, vec![2, 3, 4, 24, 25, 26]);
 }
 
+/// Required pages reach every selected byte once, including the prefix
+/// before a match inside an oversized line and the requested context.
 #[test]
 fn long_line_matches_preserve_every_byte_and_explicit_context() {
     let fixture = Fixture::new();
@@ -167,8 +169,10 @@ fn long_line_matches_preserve_every_byte_and_explicit_context() {
         let mut joined = String::new();
         loop {
             let out = execute_local_fetch(&request, &paths, &Safe, &NeverCancel, Some(1000), None);
+            let next = out.next.clone().unwrap_or_default();
+            assert_eq!(out.status, ReadStatus::Success, "{out:?}");
             joined.push_str(out.content.as_deref().expect("content"));
-            let Some(next) = out.next.and_then(|next| next.continue_window) else {
+            let Some(next) = next.continue_window else {
                 break;
             };
             request = next.query;

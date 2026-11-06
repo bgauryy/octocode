@@ -142,42 +142,28 @@ pub(super) fn pagination_chars(file: &octocode_engine::types::TextSearchFile) ->
         + more_lines
 }
 
-/// Whether every file entry (by index), with all its rows, fits `budget`
-/// chars.
-pub(super) fn fits_within(
-    files: &[octocode_engine::types::TextSearchFile],
-    budget: usize,
-    mut entry_chars: impl FnMut(usize, &octocode_engine::types::TextSearchFile) -> usize,
-) -> bool {
-    let mut used = 0usize;
-    files.iter().enumerate().all(|(index, file)| {
-        used = used.saturating_add(entry_chars(index, file));
-        used <= budget
-    })
-}
-
 /// Whether every file entry, with all its rows and their names, fits
 /// `budget` chars. With `unpriced_free`, a name not priced yet costs
-/// nothing: a lower bound of the exact fit.
+/// nothing: a lower bound of the exact fit. Pricing stops at the first row
+/// past the budget, so a result far over it costs only what fits.
 pub(super) fn fits_whole(
     files: &[octocode_engine::types::TextSearchFile],
     budget: usize,
     costs: &PageCosts,
     unpriced_free: bool,
 ) -> bool {
-    fits_within(files, budget, |index, file| {
-        costs.file(file)
-            + file
-                .matches
-                .iter()
-                .map(|m| {
-                    let name = match costs.name(index, file, m) {
-                        RowName::Reserved if unpriced_free => RowName::None,
-                        name => name,
-                    };
-                    costs.row(m) + name.chars()
-                })
-                .sum::<usize>()
+    let mut used = 0usize;
+    files.iter().enumerate().all(|(index, file)| {
+        used = used.saturating_add(costs.file(file));
+        used <= budget
+            && file.matches.iter().all(|m| {
+                let name = match costs.name(index, file, m) {
+                    RowName::Reserved if unpriced_free => RowName::None,
+                    name => name,
+                };
+                used = used.saturating_add(costs.row(m) + name.chars());
+                used <= budget
+            })
     })
 }
 

@@ -3,6 +3,7 @@ pub mod clangd_database;
 pub mod client;
 mod commands;
 pub mod config;
+pub mod config_file;
 pub mod family;
 pub(crate) mod grammar;
 pub mod managed;

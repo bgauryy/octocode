@@ -12,6 +12,35 @@ use octocode_engine::types::{
 
 use super::super::super::local_search_query;
 
+#[cfg(not(test))]
+fn held_limit() -> Option<usize> {
+    None
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_HELD: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn held_limit() -> Option<usize> {
+    TEST_HELD.with(std::cell::Cell::get)
+}
+
+/// Searches planned on this thread hold at most `bytes` of evidence until
+/// the guard drops (`None`: the process memory budget).
+#[cfg(test)]
+pub(crate) fn test_held_limit(bytes: Option<usize>) -> impl Drop {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            TEST_HELD.with(|held| held.set(None));
+        }
+    }
+    TEST_HELD.with(|held| held.set(bytes));
+    Reset
+}
+
 /// The engine walk the query asks for.
 pub(crate) fn search_options(
     query: &LocalSearchQuery,
@@ -97,6 +126,9 @@ pub(crate) fn search_options(
         // Use the engine default per-file byte ceiling (skips pathological
         // multi-GB files, surfaced as a fileTooLarge diagnostic).
         max_file_bytes: None,
+        // What the scan holds is bounded by the process memory budget, the
+        // engine default; past it the scan is refused, never cut.
+        max_held_bytes: held_limit(),
         // A scan small enough to store for later pages keeps the digest of
         // each matched file from the read that searched it (see `manifest`).
         values: SourceValues::Deferred,

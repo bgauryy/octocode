@@ -15,8 +15,9 @@ pub(super) fn terminal_saved(
     context: &ExecutionContext,
 ) -> Outcome {
     session.active.clear();
-    let outcome = terminal(session, reason, usage);
+    let mut outcome = terminal(session, reason, usage);
     if runtime.can_resume {
+        attach_hit_reads(&mut outcome.output);
         session.batches.push(outcome.output.clone());
         let key = runtime.sessions.key(&runtime.access, &session.id);
         if !runtime.sessions.save(key.clone(), session.clone(), context) {
@@ -124,6 +125,97 @@ pub(super) fn emit(
         output["model"] = json!(model);
     }
     output
+}
+
+/// Whether a section's answers say yes to some `noul` question: the sections
+/// worth reading to confirm.
+fn is_hit(section: &Value) -> bool {
+    section["answers"].as_object().is_some_and(|answers| {
+        answers.values().any(|cell| {
+            cell["status"] == "answered"
+                && cell["answer"]["noul"].as_f64().is_some_and(|p| p >= 0.5)
+        })
+    })
+}
+
+/// Adds `next.read`, `next.read2`, … to a batch that a later call can run: the
+/// read is a saved continuation, which a command that exits after one call
+/// cannot publish.
+pub(super) fn attach_hit_reads(output: &mut Value) {
+    let reads = output["resources"]
+        .as_object()
+        .map(hit_reads)
+        .unwrap_or_default();
+    for (index, read) in reads.into_iter().enumerate() {
+        let name = if index == 0 {
+            "read".to_owned()
+        } else {
+            format!("read{}", index + 1)
+        };
+        output["next"][name] = read;
+    }
+}
+
+/// One read per resource of exactly the lines of its yes-sections in this
+/// batch (adjacent or overlapping ones merged), pinned to the judged snapshot:
+/// confirming an answer costs the lines it names, not the whole source the
+/// resource's own `read` returns. A URL capture has no line read.
+fn hit_reads(resources: &serde_json::Map<String, Value>) -> Vec<Value> {
+    resources
+        .values()
+        .filter(|resource| resource["status"] == "ready")
+        .filter_map(|resource| {
+            let tool = resource["source"]["tool"]
+                .as_str()
+                .and_then(crate::id::ToolId::from_name)
+                .filter(|tool| {
+                    matches!(
+                        tool,
+                        crate::id::ToolId::LocalFetch | crate::id::ToolId::GhGetFileContent
+                    )
+                })?;
+            let all = resource["sections"].as_array()?;
+            // Every section of a fully judged resource said yes: its own
+            // `read` is already exactly this read.
+            if resource["coverage"]["remainingSections"]
+                .as_u64()
+                .unwrap_or(0)
+                == 0
+                && all.iter().all(is_hit)
+            {
+                return None;
+            }
+            let mut lines = all
+                .iter()
+                .filter(|section| is_hit(section))
+                .filter_map(|section| {
+                    let target = &section["target"]["lines"];
+                    Some((target["startLine"].as_u64()?, target["endLine"].as_u64()?))
+                })
+                .collect::<Vec<_>>();
+            lines.sort_unstable();
+            let mut merged: Vec<(u64, u64)> = Vec::new();
+            for (start, end) in lines {
+                match merged.last_mut() {
+                    Some(last) if start <= last.1.saturating_add(1) => last.1 = last.1.max(end),
+                    _ => merged.push((start, end)),
+                }
+            }
+            if merged.is_empty() {
+                return None;
+            }
+            let mut query = resource["source"]["query"].clone();
+            query["ranges"] = merged
+                .into_iter()
+                .map(|(start, end)| json!({"startLine":start,"endLine":end}))
+                .collect();
+            Some(crate::tools::source_capture::read_lead(
+                tool,
+                &query,
+                resource["snapshot"].as_str(),
+            ))
+        })
+        .collect()
 }
 
 pub(super) fn answered_cell(mut answer: Value) -> Value {

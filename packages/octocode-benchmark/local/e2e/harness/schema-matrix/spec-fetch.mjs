@@ -8,9 +8,10 @@ import { textOf } from './world-local.mjs';
 const FILE = 'src/alpha.ts';
 const PATTERNS = { literal: { lower: 'a.pha', mixed: 'Alpha' }, rust: { lower: 'a.pha', mixed: 'A.pha' }, pcre2: { lower: 'a.pha(?!bet)', mixed: 'A.pha(?!bet)' } };
 const BLOCK_HEAD = 'export function alphaHelper';
-/** Hand-read from the fixture: the declaration around lines 6-8, and every outline row. */
+/** Hand-read from the fixture: the declaration around lines 6-8, and every outline row. The symbols
+ * view lists declarations only, so line 11 (`probe(1);`, a top-level call) must not appear. */
 const HELPER_BLOCK = [6, 7, 8];
-const OUTLINE = [[2, 2], [3, 5], [6, 8], [9, 9], [10, 10], [11, 11]];
+const OUTLINE = [[2, 2], [3, 5], [6, 8], [9, 9], [10, 10]];
 const COMMENT_LINES = new Set([1]);
 
 const source = () => { const lines = textOf(FILE).split('\n'); if (lines.at(-1) === '') lines.pop(); return lines; };

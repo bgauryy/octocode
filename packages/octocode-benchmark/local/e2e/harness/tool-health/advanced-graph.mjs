@@ -165,8 +165,9 @@ export const ADVANCED_GRAPH = {
       const initialStats = data(await call('graphQuery', input({ path: scope, operation: 'stats', graph: initial.id })));
       checks.push([`graph.fresh.${surface}`, freshBuild(initialStats), JSON.stringify(initialStats.extraction)]);
       const repeatedStats = data(await call('graphQuery', input({ path: scope, operation: 'stats', graph: repeated.id })));
-      checks.push([`graph.repeated-build.extracts-again.${surface}`, repeated.id !== initial.id && noReuseFlag(repeated) && freshBuild(repeatedStats)
-        && sameGraph(initial, repeated), JSON.stringify(repeatedStats.extraction)]);
+      // An unchanged scope answers with its current snapshot, same id (the build contract's Cost line); only `refresh` rebuilds.
+      checks.push([`graph.repeated-build.reuses-snapshot.${surface}`, repeated.id === initial.id && noReuseFlag(repeated) && freshBuild(repeatedStats)
+        && sameGraph(initial, repeated) && JSON.stringify(repeatedStats.extraction) === JSON.stringify(initialStats.extraction), JSON.stringify({ initial: initial.id, repeated: repeated.id, extraction: repeatedStats.extraction })]);
       const refreshed = data(await call('graphBuild', input({ path: scope, keep: 10, refresh: true })));
       const refreshedStats = data(await call('graphQuery', input({ path: scope, operation: 'stats', graph: refreshed.id })));
       checks.push([`graph.refresh.preserves-evidence.${surface}`, refreshed.id !== repeated.id && noReuseFlag(refreshed) && freshBuild(refreshedStats)

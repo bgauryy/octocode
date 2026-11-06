@@ -30,7 +30,7 @@ fn assert_no_pattern_matches(result: &DetectResult) {
         // Its regex only names a document, and still does: nothing is left to hide.
         if let Some(form) = document::Form::of(idx) {
             assert_eq!(
-                form.redact(&result.sanitized, replacement_for(idx)),
+                form.redact(&result.sanitized, replacement_for(idx)).0,
                 result.sanitized,
                 "pattern `{name}` still hides something in sanitized output"
             );
@@ -48,12 +48,21 @@ fn detect(content: &str, file_path: Option<&str>) -> DetectResult {
     detect_in(content, file_path.map_or(Scope::Pathless, Scope::File))
 }
 
-/// [`redact`] with clean content returned unchanged.
+/// [`redact`] with clean content returned unchanged. Every result's edits
+/// place its text: what they did not replace is the content's own bytes.
 fn detect_in(content: &str, scope: Scope<'_>) -> DetectResult {
-    redact(content, scope).unwrap_or_else(|| DetectResult {
+    let result = redact(content, scope).unwrap_or_else(|| DetectResult {
         sanitized: content.to_owned(),
         secrets_detected: Vec::new(),
-    })
+        edits: crate::security::Edits::default(),
+    });
+    assert!(
+        result.edits.maps(content, &result.sanitized),
+        "edits {:?} do not place {:?} in {content:?}",
+        result.edits,
+        result.sanitized
+    );
+    result
 }
 
 impl DetectResult {

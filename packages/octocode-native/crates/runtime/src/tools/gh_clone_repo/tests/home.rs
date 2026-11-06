@@ -182,3 +182,31 @@ fn missing_branch_endpoint_git_and_portable_paths_fail_closed() {
         );
     }
 }
+
+/// Directories a clone creates under the home (the clones root, owner and
+/// repository folders, staging) are owner-only, however open the home is.
+#[cfg(unix)]
+#[test]
+fn directories_a_clone_creates_are_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let fixture = Fixture::shared();
+    let (root, home) = home_root();
+    fs::set_permissions(&home, fs::Permissions::from_mode(0o755)).expect("open home");
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let clone = clone_pinned(&fixture, &query(), &context).expect("clone");
+    let mut directory = Path::new(&clone.location.local_path)
+        .parent()
+        .expect("parent");
+    while directory != home {
+        let mode = fs::metadata(directory)
+            .expect("metadata")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o077, 0, "{} is {mode:o}", directory.display());
+        directory = directory.parent().expect("inside home");
+    }
+}

@@ -169,3 +169,69 @@ async fn the_candidate_scan_reports_cancellation_after_launch() {
     assert_eq!(window.files().len(), MAX_CANDIDATE_FILES);
     assert!(window.more(), "more candidates than one window");
 }
+
+/// What a worker saw of its deep-stack parses around a cancel.
+#[derive(Debug, PartialEq)]
+struct DeepStackRun {
+    parsed_before: bool,
+    stop_carried: bool,
+    parsed_after: bool,
+}
+
+/// A cancel that lands while the worker runs deep-stack parses stops them:
+/// the request answers `Cancelled`, the stop flag the worker's deep-stack
+/// jobs inherit (`deep_stack::current_stop`) is raised, and the next parse on
+/// the deep stack is refused instead of run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cancel_mid_deep_stack_stops_its_parses() {
+    const SOURCE: &str = "class B extends A {}\n";
+    let signal = octocode_io::cancellation::Cancellation::new();
+    let cancel = LiveCancel {
+        signal: signal.clone(),
+        deadline: None,
+    };
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (run_tx, run_rx) = std::sync::mpsc::channel();
+    let canceller = std::thread::spawn(move || {
+        started_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("worker started");
+        signal.cancel();
+    });
+    let failure = blocking_cancellable(&cancel, move |_| {
+        // A TypeScript file parses on the deep-stack pool (oxc).
+        let parsed_before =
+            octocode_engine::signatures::extract_graph_facts(SOURCE, "/w/a.ts").is_some();
+        let carried = octocode_engine::deep_stack::current_stop();
+        let _ = started_tx.send(());
+        let bound = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let raised = || {
+            carried
+                .as_ref()
+                .is_some_and(|stop| stop.load(std::sync::atomic::Ordering::Relaxed))
+        };
+        while !raised() && std::time::Instant::now() < bound {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let _ = run_tx.send(DeepStackRun {
+            parsed_before,
+            stop_carried: raised(),
+            parsed_after: octocode_engine::signatures::extract_graph_facts(SOURCE, "/w/a.ts")
+                .is_some(),
+        });
+    })
+    .await
+    .expect_err("cancelled mid deep stack");
+    assert_eq!(failure.code, ErrorCode::Cancelled);
+    canceller.join().expect("canceller");
+    assert_eq!(
+        run_rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("worker ended"),
+        DeepStackRun {
+            parsed_before: true,
+            stop_carried: true,
+            parsed_after: false,
+        }
+    );
+}

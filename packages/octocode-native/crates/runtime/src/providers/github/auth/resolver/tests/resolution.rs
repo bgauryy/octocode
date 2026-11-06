@@ -147,3 +147,42 @@ async fn environment_is_lazy_and_host_scoped() {
         .unwrap();
     assert_eq!(selected.token(), "gh-token");
 }
+
+#[tokio::test]
+async fn rejected_environment_token_fails_before_a_request_or_ambient_fallback() {
+    let auth = authentication(Some("env-token"));
+    let backend = Backend::new(Some(stored(false)));
+    let first_call = CallSelection::default();
+    let selected = auth
+        .resolve_shared_with(&first_call, "github.com", &budget(), &backend)
+        .await
+        .unwrap()
+        .unwrap();
+    auth.reject_shared(&first_call, "github.com", Some(&selected.credential));
+
+    // Both another row and a new tool call must report authentication before
+    // issuing provider requests or borrowing another account's credential.
+    let next_call = CallSelection::default();
+    for call in [&first_call, &next_call] {
+        let result = auth
+            .resolve_shared_with(call, "github.com", &budget(), &backend)
+            .await;
+        assert!(matches!(result, Err(error) if error.kind == ProviderErrorKind::Authentication));
+        let identity = auth
+            .identity_shared_with(call, "github.com", &budget(), &backend)
+            .await;
+        assert!(matches!(identity, Err(error) if error.kind == ProviderErrorKind::Authentication));
+    }
+    assert!(
+        backend.calls().is_empty(),
+        "explicit environment credentials never fall back"
+    );
+
+    // Rejection remains scoped to the host; another host still selects normally.
+    let other = auth
+        .resolve_with("enterprise.example", AuthMode::Request, &budget(), &backend)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(other.token(), "stored-token");
+}

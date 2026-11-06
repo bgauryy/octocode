@@ -1,8 +1,9 @@
 //! Public-page windows over GitHub REST collections: provider batch loading
 //! derived from public page cursors, and the page objects reported back.
-use super::fetch;
+use super::fetch_linked;
+use crate::tools::gh_get_history_item::Source;
 use octocode_github::MAX_PER_PAGE;
-use octocode_github::{GitHubTransport, ProviderError, RequestContext};
+use octocode_github::{ProviderError, RequestContext};
 use serde_json::Value;
 
 mod budget;
@@ -146,6 +147,10 @@ const BATCH_CONCURRENCY: usize = 8;
 /// One provider batch response: the body and whether a next batch exists.
 pub(super) type Batch = (Value, bool);
 
+/// A batch as read in a wave: a [`Batch`] and the last batch number the
+/// provider's `Link` header named, if any.
+type WaveBatch = (Value, bool, Option<usize>);
+
 /// The public page a load must cover, read in `batch_size`-sized batches.
 pub(super) struct WindowSpec {
     /// Provider items per batch (`per_page`).
@@ -209,13 +214,13 @@ impl WindowSpec {
 /// Load provider batches until `keep`-matching items cover the requested
 /// public page, the provider is exhausted, or the batch cap is hit.
 pub(super) async fn load_window(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     segments: &[&str],
     spec: WindowSpec,
     keep: impl Fn(&Value) -> bool,
     context: &RequestContext,
 ) -> Result<Loaded, ProviderError> {
-    load_window_with(transport, segments, spec, keep, array_items, context).await
+    load_window_with(source, segments, spec, keep, array_items, context).await
 }
 
 fn array_items(value: &mut Value) -> Vec<Value> {
@@ -241,7 +246,7 @@ pub(super) fn commit_file_items(value: &mut Value) -> Vec<Value> {
 /// spans (one batch when the total is unknown). Every batch a wave fetched
 /// is kept; whether the page is covered is judged between waves.
 pub(super) async fn load_window_with(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     segments: &[&str],
     mut spec: WindowSpec,
     keep: impl Fn(&Value) -> bool,
@@ -266,14 +271,22 @@ pub(super) async fn load_window_with(
             let last = spec.wave_end(next);
             let held = spec.prefetched.take_if(|(batch, _)| *batch == next);
             let batches = fetch_batches(
-                transport,
+                source,
                 segments,
                 (next..=last, spec.batch_size),
                 held,
                 context,
             )
             .await?;
-            for (batch, (mut value, more)) in (next..=last).zip(batches) {
+            // With no count known up front, the provider's own last page
+            // sizes the waves after this one: the batches a scan needs then
+            // load at once, not one request after another.
+            if spec.provider_total.is_none()
+                && let Some(pages) = batches.iter().filter_map(|(_, _, last)| *last).max()
+            {
+                spec.provider_total = Some(pages.saturating_mul(spec.batch_size));
+            }
+            for (batch, (mut value, more, _)) in (next..=last).zip(batches) {
                 let items = extract(&mut value);
                 if batch == first_batch {
                     loaded.first = value;
@@ -309,19 +322,19 @@ pub(super) async fn load_window_with(
 /// [`BATCH_CONCURRENCY`] in flight; a `held` batch (the first of the range)
 /// is used as is.
 async fn fetch_batches(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     segments: &[&str],
     (batches, per_page): (std::ops::RangeInclusive<usize>, usize),
     held: Option<(usize, Batch)>,
     context: &RequestContext,
-) -> Result<Vec<Batch>, ProviderError> {
+) -> Result<Vec<WaveBatch>, ProviderError> {
     use futures_util::{StreamExt as _, TryStreamExt as _};
-    let held = held.map(|(_, batch)| batch);
+    let held = held.map(|(_, (value, more))| (value, more, None));
     let skip = usize::from(held.is_some());
     let fetched = futures_util::stream::iter(batches.skip(skip))
         .map(|batch| async move {
-            fetch(
-                transport,
+            fetch_linked(
+                source,
                 segments,
                 &[
                     ("per_page", per_page.to_string()),

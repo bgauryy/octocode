@@ -26,27 +26,42 @@ pub(crate) fn workers(items: usize, cap: Option<usize>) -> usize {
 /// `job` of every item, by item index, on `workers` scoped threads that
 /// each take the next undone item (the work per item varies widely). A
 /// panicking job panics the caller. Returned in item order.
-pub(crate) fn each_parallel<T: Send, R: Send>(
-    items: &mut [T],
+pub(crate) fn each_parallel<I, R: Send>(
+    items: I,
     workers: usize,
-    job: impl Fn(&mut T) -> R + Sync,
-) -> Vec<R> {
+    job: impl Fn(I::Item) -> R + Sync,
+) -> Vec<R>
+where
+    I: IntoIterator,
+    I::IntoIter: Send,
+    I::Item: Send,
+{
+    let items = items.into_iter();
     if workers < 2 {
-        return items.iter_mut().map(job).collect();
+        return items.map(job).collect();
     }
-    let queue = std::sync::Mutex::new(items.iter_mut().enumerate());
+    let queue = std::sync::Mutex::new(items.enumerate());
     let next = || {
         queue
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .next()
     };
+    // Each worker runs under the caller's stop flag, so a deep-stack parse
+    // a job waits on stops with the caller's work.
+    let stop = octocode_engine::deep_stack::current_stop();
     let drain = || {
-        let mut done = Vec::new();
-        while let Some((index, item)) = next() {
-            done.push((index, job(item)));
+        let run = || {
+            let mut done = Vec::new();
+            while let Some((index, item)) = next() {
+                done.push((index, job(item)));
+            }
+            done
+        };
+        match &stop {
+            Some(stop) => octocode_engine::deep_stack::while_stoppable(stop, run),
+            None => run(),
         }
-        done
     };
     let mut done = std::thread::scope(|scope| {
         let tasks = (0..workers).map(|_| scope.spawn(drain)).collect::<Vec<_>>();
@@ -65,24 +80,36 @@ pub(crate) fn each_parallel<T: Send, R: Send>(
 /// [`each_parallel`] for fallible jobs: the outcomes in item order, or the
 /// first error by item index among the jobs that ran. Once a job fails,
 /// workers stop taking new items.
-pub(crate) fn try_each_parallel<T: Send, R: Send, E: Send>(
-    items: &mut [T],
+pub(crate) fn try_each_parallel<I, R: Send, E: Send>(
+    items: I,
     workers: usize,
-    job: impl Fn(&mut T) -> Result<R, E> + Sync,
-) -> Result<Vec<R>, E> {
+    job: impl Fn(I::Item) -> Result<R, E> + Sync,
+) -> Result<Vec<R>, E>
+where
+    I: IntoIterator,
+    I::IntoIter: Send,
+    I::Item: Send,
+{
+    if workers < 2 {
+        return items.into_iter().map(job).collect();
+    }
     let failed = std::sync::atomic::AtomicBool::new(false);
-    each_parallel(items, workers, |item| {
+    let mut items = items.into_iter();
+    let pending = std::iter::from_fn(|| {
         if failed.load(std::sync::atomic::Ordering::Relaxed) {
-            return None;
+            None
+        } else {
+            items.next()
         }
+    });
+    each_parallel(pending, workers, |item| {
         let outcome = job(item);
         if outcome.is_err() {
             failed.store(true, std::sync::atomic::Ordering::Relaxed);
         }
-        Some(outcome)
+        outcome
     })
     .into_iter()
-    .flatten()
     .collect()
 }
 
@@ -140,6 +167,44 @@ mod tests {
             Err(10),
             "one worker stops at the first failure"
         );
+    }
+
+    #[test]
+    fn a_failed_job_stops_pulling_new_items() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        for threads in [1, 2, 7] {
+            let pulled = AtomicUsize::new(0);
+            let items = (0..100).inspect(|_| {
+                pulled.fetch_add(1, Ordering::Relaxed);
+            });
+            let outcome: Result<Vec<usize>, usize> = try_each_parallel(items, threads, Err);
+            assert!(outcome.is_err());
+            assert!(
+                pulled.load(Ordering::Relaxed) <= threads,
+                "pulled {} inputs on {threads} workers after an immediate error",
+                pulled.load(Ordering::Relaxed)
+            );
+        }
+    }
+
+    #[test]
+    fn concurrent_errors_keep_the_lowest_running_item_index() {
+        let started = std::sync::Barrier::new(2);
+        let outcome: Result<Vec<usize>, usize> = try_each_parallel(0..2, 2, |index| {
+            started.wait();
+            Err(index)
+        });
+        assert_eq!(outcome, Err(0));
+    }
+
+    #[test]
+    fn empty_work_returns_no_outcomes() {
+        for threads in [1, 2] {
+            let result = try_each_parallel(std::iter::empty::<usize>(), threads, |item| {
+                Ok::<_, usize>(item)
+            });
+            assert_eq!(result, Ok(Vec::new()));
+        }
     }
 
     /// Concurrent calls' fan-outs draw on one process budget: while six

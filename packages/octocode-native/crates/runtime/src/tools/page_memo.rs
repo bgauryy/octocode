@@ -74,6 +74,13 @@ impl<V: Send + Sync + 'static> PageMemo<V> {
             .insert(snapshot, (policy, value), weight, Some(CONTINUATION_IDLE));
     }
 
+    /// Charge `bytes` more to the value stored for `snapshot`, for what a later
+    /// page learned of it; false (nothing charged) when the budget cannot hold
+    /// them without reclaiming, or nothing is stored ([`Memo::charge`]).
+    pub(crate) fn charge(&self, snapshot: &str, bytes: usize) -> bool {
+        self.memo.charge(snapshot, bytes)
+    }
+
     /// Drop the value stored for `snapshot`, as expiry or eviction would.
     pub(crate) fn evict(&self, snapshot: &str) {
         self.memo.remove(snapshot);
@@ -271,6 +278,20 @@ mod tests {
         std::fs::create_dir(root.join("dir")).expect("fixture");
         std::fs::create_dir(root.join("dir").join(".ignore")).expect("a directory");
         assert!(directory_ignore_inputs(&root.join("dir"), root, all).untracked);
+    }
+
+    /// A charge grows the stored value's weight; one past the whole budget
+    /// is refused and changes nothing, and nothing stored takes no charge.
+    #[test]
+    fn a_charge_grows_a_stored_value_within_the_budget() {
+        let memo = PageMemo::new();
+        memo.put("a".into(), "p".into(), 3, ());
+        let stored = memo.contents().1;
+        assert!(memo.charge("a", 5));
+        assert_eq!(memo.contents().1, stored + 5);
+        assert!(!memo.charge("a", octocode_engine::memory::MEMORY.limit() + 1));
+        assert_eq!(memo.contents().1, stored + 5);
+        assert!(!memo.charge("missing", 1));
     }
 
     /// A value over the whole budget is not kept, and evicts nothing

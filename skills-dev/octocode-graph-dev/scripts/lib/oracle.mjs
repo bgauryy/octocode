@@ -94,8 +94,8 @@ export function fileRecall(siteFiles, graphFiles) {
     rgFiles: siteFiles.size,
     graphFiles: graphFiles.size,
     both,
-    recall: siteFiles.size ? +(both / siteFiles.size).toFixed(2) : null,
-    precision: graphFiles.size ? +(both / graphFiles.size).toFixed(2) : null,
+    recall: siteFiles.size ? both / siteFiles.size : null,
+    precision: graphFiles.size ? both / graphFiles.size : null,
     missed: [...siteFiles].filter((f) => !graphFiles.has(f)).toSorted(),
     extra: [...graphFiles].filter((f) => !siteFiles.has(f)).toSorted(),
   };

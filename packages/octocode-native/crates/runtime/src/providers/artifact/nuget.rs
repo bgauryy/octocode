@@ -231,8 +231,14 @@ async fn exact(
         && let Some(version) = artifact.version.clone()
         && let Some((repository, commit)) = nuspec_repository(package_name, &version, client).await
     {
-        artifact.repository = Some(repository);
+        artifact.set_source_link(&repository);
         artifact.source_ref = commit;
+    }
+    // A package whose registry names no commit is pinned to the upstream
+    // release tag of its version.
+    if let Some(version) = artifact.version.clone() {
+        let name = artifact.package_name.clone();
+        super::release_ref::pin_release_tag(&mut artifact, &name, &version, None, client).await;
     }
     Ok(ArtifactProviderPage::single(artifact))
 }

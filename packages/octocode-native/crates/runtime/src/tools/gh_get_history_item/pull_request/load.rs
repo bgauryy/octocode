@@ -1,6 +1,7 @@
 //! The provider loads of one pull-request read: the PR itself and its
 //! collections (GraphQL first page or REST windows), concurrently.
 use super::PrPlan;
+use crate::tools::gh_get_history_item::Source;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::graphql::{
     GraphqlCollection, GraphqlPr, map_graphql_comments, map_graphql_commits, map_graphql_files,
@@ -15,13 +16,13 @@ use crate::tools::gh_get_history_item::window::{
 };
 use crate::tools::gh_get_history_item::{HistoryItemRequest, Sections, fetch};
 use octocode_engine::num::saturating_usize;
-use octocode_github::{GitHubTransport, MAX_PER_PAGE, ProviderError, RequestContext};
+use octocode_github::{MAX_PER_PAGE, ProviderError, RequestContext};
 use serde_json::Value;
 
 /// One PR collection: what GraphQL served (the whole list, or a first page
 /// it covers), otherwise the REST window covering the requested public page.
 async fn load_collection(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     wanted: bool,
     graphql: Option<Loaded>,
     segments: &[&str],
@@ -35,7 +36,7 @@ async fn load_collection(
     if let Some(served) = graphql {
         return Ok(Some(served));
     }
-    load_window(transport, segments, spec, keep, context)
+    load_window(source, segments, spec, keep, context)
         .await
         .map(Some)
 }
@@ -55,7 +56,7 @@ pub(super) struct PrLoads {
 /// `changed_files` then sizes the rest, which load at once), or alone when a
 /// later comment page that `matchString` filters needs the PR's counts.
 async fn first_requests(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     context: &RequestContext,
     pulls: &[&str],
     file_batch: Option<usize>,
@@ -68,13 +69,13 @@ async fn first_requests(
             ("page", batch.to_string()),
         ];
         let ((raw, _), files) = tokio::try_join!(
-            fetch(transport, pulls, &[], context),
-            fetch(transport, &files_path, &page, context),
+            fetch(source, pulls, &[], context),
+            fetch(source, &files_path, &page, context),
         )?;
         return Ok((Some(raw), Some((batch, files))));
     }
     if later_comments {
-        return Ok((Some(fetch(transport, pulls, &[], context).await?.0), None));
+        return Ok((Some(fetch(source, pulls, &[], context).await?.0), None));
     }
     Ok((None, None))
 }
@@ -87,7 +88,7 @@ async fn first_requests(
 /// batch is the window's own first batch, never read again; when it ends
 /// the list (most PRs), the read costs one round trip.
 async fn prefetch(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
     wants: &Sections,
@@ -111,12 +112,12 @@ async fn prefetch(
         "pulls",
         plan.number.as_str(),
     ];
-    first_requests(transport, context, &pulls, file_batch, later_comments).await
+    first_requests(source, context, &pulls, file_batch, later_comments).await
 }
 
 /// The PR itself: from GraphQL, the prefetch, or one REST read.
 async fn load_raw(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     context: &RequestContext,
     pulls: &[&str],
     graphql: Option<&GraphqlPr>,
@@ -125,9 +126,7 @@ async fn load_raw(
     match (graphql, prefetched) {
         (Some(graphql), _) => Ok(graphql.raw.clone()),
         (None, Some(raw)) => Ok(raw),
-        (None, None) => fetch(transport, pulls, &[], context)
-            .await
-            .map(|(raw, _)| raw),
+        (None, None) => fetch(source, pulls, &[], context).await.map(|(raw, _)| raw),
     }
 }
 
@@ -142,7 +141,7 @@ fn provider_count(raw: Option<&Value>, key: &str) -> Option<usize> {
 /// The review-comment (inline) window of the requested page, sized by the
 /// PR's `review_comments` count when it is known.
 pub(super) async fn load_inline(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
     plan: &PrPlan,
@@ -158,7 +157,7 @@ pub(super) async fn load_inline(
         "comments",
     ];
     load_collection(
-        transport,
+        source,
         true,
         None,
         &path,
@@ -188,7 +187,7 @@ pub(super) enum InlineWindow {
 /// `inline` is the review-comment window, prefetched when it loaded beside
 /// the GraphQL read.
 pub(super) async fn load_pr(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
     wants: &Sections,
@@ -232,7 +231,7 @@ pub(super) async fn load_pr(
         )
     };
     let (raw_first, file_batch) =
-        prefetch(transport, query, context, wants, plan, &files, graphql).await?;
+        prefetch(source, query, context, wants, plan, &files, graphql).await?;
     // The PR's counts size the collections' batches: from the prefetch, or
     // from the GraphQL header (which counts files and comments).
     let counts = raw_first.as_ref().or(graphql.map(|g| &g.raw));
@@ -243,9 +242,9 @@ pub(super) async fn load_pr(
     // Collections load concurrently; each derives its provider batches from
     // the public page cursor (no provider cursor leaks into continuations).
     let (raw, files, discussion, inline, reviews, commits) = tokio::try_join!(
-        load_raw(transport, context, &pulls, graphql, raw_first.clone()),
+        load_raw(source, context, &pulls, graphql, raw_first.clone()),
         load_collection(
-            transport,
+            source,
             wants.lists_files(),
             complete(|g| g.files, map_graphql_files),
             &files_path,
@@ -254,7 +253,7 @@ pub(super) async fn load_pr(
             context,
         ),
         load_collection(
-            transport,
+            source,
             wants.has(Section::Comments),
             complete(|g| g.discussion, map_graphql_comments),
             &discussion_path,
@@ -274,13 +273,13 @@ pub(super) async fn load_pr(
                 InlineWindow::Prefetched(loaded) => Ok(loaded),
                 InlineWindow::Pending if wants.has(Section::ReviewComments) => {
                     let total = provider_count("review_comments");
-                    load_inline(transport, query, context, plan, total).await
+                    load_inline(source, query, context, plan, total).await
                 }
                 InlineWindow::Pending => Ok(None),
             }
         },
         load_collection(
-            transport,
+            source,
             wants.has(Section::Reviews),
             complete(|g| g.reviews, map_graphql_reviews),
             &reviews_path,
@@ -293,7 +292,7 @@ pub(super) async fn load_pr(
             context,
         ),
         load_collection(
-            transport,
+            source,
             wants.lists_commits(),
             complete(|g| g.commits, map_graphql_commits),
             &commits_path,

@@ -193,15 +193,16 @@ fn every_tool_discloses_unchecked_scope_and_offers_an_executable_related_search(
                 || prose(&out).contains("node_modules"),
             "{label}: skipped directory undisclosed: {out}"
         );
-        let out = crate::tools::empty_walk::with_probe_budget(std::time::Duration::ZERO, || {
-            (tool.run)(&root.0, &query)
-        });
+        let out = crate::tools::empty_walk::with_probe_limits(
+            crate::tools::empty_walk::CUT_AT_ONCE,
+            || (tool.run)(&root.0, &query),
+        );
         assert!(
             out.get("partialReasons").is_none() && out["isPartial"] != json!(true),
             "{label}: the requested scope was walked whole: {out}"
         );
         assert!(
-            prose(&out).contains("not checked in time"),
+            prose(&out).contains("not checked within the probe budget"),
             "{label}: {out}"
         );
         let lead = skipped_query(&out).unwrap_or_else(|| panic!("{label}: {out}"));

@@ -1,7 +1,8 @@
 # Bans for the local ratchet, `dev.mjs lint:rust` (skills-dev/octocode-dev/scripts/rust-lint.mjs). They are not in
 # clippy.toml, so plain `cargo clippy`, CI and the editor do not see them. Production code only; findings that
 # predate a ban are in clippy-baseline.json, which only shrinks. A site that must stay says why in the code:
-#   #[expect(clippy::disallowed_methods, reason = "...")]
+#   #[cfg_attr(octocode_clippy_ratchet, expect(clippy::disallowed_methods, reason = "..."))]
+# rust-lint enables this cfg with these bans; plain Clippy must not expect a ban it does not load.
 disallowed-methods = [
     { path = "alloc::string::String::leak", reason = "leaks per call in a long-lived server process: bind to a local instead" },
     # Evidence is paged, never trimmed. A truncate that drops rows or lines is a defect.

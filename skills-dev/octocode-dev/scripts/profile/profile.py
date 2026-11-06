@@ -63,17 +63,36 @@ def prepare(server, flow, query):
     return following
 
 
+def partial_rows(answer):
+    """Coverage gaps, separate from pagination: waiting cannot repair most of them."""
+    found = []
+    for index, row in enumerate((answer.get('content') or {}).get('results') or []):
+        data = row.get('data') or {}
+        if data.get('isPartial') or data.get('partialReasons') or (data.get('coverage') or {}).get('state') == 'partial':
+            found.append((row.get('index', index), data.get('partialReasons') or ['unspecified partial coverage']))
+    return found
+
+
+def require_server_coverage(flow, answer):
+    if flow.get('server') and (partial := partial_rows(answer)):
+        reasons = '; '.join(f"row {index}: {', '.join(reasons)}" for index, reasons in partial)
+        raise SystemExit(f"{flow['id']}: unverified language-server coverage: {reasons}")
+    return answer
+
+
 def settle(server, flow, query):
-    """The first answer; a language server's flow waits until its index stops answering partially."""
+    """Wait only for the canonical transient languageServerIndexing reason."""
     answer = server.call(flow['tool'], query)
     if flow.get('server'):
         for _ in range(120):
-            rows = (answer['content'] or {}).get('results') or [{}]
-            if not (rows[0].get('data') or {}).get('isPartial'):
+            partial = partial_rows(answer)
+            if not partial:
                 break
+            if any(set(reasons) != {'languageServerIndexing'} for _, reasons in partial):
+                require_server_coverage(flow, answer)
             time.sleep(2)
             answer = server.call(flow['tool'], query)
-    return answer
+    return require_server_coverage(flow, answer)
 
 
 def count(binary, flow, query, cwd, extra, reps):
@@ -88,13 +107,16 @@ def count(binary, flow, query, cwd, extra, reps):
             server = Mcp(binary, cwd, env)
             try:
                 server.call('localFetch', queries({'path': '.', 'view': 'symbols'}))
-                rows.append(server.call(flow['tool'], prepare(server, flow, query)))
+                rows.append(require_server_coverage(flow, server.call(flow['tool'], prepare(server, flow, query))))
             finally:
                 server.close()
     errors = {row.get('error') for row in rows if row.get('error')} | {f"exit {row['rc']}" for row in rows if row.get('rc')}
     instr = [row['instr'] for row in rows if row.get('instr') is not None]
     return {'instr': min(instr) if instr else None, 'max': max(instr) if instr else None, 'peak': max((row.get('peak') or 0) for row in rows) or None,
-            'wall': min(row['wall'] for row in rows), 'bytes': rows[-1].get('bytes'), 'errors': sorted(errors)}
+            'wall': min(row['wall'] for row in rows), 'bytes': rows[-1].get('bytes'), 'errors': sorted(errors),
+            'reps': len(rows), 'instructionSamples': len(instr),
+            'peakSamples': sum(row.get('peak') is not None for row in rows),
+            'samples': [{key: row[key] for key in ('instr', 'peak', 'wall', 'bytes', 'error', 'rc') if key in row} for row in rows]}
 
 
 def record(binary, flow, query, cwd, extra, secs, out):
@@ -113,7 +135,7 @@ def record(binary, flow, query, cwd, extra, secs, out):
             request = prepare(server, flow, query)
             started, calls = time.time(), 0
             while True:
-                server.call(flow['tool'], request)
+                require_server_coverage(flow, server.call(flow['tool'], request))
                 calls += 1
                 if time.time() - started >= secs:
                     break

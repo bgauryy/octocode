@@ -86,6 +86,11 @@ pub(crate) fn call(
                 let (gate, evaluations, section_budget) = (&gate, &evaluations, &section_budget);
                 scope.spawn(move || {
                     let _enter = dispatcher.handle().enter();
+                    if let Some(refused) =
+                        admission::unretainable_source(row, section_runtime.can_resume)
+                    {
+                        return refused;
+                    }
                     match &row.input {
                         Input::Sections(input) => RowOutcome::Sections(sections::run(
                             row,

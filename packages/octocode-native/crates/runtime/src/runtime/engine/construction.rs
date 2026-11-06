@@ -282,7 +282,7 @@ fn evaluator(
             .filter(|model| !model.trim().is_empty())
             .unwrap_or_else(|| provider.defaults().model.to_owned()),
         provider,
-        limits.network_timeout,
+        limits.classification_timeout,
         u32::from(limits.max_retries),
         limits.classification_concurrency,
     )

@@ -1,6 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { declarations, lspLocations, nextHints, rowData, sourceLines } from './responses.mjs';
+import { declarations, joinTextParts, lspLocations, nextHints, rowData, sourceLines } from './responses.mjs';
+
+test('string-window parts append at rowPart.text and every value reads exactly once', () => {
+  const whole = { index: 0, data: { files: [{ path: 'a', matches: [{ line: 1, text: 'one' }, { line: 2, text: 'abcdefgh' }] }], content: 'xyz' }, status: 'success' };
+  const pages = [
+    { index: 0, data: { files: [{ path: 'a', matches: [{ line: 1, text: 'one' }, { line: 2, text: 'abc' }] }], content: 'xyz' }, status: 'success', rowPart: { part: 1, of: 3 } },
+    { index: 0, data: { files: [{ path: 'a', matches: [{ line: 2, text: 'def' }] }] }, rowPart: { part: 2, of: 3, text: '/data/files/0/matches/1/text', continues: { array: '/data/files/0/matches', index: 1 } } },
+    { index: 1, data: { content: 'other' } },
+    { index: 0, data: { files: [{ path: 'a', matches: [{ line: 2, text: 'gh' }] }] }, rowPart: { part: 3, of: 3, text: '/data/files/0/matches/1/text', continues: { array: '/data/files/0/matches', index: 1 } } },
+  ];
+  const joined = joinTextParts(pages);
+  assert.equal(joined.length, 2);
+  assert.deepEqual(joined[0].data, whole.data);
+  assert.deepEqual(joined[1].data, { content: 'other' });
+  assert.equal(pages[0].data.files[0].matches[1].text, 'abc', 'the walk itself is not mutated');
+  assert.throws(() => joinTextParts([pages[0], { index: 0, data: {}, rowPart: { text: '/data/missing' } }]));
+});
 
 const outlinePage = (symbol, continued) => ({ sc: { results: [{ data: { files: [{ path: 'source.ts', symbols: [symbol] }] }, ...(continued && { rowPart: { part: 2, of: 2, continues: { array: '/data/files', index: 0 } } }) }] } });
 

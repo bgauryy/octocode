@@ -1,4 +1,6 @@
 use super::*;
+use crate::security::scan::Passthrough;
+use crate::tools::gh_get_history_item::Source;
 use crate::tools::gh_shared::test_support::{default_context, one_shot_provider};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
@@ -72,7 +74,7 @@ async fn first_page(
     )).expect("PR query");
     let mut row = json!({});
     let next = shape_pr_commits(
-        &provider.transport,
+        &Source::new(&provider.transport, &Passthrough),
         &mut row,
         &mut Map::new(),
         vec![json!({"sha":SHA,"commit":{"message":"change"}})],
@@ -114,10 +116,15 @@ async fn commit_files_scope_covers_late_matches_and_continuations_exactly_once()
     assert_eq!(saved["page"], 2);
     assert_eq!(saved["pageSize"], 100);
     let query = HistoryItemRequest::from_row(saved).expect("saved scoped commit");
-    let tail = super::super::super::commit::commit(&provider, &query, &default_context())
-        .await
-        .expect("tail")
-        .data;
+    let tail = super::super::super::commit::commit(
+        &provider,
+        &Source::new(&provider.transport, &Passthrough),
+        &query,
+        &default_context(),
+    )
+    .await
+    .expect("tail")
+    .data;
     assert_eq!(
         tail["files"],
         json!(["M +10 -0 docs/kept-100.md"]),
@@ -144,10 +151,15 @@ async fn commit_files_unfiltered_pages_preserve_every_file() {
     assert_eq!(row["commits"][0]["files"][99], "M +1 -0 f99.rs");
     let query =
         HistoryItemRequest::from_row(&next[0].1["input"]["queries"][0]).expect("saved commit");
-    let tail = super::super::super::commit::commit(&provider, &query, &default_context())
-        .await
-        .expect("tail")
-        .data;
+    let tail = super::super::super::commit::commit(
+        &provider,
+        &Source::new(&provider.transport, &Passthrough),
+        &query,
+        &default_context(),
+    )
+    .await
+    .expect("tail")
+    .data;
     assert_eq!(tail["files"], json!(["M +1 -0 f100.rs"]));
     assert_eq!(
         tail["contentPagination"]["files"]["hasMore"], false,

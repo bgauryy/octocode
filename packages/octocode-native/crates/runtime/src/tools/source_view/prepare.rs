@@ -113,8 +113,13 @@ pub(crate) struct Prepared<'a> {
     /// Bytes of the source as read (a leading BOM and the encoding
     /// fallback change the decoded text, not the file's size).
     pub(super) raw_bytes: usize,
-    pub(super) warning: Option<&'static str>,
+    /// What the decode changed: an encoding fallback, a dropped BOM.
+    pub(super) warnings: Vec<&'static str>,
 }
+
+/// The warning of a source whose leading UTF-8 byte-order mark the decode
+/// dropped: the served text, its byte offsets and totals start after it.
+pub(super) const UTF8_BOM_WARNING: &str = "Dropped a leading UTF-8 byte-order mark (3 bytes): byte offsets and totals count the text after it, while snapshots identify the original file bytes.";
 
 impl<'a> Prepared<'a> {
     pub(super) fn of(bytes: &'a [u8], interior: bool, security: &impl ContentScan) -> Self {
@@ -145,9 +150,129 @@ impl<'a> Prepared<'a> {
                 std::borrow::Cow::Borrowed(_) => raw,
                 std::borrow::Cow::Owned(text) => std::borrow::Cow::Owned(text),
             },
-            warning: decoded.warning,
+            warnings: decoded
+                .warning
+                .into_iter()
+                .chain(
+                    (!interior
+                        && !octocode_engine::text::has_utf16_bom(bytes)
+                        && octocode_engine::text::bom_len(bytes) > 0)
+                        .then_some(UTF8_BOM_WARNING),
+                )
+                .collect(),
         }
     }
+}
+
+/// What the line-preserving secret pass changed on a keyed text: the
+/// redacted text when it changed anything, and the lines it changed with the
+/// placeholders each gained.
+pub(crate) struct Redaction {
+    text: Option<String>,
+    lines: Vec<(usize, usize)>,
+}
+
+impl Redaction {
+    /// A window cut from a view sealed already: nothing left to redact, and
+    /// `lines` are the window's lines that sealing changed.
+    pub(super) fn sealed_already(lines: &[(usize, usize)]) -> Self {
+        Self {
+            text: None,
+            lines: lines.to_vec(),
+        }
+    }
+}
+
+/// The view every source read serves and cuts its windows from; built by
+/// [`sealed_view`].
+pub(crate) struct SealedView<'a> {
+    /// The sealed text; unchanged UTF-8 stays borrowed from the input bytes.
+    pub(crate) text: std::borrow::Cow<'a, str>,
+    pub(crate) key_blocks_redacted: bool,
+    /// Whether the secret pass changed any line.
+    pub(crate) match_redacted: bool,
+    /// The source lines either pass changed (1-based, ascending), with the
+    /// placeholders each gained: literal `[REDACTED…]` text in the source is
+    /// not a redaction.
+    pub(crate) redacted_lines: Vec<(usize, usize)>,
+    /// Bytes of the source as read.
+    pub(crate) raw_bytes: usize,
+    /// What the decode changed: an encoding fallback, a dropped BOM.
+    pub(crate) warnings: Vec<&'static str>,
+}
+
+impl<'a> Prepared<'a> {
+    /// The secret pass over the keyed text, line by line, keeping the line
+    /// count. The scanner's refusal (`ContentSecurityLimit` for a source too
+    /// large to judge) is the error.
+    pub(crate) fn redaction(
+        &self,
+        path: &std::path::Path,
+        security: &impl ContentScan,
+    ) -> Result<Redaction, (ErrorCode, String)> {
+        let (text, changed) = security.redact_source_lines(&self.keyed, path)?;
+        Ok(if changed {
+            Redaction {
+                lines: redacted_lines(&self.keyed, &text),
+                text: Some(text.into_owned()),
+            }
+        } else {
+            Redaction {
+                text: None,
+                lines: Vec::new(),
+            }
+        })
+    }
+
+    /// This source sealed by `redaction`: its text and every line either pass
+    /// changed.
+    pub(crate) fn sealed(self, redaction: Redaction) -> SealedView<'a> {
+        let mut redacted_lines = self.key_block_lines;
+        add_redacted_lines(&mut redacted_lines, &redaction.lines);
+        SealedView {
+            match_redacted: redaction.text.is_some() || !redaction.lines.is_empty(),
+            text: redaction.text.map_or(self.keyed, std::borrow::Cow::Owned),
+            key_blocks_redacted: self.key_blocks_redacted,
+            redacted_lines,
+            raw_bytes: self.raw_bytes,
+            warnings: self.warnings,
+        }
+    }
+}
+
+/// The sealed view of a whole source's `bytes`: the one text localFetch,
+/// ghGetFileContent and lspSearch serve and cut windows from, so a byte
+/// offset one of them names is a byte offset of the others.
+///
+/// Contract:
+/// - Decode: UTF-8, else Latin-1 or lossy UTF-8 with a warning, never a
+///   refusal; a leading UTF-8 byte-order mark is dropped with
+///   [`UTF8_BOM_WARNING`].
+/// - Private-key blocks are redacted across the whole source first, so no
+///   window cut later shows key material whose BEGIN/END markers fall
+///   outside it.
+/// - Secrets are then redacted line by line. Both passes keep the line
+///   count: line N of the view is line N of the source, and
+///   [`SealedView::redacted_lines`] names every line they changed.
+/// - Byte offsets into [`SealedView::text`] are the offsets localFetch byte
+///   pages and `readProgress` (unit bytes) count; a snapshot pins the raw
+///   bytes. Cut windows with `crate::response::cut` (`clean_cut`,
+///   `window_end`, `window_at`), which never split a redaction marker, a CRLF
+///   pair or a character; byte pages inside a long line start at that line's
+///   first byte, so required pages carry the line exactly once.
+/// - The error is the scanner's refusal, `(code, message)`.
+///
+/// This is the in-memory form. A source too large to hold whole is sealed
+/// with the same two passes as it streams (`local_fetch::large_source`,
+/// whose windows arrive sealed: see [`Redaction::sealed_already`]).
+pub(crate) fn sealed_view<'a>(
+    bytes: &'a [u8],
+    path: &std::path::Path,
+    security: &impl ContentScan,
+) -> Result<SealedView<'a>, (ErrorCode, String)> {
+    let prepared = Prepared::of(bytes, false, security);
+    let redaction = prepared.redaction(path, security)?;
+    Ok(prepared.sealed(redaction))
 }
 
 /// Prepare this request's source. Of what it decodes and redacts, only a whole
@@ -248,12 +373,12 @@ pub(super) fn prepare_source<'a>(
     };
     cancel.check().map_err(cancelled)?;
     let prepared = prepared(bytes, facts.interior, security, cancel).map_err(cancelled)?;
-    let key_blocks_redacted = prepared.key_blocks_redacted;
     let scan_refused = |(code, message)| {
         let mut result =
             LocalFetchResult::error(local_fetch_query::path(q).to_owned(), code, message);
         if code == ErrorCode::ContentSecurityLimit {
             result.terminal_limit(PartialReason::SecuritySelectedView);
+            one_line_recovery(q, &prepared.keyed, &mut result);
         }
         Box::new(result)
     };
@@ -275,27 +400,28 @@ pub(super) fn prepare_source<'a>(
             line_count(&prepared.keyed),
         )));
     }
-    // Sanitize before selection: match probes cannot confirm secrets, and a
-    // range cannot detach a secret value from its identifying source context.
-    // Both security passes preserve source line counts. A whole read scans
-    // page by page, unless a page cannot show what makes a value secret.
-    let across_lines = crate::security::scan::only_whole_judges(&prepared.keyed, source_path);
-    let mut redacted = prepared.key_block_lines;
-    let (text, match_redacted) = if selects || across_lines {
-        let (text, changed) = security
-            .redact_source_lines(&prepared.keyed, source_path)
-            .map_err(scan_refused)?;
-        if changed {
-            add_redacted_lines(&mut redacted, &redacted_lines(&prepared.keyed, &text));
-        }
-        let text = match text {
-            std::borrow::Cow::Borrowed(_) => prepared.keyed,
-            std::borrow::Cow::Owned(text) => std::borrow::Cow::Owned(text),
-        };
-        (text, changed)
+    // Redact before anything selects, reduces or cuts: match probes cannot
+    // confirm secrets, a range cannot detach a secret value from its
+    // identifying source context, a compact or outline view reduces redacted
+    // text, and every page window is cut from the redacted view (its byte
+    // offsets count that view). Both security passes preserve source line
+    // counts. A walk redacts once: its kept view replays (`retained`).
+    let redaction = if let Some(origin) = &facts.byte_origin {
+        // A window of a sealed view is redacted already.
+        Redaction::sealed_already(&origin.redacted)
     } else {
-        (prepared.keyed, false)
+        prepared
+            .redaction(source_path, security)
+            .map_err(scan_refused)?
     };
+    let SealedView {
+        text,
+        key_blocks_redacted,
+        match_redacted,
+        redacted_lines: redacted,
+        raw_bytes,
+        warnings,
+    } = prepared.sealed(redaction);
     let offsets = selects.then(|| std::sync::Arc::new(super::extraction::LineOffsets::new(&text)));
     let total_lines = offsets
         .as_ref()
@@ -303,14 +429,31 @@ pub(super) fn prepare_source<'a>(
     Ok(Source {
         sha256,
         text,
-        bytes: prepared.raw_bytes,
+        bytes: raw_bytes,
         total_lines,
         offsets,
         key_blocks_redacted,
         match_redacted,
         redacted_lines: redacted,
-        warnings: prepared.warning.map(str::to_owned).into_iter().collect(),
+        warnings: warnings.into_iter().map(str::to_owned).collect(),
     })
+}
+
+/// A source too large for the secret scanner offers its first selected line
+/// on its own, unless the read already selects one line.
+fn one_line_recovery(q: &LocalFetchQuery, keyed: &str, result: &mut LocalFetchResult) {
+    let total_lines = line_count(keyed);
+    result.total_lines = Some(total_lines);
+    if total_lines > 1
+        && (local_fetch_query::start_line(q).is_none()
+            || local_fetch_query::start_line(q) != local_fetch_query::end_line(q))
+    {
+        let line = local_fetch_query::start_line(q).unwrap_or(1);
+        result.next = Some(NextCalls {
+            read_bounded_lines: single_line_query(q, line).map(FetchCall::related),
+            ..NextCalls::default()
+        });
+    }
 }
 
 /// A failed selection retains its typed error. Ranges past the file end

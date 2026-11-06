@@ -2,7 +2,7 @@ use super::alternates::listed_passes;
 use super::*;
 use crate::execution::cancel::NeverCancel;
 use crate::security::ContentSecurity;
-use crate::tools::empty_walk::with_probe_budget;
+use crate::tools::empty_walk::{CUT_AT_ONCE, ProbeLimits, with_probe_limits};
 use crate::tools::local_search::executor::{execute_local_search, scan_query};
 use crate::tools::local_search::types::LocalSearchResult;
 use std::collections::BTreeSet;
@@ -179,8 +179,8 @@ fn a_probe_counts_admitted_files_and_shows_nothing_of_them() {
     assert!(!body.contains("ghp_0123"), "{body}");
 }
 
-/// Sleeps past the probe budget on every check after the first few, so a
-/// probe keeps what those found and is cut before the rest.
+/// Sleeps `stall` on every check after the first `free`: load that a
+/// probe's finding must not depend on.
 struct Stalling {
     free: std::sync::atomic::AtomicIsize,
     stall: Duration,
@@ -193,6 +193,62 @@ impl CancellationCheck for Stalling {
         }
         Ok(())
     }
+}
+
+/// The skipped-path sentence of an empty search of `written`, under `cancel`.
+fn skipped_hint(
+    paths: &PathPolicy,
+    written: &LocalSearchQuery,
+    cancel: &impl CancellationCheck,
+) -> String {
+    let row = execute_local_search(written, paths, &ContentSecurity::new(), cancel, None, None)
+        .expect("search");
+    row.hints
+        .iter()
+        .find(|hint| hint.contains("behind skipped paths"))
+        .cloned()
+        .unwrap_or_else(|| panic!("no skipped-path finding: {row:?}"))
+}
+
+/// What the skipped paths hold is counted in work, never in time: the same
+/// tree gives the same finding however slowly every check answers, whether
+/// the probe finishes or its work cuts it.
+#[test]
+fn the_skipped_path_count_is_the_same_under_load() {
+    let (_dir, root) = tree();
+    write(&root, "src/a.txt", "nothing\n");
+    let behind = 200;
+    for index in 0..behind {
+        write(
+            &root,
+            &format!("node_modules/p{index:03}/i.txt"),
+            "needle\n",
+        );
+    }
+    let paths = crate::tools::test_support::workspace_policy(&root);
+    let written = query(&root, json!({"matchString": ["needle"]}));
+    let loaded = || Stalling {
+        free: std::sync::atomic::AtomicIsize::new(0),
+        stall: Duration::from_millis(2),
+    };
+    let idle = skipped_hint(&paths, &written, &NeverCancel);
+    assert!(
+        idle.starts_with(&format!("{behind} files that match behind skipped paths")),
+        "{idle}"
+    );
+    assert_eq!(skipped_hint(&paths, &written, &loaded()), idle);
+    let cut = ProbeLimits {
+        entries: 50,
+        bytes: u64::MAX,
+    };
+    let (idle, under_load) = with_probe_limits(cut, || {
+        (
+            skipped_hint(&paths, &written, &NeverCancel),
+            skipped_hint(&paths, &written, &loaded()),
+        )
+    });
+    assert!(idle.starts_with("At least "), "{idle}");
+    assert_eq!(under_load, idle);
 }
 
 /// A cut probe's count is a floor and says so, by the pass and by the walk.
@@ -208,24 +264,23 @@ fn a_cut_probe_says_at_least() {
     let scan = scan_query(&written, &paths, &NeverCancel, (None, None)).expect("scan");
     assert!(scan.parsed.files.is_empty(), "must miss");
     let (mut row, _, _) = searched(&root, json!({"matchString": ["FOO.BAR"]}));
-    let stalling = || Stalling {
-        free: std::sync::atomic::AtomicIsize::new(4),
-        stall: Duration::from_millis(60),
+    let budget = ProbeLimits {
+        entries: 4,
+        bytes: u64::MAX,
     };
-    let budget = Duration::from_millis(30);
     for alternates in [
         Alternates::new(&written, &scan),
         Alternates::unlisted(&written),
     ] {
-        let hint = with_probe_budget(budget, || {
-            alternates.case_hint(&written, &paths, &scan.search_options, false, &stalling())
+        let hint = with_probe_limits(budget, || {
+            alternates.case_hint(&written, &paths, &scan.search_options, false, &NeverCancel)
         })
         .expect("a floor to report");
         assert!(hint.contains("but at least "), "{hint}");
         row.hints.clear();
         row.next = None;
-        with_probe_budget(budget, || {
-            alternates.offer_regex_reading(&paths, &mut row, &stalling());
+        with_probe_limits(budget, || {
+            alternates.offer_regex_reading(&paths, &mut row, &NeverCancel);
         });
         assert!(hints(&row).contains("but at least "), "{row:?}");
     }
@@ -240,8 +295,7 @@ fn a_probe_cut_before_any_find_stays_silent() {
     let written = query(&root, json!({"matchString": ["FOO"]}));
     let scan = scan_query(&written, &paths, &NeverCancel, (None, None)).expect("scan");
     let alternates = Alternates::new(&written, &scan);
-    let hint = with_probe_budget(Duration::ZERO, || {
-        std::thread::sleep(Duration::from_millis(1));
+    let hint = with_probe_limits(CUT_AT_ONCE, || {
         alternates.case_hint(&written, &paths, &scan.search_options, false, &NeverCancel)
     });
     assert_eq!(hint, None);

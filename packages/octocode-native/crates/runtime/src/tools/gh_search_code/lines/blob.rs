@@ -1,9 +1,7 @@
 //! One scanned blob: its keyword hits, their anchor, the listed lines and the declaration a hit names.
 use super::scoring::{covering_window, goal_terms, hit_score};
-use crate::security::scan::ContentScan;
 use octocode_engine::graph::{GraphFactDeclaration, GraphFactsDocument};
 use octocode_engine::num::saturating_u32;
-use std::path::Path;
 
 /// Bound an optional matchString anchor; hit evidence itself remains complete.
 const MAX_DECLARATION_ANCHOR_CHARS: usize = 200;
@@ -50,12 +48,13 @@ pub(super) struct Anchor {
 pub(super) struct Blob<'a> {
     pub(super) raw: Vec<&'a str>,
     pub(super) lowered: Vec<String>,
-    /// Its lines sanitized whole, when a window of them could not show what
-    /// makes a value secret; every other blob sanitizes the line it lists.
-    pub(super) clean: Option<Vec<String>>,
+    /// Its lines in the shared sealed view
+    /// (`source_view::prepare::sealed_view`): judged with the whole blob, so
+    /// no listed window shows a value whose secrecy lies outside it. Line N
+    /// is source line N.
+    pub(super) clean: Vec<&'a str>,
     pub(super) key_blocks: Vec<(u32, u32)>,
     pub(super) declared: Vec<&'a GraphFactDeclaration>,
-    pub(super) path: &'a str,
 }
 
 /// The declarations of `outline` whose name line is a `found` keyword line
@@ -111,9 +110,9 @@ impl Blob<'_> {
             })
     }
 
-    /// Every keyword line, in file order, unscored.
-    pub(super) fn found(&self, needles: &[String]) -> Vec<Found> {
-        self.lowered
+    /// Every keyword line of the `lowered` lines, in file order, unscored.
+    pub(super) fn find(lowered: &[String], needles: &[String]) -> Vec<Found> {
+        lowered
             .iter()
             .enumerate()
             .filter_map(|(index, lower)| {
@@ -157,17 +156,12 @@ impl Blob<'_> {
     /// The read anchors where the listing does: on lines holding every
     /// keyword when any exist; else on the smallest window holding every
     /// keyword (one opened by a declaration first); else on any keyword line.
-    pub(super) fn anchor(
-        &self,
-        hits: &[Hit],
-        needles: &[String],
-        security: &impl ContentScan,
-    ) -> Anchor {
+    pub(super) fn anchor(&self, hits: &[Hit], needles: &[String]) -> Anchor {
         let any_every = hits.iter().any(|hit| hit.every);
         let window = (!any_every && needles.len() > 1)
             .then(|| {
                 covering_window(hits, &self.lowered, needles, |start| {
-                    self.declared_head(&hits[start], security).is_some()
+                    self.declared_head(&hits[start]).is_some()
                 })
             })
             .flatten();
@@ -197,14 +191,9 @@ impl Blob<'_> {
         }
     }
 
-    /// Every keyword line with its `window` of context, sanitized whole
+    /// Every keyword line with its `window` of context, from the sealed view
     /// before response pagination. Overlapping windows merge: a line lists once.
-    pub(super) fn listing(
-        &self,
-        hits: &[Hit],
-        window: Window,
-        security: &impl ContentScan,
-    ) -> Vec<String> {
+    pub(super) fn listing(&self, hits: &[Hit], window: Window) -> Vec<String> {
         let mut listed = Vec::with_capacity(hits.len());
         // The first line not yet listed: hits ascend, so windows only advance.
         let mut next = 0;
@@ -215,7 +204,7 @@ impl Blob<'_> {
                 .saturating_add(window.after)
                 .min(self.raw.len().saturating_sub(1));
             for index in from..=to {
-                listed.push(self.numbered(index, security));
+                listed.push(self.numbered(index));
             }
             next = next.max(to + 1);
         }
@@ -240,42 +229,32 @@ impl Blob<'_> {
             .sum()
     }
 
-    /// One line as `"<number>\t<text>"`: hidden in a private-key block,
-    /// sanitized otherwise.
-    fn numbered(&self, index: usize, security: &impl ContentScan) -> String {
+    /// One line as `"<number>\t<text>"`: hidden in a private-key block, its
+    /// sealed view otherwise.
+    fn numbered(&self, index: usize) -> String {
         let number = saturating_u32(index + 1);
         let shown = if self.in_key_block(number) {
             crate::security::hide_key_line(self.raw[index])
-        } else if let Some(clean) = self.clean.as_ref().and_then(|clean| clean.get(index)) {
-            clean.clone()
         } else {
-            security
-                .sanitize(self.raw[index], Path::new(self.path))
-                .map(|(clean, _)| clean)
-                .unwrap_or_else(|_| "[REDACTED]".to_owned())
+            self.clean[index].to_owned()
         };
         format!("{number}{}{shown}", crate::response::numbered::SEPARATOR)
     }
 
     /// The best hit's declaration line, unless it sits in a private-key block.
-    pub(super) fn declaration(
-        &self,
-        hits: &[Hit],
-        best: u32,
-        security: &impl ContentScan,
-    ) -> Option<String> {
+    pub(super) fn declaration(&self, hits: &[Hit], best: u32) -> Option<String> {
         let hit = hits.iter().find(|hit| hit.number() == best)?;
         if self.in_key_block(best) {
             return None;
         }
-        self.declared_head(hit, security)
+        self.declared_head(hit)
     }
 
     /// The hit line as a `matchString` when its keyword is the name of a
     /// block declaration the grammar outlines (a `matchString` + `block`
     /// read then returns the whole declaration), the line is short and
-    /// unique in the file, and scanning leaves it unchanged.
-    pub(super) fn declared_head(&self, hit: &Hit, security: &impl ContentScan) -> Option<String> {
+    /// unique in the file, and the sealed view leaves it unchanged.
+    pub(super) fn declared_head(&self, hit: &Hit) -> Option<String> {
         self.declares(hit.index, hit.at)
             .filter(|declared| declared.range.end.line > declared.range.start.line)?;
         let head = self.raw[hit.index].trim();
@@ -292,7 +271,6 @@ impl Blob<'_> {
         {
             return None;
         }
-        let (clean, _) = security.sanitize(head, Path::new(self.path)).ok()?;
-        (clean == head).then_some(clean)
+        (self.clean[hit.index] == self.raw[hit.index]).then(|| head.to_owned())
     }
 }

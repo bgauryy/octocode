@@ -37,7 +37,6 @@ async fn symbol_row(
         character: 0,
         language_id: Some("typescript"),
         budget: 16_000,
-        response_window: None,
     }
     .run()
     .await

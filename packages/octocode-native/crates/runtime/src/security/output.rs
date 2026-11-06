@@ -21,15 +21,27 @@ use super::{ContentSecurity, sanitize_json};
 /// reshapes the envelope after the gate goes through [`Sanitized::edit`]: it
 /// may move, window or annotate what is there, and adds only text the runtime
 /// authors or derives from checked input.
+///
+/// An envelope that holds text of a credential-named source is `held`: that
+/// text may carry a secret in no format the gate recognizes, so every copy
+/// of it (a saved response, each page and part) stays in this process and
+/// never reaches a file, the rule saved provider answers follow.
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(transparent)]
-pub struct Sanitized(Value);
+pub struct Sanitized(Value, #[serde(skip)] bool);
 
 impl Sanitized {
     /// The envelope, leaving the proof (for the wire).
     #[must_use]
     pub fn into_value(self) -> Value {
         self.0
+    }
+
+    /// Whether this envelope holds text of a credential-named source, so
+    /// no copy of it may be stored on disk.
+    #[must_use]
+    pub(crate) fn held(&self) -> bool {
+        self.1
     }
 
     /// An error envelope with every string leaf scrubbed, for a failure that
@@ -41,7 +53,7 @@ impl Sanitized {
         let _ = sanitize_json(&mut payload, &mut |text: &str, _: Option<&str>| {
             Ok::<_, std::convert::Infallible>(super::scrub_error_text(text))
         });
-        Self(payload)
+        Self(payload, false)
     }
 
     /// Reshape the envelope in place after the gate. In tests every edit is
@@ -62,7 +74,7 @@ impl Sanitized {
         let page = cut(&self.0)?;
         #[cfg(test)]
         assert_gate_fixed_point(&page);
-        Ok(Self(page))
+        Ok(Self(page, self.1))
     }
 }
 
@@ -89,6 +101,8 @@ impl PartialEq<Value> for Sanitized {
 
 /// A saved envelope read back from disk is input again: it passes the gate on
 /// the way in, so a tampered store cannot return what the gate would redact.
+/// A held envelope is never written, so one read back holds no credential
+/// source text unless the gate finds it again.
 impl<'de> Deserialize<'de> for Sanitized {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = Value::deserialize(deserializer)?;
@@ -104,7 +118,9 @@ impl ContentSecurity {
     /// scanned as that language; every credential pattern applies), then,
     /// when `emails` is set, email addresses are masked (`output.redactEmails`
     /// on a GitHub tool). `check` runs before each pass so a cancelled call
-    /// stops between them.
+    /// stops between them. A leaf whose source `path` is credential-named
+    /// ([`crate::policy::discovery::is_sensitive_repository_file`]) marks the
+    /// envelope [`Sanitized::held`].
     pub(crate) fn seal_output<E>(
         &self,
         mut value: Value,
@@ -112,14 +128,16 @@ impl ContentSecurity {
         check: impl Fn() -> Result<(), E>,
     ) -> Result<Sanitized, E> {
         check()?;
+        let mut held = false;
         sanitize_json(&mut value, &mut |text, path| {
+            held |= path.is_some_and(crate::policy::discovery::is_sensitive_repository_file);
             Ok(self.sanitize_leaf(text, path))
         })?;
         if emails {
             check()?;
             sanitize_json(&mut value, &mut |text, _| Ok(self.redact_emails(text)))?;
         }
-        Ok(Sanitized(value))
+        Ok(Sanitized(value, held))
     }
 }
 

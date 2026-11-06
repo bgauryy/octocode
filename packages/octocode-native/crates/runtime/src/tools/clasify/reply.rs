@@ -54,8 +54,8 @@ pub(super) fn failed(row: &Row, error: &ClassificationError, captured: Option<&C
     if !error.hints.is_empty() {
         failure["hints"] = json!(error.hints);
     }
-    // Every request sent counts, a refused one included: it is unbilled, yet
-    // its source left this machine.
+    // Every request sent counts, a refused one included: whether the provider
+    // bills it is not documented, and its source left this machine.
     if error.provider_calls > 0 {
         let usage = error.usage();
         failure["usage"] = json!({

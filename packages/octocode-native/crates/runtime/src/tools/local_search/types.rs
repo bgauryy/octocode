@@ -234,7 +234,6 @@ pub(crate) fn cap_partial_reason(
     use crate::response::paging::PartialReason;
     use octocode_engine::types::CapReason;
     match reason {
-        CapReason::MaxOnlyMatchingPerFile => PartialReason::MaxOnlyMatchingPerFile,
         CapReason::MaxFileSize => PartialReason::FileTooLarge,
         CapReason::Cancelled => PartialReason::Cancelled,
         CapReason::BinaryQuit => PartialReason::BinaryQuit,

@@ -15,6 +15,8 @@ pub(super) struct Facts<'a> {
     pub version_evaluated: bool,
     pub upgrade_to: Option<&'a str>,
     pub upgrade_note: Option<&'a str>,
+    /// Runtime dependencies the target pins to one exact version.
+    pub pinned_dependencies: usize,
 }
 
 impl Facts<'_> {
@@ -41,6 +43,7 @@ impl Facts<'_> {
             version_evaluated: true,
             upgrade_to: None,
             upgrade_note: None,
+            pinned_dependencies: 0,
         }
     }
 }
@@ -103,6 +106,15 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
         ));
     } else if facts.upgrade_note.is_some() {
         sentence.push_str(" No upgrade is named: see upgradeNote.");
+    }
+    if facts.pinned_dependencies > 0 && !facts.stopped {
+        sentence.push_str(&format!(
+            " It pins {} to an exact version, and advisories filed against those are not in this answer: related lists a check of each.",
+            match facts.pinned_dependencies {
+                1 => "1 runtime dependency".to_owned(),
+                count => format!("{count} runtime dependencies"),
+            }
+        ));
     }
     let mut data = json!({ "answer": sentence });
     if facts.version_evaluated && !facts.stopped {

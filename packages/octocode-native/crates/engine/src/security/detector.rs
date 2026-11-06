@@ -119,12 +119,13 @@ fn matching_patterns(content: &str, scope: Scope<'_>) -> PatternSet {
 /// group per branch (`secret`, `secret_…`); the participating one is redacted.
 /// Only the secrets `redacts` accepts (given the line's text before the
 /// secret, and the secret) are redacted; a rejected match stays verbatim.
+/// Also returns each replaced range of `content` with the bytes it became.
 fn replace_secrets(
     regex: &regex::Regex,
     content: &str,
     replacement: &str,
     redacts: impl Fn(&str, &str) -> bool,
-) -> String {
+) -> (String, Vec<(std::ops::Range<usize>, usize)>) {
     let secret_groups: Vec<usize> = regex
         .capture_names()
         .enumerate()
@@ -137,7 +138,8 @@ fn replace_secrets(
     // later line start: searching back to the start of the text from each
     // match costs quadratic time on one long line.
     let (mut line_start, mut searched_to) = (0, 0);
-    regex
+    let mut replaced = Vec::new();
+    let text = regex
         .replace_all(content, |captures: &regex::Captures<'_>| {
             let Some(whole) = captures.get(0) else {
                 return String::new();
@@ -167,10 +169,12 @@ fn replace_secrets(
             redacted.push_str(&content[whole.start()..secret.start()]);
             redacted.push_str(replacement);
             redacted.extend(std::iter::repeat_n('\n', line_breaks));
+            replaced.push((secret.range(), replacement.len() + line_breaks));
             redacted.push_str(&content[secret.end()..whole.end()]);
             redacted
         })
-        .into_owned()
+        .into_owned();
+    (text, replaced)
 }
 
 /// `text` is exactly one pattern's placeholder.
@@ -256,6 +260,8 @@ impl<'a> Scope<'a> {
 pub(crate) struct DetectResult {
     pub sanitized: String,
     pub secrets_detected: Vec<String>,
+    /// What `sanitized` replaced of the content, by content byte position.
+    pub edits: super::Edits,
 }
 
 /// [`redact_within`] at [`MAX_CONTENT_SIZE`].
@@ -284,10 +290,11 @@ pub(crate) fn redact_within(content: &str, scope: Scope<'_>, limit: usize) -> Op
     }
     let mut sanitized: Option<String> = None;
     let mut secrets_detected = Vec::new();
+    let mut edits = super::Edits::default();
     for idx in matched.iter() {
         let current = sanitized.as_deref().unwrap_or(content);
         let keeps_values = KEEPS_NON_CREDENTIAL_VALUES[idx];
-        let result = if let Some(form) = document::Form::of(idx) {
+        let (result, replaced) = if let Some(form) = document::Form::of(idx) {
             form.redact(current, replacement_for(idx))
         } else {
             let regex = pattern_regex_for(idx, current);
@@ -297,12 +304,15 @@ pub(crate) fn redact_within(content: &str, scope: Scope<'_>, limit: usize) -> Op
         };
         if result != current {
             secrets_detected.push(PATTERNS[idx].name.to_string());
+            // Each pass runs over what the earlier ones left.
+            edits = edits.then(&super::Edits::of_pass(replaced));
             sanitized = Some(result);
         }
     }
     sanitized.map(|sanitized| DetectResult {
         sanitized,
         secrets_detected,
+        edits,
     })
 }
 

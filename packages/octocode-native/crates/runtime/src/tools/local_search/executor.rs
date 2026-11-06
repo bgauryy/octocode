@@ -23,6 +23,8 @@ pub(super) use projection::order_files;
 pub(super) use scanned::scan;
 #[cfg(test)]
 pub(super) use scanned::scan_query;
+#[cfg(test)]
+pub(super) use scanned::test_held_limit;
 pub(super) use scanned::{Scanned, scan_resumed, search_options};
 use serde_json::json;
 pub(super) use settle::search_stats;
@@ -118,13 +120,14 @@ pub(super) fn page_of(
         expected_digest: &expected_digest,
         security,
         cancel,
+        judged: &scan.learned.judged,
     };
     let shaped = shape_page(
         &scope,
         &mut scan.parsed,
         scan.page_budget,
         scan.stored_redaction.as_deref(),
-        &scan.name_prices,
+        &scan.learned,
         selection,
         &scan.identity,
     )?;
@@ -139,7 +142,7 @@ pub(super) fn page_of(
             redaction: shaped.redaction,
             skipped: Arc::clone(&scan.skipped),
             walked,
-            prices: Arc::clone(&scan.name_prices),
+            learned: Arc::clone(&scan.learned),
         });
     let selection_token = shaped
         .selection
@@ -261,7 +264,7 @@ pub(super) fn shape_page(
     parsed: &mut octocode_engine::types::TextSearchResult,
     page_budget: usize,
     stored_redaction: Option<&Redaction>,
-    name_prices: &super::manifest::NamePrices,
+    learned: &super::manifest::Learned,
     selection: Option<&crate::tools::selection::Runtime>,
     identity: &str,
 ) -> Result<Shaped, ToolError> {
@@ -291,9 +294,18 @@ pub(super) fn shape_page(
     let mut outline = |files: &[(usize, &octocode_engine::types::TextSearchFile)]| {
         outline_for_cut(scope, files, &mut cut)
     };
-    let mut pricing = NamePricing::new(name_prices.by_index(&parsed.files), &mut outline);
-    let layout = Layout::cut(query, paths, output_root, parsed, page_budget, &mut pricing)?;
-    name_prices.learn(&parsed.files, pricing.priced);
+    let mut pricing = NamePricing::new(learned.prices.by_index(&parsed.files), &mut outline);
+    // A selection keeps other rows than the stored scan's cut was made of.
+    let cuts = selection.is_none().then_some(&learned.cuts);
+    let layout = Layout::cut(
+        query,
+        paths,
+        output_root,
+        parsed,
+        page_budget,
+        (&mut pricing, cuts),
+    )?;
+    learned.prices.learn(&parsed.files, pricing.priced);
     for (index, _) in &layout.shown {
         validate_matched(paths, &output_root.join(&parsed.files[*index].path))?;
     }

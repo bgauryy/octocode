@@ -77,3 +77,25 @@ test('transport flags describe the whole captured batch across error-only and su
   const empty = { ...success, results: [{ index: 0, status: 'empty', data: {} }] };
   assert.equal(transportPagesProblem('cli', [pages[0], { json: empty, status: 1 }]), null);
 });
+
+
+test('published LSP empty categories retain empty exit semantics without internal row status', () => {
+  const empty = { results: [{ index: 0, data: {
+    category: 'noLocations', reason: 'subtypes returned no results',
+    isPartial: true, partialReasons: ['hierarchyCandidateLimit'],
+    lsp: { serverAvailable: true },
+  } }] };
+  assert.equal(transportProblem('cli', { json: empty, status: 1 }), null);
+  assert.ok(transportProblem('cli', { json: empty, status: 0 }));
+  assert.equal(transportProblem('mcp', { json: empty, isError: false }), null);
+  assert.ok(transportProblem('mcp', { json: empty, isError: true }));
+  const mixed = { results: [...empty.results, { index: 1, data: { content: 'evidence' } }] };
+  assert.equal(transportProblem('cli', { json: mixed, status: 0 }), null);
+  assert.ok(transportProblem('cli', { json: mixed, status: 1 }));
+  const failed = { results: [{ index: 0, data: { ...empty.results[0].data, errorCode: 'invalidInput', error: 'invalid' } }] };
+  assert.equal(transportProblem('cli', { json: failed, status: 2 }), null);
+  assert.ok(transportProblem('cli', { json: failed, status: 1 }));
+  const success = { results: [{ index: 0, data: { content: 'evidence', isPartial: true, partialReasons: ['hierarchyCandidateLimit'] } }] };
+  assert.equal(transportProblem('cli', { json: success, status: 0 }), null);
+  assert.ok(transportProblem('cli', { json: success, status: 1 }));
+});

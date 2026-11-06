@@ -67,7 +67,6 @@ fn type_hierarchy_falls_back_when_the_server_has_no_type_hierarchy() {
                 character,
                 language_id: Some("typescript"),
                 budget: 16_000,
-                response_window: None,
             }
             .run()
             .await
@@ -152,7 +151,6 @@ fn empty_server_subtypes_fall_back_to_the_implementation_answer() {
             character: 17,
             language_id: Some("typescript"),
             budget: 16_000,
-            response_window: None,
         }
         .run()
         .await
@@ -240,7 +238,6 @@ fn rust_subtypes_anchor_a_trait_in_a_file_with_an_unexpanded_macro() {
             character: 10,
             language_id: Some("rust"),
             budget: 16_000,
-            response_window: None,
         }
         .run()
         .await

@@ -1,9 +1,7 @@
 //! npm: exact package versions (manifest, release facts, provenance or
 //! release-tag source ref) and keyword search, on the configured registry.
 use super::http::{DnsPin, JSON, NPM_INSTALL_JSON, RegistryClient};
-use super::util::{
-    canonical_repository, commit_sha, encode_component, object_for, required, string,
-};
+use super::util::{commit_sha, encode_component, object_for, required, string};
 use super::versions::{VersionSpec, npm_resolve, version_not_found};
 use super::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ResolvedNpmRegistry,
@@ -95,18 +93,22 @@ async fn exact(
         artifact.source_attested = true;
     } else if let (Some(repository), Some(head)) =
         (artifact.repository.clone(), artifact.source_ref.clone())
-        && super::release_ref::github_ref_missing(&repository, &head, client).await
+        && let Some(check) = super::release_ref::commit_check(&repository, &head, client).await
     {
-        // A `gitHead` GitHub does not have pins no lead: the default branch
-        // is read instead, and the response names the dead ref.
-        artifact.source_ref = None;
-        artifact.missing_ref = Some(head);
+        if check == super::release_ref::CommitCheck::Missing {
+            // A `gitHead` GitHub does not have pins no lead: the default
+            // branch is read instead, and the response names the dead ref.
+            artifact.source_ref = None;
+            artifact.missing_ref = Some(head);
+        }
+        // A repository that is gone or moved is said on the row as well.
+        artifact.note_repository(check);
     }
     // Without an attested or recorded commit, the upstream release tag pins
     // the source, as for every registry that names no commit; a recorded
     // commit is checked against that tag.
     let name = artifact.package_name.clone();
-    super::release_ref::pin_release_tag(&mut artifact, &name, &version, client).await;
+    super::release_ref::pin_release_tag(&mut artifact, &name, &version, None, client).await;
     if !artifact.source_attested
         && !artifact.source_tag
         && let Some(commit) = artifact.source_ref.clone()
@@ -188,18 +190,23 @@ fn manifest_row(
     artifact.homepage = string(row.get("homepage"));
     artifact.source_ref = commit_sha(row.get("gitHead"));
     match row.get("repository") {
-        Some(Value::String(value)) => artifact.repository = canonical_repository(value),
+        Some(Value::String(value)) => artifact.set_source_link(value),
         Some(Value::Object(value)) => {
-            artifact.repository = value
-                .get("url")
-                .and_then(Value::as_str)
-                .and_then(canonical_repository);
+            // The registry's own `directory` is stated: a link's page never
+            // replaces it, and an absent one never erases what the link gave.
             artifact.repository_directory = string(value.get("directory")).map(|value| {
                 value
                     .trim_start_matches("./")
                     .trim_start_matches('/')
                     .to_owned()
             });
+            artifact.repository_directory = artifact
+                .repository_directory
+                .take()
+                .filter(|directory| !directory.is_empty());
+            if let Some(link) = value.get("url").and_then(Value::as_str) {
+                artifact.set_source_link(link);
+            }
         }
         _ => {}
     }

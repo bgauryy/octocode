@@ -1,6 +1,7 @@
 //! ghSearchCode: indexed default-branch code or path search.
 mod code_output;
 mod code_selection;
+mod empty;
 mod fragments;
 mod leads;
 mod lines;
@@ -15,7 +16,7 @@ mod selection_tests;
 
 use crate::id::ToolId;
 use crate::response::paging::mark_partial;
-use crate::response::result::{Continuation, ToolData, fresh_query_row, query_row};
+use crate::response::result::ToolData;
 use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::{
     GhFailure, Rerun, SearchCompleteness, SearchWindow, add_next, apply_partial, field_names,
@@ -23,7 +24,7 @@ use crate::tools::gh_shared::{
     with_ref_recovery, with_search_repair,
 };
 use octocode_engine::num::saturating_usize;
-use octocode_github::{GitHubProvider, ProviderError, RepositoryMetadata, RequestContext};
+use octocode_github::{GitHubProvider, ProviderError, RequestContext};
 use serde_json::json;
 
 use octocode_contract_types::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem};
@@ -164,6 +165,16 @@ pub(crate) async fn execute(
     let past_end = data.fetched == 0 && data.total > 0 && current > data.pages;
     let more = current < data.pages;
     let mut items = code_output::files(&data.items, query, security)?;
+    // The file a name search asks for exists elsewhere in the results: a
+    // larger copy of it, beyond the index's size limit, would be missing.
+    let exact_name_listed = query.name_contains.as_ref().is_some_and(|name| {
+        items.iter().any(|row| {
+            row.get("path")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|path| path.rsplit('/').next())
+                .is_some_and(|file| file.eq_ignore_ascii_case(name.as_str()))
+        })
+    });
     let mut value = json!({});
     let resolution = code_output::resolve_lines(
         provider,
@@ -236,6 +247,12 @@ pub(crate) async fn execute(
             "GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.",
         );
     }
+    // Temporary until core declares the index-limit coverage fact
+    // (core-requests.md): a larger file of the name searched is absent
+    // without a trace, so the page names the limit.
+    if exact_name_listed {
+        output.diagnostics.hint(UNINDEXED_LARGE_FILE_HINT);
+    }
     if data.fetched == 0 {
         output.status = Some("empty");
     }
@@ -243,11 +260,15 @@ pub(crate) async fn execute(
         code_output::owner_exists(&query.owner, &provider.transport, context).await?;
     }
     if data.fetched == 0 && !past_end {
-        empty_page(provider, query, context, checked, &mut output).await?;
+        empty::page(provider, query, context, checked, &mut output).await?;
     }
     crate::response::result::finish_calls(&mut output.data);
     Ok(output)
 }
+
+/// A file-name search lists the files GitHub's code index holds; the index
+/// skips files over 384 KB, so one that large is missing from the list.
+const UNINDEXED_LARGE_FILE_HINT: &str = "A file-name search lists indexed files only: GitHub's code index skips files over 384 KB, so a larger file of that name is not listed; read it by path with ghGetFileContent, or list its folder with ghStructure.";
 
 /// `query` carrying the walk through `data`'s page, for `next.nextPage`:
 /// every file listed so far and the match count GitHub stated, private
@@ -316,56 +337,6 @@ fn disclose_completeness(
     if let Some(warning) = octocode_github::sso_partial_warning(&data.sso_partial) {
         push_warning_front(value, warning);
     }
-}
-
-/// Why a search is empty, with the route that verifies it.
-async fn empty_page(
-    provider: &GitHubProvider,
-    query: &GhSearchCodeQuery,
-    context: &RequestContext,
-    checked: Option<RepositoryMetadata>,
-    output: &mut ToolData,
-) -> Result<(), ProviderError> {
-    let broader = leads::broaden_search(query, provider.transport.code_search_room(context));
-    let value = &mut output.data;
-    let default_branch = code_output::empty_scope(
-        value,
-        &mut output.diagnostics,
-        query,
-        broader.is_some(),
-        &provider.transport,
-        checked,
-        context,
-    )
-    .await?;
-    let default_branch = default_branch.as_deref();
-    if value.get("hints").is_none() && code_output::path_mode_given_code(query) {
-        // Path matching never sees file contents: search them instead.
-        let mut content = fresh_query_row(ToolId::GhSearchCode, &query_row(query, &[]));
-        content["matchIn"] = json!(["content"]);
-        value["calls"]["findCode"] = Continuation::related(ToolId::GhSearchCode, content).build();
-    }
-    let hints = code_output::empty_hints(query, default_branch);
-    if value.get("hints").is_none() && !hints.is_empty() {
-        value["hints"] = json!(hints);
-        if value["calls"].get("read").is_none()
-            && code_output::unsearched_ref(query, default_branch).is_some()
-            && let Some(read) = leads::unsearched_ref_read(query)
-        {
-            value["calls"]["read"] = read;
-        }
-    }
-    if let Some(broader) = broader {
-        crate::tools::leads::broaden::set_broadened(value, &query_row(query, &[]), broader);
-    }
-    if let Some(split) = leads::or_split(query) {
-        crate::tools::leads::push_hint(
-            value,
-            "keywords hold OR, which code search does not support: run the related[] ghSearchCode request, one row per alternative.",
-        );
-        value["calls"]["repair"] = split;
-    }
-    Ok(())
 }
 
 /// What a `fields` pick always keeps of a code row: its identity (path, and

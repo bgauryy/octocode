@@ -11,6 +11,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 mod concurrency;
 mod resources;
 mod resume;
+mod retention;
 
 /// Answers every question Noul 0.9.
 async fn provider() -> MockServer {
@@ -63,6 +64,33 @@ async fn judged(server: &MockServer) -> String {
 
 fn error_code(resource: &Value) -> &Value {
     &resource["error"]["errorCode"]
+}
+
+/// A finished plan has no continuation of any kind: whatever `next` holds is
+/// a `read`/`readN` of the judged lines, an executable localFetch or
+/// ghGetFileContent continuation (a pinned cursor), never a page.
+pub(crate) fn assert_next_is_only_pinned_reads(out: &Value) {
+    let Some(next) = out.get("next") else {
+        return;
+    };
+    for (key, call) in next.as_object().expect("next is an object") {
+        let index = key
+            .strip_prefix("read")
+            .unwrap_or_else(|| panic!("`next.{key}` is a continuation, not a read: {out:#}"));
+        assert!(
+            index.bytes().all(|byte| byte.is_ascii_digit()),
+            "`next.{key}` is not read/readN: {out:#}"
+        );
+        assert!(
+            matches!(
+                call["tool"].as_str(),
+                Some("localFetch" | "ghGetFileContent")
+            ),
+            "`next.{key}` is not a source read: {call}"
+        );
+        assert_eq!(call["kind"], "continue", "{call}");
+        assert!(call["input"]["cursor"].is_string(), "pinned cursor: {call}");
+    }
 }
 
 /// `count` functions, each over half a section page, so grouping keeps one

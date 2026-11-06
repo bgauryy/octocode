@@ -133,9 +133,10 @@ pub(super) fn scan(
     file: &std::fs::File,
     path: &std::path::Path,
     resume: usize,
+    security: &dyn crate::security::scan::ContentScan,
     cancel: &impl CancellationCheck,
 ) -> Result<Scan, ExtractionError> {
-    scan_with(q, file, path, resume, Limits::of(q), cancel)
+    scan_with(q, file, path, resume, Limits::of(q), security, cancel)
 }
 
 pub(super) fn scan_with(
@@ -144,6 +145,7 @@ pub(super) fn scan_with(
     path: &std::path::Path,
     resume: usize,
     limits: Limits,
+    security: &dyn crate::security::scan::ContentScan,
     cancel: &impl CancellationCheck,
 ) -> Result<Scan, ExtractionError> {
     let failed = |error: String| ExtractionError::new(ErrorCode::FileReadFailed, error);
@@ -167,7 +169,7 @@ pub(super) fn scan_with(
         counted: 0,
         newlines: 0,
         last: None,
-        proof: super::proven::Proof::new(file, path, &[]).map_err(failed)?,
+        proof: super::proven::Proof::new(file, path, &[], security).map_err(failed)?,
     };
     loop {
         let ended = scanner.fill(&mut reader)?;
@@ -178,7 +180,7 @@ pub(super) fn scan_with(
             break;
         }
     }
-    Ok(scanner.finish())
+    scanner.finish()
 }
 
 /// One scan's sliding window over the source.
@@ -204,7 +206,7 @@ struct Scanner<'a, C: CancellationCheck> {
     newlines: usize,
     last: Option<u8>,
     /// Every source byte, read once: the digest and window checkpoints.
-    proof: super::proven::Proof,
+    proof: super::proven::Proof<'a>,
 }
 
 impl<C: CancellationCheck> Scanner<'_, C> {
@@ -369,10 +371,14 @@ impl<C: CancellationCheck> Scanner<'_, C> {
     }
 
     /// The scan's totals, once the source ended.
-    fn finish(mut self) -> Scan {
+    fn finish(mut self) -> Result<Scan, ExtractionError> {
         let lines = self.newlines + usize::from(self.last.is_some_and(|byte| byte != b'\n'));
         self.found.close(lines);
-        self.found.proven = Some(self.proof.finish().proven);
-        self.found
+        let pass = self
+            .proof
+            .finish()
+            .map_err(|error| ExtractionError::new(ErrorCode::FileReadFailed, error))?;
+        self.found.proven = Some(pass.proven);
+        Ok(self.found)
     }
 }

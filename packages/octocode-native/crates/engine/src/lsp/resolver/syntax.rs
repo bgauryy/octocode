@@ -8,7 +8,7 @@ use crate::lsp::types::{LspFuzzyPosition, LspResolvedSymbol};
 use crate::signatures::node_kinds::is_comment_kind;
 use crate::signatures::spelled::Spelled;
 use crate::text::LineIndex;
-use crate::text::utf8_offsets::{byte_to_utf16_offset, hide_bom_in_line};
+use crate::text::utf8_offsets::hide_bom_in_line;
 use std::time::Instant;
 use tree_sitter::Node;
 
@@ -214,12 +214,16 @@ pub(super) fn pick_candidate(
             .map(|line_hint| line_delta(hinted_line(line_hint), selected.line_index))
             .unwrap_or(0),
     );
+    // Every occurrence on the line through one index of it: a long line
+    // with many occurrences is measured once, not once per occurrence.
+    let shown = hide_bom_in_line(selected.line_index, line, 0).0;
+    let index = LineIndex::tree_sitter(shown);
     hit.occurrences_on_line = identifiers
         .into_iter()
         .filter(|(line_index, _)| *line_index == selected.line_index)
         .map(|(_, character)| {
-            let (line, character) = hide_bom_in_line(selected.line_index, line, character);
-            crate::num::saturating_u32(byte_to_utf16_offset(line, character))
+            let byte = hide_bom_in_line(selected.line_index, line, character).1;
+            index.row_col_to_utf16_column(shown, 0, crate::num::saturating_u32(byte))
         })
         .collect();
     Ok(Some(hit))

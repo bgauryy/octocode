@@ -63,7 +63,7 @@ pub(super) fn fetch_matches<S: ContentScan>(
         .and_then(|_| super::kept::hits::<S>(q, source.path));
     let mut found = match kept {
         Some(hits) => hits.replay(q, resume),
-        None => match scan(q, source.file, source.path, resume, cancel) {
+        None => match scan(q, source.file, source.path, resume, source.scan, cancel) {
             Ok(found) => found,
             Err(error) => return prepare::extraction_error(q, error, 0),
         },

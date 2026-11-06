@@ -175,6 +175,8 @@ test('a git child killed by a signal is a failure, not a partial result', { skip
   // Only `status` dies (after one complete record); every other call reaches the real git.
   writeFileSync(join(bin, 'git'), '#!/bin/sh\ncase "$*" in *" status "*) printf \'?? one.txt\\0\'; kill -9 $$;; esac\nPATH="$REAL_PATH" exec git "$@"\n');
   chmodSync(join(bin, 'git'), 0o755);
-  const run = () => execFileSync(binary, ['activity', '{}', '--workspace', f.workspace, '--database', f.database], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, REAL_PATH: process.env.PATH, PATH: `${bin}:${process.env.PATH}` } });
+  // Child signals need a real CLI process. An explicit cwd selects the helper's
+  // process path, so its Atomics.wait worker cannot stand in for this OS boundary.
+  const run = () => execFileSync(binary, ['activity', '{}', '--workspace', f.workspace, '--database', f.database], { cwd: f.workspace, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env, REAL_PATH: process.env.PATH, PATH: `${bin}:${process.env.PATH}` } });
   assert.throws(run, (error: unknown) => isChildFailure(error) && /Git activity failed/.test(String(error.stderr) + String(error.stdout)));
 });

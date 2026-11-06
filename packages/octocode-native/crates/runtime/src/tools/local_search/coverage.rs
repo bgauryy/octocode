@@ -19,6 +19,8 @@ pub(super) struct Coverage {
     pub(super) binary_files: String,
     /// The returned files whose values are decoded text, not UTF-8 bytes.
     pub(super) not_utf8_files: Option<String>,
+    /// The returned files whose leading UTF-8 byte-order mark was dropped.
+    pub(super) utf8_bom_files: Option<String>,
     pub(super) skip_hint: Option<String>,
     /// include/exclude filtered out every file: nothing was searched.
     pub(super) scope_miss: bool,
@@ -93,6 +95,11 @@ impl Coverage {
                 .as_deref()
                 .filter(|files| !files.is_empty())
                 .map(|files| binary_file_list(files, saturating_u32(files.len()), output_root)),
+            utf8_bom_files: scanned
+                .utf8_bom_files
+                .as_deref()
+                .filter(|files| !files.is_empty())
+                .map(|files| binary_file_list(files, saturating_u32(files.len()), output_root)),
             scope_miss: !root.is_file()
                 && stats.files_searched == 0
                 && skip_hint.is_none()
@@ -155,6 +162,13 @@ impl Coverage {
         {
             warnings.push(format!(
                 "notUtf8: {files} not valid UTF-8: match values are decoded text (Latin-1, or U+FFFD for invalid bytes), as localFetch reads the file, not verbatim bytes."
+            ));
+        }
+        if let Some(files) = &self.utf8_bom_files
+            && !layout.list
+        {
+            warnings.push(format!(
+                "utf8Bom: {files} searched without its leading UTF-8 byte-order mark (3 bytes), as localFetch reads it: line 1 columns and byte offsets count the text after it."
             ));
         }
         if self.binary_cut {

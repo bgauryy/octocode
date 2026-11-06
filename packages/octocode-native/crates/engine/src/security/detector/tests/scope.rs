@@ -6,7 +6,8 @@ use super::*;
 fn multiline_redaction_keeps_source_line_positions() {
     let regex = regex::Regex::new("BEGIN[\\s\\S]*?END").unwrap();
     let original = "before\nBEGIN\nsecret\nEND\nafter";
-    let redacted = replace_secrets(&regex, original, "[REDACTED]", |_, _| true);
+    let (redacted, replaced) = replace_secrets(&regex, original, "[REDACTED]", |_, _| true);
+    assert_eq!(replaced, vec![(7..23, "[REDACTED]\n\n".len())]);
     assert_eq!(redacted, "before\n[REDACTED]\n\n\nafter");
     assert_eq!(redacted.lines().count(), original.lines().count());
     assert!(!redacted.contains("secret"));

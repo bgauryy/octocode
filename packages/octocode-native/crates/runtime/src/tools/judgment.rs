@@ -154,7 +154,8 @@ pub(crate) struct Evaluator {
     /// provider's default).
     pub(crate) model: String,
     pub(crate) provider: &'static dyn ClassificationProvider,
-    pub(crate) timeout: Duration,
+    /// The evaluation time bound; `None` leaves the call's own deadline.
+    pub(crate) timeout: Option<Duration>,
     pub(crate) retries: u32,
     pub(crate) max_concurrency: usize,
 }
@@ -165,7 +166,7 @@ impl Evaluator {
         base_url: String,
         model: String,
         provider: &'static dyn ClassificationProvider,
-        timeout: Duration,
+        timeout: Option<Duration>,
         retries: u32,
         max_concurrency: usize,
     ) -> Self {
@@ -204,14 +205,17 @@ impl Evaluator {
         Partition::new(origin, self.key.as_ref())
     }
 
-    /// A request budget ending at `deadline` or the evaluator timeout,
-    /// whichever comes first.
+    /// A request budget ending at `deadline`, or at the evaluator timeout when
+    /// one is set and comes first.
     pub(crate) fn budget(
         &self,
         deadline: Instant,
         cancellation: octocode_io::cancellation::Cancellation,
     ) -> RequestBudget {
-        transport::budget(deadline.min(Instant::now() + self.timeout), cancellation)
+        let end = self
+            .timeout
+            .map_or(deadline, |timeout| deadline.min(Instant::now() + timeout));
+        transport::budget(end, cancellation)
     }
 
     /// One call's share of the process-wide endpoint gate.

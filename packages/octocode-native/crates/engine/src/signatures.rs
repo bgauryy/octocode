@@ -104,7 +104,16 @@ pub(crate) fn extract_graph_facts_with_metadata_inner(
     file_path: &str,
 ) -> Option<GraphFactsExtraction> {
     js_oxc::extract_graph_facts_with_metadata(content, file_path)
-        .or_else(|| tree_sitter_graph_facts(content, file_path))
+        .or_else(|| unless_stopped(|| tree_sitter_graph_facts(content, file_path)))
+}
+
+/// `fallback`, unless the caller's work was stopped: an oxc job it cancelled
+/// returns nothing, which is no reason to read the file another way.
+fn unless_stopped<T>(fallback: impl FnOnce() -> Option<T>) -> Option<T> {
+    if crate::deep_stack::caller_stopped() {
+        return None;
+    }
+    fallback()
 }
 
 /// [`extract_graph_facts_with_metadata_inner`] parsed as `extension` (a
@@ -116,7 +125,11 @@ pub(crate) fn extract_graph_facts_parsed_as(
     extension: &str,
 ) -> Option<GraphFactsExtraction> {
     js_oxc::extract_graph_facts_as(content, file_path, Some(extension)).or_else(|| {
-        graph_facts::extract_graph_facts_with_metadata_with_extension(content, file_path, extension)
+        unless_stopped(|| {
+            graph_facts::extract_graph_facts_with_metadata_with_extension(
+                content, file_path, extension,
+            )
+        })
     })
 }
 
@@ -160,7 +173,7 @@ pub fn extract_declarations_document(
     file_path: &str,
 ) -> Option<crate::graph::GraphFactsDocument> {
     js_oxc::extract_declarations(content, file_path)
-        .or_else(|| tree_sitter_declarations(content, file_path))
+        .or_else(|| unless_stopped(|| tree_sitter_declarations(content, file_path)))
         .map(|mut facts| {
             if let Some(unit) = facts.source_templates.units.first_mut() {
                 unit.operation = crate::text::analysis::AnalysisOperation::Declarations;
@@ -181,6 +194,9 @@ pub fn extract_declarations_document_with_extension(
 ) -> Option<crate::graph::GraphFactsDocument> {
     if let Some(facts) = js_oxc::extract_declarations_as(content, file_path, Some(extension)) {
         return Some(facts);
+    }
+    if crate::deep_stack::caller_stopped() {
+        return None;
     }
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         graph_facts::extract_facts_before(

@@ -84,8 +84,12 @@ fn deferred_lines_preserve_complete_values_and_every_anchor_rank_digest() {
                     assert_eq!(b.deferred, Some(0));
                     assert_eq!(b.value.capacity(), 0);
                     let source_line = body.lines().nth(b.line as usize - 1).expect("source line");
-                    let materialized =
-                        crate::search::text_parser::line_match(source_line, b.line, b.column);
+                    let materialized = crate::search::text_parser::line_match(
+                        source_line,
+                        b.line,
+                        b.column,
+                        b.byte_offset,
+                    );
                     assert_eq!(a.value, materialized.value);
                     assert_eq!(a.value_digest, materialized.value_digest);
                     assert_eq!(a.byte_offset, materialized.byte_offset);

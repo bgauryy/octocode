@@ -116,7 +116,6 @@ async fn reference_pages_reach_every_location_once_and_preserve_the_saved_reques
                 "referencesProvider",
                 found.clone(),
                 budget,
-                None,
             )
             .await;
             pages += 1;

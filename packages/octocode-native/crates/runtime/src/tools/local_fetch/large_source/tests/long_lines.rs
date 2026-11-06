@@ -67,13 +67,18 @@ fn no_value_leaks_at_a_page_or_window_edge() {
     let page = crate::tools::source_view::pagination::LINE_PAGE_BYTES;
     let mut tokens = (1..40).map(|at| at * page - 20 + at).collect::<Vec<_>>();
     tokens.extend((1..3).map(|at| at * LIMITS.window - 21));
-    tokens.extend((1..4).map(|at| at * super::super::BYTE_LOOKBEHIND - 21));
+    // And every edge the pass that records the redactions judges at.
+    let judged = super::super::sealed::Limits::REAL;
+    tokens.extend((1..3).map(|at| at * judged.chunk - 21));
+    tokens.extend((1..3).map(|at| at * judged.chunk + judged.overlap - 21));
     tokens.extend((1..4).map(|at| at * super::super::BYTE_WINDOW_BYTES - 21));
     // Far enough apart for each to stand alone.
     tokens.sort_unstable();
     tokens.dedup_by(|later, kept| *later - *kept < 2 * TOKEN.len());
     // Long enough to hold every edge the tokens sit on.
-    let size = past_whole().max(4 * super::super::BYTE_WINDOW_BYTES);
+    let size = past_whole()
+        .max(4 * super::super::BYTE_WINDOW_BYTES)
+        .max(2 * judged.chunk + judged.overlap + TOKEN.len());
     let text = line_of(size, &tokens);
     let file = temp(&text);
     let (shown, _) = walk(&file);
@@ -136,13 +141,98 @@ fn a_later_page_reads_only_around_itself() {
     assert_eq!(page.status, ReadStatus::Success);
     let read = source_bytes_read() - before;
     assert!(
-        read < 2 * super::super::BYTE_WINDOW_BYTES,
+        read <= super::super::proven::CHECKPOINT_BYTES as usize
+            + super::super::BYTE_WINDOW_BYTES
+            + super::super::proven::READ_BYTES,
         "{read} bytes read for one page"
     );
 }
 
-/// A page's margin is sized by the detectors: no bounded secret can reach past it.
+/// The recorder's overlap is sized by the detectors: a bounded secret that starts
+/// before a judged edge ends inside the text judged past it.
 #[test]
-fn a_page_margin_outreaches_every_bounded_secret() {
-    const { assert!(super::super::BYTE_LOOKBEHIND >= octocode_engine::security::LONGEST_BOUNDED_MATCH) };
+fn the_recorder_overlap_outreaches_every_bounded_secret() {
+    const {
+        assert!(
+            super::super::sealed::Limits::REAL.overlap
+                >= octocode_engine::security::LONGEST_BOUNDED_MATCH
+        );
+    };
+}
+
+/// A secret far longer than any page, its value across many page and window
+/// edges, in a 12 MiB source: the walk shows its placeholder once and none of its
+/// bytes, every other byte exactly once, on contiguous sealed offsets.
+#[test]
+fn a_secret_longer_than_a_window_never_shows_across_its_pages() {
+    let token: String = (0..600 * 1024)
+        .map(|at| char::from(b"aZ3kQ9xV7mP2wR5t"[at % 16]))
+        .collect();
+    let header = format!("h=\"Authorization: Bearer {token}\";");
+    let mut text = b"word ".repeat(12 * 1024 * 1024 / 5);
+    let at = text.len() / 2;
+    text.splice(at..at, header.bytes());
+    text.push(b'\n');
+    let file = temp(&text);
+    // Past the settle window the pass is kept: later pages read from it.
+    std::thread::sleep(std::time::Duration::from_millis(2_100));
+    let mut next =
+        query(serde_json::json!({"path":file.path(),"ranges":[{"startLine":1,"endLine":1}]}));
+    let (mut shown, mut expected, mut pages) = (String::new(), 0, 0);
+    loop {
+        let page = fetch(&file, &next, Some(LIMITS.window));
+        assert_eq!(page.status, ReadStatus::Success, "page {pages}: {page:?}");
+        let content = page.content.expect("a page");
+        assert!(
+            !content.contains(&token[..64]),
+            "page {pages} shows the token"
+        );
+        let bytes = page.pagination.expect("byte pages");
+        assert_eq!(bytes.offset, expected, "page {pages}: no gap and no repeat");
+        expected += bytes.length;
+        shown.push_str(&content);
+        pages += 1;
+        let Some(call) = page.next.and_then(|next| next.continue_window) else {
+            break;
+        };
+        next = call.query;
+    }
+    let raw = String::from_utf8(text).expect("ASCII");
+    let sealed = raw.replace(
+        &format!("Authorization: Bearer {token}"),
+        &octocode_engine::security::redaction_placeholder("bearerAuthHeader"),
+    );
+    assert!(pages > 2, "{pages} pages");
+    assert_eq!(shown.len(), sealed.len(), "the sealed view, once");
+    assert!(shown == sealed, "the sealed view, byte for byte");
+}
+
+/// Short structural secrets (`"k":"v"` shows as a longer placeholder) on one
+/// streamed line: the pages walk the sealed view, grown past the source's
+/// length, contiguously and to its end, as an in-memory read seals it
+/// (review: a growing edit was counted as none, so totals and continuation
+/// offsets fell short of the sealed bytes).
+#[test]
+fn growing_placeholders_are_walked_once_to_the_sealed_end() {
+    let object = r#"{"data":{"k":"v"},"kind":"Secret"},"#;
+    let mut raw = String::from(r#"{"items":["#);
+    while raw.len() < past_whole() {
+        raw.push_str(object);
+    }
+    raw.push_str("{\"kind\":\"ConfigMap\"}]} é日🦀\n");
+    let file = temp(raw.as_bytes());
+    let sealed = crate::tools::source_view::prepare::sealed_view(
+        raw.as_bytes(),
+        file.path(),
+        &crate::security::ContentSecurity::new(),
+    )
+    .expect("sealed")
+    .text
+    .into_owned();
+    assert!(sealed.len() > raw.len(), "the placeholders grow the view");
+    assert!(!sealed.contains(r#""k":"v""#));
+    let (shown, pages) = walk(&file);
+    assert!(pages > 2, "{pages} pages");
+    assert_eq!(shown.len(), sealed.len(), "the sealed view, once");
+    assert!(shown == sealed, "the sealed view, byte for byte");
 }

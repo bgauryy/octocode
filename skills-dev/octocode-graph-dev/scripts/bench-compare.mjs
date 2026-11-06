@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// Compare two graph-bench.mjs runs per grammar. Exit 1 when a row loses
-// precision or starts failing to ingest; recall and timing changes are reported.
+// Compare two graph-bench.mjs runs per grammar. Reject invalid measurements;
+// gate precision and workflow regressions, and report recall and timing changes.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { isMainModule } from './lib/entrypoint.mjs';
-import { workflowStatuses } from './lib/battery-status.mjs';
+import { batteryFailures, workflowStatuses } from './lib/battery-status.mjs';
 
 const HELP = `Usage: bench-compare.mjs <before.json> <after.json> [--json]
 
-Prints one Markdown row per grammar. Exit 0 no regression, 1 regression, 2 bad input.`;
+Prints one Markdown row per grammar. Exit 0 no regression, 1 regression, 2 bad input or invalid measurement.`;
 
 const metric = row => {
   const ingest = row?.ingest ?? {}, recall = row?.recall ?? {};
@@ -53,8 +53,16 @@ export function compare(before, after) {
     const b = metric(beforeRow), a = metric(afterRow);
     const workflow = workflowNotes(b.workflows, a.workflows);
     const notes = [...metricNotes(beforeRow, afterRow, b, a), ...workflow.notes];
+    const failures = {
+      before: beforeRow ? batteryFailures([beforeRow]) : [],
+      after: afterRow ? batteryFailures([afterRow]) : [],
+    };
+    for (const [side, entries] of Object.entries(failures)) {
+      if (entries.length) notes.push(`${side} measurement invalid: ${entries.map(failure => failure.error || `${failure.tool ?? failure.operation} exit ${failure.exit}`).join('; ')}`);
+    }
+    const invalid = failures.before.length > 0 || failures.after.length > 0;
     const regression = notes.includes('ingest failed') || notes.includes('precision down') || workflow.failed;
-    return { lang, before: b, after: a, notes, regression, newMissed: added(b.missed, a.missed), newExtra: added(b.extra, a.extra) };
+    return { lang, before: b, after: a, notes, regression, invalid, ...(invalid ? { failures } : {}), newMissed: added(b.missed, a.missed), newExtra: added(b.extra, a.extra) };
   });
 }
 
@@ -81,6 +89,7 @@ function main(argv) {
   if (files.length !== 2) throw new Error(HELP);
   const rows = compare(load(resolve(files[0])), load(resolve(files[1])));
   console.log(argv.includes('--json') ? JSON.stringify(rows, null, 1) : markdown(rows));
+  if (rows.some(row => row.invalid)) return 2;
   return rows.some((row) => row.regression) ? 1 : 0;
 }
 

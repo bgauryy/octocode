@@ -74,7 +74,7 @@ pub(crate) fn process_fetched_content_selected<S: ContentScan>(
             view: &kept.view,
             selection: None,
         };
-        return render(q, page, facts, source_path, security, cancel);
+        return render(q, page, facts, source_path, cancel);
     }
     // A range or match read of bytes already scanned at this path reuses that
     // scan; a cancelled row still ends in `prepare_source`.
@@ -130,8 +130,6 @@ pub(crate) fn process_fetched_content_selected<S: ContentScan>(
         q,
         &mut ext,
         &mut source.redacted_lines,
-        source_path,
-        security,
         &source.text,
         cancel,
     ) {
@@ -159,7 +157,7 @@ pub(crate) fn process_fetched_content_selected<S: ContentScan>(
         view: &view,
         selection,
     };
-    let result = render(q, page, facts, source_path, security, cancel);
+    let result = render(q, page, facts, source_path, cancel);
     if let Some(retention) = retention
         && selection_outcome.is_none()
     {
@@ -183,7 +181,6 @@ fn render(
     page: Page<'_>,
     facts: &SourceFacts,
     source_path: &std::path::Path,
-    security: &impl ContentScan,
     cancel: &impl CancellationCheck,
 ) -> LocalFetchResult {
     let Page {
@@ -223,7 +220,7 @@ fn render(
         }
         _ => facts,
     };
-    let cut = match cut_page(q, view, ext, source, facts, source_path, security) {
+    let cut = match cut_page(q, view, ext, source, facts) {
         Ok(cut) => cut,
         Err(result) => return *result,
     };
@@ -252,9 +249,6 @@ pub(super) struct View {
     pub(super) fallback: Option<ViewFallback>,
     /// The view's note for its first page (an outline's recovered parse).
     pub(super) note: Option<String>,
-    /// The view's latest byte-page window scan, which a replayed walk's
-    /// later pages reuse (see `retained`).
-    pub(super) scans: super::pagination::WindowScans,
 }
 
 /// The row of a symbols read no outline or compaction can stand in for:

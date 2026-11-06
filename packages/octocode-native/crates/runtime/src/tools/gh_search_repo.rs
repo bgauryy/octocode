@@ -128,13 +128,30 @@ pub(crate) async fn execute(
     }
     page.disclose(&mut value, query, ignored_language);
     pick_rows(&mut value, "repositories", REPO_ID, &access::fields(query));
-    Ok(repository_output(
+    let owner_has_no_repositories = empty
+        && current == 1
+        && !page.incomplete
+        && listing
+            .as_ref()
+            .is_some_and(|listing| !listing.more && listing.filtered_out == 0);
+    let mut output = repository_output(
         value,
         query,
         empty && !page.more && !page.past_end,
         page.incomplete,
         page.matched > page.reachable,
-    ))
+    );
+    // The owner exists (the listing answered) and lists nothing, with no
+    // archive filter to blame: say so instead of leaving a bare empty.
+    if owner_has_no_repositories && let Some(owner) = access::owner(query) {
+        crate::tools::leads::push_hint(
+            &mut output.data,
+            format!(
+                "`{owner}` exists but lists no repositories visible to this token; no filter hid any."
+            ),
+        );
+    }
+    Ok(output)
 }
 
 /// One page of repositories: an owner's REST listing (no 1,000-result

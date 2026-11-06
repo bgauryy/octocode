@@ -84,9 +84,15 @@ pub(super) fn fetch_ranges(
     let last_line = merged.last().map_or(0, |span| span.1);
     let mut text_left = share.map(|share| {
         share
-            .saturating_sub(octocode_engine::json_size::string_body_units(&cut_note(
-                last_line, last_line, true,
-            )))
+            .saturating_sub(octocode_engine::json_size::string_body_units(
+                &[(true, true), (false, true)]
+                    .iter()
+                    .filter_map(|&(continues, after)| {
+                        cut_note(last_line, last_line, continues, after)
+                    })
+                    .max_by_key(String::len)
+                    .unwrap_or_default(),
+            ))
             .saturating_sub(4)
             .max(1)
     });
@@ -140,6 +146,8 @@ pub(super) fn fetch_ranges(
         }
         if let Some(mut next) = part.next.take() {
             let after = &merged[index + 1..];
+            // A withheld byte page leaves no continuation of its own span.
+            let continues = next.continue_window.is_some();
             if !after.is_empty()
                 && let Err(error) = read_on(q, &mut next, after, part.source_sha256.as_deref())
             {
@@ -149,7 +157,7 @@ pub(super) fn fetch_ranges(
                     error,
                 );
             }
-            cut = Some((start, end, !after.is_empty(), next));
+            cut = Some((start, end, continues, !after.is_empty(), next));
             parts.push(part);
             break;
         }
@@ -171,8 +179,10 @@ pub(super) fn fetch_ranges(
         result.warnings.insert(0, streamed_warning(len));
     }
     result.pagination = None;
-    if let Some((start, end, after, next)) = cut {
-        result.warnings.push(cut_note(start, end, after));
+    if let Some((start, end, continues, after, next)) = cut {
+        if let Some(note) = cut_note(start, end, continues, after) {
+            result.warnings.push(note);
+        }
         result.is_partial = Some(true);
         result.next = Some(next);
     }
@@ -239,6 +249,15 @@ fn join_parts(result: &mut LocalFetchResult, parts: impl Iterator<Item = LocalFe
         result.end_line = part.end_line.or(result.end_line);
         result.is_partial =
             (result.is_partial == Some(true) || part.is_partial == Some(true)).then_some(true);
+        // A part's terminal disclosure is the page's: it names what no page reads.
+        if part.terminal_limit == Some(true) {
+            result.terminal_limit = Some(true);
+        }
+        for reason in part.partial_reasons {
+            if !result.partial_reasons.contains(&reason) {
+                result.partial_reasons.push(reason);
+            }
+        }
         let add = |a: Option<usize>, b: Option<usize>| match (a, b) {
             (Some(a), Some(b)) => Some(a + b),
             (a, b) => a.or(b),
@@ -248,16 +267,24 @@ fn join_parts(result: &mut LocalFetchResult, parts: impl Iterator<Item = LocalFe
     }
 }
 
-/// The note of a ranges page that ends inside lines `start`-`end`, with
-/// requested ranges `after` them or none.
-fn cut_note(start: usize, end: usize, after: bool) -> String {
-    if after {
-        format!(
+/// The note of a ranges page that ends inside lines `start`-`end`: what next
+/// reads, the rest of those lines when they `continue` and the requested ranges
+/// `after` them. `None` when next reads neither: the page's own disclosure
+/// names what is not read.
+fn cut_note(start: usize, end: usize, continues: bool, after: bool) -> Option<String> {
+    match (continues, after) {
+        (true, true) => Some(format!(
             "Lines {start}-{end} need more than one window page: this page ends inside them and next reads on: first the rest of those lines, then the other ranges after them."
-        )
-    } else {
-        format!(
+        )),
+        (true, false) => Some(format!(
             "Lines {start}-{end} need more than one window page: this page ends inside them and their later pages read that range alone."
-        )
+        )),
+        (false, true) => Some(format!(
+            "This page ends inside lines {start}-{end}, whose rest no page reads (see the warnings); next reads the other ranges after them."
+        )),
+        (false, false) => None,
     }
 }
+
+#[cfg(test)]
+mod tests;

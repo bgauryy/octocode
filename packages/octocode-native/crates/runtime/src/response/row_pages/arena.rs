@@ -10,7 +10,9 @@ use std::ops::Range;
 mod materialize;
 mod records;
 mod source_catalog;
+mod text;
 mod window;
+pub(super) use text::text_marker_chars;
 pub(super) use window::Window;
 
 pub(super) struct Fragment {
@@ -43,6 +45,14 @@ pub(super) enum FragmentKind {
         array: String,
         index: usize,
     },
+    /// A window of string `string` of text split `split`; `shown` is the
+    /// pointer, in the joined row's indexes, a later part continues.
+    Text {
+        split: usize,
+        string: usize,
+        range: Range<usize>,
+        shown: Option<String>,
+    },
 }
 
 #[derive(Clone)]
@@ -59,9 +69,28 @@ impl FragmentKind {
         match self {
             Self::Continues { array, index, .. } => Some((array, index)),
             Self::Joined { inner, .. } => inner.marker_mut(),
+            Self::Whole(_) | Self::Records { .. } | Self::Chunk { .. } | Self::Text { .. } => None,
+        }
+    }
+
+    /// The `rowPart.text` pointer this fragment shows, if any.
+    fn shown_mut(&mut self) -> Option<&mut String> {
+        match self {
+            Self::Text { shown, .. } => shown.as_mut(),
+            Self::Joined { inner, .. } | Self::Continues { inner, .. } => inner.shown_mut(),
             Self::Whole(_) | Self::Records { .. } | Self::Chunk { .. } => None,
         }
     }
+}
+
+/// `pointer` planned in a copy holding element `index` of `array` alone (at
+/// index 0), in the joined row's indexes.
+fn rebase(pointer: &str, array: &str, index: usize) -> Option<String> {
+    pointer
+        .strip_prefix(array)
+        .and_then(|rest| rest.strip_prefix("/0"))
+        .filter(|rest| rest.is_empty() || rest.starts_with('/'))
+        .map(|rest| format!("{array}/{index}{rest}"))
 }
 
 /// Mark the fragments after `at` as continuing element `index` of `array`.
@@ -71,6 +100,12 @@ impl FragmentKind {
 /// marker's pointer names every continued level.
 pub(super) fn mark_continuations(array: &str, at: usize, index: usize, out: &mut [Planned]) {
     for (fragment, size) in out.iter_mut().skip(at + 1) {
+        if let Some(shown) = fragment.kind.shown_mut()
+            && let Some(rebased) = rebase(shown, array, index)
+        {
+            *size = *size - text_marker_chars(shown) + text_marker_chars(&rebased);
+            *shown = rebased;
+        }
         if let Some((nested, nested_index)) = fragment.kind.marker_mut() {
             let before = continues_chars(nested, *nested_index);
             let inside = nested
@@ -127,6 +162,10 @@ pub(super) struct FragmentArena {
     pub(super) splits: Vec<RowSplit>,
     pub(super) page_context: &'static crate::contracts::output_fields::PageContextFields,
     pub(super) catalogs: Vec<Catalog>,
+    /// Rows split inside their strings ([`text`]).
+    pub(super) texts: Vec<text::TextSplit>,
+    /// The tool whose output schema decides which strings are free text.
+    pub(super) tool: crate::id::ToolId,
 }
 
 impl FragmentArena {
@@ -140,6 +179,8 @@ impl FragmentArena {
             splits: Vec::new(),
             page_context,
             catalogs: Vec::new(),
+            texts: Vec::new(),
+            tool,
         }
     }
 
@@ -199,6 +240,16 @@ impl FragmentArena {
                 .map(|items| (pointer, items))
         });
         let Some((pointer, items)) = taken else {
+            // No collection left to split: a row still larger than its
+            // window is cut inside its strings.
+            let row = if row_chars + window.tail > head {
+                match self.plan_text(row, catalog, window, row_chars, out)? {
+                    Some(row) => row,
+                    None => return Ok(()),
+                }
+            } else {
+                row
+            };
             out.push((
                 Fragment {
                     kind: FragmentKind::Whole(self.wholes.len()),

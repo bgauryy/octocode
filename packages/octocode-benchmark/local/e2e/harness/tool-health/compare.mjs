@@ -30,7 +30,12 @@ export function transportProblem(surface, response) {
     return response.isError === allFailed ? null : `isError ${response.isError}, expected ${allFailed}`;
   }
   const classes = new Set([json?.errorCode, ...failures.map(row => row.data?.errorCode)].filter(Boolean).map(code => contract.errorCodes[code]));
-  let exit = rows.length > 0 && rows.every(row => ['empty', 'outOfRange'].includes(row.status)) ? 1 : 0;
+  // LSP empty rows publish their category and reason; internal row status
+  // is removed at publication. Partial coverage does not turn an empty
+  // answer into an answering row (and an answering sibling still wins).
+  const empty = row => ['empty', 'outOfRange'].includes(row.status)
+    || typeof row.data?.category === 'string' && typeof row.data?.reason === 'string';
+  let exit = rows.length > 0 && rows.every(empty) ? 1 : 0;
   if (classes.has('invalidInput')) exit = 2;
   else if (classes.size) exit = classes.size === 1 ? EXIT[[...classes][0]] : 5;
   return response.status === exit ? null : `exit ${response.status}, expected ${exit}`;
@@ -49,9 +54,12 @@ export function firstError(json) {
   return error ? `${error.errorCode}: ${String(error.error ?? '').slice(0, 140)}` : '';
 }
 
+// Whether a checkout is fresh or reused depends on what the shared home already
+// holds (the surface that runs second reuses the first one's), not on the surface.
+// advanced-github-workflows proves both surfaces report a reuse.
+const CLONE_COMPLETION = { clonedAt: value => typeof value === 'string' && Number.isFinite(Date.parse(value)), reused: value => typeof value === 'boolean' };
 const isCloneCompletion = (value, path, tool) => tool === 'ghCloneRepo' && path.length === 5
-  && path[0] === 'results' && path[2] === 'data' && path[3] === 'location' && path[4] === 'clonedAt'
-  && typeof value === 'string' && Number.isFinite(Date.parse(value));
+  && path[0] === 'results' && path[2] === 'data' && path[3] === 'location' && !!CLONE_COMPLETION[path[4]]?.(value);
 // Every explicit graphBuild publishes its own snapshot, so the id a build
 // receipt names (and any lead's graph pin, see graphInput) is per call; counts and linkage are the evidence.
 const isBuiltSnapshotId = (value, path, tool) => tool === 'graphBuild' && path.length === 4
@@ -69,7 +77,7 @@ export function parityView(json, tool) {
     }
     if (path.at(-1) === 'hints') return undefined;
     if (path.at(-1) === 'expiresAt') return '<retention deadline>';
-    if (isCloneCompletion(value, path, tool)) return '<per-call completion>';
+    if (isCloneCompletion(value, path, tool)) return path.at(-1) === 'reused' ? undefined : '<per-call completion>';
     if (isBuiltSnapshotId(value, path, tool)) return '<per-build snapshot>';
     return value;
   });

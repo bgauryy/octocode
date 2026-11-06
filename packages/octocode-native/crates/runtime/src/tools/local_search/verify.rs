@@ -27,6 +27,9 @@ pub(super) use guard::{
 pub(super) use guard::{OVERSIZED_PLACEHOLDER, UNVERIFIED_PLACEHOLDER};
 use lines::visit_values;
 pub(super) use lines::{VerifyReadError, materialize, read_verification_lines};
+pub(super) use settle::JudgedWindows;
+#[cfg(test)]
+pub(super) use settle::judged_on_this_thread;
 // The special-file tests (unix-only) read the key-scan bytes directly.
 #[cfg(all(test, unix))]
 pub(super) use redaction::read_key_scan_bytes;
@@ -47,6 +50,8 @@ pub(super) struct PageScope<'a, C> {
     pub(super) expected_digest: &'a ExpectedDigest<'a>,
     pub(super) security: &'a ContentSecurity,
     pub(super) cancel: &'a C,
+    /// The scan's judged row windows (see [`JudgedWindows`]).
+    pub(super) judged: &'a JudgedWindows,
 }
 
 /// (path, line, column) of every match whose value secret redaction
@@ -140,6 +145,7 @@ pub(super) fn verify_candidate(
             security: scope.security,
             match_only: local_search_query::view(scope.query) == View::MatchOnly,
             cancel: scope.cancel,
+            judged: Some(scope.judged),
         },
     )
     .map_err(ToolError::cancelled)?;
@@ -188,6 +194,7 @@ pub(super) fn verify_shown(
         security,
         match_only: local_search_query::view(query) == View::MatchOnly,
         cancel,
+        judged: Some(scope.judged),
     };
     if layout.list {
         for (index, _) in &layout.shown {

@@ -1,17 +1,33 @@
 use super::*;
 
+/// A whole-line hit as the sink records it: the byte of UTF-16 `column`
+/// in `text` and the line's rank there.
+fn raw(text: &str, line_number: u32, column: u32) -> RawMatch {
+    let mut units = 0usize;
+    let byte = text
+        .char_indices()
+        .find(|(_, ch)| {
+            let reached = units >= column as usize;
+            units += ch.len_utf16();
+            reached
+        })
+        .map_or(text.len(), |(byte, _)| byte);
+    RawMatch {
+        line_text: text.to_owned(),
+        line_number,
+        column,
+        byte_offset: saturating_u32(byte),
+        rank: super::super::relevance::line_rank(text.as_bytes(), byte),
+    }
+}
+
 /// Assembles `f.ts` from `(line_number, text, Some(column))` matches and
 /// `(line_number, text, None)` context lines.
 fn assemble(lines: &[(u32, &str, Option<u32>)], context_lines: u32) -> TextSearchFile {
     let mut entry = FileEntry::new();
     for &(line_number, text, column) in lines {
         match column {
-            Some(column) => entry.raw_matches.push(RawMatch {
-                line_text: text.to_owned(),
-                line_number,
-                column,
-                windowed_at: None,
-            }),
+            Some(column) => entry.raw_matches.push(raw(text, line_number, column)),
             None => {
                 entry.contexts.insert(line_number, text.to_owned());
             }
@@ -36,12 +52,7 @@ fn a_match_carries_its_byte_offset_in_its_line() {
             "f.ts".to_owned(),
             {
                 let mut entry = FileEntry::new();
-                entry.raw_matches.push(RawMatch {
-                    line_text: line.clone(),
-                    line_number: 1,
-                    column,
-                    windowed_at: None,
-                });
+                entry.raw_matches.push(raw(&line, 1, column));
                 entry
             },
             SearchContext::symmetric(context_lines),

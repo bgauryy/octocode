@@ -7,6 +7,9 @@ use sha2::{Digest, Sha256};
 
 /// The limits these reads judge at: windows of a part of a megabyte.
 const LIMITS: crate::security::SourceLimits = crate::security::SourceLimits::SMALL;
+/// A fixture length: a third of a byte page's window, so a few of them reach
+/// past one.
+const STRETCH: usize = BYTE_WINDOW_BYTES / 3;
 
 /// Bytes that take a source past the whole-file ceiling of [`LIMITS`].
 fn past_whole() -> usize {

@@ -110,13 +110,17 @@ export async function startSurfaces(fixture, { unmetered = false } = {}) {
     cliCall: (tool, input, { credentialTool = tool, ...opts } = {}) => cliArgs([tool, JSON.stringify(input), '--json'], { tool: credentialTool, ...opts }),
     mcpServer: (tool, cwd) => startServer({ cwd, env: envFor(tool, 'mcp'), replaceEnv: true, timeoutMs: 60_000 }),
     mcpCall: (server, tool, input) => mcpCall(scenario.getStore()?.server ?? server, tool, input),
+    /** The MCP server the current scenario's calls go to: its own when it set an environment. */
+    mcpServerFor: server => scenario.getStore()?.server ?? server,
     // A scenario owns a fresh credential (its own GitHub quota and classification
     // provider account); the callback receives it to observe that account.
     scenario: async ({ tool, surface, cwd = fixture, name, env: overrides }, callback) => {
       const scopedEnv = { ...envFor(`${tool}-${name}-${++scenarioIndex}`, surface), ...overrides };
-      const server = surface === 'mcp' ? await startServer({ cwd, env: scopedEnv, replaceEnv: true, timeoutMs: 60_000 }) : null;
-      try { return await scenario.run({ surface, env: scopedEnv, server }, callback, { token: scopedEnv.GITHUB_TOKEN }); }
-      finally { server?.close(); }
+      return mock.withGitCredential(scopedEnv.GITHUB_TOKEN, async () => {
+        const server = surface === 'mcp' ? await startServer({ cwd, env: scopedEnv, replaceEnv: true, timeoutMs: 60_000 }) : null;
+        try { return await scenario.run({ surface, env: scopedEnv, server }, callback, { token: scopedEnv.GITHUB_TOKEN }); }
+        finally { server?.close(); }
+      });
     },
     needs: {
       lsp: () => live ? lspAvailable(fixture, env) : null,

@@ -62,6 +62,7 @@ wiremock = "0.6"
 # The rustc lints below are warn-by-default; `deny` also fails a local
 # `cargo build`, not only CI's `-D warnings`.
 [workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(octocode_clippy_ratchet)"] }
 dead_code = "deny"
 unused_imports = "deny"
 unused_variables = "deny"
@@ -157,12 +158,16 @@ debug = false
 # Every CLI process builds the secret sanitizer's literal prescan (regex-syntax
 # parse + aho-corasick) and compiles its no-literal fallback patterns on first
 # output. Unoptimized, that one-time init cost ~50 ms per debug tool call
-# (measured 2026-10-02; ~17 ms at opt-level 3).
+# (measured 2026-10-02; ~17 ms at opt-level 3). regex-automata is the matching engine
+# the scanner runs over every byte: unoptimized, a localSearch first call on a 7 MB line
+# took 5.4-5.7 s against 0.52 s in a release-like build (measured 2026-11-06).
 [profile.dev.package."regex-syntax"]
 opt-level = 3
 [profile.dev.package."aho-corasick"]
 opt-level = 3
 [profile.dev.package."regex"]
+opt-level = 3
+[profile.dev.package."regex-automata"]
 opt-level = 3
 
 # Contract validation, row shaping and every tool result move `serde_json::Value`

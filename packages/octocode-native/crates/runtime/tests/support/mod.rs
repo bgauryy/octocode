@@ -32,6 +32,7 @@ pub use workspace::Workspace;
 pub const FIXTURE_LIMITS: RuntimeLimits = RuntimeLimits {
     max_retries: 0,
     network_timeout: std::time::Duration::from_secs(5),
+    classification_timeout: Some(std::time::Duration::from_secs(5)),
     github_pacing: octocode_github::GitHubPacing::Unpaced,
     ..RuntimeLimits::DEFAULT
 };

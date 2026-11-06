@@ -4,6 +4,9 @@ pub struct SanitizationResult<'a> {
     pub has_secrets: bool,
     pub secrets_detected: Vec<String>,
     pub warnings: Vec<String>,
+    /// What `content` replaced of the input, by input byte position: a cut of
+    /// the input shows a secret when it overlaps one of these.
+    pub edits: super::Edits,
 }
 
 impl SanitizationResult<'_> {
@@ -14,6 +17,7 @@ impl SanitizationResult<'_> {
             has_secrets: self.has_secrets,
             secrets_detected: self.secrets_detected,
             warnings: self.warnings,
+            edits: self.edits,
         }
     }
 }

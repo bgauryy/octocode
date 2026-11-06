@@ -15,13 +15,26 @@ const MAX_ENTRY_BYTES: u64 = 64 * 1024;
 
 /// The commit cargo recorded when it packaged `name@version`
 /// (`.cargo_vcs_info.json` inside the `.crate` archive) and the crate's
-/// directory inside its repository (`path_in_vcs`, empty at the root).
+/// directory inside its repository (`path_in_vcs`, empty at the root). A
+/// published version never changes, so what the archive said is kept and a
+/// repeat reads no archive.
 pub(super) async fn crate_vcs(
     name: &str,
     version: &str,
     client: &RegistryClient<'_>,
 ) -> Option<(String, Option<String>)> {
-    let info = archive_vcs_info(name, version, client).await?;
+    let origin = parse_url("https://static.crates.io/").ok()?;
+    let info = client
+        .derived_fact(
+            &origin,
+            &format!("cargo-vcs-info {name}@{version}"),
+            async {
+                let info = archive_vcs_info(name, version, client).await?;
+                serde_json::to_string(&info).ok()
+            },
+        )
+        .await?;
+    let info: Value = serde_json::from_str(&info).ok()?;
     let sha = commit_sha(info.pointer("/git/sha1"))?;
     Some((sha, string(info.get("path_in_vcs"))))
 }

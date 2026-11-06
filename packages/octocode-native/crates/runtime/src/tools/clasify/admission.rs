@@ -54,3 +54,30 @@ pub(crate) fn unavailable_source_issues(
     })
     }).collect()
 }
+
+/// A resource answer must keep its pinned reads for a subsequent call. Refuse
+/// before capture and billing when the host cannot honor that lifetime.
+pub(super) fn unretainable_source(row: &super::Row, can_resume: bool) -> Option<super::RowOutcome> {
+    use super::{Input, RowOutcome, Target};
+    use crate::tools::judgment::ClassificationError;
+    use octocode_contract_types::ErrorCode;
+
+    if can_resume
+        || !matches!(
+            row.input,
+            Input::Sections(_) | Input::Judge(Target::Source(_))
+        )
+    {
+        return None;
+    }
+    Some(RowOutcome::Judgment {
+        judged: Err(ClassificationError::new(
+            ErrorCode::ClassificationContextUnavailable,
+            "This runtime cannot retain the pinned source reads this row requires; no source was read and no classification provider was called.",
+            "Use persistent storage across CLI calls or a long-lived MCP runtime, or supply the text as literal content.",
+        )),
+        captured: None,
+        assets: None,
+        identity: None,
+    })
+}

@@ -54,6 +54,57 @@ pub(super) fn candidate(current: &str, advisories: &[SecurityAdvisory]) -> Resul
     })
 }
 
+/// What is said beside an upgrade that crosses a major version: the advisories
+/// no release of the current major is listed as fixing (so only a later
+/// major clears them), and the highest fix the current major does list for the
+/// others. `None` when the named version stays in the current major, or the
+/// current major clears every advisory.
+pub(super) fn major_gap(
+    current: &str,
+    named: &str,
+    advisories: &[SecurityAdvisory],
+) -> Option<String> {
+    let at = numeric(current)?;
+    let major = *at.first()?;
+    if *numeric(named)?.first()? == major {
+        return None;
+    }
+    let mut unfixed: Vec<&str> = Vec::new();
+    let mut within: Option<(Vec<u64>, &str)> = None;
+    for advisory in advisories {
+        let lowest = advisory
+            .fixed_in
+            .iter()
+            .filter_map(|fixed| Some((numeric(fixed)?, fixed.as_str())))
+            .filter(|(numbers, _)| numbers.first() == Some(&major) && compare(numbers, &at).is_gt())
+            .min_by(|(left, _), (right, _)| compare(left, right));
+        match lowest {
+            None => unfixed.push(advisory.id.as_str()),
+            Some(lowest) => {
+                if within
+                    .as_ref()
+                    .is_none_or(|(numbers, _)| compare(&lowest.0, numbers).is_gt())
+                {
+                    within = Some(lowest);
+                }
+            }
+        }
+    }
+    if unfixed.is_empty() {
+        return None;
+    }
+    let mut note = format!(
+        "No {major}.x release is listed as fixing {}; {named} is the lowest listed fix in a later major.",
+        unfixed.join(", ")
+    );
+    if let Some((_, version)) = within {
+        note.push_str(&format!(
+            " {version} is the highest fix listed within {major}.x, for the other advisories."
+        ));
+    }
+    Some(note)
+}
+
 #[cfg(test)]
 #[path = "upgrade_tests.rs"]
 mod tests;

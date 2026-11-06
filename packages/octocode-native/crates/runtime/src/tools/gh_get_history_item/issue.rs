@@ -8,13 +8,12 @@ use super::util::{str_at, string};
 use super::{HistoryItemRequest, Sections, fetch, validation};
 use crate::id::ToolId;
 use crate::response::result::ToolData;
+use crate::tools::gh_get_history_item::Source;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::sections::Section;
 use crate::tools::gh_shared::dates::{utc_date, utc_value};
 use crate::tools::gh_shared::ensure_calls;
-use octocode_github::{
-    GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
-};
+use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext};
 use serde_json::{Map, Value, json};
 
 mod closing;
@@ -29,7 +28,7 @@ use comments::{CommentRead, comment_batch, first_comment_batch, issue_comments};
 /// a typed reason (the caller offers the issue read); otherwise keep the
 /// original not-found.
 pub(super) async fn name_issue_number(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
     not_found: ProviderError,
@@ -45,7 +44,7 @@ pub(super) async fn name_issue_number(
         "issues",
         &number,
     ];
-    match fetch(transport, &issue_path, &[], context).await {
+    match fetch(source, &issue_path, &[], context).await {
         Ok((raw, _)) if raw.get("pull_request").is_none_or(Value::is_null) => {
             let mut error = ProviderError::new(
                 ProviderErrorKind::NotFound,
@@ -60,7 +59,7 @@ pub(super) async fn name_issue_number(
 }
 
 pub(super) async fn issue(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<ToolData, ProviderError> {
@@ -87,17 +86,17 @@ pub(super) async fn issue(
         .then(|| first_comment_batch(query))
         .flatten();
     let (fetched, closed_by, prefetched) = tokio::join!(
-        fetch(transport, &issue_path, &[], context),
+        fetch(source, &issue_path, &[], context),
         async {
             if first_window {
-                closing_pull_requests(transport, query, context).await
+                closing_pull_requests(source, query, context).await
             } else {
                 None
             }
         },
         async {
             match first_batch {
-                Some(batch) => Some(comment_batch(transport, &issue_path, batch, context).await),
+                Some(batch) => Some(comment_batch(source, &issue_path, batch, context).await),
                 None => None,
             }
         }
@@ -169,7 +168,7 @@ pub(super) async fn issue(
             used,
             total: raw.get("comments").and_then(Value::as_u64),
         };
-        let page = issue_comments(transport, query, context, &at, prefetched).await?;
+        let page = issue_comments(source, query, context, &at, prefetched).await?;
         page.attach(&at, &mut row, &mut pagination, &mut remainder);
     }
     if !pagination.is_empty() {

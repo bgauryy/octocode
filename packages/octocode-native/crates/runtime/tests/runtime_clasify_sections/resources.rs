@@ -8,6 +8,8 @@ use serde_json::{Value, json};
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+mod reads;
+
 const SHA: &str = "1111111111111111111111111111111111111111";
 
 /// A GitHub whose `a/b` repository serves each `(file, body)` at ref `v1`.

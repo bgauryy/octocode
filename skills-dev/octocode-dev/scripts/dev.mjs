@@ -63,7 +63,7 @@ const TASKS = {
   'clean:cache': ['Drop stale native build copies; compiled dependencies stay warm', [yarn('workspace', '@octocodeai/octocode-native', 'clean:cache')]],
   'docs:verify': ['Docs links, catalog, config keys, publishing contracts', [script('docs-verify.mjs')]],
   'deps:dedupe': ['One version range per external dependency (--fix rewrites)', [script('dedupe-deps.mjs')]],
-  'contracts:regen': ['Build core if stale, refresh its copy (yarn install), then regenerate the tool contract', [script('core-build-if-stale.mjs'), yarn('install'), yarn('workspace', '@octocodeai/config', 'generate:tool-contract')]],
+  'contracts:regen': ['Build sibling core, refresh its copy (yarn install), then regenerate the tool contract', [script('core-build.mjs'), yarn('install'), yarn('workspace', '@octocodeai/config', 'generate:tool-contract')]],
   setup: ['Local dev resolutions (--dry-run, --install, --reset); then yarn install', [script('dev-setup.mjs')]],
   prepublish: ['Local-resolution check (--fix strips local resolutions, --dry-run previews)', [script('prepublish.mjs')]],
   'brew:formula': ['Render the Homebrew formula from the published native npm packages ([version] [--out FILE])', [script('brew-formula.mjs')]],

@@ -113,10 +113,15 @@ pub(super) fn shape_files(
                     // The path, or its hit, is not at the ref.
                     row.insert("atRef".into(), json!(false));
                 }
-                super::lines::FileHits::Unavailable if resolution.reference.is_some() => {
-                    // Not read at the ref: lead to the keyword lines there.
+                super::lines::FileHits::Unavailable => {
+                    // Not read here (over the scan limit, binary, a failed
+                    // read): lead to the keyword lines at the commit, on the
+                    // default branch as at a ref. Without a commit there is
+                    // nothing to pin the read to.
                     row.insert("lineResolved".into(), json!(false));
-                    if let Some(read) = hits_read(query, row, sha) {
+                    if !sha.is_empty()
+                        && let Some(read) = hits_read(query, row, sha)
+                    {
                         hit_reads.push(read);
                     }
                 }
@@ -217,22 +222,22 @@ pub(super) fn files(
         let mut matches = Vec::new();
         if !path_only {
             for fragment in &item.text_matches {
-                if let Some(value) = super::fragments::project(fragment, &item.path, security)? {
-                    matches.push(value);
+                if let Some(projected) =
+                    super::fragments::project(fragment, &item.path, &terms, security)?
+                {
+                    matches.push(projected);
                 }
             }
             if matches.is_empty() {
-                matches.push(json!({"pathOnly":true}));
+                matches.push((
+                    json!({"pathOnly":true}),
+                    super::ranking::score(&item.path, "", &terms),
+                ));
             }
         } else {
-            matches.push(json!({}));
+            matches.push((json!({}), super::ranking::score(&item.path, "", &terms)));
         }
-        for value in matches {
-            let score = super::ranking::score(
-                &item.path,
-                value["value"].as_str().unwrap_or_default(),
-                &terms,
-            );
+        for (value, score) in matches {
             groups[group_index].matches.push(super::ranking::Match {
                 path: item.path.clone(),
                 value,

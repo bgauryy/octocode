@@ -12,6 +12,8 @@ use super::local_search_query::{
 use super::rows::rank_file_rows;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
+#[cfg(test)]
+pub(super) use costs::priced_on_this_thread;
 pub(super) use costs::{FilePrice, NamePricing};
 use costs::{PageCosts, RowName};
 pub(super) use entries::{file_pagination, row_chars};
@@ -27,6 +29,34 @@ pub(super) fn list_view(view: View) -> bool {
         view,
         View::Files | View::FilesWithout | View::CountLines | View::CountMatches
     )
+}
+
+/// The pages one scan's stream cut yields. Every call of a walk cuts the
+/// same pages from the same scan (see [`Layout::stream`]), so the stored
+/// scan keeps them once cut: a continuation takes its page instead of
+/// pricing every row of the scan again.
+#[derive(Default)]
+pub(super) struct StreamCuts(std::sync::Mutex<Option<std::sync::Arc<Vec<PageRows>>>>);
+
+impl StreamCuts {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<std::sync::Arc<Vec<PageRows>>>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Bytes the cut keeps.
+    pub(super) fn weight(&self) -> usize {
+        self.lock().as_ref().map_or(0, |pages| {
+            pages
+                .iter()
+                .map(|page| {
+                    std::mem::size_of::<PageRows>()
+                        + page.len() * std::mem::size_of::<(usize, std::ops::Range<usize>)>()
+                })
+                .sum()
+        })
+    }
 }
 
 /// How one page is cut and shown.
@@ -59,14 +89,15 @@ impl Layout {
     /// `pricing` prices the rows' enclosing names (see [`PageCosts::name`]),
     /// outlining only the files the cut must charge exactly: every file of a
     /// result that may fit whole, else those of the first page and of the
-    /// row that ends it (see [`Self::stream`]).
+    /// row that ends it (see [`Self::stream`]). `cuts`: the scan's stream
+    /// cut, taken when known and kept once made.
     pub(super) fn cut(
         query: &LocalSearchQuery,
         paths: &PathPolicy,
         output_root: &std::path::Path,
         parsed: &mut octocode_engine::types::TextSearchResult,
         page_budget: usize,
-        pricing: &mut NamePricing<'_>,
+        (pricing, cuts): (&mut NamePricing<'_>, Option<&StreamCuts>),
     ) -> Result<Self, ToolError> {
         let view = local_search_query::view(query);
         let list = list_view(view);
@@ -121,11 +152,10 @@ impl Layout {
             Self::stream(
                 query,
                 &parsed.files,
-                matches_per,
-                show_all,
+                (matches_per, show_all),
                 page_budget,
                 &mut costs,
-                pricing,
+                (pricing, cuts),
             )?
         } else {
             Self::grid(query, parsed.files.len(), matches_per)
@@ -167,11 +197,10 @@ impl Layout {
     fn stream(
         query: &LocalSearchQuery,
         files: &[octocode_engine::types::TextSearchFile],
-        matches_per: u32,
-        show_all: bool,
+        (matches_per, show_all): (u32, bool),
         page_budget: usize,
         costs: &mut PageCosts,
-        pricing: Option<&mut NamePricing<'_>>,
+        (pricing, cuts): (Option<&mut NamePricing<'_>>, Option<&StreamCuts>),
     ) -> Result<(PageRows, u32, Option<u32>, u32), ToolError> {
         // `through`: the cut stops after that page, every reserved name
         // costing nothing (see below).
@@ -221,14 +250,17 @@ impl Layout {
                 costs.owners = pricing.priced.clone();
             }
         }
-        let mut pages = cut(costs, None);
+        let known = cuts.and_then(|cuts| cuts.lock().clone());
+        let pages = known.unwrap_or_else(|| {
+            let pages = std::sync::Arc::new(cut(costs, None));
+            if let Some(cuts) = cuts {
+                *cuts.lock() = Some(std::sync::Arc::clone(&pages));
+            }
+            pages
+        });
         let total_pages = saturating_u32(pages.len()).max(1);
         let page = local_search_query::page(query).max(1) as usize;
-        let shown = if page <= pages.len() {
-            pages.swap_remove(page - 1)
-        } else {
-            Vec::new()
-        };
+        let shown = pages.get(page - 1).cloned().unwrap_or_default();
         let rows: usize = files.iter().map(|file| file.matches.len()).sum();
         Ok((shown, total_pages, None, saturating_u32(rows)))
     }

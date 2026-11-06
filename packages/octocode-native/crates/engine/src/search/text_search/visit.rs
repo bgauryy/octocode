@@ -106,9 +106,6 @@ impl WalkScope<'_> {
                     )
                     .is_ok_and(|prefix| relevance::has_generated_header(&prefix))
                 }));
-        if outcome.span_cap_reached {
-            state.span_capped.store(true, Ordering::Relaxed);
-        }
         state.files_searched.fetch_add(1, Ordering::Relaxed);
         state.bytes_searched.fetch_add(file_len, Ordering::Relaxed);
         if outcome.opaque {
@@ -149,8 +146,15 @@ impl WalkScope<'_> {
             .then(|| hashed_source(&file, &meta))
             .flatten();
         drop(file);
+        let path = dent.path().to_string_lossy().into_owned();
+        // The rows stay held with the record, and the record itself too.
+        let mut charge = outcome.charge;
+        if !charge.add(super::state::record_weight(&path, &outcome.term_counts)) {
+            files.stop.store(true, Ordering::Relaxed);
+        }
+        charge.keep();
         worker_recs.push(FileRec {
-            path: dent.path().to_string_lossy().into_owned(),
+            path,
             entry: outcome.entry,
             matched_lines: outcome.matched_lines,
             submatches: outcome.submatches,
@@ -163,6 +167,7 @@ impl WalkScope<'_> {
             declares: outcome.declares && self.identifier,
             source,
             not_utf8: outcome.not_utf8,
+            utf8_bom: outcome.utf8_bom,
             term_counts: outcome.term_counts,
         });
     }

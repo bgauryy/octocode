@@ -10,15 +10,16 @@ use memchr::memchr_iter;
 use octocode_engine::security::{
     Named, SecretSpan, SecretSpans, SourceWalk, WholeSourcePatterns, redaction_placeholder,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::io::Read;
 
 /// A pass that judged its source, shown lines masked in its `read`.
 pub(super) struct Walked {
     pub(super) read: VerificationLines,
     pub(super) digest: Option<Digest>,
-    /// The shown lines a span reached.
-    pub(super) masked: BTreeSet<usize>,
+    /// The shown lines a span reached, each with the byte ranges of the line
+    /// it hid.
+    pub(super) masked: BTreeMap<usize, Vec<std::ops::Range<usize>>>,
 }
 
 /// A reader that walks the text it passes on, and marks where shown lines start.
@@ -144,8 +145,8 @@ fn mask_lines(
     read: &mut VerificationLines,
     spans: &[SecretSpan],
     starts: &BTreeMap<usize, usize>,
-) -> BTreeSet<usize> {
-    let mut masked = BTreeSet::new();
+) -> BTreeMap<usize, Vec<std::ops::Range<usize>>> {
+    let mut masked = BTreeMap::new();
     for (&line, &start) in starts {
         let Some(text) = read.retained.get_mut(&line) else {
             continue;
@@ -159,12 +160,23 @@ fn mask_lines(
         if reached.is_empty() || text.trim().is_empty() {
             continue;
         }
+        // A decoded line has no sure offsets: all of it is hidden.
+        let hid = if text.contains('\u{fffd}') {
+            std::iter::once(0..usize::MAX).collect()
+        } else {
+            reached
+                .iter()
+                .map(|span| {
+                    span.range.start.saturating_sub(start)..span.range.end.saturating_sub(start)
+                })
+                .collect()
+        };
         *text = if text.contains('\u{fffd}') {
             redaction_placeholder(reached[0].form.pattern())
         } else {
             masked_line(text, start, &reached)
         };
-        masked.insert(line);
+        masked.insert(line, hid);
     }
     masked
 }

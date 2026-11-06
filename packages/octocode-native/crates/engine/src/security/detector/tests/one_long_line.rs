@@ -182,7 +182,7 @@ fn carrying_the_line_start_forward_replaces_as_searching_back_does() {
                 text.push_str(if at % 2 == 0 { " mid " } else { "\nnext " });
             }
             let carried = keys_seen(regex, &text, &|regex, text, redacts| {
-                replace_secrets(regex, text, "[R]", redacts)
+                replace_secrets(regex, text, "[R]", redacts).0
             });
             let searched = keys_seen(regex, &text, &|regex, text, redacts| {
                 replace_searching_back(regex, text, "[R]", redacts)

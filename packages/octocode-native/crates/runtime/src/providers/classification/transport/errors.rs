@@ -166,7 +166,7 @@ pub(super) fn status_error(
     if error_type(provider_body) == Some("max_tokens_exceeded") {
         ClassificationError::new(
             ErrorCode::ClassificationStateTooLarge,
-            "The state exceeded the classification provider's context window; the refused request is not billed.",
+            "The state exceeded the classification provider's context window; the provider does not document whether a refused request is billed.",
             "Split it: narrower ranges, one row per part, or operation:\"sections\" with the source under resources.",
         )
     } else {

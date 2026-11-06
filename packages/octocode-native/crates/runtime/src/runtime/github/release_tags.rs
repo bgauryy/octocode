@@ -35,12 +35,13 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
         })
     }
 
-    fn commit_exists<'a>(
+    fn commit_check<'a>(
         &'a self,
         owner: &'a str,
         repo: &'a str,
         commit: &'a str,
-    ) -> crate::providers::artifact::TagFuture<'a> {
+    ) -> crate::providers::artifact::CommitFuture<'a> {
+        use crate::providers::artifact::CommitCheck;
         Box::pin(async move {
             let request = self
                 .services
@@ -54,8 +55,16 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
                 .commit_sha(owner, repo, commit, &request)
                 .await
             {
-                Ok(_) => Some(true),
-                Err(error) if error.reason == Some(ProviderErrorReason::RefNotFound) => Some(false),
+                Ok(_) if request.followed_rename(owner, repo) => {
+                    Some(CommitCheck::FoundAfterRedirect)
+                }
+                Ok(_) => Some(CommitCheck::Found),
+                Err(error) if error.reason == Some(ProviderErrorReason::RefNotFound) => {
+                    Some(CommitCheck::Missing)
+                }
+                Err(error) if error.reason == Some(ProviderErrorReason::RepositoryNotFound) => {
+                    Some(CommitCheck::RepositoryMissing)
+                }
                 Err(_) => None,
             }
         })

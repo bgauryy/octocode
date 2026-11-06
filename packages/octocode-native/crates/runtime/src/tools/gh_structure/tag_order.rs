@@ -5,7 +5,8 @@
 //! `ignore-0.4.33`, `pkg@2.0.0`, `rmcp-v0.8.5`). Versions compare by their
 //! numbers (a missing component is 0), then a release ranks above its
 //! pre-releases (`1.0.0` above `1.0.0-rc.2` above `1.0.0-rc.1`), as semver
-//! orders them. Tags without a version follow every versioned tag. Ties
+//! orders them. A dotted version (`1.145.1`) is a release: it leads every
+//! lone number (`v14`) and every date stamp (`translation/20172701.01`). Tags without a version come last. Ties
 //! (one version under several package prefixes, or no version) keep
 //! reverse-lexicographic name order, GitHub's own, so the order is total
 //! and stable.
@@ -13,13 +14,24 @@ use std::cmp::Ordering;
 
 /// Sort `names` newest version first ([module docs](self)).
 pub(super) fn newest_first(names: &mut [String]) {
-    names.sort_by(|left, right| {
-        let (a, b) = (TagVersion::of(left), TagVersion::of(right));
-        b.cmp(&a).then_with(|| right.cmp(left))
+    // Parse each name once, not at every comparison of the sort.
+    let listed = names.to_vec();
+    let mut keyed = listed
+        .iter()
+        .map(|name| (TagVersion::of(name), name))
+        .collect::<Vec<_>>();
+    keyed.sort_by(|(left_version, left), (right_version, right)| {
+        right_version
+            .cmp(left_version)
+            .then_with(|| right.cmp(left))
     });
+    for (slot, (_, name)) in names.iter_mut().zip(keyed) {
+        slot.clone_from(name);
+    }
 }
 
-/// A tag name's version: `None` sorts below every version.
+/// A tag name's version: `None` sorts below every version, and a lone
+/// number below every dotted one.
 #[derive(Debug, PartialEq, Eq)]
 struct TagVersion<'a>(Option<(Vec<u64>, Option<&'a str>)>);
 
@@ -64,6 +76,9 @@ impl Ord for TagVersion<'_> {
             (None, Some(_)) => Ordering::Less,
             (Some(_), None) => Ordering::Greater,
             (Some((left, left_pre)), Some((right, right_pre))) => {
+                if is_release(left) != is_release(right) {
+                    return is_release(left).cmp(&is_release(right));
+                }
                 let width = left.len().max(right.len());
                 let at = |numbers: &[u64], index: usize| numbers.get(index).copied().unwrap_or(0);
                 (0..width)
@@ -85,6 +100,12 @@ impl PartialOrd for TagVersion<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
+}
+
+/// Whether a version's numbers name a release: dotted, and led by a number
+/// that is not a date stamp (`20172701.01`, six digits or more).
+fn is_release(numbers: &[u64]) -> bool {
+    numbers.len() > 1 && numbers[0] < 100_000
 }
 
 /// Semver pre-release order: dot-separated identifiers left to right,
@@ -158,5 +179,50 @@ mod tests {
         let mut names = ["a-1.0.0", "c-1.0.0", "b-1.0.0", "beta", "alpha"].map(str::to_owned);
         newest_first(&mut names);
         assert_eq!(names, ["c-1.0.0", "b-1.0.0", "a-1.0.0", "beta", "alpha"]);
+    }
+
+    fn sorted(names: &[&str]) -> Vec<String> {
+        let mut names = names
+            .iter()
+            .map(|name| (*name).to_owned())
+            .collect::<Vec<_>>();
+        newest_first(&mut names);
+        names
+    }
+
+    /// A dated or lone-number tag (`translation/20190712`, `v14`) is not a
+    /// release: dotted versions lead, descending, whatever number the others
+    /// start with.
+    #[test]
+    fn dotted_versions_lead_over_dates_and_lone_numbers() {
+        assert_eq!(
+            sorted(&[
+                "translation/20190712",
+                "translation/20172701.01",
+                "master-with-conflict-190418",
+                "v14",
+                "1.145.0",
+                "1.145.1",
+                "latest",
+            ]),
+            [
+                "1.145.1",
+                "1.145.0",
+                "translation/20190712",
+                "translation/20172701.01",
+                "master-with-conflict-190418",
+                "v14",
+                "latest",
+            ]
+        );
+    }
+
+    /// Without any dotted version, lone numbers still order newest first.
+    #[test]
+    fn lone_number_tags_order_among_themselves() {
+        assert_eq!(
+            sorted(&["v1", "v10", "v2", "beta"]),
+            ["v10", "v2", "v1", "beta"]
+        );
     }
 }

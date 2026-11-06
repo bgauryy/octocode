@@ -32,6 +32,11 @@ pub(super) struct PageReplay {
 
 pub(super) struct PageReplayMemo {
     pub(super) store: crate::cache::Store<PageReplay>,
+    /// Saved responses whose envelope is [`Sanitized::held`] (text of a
+    /// credential-named source): kept in this process only, in either
+    /// storage mode, as held provider answers are. A later runtime answers
+    /// their cursors by re-executing the pinned page.
+    held: crate::cache::Store<PageReplay>,
     pub(super) policy: String,
     pub(super) persistent: bool,
 }
@@ -45,6 +50,7 @@ impl PageReplayMemo {
                 crate::cache::CacheConfig::derived(),
                 persistent.then(|| crate::cache::Directory::ResponsePages.path(&config.home)),
             ),
+            held: crate::cache::Store::new(crate::cache::CacheConfig::derived(), None),
             policy,
             persistent,
         }
@@ -61,8 +67,10 @@ impl PageReplayMemo {
     }
 
     pub(super) fn get(&self, cursor: &Cursor) -> Option<Arc<PageReplay>> {
-        self.store
-            .get(&Self::key(cursor, &self.policy))
+        let key = Self::key(cursor, &self.policy);
+        self.held
+            .get(&key)
+            .or_else(|| self.store.get(&key))
             .map(|hit| hit.value)
     }
 
@@ -76,7 +84,12 @@ impl PageReplayMemo {
         // the envelope (its row plan, bytes or text).
         let weight = octocode_engine::json_size::bytes(&replay)
             .map_or(usize::MAX, |bytes| bytes.saturating_mul(2));
-        self.store.put_until(
+        let store = if replay.structured.held() {
+            &self.held
+        } else {
+            &self.store
+        };
+        store.put_until(
             deadline,
             Self::key(cursor, &self.policy),
             replay,

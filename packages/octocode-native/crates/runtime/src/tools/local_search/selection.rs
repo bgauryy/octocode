@@ -151,7 +151,7 @@ pub(super) fn select_hits(
             let state = verified.then(|| {
                 let enclosing = outline
                     .as_ref()
-                    .and_then(|outline| outline.label(outline.owner(hit.line)?))
+                    .and_then(|outline| outline.label(outline.owner(hit.line, hit.byte_offset)?))
                     .map(|enclosing| json!({"kind":enclosing.kind,"symbolName":enclosing.symbol_name}));
                 hit_state(&file.path, hit, context, match_only, enclosing)
             });

@@ -29,7 +29,9 @@ fn crate_item(row: &serde_json::Map<String, Value>) -> Result<ArtifactItem, Arti
     artifact.description = string(row.get("description"));
     artifact.license = license(row.get("license"));
     artifact.homepage = safe_url(row.get("homepage"));
-    artifact.repository = repository_url(row.get("repository"));
+    if let Some(link) = repository_url(row.get("repository")) {
+        artifact.set_source_link(&link);
+    }
     Ok(artifact)
 }
 
@@ -142,7 +144,7 @@ async fn crate_source_ref(artifact: &mut ArtifactItem, client: &RegistryClient<'
         return;
     }
     let name = artifact.package_name.clone();
-    super::release_ref::pin_release_tag(artifact, &name, &version, client).await;
+    super::release_ref::pin_release_tag(artifact, &name, &version, None, client).await;
 }
 
 /// A crate version's normal dependencies as `name req`, plus `; target`

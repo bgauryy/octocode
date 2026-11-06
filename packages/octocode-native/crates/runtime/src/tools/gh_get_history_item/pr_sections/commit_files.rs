@@ -1,3 +1,4 @@
+use super::super::Source;
 use super::super::filter::FileFilter;
 use super::super::window::{
     COMMIT_FILE_BATCH, MAX_COMMIT_FILE_BATCHES, WindowSpec, commit_file_items, load_window_with,
@@ -6,11 +7,11 @@ use super::super::{HistoryItemRequest, gh_get_history_item_query};
 use crate::response::result::Continuation;
 use crate::response::result::wire_query;
 use octocode_contract_types::GhGetHistoryItemQuery;
-use octocode_github::{GitHubTransport, ProviderError, RequestContext};
+use octocode_github::{ProviderError, RequestContext};
 use serde_json::{Value, json};
 
 pub(super) async fn first_page(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     sha: &str,
     filter: FileFilter<'_>,
@@ -18,7 +19,7 @@ pub(super) async fn first_page(
     context: &RequestContext,
 ) -> Result<(Vec<Value>, Value), ProviderError> {
     let mut loaded = load_window_with(
-        transport,
+        source,
         &[
             "repos",
             gh_get_history_item_query::owner(query),

@@ -31,10 +31,13 @@ pub fn cargo_manifest(directory: &Path) -> Option<Arc<toml::Table>> {
     let started = crate::stamp::settle_clock();
     let mut inputs = Proof::default();
     inputs.follow(path.clone());
-    let text = std::fs::read_to_string(&path).ok();
+    let text = crate::lsp::config_file::read_utf8(&path).ok();
     let weight = inputs.weight() + text.as_ref().map_or(0, String::len);
     let table = text.and_then(|text| text.parse().ok()).map(Arc::new);
-    if inputs.settled_before(started) {
+    if inputs.settled_before(started)
+        && !crate::deep_stack::caller_stopped()
+        && !crate::deep_stack::job_cancelled()
+    {
         MANIFESTS.insert(
             path,
             KeptManifest {

@@ -13,7 +13,7 @@ use grep_regex::RegexMatcherBuilder;
 use mode::resolve_mode;
 use pcre2::search_pcre2;
 use result::build_result;
-use state::CollectState;
+use state::{CollectState, Held};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -135,15 +135,21 @@ pub fn search_window(
     })?;
     // The Rust regex engine is linear-time and cannot catastrophically
     // backtrack: its search is one window.
-    let state = CollectState::new();
+    let (state, held) = (
+        CollectState::new(),
+        Arc::new(Held::new(opts.max_held_bytes)),
+    );
     collect(
         &opts,
         (&matcher, &terms),
         mode,
         path_filter,
-        &state,
+        (&state, &held),
         WalkControl { cancelled },
     )?;
+    if held.exhausted() {
+        return Err(held.refusal());
+    }
     Ok(Windowed::Whole(build_result(&opts, mode, state.snapshot())))
 }
 

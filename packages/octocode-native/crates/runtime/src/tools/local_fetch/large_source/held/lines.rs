@@ -2,7 +2,8 @@
 //! private-key block state over all of it.
 use super::super::MARKER_PREFIX_BYTES;
 use super::super::masks::Judged;
-use super::{Held, Want};
+use super::super::sealed::Edit;
+use super::{Held, SealMap, Want};
 use crate::security::{KeyBlockState, LineShapeScan, MarkerScan};
 
 /// The requested windows kept while a source streams past once, with the
@@ -23,6 +24,13 @@ pub(in crate::tools::local_fetch::large_source) struct WindowLines {
     at: usize,
     /// The source byte the current line starts at.
     line_at: usize,
+    /// The bytes of the placeholder line that replaced the last closed line,
+    /// when a private-key block replaced it.
+    pub(in crate::tools::local_fetch::large_source) replaced: Option<usize>,
+    /// What an earlier pass recorded: a byte page's sealed offset is placed on
+    /// the source with it. `None` in the pass that records it, whose windows
+    /// all start at their lines' first byte.
+    seal: Option<SealMap>,
 }
 
 /// Where a pass was inside one long line, so a later read can start there.
@@ -59,7 +67,15 @@ impl WindowLines {
             shape: LineShapeScan::default(),
             at: 0,
             line_at: 0,
+            replaced: None,
+            seal: None,
         }
+    }
+
+    /// These windows, read after a pass recorded `map`.
+    pub(in crate::tools::local_fetch::large_source) fn sealed_by(mut self, map: SealMap) -> Self {
+        self.seal = Some(map);
+        self
     }
 
     /// Where this pass is, inside `line`.
@@ -86,6 +102,14 @@ impl WindowLines {
         self.shape = point.shape;
         for held in &mut self.held {
             held.view_pos = point.offset - point.line_at;
+            held.range = Some(point.line_at..point.offset);
+            held.line_source = point.line_at;
+            if let Some(map) = &self.seal {
+                match map.keyed(point.line_at, held.sealed_from) {
+                    Some(from) => held.from = from,
+                    None => held.unplaced = true,
+                }
+            }
         }
     }
 
@@ -98,6 +122,9 @@ impl WindowLines {
     ) {
         for held in &mut self.held {
             held.view_pos = bytes;
+            if let Some(range) = &mut held.range {
+                range.end = self.line_at + bytes;
+            }
             held.finish(line, false, &[]);
         }
         self.head.clear();
@@ -108,11 +135,16 @@ impl WindowLines {
         self.held.iter().all(|held| held.full)
     }
 
-    /// Hide what `judged` says is secret in every window.
-    pub(in crate::tools::local_fetch::large_source) fn mask(&mut self, judged: &Judged) {
+    /// Seal every window with `edits`, and hide what `judged` leaves to each.
+    pub(in crate::tools::local_fetch::large_source) fn seal(
+        &mut self,
+        edits: &[Edit],
+        judged: &Judged,
+    ) -> Result<(), String> {
         for held in &mut self.held {
-            held.mask(judged);
+            held.seal(edits, judged)?;
         }
+        Ok(())
     }
 
     /// Continue at byte `offset`, a later line start where the block state is
@@ -141,7 +173,7 @@ impl WindowLines {
             self.shape.feed(piece);
         }
         for held in &mut self.held {
-            held.push(piece, line, self.at);
+            held.push(piece, line, self.at, self.seal.as_ref());
         }
         self.at += piece.len();
     }
@@ -160,6 +192,11 @@ impl WindowLines {
         } else {
             &[]
         };
+        self.replaced = inside.then(|| {
+            String::from_utf8_lossy(lead).len()
+                + crate::security::key_fragment_placeholder().len()
+                + 1
+        });
         for held in &mut self.held {
             held.finish(line, inside, lead);
         }

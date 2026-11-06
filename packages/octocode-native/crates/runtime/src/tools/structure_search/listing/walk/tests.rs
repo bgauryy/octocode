@@ -16,7 +16,10 @@ fn a_probe_walk_past_its_deadline_admits_nothing() {
         "operation": "files", "path": root.path(), "extensions": ["ts"], "defaultExcludes": false
     }))
     .expect("files query");
-    let bound = ProbeBound::new(std::time::Duration::ZERO);
+    let bound = crate::tools::empty_walk::with_probe_limits(
+        crate::tools::empty_walk::CUT_AT_ONCE,
+        ProbeBound::new,
+    );
     let walk = walk_listing(
         &q,
         root.path(),
@@ -62,7 +65,7 @@ fn an_empty_listing_whose_probe_timed_out_still_leads_to_skipped_paths() {
         ..Default::default()
     };
     let mut out = json!({"status": "empty"});
-    crate::tools::empty_walk::with_probe_budget(std::time::Duration::ZERO, || {
+    crate::tools::empty_walk::with_probe_limits(crate::tools::empty_walk::CUT_AT_ONCE, || {
         probe_listing(
             &mut out,
             &q,
@@ -89,7 +92,7 @@ fn an_empty_listing_whose_probe_timed_out_still_leads_to_skipped_paths() {
     assert_eq!(
         out["hints"],
         json!([format!(
-            "Skipped paths (build/) were not checked in time, so absence there is unproven. {}",
+            "Skipped paths (build/) were not checked within the probe budget, so absence there is unproven. {}",
             crate::tools::leads::skipped::WALKS_ALL_SKIPPED
         )]),
         "{out}"
@@ -120,7 +123,7 @@ fn an_unproven_lead_over_ignored_paths_lifts_the_default_prune() {
         ..Default::default()
     };
     let mut out = json!({"status": "empty"});
-    crate::tools::empty_walk::with_probe_budget(std::time::Duration::ZERO, || {
+    crate::tools::empty_walk::with_probe_limits(crate::tools::empty_walk::CUT_AT_ONCE, || {
         probe_listing(
             &mut out,
             &q,

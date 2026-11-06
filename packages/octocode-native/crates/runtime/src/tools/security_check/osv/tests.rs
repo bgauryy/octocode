@@ -232,6 +232,40 @@ async fn a_malformed_answer_fails_whole() {
     run(&http, None).await.expect_err("a repeated token");
 }
 
+#[tokio::test]
+async fn a_non_adjacent_page_token_cycle_fails_before_requesting_it_again() {
+    let http = RouteHttp::new().post_sequence(vec![
+        (200, json!({"next_page_token": "t1"})),
+        (200, json!({"next_page_token": "t2"})),
+        (200, json!({"next_page_token": "t1"})),
+        (200, json!({})),
+    ]);
+    let error = run(&http, None).await.expect_err("a repeated token");
+    assert_eq!(error.code, ErrorCode::ProviderError);
+    assert!(error.message.contains("token"), "{}", error.message);
+    assert_eq!(http.post_bodies().len(), 3, "no repeated provider request");
+}
+
+#[tokio::test]
+async fn a_page_token_cycle_across_a_resumed_walk_fails() {
+    let http = RouteHttp::new().post_sequence(vec![
+        (200, json!({"next_page_token": "t1"})),
+        (200, json!({"next_page_token": "t2"})),
+        (503, json!({})),
+    ]);
+    let stopped = run(&http, None).await.expect("partial");
+    let resume = stopped.resume.expect("resumable provider failure");
+    let http = RouteHttp::new().post_sequence(vec![
+        (200, json!({"next_page_token": "t1"})),
+        (200, json!({})),
+    ]);
+    let error = run(&http, Some(&resume.token))
+        .await
+        .expect_err("a token from an earlier page");
+    assert_eq!(error.code, ErrorCode::ProviderError);
+    assert_eq!(http.post_bodies().len(), 1);
+}
+
 /// A rejected token does not resume: it fails, so the row is an error.
 #[tokio::test]
 async fn a_rejected_token_fails_instead_of_resuming() {

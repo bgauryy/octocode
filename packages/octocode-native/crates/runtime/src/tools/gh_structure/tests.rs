@@ -61,6 +61,7 @@ fn materialize_skips_name_each_path_once_and_warn_with_counts() {
             ("c".into(), "unsupported entry".into()),
         ],
         binary: Vec::new(),
+        withheld: Vec::new(),
     };
     let warnings = skips.warnings();
     assert_eq!(warnings.len(), 2, "{warnings:?}");

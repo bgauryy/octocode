@@ -104,7 +104,12 @@ async fn exact_lookup_offers_one_release_lead_at_the_package_directory() {
             .await
             .expect("lookup succeeds");
         let related = data["related"].as_array().expect("related source call");
-        assert_eq!(related.len(), 1, "{data}");
+        // One release-source lead and one advisory lead (securityCheck).
+        let tools = related
+            .iter()
+            .map(|call| call["tool"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>();
+        assert_eq!(tools, ["ghStructure", "securityCheck"], "{data}");
         // An exact lookup has one row: no pagination, no request echo.
         assert!(data.get("pagination").is_none(), "{data}");
         assert!(data.get("type").is_none(), "{data}");

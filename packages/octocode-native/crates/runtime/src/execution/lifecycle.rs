@@ -306,11 +306,23 @@ impl RequestRuntime {
         let token = context.cancellation.clone();
         let _cancel_on_drop = token.clone().drop_guard();
         let deadline = tokio::time::Instant::from_std(context.deadline);
+        // The request's cancellation (its caller gone, or its deadline) also
+        // stops the deep-stack parses its work waits on.
+        let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        // The token is cancelled when this call returns, ending the watch.
+        drop({
+            let (token, stopped) = (token.clone(), Arc::clone(&stopped));
+            tokio::spawn(async move {
+                token.cancelled().await;
+                stopped.store(true, std::sync::atomic::Ordering::Relaxed);
+            })
+        });
         // A request cancelled or expired before it starts never runs work.
         let mut task = tokio::task::spawn_blocking(octocode_io::notice::carried(move || {
             let _guard = guard;
             context.check()?;
-            let result = work(context.clone());
+            let result =
+                octocode_engine::deep_stack::while_stoppable(&stopped, || work(context.clone()));
             context.check()?;
             result
         }));

@@ -4,6 +4,7 @@ use super::PrPlan;
 use super::files::{FileOutcome, shape_files_section};
 use super::head_sources::head_sources;
 use super::load::PrLoads;
+use crate::tools::gh_get_history_item::Source;
 use crate::tools::gh_get_history_item::axis::Axis;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::pr_finish::pr_metadata;
@@ -17,7 +18,7 @@ use crate::tools::gh_get_history_item::text::paginate_text;
 use crate::tools::gh_get_history_item::util::map_comments;
 use crate::tools::gh_get_history_item::window::{Loaded, reconcile_collection_total};
 use crate::tools::gh_get_history_item::{HistoryItemRequest, Sections};
-use octocode_github::{GitHubTransport, ProviderError, RequestContext};
+use octocode_github::{ProviderError, RequestContext};
 use serde_json::{Map, Value, json};
 
 /// The read's own next steps. A summary offers the PR-read menu; an
@@ -67,7 +68,7 @@ pub(in crate::tools::gh_get_history_item) struct ShapedPr {
 }
 
 pub(super) async fn shape_pr(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
     wants: &Sections,
@@ -91,7 +92,7 @@ pub(super) async fn shape_pr(
     let widened;
     let query = match &files {
         Some(loaded) if patches => {
-            match head_sources(transport, query, context, &raw, loaded, plan).await {
+            match head_sources(source, query, context, &raw, loaded, plan).await {
                 Some(sources) => {
                     widened = HistoryItemRequest {
                         head_sources: Some(std::sync::Arc::new(sources)),
@@ -126,7 +127,7 @@ pub(super) async fn shape_pr(
         let listed = loaded.state.skipped.saturating_add(loaded.items.len());
         let state = loaded.state;
         commit_file_pages = shape_pr_commits(
-            transport,
+            source,
             &mut row,
             &mut pagination,
             loaded.items,

@@ -52,7 +52,7 @@ pub(crate) async fn pypi(
     // A labeled source link first; else the first project link or the
     // homepage that names a GitHub repository (attrs labels it "GitHub",
     // rich and six give only a GitHub homepage).
-    artifact.repository = links
+    let source = links
         .and_then(|links| {
             links.iter().find_map(|(label, value)| {
                 matches!(
@@ -75,9 +75,13 @@ pub(crate) async fn pypi(
                 .into_iter()
                 .flat_map(|links| links.values())
                 .chain(info.get("home_page"))
-                .find_map(|value| github_slug(value.as_str()?))
-                .map(|(owner, repo)| format!("https://github.com/{owner}/{repo}"))
+                .filter_map(Value::as_str)
+                .find(|link| github_slug(link).is_some())
+                .map(str::to_owned)
         });
+    if let Some(link) = source {
+        artifact.set_source_link(&link);
+    }
     artifact.published_at = body
         .get("urls")
         .and_then(Value::as_array)
@@ -106,12 +110,13 @@ pub(crate) async fn pypi(
     // PyPI names no commit; an upstream tag for this release pins the lead.
     if let Some(version) = artifact.version.clone() {
         let name = artifact.package_name.clone();
-        super::release_ref::pin_release_tag(&mut artifact, &name, &version, client).await;
+        super::release_ref::pin_release_tag(&mut artifact, &name, &version, None, client).await;
     }
     Ok(ArtifactProviderPage::single(artifact))
 }
 
-/// One entry of a PyPI release's `vulnerabilities`, whole.
+/// One entry of a PyPI release's `vulnerabilities`: its ids, link and fixes
+/// (the advisory text is `securityCheck`'s).
 fn advisory(row: &Value) -> Advisory {
     let strings = |key: &str| {
         row.get(key)
@@ -126,8 +131,6 @@ fn advisory(row: &Value) -> Advisory {
         aliases: strings("aliases"),
         url: string(row.get("link")),
         severity: None,
-        summary: string(row.get("summary")),
-        details: string(row.get("details")),
         fixed_in: strings("fixed_in"),
         withdrawn: string(row.get("withdrawn")),
     }

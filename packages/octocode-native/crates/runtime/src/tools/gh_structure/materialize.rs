@@ -227,6 +227,10 @@ pub(super) async fn materialize_tree(
                 if entry.kind != EntryKind::File {
                     return (entry, Acquired::NotAFile);
                 }
+                // A credential-named file is withheld before any request.
+                if crate::policy::discovery::is_sensitive_repository_file(&entry.path) {
+                    return (entry, Acquired::Withheld);
+                }
                 // Past what this call may read, by its listed size: asking
                 // would spend a request on the same refusal.
                 if entry.size.is_some_and(|size| size > read_limit as u64) {

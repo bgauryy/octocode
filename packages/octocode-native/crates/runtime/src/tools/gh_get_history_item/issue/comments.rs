@@ -1,6 +1,7 @@
 //! One page of an issue's discussion comments, each body windowed, sized
 //! to the response page.
 use crate::response::pages::PageFacts;
+use crate::tools::gh_get_history_item::Source;
 use crate::tools::gh_get_history_item::axis::Axis;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::remaining::{BodyWindows, Remainder};
@@ -8,7 +9,7 @@ use crate::tools::gh_get_history_item::text::{delivered_earlier, shape_comment};
 use crate::tools::gh_get_history_item::util::{array, map_comments};
 use crate::tools::gh_get_history_item::window::{auto_page, page_starting_at_after};
 use crate::tools::gh_get_history_item::{DEFAULT_PAGE_SIZE, HistoryItemRequest, fetch};
-use octocode_github::{GitHubTransport, MAX_PER_PAGE, ProviderError, RequestContext};
+use octocode_github::{MAX_PER_PAGE, ProviderError, RequestContext};
 use serde_json::{Map, Value, json};
 
 /// Where an issue's comment page reads and what the row already holds.
@@ -87,13 +88,13 @@ pub(super) fn first_comment_batch(query: &HistoryItemRequest) -> Option<usize> {
 
 /// One provider batch of the issue's discussion comments.
 pub(super) async fn comment_batch(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     issue_path: &[&str],
     batch: usize,
     context: &RequestContext,
 ) -> Result<(Value, bool), ProviderError> {
     fetch(
-        transport,
+        source,
         &[issue_path, &["comments"]].concat(),
         &[
             ("per_page", MAX_PER_PAGE.to_string()),
@@ -115,7 +116,7 @@ pub(super) async fn comment_batch(
 /// number ([`page_starting_at_after`]), so the public continuation carries only
 /// its opaque cursor and page numbers only climb.
 pub(super) async fn issue_comments(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
     at: &CommentRead<'_>,
@@ -133,7 +134,7 @@ pub(super) async fn issue_comments(
         for batch in (first..).take(2) {
             let (value, more) = match prefetched.take() {
                 Some(loaded) => loaded?,
-                None => comment_batch(transport, issue_path, batch, context).await?,
+                None => comment_batch(source, issue_path, batch, context).await?,
             };
             raw_comments.extend(array(value).into_iter().skip(skip));
             provider_more = more;

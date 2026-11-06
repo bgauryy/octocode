@@ -215,6 +215,69 @@ fn a_window_pauses_after_the_last_file_finished_in_walk_order() {
     assert_eq!(facts(&result), facts(&search(o).expect("unpaused")));
 }
 
+/// What earlier windows kept is held from the start of the window that
+/// resumes with it: a resumed search whose later files hold nothing is
+/// refused when the kept files alone pass its bound, and served whole at
+/// that bound.
+#[test]
+fn a_resumed_window_holds_what_earlier_windows_kept() {
+    let t = TmpDir::new();
+    for name in ["a", "b", "c"] {
+        t.write(&format!("{name}.txt"), "foo bar\n".repeat(50));
+    }
+    for name in ["d", "e", "f", "g"] {
+        t.write(&format!("{name}.txt"), "plain line\n");
+    }
+    let o = pcre2(t.path(), SearchSort::Path);
+    let filter: Arc<dyn TextSearchPathFilter> = Arc::new(AllowAll);
+    let Windowed::Paused(pause) = search_window(
+        o.clone(),
+        Arc::clone(&filter),
+        &|| false,
+        window(Some(3), None),
+    )
+    .expect("window") else {
+        panic!("three files of seven end the window");
+    };
+    assert_eq!(pause.position, 3);
+    let kept = pause.searched.weight();
+    let resumed = |bound: usize, pin: String, searched| {
+        let mut bounded = o.clone();
+        bounded.max_held_bytes = Some(bound);
+        let resume = Resume {
+            position: 3,
+            earlier: Some(Earlier { pin, searched }),
+        };
+        search_window(
+            bounded,
+            Arc::clone(&filter),
+            &|| false,
+            window(None, Some(resume)),
+        )
+    };
+    let refused = resumed(kept - 1, pause.pin.clone(), pause.searched)
+        .err()
+        .expect("the kept files pass the bound");
+    assert_eq!(
+        *refused.kind(),
+        crate::error::ErrorKind::ResourceExhausted,
+        "{refused}"
+    );
+    let Windowed::Paused(again) = search_window(
+        o.clone(),
+        Arc::clone(&filter),
+        &|| false,
+        window(Some(3), None),
+    )
+    .expect("window") else {
+        panic!("three files of seven end the window");
+    };
+    let Windowed::Whole(result) = resumed(kept, again.pin, again.searched).expect("fits") else {
+        panic!("a window with no end ends the search");
+    };
+    assert_eq!(facts(&result), facts(&search(o).expect("unpaused")));
+}
+
 /// A kept window serves only while the files it passed are unchanged: an
 /// edit among them searches them again.
 #[test]

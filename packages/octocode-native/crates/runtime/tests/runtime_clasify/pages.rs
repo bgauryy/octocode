@@ -148,9 +148,9 @@ async fn a_selection_past_its_deadline_withholds_bodies_and_recovers() {
         "src/rule.txt",
         "UNKNOWN_SELECTION_SENTINEL cancellation removes a queued request.\n",
     );
-    let read = |timeout: std::time::Duration| {
+    let read = |timeout: Option<std::time::Duration>| {
         let limits = octocode_native::execution::RuntimeLimits {
-            network_timeout: timeout,
+            classification_timeout: timeout,
             ..crate::support::PROVIDER_LIMITS
         };
         let runtime = workspace.runtime_with(&provider_env(&server, &[]), limits);
@@ -160,7 +160,7 @@ async fn a_selection_past_its_deadline_withholds_bodies_and_recovers() {
             (runtime, row.data().clone())
         }
     };
-    let (recovery, late) = read(std::time::Duration::from_millis(100)).await;
+    let (recovery, late) = read(Some(std::time::Duration::from_millis(100))).await;
     let selection = &late["selection"];
     // A provider slower than the request time decides nothing: the read keeps
     // its evidence, says why, and offers no filter it did not apply.
@@ -178,7 +178,7 @@ async fn a_selection_past_its_deadline_withholds_bodies_and_recovers() {
     recovery.close().await;
     // The same read under the runtime's own request time is judged and selected.
     let (runtime, judged) =
-        read(octocode_native::execution::RuntimeLimits::DEFAULT.network_timeout).await;
+        read(octocode_native::execution::RuntimeLimits::DEFAULT.classification_timeout).await;
     assert_eq!(judged["selection"]["status"], "complete", "{judged}");
     assert_eq!(judged["selection"]["selectedItems"], 1, "{judged}");
     assert!(

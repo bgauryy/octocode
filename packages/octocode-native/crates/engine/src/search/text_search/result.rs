@@ -123,7 +123,6 @@ pub(super) fn build_result(
         files_matched,
         submatches,
         matched_lines,
-        span_capped,
         size_skipped,
         binary_quit,
         binary_files,
@@ -142,7 +141,6 @@ pub(super) fn build_result(
 
     // Cap reasons in a fixed order, so equal results carry equal reasons.
     let cap_reasons: Vec<CapReason> = [
-        (span_capped, CapReason::MaxOnlyMatchingPerFile),
         (size_skipped, CapReason::MaxFileSize),
         (cancelled, CapReason::Cancelled),
         (binary_quit, CapReason::BinaryQuit),
@@ -167,6 +165,11 @@ pub(super) fn build_result(
     let not_utf8_files = recs
         .iter()
         .filter(|rec| rec.not_utf8)
+        .map(|rec| rec.path.clone())
+        .collect::<Vec<_>>();
+    let utf8_bom_files = recs
+        .iter()
+        .filter(|rec| rec.utf8_bom)
         .map(|rec| rec.path.clone())
         .collect::<Vec<_>>();
     let files: Vec<TextSearchFile> = recs
@@ -237,6 +240,7 @@ pub(super) fn build_result(
         binary_files: (!binary_files.is_empty()).then_some(binary_files),
         binary_file_count: binary_quit.then_some(binary_file_count),
         not_utf8_files: (!not_utf8_files.is_empty()).then_some(not_utf8_files),
+        utf8_bom_files: (!utf8_bom_files.is_empty()).then_some(utf8_bom_files),
         skipped_binary_count: (skipped_binary_count > 0).then_some(skipped_binary_count),
         skipped_binary_extensions: (!skipped_binary_extensions.is_empty())
             .then_some(skipped_binary_extensions),

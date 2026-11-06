@@ -1,6 +1,8 @@
 //! The `view:"symbols"` view: a file's declaration outline.
 
+#[cfg(test)]
 use super::prepare::*;
+#[cfg(test)]
 use crate::security::scan::ContentScan;
 use octocode_engine::signatures::OutlineUnavailable;
 
@@ -19,6 +21,7 @@ pub(crate) struct SymbolsView {
 ///
 /// Redact the source before rendering. A source the scanner refuses renders
 /// unredacted for this page only; the output stage scans what it returns.
+#[cfg(test)]
 pub(crate) fn symbols_view(
     source: &str,
     path: &str,
@@ -38,8 +41,9 @@ pub(crate) fn symbols_view(
     }
 }
 
-/// The symbols view of `source`, which the caller has redacted.
-fn render_symbols_view(
+/// The symbols view of `source`, which the caller has redacted (a read's
+/// selection is cut from its source redacted whole).
+pub(super) fn render_symbols_view(
     source: &str,
     path: &str,
     redacted_lines: Vec<(usize, usize)>,

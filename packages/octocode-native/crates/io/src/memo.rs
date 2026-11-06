@@ -279,6 +279,35 @@ impl<
         self.lock().remove(key);
     }
 
+    /// Charge `extra` more bytes to the live entry for `key`, for what its
+    /// value learned after it was stored. One step under the lock: the entry's
+    /// weight, this memo's and the budget's grow together, or none does. It
+    /// is refused (false, nothing changed) when no live entry holds `key`, or
+    /// when the budget cannot hold `extra` without reclaiming, since reclaiming
+    /// could evict this very entry; the caller then keeps nothing it learned.
+    pub fn charge<Q: Hash + Eq + ?Sized>(&self, key: &Q, extra: usize) -> bool
+    where
+        K: Borrow<Q>,
+    {
+        let mut inner = self.lock();
+        let now = Instant::now();
+        let fits = self
+            .budget
+            .used()
+            .checked_add(extra)
+            .is_some_and(|used| used <= self.budget.limit());
+        let Some(entry) = inner.entries.peek_mut(key) else {
+            return false;
+        };
+        if !fits || entry.expires_at.is_some_and(|deadline| deadline <= now) {
+            return false;
+        }
+        entry.weight += extra;
+        inner.weight = inner.weight.saturating_add(extra);
+        self.budget.charge(extra);
+        true
+    }
+
     pub fn clear(&self) {
         self.lock().clear();
     }

@@ -53,6 +53,8 @@ pub(crate) struct RouteHttp {
     /// From this POST on, the transport fails with this code.
     post_failure: Option<(usize, ErrorCode)>,
     post_bodies: Mutex<Vec<serde_json::Value>>,
+    /// GETs of these targets fail in the transport with this code.
+    get_failures: Vec<(String, ErrorCode)>,
 }
 
 impl RouteHttp {
@@ -112,6 +114,12 @@ impl RouteHttp {
             status,
             body: serde_json::to_vec(&body).expect("test body"),
         });
+        self
+    }
+
+    /// Fails every GET of `target` in the transport with `code`.
+    pub(crate) fn fails(mut self, target: &str, code: ErrorCode) -> Self {
+        self.get_failures.push((target.to_owned(), code));
         self
     }
 
@@ -192,7 +200,18 @@ impl ArtifactHttp for RouteHttp {
             .or_else(|| self.routes.iter().rev().find(|route| matches(route, &path)))
             .map(|route| (route.status, route.body.clone()))
             .or_else(|| self.otherwise.clone().map(|body| (200, body)));
+        let failure = self
+            .get_failures
+            .iter()
+            .find(|(wanted, _)| *wanted == target || *wanted == path)
+            .map(|(_, code)| *code);
         Box::pin(async move {
+            if let Some(code) = failure {
+                return Err(super::ArtifactError::new(
+                    code,
+                    "Artifact registry request failed. Retry later.",
+                ));
+            }
             Ok(match answer {
                 Some((status, body)) => ArtifactHttpResponse {
                     status,
@@ -361,4 +380,38 @@ impl ArtifactHttp for ChunkedHttp {
 /// A request budget no artifact test exhausts.
 pub(crate) fn test_budget() -> octocode_io::budget::RequestBudget {
     octocode_io::budget::RequestBudget::with_timeout(std::time::Duration::from_secs(10), 10_000_000)
+}
+
+/// The page the public entry returns for `query` (the provider's rows, then
+/// their source links settled) with GitHub answering as `tags`; `None`: no
+/// GitHub access.
+pub(crate) async fn execute(
+    http: &RouteHttp,
+    query: &octocode_contract_types::ArtifactSearchQuery,
+    tags: Option<&KnownTags>,
+) -> Result<super::ArtifactProviderPage, super::ArtifactError> {
+    let budget = test_budget();
+    let reused = crate::providers::saved_answers::ReusedSince::default();
+    let context = super::ArtifactProviderContext {
+        http,
+        budget: &budget,
+        npm_registry: None,
+        allow_private_registry: false,
+        answers: None,
+        reused: &reused,
+        tags: tags.map(|tags| tags as &dyn super::ReleaseTags),
+    };
+    super::execute_artifact(query, &context).await
+}
+
+/// Settles `rows`' source links against `tags`, as the public entry does.
+pub(crate) async fn settle_links(rows: &mut [super::ArtifactItem], tags: &KnownTags) {
+    let (http, budget) = (RouteHttp::new(), test_budget());
+    let client = super::http::RegistryClient {
+        tags: Some(tags),
+        ..super::http::RegistryClient::new(&http, &budget)
+    };
+    super::link_directory::settle(rows, &client)
+        .await
+        .expect("links settle");
 }

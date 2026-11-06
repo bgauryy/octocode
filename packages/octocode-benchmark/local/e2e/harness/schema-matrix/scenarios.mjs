@@ -108,7 +108,7 @@ export async function runScenario(worker, scenario, surface, ledger) {
     return Object.assign(report, { pages: own });
   };
   try {
-    await worker.withEnv(surface, env, async () => {
+    await worker.withScenario(scenario, surface, env, async () => {
       if (scenario.run) {
         const problem = await scenario.run({ ...context, call, walk });
         if (problem) failures.push(problem);

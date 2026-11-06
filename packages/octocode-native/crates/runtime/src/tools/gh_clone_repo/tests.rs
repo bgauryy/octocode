@@ -28,6 +28,7 @@ mod replacement;
 mod reuse;
 mod rows;
 mod sparse;
+mod withheld;
 
 fn api_github_endpoint() -> GitHubEndpoint {
     GitHubEndpoint::new("https://api.github.com/".parse().expect("static URL"))
@@ -153,6 +154,8 @@ impl Fixture {
                 bare.to_str().expect("utf8"),
             ],
         );
+        // A partial clone needs the server to allow filters, as GitHub does.
+        git(&bare, &["config", "uploadpack.allowFilter", "true"]);
         git(
             &work,
             &["remote", "add", "origin", bare.to_str().expect("utf8")],

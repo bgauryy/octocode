@@ -12,6 +12,7 @@ use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 mod direct;
+mod held_pages;
 mod saved_plan;
 mod search;
 

@@ -22,7 +22,6 @@ fn root_help_lists_tools_independent_of_mcp_filters_and_clasify_only_with_a_key(
                 text.contains(&format!("\n  {} ", tool.as_str())),
                 match tool {
                     octocode_native::id::ToolId::Clasify => !key.is_empty(),
-                    octocode_native::id::ToolId::SecurityCheck => false,
                     _ => true,
                 },
                 "{key:?} {}: {text}",

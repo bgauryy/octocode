@@ -1,31 +1,161 @@
 //! A Maven version's own POM: its source link, runtime dependencies and properties.
 use super::super::ArtifactError;
 use super::super::http::RegistryClient;
-use super::super::util::parse_url;
+use super::super::util::{canonical_repository, github_slug, parse_url};
 use super::patterns;
-use octocode_contract_types::ArtifactType;
+use octocode_contract_types::{ArtifactType, ErrorCode};
+
+mod dependencies;
+
+use dependencies::runtime_dependencies;
 
 /// What a version's own POM declares.
 pub(super) struct Pom {
-    /// Upstream source link: `<scm><url>`, else the project-level `<url>`.
+    /// Upstream source link: the nearest `<scm>` of the POM or its parent
+    /// chain, else the nearest project-level `<url>`.
     pub(super) repository: Option<String>,
+    /// The release tag the `<scm>` declares for this very version (`HEAD` is
+    /// no tag, and a tag a parent declares for its own version says nothing
+    /// about this one). A lead to check, not proof: the caller probes it.
+    pub(super) release_tag: Option<String>,
     /// Required runtime dependencies (see [`runtime_dependencies`]).
     pub(super) dependencies: Vec<String>,
     /// `<optional>true</optional>` runtime dependencies, in the same form.
     pub(super) optional_dependencies: Vec<String>,
     /// Properties those dependencies name that this POM does not define.
     pub(super) unresolved: Vec<String>,
+    /// Parent POMs that exist but could not be read, each stated whole: what
+    /// they would have said (a source link, a property) is unknown, not absent.
+    pub(super) unread: Vec<String>,
 }
 
-/// The versioned POM's facts. Enrichment is best-effort: a missing POM or
-/// suspicious XML (a DOCTYPE or entity) is `None` instead of failing a
+/// A POM's `<parent>`: the POM its `<scm>` and `<url>` are inherited from.
+struct Parent {
+    group: String,
+    artifact: String,
+    version: String,
+}
+
+/// What one POM states about where its source lives.
+#[derive(Default)]
+struct Located {
+    /// The `<scm>` repository, a GitHub link preferred among its `<url>`,
+    /// `<connection>` and `<developerConnection>`.
+    scm: Option<String>,
+    /// The `<scm><tag>`, unless it is `HEAD`.
+    tag: Option<String>,
+    /// The project-level `<url>`, as a repository link.
+    project_url: Option<String>,
+    parent: Option<Parent>,
+    /// The POM's own `<version>`, else its parent's.
+    version: Option<String>,
+}
+
+fn first_capture(pattern: &regex::Regex, text: &str) -> Option<String> {
+    pattern
+        .captures(text)
+        .and_then(|capture| capture.get(1))
+        .map(|value| value.as_str().trim().to_owned())
+}
+
+/// The direct children of a POM's root element as `(name, inner text)`, in
+/// order. A nested element of the same name (an `<url>` inside
+/// `<issueManagement>`) is not a child.
+fn project_children(xml: &str) -> Vec<(&str, &str)> {
+    let mut children = Vec::new();
+    let mut depth = 0usize;
+    let mut open: Option<(&str, usize)> = None;
+    for tag in patterns::element().captures_iter(xml) {
+        let (Some(whole), Some(name)) = (tag.get(0), tag.get(2)) else {
+            continue;
+        };
+        let closing = !tag[1].is_empty();
+        let self_closing = !tag[3].is_empty();
+        if closing {
+            depth = depth.saturating_sub(1);
+            if depth == 1
+                && let Some((name, start)) = open.take()
+            {
+                // Both edges come from successive regex matches in this XML.
+                let inner = xml.split_at(start).1.split_at(whole.start() - start).0;
+                children.push((name, inner));
+            }
+        } else {
+            if depth == 1 {
+                if self_closing {
+                    children.push((name.as_str(), ""));
+                } else {
+                    open = Some((name.as_str(), whole.end()));
+                }
+            }
+            if !self_closing {
+                depth += 1;
+            }
+        }
+    }
+    children
+}
+
+/// The inner text of the project's own `<name>` child, the first one: a
+/// developer's, a profile's or a plugin's element of that name is not it.
+fn child_block<'a>(xml: &'a str, name: &str) -> Option<&'a str> {
+    project_children(xml)
+        .into_iter()
+        .find_map(|(child, inner)| (child == name).then_some(inner))
+}
+
+fn located(xml: &str) -> Located {
+    let mut found = Located::default();
+    let mut own_version = None;
+    for (name, inner) in project_children(xml) {
+        match name {
+            "parent" => {
+                found.parent = found.parent.take().or_else(|| {
+                    Some(Parent {
+                        group: first_capture(patterns::group_id(), inner)?,
+                        artifact: first_capture(patterns::artifact_id(), inner)?,
+                        version: first_capture(patterns::version(), inner)?,
+                    })
+                });
+            }
+            "scm" if found.scm.is_none() => {
+                let links = [
+                    patterns::url_tag(),
+                    patterns::connection(),
+                    patterns::developer_connection(),
+                ]
+                .into_iter()
+                .filter_map(|pattern| first_capture(pattern, inner))
+                .filter_map(|link| canonical_repository(&link))
+                .collect::<Vec<_>>();
+                found.scm = links
+                    .iter()
+                    .find(|link| github_slug(link).is_some())
+                    .or(links.first())
+                    .cloned();
+                found.tag = first_capture(patterns::scm_tag(), inner)
+                    .filter(|tag| !tag.eq_ignore_ascii_case("HEAD"));
+            }
+            "url" if found.project_url.is_none() => {
+                found.project_url = canonical_repository(inner.trim());
+            }
+            "version" if own_version.is_none() => own_version = Some(inner.trim().to_owned()),
+            _ => {}
+        }
+    }
+    found.version = own_version.or_else(|| found.parent.as_ref().map(|p| p.version.clone()));
+    found
+}
+
+/// A POM's text, comments removed. Enrichment is best-effort: a missing POM
+/// or suspicious XML (a DOCTYPE or entity) is `None` instead of failing a
 /// lookup that already resolved.
-pub(super) async fn read_pom(
+async fn fetch_pom(
     group_path: &str,
     name: &str,
     version: &str,
     client: &RegistryClient<'_>,
-) -> Result<Option<Pom>, ArtifactError> {
+) -> Result<Option<String>, ArtifactError> {
     let encoded_name = super::super::util::encode_component(name);
     let encoded_version = super::super::util::encode_component(version);
     let url = parse_url(&format!(
@@ -37,160 +167,99 @@ pub(super) async fn read_pom(
     if patterns::doctype().is_match(&xml) {
         return Ok(None);
     }
-    let clean = patterns::comment().replace_all(&xml, "");
-    let first_url = |text: &str| -> Option<String> {
-        patterns::url_tag()
-            .captures(text)
-            .and_then(|capture| capture.get(1))
-            .map(|value| value.as_str().trim().to_owned())
+    Ok(Some(patterns::comment().replace_all(&xml, "").into_owned()))
+}
+
+/// Reads the POM `at` names as its parent and makes it `at`; `None` ends the
+/// chain: no parent, a parent whose version is a property, one the chain
+/// already read, one the repository does not have, or one that could not be
+/// read, which `unread` then states. A cancelled call is not a parent that
+/// failed to read: it fails the lookup.
+async fn read_parent(
+    at: &mut Located,
+    visited: &mut Vec<String>,
+    unread: &mut Vec<String>,
+    client: &RegistryClient<'_>,
+) -> Result<Option<String>, ArtifactError> {
+    let Some(parent) = at.parent.take().filter(|p| !p.version.contains("${")) else {
+        return Ok(None);
     };
-    let scm_url = patterns::scm()
-        .captures(&clean)
-        .and_then(|capture| capture.get(1))
-        .and_then(|block| first_url(block.as_str()));
-    let (dependencies, optional_dependencies, unresolved) = runtime_dependencies(&clean);
+    let parent_path = super::group_path(&parent.group);
+    let key = format!("{parent_path}/{}/{}", parent.artifact, parent.version);
+    if visited.contains(&key) {
+        return Ok(None);
+    }
+    visited.push(key);
+    match fetch_pom(&parent_path, &parent.artifact, &parent.version, client).await {
+        Ok(Some(xml)) => {
+            *at = located(&xml);
+            Ok(Some(xml))
+        }
+        Ok(None) => Ok(None),
+        Err(error) if error.code == ErrorCode::Cancelled => Err(error),
+        Err(error) => {
+            unread.push(format!(
+                "Parent POM {}:{}:{} could not be read ({}): a source link or property it defines is unknown, not absent.",
+                parent.group,
+                parent.artifact,
+                parent.version,
+                error.message.trim_end_matches('.')
+            ));
+            Ok(None)
+        }
+    }
+}
+
+/// The versioned POM's facts. The source link is the nearest `<scm>` up the
+/// `<parent>` chain (a module POM seldom repeats it), read one POM at a time
+/// until one names it; a parent that is missing, whose version is a property,
+/// or that the chain already read ends the walk without a link, and so does
+/// one that fails to read, which the result states in `unread`.
+pub(super) async fn read_pom(
+    group_path: &str,
+    name: &str,
+    version: &str,
+    client: &RegistryClient<'_>,
+) -> Result<Option<Pom>, ArtifactError> {
+    let Some(clean) = fetch_pom(group_path, name, version, client).await? else {
+        return Ok(None);
+    };
+    let mut at = located(&clean);
+    let mut project_url = at.project_url.clone();
+    let mut visited = vec![format!("{group_path}/{name}/{version}")];
+    let mut unread = Vec::new();
+    // The POMs read up the chain, nearest first.
+    let mut ancestors: Vec<String> = Vec::new();
+    let (repository, release_tag) = loop {
+        if let Some(scm) = at.scm.take() {
+            let tag = at
+                .tag
+                .take()
+                .filter(|_| at.version.as_deref() == Some(version));
+            break (Some(scm), tag);
+        }
+        let Some(xml) = read_parent(&mut at, &mut visited, &mut unread, client).await? else {
+            break (project_url, None);
+        };
+        ancestors.push(xml);
+        project_url = project_url.or_else(|| at.project_url.clone());
+    };
+    // A property the POM does not define is a parent's: read further up the
+    // chain until the dependencies resolve or the chain ends.
+    let mut found = runtime_dependencies(&clean, &ancestors);
+    while !found.2.is_empty()
+        && let Some(xml) = read_parent(&mut at, &mut visited, &mut unread, client).await?
+    {
+        ancestors.push(xml);
+        found = runtime_dependencies(&clean, &ancestors);
+    }
+    let (dependencies, optional_dependencies, unresolved) = found;
     Ok(Some(Pom {
-        repository: scm_url
-            .or_else(|| first_url(&clean))
-            .and_then(|value| super::super::util::canonical_repository(&value)),
+        repository,
+        release_tag,
         dependencies,
         optional_dependencies,
         unresolved,
+        unread,
     }))
-}
-
-/// The project's own `<dependencies>` as `groupId:artifactId[:version]`
-/// (absent when a parent or BOM manages the version), compile and runtime
-/// scope only: the required ones, then the `<optional>true</optional>` ones.
-/// Managed, build-plugin, profile and reporting dependencies are not the
-/// project's requirements. A `${…}` the POM defines ([`pom_properties`]) is
-/// resolved; one it does not (a parent POM's property) stays as written and
-/// is returned beside the lists, so it is stated, never guessed.
-fn runtime_dependencies(pom: &str) -> (Vec<String>, Vec<String>, Vec<String>) {
-    let project = patterns::inherited_blocks().replace_all(pom, "");
-    let Some(block) = patterns::dependencies()
-        .captures(&project)
-        .and_then(|capture| capture.get(1))
-    else {
-        return (Vec::new(), Vec::new(), Vec::new());
-    };
-    let tag = |pattern: &regex::Regex, text: &str| {
-        pattern
-            .captures(text)
-            .and_then(|capture| capture.get(1))
-            .map(|value| value.as_str().trim().to_owned())
-    };
-    let properties = pom_properties(&project);
-    let mut unresolved = Vec::new();
-    let (optional, required): (Vec<_>, Vec<_>) = patterns::dependency()
-        .captures_iter(block.as_str())
-        .filter_map(|capture| {
-            let entry = patterns::exclusions().replace_all(capture.get(1)?.as_str(), "");
-            let scope = tag(patterns::scope(), &entry).unwrap_or_else(|| "compile".into());
-            if !matches!(scope.as_str(), "compile" | "runtime") {
-                return None;
-            }
-            let optional = tag(patterns::optional(), &entry).is_some_and(|value| value == "true");
-            let coordinate = format!(
-                "{}:{}",
-                tag(patterns::group_id(), &entry)?,
-                tag(patterns::artifact_id(), &entry)?
-            );
-            let declared = match tag(patterns::version(), &entry) {
-                Some(version) => {
-                    let version = resolve_properties(&version, &properties, &mut unresolved);
-                    format!("{coordinate}:{version}")
-                }
-                None => coordinate,
-            };
-            Some((optional, declared))
-        })
-        .partition(|(optional, _)| *optional);
-    let declared = |rows: Vec<(bool, String)>| rows.into_iter().map(|(_, entry)| entry).collect();
-    (declared(required), declared(optional), unresolved)
-}
-
-/// The properties a POM defines for itself: its `<properties>` entries and
-/// its own coordinates (`project.version`, `project.groupId`, …; a version
-/// or group it inherits is its parent's, `project.parent.*`).
-fn pom_properties(project: &str) -> std::collections::BTreeMap<String, String> {
-    let tag = |pattern: &regex::Regex, text: &str| {
-        pattern
-            .captures(text)
-            .and_then(|capture| capture.get(1))
-            .map(|value| value.as_str().trim().to_owned())
-    };
-    let mut properties = std::collections::BTreeMap::new();
-    if let Some(block) = patterns::properties()
-        .captures(project)
-        .and_then(|capture| capture.get(1))
-    {
-        for capture in patterns::property().captures_iter(block.as_str()) {
-            if capture.get(1).map(|open| open.as_str())
-                == capture.get(3).map(|close| close.as_str())
-            {
-                properties.insert(capture[1].to_owned(), capture[2].to_owned());
-            }
-        }
-    }
-    let parent = patterns::parent()
-        .captures(project)
-        .and_then(|capture| capture.get(1))
-        .map(|block| block.as_str().to_owned());
-    // The project's own coordinates sit outside every nested block.
-    let own = [
-        patterns::parent(),
-        patterns::properties(),
-        patterns::dependencies(),
-    ]
-    .into_iter()
-    .fold(project.to_owned(), |text, block| {
-        block.replace_all(&text, "").into_owned()
-    });
-    for (field, pattern) in [
-        ("version", patterns::version()),
-        ("groupId", patterns::group_id()),
-        ("artifactId", patterns::artifact_id()),
-    ] {
-        let inherited = parent.as_deref().and_then(|parent| tag(pattern, parent));
-        if let Some(value) = inherited.clone() {
-            properties.insert(format!("project.parent.{field}"), value);
-        }
-        if let Some(value) = tag(pattern, &own).or(inherited) {
-            properties.insert(format!("project.{field}"), value.clone());
-            properties.entry(field.to_owned()).or_insert(value);
-        }
-    }
-    properties
-}
-
-/// `text` with each `${name}` the POM defines replaced (a property naming
-/// another resolves too); names it does not define stay and are added to
-/// `unresolved` once.
-fn resolve_properties(
-    text: &str,
-    properties: &std::collections::BTreeMap<String, String>,
-    unresolved: &mut Vec<String>,
-) -> String {
-    let mut resolved = text.to_owned();
-    // Bounded: a property cycle stops here instead of expanding forever.
-    for _ in 0..8 {
-        let next = patterns::reference().replace_all(&resolved, |capture: &regex::Captures<'_>| {
-            properties
-                .get(&capture[1])
-                .cloned()
-                .unwrap_or_else(|| capture[0].to_owned())
-        });
-        if next == resolved {
-            break;
-        }
-        resolved = next.into_owned();
-    }
-    for capture in patterns::reference().captures_iter(&resolved) {
-        let name = capture[0].to_owned();
-        if !unresolved.contains(&name) {
-            unresolved.push(name);
-        }
-    }
-    resolved
 }

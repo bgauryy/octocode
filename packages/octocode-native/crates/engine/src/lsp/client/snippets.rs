@@ -245,9 +245,12 @@ async fn snippet_from_location_like(
         range,
         content,
         symbol_kind: None,
+        // A link's enclosing declaration: its lines, and the one-based
+        // UTF-16 column it starts at (where a window of a long line starts).
         display_range: value.get("targetSelectionRange").map(|_| {
             json!({
                 "startLine": context_range.start.line.saturating_add(1),
+                "startCharacter": context_range.start.character.saturating_add(1),
                 "endLine": if context_range.end.character == 0 {
                     context_range
                         .end

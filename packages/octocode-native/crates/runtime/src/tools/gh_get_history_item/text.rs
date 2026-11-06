@@ -3,9 +3,25 @@
 use super::HistoryItemRequest;
 use super::remaining::BodyWindows;
 use super::util::string;
+use crate::response::cut::clean_cut;
 use serde_json::Value;
 
-/// One char window of `value` and its page row.
+/// The byte index of char `chars` in `value` (its end when past it).
+fn byte_at(value: &str, chars: usize) -> usize {
+    value
+        .char_indices()
+        .nth(chars)
+        .map_or(value.len(), |(byte, _)| byte)
+}
+
+/// One char window of `value` (already redacted: offsets count that view) and
+/// its page row. The row states the window's nominal edges: `length` chars
+/// from `offset`, `nextOffset` where the next one starts. Each edge of the
+/// text itself moves back off a redaction marker or CRLF it would split
+/// ([`clean_cut`]). Every body of a page shares one `offset`, so each body's
+/// windows tile it exactly: walking `nextOffset` rejoins `value` once, with
+/// no gap and no repeat, whichever bodies share the page. A window narrower
+/// than one marker may show no text; its `nextOffset` still advances.
 pub(super) fn paginate_text(
     value: &str,
     offset: Option<usize>,
@@ -15,9 +31,20 @@ pub(super) fn paginate_text(
     let start = offset.unwrap_or(0).min(total);
     let len = length.unwrap_or(super::DEFAULT_TEXT_WINDOW).max(1);
     let end = (start + len).min(total);
-    let text = value.chars().skip(start).take(end - start).collect();
+    let edge = |chars: usize| match chars {
+        0 => 0,
+        chars if chars >= total => value.len(),
+        chars => clean_cut(value, byte_at(value, chars)),
+    };
+    // Both cuts are ordered character boundaries of the same sealed text.
+    let (start_byte, end_byte) = (edge(start), edge(end));
+    let text = value
+        .split_at(start_byte)
+        .1
+        .split_at(end_byte - start_byte)
+        .0;
     (
-        text,
+        text.to_owned(),
         crate::response::pages::SpanFacts::window("chars", start, end - start, total).to_value(),
     )
 }
@@ -120,6 +147,77 @@ mod tests {
         let whole = json!({"id":"8","author":"a","body":"ab","createdAt":"t"});
         let (row, _) = shape_comment(&whole, None, &query, &mut BodyWindows::default());
         assert_eq!(row, whole);
+    }
+
+    /// Every window of `value` at `length` chars, walked by `nextOffset`.
+    fn walk(value: &str, length: usize) -> Vec<String> {
+        let mut windows = Vec::new();
+        let mut offset = 0;
+        loop {
+            let (text, page) = paginate_text(value, Some(offset), Some(length));
+            windows.push(text);
+            if page["hasMore"] != true {
+                return windows;
+            }
+            let next = usize::try_from(page["nextOffset"].as_u64().expect("next")).expect("fits");
+            assert!(next > offset, "advances: {page}");
+            offset = next;
+        }
+    }
+
+    /// A window never ends inside a redaction marker, a CRLF or a char, at
+    /// any window length, and the windows rejoin the text exactly once.
+    #[test]
+    fn windows_never_split_a_marker_or_crlf_and_rejoin_the_text() {
+        let marker = "[REDACTED-GITHUBTOKENS]";
+        let content = "[CONTENT-REDACTED-SANITIZER-FAILURE]";
+        let text = format!("é🦀 a\r\nb {marker}{marker} c\r\n{content}\r\n🦀{marker}");
+        for length in 1..=text.chars().count() + 1 {
+            let windows = walk(&text, length);
+            assert_eq!(windows.concat(), text, "length {length}");
+            for window in &windows {
+                assert!(!window.ends_with('\r'), "length {length}: {window:?}");
+                // A marker is whole in a window, or absent from it.
+                let opens = window.matches("[REDACTED").count()
+                    + window.matches("[CONTENT-REDACTED").count();
+                assert_eq!(
+                    opens,
+                    window.matches(']').count(),
+                    "length {length}: {window:?}"
+                );
+            }
+        }
+    }
+
+    /// A marker wider than the window is shown whole in one window, the
+    /// windows before it empty; the offsets still advance.
+    #[test]
+    fn a_marker_wider_than_the_window_is_shown_whole() {
+        let windows = walk("ab[REDACTED-GITHUBTOKENS]cd", 3);
+        assert_eq!(windows.concat(), "ab[REDACTED-GITHUBTOKENS]cd");
+        assert!(windows.contains(&"ab".to_owned()), "{windows:?}");
+        assert!(
+            windows.iter().any(|w| w == "[REDACTED-GITHUBTOKENS]cd"),
+            "{windows:?}"
+        );
+    }
+
+    /// Two bodies cut at one shared `offset` tile each exactly once even when
+    /// a marker moves one body's edge.
+    #[test]
+    fn bodies_sharing_an_offset_each_tile_exactly_once() {
+        let marked = format!("{}[REDACTED-GITHUBTOKENS] end", "a".repeat(8));
+        let plain = "b".repeat(30);
+        for length in 1..=12 {
+            for body in [marked.as_str(), plain.as_str()] {
+                assert_eq!(walk(body, length).concat(), body, "length {length}");
+            }
+        }
+        let (first, page) = paginate_text(&marked, None, Some(12));
+        let (second, _) = paginate_text(&plain, None, Some(12));
+        assert_eq!(first, "aaaaaaaa");
+        assert_eq!(second, "b".repeat(12));
+        assert_eq!(page["nextOffset"], 12, "{page}");
     }
 
     #[test]

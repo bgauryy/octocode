@@ -55,6 +55,7 @@ fn a_fifo_in_place_of_a_source_is_refused_without_blocking() {
                 security: &ContentSecurity::new(),
                 match_only: false,
                 cancel: &NeverCancel,
+                judged: None,
             },
         )
         .expect("not cancelled");
@@ -122,6 +123,31 @@ fn a_non_utf8_match_reads_as_localfetch_decodes_it_and_says_so() {
     let warnings = body["warnings"].to_string();
     assert!(
         warnings.contains("latin1.txt") && warnings.contains("not valid UTF-8"),
+        "{body}"
+    );
+    assert!(!warnings.contains("plain.txt"), "{body}");
+}
+
+/// A matched file that starts with a UTF-8 byte-order mark: the search drops
+/// it as localFetch does (the value starts after it), and the page says so
+/// for that file only.
+#[test]
+fn a_dropped_utf8_bom_is_disclosed_for_its_file() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    fs::write(root.path().join("bom.txt"), b"\xef\xbb\xbfneedle here\n").expect("bom");
+    fs::write(root.path().join("plain.txt"), "needle\n").expect("utf-8");
+    let result = search_root(root.path(), serde_json::json!({"matchString":["needle"]}));
+    let body = result.to_row().expect("serialize");
+    let bom = body["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .find(|file| file["path"] == "bom.txt")
+        .unwrap_or_else(|| panic!("bom.txt listed: {body}"));
+    assert_eq!(bom["matches"][0]["value"], "needle here", "{body}");
+    let warnings = body["warnings"].to_string();
+    assert!(
+        warnings.contains("bom.txt") && warnings.contains("byte-order mark"),
         "{body}"
     );
     assert!(!warnings.contains("plain.txt"), "{body}");

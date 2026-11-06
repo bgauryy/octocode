@@ -23,7 +23,7 @@ import { startRegistryProxy } from './tool-health/mock-registry-proxy.mjs';
 import { REGISTRY_HOSTS } from './tool-health/mock-routes-registry.mjs';
 import { hermeticEnv } from './tool-health/surfaces.mjs';
 import { casePath, hasCase, hostsOf, readCase, replayer, requestKey, served, writeCase } from './tool-health/recorded-answers.mjs';
-import { declaredUnread, fieldsOf, outputText, shapeDrift, shapeOf, trimmed, uncarried } from './tool-health/recorded-shape.mjs';
+import { declaredUnread, fieldsOf, outputText, shapeDrift, shapeOf, trimmed, uncarried, uncarriedExchanges } from './tool-health/recorded-shape.mjs';
 import { EXTRA_HOSTS, PLAN } from './tool-health/recorded-plan.mjs';
 
 const args = process.argv.slice(2);
@@ -138,11 +138,14 @@ async function record(entry, token) {
   if (lost.length) { check(`${entry.id}.recorded`, false, lost[0]); return; }
   if (!check(`${entry.id}.recorded`, !unsafe && !run.failure && !run.failures.length && !failed.length && run.exchanges.length > 0, unsafe ?? run.failure ?? run.failures[0] ?? (failed[0] && `${failed[0].status} ${failed[0].request.url}`) ?? '')) return;
   const before = hasCase(entry.id) ? fs.readFileSync(casePath(entry.id), 'utf8') : null;
+  const annotations = new Map((before ? JSON.parse(before).exchanges : []).map(exchange => [requestKey(exchange.request), {
+    ...(exchange.unread && { unread: exchange.unread }), ...(exchange.unreadReasons && { unreadReasons: exchange.unreadReasons }),
+  }]));
   writeCase(entry.id, {
     case: entry.id, tool: entry.tool, query: entry.query, recordedAt: new Date().toISOString().slice(0, 10),
     // What the tool does not show survives a refresh: a new field still needs its decision.
     unread: hasCase(entry.id) ? readCase(entry.id).unread : [],
-    exchanges: run.exchanges.map(exchange => ({ ...exchange, ...(exchange.body !== undefined && { body: shapeKept(entry, exchange, pinned) }) })),
+    exchanges: run.exchanges.map(exchange => ({ ...exchange, ...annotations.get(requestKey(exchange.request)), ...(exchange.body !== undefined && { body: shapeKept(entry, exchange, pinned) }) })),
   });
   await replaysAsAsked(entry, run, before);
 }
@@ -151,7 +154,7 @@ async function record(entry, token) {
 async function replaysAsAsked(entry, run, before) {
   const recording = readCase(entry.id);
   const { answer, asked, unrecorded } = replayer(recording);
-  await runCall(entry, { hosts: [...new Set([...REGISTRY_HOSTS, ...hostsOf(recording)])], answer, token: 'recorded-answers-fake-token' });
+  await runCall(entry, { hosts: [...new Set([...REGISTRY_HOSTS, ...EXTRA_HOSTS, ...hostsOf(recording)])], answer, token: 'recorded-answers-fake-token' });
   const live = run.exchanges.filter(exchange => !exchange.alternate).map(exchange => requestKey(exchange.request));
   const differs = [...live.filter(key => !asked.has(key)), ...unrecorded];
   if (check(`${entry.id}.replays`, !differs.length, differs[0]?.slice(0, 200) ?? '')) return;
@@ -167,9 +170,10 @@ async function shapeCheck(entry) {
   if (!check(`${entry.id}.stored`, hasCase(entry.id), hasCase(entry.id) ? '' : 'no recording: run dev.mjs answers:record')) return;
   const recording = readCase(entry.id);
   const { answer, unrecorded } = replayer(recording);
-  const run = await runCall(entry, { hosts: [...new Set([...REGISTRY_HOSTS, ...hostsOf(recording)])], answer, token: 'recorded-answers-fake-token' });
+  const run = await runCall(entry, { hosts: [...new Set([...REGISTRY_HOSTS, ...EXTRA_HOSTS, ...hostsOf(recording)])], answer, token: 'recorded-answers-fake-token' });
   if (!check(`${entry.id}.ran`, !run.failure, run.failure ?? '')) return;
-  check(`${entry.id}.requests`, !unrecorded.length, unrecorded[0] ?? '');
+  const missingRequests = [...unrecorded, ...(run.denied ?? []).map(host => `proxy denied ${host}`)];
+  check(`${entry.id}.requests`, !missingRequests.length, missingRequests[0] ?? '');
   const rows = run.outputs.flatMap(output => output.results ?? []);
   const codes = rows.map(row => row.data?.errorCode ?? row.errorCode).filter(Boolean);
   const expected = entry.errorCode ? codes.includes(entry.errorCode) : !codes.length;
@@ -183,10 +187,10 @@ async function shapeCheck(entry) {
 /** Each field the provider sent reached `text`, or is declared `unread`. */
 function fieldsCarried(entry, recording, text) {
   const answers = recording.exchanges.filter(exchange => !exchange.alternate && exchange.status < 400).map(fieldsOf).filter(fields => fields !== undefined);
-  const unique = [...new Set(answers.flatMap(fields => uncarried(fields, text, { unread: recording.unread, maps: entry.maps })))];
+  const unique = uncarriedExchanges(recording.exchanges, text, { unread: recording.unread, maps: entry.maps, repositories: entry.repositories, dates: entry.dates });
   if (unique.length) gapsByCase[entry.id] = unique;
   if (ACCEPT && unique.length) {
-    const open = answers.flatMap(fields => uncarried(fields, text, { maps: entry.maps }));
+    const open = answers.flatMap(fields => uncarried(fields, text, { maps: entry.maps, repositories: entry.repositories, dates: entry.dates }));
     writeCase(entry.id, { ...recording, unread: declaredUnread([...new Set(open)], answers, entry.maps) });
     note(`${entry.id}: unread now declares ${unique.length} more field(s)`);
     return;

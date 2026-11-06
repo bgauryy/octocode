@@ -72,10 +72,10 @@ fn schema_lists_clasify_and_classification_only_with_a_key() {
                 .collect();
             assert_eq!(names.contains(&"clasify"), listed, "{key:?}: {names:?}");
             assert_eq!(catalog["toolCount"], tools.len(), "{key:?}");
-            // securityCheck has its own setting, off here.
+            // MCP exposure settings do not remove CLI commands.
             assert_eq!(
                 tools.len(),
-                contract_tools - 1 - usize::from(!listed),
+                contract_tools - usize::from(!listed),
                 "{key:?}: {names:?}"
             );
         }

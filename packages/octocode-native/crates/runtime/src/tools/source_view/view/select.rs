@@ -1,11 +1,10 @@
 //! The requested view of the extracted text: content, compact, or a symbols
 //! outline, with the typed fallback when one stands in for another.
-use super::super::outline::symbols_view;
+use super::super::outline::render_symbols_view;
 use super::super::prepare::add_redacted_lines;
 use super::super::types::*;
 use super::{View, compact};
 use crate::execution::cancel::CancellationCheck;
-use crate::security::scan::ContentScan;
 use octocode_contract_types::{LocalFetchQuery, ReadView};
 
 /// Apply the requested `view` to the extracted text. A match read
@@ -17,8 +16,6 @@ pub(super) fn select_view(
     q: &LocalFetchQuery,
     ext: &mut super::super::extraction::Extraction,
     source_redactions: &mut Vec<(usize, usize)>,
-    source_path: &std::path::Path,
-    security: &impl ContentScan,
     full_source: &str,
     cancel: &impl CancellationCheck,
 ) -> Result<View, String> {
@@ -35,7 +32,6 @@ pub(super) fn select_view(
             mode: None,
             fallback: None,
             note: None,
-            scans: Default::default(),
         });
     }
     // Every transformed view keeps the citation gutter (`N\t`): the standard
@@ -46,7 +42,6 @@ pub(super) fn select_view(
         mode,
         fallback: None,
         note: None,
-        scans: Default::default(),
     };
     // The compact view, with a typed notice when it could only drop whitespace
     // or stands in for an outline. A compact view no smaller than the content
@@ -98,7 +93,7 @@ pub(super) fn select_view(
         ReadView::Content => view(selected, None),
         ReadView::Compact => compact_view(selected, ReadView::Compact, None),
         ReadView::Symbols => {
-            match symbols_view(&selected, local_fetch_query::path(q), source_path, security) {
+            match render_symbols_view(&selected, local_fetch_query::path(q), Vec::new()) {
                 super::super::outline::SymbolsView {
                     outline: Ok(outline),
                     warning,

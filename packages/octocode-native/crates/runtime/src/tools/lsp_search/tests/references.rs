@@ -60,7 +60,6 @@ async fn grouped_references_replace_locations_with_file_summaries() {
         "referencesProvider",
         snippets,
         TEST_BUDGET,
-        None,
     )
     .await;
     assert!(result.get("matches").is_none(), "{result}");
@@ -98,7 +97,6 @@ async fn recovered_alias_references_are_labeled_in_output() {
         "referencesProvider",
         vec![at(0), recovered],
         TEST_BUDGET,
-        None,
     )
     .await;
     let matches = location_rows(&result);
@@ -127,7 +125,6 @@ async fn default_references_preserve_full_location_geometry_and_content() {
         "referencesProvider",
         raw,
         TEST_BUDGET,
-        None,
     )
     .await;
     assert!(

@@ -328,7 +328,16 @@ fn protocol_rewrites(
                 pointer.push('/');
                 pointer.push_str(&crate::json_pointer::escape(key));
                 let same_shape = protocol_rewrites(value, &clean[key], protocol, pointer, held);
-                pointer.truncate(at);
+                #[cfg_attr(
+                    octocode_clippy_ratchet,
+                    expect(
+                        clippy::disallowed_methods,
+                        reason = "Restore the parent JSON pointer after visiting a child; retained evidence was cloned into held"
+                    )
+                )]
+                {
+                    pointer.truncate(at);
+                }
                 same_shape
             })
         }
@@ -343,7 +352,16 @@ fn protocol_rewrites(
                         pointer.push('/');
                         pointer.push_str(&index.to_string());
                         let same_shape = protocol_rewrites(raw, clean, protocol, pointer, held);
-                        pointer.truncate(at);
+                        #[cfg_attr(
+                            octocode_clippy_ratchet,
+                            expect(
+                                clippy::disallowed_methods,
+                                reason = "Restore the parent JSON pointer after visiting a child; retained evidence was cloned into held"
+                            )
+                        )]
+                        {
+                            pointer.truncate(at);
+                        }
                         same_shape
                     })
         }

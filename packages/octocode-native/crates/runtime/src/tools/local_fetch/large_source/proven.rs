@@ -4,22 +4,30 @@
 //! nearest before each, not by a second pass from the file's start, so a
 //! match page reads its source once plus the bytes around its windows.
 
+mod record;
+#[cfg(test)]
+mod tests;
+
+use record::{outside_key_lines, split_line};
+
 use super::Streamed;
-use super::held::{InLine, Want, WindowLines};
+use super::held::{InLine, SealMap, Want, WindowLines};
 use super::masks::{Judged, judge};
+use super::sealed::{Edit, Recorder};
 use super::stream::{seek, streamed};
 use crate::execution::cancel::CancellationCheck;
 use crate::security::KeyBlockState;
+use crate::security::scan::ContentScan;
 use octocode_engine::security::{Named, SourceNames};
 use octocode_engine::stamp::SourceStamp;
 use std::io::Read;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 /// Source bytes between checkpoints: what a window may re-read before its
 /// first line. Sizes the work, never the result.
-const CHECKPOINT_BYTES: u64 = 1024 * 1024;
+pub(super) const CHECKPOINT_BYTES: u64 = 1024 * 1024;
 /// Source bytes a window read takes at once.
-const READ_BYTES: usize = 64 * 1024;
+pub(super) const READ_BYTES: usize = 64 * 1024;
 
 /// A line start a later read of the same source may begin at.
 #[derive(Clone, Copy)]
@@ -47,7 +55,13 @@ fn stamp(file: &std::fs::File) -> Result<Stamp, String> {
 }
 
 /// The whole-source facts of one pass, fed every byte in order.
-pub(super) struct Proof {
+pub(super) struct Proof<'s> {
+    /// The read's scanner: the pass records what it redacts ([`Recorder`]).
+    scan: &'s dyn ContentScan,
+    recorder: Recorder,
+    /// Source bytes of each line a private-key block replaces, and the bytes of
+    /// its placeholder line.
+    key_lines: Vec<(std::ops::Range<usize>, usize)>,
     hasher: octocode_engine::digest::HashWriter,
     lines: WindowLines,
     line: usize,
@@ -84,128 +98,20 @@ pub(super) struct Pass {
     pub(super) total_lines: usize,
 }
 
-impl Proof {
-    /// A pass over `file`, the source at `path`, that also holds the windows of
-    /// `wants`.
-    pub(super) fn new(
-        file: &std::fs::File,
-        path: &std::path::Path,
-        wants: &[Want],
-    ) -> Result<Self, String> {
-        let started = octocode_engine::stamp::settle_clock();
-        Ok(Self {
-            hasher: octocode_engine::digest::HashWriter::default(),
-            lines: WindowLines::new(wants, KeyBlockState::default()),
-            line: 1,
-            pending: false,
-            offset: 0,
-            next: CHECKPOINT_BYTES,
-            checkpoints: vec![Checkpoint {
-                offset: 0,
-                line: 1,
-                block: KeyBlockState::default(),
-            }],
-            stamp: stamp(file)?,
-            started,
-            names: SourceNames::for_path(&path.to_string_lossy()),
-            in_lines: Vec::new(),
-            long_lines: Vec::new(),
-            line_at: 0,
-            next_in_line: 0,
-        })
-    }
-
-    /// Take the source's next `bytes`.
-    pub(super) fn feed(&mut self, bytes: &[u8]) {
-        self.hasher.update(bytes);
-        self.names.feed(bytes);
-        let mut rest = bytes;
-        while !rest.is_empty() {
-            let (piece, newline) = split_line(rest);
-            rest = &rest[piece.len()..];
-            self.offset += piece.len() as u64;
-            self.pending = !newline;
-            self.lines.push(piece, self.line);
-            if !newline
-                && self.offset - self.line_at >= CHECKPOINT_BYTES
-                && self.offset >= self.next_in_line
-            {
-                self.in_lines.push(self.lines.in_line(self.line));
-                self.next_in_line = self.offset + CHECKPOINT_BYTES;
-            }
-            if newline {
-                self.close_line();
-                self.line += 1;
-                if self.offset >= self.next {
-                    self.checkpoints.push(Checkpoint {
-                        offset: self.offset,
-                        line: self.line,
-                        block: self.lines.block,
-                    });
-                    self.next = self.offset + CHECKPOINT_BYTES;
-                }
-            }
-        }
-    }
-
-    fn close_line(&mut self) {
-        let hidden = self.lines.finish(self.line);
-        let bytes = self.offset - self.line_at;
-        if bytes > CHECKPOINT_BYTES && !hidden {
-            self.long_lines.push(LongLineExtent {
-                line: self.line,
-                bytes: octocode_engine::num::saturating_usize(bytes),
-            });
-        }
-        self.line_at = self.offset;
-    }
-
-    /// The pass once the source ended.
-    pub(super) fn finish(mut self) -> Pass {
-        if self.pending {
-            self.close_line();
-        }
-        Pass {
-            proven: Proven {
-                digest: hex::encode(self.hasher.finalize()),
-                checkpoints: self.checkpoints,
-                stamp: self.stamp,
-                started: self.started,
-                named: self.names.finish(),
-                judged: OnceLock::new(),
-                in_lines: self.in_lines,
-                long_lines: self.long_lines,
-            },
-            lines: self.lines,
-            total_lines: if self.pending {
-                self.line
-            } else {
-                self.line - 1
-            },
-        }
-    }
-}
-
 impl Pass {
-    /// Hide what the source's structure says is secret in the windows this pass
-    /// holds: only now, with every byte seen, is that known.
-    pub(super) fn mask_windows(
+    /// Seal the windows this pass holds: only now, with every byte seen, are
+    /// the source's redactions known.
+    pub(super) fn seal_windows(
         &mut self,
         file: &std::fs::File,
         cancel: &impl CancellationCheck,
     ) -> Result<(), String> {
+        if self.lines.held.is_empty() {
+            return Ok(());
+        }
+        let edits = self.proven.edits(file, cancel)?;
         let judged = self.proven.judged(file, cancel)?;
-        self.lines.mask(judged);
-        Ok(())
-    }
-}
-
-/// The bytes of `rest` up to and including its first newline, and whether
-/// there was one.
-fn split_line(rest: &[u8]) -> (&[u8], bool) {
-    match rest.iter().position(|byte| *byte == b'\n') {
-        Some(index) => (&rest[..=index], true),
-        None => (rest, false),
+        self.lines.seal(&edits, judged)
     }
 }
 
@@ -215,6 +121,12 @@ pub(super) struct Proven {
     checkpoints: Vec<Checkpoint>,
     stamp: Stamp,
     pub(super) started: std::time::SystemTime,
+    /// What the pass's scanner redacts, off the private-key lines.
+    scanned: Vec<Edit>,
+    /// Each line a private-key block replaces, as [`Proof`] found it.
+    pub(super) key_lines: Arc<[(std::ops::Range<usize>, usize)]>,
+    /// `scanned` with what the source's structure says is secret.
+    sealed: OnceLock<Arc<[Edit]>>,
     named: Named,
     /// What the source's structure says is secret: walked at most once, when a
     /// window is first shown of a source that names something.
@@ -232,8 +144,7 @@ impl Proven {
         if let Some(judged) = self.judged.get() {
             return Ok(judged);
         }
-        let budget = octocode_engine::memory::MEMORY.limit();
-        let judged = judge(file, self.named, &self.digest, budget, cancel)?;
+        let judged = judge(file, self.named, &self.digest, super::walk_budget(), cancel)?;
         Ok(self.judged.get_or_init(|| judged))
     }
 
@@ -250,6 +161,56 @@ impl Proven {
             + self.judged.get().map_or(0, Judged::weight)
             + self.in_lines.iter().map(InLine::weight).sum::<usize>()
             + self.long_lines.len() * std::mem::size_of::<LongLineExtent>()
+            + self.scanned.iter().map(Edit::weight).sum::<usize>()
+            + self.key_lines.len() * std::mem::size_of::<(std::ops::Range<usize>, usize)>()
+            + self
+                .sealed
+                .get()
+                .map_or(0, |edits| edits.iter().map(Edit::weight).sum())
+    }
+
+    /// Every edit a window of this source shows: the scanner's, and the values
+    /// the source's structure says are secret.
+    pub(super) fn edits(
+        &self,
+        file: &std::fs::File,
+        cancel: &impl CancellationCheck,
+    ) -> Result<Arc<[Edit]>, String> {
+        if let Some(edits) = self.sealed.get() {
+            return Ok(edits.clone());
+        }
+        let structural = match self.judged(file, cancel)? {
+            Judged::Exact(spans) => {
+                let mut edits = Vec::new();
+                let mut buffer = vec![0u8; READ_BYTES];
+                for span in spans {
+                    seek(file, span.range.start as u64)?;
+                    let mut lines = super::masks::PlaceholderEdits::new(span);
+                    let mut left = span.range.len();
+                    while left > 0 {
+                        cancel.check()?;
+                        let chunk = buffer.get_mut(..left.min(READ_BYTES)).unwrap_or_default();
+                        (&mut &*file)
+                            .read_exact(chunk)
+                            .map_err(|error| error.to_string())?;
+                        super::count_read(chunk.len());
+                        lines.feed(chunk);
+                        left -= chunk.len();
+                    }
+                    edits.extend(lines.finish());
+                }
+                if stamp(file)? != self.stamp {
+                    return Err("the source changed while it was read; read it again".to_owned());
+                }
+                edits
+            }
+            Judged::EveryValue(_) => Vec::new(),
+        };
+        let edits = outside_key_lines(
+            super::sealed::merge(self.scanned.clone(), structural),
+            &self.key_lines,
+        );
+        Ok(self.sealed.get_or_init(|| edits.into()).clone())
     }
 
     /// The checkpoint to skip ahead to from `line` (a line start): the
@@ -270,11 +231,18 @@ impl Proven {
         self.checkpoints.get(at.checked_sub(1)?).copied()
     }
 
-    /// The last place inside `want`'s line whose bytes before it the window skips.
-    fn in_line_before(&self, want: &Want) -> Option<&InLine> {
+    /// The last place inside `want`'s line whose bytes before it the window
+    /// skips: its sealed offset placed on the line's bytes by `map`.
+    fn in_line_before(&self, want: &Want, map: &SealMap) -> Option<&InLine> {
+        let line_at = self
+            .in_lines
+            .iter()
+            .find(|point| point.line == want.first)?
+            .line_at;
+        let from = map.keyed(line_at, want.from)?;
         let at = self.in_lines.partition_point(|point| {
             point.line < want.first
-                || (point.line == want.first && point.offset - point.line_at <= want.from)
+                || (point.line == want.first && point.offset - point.line_at <= from)
         });
         self.in_lines
             .get(at.checked_sub(1)?)
@@ -293,8 +261,13 @@ impl Proven {
         cancel: &impl CancellationCheck,
     ) -> Result<Vec<Streamed>, String> {
         let judged = self.judged(file, cancel)?;
+        let edits = self.edits(file, cancel)?;
+        let map = SealMap {
+            edits: edits.clone(),
+            key_lines: self.key_lines.clone(),
+        };
         let last = wants.iter().map(|want| want.last).max().unwrap_or(0);
-        let mut lines = WindowLines::new(wants, KeyBlockState::default());
+        let mut lines = WindowLines::new(wants, KeyBlockState::default()).sealed_by(map.clone());
         let (mut line, mut at, mut pending) = (1usize, 0u64, false);
         let mut buffer = vec![0u8; READ_BYTES];
         seek(file, 0)?;
@@ -309,7 +282,7 @@ impl Proven {
             _ => None,
         };
         if let (Some(_), [want]) = (long_line, wants)
-            && let Some(point) = self.in_line_before(want)
+            && let Some(point) = self.in_line_before(want, &map)
         {
             seek(file, point.offset as u64)?;
             lines.resume(point);
@@ -358,7 +331,7 @@ impl Proven {
         if stamp(file)? != self.stamp {
             return Err("the source changed while it was read; read it again".to_owned());
         }
-        lines.mask(judged);
+        lines.seal(&edits, judged)?;
         Ok(streamed(lines, &self.digest, total_lines, false))
     }
 }

@@ -166,18 +166,59 @@ async fn sections_runtime_resumes_replays_and_partitions_access_and_policy() {
     }
 }
 
+/// A finished plan has no continuation of any kind: whatever `next` holds is
+/// a `read`/`readN` of the judged lines, an executable localFetch or
+/// ghGetFileContent continuation (a pinned cursor), never a page.
+fn assert_next_is_only_pinned_reads(data: &Value) {
+    let Some(next) = data.get("next") else {
+        return;
+    };
+    for (key, call) in next.as_object().expect("next is an object") {
+        let index = key.strip_prefix("read").unwrap_or_else(|| {
+            panic!("`next.{key}` is a continuation, not a read: {data}");
+        });
+        assert!(
+            index.bytes().all(|byte| byte.is_ascii_digit()),
+            "`next.{key}` is not read/readN: {data}"
+        );
+        assert!(
+            matches!(
+                call["tool"].as_str(),
+                Some("localFetch" | "ghGetFileContent")
+            ),
+            "`next.{key}` is not a source read: {call}"
+        );
+        assert_eq!(call["kind"], "continue", "{call}");
+        assert!(call["input"]["cursor"].is_string(), "pinned cursor: {call}");
+    }
+}
+
 #[tokio::test]
-async fn sections_runtime_refuses_changed_sources_and_a_one_shot_memory_run_judges_its_whole_plan()
-{
+async fn sections_runtime_refuses_changed_sources_and_a_one_shot_memory_run_before_any_provider_call()
+ {
     let home = tempfile::tempdir().expect("home");
     let (runtime, server) = section_fixture(home.path(), "memory").await;
     let query = section_query(home.path());
-    let one_shot = section_call(&runtime, query.clone(), Channel::Cli, "caller").await;
-    // No next call can continue it, so nothing waits behind a page.
-    assert!(!one_shot.to_string().contains("unassessed"), "{one_shot}");
-    assert!(one_shot["results"][0]["data"].get("next").is_none());
+    let admission = runtime
+        .admit("one-shot".into())
+        .expect("admit")
+        .with_github_token(SecretString::from("caller".to_owned()))
+        .requiring_persistent_continuations();
+    let one_shot = runtime
+        .execute(admission, "clasify".into(), query.clone(), Channel::Cli)
+        .await
+        .expect("sections response")
+        .structured_content
+        .into_value();
+    // A memory-only CLI run cannot keep the pinned reads a sections answer
+    // requires, so it is refused before any capture or provider call.
+    assert_eq!(
+        one_shot["results"][0]["data"]["errorCode"], "classificationContextUnavailable",
+        "{one_shot}"
+    );
+    assert_next_is_only_pinned_reads(&one_shot["results"][0]["data"]);
     let one_shot_calls = server.received_requests().await.unwrap().len();
-    assert!(one_shot_calls > 0, "{one_shot}");
+    assert_eq!(one_shot_calls, 0, "{one_shot}");
     let first = section_call(&runtime, query, Channel::Mcp, "caller").await;
     let next = first["results"][0]["data"]["next"]["nextPage"]["input"].clone();
     assert_eq!(

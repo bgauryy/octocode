@@ -31,7 +31,7 @@ export async function startRegistryProxy(tmp, { hosts = REGISTRY_HOSTS, answer: 
   const requests = [], denied = [], unhandled = [], responses = new Map(), failures = new Map();
   // What OSV received, and what it answers next; with none queued, its `{}`.
   const osvBodies = [], osvAnswers = [];
-  const osvRecords = new Map([['GHSA-HAPPY', { body: { ...recordedJson('osv/advisory-ghsa', '/v1/vulns/'), id: 'GHSA-HAPPY' } }]]);
+  const osvRecords = new Map([['GHSA-happy', { body: { ...recordedJson('osv/advisory-ghsa', '/v1/vulns/'), id: 'GHSA-happy' } }]]);
   const sockets = new Set();
   const answerFor = (req, url, sent) => {
     if (!REGISTRY_HOSTS.includes(url.hostname)) return null;

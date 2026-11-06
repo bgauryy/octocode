@@ -38,6 +38,29 @@ test('impact retains the actual error and the battery gate fails with its input'
 
 const row = impact => ({ lang: 'go', ingest: { exit: 0 }, impact });
 
+test('oracle execution errors invalidate measurements; successful empty searches do not', () => {
+  for (const oracleExit of [-1, 2, null]) {
+    assert.ok(batteryFailures([{ ...row(), recall: { oracleExit } }]).length > 0);
+  }
+  for (const oracleExit of [0, 1]) {
+    assert.deepEqual(batteryFailures([{ ...row(), recall: { oracleExit } }]), []);
+  }
+});
+
+test('comparison rejects failed or incomplete measurements on either side', () => {
+  const good = { ...row(), callers: { pagesComplete: true } };
+  const failures = [
+    { callers: { pagesComplete: false } },
+    { failures: [{ tool: 'graphQuery', exit: 5, error: 'later page failed' }] },
+    { recall: { oracleExit: -1 } },
+  ];
+  for (const failure of failures) {
+    const bad = { ...good, ...failure };
+    assert.equal(compare([good], [bad])[0].invalid, true);
+    assert.equal(compare([bad], [good])[0].invalid, true);
+  }
+});
+
 test('caller-file comparisons use file evidence and preserve edge counts across definitions', async () => {
   const calls = [];
   const result = await callerFiles(async query => {
@@ -80,13 +103,14 @@ test('graph battery commands run through an installed skill symlink', async t =>
     assert.match(result.stdout, /Usage: graph-bench/);
   });
 
-  await t.test('comparison reports a new failure and exits nonzero', () => {
+  await t.test('comparison reports an invalid measurement and refuses it', () => {
     const before = join(root, 'before.json');
     const after = join(root, 'after.json');
     writeFileSync(before, JSON.stringify([row({ exit: 0 })]));
     writeFileSync(after, JSON.stringify([row({ exit: 5 })]));
     const result = run('bench-compare.mjs', before, after);
-    assert.equal(result.status, 1, result.stderr);
+    assert.equal(result.status, 2, result.stderr);
     assert.match(result.stdout, /workflow failed/);
+    assert.match(result.stdout, /after measurement invalid/);
   });
 });

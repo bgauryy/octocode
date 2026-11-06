@@ -207,8 +207,12 @@ keeps the verdicts it got and `next.nextCandidatePage` judges the failed hits ag
 Jev judges the captured text against every question. The result holds `answers.<key>`, `usage`,
 `next.read` and `readChars`. `next.read` is not a span: it re-reads the whole judged selection at its
 pinned snapshot or commit, and `readChars` says how many characters that is. To check a yes for less,
-run the `sections` call in `related[]`: the same question, with `target.lines` per section. Then read
-only those lines with `ranges` at the same path and ref, or use `matchString` if the answer has a term.
+run the `sections` call in `related[]`: the same question, with `target.lines` per section. A
+`sections` batch then offers `next.read` (and `read2`, … for more resources): one pinned read of exactly
+the lines of the sections that said yes to a `noul` question, adjacent ones merged, never the whole
+source. Or read other lines with `ranges` at the same path and ref, or use `matchString` if the answer
+has a term. A section is a share (a quarter) of the section grain, so even a short file splits into
+sections an answer can point into.
 
 ### clasify sections: map questions across many files
 
@@ -330,8 +334,10 @@ sequenceDiagram
 - If a process stops while rows are in flight, the next continuation reports those cells as
   errors with an unknown provider outcome. It does not send them again.
 - An answer from a different model than the one the plan started with is refused.
-- With `storage.mode: "memory"`, a CLI call has no next call to continue a plan, so it judges the
-  whole plan in that call. The default persistent storage and a running MCP server page it.
+- With `storage.mode: "memory"`, a one-shot CLI call cannot retain the pinned source reads an
+  answer requires. Source evaluations and sections return `classificationContextUnavailable`
+  before reading sources or calling the provider. Literal content still works. Use persistent
+  storage or a running MCP server for source evaluations and section plans.
 
 ## Examples
 
@@ -499,8 +505,9 @@ errors and partial receipts tell source, admission, provider and assessment fail
 | You see | Do |
 |---|---|
 | `next.nextPage`, `next.nextCandidatePage` | Run it unchanged: it continues saved work |
-| `next.read`, `resources.<key>.read` | Run it to read the whole judged selection, pinned (`readChars` on `evaluate`) |
-| `classificationStateTooLarge`, `classificationContextTooLarge` | Nothing was billed. Run the `sections` call in `related[]`, or split by ranges or rows, each its own call |
+| `next.read` on `evaluate`, `resources.<key>.read` | Run it to read the whole judged selection, pinned (`readChars` on `evaluate`) |
+| `next.read` on `sections` | Run it to read only the lines of the yes-sections, pinned |
+| `classificationStateTooLarge`, `classificationContextTooLarge` | The provider refused the request; it does not document whether a refused over-window request is billed. Run the `sections` call in `related[]`, or split by ranges or rows, each its own call |
 | `related[]` | Optional fresh request; it may widen scope |
 | `unassessed` cells or `terminalReason` | That work was not judged: it is not a "no" |
 | A transient provider failure | Unfiltered evidence may come back with a disclosure; refused credentials and invalid provider answers stay typed failures |
@@ -530,7 +537,7 @@ request fields.
 | `score` levels | 2 to 10 | Provider |
 | Image | 16 MiB each, 32 MiB per request, 280 to 1568 px a side | Provider |
 | Request body | 32 MiB | Provider |
-| Context window | 32k tokens per question, 64k per request; 262k with long context | Provider, which refuses unbilled |
+| Context window | 32k tokens per question, 64k per request; 262k with long context | Provider, which refuses a larger request (billing for a refused request is not documented) |
 | One capture | The reader's own source limit | Local memory |
 | One page or `sections` batch | About 131,000 characters of states and questions, at least one unit | A cost checkpoint: the next page takes the rest, nothing is lost |
 

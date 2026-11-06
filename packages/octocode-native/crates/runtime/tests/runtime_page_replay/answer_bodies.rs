@@ -64,10 +64,22 @@ fn rows(page: &Value) -> Value {
     page["results"][0]["data"]["repositories"].clone()
 }
 
+/// Different workspaces issue different handles; compare every evidence
+/// value and continuation field except that explicit opaque identity.
+fn page_evidence(page: &Value) -> (Value, Option<Value>) {
+    let next = next_call(page).map(|mut input| {
+        let cursor = input.get_mut("cursor").expect("issued cursor");
+        assert!(cursor.is_string());
+        *cursor = Value::Null;
+        input
+    });
+    (rows(page), next)
+}
+
 /// A call and the continuation it issues store its body once, and the later
 /// pages come from that copy whatever happened to the saved answer: a restart
-/// with every saved answer gone (eviction, the idle drop) changes neither a
-/// row nor a cursor and sends nothing.
+/// with every saved answer gone (eviction, the idle drop) preserves every row
+/// and adds no provider reread. Reissuing the query preserves its cursor.
 #[cfg(unix)]
 #[tokio::test]
 async fn a_body_is_stored_once_and_a_continuation_outlives_its_saved_answer() {
@@ -81,8 +93,9 @@ async fn a_body_is_stored_once_and_a_continuation_outlives_its_saved_answer() {
         .await
         .expect("first page")
         .structured_content;
+    let baseline_first_next = next_call(&page).expect("first continuation");
     loop {
-        baseline_pages.push((rows(&page), next_call(&page)));
+        baseline_pages.push(page_evidence(&page));
         let Some(next) = next_call(&page) else { break };
         page = runtime
             .run("next".into(), "ghSearchRepo".into(), next)
@@ -101,6 +114,21 @@ async fn a_body_is_stored_once_and_a_continuation_outlives_its_saved_answer() {
         .await
         .expect("first page")
         .structured_content;
+    let first_next = next_call(&first).expect("first continuation");
+    assert_ne!(first_next, baseline_first_next, "workspace-bound handles");
+    let sent_before = server.received_requests().await.expect("recorded").len();
+    let before_eviction = runtime
+        .run("before-eviction".into(), "ghSearchRepo".into(), query())
+        .await
+        .expect("same query before eviction")
+        .structured_content;
+    assert_eq!(rows(&before_eviction), rows(&first));
+    assert_eq!(next_call(&before_eviction), Some(first_next));
+    assert_eq!(
+        server.received_requests().await.expect("recorded").len(),
+        sent_before,
+        "reissuing the query reuses the saved provider answer"
+    );
     runtime.close().await;
     assert_eq!(
         files_holding(&evicted.home, MARKER).len(),
@@ -110,7 +138,7 @@ async fn a_body_is_stored_once_and_a_continuation_outlives_its_saved_answer() {
     std::fs::remove_dir_all(evicted.home.join("cache")).expect("saved answers");
     let sent = server.received_requests().await.expect("recorded").len();
     let runtime = evicted.runtime(&settings);
-    let mut pages = vec![(rows(&first), next_call(&first))];
+    let mut pages = vec![page_evidence(&first)];
     let mut next = next_call(&first);
     while let Some(input) = next {
         let page = runtime
@@ -119,7 +147,7 @@ async fn a_body_is_stored_once_and_a_continuation_outlives_its_saved_answer() {
             .expect("later page")
             .structured_content;
         next = next_call(&page);
-        pages.push((rows(&page), next.clone()));
+        pages.push(page_evidence(&page));
     }
     runtime.close().await;
     assert_eq!(pages, baseline_pages);

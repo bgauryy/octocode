@@ -63,16 +63,21 @@ const securityOff = {
   id: 'refuse.securityCheck.off', tool: 'securityCheck', surfaces: ['cli', 'mcp'],
   env: () => OFF,
   run: async ({ call, surface, worker }) => {
-    const before = worker.context.registry.osvBodies.length;
-    const result = await call('securityCheck', { queries: [{ operation: 'advisory', id: 'GHSA-HAPPY' }] });
-    const sent = worker.context.registry.osvBodies.length - before;
-    if (sent) return `the off switch still sent ${sent} requests`;
-    if (surface === 'mcp') {
-      const listed = (worker.scopedServer ?? worker.server).tools.map(tool => tool.name);
-      if (listed.includes('securityCheck')) return 'MCP still lists securityCheck with the switch off';
-      return result.isError ? null : `MCP answered a tool it does not list: ${JSON.stringify(result.json).slice(0, 200)}`;
+    // Every OSV request: the advisory lookup is a GET, which `osvBodies` (POST bodies) never records.
+    const osvRequests = () => worker.context.registry.requests.filter(request => request.includes('//api.osv.dev/')).length;
+    const before = osvRequests();
+    const result = await call('securityCheck', { queries: [{ operation: 'advisory', id: 'GHSA-happy' }] });
+    const sent = osvRequests() - before;
+    if (surface === 'cli') {
+      const text = JSON.stringify(result.json).slice(0, 200);
+      if (/tools\.enableSecurityCheck|OCTOCODE_SECURITY_CHECKS/.test(JSON.stringify(result.json))) return `the CLI always offers securityCheck, but it refused: ${text}`;
+      if (errorOf(result) || !result.json?.results?.[0]?.data) return `the CLI did not answer the advisory: ${text}`;
+      return sent > 0 ? null : 'the CLI answered without asking OSV';
     }
-    return /tools\.enableSecurityCheck|OCTOCODE_SECURITY_CHECKS/.test(JSON.stringify(result.json)) && result.status !== 0 ? null : `CLI: ${JSON.stringify(result.json).slice(0, 200)}`;
+    if (sent) return `the off switch still sent ${sent} requests`;
+    const listed = worker.owned.mcpServerFor(worker.server).tools.map(tool => tool.name);
+    if (listed.includes('securityCheck')) return 'MCP still lists securityCheck with the switch off';
+    return result.isError ? null : `MCP answered a tool it does not list: ${JSON.stringify(result.json).slice(0, 200)}`;
   },
 };
 
@@ -84,7 +89,7 @@ const clasifyOff = {
     const result = await call('clasify', { queries: [{ operation: 'evaluate', content: 'x', questions: { k: { type: 'noul', instructions: 'x?' } } }] });
     if (worker.context.mock.classificationRequests.length !== before) return 'a provider request left without a key';
     if (surface === 'mcp') {
-      const listed = (worker.scopedServer ?? worker.server).tools;
+      const listed = worker.owned.mcpServerFor(worker.server).tools;
       if (listed.some(tool => tool.name === 'clasify')) return 'MCP still lists clasify without a key';
       const search = listed.find(tool => tool.name === 'localSearch');
       if (JSON.stringify(search?.inputSchema ?? {}).includes('"classification"')) return 'MCP localSearch still offers classification without a key';

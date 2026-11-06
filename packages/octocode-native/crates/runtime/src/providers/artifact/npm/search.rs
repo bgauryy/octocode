@@ -5,8 +5,7 @@ use super::registry::trim_registry;
 use crate::providers::artifact::http::{DnsPin, JSON, RegistryClient};
 use crate::providers::artifact::query::artifact_search_query;
 use crate::providers::artifact::util::{
-    canonical_repository, encode_component, endpoint, invalid, object_for, required, safe_url,
-    string, total,
+    encode_component, endpoint, invalid, object_for, required, safe_url, string, total,
 };
 use crate::providers::artifact::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ResolvedNpmRegistry,
@@ -86,10 +85,9 @@ pub(super) async fn search(
         artifact.license = string(package.get("license"));
         if let Some(Value::Object(links)) = package.get("links") {
             artifact.homepage = safe_url(links.get("homepage"));
-            artifact.repository = links
-                .get("repository")
-                .and_then(Value::as_str)
-                .and_then(canonical_repository);
+            if let Some(link) = links.get("repository").and_then(Value::as_str) {
+                artifact.set_source_link(link);
+            }
         }
         artifacts.push(artifact);
     }

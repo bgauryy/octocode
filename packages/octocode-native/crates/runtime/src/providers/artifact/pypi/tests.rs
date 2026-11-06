@@ -4,6 +4,8 @@ use super::super::test_http::test_budget;
 use super::super::test_http::{KnownTags, RouteHttp};
 use super::*;
 
+mod advisories;
+
 use serde_json::json;
 
 fn pypi_release(version: &str) -> serde_json::Value {
@@ -276,92 +278,37 @@ async fn release_tags_are_checked_for_each_lookup() {
     );
 }
 
-/// A release's row keeps what PyPI states about its safety: why it was yanked
-/// and its `vulnerabilities`, whole; none listed is `[]`. A response without
-/// the key says nothing, so the row claims nothing.
+/// A monorepo package names its directory in the project link
+/// (`google-cloud-storage` is `packages/google-cloud-storage` of
+/// `google-cloud-python`): the row splits the link into the repository and
+/// its directory, whether the link is labeled or only the homepage.
 #[tokio::test]
-async fn pypi_rows_keep_the_yanked_reason_and_vulnerabilities() {
-    let mut release = pypi_release("2.32.0");
-    release["info"]["yanked"] = json!(true);
-    release["info"]["yanked_reason"] =
-        json!("Yanked due to conflicts with CVE-2024-35195 mitigation");
-    release["vulnerabilities"] = json!([{
-        "aliases": ["CVE-2024-47081", "PYSEC-2026-1872"],
-        "details": "URL parsing issue.",
-        "fixed_in": ["2.32.4"],
-        "id": "GHSA-9hjg-9r4m-mvj7",
-        "link": "https://osv.dev/vulnerability/GHSA-9hjg-9r4m-mvj7",
-        "source": "osv",
-        "summary": null,
-        "withdrawn": null
-    }, {"id": "PYSEC-1", "aliases": [], "fixed_in": [], "withdrawn": "2026-01-02T00:00:00Z"}]);
-    let row = |release: serde_json::Value| async move {
-        let http = RouteHttp::routes(vec![("/pypi/requests/2.32.0/json", release)]);
-        let b = test_budget();
-        let client = RegistryClient::new(&http, &b);
-        let query = versioned(ArtifactType::Pypi, "requests", "2.32.0");
-        let page = pypi(&query, &client).await.expect("pypi");
-        serde_json::to_value(&page.artifacts[0]).expect("row")
-    };
-    let yanked = row(release).await;
-    assert_eq!(yanked["yanked"], true);
-    assert_eq!(
-        yanked["yankedReason"],
-        "Yanked due to conflicts with CVE-2024-35195 mitigation"
-    );
-    assert_eq!(
-        yanked["advisories"],
-        json!([{
-            "id": "GHSA-9hjg-9r4m-mvj7",
-            "aliases": ["CVE-2024-47081", "PYSEC-2026-1872"],
-            "url": "https://osv.dev/vulnerability/GHSA-9hjg-9r4m-mvj7",
-            "details": "URL parsing issue.",
-            "fixedIn": ["2.32.4"]
-        }, {"id": "PYSEC-1", "withdrawn": "2026-01-02T00:00:00Z"}])
-    );
-    let mut clean = pypi_release("2.32.0");
-    clean["vulnerabilities"] = json!([]);
-    assert_eq!(row(clean).await["advisories"], json!([]));
-    let silent = row(pypi_release("2.32.0")).await;
-    assert!(silent.get("advisories").is_none(), "{silent}");
-    assert!(silent.get("yankedReason").is_none(), "{silent}");
-}
-
-/// PyPI lists one advisory once per database (GHSA and its PYSEC twin, each
-/// aliasing the other and the CVE): the row lists it once, keeping every id
-/// and alias and every fixed version; an unrelated advisory stays its own.
-#[tokio::test]
-async fn pypi_twin_advisories_are_one_row_with_every_alias() {
-    let mut release = pypi_release("2.31.0");
-    release["vulnerabilities"] = json!([
-        {"id": "GHSA-9wx4-h78v-vm56", "aliases": ["CVE-2024-35195", "PYSEC-2026-1873"],
-         "details": "verify=False sticks.", "fixed_in": ["2.32.0"],
-         "link": "https://osv.dev/vulnerability/GHSA-9wx4-h78v-vm56"},
-        {"id": "GHSA-9hjg-9r4m-mvj7", "aliases": ["CVE-2024-47081"], "details": ".netrc leak.",
-         "fixed_in": ["2.32.4"]},
-        {"id": "PYSEC-2026-1873", "aliases": ["CVE-2024-35195", "GHSA-9wx4-h78v-vm56"],
-         "details": "verify=False sticks.", "fixed_in": ["2.32.0", "2.32.1"],
-         "link": "https://osv.dev/vulnerability/PYSEC-2026-1873"}
-    ]);
-    let http = RouteHttp::routes(vec![("/pypi/requests/2.31.0/json", release)]);
-    let b = test_budget();
-    let client = RegistryClient::new(&http, &b);
-    let query = versioned(ArtifactType::Pypi, "requests", "2.31.0");
-    let page = pypi(&query, &client).await.expect("pypi");
-    let row = serde_json::to_value(&page.artifacts[0]).expect("row");
-    assert_eq!(
-        row["advisories"],
-        json!([{
-            "id": "GHSA-9wx4-h78v-vm56",
-            "aliases": ["CVE-2024-35195", "PYSEC-2026-1873"],
-            "url": "https://osv.dev/vulnerability/GHSA-9wx4-h78v-vm56",
-            "details": "verify=False sticks.",
-            "fixedIn": ["2.32.0", "2.32.1"]
-        }, {
-            "id": "GHSA-9hjg-9r4m-mvj7",
-            "aliases": ["CVE-2024-47081"],
-            "details": ".netrc leak.",
-            "fixedIn": ["2.32.4"]
-        }])
-    );
+async fn a_project_link_into_a_monorepo_directory_names_the_repository_and_the_directory() {
+    let monorepo =
+        "https://github.com/googleapis/google-cloud-python/tree/main/packages/google-cloud-storage";
+    for info in [
+        json!({"name": "google-cloud-storage", "version": "3.1.0",
+            "home_page": monorepo, "project_urls": {"Homepage": monorepo}}),
+        json!({"name": "google-cloud-storage", "version": "3.1.0",
+            "project_urls": {"Source": monorepo}}),
+    ] {
+        let http = RouteHttp::routes(vec![(
+            "/pypi/google-cloud-storage/3.1.0/json",
+            json!({"info": info, "urls": []}),
+        )]);
+        let tags = KnownTags::new(vec!["googleapis/google-cloud-python@main"]);
+        let query = versioned(ArtifactType::Pypi, "google-cloud-storage", "3.1.0");
+        let page = super::super::test_http::execute(&http, &query, Some(&tags))
+            .await
+            .expect("pypi");
+        let row = &page.artifacts[0];
+        assert_eq!(
+            row.repository.as_deref(),
+            Some("https://github.com/googleapis/google-cloud-python")
+        );
+        assert_eq!(
+            row.repository_directory.as_deref(),
+            Some("packages/google-cloud-storage")
+        );
+    }
 }

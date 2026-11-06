@@ -246,7 +246,11 @@ fn first_open_after_a_confirmed_project_load_skips_the_settle() {
             .await
             .expect("document syncs");
         let waited = started.elapsed();
-        assert_eq!(readiness, Some(Readiness::SilentServer));
+        assert_eq!(
+            readiness,
+            Some(Readiness::ProgressIdle),
+            "an open that owes no wait preserves the confirmed startup load"
+        );
         assert!(
             waited < Duration::from_millis(400),
             "no settle stacked on a confirmed project load: {waited:?}"

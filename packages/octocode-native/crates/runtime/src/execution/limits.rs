@@ -7,9 +7,15 @@ use std::time::Duration;
 /// Every internal limit a runtime's tools run under.
 #[derive(Clone, Copy, Debug)]
 pub struct RuntimeLimits {
-    /// Request time of one network call (GitHub, registries, the
-    /// classification provider), within the call's own deadline.
+    /// Request time of one network call (GitHub, registries), within the
+    /// call's own deadline.
     pub network_timeout: Duration,
+    /// Request time of one classification evaluation. `None`: the call's own
+    /// deadline decides. A model's time follows its input, and the provider
+    /// documents no time limit, so a fixed client cap would abandon an answer
+    /// the provider is still computing; this is the typed test seam for a
+    /// shorter wait.
+    pub classification_timeout: Option<Duration>,
     /// Retries after a failed request.
     pub max_retries: u8,
     /// Characters of the automatic response page when a call names no
@@ -40,6 +46,7 @@ pub struct SelectionLimits {
 impl RuntimeLimits {
     pub const DEFAULT: Self = Self {
         network_timeout: Duration::from_secs(30),
+        classification_timeout: None,
         max_retries: 3,
         auto_page_chars: crate::id::DEFAULT_RESPONSE_CHARS,
         capture_ttl: Duration::from_secs(24 * 60 * 60),

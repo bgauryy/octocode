@@ -93,7 +93,9 @@ fn assert_source_window(source: &str, want: Want, actual: &Streamed) {
     );
 }
 
-/// Every byte page proves the whole source and selects exactly its requested bytes.
+/// Every byte page proves the whole source once and selects exactly its requested
+/// bytes: a page at a later offset then reads its window from the checkpoint before
+/// it, as the sealed offset is placed only once the pass recorded what precedes it.
 #[test]
 fn a_late_byte_page_costs_what_an_early_one_does() {
     let line: Vec<u8> = (0..6 * WINDOW_BYTES)
@@ -116,9 +118,16 @@ fn a_late_byte_page_costs_what_an_early_one_does() {
         assert_source_window(&text, page(from), &paged);
         costs.push(blocks.0.into_inner());
     }
+    let window = (super::super::proven::CHECKPOINT_BYTES as usize + WINDOW_BYTES)
+        .div_ceil(super::super::proven::READ_BYTES)
+        + 1;
+    assert_eq!(
+        costs[0], whole,
+        "the first page is held as the pass streams"
+    );
     assert!(
-        costs.iter().all(|&cost| cost == whole),
-        "each page proves the source once: {costs:?}, whole {whole}"
+        costs.iter().all(|&cost| cost <= whole + window),
+        "each page proves the source once, then reads around its window: {costs:?}, whole {whole}"
     );
 }
 
@@ -180,13 +189,13 @@ fn byte_pages_over_a_key_block_match_a_whole_pass() {
 /// past the range's end.
 #[test]
 fn byte_pages_with_points_inside_a_key_block_match_a_whole_pass() {
-    let mut text = "x".repeat(2 * BYTE_LOOKBEHIND + 17);
+    let mut text = "x".repeat(2 * STRETCH + 17);
     text.push_str("\r\n-----BEGIN PRIVATE KEY-----\r\n");
-    text.push_str(&"A".repeat(2 * BYTE_LOOKBEHIND + 5));
+    text.push_str(&"A".repeat(2 * STRETCH + 5));
     text.push_str("\r\n!!");
-    text.push_str(&"B".repeat(BYTE_LOOKBEHIND + 3));
+    text.push_str(&"B".repeat(STRETCH + 3));
     text.push_str("\r\n-----END PRIVATE KEY-----\r\n\r\n");
-    text.push_str(&"€".repeat(BYTE_LOOKBEHIND));
+    text.push_str(&"€".repeat(STRETCH));
     let file = temp(text.as_bytes());
     let source = opened(file.path());
     let page = |from: usize| Want::bytes(1, 7, from);
@@ -197,8 +206,8 @@ fn byte_pages_with_points_inside_a_key_block_match_a_whole_pass() {
     let total = first.origin.total;
     for from in [
         1,
-        BYTE_LOOKBEHIND + 1,
-        2 * BYTE_LOOKBEHIND + 18,
+        STRETCH + 1,
+        2 * STRETCH + 18,
         total / 2,
         total.saturating_sub(WINDOW_BYTES / 2),
         total - 1,

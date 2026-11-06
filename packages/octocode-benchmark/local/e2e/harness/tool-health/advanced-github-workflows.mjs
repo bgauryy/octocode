@@ -98,6 +98,8 @@ async function cloneResearch(ctx) {
     const location = rows(cloned, 'ghCloneRepo').find(data => data.location)?.location;
     checks.push([`workflow.github.clone.pinned.${surface}`, location?.commitSha === ctx.mock.model.head.oid && typeof location.localPath === 'string', JSON.stringify(location)]);
     if (!location?.localPath) continue;
+    const again = (await ctx.callOn(surface)('ghCloneRepo', { queries: [{ owner: 'octo', repo: 'demo', ref: ctx.mock.model.head.oid, paths: [selected], historyDepth: 1 }] })).json?.results?.[0]?.data?.location;
+    checks.push([`workflow.github.clone.reuseReported.${surface}`, again?.reused === true && again.commitSha === location.commitSha && again.localPath === location.localPath, JSON.stringify({ location, again })]);
     const target = path.join(location.localPath, selected);
     const searched = await walk('localSearch', { queries: [{ path: target, matchString: ['healthMarker'], view: 'files' }], responseChars: 300 }, 'local-search');
     equal(checks, `workflow.github.clone.localHit.${surface}`, rows(searched, 'localSearch').flatMap(data => data.files ?? []).map(file => fs.realpathSync(path.resolve(ctx.cwd, file.path))), [fs.realpathSync(target)]);

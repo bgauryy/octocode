@@ -1,8 +1,9 @@
 //! The advisories a registry lists for a version, and the merging of
-//! records that alias one another.
+//! records that alias one another. A row names each advisory (ids, severity,
+//! fixed versions, link); its text is `securityCheck`'s, not repeated here.
 use serde::Serialize;
 
-/// One advisory a registry lists for a version, in the registry's own words.
+/// One advisory a registry lists for a version.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Advisory {
@@ -14,10 +15,6 @@ pub struct Advisory {
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub severity: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fixed_in: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -77,7 +74,7 @@ impl Advisory {
     /// One row per advisory: records that alias each other ([`alias_groups`])
     /// merge into their first, which keeps every id and alias of the group
     /// in `aliases` and every fixed version; a text only a later twin states
-    /// fills the first's gap.
+    /// fills the first's gap (a link, a severity).
     pub(crate) fn merged(advisories: Vec<Self>) -> Vec<Self> {
         let groups = alias_groups(&advisories, |advisory| {
             advisory
@@ -98,8 +95,6 @@ impl Advisory {
                     union_into(&mut first.fixed_in, twin.fixed_in);
                     first.url = first.url.or(twin.url);
                     first.severity = first.severity.or(twin.severity);
-                    first.summary = first.summary.or(twin.summary);
-                    first.details = first.details.or(twin.details);
                     first.withdrawn = first.withdrawn.or(twin.withdrawn);
                 }
                 if let Some(id) = &first.id {

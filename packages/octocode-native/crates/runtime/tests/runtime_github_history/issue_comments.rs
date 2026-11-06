@@ -121,7 +121,7 @@ async fn issue_comment_body_hops_list_only_unfinished_bodies() {
             continue;
         }
         calls += 1;
-        assert!(calls <= 60, "walk did not finish");
+        let before = issue_text.len() + read.values().map(String::len).sum::<usize>();
         let outcome = runtime
             .run(
                 format!("walk-{calls}"),
@@ -131,20 +131,33 @@ async fn issue_comment_body_hops_list_only_unfinished_bodies() {
             .await
             .unwrap_or_else(|error| panic!("call {calls} failed: {error:?}\n{input}"));
         let content = &outcome.structured_content;
-        let data = &content["results"][0]["data"];
+        let row = &content["results"][0];
+        let text_part = row["rowPart"]["text"].as_str();
+        let data = &row["data"];
         let issue = &data["issues"][0];
         if let Some(text) = issue["body"].as_str() {
-            let offset = issue["contentPagination"]["body"]["offset"]
-                .as_u64()
-                .unwrap_or(0);
-            assert_eq!(
-                offset as usize,
-                issue_text.chars().count(),
-                "call {calls}: issue body"
+            if text_part != Some("/data/issues/0/body") {
+                let offset = issue["contentPagination"]["body"]["offset"]
+                    .as_u64()
+                    .unwrap_or(0);
+                assert_eq!(
+                    offset as usize,
+                    issue_text.chars().count(),
+                    "call {calls}: issue body"
+                );
+            }
+            assert!(
+                issue_body[issue_text.len()..].starts_with(text),
+                "call {calls}: issue body must be the exact next text"
             );
             issue_text.push_str(text);
         }
-        for comment in issue["comments"].as_array().into_iter().flatten() {
+        for (index, comment) in issue["comments"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
             let id = match &comment["id"] {
                 serde_json::Value::String(id) => id.parse::<u64>().expect("numeric id"),
                 id => id.as_u64().expect("id"),
@@ -156,13 +169,24 @@ async fn issue_comment_body_hops_list_only_unfinished_bodies() {
                 relisted += 1;
                 continue;
             }
-            assert_eq!(
-                offset as usize,
-                so_far.chars().count(),
-                "call {calls}: comment {id} {comment}"
+            let fragment = format!("/data/issues/0/comments/{index}/body");
+            if text_part != Some(fragment.as_str()) {
+                assert_eq!(
+                    offset as usize,
+                    so_far.chars().count(),
+                    "call {calls}: comment {id} {comment}"
+                );
+            }
+            assert!(
+                body(id as usize)[so_far.len()..].starts_with(text),
+                "call {calls}: comment {id} must be the exact next text"
             );
             so_far.push_str(text);
         }
+        assert!(
+            issue_text.len() + read.values().map(String::len).sum::<usize>() > before,
+            "call {calls}: the body walk must make evidence progress"
+        );
         if let Some(next) = content["responsePagination"]["next"]["input"].as_object() {
             queue.push_back(serde_json::Value::Object(next.clone()));
         }

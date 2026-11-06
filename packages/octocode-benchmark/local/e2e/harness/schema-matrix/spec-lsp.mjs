@@ -5,6 +5,7 @@ import path from 'node:path';
 import { declarations, lspLocations } from '../responses.mjs';
 
 const ROOT = 'matrix-world/lsp';
+const RUST_EXECUTION_FLAGS = ['buildScripts', 'procMacros'];
 const CODE = `${ROOT}/code`;
 const MODEL = `${CODE}/model.ts`;
 const USE = `${CODE}/use.ts`;
@@ -118,6 +119,10 @@ function check(ctx, testCase) {
 
 export const lspSearch = {
   tool: 'lspSearch',
+  // This hermetic world's host policy keeps repository-code execution disabled.
+  // Schema-valid requests to enable it must be refused before a server starts.
+  refusal: (_ctx, { query }) => (RUST_EXECUTION_FLAGS.some(flag => query.rustContext?.[flag] === true) ? 'policy' : null),
+  refusalValues: ({ values }) => values.filter(([field, value]) => value === true && RUST_EXECUTION_FLAGS.some(flag => field === `rustContext.${flag}`)),
   pseudo: [{ key: 'page', values: ['whole', 'tiny'] }],
   base,
   // Procedural macros need build scripts: the row that wants one asks for both.
@@ -129,7 +134,7 @@ export const lspSearch = {
   indistinct: {
     operation: 'each value has its own anchor and oracle',
     view: 'the same locations by file or by row; both are compared with the same truth',
-    'rustContext.buildScripts': 'changes how the server starts, judged from its protocol trace',
-    'rustContext.procMacros': 'changes how the server starts, judged from its protocol trace',
+    'rustContext.buildScripts': 'true is judged as a host-policy refusal; false is checked in the server protocol trace',
+    'rustContext.procMacros': 'true is judged as a host-policy refusal; false is checked in the server protocol trace',
   },
 };

@@ -90,9 +90,20 @@ impl CloneLock {
     }
 }
 
+/// Create `path` and its missing parents readable by the owner only: a clone
+/// holds code the user could read with their own token, so a directory this
+/// tool creates (under whatever home exists) is never group- or world-readable.
+pub(super) fn create_private_dir_all(path: &Path) -> io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(path)
+}
+
 fn open_lock(path: &Path) -> io::Result<fs::File> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
+        create_private_dir_all(parent)?;
     }
     fs::OpenOptions::new()
         .create(true)
@@ -103,7 +114,7 @@ fn open_lock(path: &Path) -> io::Result<fs::File> {
 
 pub(super) fn stage_dir(home: &Path, clone_dir: &Path) -> Result<PathBuf, CloneError> {
     let base = home.join("tmp").join("clone-tmp");
-    fs::create_dir_all(&base).map_err(storage_io)?;
+    create_private_dir_all(&base).map_err(storage_io)?;
     let id = STAGE_ID.fetch_add(1, Ordering::Relaxed);
     let name = clone_dir.file_name().unwrap_or_default().to_string_lossy();
     let path = base.join(format!(
@@ -122,7 +133,7 @@ pub(super) fn promote(stage: &Path, destination: &Path) -> Result<(), CloneError
             "Clone destination has no parent",
         )
     })?;
-    fs::create_dir_all(parent).map_err(storage_io)?;
+    create_private_dir_all(parent).map_err(storage_io)?;
     let previous = stage.with_extension("previous");
     remove_dir(&previous);
     let had_previous = destination.exists();

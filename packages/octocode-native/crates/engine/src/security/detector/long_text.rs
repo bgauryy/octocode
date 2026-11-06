@@ -118,17 +118,20 @@ pub(super) fn with_spans_hidden(
     let mut out = String::with_capacity(text.len());
     let mut from = 0;
     let mut secrets_detected: Vec<String> = Vec::new();
+    let mut replaced = Vec::new();
     for (range, idx) in spans {
         if text[range.clone()].trim().is_empty() {
             continue;
         }
         out.push_str(&text[from..range.start]);
+        let shown_from = out.len();
         out.push_str(super::replacement_for(*idx));
         let breaks = text[range.clone()]
             .bytes()
             .filter(|byte| *byte == b'\n')
             .count();
         out.extend(std::iter::repeat_n('\n', breaks));
+        replaced.push((range.clone(), out.len() - shown_from));
         from = range.end;
         let name = PATTERNS[*idx].name;
         if !secrets_detected.iter().any(|seen| seen == name) {
@@ -142,6 +145,7 @@ pub(super) fn with_spans_hidden(
     Some(DetectResult {
         sanitized: out,
         secrets_detected,
+        edits: crate::security::Edits::of_pass(replaced),
     })
 }
 

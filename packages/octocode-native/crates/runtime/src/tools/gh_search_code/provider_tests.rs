@@ -6,7 +6,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use octocode_github::mock_http::Delayed;
 use serde_json::json;
 use std::time::Duration;
-use wiremock::matchers::{method, path, query_param};
+use wiremock::matchers::{method, path, query_param, query_param_contains};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -72,9 +72,11 @@ fn next_page(out: &crate::response::result::ToolData) -> GhSearchCodeQuery {
 mod backed;
 mod empty;
 mod empty_leads;
+mod index_limit;
 mod owner_wide;
 mod pages;
 mod ref_commits;
+mod repeat_reads;
 mod requests;
 mod walk;
 mod window;

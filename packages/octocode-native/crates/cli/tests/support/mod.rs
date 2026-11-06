@@ -7,14 +7,27 @@
 #[path = "../../../runtime/tests/support/mod.rs"]
 mod runtime_fixture;
 pub use runtime_fixture::*;
+use std::path::PathBuf;
 use std::process::Command;
+
+mod persistent_cli;
+pub use persistent_cli::PersistentCli;
+
+/// Cargo and nextest supply the executable at run time so archived tests relocate.
+/// Direct test-binary runs fall back to Cargo's compiled path.
+/// See <https://nexte.st/docs/ci-features/archiving/#making-tests-relocatable>.
+fn cli_executable() -> PathBuf {
+    std::env::var_os("CARGO_BIN_EXE_octocode")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_octocode")))
+}
 
 impl Workspace {
     /// The CLI in this workspace. Tool calls run in process
     /// (`storage.mode = memory`), so no test leaves a warm server behind;
-    /// `warm_server` runs the one test that starts one, and stops it.
+    /// Persistent tests use `persistent_cli` to own and stop their servers.
     pub fn cli(&self) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_octocode"));
+        let mut command = Command::new(cli_executable());
         command
             .current_dir(&self.workspace)
             .env_clear()
@@ -34,5 +47,10 @@ impl Workspace {
             command.env("LLVM_PROFILE_FILE", profile);
         }
         command
+    }
+
+    /// Calls sharing durable state and a private warm-server namespace.
+    pub fn persistent_cli(&self) -> PersistentCli<'_> {
+        PersistentCli::new(self)
     }
 }

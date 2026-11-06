@@ -3,6 +3,8 @@
 
 use super::*;
 
+mod long_lines;
+
 #[tokio::test(flavor = "current_thread")]
 async fn source_cache_reads_each_authorized_bounded_file_once() {
     let (_dir, root, paths) = temp_workspace();
@@ -81,7 +83,6 @@ async fn unreadable_in_policy_files_stay_authorized_and_keep_their_locations() {
         "referencesProvider",
         snippets,
         TEST_BUDGET,
-        None,
     )
     .await;
     assert_eq!(result["pagination"]["totalItems"], 2, "{result}");
@@ -126,7 +127,6 @@ async fn locations_outside_the_read_roots_are_reported_withheld() {
         "definitionProvider",
         snippets,
         TEST_BUDGET,
-        None,
     )
     .await;
     assert_eq!(row["status"], "empty", "{row}");
@@ -341,7 +341,6 @@ async fn clipped_definition_rows_name_their_partial_reason() {
             "displayRange": {"startLine": 1, "endLine": 70}
         })],
         100_000,
-        None,
     )
     .await;
     assert_eq!(row["isPartial"], true, "{row}");

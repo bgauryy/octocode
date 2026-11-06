@@ -1,4 +1,7 @@
 //! The registry gate and the row, against recorded doubles.
+#[path = "package_tests/dependencies.rs"]
+mod dependencies;
+
 use super::*;
 use crate::providers::artifact::test_http::{RouteHttp, test_budget};
 use crate::providers::saved_answers::ReusedSince;
@@ -152,7 +155,8 @@ async fn a_registry_miss_or_failure_sends_nothing_to_osv() {
 }
 
 /// A version the registry does not list never leaves: the name goes alone and
-/// the row says the version was not evaluated.
+/// the row says the version was not evaluated. It is a failed row (the CLI
+/// exits non-zero) that still lists the advisories of the other versions.
 #[tokio::test]
 async fn an_unpublished_version_is_never_sent() {
     let http = registry().post_sequence(vec![(200, json!({"vulns": [record("GHSA-1")]}))]);
@@ -164,19 +168,22 @@ async fn an_unpublished_version_is_never_sent() {
         [json!({"package": {"name": "lodash", "ecosystem": "npm"}})]
     );
     assert_eq!(data["versionEvaluated"], false);
-    assert!(data.get("version").is_none());
-    assert_eq!(data["advisories"][0]["id"], "GHSA-1");
+    assert_eq!(data["status"], "error", "{data}");
+    assert_eq!(data["errorCode"], "versionNotFound", "{data}");
     assert!(
-        data["warnings"][0]
+        data["error"]
             .as_str()
             .unwrap_or("")
             .contains("4.17.999-internal"),
         "{data}"
     );
+    assert!(data.get("version").is_none());
+    assert_eq!(data["advisories"][0]["id"], "GHSA-1");
     // Nothing known about the name is still not a verdict on the version.
     let http = registry().post_sequence(vec![(200, json!({}))]);
     let data = answer(&http, Some("9.9.9"), None).await.expect("row");
-    assert_eq!(data["status"], "empty");
+    assert_eq!(data["status"], "error", "{data}");
+    assert_eq!(data["errorCode"], "versionNotFound", "{data}");
     assert_eq!(data["versionEvaluated"], false);
 }
 
@@ -214,7 +221,7 @@ async fn a_go_package_path_sends_its_module() {
 
 /// What a stopped row carries, for the row that resumes it.
 fn saved(token: &str) -> String {
-    json!({"token": token, "read": [record("A")]}).to_string()
+    json!({"token": token, "read": [record("A")], "seen": [token]}).to_string()
 }
 
 /// A cursor's row skips the gate and keeps walking OSV from its token, and

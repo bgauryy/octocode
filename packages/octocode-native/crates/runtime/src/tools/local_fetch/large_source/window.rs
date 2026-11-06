@@ -4,8 +4,8 @@
 use super::held::Want;
 use super::page::{continue_window, map_to_file, past_end_row, served_span};
 use super::proven::Proven;
-use super::stream::{Streaming, stream_pass, streamed};
-use super::{BYTE_LOOKBEHIND, Streamed, WINDOW_LINES};
+use super::stream::{Streaming, stream_pass};
+use super::{Streamed, WINDOW_LINES};
 use crate::execution::cancel::CancellationCheck;
 use crate::security::scan::ContentScan;
 use crate::tools::source_view::prepare::extraction_error;
@@ -16,6 +16,39 @@ use std::path::Path;
 
 /// Why a page of a source whose structure outran the memory budget hides its values.
 const EVERY_VALUE_NOTE: &str = "redactedContent: this source names a Kubernetes Secret or a JSON Web Key, and its nesting outgrew the memory budget before the walk that places their values finished, so every value on this page is hidden, secret or not. Split the source to read it.";
+
+/// Drop the byte continuation of a page of a source each of whose windows hides
+/// every value on its own: the next window's offsets would count another view,
+/// so its page would gap or repeat. The rest of line `line` is disclosed as
+/// unread; the lines after it continue by line.
+fn withhold_byte_page(result: &mut LocalFetchResult, line: usize, reads_on: bool) {
+    let Some(next) = result.next.as_mut() else {
+        return;
+    };
+    if !next
+        .continue_window
+        .as_ref()
+        .is_some_and(|call| local_fetch_query::unit(&call.query) == ReadProgressUnit::Bytes)
+    {
+        return;
+    }
+    next.continue_window = None;
+    // The line's tail is terminal: its byte pages end here.
+    let end = result.pagination.as_mut().map_or(0, |page| {
+        page.has_more = false;
+        page.next_offset = None;
+        page.offset + page.length
+    });
+    let rest = if reads_on {
+        " The lines after it read on."
+    } else {
+        ""
+    };
+    result.warnings.push(format!(
+        "Line {line} is not read past byte {end} of this page's view: the source's nesting outgrew the memory budget, so each window hides every value on its own and no later byte page shares these offsets.{rest}"
+    ));
+    result.terminal_limit(PartialReason::SecuritySelectedView);
+}
 
 /// The file lines one streamed window of `q` holds.
 #[derive(Clone, Copy)]
@@ -31,8 +64,7 @@ pub(super) struct WindowSpan {
     pub(super) origin: usize,
     /// A line chunk (offset + length, no `ranges`) rather than a range.
     pub(super) chunked: bool,
-    /// The range's bytes the window skips: a byte page's offset less its
-    /// lookbehind ([`BYTE_LOOKBEHIND`]).
+    /// The range's sealed bytes the window skips: a byte page's offset.
     pub(super) from: usize,
     /// A byte page of a range: it reads at its byte offset, however many
     /// lines (or bytes of one line) come before it.
@@ -83,9 +115,7 @@ pub(super) fn window_span(q: &LocalFetchQuery) -> WindowSpan {
             requested_last.min(first + WINDOW_LINES - 1)
         },
         from: if byte_page {
-            local_fetch_query::offset(q)
-                .unwrap_or(0)
-                .saturating_sub(BYTE_LOOKBEHIND)
+            local_fetch_query::offset(q).unwrap_or(0)
         } else {
             0
         },
@@ -114,6 +144,8 @@ pub(super) struct Opened<'a> {
     pub(super) proven: Option<(&'a Proven, usize)>,
     /// The scanner's limits: a line window holds [`SourceLimits::window`] bytes.
     pub(super) limits: crate::security::SourceLimits,
+    /// The read's scanner: a pass records what it redacts.
+    pub(super) scan: &'a dyn ContentScan,
 }
 
 impl Opened<'_> {
@@ -125,10 +157,14 @@ impl Opened<'_> {
         match self.proven {
             Some((proven, total_lines)) => proven.windows(self.file, wants, total_lines, cancel),
             None => {
-                let Streaming { pass, binary } = stream_pass(self.file, self.path, wants, cancel)?;
-                let windows = streamed(pass.lines, &pass.proven.digest, pass.total_lines, binary);
+                let Streaming {
+                    proven,
+                    total_lines,
+                    windows,
+                    binary,
+                } = stream_pass(self.file, self.path, wants, self.scan, cancel)?;
                 if !binary {
-                    super::kept::keep(self, pass.proven, pass.total_lines);
+                    super::kept::keep(self, proven, total_lines);
                 }
                 Ok(windows)
             }
@@ -172,10 +208,6 @@ pub(super) fn serve_window(
     cancel: &impl CancellationCheck,
 ) -> LocalFetchResult {
     let (path, len) = (source.path, source.len);
-    let security = &super::unjudged::Masked {
-        scan: security,
-        masked: streamed.masked,
-    };
     let WindowSpan {
         first,
         requested_last,
@@ -259,7 +291,7 @@ pub(super) fn serve_window(
                 window: share,
                 beside: 0,
                 interior: streamed.first > 1 || streamed.origin.base > 0,
-                byte_origin: Some(streamed.origin),
+                byte_origin: Some(streamed.origin.clone()),
             },
             security,
             cancel,
@@ -289,6 +321,10 @@ pub(super) fn serve_window(
         // The lines the page returned, which the window's page budget may have
         // cut short of the window it held.
         let served = served_span(&result).unwrap_or((streamed.first, held_last));
+        if streamed.every_value {
+            // The same fact `continue_window` pages the next line by.
+            withhold_byte_page(&mut result, served.1, served.1 < last);
+        }
         if let Err(error) = continue_window(
             q,
             &mut result,

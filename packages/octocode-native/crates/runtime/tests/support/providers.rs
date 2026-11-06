@@ -52,5 +52,6 @@ pub fn github_api(server: &MockServer) -> [(&'static str, String); 1] {
 /// provider fixtures.
 pub const PROVIDER_LIMITS: RuntimeLimits = RuntimeLimits {
     network_timeout: RuntimeLimits::DEFAULT.network_timeout,
+    classification_timeout: RuntimeLimits::DEFAULT.classification_timeout,
     ..FIXTURE_LIMITS
 };

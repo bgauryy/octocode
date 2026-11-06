@@ -153,18 +153,43 @@ pub struct SourceFacts {
     pub byte_origin: Option<ByteOrigin>,
 }
 
-/// A byte window's place in the byte view it was cut from.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// A byte window's place in the sealed byte view it was cut from: the view is
+/// redacted whole before any window is cut (its owner records every redaction
+/// as the source streams), so the window's bytes are final and its offsets are
+/// the view's.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ByteOrigin {
     /// The view byte the window's first byte is.
     pub base: usize,
     /// The view's size in bytes.
     pub total: usize,
+    /// The window's lines (1-based) its redactions changed, with the
+    /// placeholders each shows: literal `[REDACTED…]` text is not one.
+    pub redacted: std::sync::Arc<[(usize, usize)]>,
 }
 
 impl ByteOrigin {
+    /// The byte offset of `q`, a byte read of the view, when no window of the
+    /// view ends there: before this window's first byte (inside the redaction
+    /// it starts with), or inside a character, a CRLF pair or a redaction
+    /// marker of `window`.
+    pub(super) fn off_edge(&self, q: &LocalFetchQuery, window: &str) -> Option<usize> {
+        let offset = local_fetch_query::offset(q)?;
+        if local_fetch_query::unit(q) != ReadProgressUnit::Bytes || offset == 0 {
+            return None;
+        }
+        let at = offset.checked_sub(self.base);
+        match at {
+            None => Some(offset),
+            Some(at) if at <= window.len() && !crate::response::cut::is_clean_cut(window, at) => {
+                Some(offset)
+            }
+            Some(_) => None,
+        }
+    }
+
     /// `q`, a byte read of the view, as the same read of the window.
-    pub(super) fn within(self, q: &LocalFetchQuery) -> LocalFetchQuery {
+    pub(super) fn within(&self, q: &LocalFetchQuery) -> LocalFetchQuery {
         let mut window = q.clone();
         if local_fetch_query::unit(&window) == ReadProgressUnit::Bytes {
             let offset = local_fetch_query::offset(q)
@@ -185,7 +210,7 @@ impl ByteOrigin {
     /// its offset, the view's size, and whether (and where) more follows.
     /// A page that stopped at an oversized line's end resumes by lines, so
     /// its remainder is the view's whenever the line is not the last.
-    pub(super) fn place(self, page: &mut Pagination) {
+    pub(super) fn place(&self, page: &mut Pagination) {
         page.offset += self.base;
         page.total_bytes = self.total;
         let end = page.offset + page.length;

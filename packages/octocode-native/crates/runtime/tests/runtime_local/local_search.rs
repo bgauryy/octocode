@@ -90,21 +90,78 @@ async fn long_unicode_search_values_arrive_complete_without_expansion_reads() {
     );
     workspace.write("src/minified.txt", format!("head\n{line}\ntail\n"));
     let runtime = workspace.runtime(&[]);
-    let found = call(
-        &runtime,
-        "localSearch",
-        json!({"path":workspace.workspace,"matchString":["needleHere"]}),
-    )
-    .await
-    .expect("search");
-    let data = row_data(&found);
-    assert_eq!(data["files"][0]["matches"][0]["value"], line);
-    assert!(data["files"][0]["matches"][0].get("clipped").is_none());
-    assert!(
-        checks::leads(data)
-            .into_iter()
-            .all(|lead| lead.kind != "continue" || lead.tool != "localFetch")
-    );
+    for mcp in [false, true] {
+        let mut input = json!({"queries":[{
+            "path":workspace.workspace,"matchString":["needleHere"]
+        }]});
+        let mut joined = String::new();
+        let mut seen = std::collections::BTreeSet::new();
+        let mut part = 0;
+        let mut total = None;
+        loop {
+            assert!(seen.insert(input.to_string()), "no repeated continuation");
+            let request = format!("unicode-{mcp}-{part}");
+            let output = if mcp {
+                let result = runtime
+                    .run_mcp(request, "localSearch".into(), input)
+                    .await
+                    .expect("MCP search");
+                crate::support::mcp_payload(&result)
+            } else {
+                runtime
+                    .run(request, "localSearch".into(), input)
+                    .await
+                    .expect("CLI search")
+                    .structured_content
+                    .into_value()
+            };
+            checks::assert_output_contract("localSearch", &output);
+            let rows = output["results"].as_array().expect("rows");
+            assert_eq!(rows.len(), 1);
+            let row = &rows[0];
+            assert_eq!(row["index"], 0);
+            part += 1;
+            let marker = &row["rowPart"];
+            let of = marker["of"].as_u64().expect("total parts");
+            assert_eq!(marker["part"], part);
+            assert_eq!(*total.get_or_insert(of), of);
+            assert!(part <= of);
+            if part > 1 {
+                assert_eq!(marker["text"], "/data/files/0/matches/0/value");
+                assert_eq!(
+                    marker["continues"],
+                    json!({"array":"/data/files/0/matches","index":0})
+                );
+            }
+            let data = &row["data"];
+            let matches = data["files"][0]["matches"].as_array().expect("matches");
+            assert_eq!(matches.len(), 1);
+            assert_eq!(matches[0]["line"], 2);
+            assert!(matches[0].get("clipped").is_none());
+            let value = matches[0]["value"].as_str().expect("text window");
+            assert!(!value.is_empty());
+            joined.push_str(value);
+            assert!(
+                checks::leads(data)
+                    .into_iter()
+                    .all(|lead| lead.kind != "continue" || lead.tool != "localFetch")
+            );
+            let next = output["responsePagination"].get("next");
+            assert_eq!(next.is_some(), part < of);
+            let Some(next) = next else { break };
+            assert_eq!(output["responsePagination"]["hasMore"], true);
+            assert_eq!(next["kind"], "continue");
+            assert_eq!(next["tool"], "localSearch");
+            input = next["input"].clone();
+        }
+        assert!(part > 1, "the fixture exercises text windows");
+        assert!(
+            joined == line,
+            "MCP={mcp}: complete Unicode value, {} of {} bytes",
+            joined.len(),
+            line.len()
+        );
+    }
     runtime.close().await;
 }
 

@@ -295,3 +295,21 @@ fn an_outline_of_one_line_declarations_is_no_smaller_than_its_source() {
         Err(OutlineUnavailable::NotSmaller)
     );
 }
+
+/// A one-line bundle of 100,000 functions, after non-ASCII text: the row
+/// lists every head, each cut at its own column, from one index of the row
+/// (a scan from column 0 per head was quadratic in the line).
+#[test]
+fn a_one_line_bundle_of_a_hundred_thousand_functions_lists_every_head() {
+    let source = format!(
+        "var \u{e9}=1;{}\n",
+        (0..100_000)
+            .map(|index| format!("function f{index}(a){{return a}}"))
+            .collect::<String>()
+    );
+    let outline = extract_signatures_inner(&source, "bundle.js").expect("outline");
+    for index in [0, 1, 50_000, 99_999] {
+        assert!(outline.contains(&format!("function f{index}")), "f{index}");
+    }
+    assert!(!outline.contains("function f100000"));
+}

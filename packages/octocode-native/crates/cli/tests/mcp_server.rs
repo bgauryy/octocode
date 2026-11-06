@@ -82,6 +82,18 @@ fn serves_the_2025_era_over_stdio() {
     let unlisted = server.request("tools/call", json!({"name": "noSuchTool", "arguments": {}}));
     assert_eq!(unlisted["error"]["code"], -32602);
     assert_eq!(unlisted["error"]["message"], "Tool noSuchTool not found");
+    // A tool the server knows but leaves unlisted is refused by admission
+    // with the setting that would list it, as a tool error rather than a
+    // protocol "not found".
+    assert!(!names.contains(&"ghCloneRepo"), "{names:?}");
+    let gated = server.request(
+        "tools/call",
+        json!({"name": "ghCloneRepo", "arguments": {"queries": [{"owner": "o", "repo": "r"}]}}),
+    );
+    assert!(gated.get("error").is_none(), "{gated}");
+    assert_eq!(gated["result"]["isError"], true, "{gated}");
+    let text = gated["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(text.contains("OCTOCODE_ENABLE_CLONE"), "{text}");
 
     assert!(server.finish().success());
 }

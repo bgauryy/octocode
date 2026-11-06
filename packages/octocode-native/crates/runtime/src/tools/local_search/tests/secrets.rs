@@ -1,6 +1,8 @@
 use super::*;
 use octocode_contract_types::ErrorCode;
 
+mod char_walks;
+mod context_spans;
 mod failures;
 mod guard;
 mod hits;

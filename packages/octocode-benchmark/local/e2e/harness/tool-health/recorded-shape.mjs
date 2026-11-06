@@ -60,12 +60,45 @@ export function fieldsOf(exchange) {
   return /<[A-Za-z?]/.test(body) ? xmlFields(body) : undefined;
 }
 
+/** A source repository's location; transport spelling is not another repository. */
+function repositoryIdentity(value) {
+  if (typeof value !== 'string') return null;
+  let address = value.trim().replace(/^scm:git:/, '').replace(/^git\+/, '');
+  address = address.replace(/^git@([^/:]+):/, 'ssh://git@$1/');
+  let uri;
+  try { uri = new URL(address); } catch { return null; }
+  if (!['http:', 'https:', 'ssh:', 'git:'].includes(uri.protocol)) return null;
+  const defaultPort = { 'ssh:': '22', 'git:': '9418' }[uri.protocol];
+  const port = uri.port && uri.port !== defaultPort ? `:${uri.port}` : '';
+  const pathname = uri.pathname.replace(/\/$/, '').replace(/\.git$/, '');
+  return `${uri.hostname.toLowerCase()}${port}${pathname}${uri.search}${uri.hash}`;
+}
+
+const repositoryMarker = value => {
+  const identity = repositoryIdentity(value);
+  return identity === null ? null : `\u001erepository:${identity}\u001e`;
+};
+
+const dateMarker = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}(?:T|$)/i.test(value)
+  ? `\u001edate:${value.slice(0, 10)}\u001e` : null;
+
 /** Every text and number an output holds, folded for comparison. */
 export function outputText(output) {
   const parts = [];
   const visit = value => {
     if (typeof value === 'string' || typeof value === 'number') parts.push(String(value).toLowerCase().replace(/\s+/g, ' '));
-    else if (value && typeof value === 'object') Object.values(value).forEach(visit);
+    else if (value && typeof value === 'object') {
+      // The authored artifact shape uses either repository or one owner/repo pair.
+      const repository = typeof value.repository === 'string' ? value.repository
+        : typeof value.owner === 'string' && typeof value.repo === 'string'
+          ? `https://github.com/${value.owner}/${value.repo}` : null;
+      const marker = repositoryMarker(repository);
+      if (marker) parts.push(marker);
+      const day = dateMarker(value.publishedAt);
+      if (day) parts.push(day);
+      if (value.verification === 'tag' && typeof value.ref === 'string') parts.push(`refs/tags/${value.ref}`);
+      Object.values(value).forEach(visit);
+    }
   };
   visit(output);
   return parts.join('\n');
@@ -85,15 +118,30 @@ const fingerprint = value => {
  * not declared `unread`: what the provider said and the tool never showed. A
  * path passes on any one value: a tool may select rows, not every row.
  */
-export function uncarried(answer, text, { unread = [], maps = [] } = {}) {
+export function uncarried(answer, text, { unread = [], maps = [], repositories = [], dates = [] } = {}) {
   const waived = matcher(unread);
+  const repository = matcher(repositories);
+  const date = matcher(dates);
   const values = new Map();
   walk(answer, '', matcher(maps), (path, value) => {
     if (!provable(value) || waived(path)) return;
     if (!values.has(path)) values.set(path, []);
     values.get(path).push(value);
   });
-  return [...values].filter(([, seen]) => !seen.some(value => text.includes(fingerprint(value)))).map(([path]) => path);
+  return [...values].filter(([path, seen]) => !seen.some(value => {
+    const marker = repository(path) ? repositoryMarker(value) : date(path) && dateMarker(value);
+    return text.includes(marker || fingerprint(value));
+  })).map(([path]) => path);
+}
+
+/** Exchange-local omissions describe enrichment, without waiving the queried record. */
+export function uncarriedExchanges(exchanges, text, options = {}) {
+  return [...new Set(exchanges.filter(exchange => !exchange.alternate && exchange.status < 400).flatMap(exchange => {
+    const fields = fieldsOf(exchange);
+    return fields === undefined ? [] : uncarried(fields, text, {
+      ...options, unread: [...(options.unread ?? []), ...(exchange.unread ?? [])],
+    });
+  }))];
 }
 
 const parentOf = path => {

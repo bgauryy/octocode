@@ -1,10 +1,26 @@
 //! Release refs for registries whose metadata names no commit. Each is a
 //! lead source only: any failure leaves the lookup without a release ref.
-use super::util::{github_repo_dir, github_slug};
-use super::{ArtifactItem, http::RegistryClient};
+use super::util::github_slug;
+use super::{ArtifactItem, RepositoryStatus, http::RegistryClient};
 
-/// A pending release-tag check.
-pub type TagFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = Option<bool>> + 'a>>;
+/// What GitHub says of a commit (or `HEAD`) of a repository.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommitCheck {
+    /// The commit exists.
+    Found,
+    /// The commit exists, but GitHub reached it through a redirect: the
+    /// repository was renamed or transferred, so the registry's link is stale.
+    FoundAfterRedirect,
+    /// The repository exists and has no such commit.
+    Missing,
+    /// The repository itself does not resolve (deleted, private, or never
+    /// there): GitHub answers 404 and no redirect.
+    RepositoryMissing,
+}
+
+/// A pending commit check; `None` means the check could not run.
+pub type CommitFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Option<CommitCheck>> + 'a>>;
 /// A pending look-up of the commit a release tag names.
 pub type TagCommitFuture<'a> =
     std::pin::Pin<Box<dyn std::future::Future<Output = Option<Option<String>>> + 'a>>;
@@ -17,37 +33,90 @@ pub trait ReleaseTags: Send + Sync {
     /// a tag), `Some(None)` when the repository has no such tag.
     fn tag_commit<'a>(&'a self, owner: &'a str, repo: &'a str, tag: &'a str)
     -> TagCommitFuture<'a>;
-    /// `commit` (a SHA a registry recorded) is a commit of `owner/repo`.
-    fn commit_exists<'a>(&'a self, owner: &'a str, repo: &'a str, commit: &'a str)
-    -> TagFuture<'a>;
+    /// What GitHub says of `commit` (a SHA a registry recorded, or `HEAD`) in
+    /// `owner/repo`.
+    fn commit_check<'a>(
+        &'a self,
+        owner: &'a str,
+        repo: &'a str,
+        commit: &'a str,
+    ) -> CommitFuture<'a>;
 }
 
 /// Pins `artifact`'s source to the upstream release tag of `version` when
 /// its registry named no commit: the one fallback every registry without a
 /// recorded release commit (or whose commit is unknown) takes. `package` is
 /// the name the package's tags go by (Maven's artifactId, not its
-/// coordinate).
+/// coordinate). `declared` is a release tag the package's own metadata names
+/// (a Maven `<scm><tag>`): the first candidate, still checked to exist.
 pub(crate) async fn pin_release_tag(
     artifact: &mut ArtifactItem,
     package: &str,
     version: &str,
+    declared: Option<&str>,
     client: &RegistryClient<'_>,
 ) {
-    if artifact.source_ref.is_some() {
-        return;
-    }
-    let Some(repository) = artifact.repository.as_deref() else {
+    let Some(repository) = unpinned_repository(artifact) else {
         return;
     };
-    let directory = artifact
-        .repository_directory
-        .clone()
-        .or_else(|| github_repo_dir(repository));
-    artifact.source_ref =
-        github_release_tag(repository, directory.as_deref(), package, version, client)
-            .await
-            .map(|release| release.tag);
+    let found = github_release_tag(
+        &repository,
+        artifact.repository_directory.as_deref(),
+        package,
+        version,
+        declared,
+        client,
+    )
+    .await;
+    settle_pin(artifact, &repository, found, client).await;
+}
+
+/// [`pin_release_tag`] for a Go module, whose tags follow the go command's own
+/// rule rather than a registry's habits: `v<version>`, with the module's
+/// directory in its repository as a prefix (`service/s3/v1.2.3`) when it is
+/// not the root. `directory` is that directory, when known. Only the one tag a
+/// module of this repository can carry is asked, never a spelling built from
+/// the module path (a vanity path is not a name its repository's tags use).
+pub(crate) async fn pin_go_release_tag(
+    artifact: &mut ArtifactItem,
+    directory: Option<&str>,
+    version: &str,
+    client: &RegistryClient<'_>,
+) {
+    let Some(repository) = unpinned_repository(artifact) else {
+        return;
+    };
+    let found = go_release_tag(&repository, directory, version, client).await;
+    settle_pin(artifact, &repository, found, client).await;
+}
+
+/// The repository a row still has to pin a release to: none when the row has a
+/// ref already, names no repository, or its repository is gone.
+fn unpinned_repository(artifact: &ArtifactItem) -> Option<String> {
+    if artifact.source_ref.is_some()
+        || artifact.repository_status == Some(RepositoryStatus::Missing)
+    {
+        return None;
+    }
+    artifact.repository.clone()
+}
+
+/// Records the outcome of a tag lookup on the row.
+async fn settle_pin(
+    artifact: &mut ArtifactItem,
+    repository: &str,
+    found: Option<ReleaseTag>,
+    client: &RegistryClient<'_>,
+) {
+    artifact.source_ref = found.map(|release| release.tag);
     artifact.source_tag = artifact.source_ref.is_some();
+    // No tag to pin: the source reads the default branch of the repository
+    // the registry names, so first learn whether that repository is there.
+    if artifact.source_ref.is_none()
+        && let Some(check) = commit_check(repository, "HEAD", client).await
+    {
+        artifact.note_repository(check);
+    }
 }
 
 /// Ties a registry's unchecked release commit to the upstream release tag of
@@ -66,12 +135,15 @@ pub(crate) async fn check_commit_against_tag(
     let Some(repository) = artifact.repository.as_deref() else {
         return;
     };
-    let directory = artifact
-        .repository_directory
-        .clone()
-        .or_else(|| github_repo_dir(repository));
-    let Some(release) =
-        github_release_tag(repository, directory.as_deref(), package, version, client).await
+    let Some(release) = github_release_tag(
+        repository,
+        artifact.repository_directory.as_deref(),
+        package,
+        version,
+        None,
+        client,
+    )
+    .await
     else {
         return;
     };
@@ -91,7 +163,8 @@ pub struct ReleaseTag {
 
 /// The release tag of `version` in a GitHub repository, when one exists
 /// upstream: `v<version>`, `<version>`, then the shapes a monorepo uses for
-/// one package's releases ([`tag_candidates`]). Without a GitHub check, or
+/// one package's releases ([`tag_candidates`]); a leading `v` of `version` is
+/// the same release, and a tag the package's metadata declares is asked first. Without a GitHub check, or
 /// when the check fails (rate limit, missing repository), there is no tag.
 /// Each lookup checks current tags; neither matches nor absences are retained.
 async fn github_release_tag(
@@ -99,21 +172,62 @@ async fn github_release_tag(
     directory: Option<&str>,
     package: &str,
     version: &str,
+    declared: Option<&str>,
     client: &RegistryClient<'_>,
 ) -> Option<ReleaseTag> {
     let tags = client.tags?;
     let (owner, repo) = github_slug(repository)?;
-    let candidates = tag_candidates(&repo, package, directory, version);
-    // Two rounds: the plain tags most releases carry, then a monorepo
-    // package's own shapes, each round's checks together.
-    let (plain, own) = candidates.split_at(candidates.len().min(2));
-    for round in [plain, own] {
+    // A version written with its `v` (`v2.2.8`) names the same release as without.
+    let bare = version
+        .strip_prefix('v')
+        .filter(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+        .unwrap_or(version);
+    let mut candidates = tag_candidates(&repo, package, directory, bare);
+    let named = declared
+        .filter(|tag| !tag.is_empty() && !candidates.iter().any(|known| known == tag))
+        .map(|tag| candidates.insert(0, tag.to_owned()))
+        .is_some();
+    // Two rounds: the plain tags most releases carry (and the one the
+    // package declares), then a monorepo package's own shapes, each round's
+    // checks together.
+    let (plain, own) = candidates.split_at(candidates.len().min(2 + usize::from(named)));
+    first_existing_tag(tags, &owner, &repo, &[plain, own]).await
+}
+
+/// The release tag of a Go module version in a GitHub repository: the go
+/// command's spelling, `v<version>` under the module's `directory` when it
+/// has one. A leading `v` and `+incompatible` are not part of the release.
+async fn go_release_tag(
+    repository: &str,
+    directory: Option<&str>,
+    version: &str,
+    client: &RegistryClient<'_>,
+) -> Option<ReleaseTag> {
+    let tags = client.tags?;
+    let (owner, repo) = github_slug(repository)?;
+    let release = version.strip_suffix("+incompatible").unwrap_or(version);
+    let tag = match directory.filter(|directory| !directory.is_empty()) {
+        Some(directory) => format!("{directory}/{release}"),
+        None => release.to_owned(),
+    };
+    first_existing_tag(tags, &owner, &repo, &[&[tag]]).await
+}
+
+/// The first of `candidates` (rounds in order, each round's checks together,
+/// a round's candidates in order) the repository has as a tag. A failed check
+/// is no answer: nothing is remembered, and there is no tag.
+async fn first_existing_tag(
+    tags: &dyn ReleaseTags,
+    owner: &str,
+    repo: &str,
+    rounds: &[&[String]],
+) -> Option<ReleaseTag> {
+    for round in rounds {
         let answers = futures_util::future::join_all(
-            round.iter().map(|tag| tags.tag_commit(&owner, &repo, tag)),
+            round.iter().map(|tag| tags.tag_commit(owner, repo, tag)),
         )
         .await;
         for (tag, commit) in round.iter().zip(answers) {
-            // A failed check is no answer: nothing is remembered.
             if let Some(commit) = commit? {
                 return Some(ReleaseTag {
                     tag: tag.clone(),
@@ -184,142 +298,18 @@ fn tag_stems(repo: &str, package: &str, directory: Option<&str>) -> Vec<String> 
     stems
 }
 
-/// Whether GitHub says `repository` has no commit `reference`: `false` when
-/// it has one, when the repository is not on GitHub, or when no check could
-/// run (no GitHub access, rate limit), so only a definite answer drops a ref.
-pub(crate) async fn github_ref_missing(
+/// What GitHub says of `reference` (a recorded commit, or `HEAD`) in
+/// `repository`; `None` when the repository is not on GitHub or no check
+/// could run (no GitHub access, rate limit), so only a definite answer
+/// changes a row.
+pub(crate) async fn commit_check(
     repository: &str,
     reference: &str,
     client: &RegistryClient<'_>,
-) -> bool {
-    let (Some(tags), Some((owner, repo))) = (client.tags, github_slug(repository)) else {
-        return false;
-    };
-    tags.commit_exists(&owner, &repo, reference).await == Some(false)
+) -> Option<CommitCheck> {
+    let (tags, (owner, repo)) = (client.tags?, github_slug(repository)?);
+    tags.commit_check(&owner, &repo, reference).await
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{RegistryClient, github_release_tag, tag_candidates};
-
-    #[test]
-    fn a_monorepo_package_is_tagged_by_the_names_it_goes_by() {
-        // pydantic-core is released from pydantic/pydantic as `core-v<version>`.
-        let tags = tag_candidates("pydantic", "pydantic_core", Some("pydantic-core"), "2.50.1");
-        assert_eq!(&tags[..2], ["v2.50.1", "2.50.1"]);
-        assert!(tags.contains(&"core-v2.50.1".to_owned()), "{tags:?}");
-        assert!(
-            tags.contains(&"pydantic-core-v2.50.1".to_owned()),
-            "{tags:?}"
-        );
-        // A scoped package keeps its scope in the `@` form changesets writes.
-        let tags = tag_candidates("changesets", "@changesets/cli", None, "2.29.0");
-        assert!(
-            tags.contains(&"@changesets/cli@2.29.0".to_owned()),
-            "{tags:?}"
-        );
-        assert!(tags.contains(&"cli@2.29.0".to_owned()), "{tags:?}");
-        // A package that is its repository takes only the plain tags.
-        assert_eq!(
-            tag_candidates("requests", "requests", None, "2.32.3"),
-            ["v2.32.3", "2.32.3"]
-        );
-        assert_eq!(
-            tag_candidates("serde_json", "serde-json", None, "1.0.1"),
-            ["v1.0.1", "1.0.1"]
-        );
-    }
-
-    fn tag_client<'a>(
-        http: &'a super::super::test_http::RouteHttp,
-        budget: &'a octocode_io::budget::RequestBudget,
-        tags: &'a super::super::test_http::KnownTags,
-    ) -> RegistryClient<'a> {
-        RegistryClient {
-            tags: Some(tags),
-            ..RegistryClient::new(http, budget)
-        }
-    }
-
-    /// A package with no matching tag is checked again on each lookup.
-    #[tokio::test]
-    async fn each_release_lookup_checks_current_upstream_tags() {
-        let http = super::super::test_http::RouteHttp::new();
-        let budget = super::super::test_http::test_budget();
-        let tags = super::super::test_http::KnownTags::always(Some(false));
-        let client = tag_client(&http, &budget, &tags);
-        let repository = "https://github.com/acme/monorepo";
-        for _ in 0..2 {
-            assert_eq!(
-                github_release_tag(
-                    repository,
-                    Some("packages/widget"),
-                    "widget",
-                    "1.0.0",
-                    &client
-                )
-                .await,
-                None
-            );
-        }
-        let candidates = tag_candidates("monorepo", "widget", Some("packages/widget"), "1.0.0");
-        assert_eq!(tags.seen().len(), candidates.len() * 2, "{:?}", tags.seen());
-        // A failed check is not an absence: it is asked again.
-        let failing = super::super::test_http::KnownTags::always(None);
-        let client = tag_client(&http, &budget, &failing);
-        for _ in 0..2 {
-            assert_eq!(
-                github_release_tag(repository, None, "other", "2.0.0", &client).await,
-                None
-            );
-        }
-        assert_eq!(failing.seen().len(), 4, "{:?}", failing.seen());
-    }
-
-    /// The plain tags are asked first; a monorepo package's own tags are
-    /// asked together after them, and the earliest candidate that exists
-    /// wins whatever order the answers arrive in.
-    #[tokio::test]
-    async fn release_tags_are_asked_in_two_rounds_and_the_first_candidate_wins() {
-        let http = super::super::test_http::RouteHttp::new();
-        let budget = super::super::test_http::test_budget();
-        let plain = super::super::test_http::KnownTags::new(vec!["acme/widget@v1.0.0"]);
-        let client = tag_client(&http, &budget, &plain);
-        assert_eq!(
-            github_release_tag(
-                "https://github.com/acme/widget",
-                Some("packages/core"),
-                "core",
-                "1.0.0",
-                &client
-            )
-            .await
-            .map(|release| release.tag)
-            .as_deref(),
-            Some("v1.0.0")
-        );
-        assert_eq!(plain.seen(), ["acme/widget@v1.0.0", "acme/widget@1.0.0"]);
-        let stems = super::super::test_http::KnownTags::new(vec![
-            "acme/widget@core@1.0.0",
-            "acme/widget@core-v1.0.0",
-        ]);
-        let client = tag_client(&http, &budget, &stems);
-        assert_eq!(
-            github_release_tag(
-                "https://github.com/acme/widget",
-                Some("packages/core"),
-                "core",
-                "1.0.0",
-                &client
-            )
-            .await
-            .map(|release| release.tag)
-            .as_deref(),
-            Some("core-v1.0.0")
-        );
-        assert_eq!(
-            stems.seen().len(),
-            tag_candidates("widget", "core", Some("packages/core"), "1.0.0").len()
-        );
-    }
-}
+mod tests;

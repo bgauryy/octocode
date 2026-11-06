@@ -2,7 +2,7 @@
 use super::{FILTERS, GhSearchRepoQuery};
 use crate::id::ToolId;
 use crate::response::result::{Continuation, ToolData, query_row};
-use crate::tools::leads::broaden::{Broaden, broaden, set_broadened};
+use crate::tools::leads::broaden::{Broaden, broaden, set_broadened, set_no_broader};
 use serde_json::{Value, json};
 
 /// Where the top repository leads: its default-branch root listing. Repo
@@ -63,8 +63,14 @@ pub(super) fn repository_output(
     // exits 1, nothing printed), and only a complete one is worth broadening.
     if repositories_empty && !provider_capped {
         output.status = Some("empty");
-        if !provider_incomplete && let Some(broader) = broaden_search(query) {
-            set_broadened(&mut output.data, &copied_search(query), broader);
+        if !provider_incomplete {
+            match broaden_search(query) {
+                Some(broader) => set_broadened(&mut output.data, &copied_search(query), broader),
+                None if !super::access::keywords(query).is_empty() => {
+                    set_no_broader(&mut output.data);
+                }
+                None => {}
+            }
         }
     }
     crate::response::result::finish_calls(&mut output.data);

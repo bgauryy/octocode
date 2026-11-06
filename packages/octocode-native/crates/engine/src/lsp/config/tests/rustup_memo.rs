@@ -188,7 +188,12 @@ fn an_unprovable_answer_is_not_kept() {
         rustup,
         _root: root,
     };
+    // A write just before each ask, not the time since the machine was
+    // made: under load the asks themselves can outlast the settle window.
+    let toolchains = machine.home.join("toolchains");
+    std::fs::write(toolchains.join("written-1"), "").expect("write");
     assert!(machine.counted().1 > 0);
+    std::fs::write(toolchains.join("written-2"), "").expect("write");
     assert!(machine.counted().1 > 0, "unsettled");
     settle_written_so_far();
     let mut unknown = machine;

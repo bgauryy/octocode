@@ -5,7 +5,7 @@ use super::TextSearchPathFilter;
 use super::collect::{WalkControl, WorkerRecs, file_searcher, walk_scope};
 use super::mode::Mode;
 use super::result::{build_result, preserves_traversal_order};
-use super::state::{CollectResult, CollectState};
+use super::state::{CollectResult, CollectState, Held};
 use super::window::{Clock, Earlier, Pause, Resume, Searched};
 use crate::digest::{ListedFiles, stamp_of};
 use crate::error::Result;
@@ -25,6 +25,9 @@ pub(super) struct Run {
     /// What the walk recorded (errors, depth cuts) and the stop flag every
     /// worker polls.
     pub(super) walk: CollectState,
+    /// The bound on what every window of the search keeps, the earlier
+    /// windows' kept files included.
+    pub(super) held: Arc<Held>,
     commit: Mutex<Commit>,
 }
 
@@ -62,9 +65,10 @@ pub(super) struct Plan {
 }
 
 impl Run {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(held: Option<usize>) -> Self {
         Self {
             walk: CollectState::new(),
+            held: Arc::new(Held::new(held)),
             commit: Mutex::new(Commit::default()),
         }
     }
@@ -219,6 +223,10 @@ pub(super) fn collect_ordered<M: Matcher + Sync>(
             {
                 let listed = listed_now(&files[..floor]);
                 if listed.hex() == pin {
+                    // What they kept is held from the start of this window.
+                    if !run.held.charge(searched.weight()) {
+                        run.walk.stop.store(true, Ordering::Relaxed);
+                    }
                     commit.next = floor;
                     commit.listed = listed;
                     commit.done = searched.0;
@@ -233,7 +241,8 @@ pub(super) fn collect_ordered<M: Matcher + Sync>(
     std::thread::scope(|threads_scope| {
         for _ in 0..threads {
             threads_scope.spawn(|| {
-                let mut searcher = file_searcher(scope, mode, matchers, &run.walk.stop);
+                let mut searcher =
+                    file_searcher(scope, mode, matchers, (&run.walk.stop, &run.held));
                 while !run.walk.stopped() {
                     let index = next.fetch_add(1, Ordering::Relaxed);
                     let Some(dent) = files.get(index) else {

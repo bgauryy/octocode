@@ -10,10 +10,13 @@ use std::path::Path;
 /// as `/dir/`); directories alone (and paths that do not resolve, left for
 /// the caller's not-found check) keep cone mode. A failed `ls-tree` fails
 /// the checkout: guessing cone mode would widen a file scope to its folder.
+/// Cone mode cannot exclude a file, so any `withheld` file also forces the
+/// exact patterns, each followed by a negation for every withheld file.
 pub(super) fn sparse_set_args(
     context: &CloneContext<'_>,
     target: &Path,
     sparse_paths: &[String],
+    withheld: &[String],
 ) -> Result<Vec<OsString>, CloneError> {
     let paths = sparse_paths
         .iter()
@@ -38,7 +41,7 @@ pub(super) fn sparse_set_args(
     })
     .collect::<Vec<_>>();
     let is_file = |path: &str| files.iter().any(|file| file == path);
-    if !paths.iter().any(|path| is_file(path)) {
+    if withheld.is_empty() && !paths.iter().any(|path| is_file(path)) {
         let mut args = scoped(
             target,
             &["sparse-checkout", "set", "--cone", "--skip-checks", "--"],
@@ -46,15 +49,38 @@ pub(super) fn sparse_set_args(
         args.extend(sparse_paths.iter().map(OsString::from));
         return Ok(args);
     }
-    let mut args = scoped(target, &["sparse-checkout", "set", "--no-cone", "--"]);
-    args.extend(paths.iter().map(|path| {
+    let includes = paths.iter().map(|path| {
         let mut pattern = file_pattern(path);
         if !is_file(path) {
             pattern.push('/');
         }
-        OsString::from(pattern)
-    }));
-    Ok(args)
+        pattern
+    });
+    Ok(non_cone_args(target, includes, withheld))
+}
+
+/// `sparse-checkout set` arguments that check out everything except the
+/// `withheld` files; `None` when nothing is withheld, so the checkout stays
+/// an ordinary full one.
+pub(super) fn withhold_args(target: &Path, withheld: &[String]) -> Option<Vec<OsString>> {
+    (!withheld.is_empty()).then(|| non_cone_args(target, ["/*".to_owned()], withheld))
+}
+
+/// Non-cone patterns: the `includes`, then a later negation per withheld
+/// file (the last matching pattern wins, as in gitignore).
+fn non_cone_args(
+    target: &Path,
+    includes: impl IntoIterator<Item = String>,
+    withheld: &[String],
+) -> Vec<OsString> {
+    let mut args = scoped(target, &["sparse-checkout", "set", "--no-cone", "--"]);
+    args.extend(includes.into_iter().map(OsString::from));
+    args.extend(
+        withheld
+            .iter()
+            .map(|path| OsString::from(format!("!{}", file_pattern(path)))),
+    );
+    args
 }
 
 /// Anchored gitignore-style pattern matching exactly one repo-relative file.

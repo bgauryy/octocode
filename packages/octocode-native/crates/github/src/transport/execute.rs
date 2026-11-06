@@ -22,6 +22,19 @@ use crate::{Partition, ProviderError, ProviderErrorKind};
 /// (which is validated) settles.
 pub(crate) const SEARCH_REUSE_WINDOW: Duration = Duration::from_secs(300);
 
+/// How long a GraphQL read of one pull request stands in for asking again when
+/// GitHub states no lifetime for that pull request over REST (none seen yet, or
+/// none allowed). Owner decision (GHI-3): the same chosen-bound rule as
+/// [`SEARCH_REUSE_WINDOW`], disclosed on every reuse; a stated lifetime wins.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::disallowed_methods,
+        reason = "Disclosed cache freshness policy, not a request deadline or terminal evidence limit"
+    )
+)]
+pub(crate) const PULL_REQUEST_REUSE_WINDOW: Duration = Duration::from_secs(60);
+
 /// A page, and whether the origin sent it just now.
 pub(super) struct Obtained {
     pub(super) page: ResponsePage,
@@ -279,13 +292,16 @@ impl GitHubTransport {
 
     /// How long an answer `spec` gets with no validator or lifetime may stand:
     /// a search's chosen window; for a read of a pull request, what GitHub
-    /// states for that pull request over REST, once this key has seen it.
+    /// states for that pull request over REST once this key has seen it, else
+    /// [`PULL_REQUEST_REUSE_WINDOW`].
     fn reuse_window(&self, spec: &RequestSpec, context: &RequestContext) -> Option<Duration> {
         match self.endpoint.resource(&spec.url) {
             GitHubResource::Search | GitHubResource::CodeSearch => Some(SEARCH_REUSE_WINDOW),
-            _ if spec.reads_pull_request => self
-                .key_state(context.resolved_credential())
-                .pull_request_lifetime(),
+            _ if spec.reads_pull_request => Some(
+                self.key_state(context.resolved_credential())
+                    .pull_request_lifetime()
+                    .unwrap_or(PULL_REQUEST_REUSE_WINDOW),
+            ),
             _ => None,
         }
     }

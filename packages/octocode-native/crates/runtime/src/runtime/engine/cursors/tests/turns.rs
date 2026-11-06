@@ -13,7 +13,7 @@ fn a_call_waiting_its_turn_leaves_the_sidecar_free() {
     let sidecar = disk.path().join("continuations.lock");
     let context = context();
     let held = registry.mutation_lock(&context).unwrap();
-    let mut pending = Pending::new([5; 32], None);
+    let mut pending = registry.pending([5; 32], None);
     let token = insert_page(&mut pending, 1);
     std::thread::scope(|scope| {
         let waiting = scope.spawn(|| registry.retain(pending, &context));
@@ -50,7 +50,7 @@ fn parallel_retains_keep_every_handle_reachable() {
             .map(|call| {
                 let (registry, gate) = (&registry, &gate);
                 scope.spawn(move || {
-                    let mut pending = Pending::new([8; 32], None);
+                    let mut pending = registry.pending([8; 32], None);
                     let tokens = (0..4)
                         .map(|page| insert_page(&mut pending, call * 10 + page))
                         .collect::<Vec<_>>();

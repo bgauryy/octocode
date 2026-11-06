@@ -39,10 +39,7 @@ pub(super) fn read_top_match(top: &Value, reference: Option<&str>) -> Option<Val
 /// The text GitHub highlighted in the top file's first fragment.
 fn highlighted(top: &Value) -> Option<String> {
     let matched = top.get("matches")?.as_array()?.first()?;
-    let anchor = &matched["matchIndices"][0];
-    let start = usize::try_from(anchor["start"].as_u64()?).ok()?;
-    let end = usize::try_from(anchor["end"].as_u64()?).ok()?;
-    crate::content::utf16_slice(matched["value"].as_str()?, start, end)
+    matched["highlight"].as_str().map(str::to_owned)
 }
 
 /// A source file outside tests: the only hit a top-match read is worth.

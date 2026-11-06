@@ -58,7 +58,7 @@ fn ranged_secret_value_is_redacted_and_retains_original_line_coordinates() {
 
 #[test]
 fn byte_progress_inside_long_unicode_line_has_no_gap_or_duplicate() {
-    let source = format!("{}needle{}\n", "é🦀".repeat(400), "世界".repeat(400));
+    let source = format!("{}needle{}\n", "é🦀".repeat(1_600), "世界".repeat(1_600));
     for window in [64, 127, 511] {
         let (actual, pages) = walk(&source, query(json!({})), window);
         assert_eq!(actual, source);
@@ -74,7 +74,9 @@ fn byte_progress_redacts_a_secret_even_when_it_starts_inside_the_block() {
         filler(98),
         filler(20)
     );
-    let offset = source.find(body).expect("body") + 20;
+    // Offsets count the redacted view: the block's first byte is the
+    // same byte in the source and in the view.
+    let offset = source.find("-----BEGIN").expect("block");
     let out = fetch_window(&source, &byte_query(offset), 64);
     assert!(
         !out.content
@@ -85,8 +87,10 @@ fn byte_progress_redacts_a_secret_even_when_it_starts_inside_the_block() {
     assert_eq!(out.pagination.as_ref().expect("pagination").offset, offset);
 }
 
+/// A cold page at any offset is cut from its source redacted whole: one
+/// scan of the source, and none of the page on its own.
 #[test]
-fn page_scanner_reads_a_bounded_context_window() {
+fn a_cold_page_scans_its_source_once() {
     struct Counting(ContentSecurity, std::cell::Cell<usize>);
     impl ContentScan for Counting {
         fn sanitize(
@@ -114,9 +118,7 @@ fn page_scanner_reads_a_bounded_context_window() {
         &NeverCancel,
     );
     assert!(out.content.is_some());
-    assert!(
-        scanner.1.get() < 8_000 + 4 * crate::tools::source_view::pagination::PAGE_SCAN_MARGIN_BYTES
-    );
+    assert_eq!(scanner.1.get(), source.len());
 }
 
 #[test]

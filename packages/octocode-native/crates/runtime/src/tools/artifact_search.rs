@@ -161,6 +161,9 @@ fn respond(
             {
                 data["calls"][name] = lead;
             }
+            if let Some(lead) = artifacts.first().and_then(leads::advisory_lead) {
+                data["calls"]["checkAdvisories"] = lead;
+            }
         }
     }
     paging::push_warnings(
@@ -168,8 +171,20 @@ fn respond(
         artifacts
             .iter()
             .filter_map(leads::source_warning)
+            .chain(
+                artifacts
+                    .iter()
+                    .filter(|_| artifact_search_query::package_name(query).is_some())
+                    .filter_map(leads::unknown_source_warning),
+            )
             .chain(artifacts.iter().filter_map(leads::property_warning))
-            .chain(artifacts.iter().filter_map(leads::prerelease_warning)),
+            .chain(artifacts.iter().filter_map(leads::retraction_warning))
+            .chain(artifacts.iter().filter_map(leads::prerelease_warning))
+            .chain(
+                artifacts
+                    .iter()
+                    .flat_map(|artifact| artifact.disclosures.iter().cloned()),
+            ),
     );
     if let Some(limit) = terminal_limit {
         paging::terminal_limit(&mut data, limit.reason, &[limit.warning]);

@@ -4,6 +4,9 @@ use super::*;
 /// What a materialize page has for one listed entry.
 pub(in crate::tools::gh_structure) enum Acquired {
     NotAFile,
+    /// Named like a credential file ([`crate::policy::discovery`]): never
+    /// read from the provider and never written.
+    Withheld,
     /// Larger than this call may read, by its listed size.
     Oversized,
     Read(Result<octocode_github::ContentResponse, ProviderError>),
@@ -33,6 +36,11 @@ impl MaterializeWriter<'_> {
         let acquired = match read {
             Acquired::NotAFile => {
                 self.cursor += 1;
+                return Ok(true);
+            }
+            Acquired::Withheld => {
+                self.cursor += 1;
+                self.skips.withheld.push(entry.path.clone());
                 return Ok(true);
             }
             Acquired::Oversized => {
@@ -111,6 +119,9 @@ pub(in crate::tools::gh_structure) struct MaterializeSkips {
     pub(in crate::tools::gh_structure) unreadable: Vec<(String, String)>,
     /// Not text: nothing a local text tool could read is missing.
     pub(in crate::tools::gh_structure) binary: Vec<String>,
+    /// Credential-named files, withheld by policy: the local tools would not
+    /// read them either.
+    pub(in crate::tools::gh_structure) withheld: Vec<String>,
 }
 
 impl MaterializeSkips {
@@ -122,7 +133,7 @@ impl MaterializeSkips {
     }
 
     pub(in crate::tools::gh_structure) fn is_empty(&self) -> bool {
-        self.binary.is_empty() && !self.leaves_a_gap()
+        self.binary.is_empty() && self.withheld.is_empty() && !self.leaves_a_gap()
     }
 
     /// Whether a skipped file holds text the checkout now lacks.
@@ -136,17 +147,27 @@ impl MaterializeSkips {
             .map(String::as_str)
             .chain(self.unreadable.iter().map(|(path, _)| path.as_str()))
             .chain(self.binary.iter().map(String::as_str))
+            .chain(self.withheld.iter().map(String::as_str))
             .collect()
     }
 
-    /// Why `location.skipped` names binaries on a checkout that is complete.
+    /// Why `location.skipped` names files on a checkout that is complete:
+    /// binaries are not text, credential-named files are withheld.
     pub(in crate::tools::gh_structure) fn binary_hint(&self) -> Option<String> {
-        (!self.binary.is_empty()).then(|| {
-            format!(
+        let mut parts = Vec::new();
+        if !self.binary.is_empty() {
+            parts.push(format!(
                 "{} binary file(s) are in location.skipped: not text, so not written.",
                 self.binary.len()
-            )
-        })
+            ));
+        }
+        if !self.withheld.is_empty() {
+            parts.push(format!(
+                "{} credential-named file(s) are in location.skipped: withheld, so neither read nor written.",
+                self.withheld.len()
+            ));
+        }
+        (!parts.is_empty()).then(|| parts.join(" "))
     }
 
     pub(in crate::tools::gh_structure) fn warnings(&self) -> Vec<String> {

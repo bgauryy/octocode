@@ -1,6 +1,6 @@
 //! One bounded assessment batch over the frozen plan, saved before and
 //! after its provider requests.
-use super::emit::{answered_cell, emit, terminal_saved};
+use super::emit::{answered_cell, attach_hit_reads, emit, terminal_saved};
 use super::{Budget, Outcome, Runtime, Session, error_value, token};
 use crate::execution::ExecutionContext;
 use crate::providers::classification::gate::call_cap;
@@ -92,6 +92,9 @@ pub(super) fn assess_and_save(
         ));
     }
     let mut output = emit(session, &usage, None);
+    if runtime.can_resume {
+        attach_hit_reads(&mut output);
+    }
     if remaining > 0 {
         let Ok(assessment) = token(&session.id, ordinal + 1).try_into() else {
             unreachable!("a batch token is a valid assessment token");

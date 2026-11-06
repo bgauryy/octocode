@@ -71,7 +71,6 @@ fn a_cpp_or_cuda_path_names_its_head_and_a_longer_spelling() {
 fn patterns_without_a_literal_qualified_head_have_no_longer_spelling() {
     for pattern in [
         "$P::new($X)",
-        "new($X)",
         "fn $N() {}",
         "$X.unwrap()",
         "crate::run($X)",
@@ -82,11 +81,68 @@ fn patterns_without_a_literal_qualified_head_have_no_longer_spelling() {
         assert_eq!(broader(pattern, "rs"), None, "{pattern}");
     }
     assert_eq!(broader("$Q::seconds($X)", "cpp"), None);
+    assert_eq!(broader("$F($X)", "rs"), None);
     assert_eq!(broader("<$T>", "tsx"), None);
 }
 
+/// A call on a bare name is spelled as written, so a call that qualifies the
+/// name (`crate::security::scan::redact_lines(..)`) is left out. The longer
+/// spelling puts one capture and the grammar's own separator before the name.
+#[test]
+fn a_bare_callee_names_itself_and_a_longer_spelling() {
+    let call = pattern_qualifier("redact_lines($$$A)", "rs").expect("a bare call");
+    assert_eq!(call.head, "redact_lines");
+    assert_eq!(call.broader, "$QUALIFIER::redact_lines($$$A)");
+    assert_eq!(
+        broader("  run( $X )  ", "rs").as_deref(),
+        Some("  $QUALIFIER::run( $X )  ")
+    );
+    assert_eq!(
+        broader("seconds($X)", "cpp").as_deref(),
+        Some("$QUALIFIER::seconds($X)")
+    );
+    for (ext, spelled) in [
+        ("ts", "$QUALIFIER.format($$$A)"),
+        ("tsx", "$QUALIFIER.format($$$A)"),
+        ("js", "$QUALIFIER.format($$$A)"),
+        ("py", "$QUALIFIER.format($$$A)"),
+        ("go", "$QUALIFIER.format($$$A)"),
+        ("cs", "$QUALIFIER.format($$$A)"),
+    ] {
+        let qualified = pattern_qualifier("format($$$A)", ext).expect(ext);
+        assert_eq!(qualified.head, "format", "{ext}");
+        assert_eq!(qualified.broader, spelled, "{ext}");
+    }
+}
+
+/// The longer spelling of a bare callee matches the calls that qualify the
+/// name (any depth, any path keyword), and none the pattern itself matches,
+/// neither a method of that name in a `::` grammar nor another name.
+#[test]
+fn the_longer_bare_spelling_matches_only_qualified_calls() {
+    let rust = "fn f() {\n    run(1);\n    crate::a::run(2);\n    scan::run(3);\n    x.run(4);\n    runner(5);\n    let g = crate::a::run;\n}\n";
+    assert_eq!(match_lines(rust, "rs", "run($X)"), vec![2]);
+    let longer = broader("run($X)", "rs").expect("broader");
+    assert_eq!(match_lines(rust, "rs", &longer), vec![3, 4]);
+    let ts = "function f() {\n  run(1);\n  ns.run(2);\n  this.a.run(3);\n  runner(4);\n}\n";
+    assert_eq!(match_lines(ts, "ts", "run($X)"), vec![2]);
+    let longer = broader("run($X)", "ts").expect("broader");
+    assert_eq!(match_lines(ts, "ts", &longer), vec![3, 4]);
+}
+
+/// A call with no `function` to qualify (a Java invocation), a bare name that
+/// is not a call, and a callee that is not a plain name get none.
+#[test]
+fn what_is_not_a_bare_call_has_no_longer_bare_spelling() {
+    assert_eq!(broader("format($X)", "java"), None);
+    assert_eq!(broader("Ordering", "rs"), None);
+    assert_eq!(broader("format", "ts"), None);
+    assert_eq!(broader("this.format($X)", "ts"), None);
+    assert_eq!(broader("$F($X)", "ts"), None);
+}
+
 /// `.`-separated member paths are not namespace qualifications: those
-/// grammars get no longer spelling, even where `::` parses.
+/// grammars get no longer spelling for a path pattern, even where `::` parses.
 #[test]
 fn member_path_grammars_have_no_longer_spelling() {
     for (pattern, ext) in [

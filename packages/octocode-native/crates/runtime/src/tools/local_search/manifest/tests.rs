@@ -17,7 +17,7 @@ fn fresh(value: TextSearchResult) -> Fresh {
         redaction: Redaction::default(),
         skipped: Default::default(),
         walked: Walked::settled(root, entries),
-        prices: Default::default(),
+        learned: Default::default(),
     }
 }
 
@@ -165,4 +165,35 @@ fn a_stored_scan_is_dropped_when_its_walk_would_find_more() {
         get("manifest-walk-create-test", "policy").is_none(),
         "a file created in a walked directory drops the scan"
     );
+}
+
+/// Prices a page learns once its scan is stored are charged their bytes, once
+/// each; a refused one is not kept, and a later page prices that file again.
+#[test]
+fn learned_prices_are_charged_or_not_kept() {
+    let files = one_match(std::path::Path::new("/src/a.rs"), 1, "a").files;
+    let learned = Learned::default();
+    let charged = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let total = Arc::clone(&charged);
+    learned.bill_to(move |bytes| {
+        total.fetch_add(bytes, std::sync::atomic::Ordering::SeqCst);
+        true
+    });
+    for _ in 0..2 {
+        learned
+            .prices
+            .learn(&files, HashMap::from([(0, FilePrice::Unread)]));
+    }
+    assert_eq!(
+        charged.load(std::sync::atomic::Ordering::SeqCst),
+        "/src/a.rs".len()
+    );
+    assert_eq!(learned.prices.weight(), "/src/a.rs".len());
+    let refused = Learned::default();
+    refused.bill_to(|_| false);
+    refused
+        .prices
+        .learn(&files, HashMap::from([(0, FilePrice::Unread)]));
+    assert_eq!(refused.prices.weight(), 0);
+    assert!(refused.prices.by_index(&files).is_empty());
 }

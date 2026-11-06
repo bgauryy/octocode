@@ -4,7 +4,7 @@ use super::*;
 #[test]
 fn top_hit_reads_its_matched_token() {
     let top = json!({"owner": "o", "repo": "r", "path": "src/a.rs",
-        "matches": [{"value": "x\nfn find_all() {}", "matchIndices": [{"start": 5, "end": 13, "lineOffset": 1}]}]});
+        "matches": [{"highlight": "find_all"}]});
     let read = read_top_match(&top, None).expect("continuation");
     assert_eq!(read["tool"], "ghGetFileContent");
     assert_eq!(
@@ -22,7 +22,7 @@ fn read_top_match_is_offered_for_code_hits_only() {
     let top = |path: &str| {
         read_top_match(
             &json!({"owner": "o", "repo": "r", "path": path,
-            "matches": [{"value": "needle", "matchIndices": [{"start": 0, "end": 6}]}]}),
+            "matches": [{"highlight": "needle"}]}),
             None,
         )
     };

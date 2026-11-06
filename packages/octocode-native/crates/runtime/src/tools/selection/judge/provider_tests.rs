@@ -13,7 +13,7 @@ fn evaluator(key: &str, base_url: String) -> Evaluator {
         base_url,
         "jev-test".into(),
         &crate::providers::classification::jev::JEV,
-        Duration::from_secs(10),
+        Some(Duration::from_secs(10)),
         0,
         4,
     )

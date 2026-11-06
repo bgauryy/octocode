@@ -9,6 +9,8 @@ use base64::Engine as _;
 use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 
+mod metadata;
+
 mod provenance;
 
 const JSON: &str = "application/json";
@@ -354,40 +356,4 @@ async fn a_range_decodes_only_the_current_version_view_of_the_packument() {
         4,
         "each call reads its packument and manifest"
     );
-}
-
-/// `dependencies` lists the required ones as `name@range`: npm repeats
-/// each optional dependency under `dependencies`, and those are listed
-/// in `optionalDependencies` instead; a version without optional ones
-/// shows no such list.
-#[tokio::test]
-async fn npm_optional_dependencies_are_listed_apart_from_required_ones() {
-    let mut row = manifest("3.22.0", false);
-    row["dependencies"] = json!({"a": "^1.0.0", "@next/swc-darwin-arm64": "15.0.0"});
-    row["optionalDependencies"] = json!({"@next/swc-darwin-arm64": "15.0.0"});
-    let http = routes(vec![]).json_for("/zod/3.22.0", JSON, row);
-    let page = lookup(
-        &http,
-        json!({"operation":"resolve","packageName": "zod", "version": "3.22.0"}),
-    )
-    .await
-    .expect("exact");
-    assert_eq!(
-        page.artifacts[0].dependencies,
-        Some(vec!["a@^1.0.0".to_owned()])
-    );
-    assert_eq!(
-        page.artifacts[0].optional_dependencies,
-        Some(vec!["@next/swc-darwin-arm64@15.0.0".to_owned()])
-    );
-    let mut bare = manifest("3.22.0", false);
-    bare["dependencies"] = json!({"a": "^1.0.0"});
-    let http = routes(vec![]).json_for("/zod/3.22.0", JSON, bare);
-    let page = lookup(
-        &http,
-        json!({"operation":"resolve","packageName": "zod", "version": "3.22.0"}),
-    )
-    .await
-    .expect("exact");
-    assert_eq!(page.artifacts[0].optional_dependencies, None);
 }

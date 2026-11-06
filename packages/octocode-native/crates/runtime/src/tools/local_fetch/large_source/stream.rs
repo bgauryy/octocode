@@ -29,8 +29,8 @@ pub(super) fn streamed(
             origin: ByteOrigin {
                 base: held.start.map_or(0, |start| start.base),
                 total: held.view_pos,
+                redacted: held.redacted.into(),
             },
-            masked: held.masked,
             every_value: held.every_value,
             window: held.window,
             binary,
@@ -47,9 +47,11 @@ pub(super) fn seek(mut file: &std::fs::File, offset: u64) -> Result<(), String> 
 /// Source bytes one pass reads at once.
 const READ_BYTES: usize = 64 * 1024;
 
-/// One whole pass, and whether the source holds a NUL byte.
+/// One whole pass, its sealed windows, and whether the source holds a NUL byte.
 pub(super) struct Streaming {
-    pub(super) pass: Pass,
+    pub(super) proven: super::proven::Proven,
+    pub(super) total_lines: usize,
+    pub(super) windows: Vec<Streamed>,
     pub(super) binary: bool,
 }
 
@@ -61,10 +63,14 @@ pub(super) fn stream_pass(
     source: &std::fs::File,
     path: &std::path::Path,
     wants: &[Want],
+    scan: &dyn crate::security::scan::ContentScan,
     cancel: &impl CancellationCheck,
 ) -> Result<Streaming, String> {
     seek(source, 0)?;
-    let mut proof = Proof::new(source, path, wants)?;
+    // A window from its lines' first byte is held as the pass streams; one at a
+    // sealed offset is placed once the pass recorded the redactions before it.
+    let held = wants.iter().all(|want| want.from == 0);
+    let mut proof = Proof::new(source, path, if held { wants } else { &[] }, scan)?;
     let mut buffer = vec![0u8; READ_BYTES];
     let mut binary = false;
     loop {
@@ -80,12 +86,23 @@ pub(super) fn stream_pass(
         binary |= chunk.contains(&0);
         proof.feed(chunk);
     }
-    let mut pass = proof.finish();
+    let mut pass: Pass = proof.finish()?;
     // A binary source is refused: nothing of it is shown.
-    if !binary {
-        pass.mask_windows(source, cancel)?;
-    }
-    Ok(Streaming { pass, binary })
+    let windows = if binary {
+        streamed(pass.lines, &pass.proven.digest, pass.total_lines, binary)
+    } else if held {
+        pass.seal_windows(source, cancel)?;
+        streamed(pass.lines, &pass.proven.digest, pass.total_lines, binary)
+    } else {
+        pass.proven
+            .windows(source, wants, pass.total_lines, cancel)?
+    };
+    Ok(Streaming {
+        proven: pass.proven,
+        total_lines: pass.total_lines,
+        windows,
+        binary,
+    })
 }
 
 /// The windows of [`stream_pass`].
@@ -95,11 +112,12 @@ pub(super) fn stream(
     wants: &[Want],
     cancel: &impl CancellationCheck,
 ) -> Result<Vec<Streamed>, String> {
-    let Streaming { pass, binary } = stream_pass(source, Path::new(""), wants, cancel)?;
-    Ok(streamed(
-        pass.lines,
-        &pass.proven.digest,
-        pass.total_lines,
-        binary,
-    ))
+    Ok(stream_pass(
+        source,
+        Path::new(""),
+        wants,
+        &crate::security::ContentSecurity::new(),
+        cancel,
+    )?
+    .windows)
 }

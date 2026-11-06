@@ -54,6 +54,317 @@ fn every_view_delivers_each_matching_file_or_line_once_at_multiple_budgets() {
     }
 }
 
+/// One file's spans span many pages, with no count per file bounding them:
+/// walking its matchOnly pages reaches every span exactly once, across
+/// every page edge inside the file.
+#[test]
+fn a_match_only_walk_reaches_every_span_of_a_file_across_its_pages() {
+    let root = tempfile::tempdir().expect("fixture");
+    let spans = 2_000;
+    fs::write(root.path().join("many.txt"), "n\n".repeat(spans)).expect("file");
+    let (walk, pages) = walk_search(
+        root.path(),
+        serde_json::json!({"path":root.path(),"matchString":["n"],"view":"matchOnly"}),
+        Some(20_000),
+    );
+    assert!(pages.len() > 2, "the file's spans must cross page edges");
+    let mut lines = walk
+        .rows
+        .iter()
+        .map(|row| {
+            row.split(':')
+                .nth(1)
+                .expect("line")
+                .parse::<usize>()
+                .expect("number")
+        })
+        .collect::<Vec<_>>();
+    lines.sort_unstable();
+    assert_eq!(lines, (1..=spans).collect::<Vec<_>>(), "each span once");
+}
+
+/// A scan whose matches pass what it may hold is refused, never shown in
+/// part, with executable calls that answer within the bound: the per-file
+/// counts of the same search, and a listing of the scope to split it by.
+#[test]
+fn a_scan_past_its_held_bound_is_refused_with_leads_that_answer() {
+    let root = tempfile::tempdir().expect("fixture");
+    fs::write(root.path().join("many.txt"), "n\n".repeat(2_000)).expect("file");
+    let (policy, security) = policy_for(root.path());
+    let bounded = crate::tools::local_search::executor::test_held_limit(Some(16 * 1024));
+    for view in ["content", "matchOnly"] {
+        let q = ls_query(
+            serde_json::json!({"path":root.path(),"matchString":["n"],"view":view}),
+            None,
+        );
+        let error = search_in(&q, &policy, &security, None).expect_err("past the bound");
+        assert_eq!(
+            error.code,
+            octocode_contract_types::ErrorCode::ScopeTooBroad,
+            "{view}: {}",
+            error.message
+        );
+        let calls = error.calls.expect("leads");
+        let count = &calls["viewFileCount"];
+        assert_eq!(
+            count["input"]["queries"][0]["view"], "countMatches",
+            "{calls}"
+        );
+        assert_eq!(calls["listScope"]["tool"], "structureSearch", "{calls}");
+        assert!(calls.get("readFile").is_none(), "{calls}");
+        let counted = ls_query(count["input"]["queries"][0].clone(), None);
+        let counted = search_in(&counted, &policy, &security, None).expect("a count fits");
+        assert_eq!(counted.stats.total_occurrences, Some(2_000), "{view}");
+        let listing: octocode_contract_types::StructureSearchQuery =
+            serde_json::from_value(calls["listScope"]["input"]["queries"][0].clone())
+                .expect("a structureSearch row");
+        let listed = crate::tools::structure_search::execute_structure(
+            &listing,
+            &policy,
+            &security,
+            &crate::execution::cancel::NeverCancel,
+            None,
+        )
+        .expect("the listing runs");
+        assert!(listed.to_string().contains("many.txt"), "{view}: {listed}");
+    }
+    drop(bounded);
+}
+
+/// A walk of spans on one line judges that line's window at most twice,
+/// however many pages and spans it has: the fresh page, which has no stored
+/// digest to bind a judgment to, and the first continuation, whose judgment
+/// the stored scan keeps for the rest (see `JudgedWindows`). So a page's
+/// scanning does not grow with the line or the scan. Every span is
+/// delivered once.
+#[test]
+fn a_walk_of_spans_on_one_line_judges_the_line_at_most_twice() {
+    for spans in [3_000usize, 12_000] {
+        let root = tempfile::tempdir().expect("fixture");
+        fs::write(
+            root.path().join("one.txt"),
+            format!("{}\n", "a".repeat(spans)),
+        )
+        .expect("file");
+        settle();
+        let before = crate::tools::local_search::verify::judged_on_this_thread();
+        let (walk, pages) = walk_search(
+            root.path(),
+            serde_json::json!({"path":root.path(),"matchString":["a"],"view":"matchOnly"}),
+            None,
+        );
+        let judged = crate::tools::local_search::verify::judged_on_this_thread() - before;
+        assert!(pages.len() > 1, "{spans}: one page");
+        assert_eq!(walk.rows.len(), spans, "{spans}: each span once");
+        assert!(pages.len() > 2, "{spans}: {} pages", pages.len());
+        assert_eq!(judged, 2 * spans, "{spans}: {} pages", pages.len());
+    }
+}
+
+/// A continuation of a stored scan prices about the rows it shows, not
+/// every row of the scan: its cut is the one the scan's first page made.
+/// The bound holds alike for a small and a four times larger scan.
+#[test]
+fn a_continuation_prices_its_page_not_the_scan() {
+    for spans in [3_000usize, 12_000] {
+        let root = tempfile::tempdir().expect("fixture");
+        fs::write(
+            root.path().join("one.txt"),
+            format!("{}\n", "a".repeat(spans)),
+        )
+        .expect("file");
+        settle();
+        let (policy, security) = policy_for(root.path());
+        let q = ls_query(
+            serde_json::json!({"path":root.path(),"matchString":["a"],"view":"matchOnly"}),
+            None,
+        );
+        let first = search_in(&q, &policy, &security, None).expect("page 1");
+        let snapshot = first.source_snapshot.expect("snapshot");
+        for page in 2..=4u32 {
+            let next = ls_query(
+                serde_json::json!({"snapshot":snapshot,"page":page}),
+                Some(&q),
+            );
+            let before = crate::tools::local_search::layout::priced_on_this_thread();
+            let shown = search_in(&next, &policy, &security, None).expect("page");
+            let priced = crate::tools::local_search::layout::priced_on_this_thread() - before;
+            let shown = serde_json::to_value(&shown).expect("page");
+            let rows = shown["files"]
+                .as_array()
+                .expect("files")
+                .iter()
+                .map(|file| file["matches"].as_array().map_or(0, Vec::len))
+                .sum::<usize>();
+            assert!(rows > 0, "{spans}: page {page} empty");
+            assert!(
+                priced <= 2 * rows + 1,
+                "{spans}: page {page} priced {priced} for {rows} rows"
+            );
+        }
+    }
+}
+
+/// A stored scan of many files, cut in small content pages, walks every hit
+/// once: pages taken from the scan's kept cut join with no gap or repeat.
+#[test]
+fn a_stored_many_file_content_walk_shows_each_hit_once() {
+    let root = tempfile::tempdir().expect("fixture");
+    for file in 0..12 {
+        let body = (0..20)
+            .map(|line| format!("let needle_{file}_{line} = \"λ{line}\";\n"))
+            .collect::<String>();
+        fs::write(root.path().join(format!("f{file:02}.rs")), body).expect("file");
+    }
+    settle();
+    let (walk, pages) = walk_search(
+        root.path(),
+        serde_json::json!({"path":root.path(),"matchString":["needle"]}),
+        Some(2500),
+    );
+    assert!(pages.len() > 3, "{} pages", pages.len());
+    let mut seen = std::collections::BTreeSet::new();
+    for page in &pages {
+        for file in page["files"].as_array().expect("files") {
+            for row in file["matches"].as_array().expect("matches") {
+                let key = (
+                    file["path"].as_str().expect("path").to_owned(),
+                    row["line"].as_u64().expect("line"),
+                );
+                assert!(seen.insert(key.clone()), "{key:?} twice");
+            }
+        }
+    }
+    assert_eq!(seen.len(), 12 * 20);
+    assert_eq!(walk.rows.len(), 12 * 20);
+}
+
+/// Spans that cross a secret's edge, on the first page and on later pages
+/// whose windows the stored scan already judged, each show the secret's
+/// part masked; spans clear of it show their own bytes. Every span once.
+#[test]
+fn spans_across_a_secret_edge_stay_masked_on_every_page() {
+    let token = "ghp_00ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567";
+    let line = format!("aaa {token} {} {token} aaaa", "a".repeat(20_000));
+    let secrets = line
+        .match_indices(token)
+        .map(|(at, _)| at..at + token.len())
+        .collect::<Vec<_>>();
+    let root = tempfile::tempdir().expect("fixture");
+    fs::write(root.path().join("one.txt"), format!("{line}\n")).expect("file");
+    settle();
+    let (walk, pages) = walk_search(
+        root.path(),
+        serde_json::json!({"path":root.path(),"matchString":[".{5}"],"regexEngine":"rust","view":"matchOnly"}),
+        Some(2500),
+    );
+    assert_eq!(walk.rows.len(), line.len() / 5);
+    let mut masked_on = std::collections::BTreeSet::new();
+    for (index, page) in pages.iter().enumerate() {
+        for row in page["files"][0]["matches"].as_array().expect("matches") {
+            let at = row["column"].as_u64().expect("column") as usize - 1;
+            let source = &line[at..at + 5];
+            let value = row["value"].as_str().expect("value");
+            if secrets
+                .iter()
+                .any(|secret| secret.start < at + 5 && at < secret.end)
+            {
+                assert_ne!(value, source, "page {index}: a secret's bytes shown");
+                assert!(!token.contains(value), "page {index}: {value}");
+                masked_on.insert(index);
+            } else {
+                assert_eq!(value, source, "page {index}");
+            }
+        }
+    }
+    assert!(masked_on.contains(&0), "{masked_on:?}");
+    assert!(masked_on.iter().any(|&page| page > 1), "{masked_on:?}");
+}
+
+/// A stored file rewritten between pages, with its size and time kept, is
+/// refused by the next page's digest check: what an earlier page judged of
+/// its old bytes never settles the new ones, and the new secret is not shown.
+#[test]
+fn a_file_rewritten_between_pages_reuses_no_earlier_judgment() {
+    let root = tempfile::tempdir().expect("fixture");
+    let path = root.path().join("one.txt");
+    let line = "a".repeat(3_000);
+    fs::write(&path, format!("{line}\n")).expect("file");
+    settle();
+    let (policy, security) = policy_for(root.path());
+    let q = ls_query(
+        serde_json::json!({"path":root.path(),"matchString":["a"],"view":"matchOnly"}),
+        None,
+    );
+    let first = search_in(&q, &policy, &security, None).expect("page 1");
+    let snapshot = first.source_snapshot.expect("snapshot");
+    let page = |n: u32| ls_query(serde_json::json!({"snapshot":snapshot,"page":n}), Some(&q));
+    search_in(&page(2), &policy, &security, None).expect("page 2");
+    let token = " ghp_00ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567 ";
+    let rewritten = format!(
+        "{}{token}{}\n",
+        &line[..1_000],
+        &line[1_000 + token.len()..]
+    );
+    rewrite_keeping_stamp(&path, &rewritten);
+    let error = search_in(&page(3), &policy, &security, None).expect_err("changed bytes");
+    assert_eq!(
+        error.code,
+        octocode_contract_types::ErrorCode::StaleSnapshot,
+        "{error:?}"
+    );
+    assert!(!format!("{error:?}").contains("ghp_"), "{error:?}");
+}
+
+/// A one-file scope past the held bound is refused with a read of that file,
+/// which localFetch pages whole; the count and listing leads, which would
+/// only name the same file again, are not offered.
+#[test]
+fn a_one_file_scan_past_its_held_bound_leads_to_a_read_of_that_file() {
+    let root = tempfile::tempdir().expect("fixture");
+    let file = root.path().join("many.txt");
+    fs::write(&file, "n\n".repeat(2_000)).expect("file");
+    let (policy, security) = policy_for(root.path());
+    let bounded = crate::tools::local_search::executor::test_held_limit(Some(16 * 1024));
+    for view in ["content", "matchOnly"] {
+        let q = ls_query(
+            serde_json::json!({"path":file,"matchString":["n"],"view":view}),
+            None,
+        );
+        let error = search_in(&q, &policy, &security, None).expect_err("past the bound");
+        assert_eq!(
+            error.code,
+            octocode_contract_types::ErrorCode::ScopeTooBroad,
+            "{view}: {}",
+            error.message
+        );
+        assert!(
+            error.hints.iter().any(|hint| hint.contains("readFile")),
+            "{view}: {:?}",
+            error.hints
+        );
+        let calls = error.calls.expect("leads");
+        assert!(calls.get("viewFileCount").is_none(), "{calls}");
+        assert!(calls.get("listScope").is_none(), "{calls}");
+        let read = &calls["readFile"];
+        assert_eq!(read["tool"], "localFetch", "{calls}");
+        let read: octocode_contract_types::LocalFetchQuery =
+            serde_json::from_value(read["input"]["queries"][0].clone()).expect("a localFetch row");
+        let page = crate::tools::local_fetch::execute_local_fetch(
+            &read,
+            &policy,
+            &security,
+            &crate::execution::cancel::NeverCancel,
+            None,
+            None,
+        );
+        assert_eq!(page.error_code, None, "{view}: {page:?}");
+        let content = page.content.as_deref().expect("page 1");
+        assert!(content.starts_with("n\nn\n"), "{view}: {content:?}");
+    }
+    drop(bounded);
+}
+
 #[test]
 fn match_pages_continue_from_their_file_pagination() {
     let root = tempfile::tempdir().expect("fixture");
@@ -298,51 +609,4 @@ fn match_only_uniqueness_counts_complete_values_per_file() {
     assert_eq!(counts["beta"], 1);
 }
 
-/// A search matching more files than any one collection can hold in a
-/// page chain's scan still pages every matched file exactly once, and the
-/// first page counts them all (`totalItems` is files matched, not a cap).
-#[test]
-fn every_matched_file_of_a_large_scan_is_paged_exactly_once() {
-    let root = tempfile::tempdir().expect("fixture");
-    let (dirs, per_dir) = (120, 100);
-    for dir in 0..dirs {
-        let parent = root.path().join(format!("d{dir:03}"));
-        fs::create_dir(&parent).expect("dir");
-        for file in 0..per_dir {
-            fs::write(parent.join(format!("{file:03}.txt")), "needle\n").expect("file");
-        }
-    }
-    let (walk, pages) = walk_search(
-        root.path(),
-        serde_json::json!({"path":root.path(),"matchString":["needle"],"view":"files"}),
-        None,
-    );
-    let expected = (0..dirs)
-        .flat_map(|dir| (0..per_dir).map(move |file| format!("d{dir:03}/{file:03}.txt")))
-        .collect::<std::collections::BTreeSet<_>>();
-    let delivered = walk
-        .rows
-        .iter()
-        .map(|row| {
-            std::path::Path::new(row)
-                .strip_prefix(root.path())
-                .map_or_else(|_| row.clone(), |rel| rel.to_string_lossy().into_owned())
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(walk.rows.len(), expected.len(), "each file once");
-    assert_eq!(delivered, expected);
-    assert_eq!(
-        pages[0]["pagination"]["totalItems"],
-        expected.len(),
-        "{}",
-        pages[0]["pagination"]
-    );
-    assert!(
-        pages.iter().all(
-            |page| page["warnings"].as_array().is_none_or(|warnings| warnings
-                .iter()
-                .all(|warning| !warning.as_str().unwrap_or("").contains("no page reaches")))
-        ),
-        "no page discloses unreachable files"
-    );
-}
+mod large_scan;

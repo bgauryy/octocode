@@ -91,7 +91,8 @@ fn run(
     bounded: bool,
 ) -> (Result<Tree, ParseFailure>, Work) {
     let work = Cell::new(Work::default());
-    let stopped = || stop() || crate::deep_stack::job_cancelled();
+    let stopped =
+        || stop() || crate::deep_stack::job_cancelled() || crate::deep_stack::caller_stopped();
     if stopped() {
         return (Err(ParseFailure::Interrupted), work.get());
     }

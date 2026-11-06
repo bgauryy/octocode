@@ -81,7 +81,9 @@ pub(in crate::tools::local_search) fn read_verification_lines(
         read.lines_read = number;
         match line {
             BoundedLine::Whole => {
-                let text = String::from_utf8_lossy(&buf);
+                // Decoded as the search decoded it: a row's byte offset counts
+                // the search's text, so another decoding would shift it.
+                let text = octocode_engine::text::Decoded::interior(&buf).text;
                 let text = text.trim_end_matches(['\n', '\r']);
                 tracker.push(text);
                 read.source_wide |= across.is_some_and(|patterns| patterns.named_by(text));
@@ -344,8 +346,9 @@ fn reread(
                 .map(|s| s.strip_suffix('\r').unwrap_or(s))
                 .unwrap_or(&text);
             let hit = &mut file.matches[index];
-            hit.value =
-                octocode_engine::search::text_parser::line_match(text, line, hit.column).value;
+            // The row's column, offset, rank and digest are the scan's: only
+            // its text is rebuilt.
+            hit.value = text.to_owned();
             visit(index, hit)?;
             at += 1;
         }

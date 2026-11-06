@@ -77,7 +77,12 @@ impl Analysis<'_> {
                 .iter()
                 .any(|note| note.code == GraphFactCode::ParseDeadline)
         });
-        if !stopped {
+        // Cancellation is represented by `None`, just like an unsupported
+        // grammar. Only the latter is a fact about this source that another
+        // live request can reuse.
+        let cancelled = octocode_engine::deep_stack::current_stop()
+            .is_some_and(|stop| stop.load(std::sync::atomic::Ordering::Relaxed));
+        if !stopped && !cancelled {
             // A document that cannot be measured is not kept: it may not be
             // small.
             let bytes = document.as_deref().map_or(0, |document| {

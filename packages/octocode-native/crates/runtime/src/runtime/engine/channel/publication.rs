@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 impl ChannelRun {
     pub(super) fn pending(&self) -> Pending {
-        Pending::new(self.access, None)
+        self.cursors.pending(self.access, None)
     }
 
     pub(super) fn retain_cursors(

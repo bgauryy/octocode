@@ -63,7 +63,6 @@ fn subtypes_fall_back_to_a_labelled_heritage_scan_when_implementation_fails() {
             character: 17,
             language_id: Some("typescript"),
             budget: 16_000,
-            response_window: None,
         }
         .run()
         .await
@@ -177,7 +176,6 @@ fn implementation_row(
             character,
             language_id: Some("typescript"),
             budget: 16_000,
-            response_window: None,
         }
         .run()
         .await;

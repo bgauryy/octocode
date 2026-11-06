@@ -19,6 +19,7 @@ mod commit_match;
 mod compare;
 mod issue;
 mod pull_request;
+mod redaction;
 
 const BASE: &str = "1111111111111111111111111111111111111111";
 const HEAD: &str = "2222222222222222222222222222222222222222";

@@ -196,7 +196,6 @@ pub(super) struct Operation<'a, 'p> {
     pub(super) language_id: Option<&'a str>,
     /// Characters a page of rows may spend (see `page_windows::page_budget`).
     pub(super) budget: usize,
-    pub(super) response_window: Option<usize>,
 }
 
 impl<'a> Operation<'a, '_> {

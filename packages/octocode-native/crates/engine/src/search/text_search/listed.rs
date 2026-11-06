@@ -76,6 +76,8 @@ pub fn count_listed(
         .map(|_| AtomicUsize::new(0))
         .collect::<Vec<_>>();
     let (next, stop) = (AtomicUsize::new(0), AtomicBool::new(false));
+    // Counting keeps no row, so nothing is held against the bound.
+    let held = std::sync::Arc::new(super::state::Held::new(None));
     let work = || {
         let mut searchers = alternates
             .iter()
@@ -93,6 +95,7 @@ pub fn count_listed(
                 // Only whether a line matched: no span or value is kept.
                 work: match_work(Mode::CountLines, false),
                 stop: &stop,
+                held: &held,
                 keep_head: false,
                 copy: false,
                 words: None,

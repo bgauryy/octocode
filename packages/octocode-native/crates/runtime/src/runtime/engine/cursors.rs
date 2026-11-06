@@ -95,6 +95,7 @@ pub(super) struct Registry {
 /// The continuations one output issues, retained together before it is
 /// published.
 pub(super) struct Pending {
+    policy: String,
     access: [u8; 32],
     github_identity: Option<String>,
     issued: BTreeMap<String, Member>,
@@ -131,6 +132,17 @@ impl Registry {
             policy,
             disk,
             mutation: octocode_io::lock::Turnstile::new(),
+        }
+    }
+
+    pub fn pending(&self, access: [u8; 32], github_identity: Option<String>) -> Pending {
+        Pending {
+            policy: self.policy.clone(),
+            access,
+            github_identity,
+            issued: BTreeMap::new(),
+            evidence: None,
+            sealed: false,
         }
     }
 
@@ -298,16 +310,6 @@ impl Registry {
 }
 
 impl Pending {
-    pub fn new(access: [u8; 32], github_identity: Option<String>) -> Self {
-        Self {
-            access,
-            github_identity,
-            issued: BTreeMap::new(),
-            evidence: None,
-            sealed: false,
-        }
-    }
-
     /// The provider evidence `tool`'s own tool continuations issued by
     /// this output own ([`evidence::owned`]).
     pub fn own_evidence(&mut self, tool: ToolId, observed: octocode_github::ProviderEvidence) {
@@ -338,7 +340,7 @@ impl Pending {
     /// output; the same continuation always has the same handle
     /// ([`handle`]).
     pub fn insert(&mut self, tool: ToolId, input: Value, work: SavedWork) -> String {
-        let token = handle(&self.access, tool, &input, &work);
+        let token = handle(&self.policy, &self.access, tool, &input, &work);
         let evidence = match (&self.evidence, &work) {
             (Some((owner, owned)), SavedWork::ToolResume { .. } | SavedWork::Rows { .. })
                 if *owner == tool =>
@@ -357,16 +359,23 @@ impl Pending {
     }
 }
 
-/// The opaque handle of one continuation: a digest of the access identity
-/// it is issued to (the call's credential scope), the tool, its complete
-/// canonical input and the saved work (a response page's replay key). It
-/// reveals none of them, and the same continuation issued by any output
-/// within its retention has the same handle, so a reader that follows a
-/// lead repeated on several pages reads it once.
-fn handle(access: &[u8; 32], tool: ToolId, input: &Value, work: &SavedWork) -> String {
+/// The opaque handle of one continuation: a digest of the replay policy,
+/// access identity (the call's credential scope), tool, complete canonical
+/// input and saved work (a response page's replay key). The policy binds
+/// configuration, workspace, contract and planner epoch, so reissuing work
+/// cannot resurrect an older policy's token. Within one policy the same
+/// continuation has one handle, so repeated leads are read once.
+fn handle(
+    policy: &str,
+    access: &[u8; 32],
+    tool: ToolId,
+    input: &Value,
+    work: &SavedWork,
+) -> String {
     use octocode_engine::digest::{Nulls, canonical_json};
     let identity = serde_json::json!([
         "issued-continuation",
+        policy,
         hex::encode(access),
         tool.as_str(),
         canonical_json(input.clone(), Nulls::Keep),

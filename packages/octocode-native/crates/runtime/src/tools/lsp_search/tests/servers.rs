@@ -54,6 +54,31 @@ async fn run_row(
     .expect("row")
 }
 
+/// A source over the LSP bound is refused, and the refusal reaches its text:
+/// an executable localFetch of the file, never a dead end.
+#[cfg(unix)]
+#[tokio::test(flavor = "current_thread")]
+async fn an_oversized_source_is_refused_with_a_read_of_it() {
+    let (_dir, root, paths) = temp_workspace();
+    let file = root.join("bundle.min.ts");
+    let handle = std::fs::File::create(&file).expect("source");
+    handle
+        .set_len(octocode_engine::lsp::MAX_LSP_SOURCE_BYTES + 1)
+        .expect("size");
+    let row = serde_json::json!({
+        "operation": "documentSymbols", "path": file.to_string_lossy()
+    });
+    let result = run_row(row, &paths, &super::super::LspExecutionConfig::default()).await;
+    assert_eq!(result["errorCode"], "fileTooLarge", "{result}");
+    let read = crate::tools::test_support::checks::related_call(&result, "localFetch", |_| true);
+    assert_eq!(read["tool"], "localFetch", "{result}");
+    assert_eq!(
+        read["input"]["queries"][0]["path"],
+        file.to_string_lossy().as_ref(),
+        "{result}"
+    );
+}
+
 /// An anchor that resolves nowhere starts no server; the row still says
 /// whether the configured server would launch.
 #[cfg(unix)]

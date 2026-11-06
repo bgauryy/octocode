@@ -69,6 +69,7 @@ fn sanitize_in<'a>(
                 has_secrets: false,
                 secrets_detected: Vec::new(),
                 warnings: Vec::new(),
+                edits: super::Edits::default(),
             };
         };
         SanitizationResult {
@@ -79,6 +80,7 @@ fn sanitize_in<'a>(
                 result.secrets_detected.len()
             )],
             secrets_detected: result.secrets_detected,
+            edits: result.edits,
         }
     })
 }

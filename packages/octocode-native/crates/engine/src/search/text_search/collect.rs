@@ -7,7 +7,7 @@ use super::mode::{
     only_matching, ranks_by_relevance,
 };
 use super::result::preserves_traversal_order;
-use super::state::{CollectState, FileRec};
+use super::state::{CollectState, FileRec, Held};
 use super::visit::WalkScope;
 use super::walk_rule::build_walk_builder;
 use super::{
@@ -73,13 +73,14 @@ pub(super) fn byte_ceiling(opts: &TextSearchOptions) -> u64 {
 
 /// Run a parallel ignore walk + per-file search for a concrete matcher type,
 /// writing into `state`. The walk stops at the next entry once `cancelled()`
-/// returns true or `state.stop` is raised.
+/// returns true or `state.stop` is raised, as it is once what it keeps
+/// passes `held`.
 pub(super) fn collect<M: Matcher + Sync>(
     opts: &TextSearchOptions,
     (matcher, terms): (&M, &[M]),
     mode: Mode,
     path_filter: Arc<dyn TextSearchPathFilter>,
-    state: &CollectState,
+    (state, held): (&CollectState, &Arc<Held>),
     control: WalkControl<'_>,
 ) -> Result<()> {
     let (walk_builder, scope) = walk_scope(opts, mode, state, control)?;
@@ -90,7 +91,7 @@ pub(super) fn collect<M: Matcher + Sync>(
             local: Vec::new(),
             state,
         };
-        let mut files = file_searcher(scope, mode, (matcher, terms), &state.stop);
+        let mut files = file_searcher(scope, mode, (matcher, terms), (&state.stop, held));
         move |dent| scope.visit(dent, &*path_filter, &mut files, &mut worker_recs)
     };
     // A file root is one entry: the parallel walker would spawn its pool and
@@ -143,12 +144,13 @@ pub(super) fn walk_scope<'a>(
     Ok((walk_builder, scope))
 }
 
-/// One worker's searchers for the files `scope` admits, stopped by `stop`.
+/// One worker's searchers for the files `scope` admits, stopped by `stop`,
+/// which they raise once what they keep passes `held`.
 pub(super) fn file_searcher<'a, M: Matcher>(
     scope: &'a WalkScope<'_>,
     mode: Mode,
     (matcher, terms): (&'a M, &'a [M]),
-    stop: &'a std::sync::atomic::AtomicBool,
+    (stop, held): (&'a std::sync::atomic::AtomicBool, &'a Arc<Held>),
 ) -> FileSearcher<'a, M> {
     let opts = scope.opts;
     let only_matching = only_matching(opts);
@@ -177,6 +179,7 @@ pub(super) fn file_searcher<'a, M: Matcher>(
             ..match_work(mode, only_matching)
         },
         stop,
+        held,
         keep_head: ranks_by_relevance(opts),
         copy: scope.file_terms.is_some(),
         words: scope.words.as_ref(),

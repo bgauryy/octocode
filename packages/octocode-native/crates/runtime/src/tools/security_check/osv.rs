@@ -9,7 +9,9 @@ use super::source::{Source, SourceResult, Target};
 use crate::providers::artifact::{ArtifactError, ArtifactHttpRequest, JSON, rejection_detail};
 use octocode_contract_types::{ArtifactType, ErrorCode};
 use octocode_github::ProviderErrorKind;
+use serde::Deserialize;
 use serde_json::{Value, json};
+use std::collections::BTreeSet;
 use url::Url;
 
 const API: &str = "https://api.osv.dev/v1";
@@ -105,7 +107,11 @@ async fn walk(
     start: Option<&str>,
 ) -> Result<SourceResult, ArtifactError> {
     let target = ask.target();
-    let (first, mut read) = walk_state(start)?;
+    let (first, mut read, mut seen) = match walk_state(start)? {
+        Some(saved) => (Some(saved.token), saved.read, saved.seen),
+        None => (None, Vec::new(), BTreeSet::new()),
+    };
+    seen.extend(first.iter().cloned());
     let mut token = first.clone();
     loop {
         let (records, next) = match query_page(net, ask, token.as_deref()).await {
@@ -113,7 +119,7 @@ async fn walk(
             Err(error) => {
                 return match token {
                     Some(token) if can_resume(&error) && first.as_ref() != Some(&token) => {
-                        let saved = json!({"token": token, "read": read}).to_string();
+                        let saved = json!({"token": token, "read": read, "seen": seen}).to_string();
                         Ok(SourceResult::new(Source::Osv).stopped(saved, error.message))
                     }
                     _ => Err(error),
@@ -122,10 +128,12 @@ async fn walk(
         };
         read.extend(records);
         match next {
-            Some(next) if token.as_deref() == Some(next.as_str()) => {
-                return Err(malformed("the same page token twice", &target));
+            Some(next) => {
+                if !seen.insert(next.clone()) {
+                    return Err(malformed("the same page token twice", &target));
+                }
+                token = Some(next);
             }
-            Some(next) => token = Some(next),
             None => {
                 let mut result = SourceResult::new(Source::Osv);
                 result.advisories = rows(&read, selection, &target)?;
@@ -136,16 +144,23 @@ async fn walk(
 }
 
 /// A saved walk: OSV's token and the records read before it. Only this tool
-/// issues one.
-fn walk_state(start: Option<&str>) -> Result<(Option<String>, Vec<Value>), ArtifactError> {
-    let Some(start) = start else {
-        return Ok((None, Vec::new()));
-    };
-    let invalid = || ArtifactError::new(ErrorCode::InvalidInput, "Invalid saved OSV walk.");
-    let saved: Value = serde_json::from_str(start).map_err(|_| invalid())?;
-    let token = saved["token"].as_str().ok_or_else(invalid)?.to_owned();
-    let read = saved["read"].as_array().ok_or_else(invalid)?.clone();
-    Ok((Some(token), read))
+/// issues one. Seen tokens travel with the walk so a transient failure cannot
+/// hide a cycle across calls. Deserialization owns the records without copying
+/// their JSON tree into a second array.
+#[derive(Deserialize)]
+struct SavedWalk {
+    token: String,
+    read: Vec<Value>,
+    seen: BTreeSet<String>,
+}
+
+fn walk_state(start: Option<&str>) -> Result<Option<SavedWalk>, ArtifactError> {
+    start
+        .map(|start| {
+            serde_json::from_str(start)
+                .map_err(|_| ArtifactError::new(ErrorCode::InvalidInput, "Invalid saved OSV walk."))
+        })
+        .transpose()
 }
 
 /// One record by id, withdrawn ones included. An id OSV does not have is not

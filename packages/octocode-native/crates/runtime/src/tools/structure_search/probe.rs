@@ -25,34 +25,35 @@ pub(super) const PROBE_HITS: usize = crate::tools::empty_walk::SAMPLE_FILES + 1;
 /// entries, ~8 MB) takes seconds to list, past any budget.
 const PROBE_MAX_DIR_BYTES: u64 = 1024 * 1024;
 
-/// The bound of an empty listing's relaxed probe walks: past `deadline`
-/// they admit nothing more, and a directory too large to list in time is
-/// left unread. Either makes the probe's finding a lower bound (`cut`).
+/// The bound of an empty listing's relaxed probe walks: past the shared
+/// probe work ([`ProbeWork`](crate::tools::empty_walk::ProbeWork), one
+/// charge per admitted entry) they admit nothing more, and a directory whose
+/// listing is too large is left unread. Either makes the probe's finding a
+/// lower bound (`cut`).
 pub(super) struct ProbeBound {
-    pub(super) deadline: std::time::Instant,
-    pub(super) cut: std::sync::atomic::AtomicBool,
+    work: crate::tools::empty_walk::ProbeWork,
+    cut: std::sync::atomic::AtomicBool,
 }
 
 impl ProbeBound {
-    pub(super) fn new(budget: std::time::Duration) -> Self {
+    pub(super) fn new() -> Self {
         Self {
-            deadline: octocode_engine::scan_budget::walk_now() + budget,
+            work: crate::tools::empty_walk::ProbeWork::new(),
             cut: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
-    /// Whether a probe walk may admit `path`: not once its deadline passed,
-    /// nor a directory whose listing is too large to read in time.
+    /// Whether a probe walk may admit `path`: not once its work is spent,
+    /// nor a directory whose listing is too large to read.
     pub(super) fn admits(
         &self,
         path: &std::path::Path,
         file_type: Option<std::fs::FileType>,
     ) -> bool {
         use std::sync::atomic::Ordering::Relaxed;
-        let refused = octocode_engine::scan_budget::walk_now() >= self.deadline
-            || (file_type.is_some_and(|kind| kind.is_dir())
-                && std::fs::symlink_metadata(path)
-                    .is_ok_and(|meta| meta.len() > PROBE_MAX_DIR_BYTES));
+        let refused = (file_type.is_some_and(|kind| kind.is_dir())
+            && std::fs::symlink_metadata(path).is_ok_and(|meta| meta.len() > PROBE_MAX_DIR_BYTES))
+            || !self.work.charge(0);
         if refused {
             self.cut.store(true, Relaxed);
         }
@@ -61,7 +62,7 @@ impl ProbeBound {
 
     /// Whether the probe left something unread.
     pub(super) fn cut(&self) -> bool {
-        self.cut.load(std::sync::atomic::Ordering::Relaxed)
+        self.cut.load(std::sync::atomic::Ordering::Relaxed) || self.work.cut()
     }
 }
 
@@ -163,7 +164,7 @@ pub(super) fn probe_listing<Q: Listing>(
     let mut tagged = None::<Tagged>;
     note_empty(out, query, at, seen, shown, |relaxed| {
         if tagged.is_none() {
-            let bound = ProbeBound::new(crate::tools::empty_walk::probe_budget());
+            let bound = ProbeBound::new();
             let lifted = walk(
                 &query.relaxed(shown.lifting(&shown.skipping())),
                 TAGGED_PROBE_ENTRIES,
@@ -229,7 +230,7 @@ pub(super) fn broaden_empty<Q: Listing>(
     })?;
     let named: StructureSearchQuery = relaxed.clone().into();
     let lead = Continuation::related_query(named).build();
-    let bound = ProbeBound::new(crate::tools::empty_walk::probe_budget());
+    let bound = ProbeBound::new();
     let found = walk(&relaxed, PROBE_HITS, Walking::Probe(&bound))?;
     let count = found.rows.iter().filter(|row| row.source != root).count();
     if count == 0 {
@@ -289,7 +290,7 @@ pub(super) fn deepen_empty<Q: Listing>(
                 format!("the deepened listing is no valid query: {error}"),
             )
         })?;
-    let probe = ProbeBound::new(crate::tools::empty_walk::probe_budget());
+    let probe = ProbeBound::new();
     let found = walk(&deeper, PROBE_HITS, Walking::Probe(&probe))?;
     let count = found.rows.iter().filter(|row| row.source != root).count();
     if count == 0 {

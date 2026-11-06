@@ -104,13 +104,17 @@ fn disclose_same_line(symbol: &mut Value, resolved: &LspResolvedSymbol, name: &s
     if columns.len() < 2 {
         return;
     }
+    // One index of the line serves every occurrence on it.
+    let line = &resolved.line_content;
+    let index = octocode_engine::text::LineIndex::tree_sitter(line);
     let alternatives = columns
         .iter()
         .enumerate()
         .filter(|(_, column)| **column != resolved.position.character)
         .map(|(order, column)| {
             let mut alternative = json!({"occurrence": order, "foundAtCharacter": column + 1});
-            if let Some(qualified) = qualified_at(&resolved.line_content, *column, name) {
+            let byte = index.position_to_byte(line, 0, *column) as usize;
+            if let Some(qualified) = qualified_at(line, byte, name) {
                 alternative["symbolName"] = json!(qualified);
             }
             alternative
@@ -120,19 +124,10 @@ fn disclose_same_line(symbol: &mut Value, resolved: &LspResolvedSymbol, name: &s
     symbol["alternatives"] = json!(alternatives);
 }
 
-/// `qualifier.name` (or `::`, `->`) when the occurrence at UTF-16 `column`
-/// of `line` is a member access; `None` for a bare name.
-fn qualified_at(line: &str, column: u32, name: &str) -> Option<String> {
-    let at = line
-        .char_indices()
-        .scan(0_u32, |units, (byte, ch)| {
-            let start = *units;
-            *units += octocode_engine::num::saturating_u32(ch.len_utf16());
-            Some((byte, start))
-        })
-        .find(|(_, start)| *start == column)
-        .map(|(byte, _)| byte)?;
-    let before = &line[..at];
+/// `qualifier.name` (or `::`, `->`) when the occurrence at byte `at` of
+/// `line` is a member access; `None` for a bare name.
+fn qualified_at(line: &str, at: usize, name: &str) -> Option<String> {
+    let before = line.get(..at)?;
     let (separator, rest) = ["::", "->", "."].iter().find_map(|separator| {
         before
             .strip_suffix(separator)

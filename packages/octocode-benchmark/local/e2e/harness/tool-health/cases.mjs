@@ -182,7 +182,7 @@ export const CASES = {
   },
   securityCheck: {
     budgetMs: REMOTE,
-    happy: { query: { operation: 'advisory', id: 'GHSA-HAPPY' }, fields: ['advisories'], rows: data => (data.advisories ?? []).map(item => item.id), min: 1, check: data => data.advisories?.[0]?.link?.endsWith('/GHSA-HAPPY') ? null : 'each advisory links its record' },
+    happy: { query: { operation: 'advisory', id: 'GHSA-happy' }, fields: ['advisories'], rows: data => (data.advisories ?? []).map(item => item.id), min: 1, check: data => data.advisories?.[0]?.link?.endsWith('/GHSA-happy') ? null : 'each advisory links its record' },
     page: { na: 'advisories page through the OSV states in advanced-osv.mjs' },
     empty: { query: { operation: 'package', ecosystem: 'pypi', packageName: 'proof', version: '1.0.0' } },
     invalid: { query: { operation: 'package', ecosystem: 'npm' } },

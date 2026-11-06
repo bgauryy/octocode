@@ -26,6 +26,7 @@ mod page;
 mod proven;
 mod ranges;
 mod scan;
+mod sealed;
 mod stream;
 mod unjudged;
 mod window;
@@ -41,15 +42,12 @@ use window::{Opened, stream_window};
 pub(super) use crate::tools::source_view::prepare::MAX_STREAM_SOURCE_BYTES;
 /// Lines held by one streamed window; response pages are sized separately.
 const WINDOW_LINES: usize = 5_000;
-/// View bytes a byte page's window keeps behind the page: the page finds its
-/// line's start and its secret-scan margin there, as in an in-memory read. Past
-/// every secret the detectors can bound, and a secret that outruns it (a value over
-/// this long, its name out of reach) is the stated limit.
-const BYTE_LOOKBEHIND: usize = 128 * 1024;
 #[cfg(test)]
 use held::WINDOW_BYTES;
-/// Bytes a byte page's window holds: the page with that margin on both sides.
-const BYTE_WINDOW_BYTES: usize = 3 * BYTE_LOOKBEHIND;
+/// Source bytes a byte page's window holds from its offset on: more than a
+/// page takes. The window is sealed ([`sealed`]), so it needs no margin for a
+/// secret scan; a redaction its end cuts shows whole.
+const BYTE_WINDOW_BYTES: usize = 384 * 1024;
 /// A line past this is no key-block line, whatever it spells: a key's own lines are
 /// short, and a line of this length is judged by its bytes alone.
 const KEY_LINE_BYTES: usize = 1024 * 1024;
@@ -60,12 +58,35 @@ const MARKER_PREFIX_BYTES: usize = 256;
 thread_local! {
     /// Source bytes this thread's streamed reads took in.
     static SOURCE_BYTES_READ: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The most source bytes one streamed read took in since it was last taken.
+    static LARGEST_READ: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The walk budget this thread's reads judge at, in place of the process's.
+    static WALK_BUDGET: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+/// The memory a walk of a source's structure may hold before it falls back to
+/// hiding every value.
+fn walk_budget() -> usize {
+    #[cfg(test)]
+    if let Some(budget) = WALK_BUDGET.with(std::cell::Cell::get) {
+        return budget;
+    }
+    octocode_engine::memory::MEMORY.limit()
+}
+
+/// Judge this thread's reads at walk budget `budget`.
+#[cfg(test)]
+fn set_walk_budget(budget: Option<usize>) {
+    WALK_BUDGET.with(|cell| cell.set(budget));
 }
 
 /// Count `bytes` read from a streamed source.
 fn count_read(bytes: usize) {
     #[cfg(test)]
-    SOURCE_BYTES_READ.with(|read| read.set(read.get() + bytes));
+    {
+        SOURCE_BYTES_READ.with(|read| read.set(read.get() + bytes));
+        LARGEST_READ.with(|largest| largest.set(largest.get().max(bytes)));
+    }
     #[cfg(not(test))]
     let _ = bytes;
 }
@@ -74,6 +95,13 @@ fn count_read(bytes: usize) {
 #[cfg(test)]
 fn source_bytes_read() -> usize {
     SOURCE_BYTES_READ.with(std::cell::Cell::get)
+}
+
+/// The most source bytes one of this thread's streamed reads took in since
+/// the last call.
+#[cfg(test)]
+fn take_largest_read() -> usize {
+    LARGEST_READ.with(|largest| largest.replace(0))
 }
 
 struct Streamed {
@@ -90,9 +118,7 @@ struct Streamed {
     origin: ByteOrigin,
     /// The source holds a NUL byte: binary, whatever its head showed.
     binary: bool,
-    /// The window holds masks of secret bytes ([`masks`]).
-    masked: bool,
-    /// Those masks hide every value, as no walk could place the secret ones.
+    /// The window hides every value, as no walk could place the secret ones.
     every_value: bool,
 }
 
@@ -167,6 +193,7 @@ fn serve_source(
         meta,
         proven: kept.as_deref().map(|kept| (&kept.proven, kept.total_lines)),
         limits: security.limits(),
+        scan: security,
     };
     if local_fetch_query::view(q) == ReadView::Content
         && local_fetch_query::block(q)

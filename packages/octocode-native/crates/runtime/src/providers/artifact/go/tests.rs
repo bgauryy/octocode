@@ -6,6 +6,8 @@ use super::*;
 
 use serde_json::json;
 
+mod retraction;
+
 #[test]
 fn go_source_ref_names_the_tag_or_pseudo_version_commit() {
     let item = |module: &str, version: &str| {
@@ -250,5 +252,139 @@ async fn go_vanity_modules_take_the_release_commit_from_the_proxy() {
     assert_eq!(
         go_proxy_escape("github.com/BurntSushi/toml"),
         "github.com/!burnt!sushi/toml"
+    );
+}
+
+/// A vanity module with no recorded commit (gopkg.in/yaml.v2 at v2.2.8) is
+/// pinned to its upstream release tag, which Go spells with its `v`.
+#[tokio::test]
+async fn a_vanity_module_without_a_commit_is_pinned_to_its_release_tag() {
+    let http = RouteHttp::new().json(
+        "/v1/module/gopkg.in/yaml.v2?version=v2.2.8",
+        json!({"path": "gopkg.in/yaml.v2", "version": "v2.2.8",
+            "repoUrl": "https://github.com/go-yaml/yaml", "commitTime": "2019-12-03T00:00:00Z"}),
+    );
+    let b = test_budget();
+    let tags = super::super::test_http::KnownTags::new(vec!["go-yaml/yaml@v2.2.8"]);
+    let client = RegistryClient {
+        tags: Some(&tags),
+        ..RegistryClient::new(&http, &b)
+    };
+    let query = artifact_query(
+        json!({"operation":"resolve","ecosystem": ArtifactType::Go,
+            "packageName": "gopkg.in/yaml.v2", "version": "v2.2.8"}),
+        None,
+    );
+    let page = go(&query, &ArtifactProviderState::default(), &client)
+        .await
+        .expect("yaml.v2");
+    let item = &page.artifacts[0];
+    assert_eq!(item.source_ref.as_deref(), Some("v2.2.8"));
+    assert!(item.source_tag);
+    assert_eq!(tags.seen()[0], "go-yaml/yaml@v2.2.8", "{:?}", tags.seen());
+}
+
+fn module_row(path: &str, version: &str, repository: &str) -> (String, serde_json::Value) {
+    (
+        format!("/v1/module/{path}?version={version}"),
+        json!({"path": path, "version": version, "repoUrl": repository}),
+    )
+}
+
+/// Tags checked on GitHub for `package` at `version`, where the proxy names no
+/// commit and the repository has none of them.
+async fn tag_checks(package: &str, version: &str, repository: &str) -> Vec<String> {
+    let (target, body) = module_row(package, version, repository);
+    let http = RouteHttp::new().json(&target, body);
+    let b = test_budget();
+    let tags = super::super::test_http::KnownTags::new(vec![]);
+    let client = RegistryClient {
+        tags: Some(&tags),
+        ..RegistryClient::new(&http, &b)
+    };
+    let query = artifact_query(
+        json!({"operation":"resolve","ecosystem": ArtifactType::Go,
+            "packageName": package, "version": version}),
+        None,
+    );
+    go(&query, &ArtifactProviderState::default(), &client)
+        .await
+        .expect("lookup");
+    tags.seen()
+        .into_iter()
+        .filter(|seen| !seen.ends_with("@HEAD"))
+        .collect()
+}
+
+/// A vanity module's tag is the go command's own spelling under its place in the
+/// repository, never a name built from the vanity path or its major suffix.
+#[tokio::test]
+async fn a_vanity_module_probes_only_the_tags_its_repository_can_carry() {
+    // The repository's root module: one tag.
+    assert_eq!(
+        tag_checks(
+            "golang.org/x/net",
+            "v0.17.0",
+            "https://github.com/golang/net"
+        )
+        .await,
+        ["golang/net@v0.17.0"]
+    );
+    assert_eq!(
+        tag_checks(
+            "go.uber.org/zap/v2",
+            "v2.1.0",
+            "https://github.com/uber-go/zap"
+        )
+        .await,
+        ["uber-go/zap@v2.1.0"]
+    );
+    // A path that names the repository places the module below it.
+    assert_eq!(
+        tag_checks(
+            "go.etcd.io/etcd/client/v3",
+            "v3.5.9",
+            "https://github.com/etcd-io/etcd"
+        )
+        .await,
+        ["etcd-io/etcd@client/v3.5.9"]
+    );
+    // A path that never names the repository places it nowhere: the root tag.
+    assert_eq!(
+        tag_checks(
+            "go.opentelemetry.io/otel/sdk",
+            "v1.2.0",
+            "https://github.com/open-telemetry/opentelemetry-go"
+        )
+        .await,
+        ["open-telemetry/opentelemetry-go@v1.2.0"]
+    );
+}
+
+#[test]
+fn a_vanity_path_is_placed_by_the_segment_that_names_the_repository() {
+    let place = |module: &str, repository: &str| {
+        let mut item = ArtifactItem::new(ArtifactType::Go, module.into(), String::new());
+        item.module_path = Some(module.into());
+        item.repository = Some(repository.into());
+        source::go_vanity_directory(&item)
+    };
+    assert_eq!(
+        place("google.golang.org/grpc", "https://github.com/grpc/grpc-go"),
+        Some(String::new())
+    );
+    assert_eq!(
+        place(
+            "google.golang.org/grpc/examples",
+            "https://github.com/grpc/grpc-go"
+        ),
+        Some("examples".to_owned())
+    );
+    assert_eq!(
+        place(
+            "cloud.google.com/go/storage",
+            "https://github.com/googleapis/google-cloud-go"
+        ),
+        None
     );
 }

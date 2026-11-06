@@ -175,7 +175,7 @@ fn fallback_graph_walk(
                 let (path, line, character) = query_anchor(&wire);
                 let row = Operation { client: &client, query: &query, sources: &mut sources, snippet_policy: &policy,
                     cancel: &NeverCancel, path: &path, scope: &scope, root_only: false, line, character,
-                    language_id:Some("typescript"), budget:16_000, response_window:None }.run().await.expect("fallback hierarchy");
+                    language_id:Some("typescript"), budget:16_000 }.run().await.expect("fallback hierarchy");
                 let row = crate::tools::lsp_search::failure::with_next(&query, row);
                 if let Some(next) = row.pointer("/next/nextPage/input/queries/0") {
                     let continued: LspSearchQuery = serde_json::from_value(next.clone()).expect("executable nextPage");

@@ -8,6 +8,7 @@
 pub(crate) mod collection;
 pub mod continuations;
 pub(crate) mod cursor;
+pub(crate) mod cut;
 pub mod exit;
 pub(crate) mod notices;
 pub(crate) mod numbered;

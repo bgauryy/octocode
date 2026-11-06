@@ -8,7 +8,7 @@ use super::upgrade;
 use crate::id::ToolId;
 use crate::providers::artifact::query::artifact_type;
 use crate::providers::artifact::{
-    ArtifactError, ArtifactItem, ArtifactProviderContext, execute_artifact,
+    ArtifactError, ArtifactItem, ArtifactProviderContext, Pin, exact_pins, execute_artifact,
 };
 use crate::response::paging::{self, PartialReason};
 use crate::response::result::Continuation;
@@ -32,6 +32,9 @@ struct Notes {
     /// The requested version is not on the registry.
     absent: Option<ArtifactError>,
     prerelease_warning: Option<String>,
+    /// Runtime dependencies the confirmed version pins to one exact version:
+    /// the advisories filed against them are not this package's.
+    pinned: Vec<Pin>,
 }
 
 pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, ArtifactError> {
@@ -91,13 +94,16 @@ async fn upgrade_for(confirmed: &Confirmed, results: &[SourceResult], net: &Net<
             version: Some(named.clone()),
             resume: None,
         });
-        let Ok(answers) = ask_all(&probe, net).await else {
-            return Upgrade {
-                to: None,
-                note: Some(format!(
-                    "No upgrade named: {named} is the highest listed fix, but OSV could not confirm it."
-                )),
-            };
+        let answers = match ask_all(&probe, net).await {
+            Ok(answers) if answers.iter().all(|result| result.resume.is_none()) => answers,
+            _ => {
+                return Upgrade {
+                    to: None,
+                    note: Some(format!(
+                        "No upgrade named: {named} is the highest listed fix, but OSV could not confirm it."
+                    )),
+                };
+            }
         };
         let at_named = answers
             .into_iter()
@@ -105,8 +111,8 @@ async fn upgrade_for(confirmed: &Confirmed, results: &[SourceResult], net: &Net<
             .collect::<Vec<_>>();
         if at_named.is_empty() {
             return Upgrade {
+                note: upgrade::major_gap(version, &named, &listed),
                 to: Some(named),
-                note: None,
             };
         }
         if let Some(still) = at_named
@@ -132,11 +138,12 @@ async fn upgrade_for(confirmed: &Confirmed, results: &[SourceResult], net: &Net<
                     .iter()
                     .map(|row| row.id.as_str())
                     .collect::<Vec<_>>();
+                let others = format!("OSV lists other advisories at {named}: {}.", ids.join(", "));
                 return Upgrade {
-                    note: Some(format!(
-                        "OSV lists other advisories at {named}: {}.",
-                        ids.join(", ")
-                    )),
+                    note: Some(match upgrade::major_gap(version, &named, &listed) {
+                        Some(gap) => format!("{gap} {others}"),
+                        None => others,
+                    }),
                     to: Some(named),
                 };
             }
@@ -194,6 +201,7 @@ async fn confirm(
                 Notes {
                     absent: Some(error),
                     prerelease_warning: None,
+                    pinned: Vec::new(),
                 },
             ));
         }
@@ -223,6 +231,7 @@ async fn confirm(
         },
         Notes {
             absent: None,
+            pinned: exact_pins(artifact),
             prerelease_warning: artifact.only_prerelease.then(|| {
                 format!(
                     "{name}: the registry lists no stable release, so this checks its newest prerelease."
@@ -266,6 +275,23 @@ fn package_row(package: &Package<'_>, name: &str, version: Option<&str>) -> Map<
     row
 }
 
+/// Ready calls that check each exactly pinned dependency at its pinned
+/// version: a package that bundles its parts (rails over actionpack) carries
+/// their advisories under their own names, so its own row cannot hold them.
+/// Each of those rows reports its own pins in turn.
+fn pinned_calls(data: &mut Value, package: &Package<'_>, pins: &[Pin]) {
+    let per_call = crate::response::result::rows_per_call(ToolId::SecurityCheck);
+    for (index, chunk) in pins.chunks(per_call).enumerate() {
+        let queries = chunk
+            .iter()
+            .map(|pin| Value::Object(package_row(package, &pin.name, Some(&pin.version))))
+            .collect::<Vec<_>>();
+        data["calls"][format!("pinnedDependencies{index}")] =
+            Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": queries }))
+                .build();
+    }
+}
+
 /// The answer first, the target's facts, the sources' row, and what continues it.
 fn respond(
     package: &Package<'_>,
@@ -281,6 +307,7 @@ fn respond(
     facts.upgrade_to = upgrade.to.as_deref();
     facts.upgrade_note = upgrade.note.as_deref();
     facts.version_evaluated = version.is_some();
+    facts.pinned_dependencies = notes.pinned.len();
     let mut data = answer::lead(&target, &facts);
     data["packageName"] = json!(name);
     match version {
@@ -289,9 +316,14 @@ fn respond(
     }
     let mut data = into_row(data, results, View::Brief);
     answer::read_whole(&mut data, results, &package.brief);
+    pinned_calls(&mut data, package, &notes.pinned);
     paging::push_warnings(&mut data, notes.prerelease_warning);
     if let Some(absent) = notes.absent {
-        paging::push_warnings(&mut data, [sentence(&absent.message)]);
+        // A version the registry does not list is a failed lookup, so the row
+        // exits non-zero; it still lists what the sources know of the name.
+        data["status"] = json!("error");
+        data["errorCode"] = json!(absent.code);
+        data["error"] = json!(sentence(&absent.message));
         let nearest = absent
             .nearest
             .iter()

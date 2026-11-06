@@ -212,18 +212,30 @@ async fn exact(
             read_pom(&group_path, name, &version, client),
             published_day(&returned_group, &returned_name, &version, client)
         );
+        let mut declared_tag = None;
         if let Some(pom) = pom? {
-            artifact.repository = pom.repository;
+            if let Some(link) = &pom.repository {
+                artifact.set_source_link(link);
+            }
+            declared_tag = pom.release_tag;
             artifact.dependencies = Some(pom.dependencies);
             artifact.optional_dependencies =
                 (!pom.optional_dependencies.is_empty()).then_some(pom.optional_dependencies);
             artifact.unresolved_properties = pom.unresolved;
+            artifact.disclosures.extend(pom.unread);
         }
         artifact.published_at = published_at;
         // Maven names no commit; an upstream tag of this release pins the
-        // lead (a `-jre`/`-android` classifier is not part of the tag).
-        super::release_ref::pin_release_tag(&mut artifact, name, release_version(&version), client)
-            .await;
+        // lead (a `-jre`/`-android` classifier is not part of the tag), the
+        // tag its `<scm>` declares first.
+        super::release_ref::pin_release_tag(
+            &mut artifact,
+            name,
+            release_version(&version),
+            declared_tag.as_deref(),
+            client,
+        )
+        .await;
     }
     Ok(ArtifactProviderPage::single(artifact))
 }
@@ -280,7 +292,9 @@ async fn discovery_repositories(artifacts: &mut [ArtifactItem], client: &Registr
     for (artifact, found) in artifacts.iter_mut().zip(found) {
         let (stable, repository) = found.unwrap_or_default();
         artifact.version = stable.or(artifact.version.take());
-        artifact.repository = repository;
+        if let Some(link) = &repository {
+            artifact.set_source_link(link);
+        }
     }
 }
 
@@ -337,3 +351,6 @@ mod discovery_tests;
 
 #[cfg(test)]
 mod latest_tests;
+
+#[cfg(test)]
+mod parent_tests;

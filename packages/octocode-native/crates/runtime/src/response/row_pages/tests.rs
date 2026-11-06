@@ -19,3 +19,4 @@ mod evidence_siblings;
 mod guidance_room;
 mod heldout_pager_boundaries;
 mod terminal;
+mod text_windows;

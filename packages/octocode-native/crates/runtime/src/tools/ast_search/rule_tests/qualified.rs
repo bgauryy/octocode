@@ -238,3 +238,118 @@ fn member_paths_get_no_qualified_note() {
     );
     assert!(broaden_row(&out).is_none(), "{out}");
 }
+
+/// A call on a bare name matches the callee as written: the calls that
+/// qualify it (a path or a receiver) are counted once, in the files the scan
+/// read, and the lead lists every spelling. Modeled on `redact_lines`, whose
+/// path-qualified caller a bare-name search once left out without a word.
+#[test]
+fn a_bare_callee_counts_the_calls_that_qualify_it() {
+    let root = Fixture::new();
+    let dir = root.0.join("src");
+    std::fs::create_dir_all(&dir).expect("dir");
+    std::fs::write(
+        dir.join("scan.rs"),
+        "pub(crate) fn redact_lines(a: u8) {}\nfn f(x: u8) {\n    redact_lines(x);\n}\n#[test]\nfn t() {\n    redact_lines(1);\n}\n",
+    )
+    .expect("scan");
+    std::fs::write(
+        dir.join("outline.rs"),
+        "fn g(x: u8) {\n    match crate::security::scan::redact_lines(x) {\n        _ => {}\n    }\n    scan::redact_lines(2);\n    other.redact_lines(3);\n    redact_lines_all(4);\n}\n",
+    )
+    .expect("outline");
+    let out = matched(&root.0, &dir, json!({"pattern":"redact_lines($$$A)"}));
+    assert_eq!(out["matchCount"], 2, "{out}");
+    let notes = qualified_notes(&out);
+    assert_eq!(notes.len(), 1, "{out}");
+    assert_eq!(notes[0]["severity"], "info", "{out}");
+    let message = notes[0]["message"].as_str().expect("message");
+    assert!(
+        message.contains("2 more match(es) in 1 file(s)")
+            && message.contains("`redact_lines`")
+            && message.contains("outline.rs:2"),
+        "{message}"
+    );
+    let lead = broaden_row(&out).unwrap_or_else(|| panic!("broadenSearch: {out}"));
+    assert_eq!(
+        lead["rule"],
+        json!({"any":[{"pattern":"redact_lines($$$A)"},{"pattern":"$QUALIFIER::redact_lines($$$A)"}]}),
+        "{lead}"
+    );
+    crate::contracts::validate_query("astSearch", lead.clone()).expect("a valid lead row");
+    let listed = run(&root.0, lead).expect("lead runs");
+    assert_eq!(listed["matchCount"], 4, "{listed}");
+    assert!(qualified_notes(&listed).is_empty(), "{listed}");
+}
+
+/// The same holds where a qualifier is a receiver: TypeScript counts the
+/// calls that name the function through a namespace or an object.
+#[test]
+fn a_bare_typescript_callee_counts_its_member_calls() {
+    let root = Fixture::new();
+    std::fs::write(
+        root.0.join("a.ts"),
+        "export function g(x: number) {\n  format(x);\n  ns.format(x);\n  this.parts.format(x);\n  formatAll(x);\n}\n",
+    )
+    .expect("a");
+    let out = matched(&root.0, &root.0, json!({"pattern":"format($$$A)"}));
+    assert_eq!(out["matchCount"], 1, "{out}");
+    let notes = qualified_notes(&out);
+    assert_eq!(notes.len(), 1, "{out}");
+    assert!(
+        notes[0]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("2 more match(es) in 1 file(s)") && m.contains("a.ts:3")),
+        "{out}"
+    );
+    let lead = broaden_row(&out).unwrap_or_else(|| panic!("broadenSearch: {out}"));
+    assert_eq!(
+        lead["rule"],
+        json!({"any":[{"pattern":"format($$$A)"},{"pattern":"$QUALIFIER.format($$$A)"}]}),
+        "{lead}"
+    );
+    let listed = run(&root.0, lead).expect("lead runs");
+    assert_eq!(listed["matchCount"], 3, "{listed}");
+}
+
+/// A directory of two grammars spells the longer call once per grammar
+/// (a pattern compiles in the grammar it is written in): the count adds
+/// both, and the lead is one query per grammar that together list all.
+#[test]
+fn a_mixed_directory_counts_each_grammars_spelling() {
+    let root = Fixture::new();
+    std::fs::write(
+        root.0.join("a.rs"),
+        "fn f() {\n    run(1);\n    a::run(2);\n}\n",
+    )
+    .expect("rs");
+    std::fs::write(
+        root.0.join("b.ts"),
+        "function g() {\n  run(1);\n  ns.run(2);\n}\n",
+    )
+    .expect("ts");
+    let out = matched(&root.0, &root.0, json!({"pattern":"run($X)"}));
+    assert_eq!(out["matchCount"], 2, "{out}");
+    let notes = qualified_notes(&out);
+    assert_eq!(notes.len(), 1, "{out}");
+    assert!(
+        notes[0]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("2 more match(es) in 2 file(s)")),
+        "{out}"
+    );
+    let call = checks::find_related_call(&out, "astSearch", |input| {
+        input["queries"][0]["rule"].get("any").is_some()
+    })
+    .unwrap_or_else(|| panic!("broadenSearch: {out}"));
+    let rows = call["input"]["queries"].as_array().expect("queries");
+    assert_eq!(rows.len(), 2, "{call}");
+    let mut listed = 0;
+    for row in rows {
+        crate::contracts::validate_query("astSearch", row.clone()).expect("a valid lead row");
+        listed += run(&root.0, row.clone()).expect("lead runs")["matchCount"]
+            .as_u64()
+            .expect("count");
+    }
+    assert_eq!(listed, 4, "{call}");
+}

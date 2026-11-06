@@ -194,8 +194,13 @@ impl ServerHandler for Handler {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        // Only the enabled, individually listed tools are callable.
-        if !self.tools.iter().any(|tool| tool.name == request.name) {
+        // A name no tool bears is a protocol error. A tool the server knows
+        // but does not list (gated by a setting or a tool list) goes to the
+        // runtime's admission, which refuses it with an error naming the
+        // setting to change: "not found" would read as a connection fault.
+        if !self.tools.iter().any(|tool| tool.name == request.name)
+            && octocode_native::id::ToolId::from_name(&request.name).is_none()
+        {
             return Err(ErrorData::invalid_params(
                 format!("Tool {} not found", request.name),
                 None,

@@ -19,7 +19,7 @@ use budget::{SCANS, fan_out, scan_weight};
 
 /// Blobs larger than this keep their index fragments. A read stops at this
 /// many bytes: a larger body is never downloaded whole ([`resolve_files`]).
-const MAX_SCAN_BYTES: usize = 2 * 1024 * 1024;
+pub(super) const MAX_SCAN_BYTES: usize = 2 * 1024 * 1024;
 
 /// What each file's listing is built from: the requested keywords, the goal
 /// that ranks their hits and the context listed around each.
@@ -204,38 +204,39 @@ pub(super) fn scan(
     if needles.is_empty() {
         return FileHits::Unmatched;
     }
-    let mut blob = Blob {
-        raw: text.lines().collect(),
-        lowered: text.lines().map(str::to_lowercase).collect(),
-        clean: None,
-        key_blocks: Vec::new(),
-        declared: Vec::new(),
-        path,
-    };
-    let found = blob.found(&needles);
+    let lowered: Vec<String> = text.lines().map(str::to_lowercase).collect();
+    let found = Blob::find(&lowered, &needles);
     if found.is_empty() {
         return FileHits::Unmatched;
     }
-    // Only a file with a keyword line is outlined.
-    blob.key_blocks = crate::security::private_key_block_line_ranges(&text);
-    if octocode_engine::security::WholeSourcePatterns::for_path(path)
-        .is_some_and(|patterns| patterns.named_by(&text))
-        || octocode_engine::security::WholeSourcePatterns::any_file().named_by(&text)
-    {
-        let Ok((clean, _)) = security.redact_source_lines(&text, Path::new(path)) else {
-            return FileHits::Unavailable;
-        };
-        blob.clean = Some(clean.lines().map(str::to_owned).collect());
+    // Only a file with a keyword line is sealed and outlined: as localFetch
+    // seals a source, judged whole, so no listed line shows a secret its
+    // neighbors name.
+    let Ok(sealed) =
+        crate::tools::source_view::prepare::sealed_view(bytes, Path::new(path), security)
+    else {
+        return FileHits::Unavailable;
+    };
+    let mut blob = Blob {
+        raw: text.lines().collect(),
+        lowered,
+        clean: sealed.text.lines().collect(),
+        key_blocks: crate::security::private_key_block_line_ranges(&text),
+        declared: Vec::new(),
+    };
+    if blob.clean.len() != blob.raw.len() {
+        // The view's lines would not number the source's: show none.
+        return FileHits::Unavailable;
     }
     let outline = crate::tools::declarations::file_document(&text, path);
     blob.declared = hit_declarations(outline.as_deref(), &found);
     let hits = blob.hits(found, &needles, goal);
-    let anchor = blob.anchor(&hits, &needles, security);
-    let lines = blob.listing(&hits, window, security);
+    let anchor = blob.anchor(&hits, &needles);
+    let lines = blob.listing(&hits, window);
     let redacted = blob.redactions(&lines);
     FileHits::Lines {
         redacted,
-        declaration: blob.declaration(&hits, anchor.best, security),
+        declaration: blob.declaration(&hits, anchor.best),
         lines,
         matched: hits.iter().map(Hit::number).collect(),
         first: anchor.first,

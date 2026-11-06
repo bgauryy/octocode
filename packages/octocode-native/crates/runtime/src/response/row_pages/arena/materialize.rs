@@ -27,7 +27,7 @@ impl FragmentArena {
     /// split's first item).
     fn later_pointers(&self, fragment: &FragmentKind) -> Vec<(&str, &Value)> {
         match fragment {
-            FragmentKind::Whole(_) => Vec::new(),
+            FragmentKind::Whole(_) | FragmentKind::Text { .. } => Vec::new(),
             FragmentKind::Records { split, start, .. } => (*start > 0)
                 .then(|| {
                     (
@@ -99,9 +99,15 @@ impl FragmentArena {
                 let mut value = self.build(inner);
                 // One marker per fragment: nested levels compose into it
                 // when planned (`mark_continuations`).
-                value["rowPart"] = json!({"continues": {"array": array, "index": index}});
+                value["rowPart"]["continues"] = json!({"array": array, "index": index});
                 value
             }
+            FragmentKind::Text {
+                split,
+                string,
+                range,
+                shown,
+            } => self.build_text(*split, *string, range, shown.as_ref()),
         }
     }
 }

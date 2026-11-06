@@ -3,6 +3,8 @@
 mod options;
 
 pub(crate) use options::search_options;
+#[cfg(test)]
+pub(crate) use options::test_held_limit;
 
 use super::super::cursor::{fingerprint, malformed_snapshot, query_key, stale_snapshot};
 use super::super::pattern::check_pattern;
@@ -31,8 +33,8 @@ pub(crate) struct Scanned {
     pub(crate) query_key: String,
     /// A stored scan's redaction to replay (see [`redact_scan`]).
     pub(crate) stored_redaction: Option<Arc<Redaction>>,
-    /// The names a stored scan's cuts priced, or a fresh scan's empty set.
-    pub(crate) name_prices: Arc<super::super::manifest::NamePrices>,
+    /// What a stored scan's pages learned, or a fresh scan's empty set.
+    pub(crate) learned: Arc<super::super::manifest::Learned>,
     /// A fresh walk offered for storage with the priced, unranked scan.
     pub(crate) reusable: Option<super::super::walked::Walked>,
     /// The query's own walk, for probes over the same scope.
@@ -123,18 +125,18 @@ pub(crate) fn scan_resumed(
     // A stored scan was stored under the snapshot derived from its query
     // key and its unchanged collected result: a query with the same key
     // derives that snapshot again, so only another key needs the digest.
-    let (identity, stored_redaction, name_prices) =
-        match (stored, local_search_query::snapshot(query)) {
-            (Some(stored), Some(snapshot)) if stored.query_key == query_key => {
-                (snapshot.to_owned(), stored.redaction, stored.prices)
-            }
-            (Some(_), Some(_)) => return Err(stale_snapshot(query)),
-            _ => (
-                fingerprint(&query_key, &parsed.files, &parsed.stats),
-                None,
-                Arc::default(),
-            ),
-        };
+    let (identity, stored_redaction, learned) = match (stored, local_search_query::snapshot(query))
+    {
+        (Some(stored), Some(snapshot)) if stored.query_key == query_key => {
+            (snapshot.to_owned(), stored.redaction, stored.learned)
+        }
+        (Some(_), Some(_)) => return Err(stale_snapshot(query)),
+        _ => (
+            fingerprint(&query_key, &parsed.files, &parsed.stats),
+            None,
+            Arc::default(),
+        ),
+    };
     // A cached scan is checked too: its identity comes from the submitted
     // query's key, so a cursor reused with different search semantics never
     // serves the old query's matches.
@@ -149,7 +151,7 @@ pub(crate) fn scan_resumed(
         identity,
         query_key,
         stored_redaction,
-        name_prices,
+        learned,
         reusable: walked,
         search_options,
         policy_key,
@@ -194,7 +196,7 @@ pub(crate) struct ScanOutput {
     pub(crate) digests: ScanDigests,
     pub(crate) skipped: Arc<crate::policy::discovery::WalkSkips>,
     /// What was stored with a reused scan: its query key, redaction and
-    /// name prices.
+    /// what its pages learned.
     pub(crate) stored: Option<StoredDerived>,
     /// What a fresh walk searched; `None` for a reused scan or a paused one.
     pub(crate) walked: Option<super::super::walked::Walked>,
@@ -206,7 +208,7 @@ pub(crate) struct ScanOutput {
 pub(crate) struct StoredDerived {
     pub(crate) query_key: String,
     pub(crate) redaction: Option<Arc<Redaction>>,
-    pub(crate) prices: Arc<super::super::manifest::NamePrices>,
+    pub(crate) learned: Arc<super::super::manifest::Learned>,
 }
 
 /// The matches: a continuation reuses its page-1 scan instead of walking
@@ -249,7 +251,7 @@ pub(crate) fn scan_in(
         let derived = StoredDerived {
             query_key: stored.query_key,
             redaction: stored.redaction,
-            prices: stored.prices,
+            learned: stored.learned,
         };
         (
             stored.value,
@@ -260,9 +262,10 @@ pub(crate) fn scan_in(
             None,
         )
     } else {
+        let root = std::path::PathBuf::from(&options.path);
         let walk = Arc::new(crate::policy::discovery::WalkAdmission::search(
             paths.clone(),
-            std::path::PathBuf::from(&options.path),
+            root.clone(),
             local_search_query::default_excludes(query).defaults(),
             options.include.as_deref().unwrap_or_default(),
         ));
@@ -284,6 +287,9 @@ pub(crate) fn scan_in(
             let code = match error.kind() {
                 octocode_engine::error::ErrorKind::InvalidInput => ErrorCode::InvalidInput,
                 octocode_engine::error::ErrorKind::InvalidGlob => ErrorCode::InvalidGlob,
+                octocode_engine::error::ErrorKind::ResourceExhausted => {
+                    return held_past_budget(query, &error, root.is_file());
+                }
                 _ => ErrorCode::ExecutionFailed,
             };
             ToolError::new(code, error.to_string())
@@ -322,6 +328,73 @@ pub(crate) fn scan_in(
     })
 }
 
+/// A scan whose matches passed the process memory budget before it ended:
+/// every order ranks the whole scope and every page is cut from the whole
+/// result, so no page of it is shown (none would be complete). It is
+/// refused with the calls that answer within the budget. A `one_file` scope
+/// is read in pages by localFetch (its count and listing would only name
+/// the same file, whose search is this refusal). A directory gets the same
+/// search as per-file counts, which keep no rows (from a row view), and a
+/// listing of the scope to split it by.
+fn held_past_budget(
+    query: &LocalSearchQuery,
+    error: &octocode_engine::error::Error,
+    one_file: bool,
+) -> ToolError {
+    use crate::tools::local_search::{layout::list_view, leads};
+    let mut calls = serde_json::Map::new();
+    let hint = if one_file {
+        calls.insert(
+            "readFile".into(),
+            crate::response::result::Continuation::related(
+                crate::id::ToolId::LocalFetch,
+                serde_json::json!({"path": local_search_query::path(query)}),
+            )
+            .build(),
+        );
+        "Nothing was shown: run related[] readFile (localFetch pages this file whole) or narrow the pattern.".to_owned()
+    } else {
+        if !list_view(local_search_query::view(query))
+            && let Ok(lead) = leads::count_lead(query)
+        {
+            calls.insert("viewFileCount".into(), lead);
+        }
+        if let Some(lead) = leads::scope_listing(query, true) {
+            calls.insert("listScope".into(), lead);
+        }
+        directory_hint(
+            calls.contains_key("viewFileCount"),
+            calls.contains_key("listScope"),
+        )
+    };
+    ToolError {
+        hints: vec![hint],
+        calls: (!calls.is_empty()).then(|| Box::new(serde_json::Value::Object(calls))),
+        ..ToolError::new(
+            ErrorCode::ScopeTooBroad,
+            format!(
+                "The search was refused: {error}; every order ranks the whole scope, so no page is cut from a partial scan."
+            ),
+        )
+    }
+}
+
+/// The refusal hint for a directory scope, naming only the leads offered: a
+/// per-file count (`counted`) and a listing of the scope (`listed`).
+fn directory_hint(counted: bool, listed: bool) -> String {
+    let list = if listed {
+        " (related[] listScope lists the scope to split it by)"
+    } else {
+        ""
+    };
+    let count = if counted {
+        " or run related[] viewFileCount (per-file counts keep no rows) and search the files it ranks (a refused one-file search offers related[] readFile)"
+    } else {
+        ""
+    };
+    format!("Nothing was shown: narrow path, include or the pattern{list}{count}.")
+}
+
 /// Every candidate failed before it could be searched: there is no evidence,
 /// so this is an execution failure, not an empty result.
 pub(crate) fn unreadable_scope(stats: &octocode_engine::types::TextSearchStats) -> ToolError {
@@ -344,5 +417,20 @@ pub(crate) fn unreadable_scope(stats: &octocode_engine::types::TextSearchStats) 
                 "No file under the search path could be read ({count} failure(s); first: {first})."
             ),
         )
+    }
+}
+
+#[cfg(test)]
+mod hint_tests {
+    /// Each lead the hint names is one the refusal offers, and only those.
+    #[test]
+    fn a_directory_hint_names_only_offered_leads() {
+        for counted in [false, true] {
+            for listed in [false, true] {
+                let hint = super::directory_hint(counted, listed);
+                assert_eq!(hint.contains("viewFileCount"), counted, "{hint}");
+                assert_eq!(hint.contains("listScope"), listed, "{hint}");
+            }
+        }
     }
 }

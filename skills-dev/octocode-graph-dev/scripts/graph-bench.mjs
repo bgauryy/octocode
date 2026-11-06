@@ -88,7 +88,6 @@ const parse = (r) => {
 };
 // The approved contract maximum: a page holds as many rows as fit.
 const RESPONSE_CHARS = 50000;
-const fileOf = (id) => String(id ?? '').split('#')[0];
 const leafName = (id) => id?.split('#')[1]?.split('.').pop()?.replace(/@\d+$/, '');
 
 // One CLI client per run: the generated tool commands (`octocode graphQuery --json '<envelope>'`), a query helper
@@ -168,6 +167,8 @@ export async function callerFiles(pages, ids) {
 async function oracle(c, root, { graphFiles, definitions, pages }) {
   const globs = c.ext.split(',').flatMap((e) => ['-g', `*.${e}`]);
   const rg = await run('rg', ['--json', '--no-ignore-vcs', ...globs, `\\b${c.probe}\\s*[(<\\[]`, '.'], root);
+  const failure = callFailure(rg, {});
+  if (failure) return { oracleExit: rg.code, error: failure.error || `ripgrep exited ${rg.code}` };
   const matches = [];
   for (const line of rg.out.split('\n')) {
     const event = line && JSON.parse(line);

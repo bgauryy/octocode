@@ -4,6 +4,7 @@
 //! detector's prescan gate from it.
 
 pub(crate) mod detector;
+mod edits;
 pub(crate) mod patterns;
 pub mod sanitizer;
 pub mod types;
@@ -13,6 +14,7 @@ pub use detector::{
     SecretSpan, SecretSpans, SourceNames, SourceWalk, WholeSourcePatterns, every_value_spans,
     hide_jwk_members,
 };
+pub use edits::Edits;
 
 /// Prefix of detector placeholders (`[REDACTED-<NAME>]`).
 pub const REDACTION_PREFIX: &str = "[REDACTED";

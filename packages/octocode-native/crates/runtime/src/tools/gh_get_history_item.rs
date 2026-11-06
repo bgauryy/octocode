@@ -17,8 +17,7 @@
 use crate::response::result::{ToolData, remove_nulls};
 use crate::security::scan::{ContentScan, sanitize_provider_json, sanitize_provider_text};
 use octocode_github::{
-    GitHubProvider, GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason,
-    RequestContext,
+    GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
 };
 use serde::Deserialize as _;
 use serde_json::Value;
@@ -51,6 +50,7 @@ mod pull_request;
 mod recovery;
 mod remaining;
 mod sections;
+mod source;
 #[cfg(test)]
 mod tests;
 mod text;
@@ -69,6 +69,7 @@ const DEFAULT_TEXT_WINDOW: usize = crate::id::gh_get_history_item_policy::TEXT_W
 use octocode_contract_types::GhGetHistoryItemQuery;
 pub(crate) use output::Output;
 use sections::Section;
+use source::Source;
 
 /// The operation discriminant of a [`GhGetHistoryItemQuery`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -158,9 +159,10 @@ pub async fn execute(
     provider: &GitHubProvider,
     query: &HistoryItemRequest,
     context: &RequestContext,
-    security: &impl ContentScan,
+    security: &(impl ContentScan + Sync),
 ) -> Result<ToolData, ProviderError> {
-    let result = execute_inner(provider, query, context).await;
+    let source = Source::new(&provider.transport, security);
+    let result = execute_inner(provider, &source, query, context).await;
     let mut output = match result {
         Ok(output) => output,
         Err(mut error) => {
@@ -235,7 +237,8 @@ pub async fn execute(
     }
     // The row is redacted here, before the output gate sees it: say so with
     // the shared warning, as the gate does for what it redacts.
-    let redacted = sanitize_provider_json(security, &mut output.data, Path::new(SCAN_PATH))?;
+    let redacted = sanitize_provider_json(security, &mut output.data, Path::new(SCAN_PATH))?
+        + source.redacted();
     if redacted > 0 {
         crate::response::paging::push_warnings(
             &mut output.data,
@@ -257,7 +260,7 @@ pub(crate) async fn run(
     query: &HistoryItemRequest,
     row: &Value,
     context: &RequestContext,
-    security: &impl ContentScan,
+    security: &(impl ContentScan + Sync),
 ) -> Result<ToolData, crate::tools::gh_shared::GhFailure> {
     match execute(provider, query, context, security).await {
         Ok(output) => Ok(output),
@@ -312,23 +315,23 @@ fn enforce_response_limit(value: &Value, max_body_bytes: usize) -> Result<(), Pr
 
 async fn execute_inner(
     provider: &GitHubProvider,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<ToolData, ProviderError> {
     context.check()?;
-    let transport = &provider.transport;
     match gh_get_history_item_query::operation(query) {
         ItemOperation::PullRequest => {
-            match pull_request::pull_request(transport, query, context).await {
+            match pull_request::pull_request(source, query, context).await {
                 Err(error) if error.status == Some(404) => {
-                    Err(issue::name_issue_number(transport, query, context, error).await)
+                    Err(issue::name_issue_number(source, query, context, error).await)
                 }
                 result => result,
             }
         }
-        ItemOperation::Issue => issue::issue(transport, query, context).await,
-        ItemOperation::Commit => commit::commit(provider, query, context).await,
-        ItemOperation::Compare => compare::compare(provider, query, context).await,
+        ItemOperation::Issue => issue::issue(source, query, context).await,
+        ItemOperation::Commit => commit::commit(provider, source, query, context).await,
+        ItemOperation::Compare => compare::compare(provider, source, query, context).await,
     }
 }
 
@@ -336,13 +339,28 @@ fn validation(message: &str) -> ProviderError {
     ProviderError::new(ProviderErrorKind::Validation, message)
 }
 
+/// One provider read of the history item: its payload with every `body`
+/// already redacted ([`Source::redact_bodies`]) and whether more pages follow.
 async fn fetch(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     segments: &[&str],
     query: &[(&str, String)],
     context: &RequestContext,
 ) -> Result<(Value, bool), ProviderError> {
+    let (value, has_more, _) = fetch_linked(source, segments, query, context).await?;
+    Ok((value, has_more))
+}
+
+/// [`fetch`] with the last page number GitHub's `Link` header names, when it
+/// names one: the list's batch count at this `per_page`.
+async fn fetch_linked(
+    source: &Source<'_>,
+    segments: &[&str],
+    query: &[(&str, String)],
+    context: &RequestContext,
+) -> Result<(Value, bool, Option<usize>), ProviderError> {
     context.check()?;
-    let response = transport.history_item(segments, query, context).await?;
-    Ok((response.value, response.has_more))
+    let mut response = source.history_item(segments, query, context).await?;
+    source.redact_bodies(&mut response.value)?;
+    Ok((response.value, response.has_more, response.last_page))
 }

@@ -142,10 +142,55 @@ async fn from_url(
     .await
 }
 
-/// One advisory by id.
+/// The spelling OSV most often uses for an advisory id: the database prefix in
+/// capitals (`CVE`, `PYSEC`, `GO`) and a GitHub advisory's three groups in lower
+/// case (`GHSA-jfh8-c2jp-5v3q`). OSV ids are case-sensitive and a few real ones
+/// keep a lower-case part (`openSUSE-SU-2019:0174-1`), so this is only the second
+/// guess: [`advisory`] asks for the id as given first.
+fn canonical_advisory_id(id: &str) -> String {
+    match id.split_once('-') {
+        Some((prefix, rest)) if prefix.eq_ignore_ascii_case("GHSA") => {
+            format!("GHSA-{}", rest.to_ascii_lowercase())
+        }
+        Some((prefix, rest)) if prefix.chars().all(|c| c.is_ascii_alphabetic()) => {
+            format!("{}-{rest}", prefix.to_ascii_uppercase())
+        }
+        _ => id.to_owned(),
+    }
+}
+
+/// One advisory by id, asked as given. Only when OSV has no such record is the
+/// canonical spelling asked, if it differs, and the row says it was.
 async fn advisory(id: &str, net: &Net<'_>) -> Result<Value, ArtifactError> {
-    let results = source::ask_all(&Target::Advisory(id.to_owned()), net).await?;
+    let mut retried = None;
+    let results = match source::ask_all(&Target::Advisory(id.to_owned()), net).await {
+        Err(missing) if missing.code == ErrorCode::NotFound => {
+            let canonical = canonical_advisory_id(id);
+            if canonical == id {
+                return Err(missing);
+            }
+            let results = source::ask_all(&Target::Advisory(canonical.clone()), net)
+                .await
+                .map_err(|mut error| {
+                    if error.code == ErrorCode::NotFound {
+                        error.message = format!("{} Also asked as {canonical}.", missing.message);
+                    }
+                    error
+                })?;
+            retried = Some(canonical);
+            results
+        }
+        other => other?,
+    };
     let mut data = source::into_row(json!({}), &results, View::Whole);
+    if let Some(canonical) = retried {
+        paging::push_warnings(
+            &mut data,
+            [format!(
+                "OSV has no record {id}; this is the record it keeps as {canonical}."
+            )],
+        );
+    }
     crate::response::result::finish_calls(&mut data);
     Ok(data)
 }
@@ -212,3 +257,22 @@ fn other_repository(repo: &str, results: &[source::SourceResult]) -> Option<Stri
 #[cfg(test)]
 #[path = "security_check/tests.rs"]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod advisory_id_tests {
+    use super::canonical_advisory_id;
+
+    #[test]
+    fn the_canonical_spelling_is_the_usual_osv_case() {
+        for (given, spelled) in [
+            ("ghsa-jfh8-c2jp-5v3q", "GHSA-jfh8-c2jp-5v3q"),
+            ("GHSA-JFH8-C2JP-5V3Q", "GHSA-jfh8-c2jp-5v3q"),
+            ("cve-2021-44228", "CVE-2021-44228"),
+            ("pysec-2020-1", "PYSEC-2020-1"),
+            ("go-2020-0015", "GO-2020-0015"),
+            ("RUSTSEC-2020-0071", "RUSTSEC-2020-0071"),
+        ] {
+            assert_eq!(canonical_advisory_id(given), spelled);
+        }
+    }
+}

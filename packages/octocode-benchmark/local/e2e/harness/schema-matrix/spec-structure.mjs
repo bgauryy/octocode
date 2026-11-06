@@ -37,6 +37,11 @@ function entries(ctx, root, query) {
   return rows;
 }
 
+/** Emptiness is content bytes for files and physical entries for directories. */
+export function isEmptyEntry(row) {
+  return row.type === 'file' ? row.size === 0 : row.type === 'directory' && fs.readdirSync(row.full).length === 0;
+}
+
 function selected(ctx, testCase) {
   const { query, assignment } = testCase;
   const root = rootOf(assignment);
@@ -46,8 +51,7 @@ function selected(ctx, testCase) {
   if (query.entryType === 'file') rows = rows.filter(row => row.type === 'file');
   if (query.entryType === 'directory') rows = rows.filter(row => row.type === 'directory');
   if (query.access) rows = rows.filter(row => { try { fs.accessSync(row.full, ACCESS[query.access]); return true; } catch { return false; } });
-  // `empty: false` asks nothing: the field only narrows when true.
-  if (query.empty === true) rows = rows.filter(row => row.type === 'file' && row.size === 0);
+  if (query.empty !== undefined) rows = rows.filter(row => isEmptyEntry(row) === query.empty);
   return { root, rows };
 }
 

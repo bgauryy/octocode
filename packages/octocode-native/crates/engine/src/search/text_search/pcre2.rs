@@ -115,7 +115,7 @@ pub(super) fn search_pcre2(
         clock: clock.unwrap_or_else(|| Arc::new(Instant::now)),
         resume,
     };
-    let run = Arc::new(Run::new());
+    let run = Arc::new(Run::new(opts.max_held_bytes));
     let (tx, rx) = std::sync::mpsc::channel();
     // The worker and this driver share one copy of the options.
     let opts = Arc::new(opts);
@@ -140,10 +140,18 @@ pub(super) fn search_pcre2(
         release_worker_slot(&ACTIVE_PCRE2_WORKERS);
     }
     spawned.map_err(to_engine_err)?;
+    // A search past its held bound is refused, whichever way it ended.
+    let refused = || run.held.exhausted().then(|| run.held.refusal());
     loop {
         if cancelled() {
             run.cancel();
+            if let Some(refusal) = refused() {
+                return Err(refusal);
+            }
             return Ok(Windowed::Whole(run.whole(&opts, mode)));
+        }
+        if let Some(refusal) = refused() {
+            return Err(refusal);
         }
         if let Some(pause) = run.paused() {
             return Ok(Windowed::Paused(pause));
@@ -159,6 +167,9 @@ pub(super) fn search_pcre2(
         match rx.recv_timeout(wait) {
             Ok(collected) => {
                 collected?;
+                if let Some(refusal) = refused() {
+                    return Err(refusal);
+                }
                 return Ok(match run.paused() {
                     Some(pause) => Windowed::Paused(pause),
                     None => Windowed::Whole(run.whole(&opts, mode)),

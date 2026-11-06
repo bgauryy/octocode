@@ -203,6 +203,11 @@ pub(super) async fn write_file(
         let name = dest
             .file_name()
             .ok_or_else(|| io::Error::other("File has no name"))?;
+        // A file already on disk with exactly these bytes is not rewritten;
+        // any other content (edited, truncated, replaced) is restored.
+        if holds_exactly(&directory, name, &bytes) {
+            return Ok(());
+        }
         directory.write_atomic(name, &bytes)?;
         if !directory.still_at(&home, parent)? {
             return Err(io::Error::other("Materialize directory moved during write"));
@@ -210,6 +215,21 @@ pub(super) async fn write_file(
         Ok(())
     })
     .await
+}
+
+/// Whether the file `name` in `directory` is there and holds exactly `bytes`.
+fn holds_exactly(directory: &BeneathDir, name: &std::ffi::OsStr, bytes: &[u8]) -> bool {
+    use std::io::Read;
+    let Ok(file) = directory.open_file(name) else {
+        return false;
+    };
+    // One byte past the expected length proves a longer file without
+    // reading all of it.
+    let mut found = Vec::with_capacity(bytes.len());
+    file.take(bytes.len() as u64 + 1)
+        .read_to_end(&mut found)
+        .is_ok()
+        && found == bytes
 }
 
 async fn directory(home: &Path, path: &Path) -> Result<BeneathDir, ProviderError> {

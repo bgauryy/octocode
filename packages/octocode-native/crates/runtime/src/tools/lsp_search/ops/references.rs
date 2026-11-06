@@ -137,7 +137,6 @@ impl Operation<'_, '_> {
             found,
             importers.as_ref().and_then(Importers::digest),
             self.budget,
-            self.response_window,
         )
         .await;
         if !later_window {

@@ -14,7 +14,7 @@ fn evaluator(server: &MockServer) -> Evaluator {
         server.uri(),
         "jev-test".into(),
         &crate::providers::classification::jev::JEV,
-        Duration::from_secs(10),
+        Some(Duration::from_secs(10)),
         1,
         4,
     )

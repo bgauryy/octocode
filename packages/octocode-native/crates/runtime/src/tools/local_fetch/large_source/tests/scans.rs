@@ -10,6 +10,7 @@ fn streamed(q: &LocalFetchQuery, text: &str, limits: Limits) -> Scan {
         file.path(),
         0,
         limits,
+        &crate::security::ContentSecurity::new(),
         &NeverCancel,
     )
     .expect("scan")
@@ -86,7 +87,15 @@ fn a_giant_line_is_scanned_within_the_window_bound() {
     let file = temp(text.as_bytes());
     let bound = Limits::of(&q).text_bound();
     assert!(bound < line / 2, "the bound is far below the line");
-    let found = scan(&q, &opened(file.path()), file.path(), 0, &NeverCancel).expect("scan");
+    let found = scan(
+        &q,
+        &opened(file.path()),
+        file.path(),
+        0,
+        &crate::security::ContentSecurity::new(),
+        &NeverCancel,
+    )
+    .expect("scan");
     assert_eq!((found.count, found.total_lines), (1, 1));
     assert!(
         found.peak <= bound,

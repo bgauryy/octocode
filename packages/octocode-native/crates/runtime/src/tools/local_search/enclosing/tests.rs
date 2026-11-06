@@ -16,7 +16,7 @@ try_read_output();\n\
 fn hits_name_their_innermost_declaration_and_definitions_the_one_around() {
     let outline = Outline::of(SOURCE, "enclosing-test/a.rs").expect("rust outline");
     let named = |line| {
-        outline.enclosing(line).map(|enclosing| {
+        outline.enclosing(line, 0).map(|enclosing| {
             (
                 enclosing.kind,
                 enclosing.symbol_name,
@@ -33,7 +33,7 @@ fn hits_name_their_innermost_declaration_and_definitions_the_one_around() {
     );
     assert_eq!(named(3), Some(("impl".into(), "Harness".into(), 2, 7)));
     assert_eq!(named(10), Some(("function".into(), "free".into(), 9, 11)));
-    assert_eq!(outline.enclosing(8), None);
+    assert_eq!(outline.enclosing(8, 0), None);
     assert!(outline.declares("try_read_output", 3));
     assert!(!outline.declares("try_read_output", 10));
 }
@@ -52,11 +52,33 @@ fn rust_macro_arm_hits_belong_to_the_named_macro() {
         );
         let outline = Outline::of(&source, "enclosing-test/macro-arm.rs").expect("outline");
         for line in 2..=6 {
-            let owner = outline.enclosing(line).expect("containing macro");
+            let owner = outline.enclosing(line, 0).expect("containing macro");
             assert_eq!(owner.symbol_name, "wrapper", "{attribute}, line {line}");
             assert_eq!((owner.line, owner.end_line), (1, 7));
         }
     }
+}
+
+/// On a one-line (minified) file every declaration starts on line 1: a hit
+/// names the declaration its byte sits in, a hit on a header up to its name
+/// names the one around it, and a hit past a declaration's end is outside it.
+#[test]
+fn hits_on_one_line_name_the_declaration_their_byte_sits_in() {
+    let source =
+        "function alpha(){return first}class Beta{gamma(){return second}}const tail=third;\n";
+    let outline = Outline::of(source, "enclosing-test/min.js").expect("js outline");
+    let byte = |needle: &str| u32::try_from(source.find(needle).expect("needle")).expect("u32");
+    let owner = |needle| {
+        outline
+            .enclosing(1, byte(needle))
+            .map(|enclosing| enclosing.symbol_name)
+    };
+    assert_eq!(owner("first").as_deref(), Some("alpha"));
+    assert_eq!(owner("second").as_deref(), Some("gamma"));
+    assert_eq!(owner("gamma").as_deref(), Some("Beta"));
+    assert_eq!(owner("third").as_deref(), Some("tail"));
+    assert_eq!(owner("alpha"), None);
+    assert_eq!(owner("class"), None);
 }
 
 /// A `#define` owns its line terminator; its range still ends on its
@@ -65,7 +87,7 @@ fn rust_macro_arm_hits_belong_to_the_named_macro() {
 fn consecutive_c_macros_end_on_their_own_line() {
     let source = "#define OBJ_ENCODING_STREAM 10\n#define OBJ_ENCODING_LISTPACK 11\nint use(void) {\n    return OBJ_ENCODING_LISTPACK;\n}\n";
     let outline = Outline::of(source, "enclosing-test/object.h").expect("c outline");
-    assert_eq!(outline.enclosing(2), None);
+    assert_eq!(outline.enclosing(2, 0), None);
     assert!(outline.declares("OBJ_ENCODING_LISTPACK", 2));
     assert_eq!(
         outline.declaration("OBJ_ENCODING_STREAM", 1),
@@ -73,7 +95,7 @@ fn consecutive_c_macros_end_on_their_own_line() {
     );
     assert_eq!(
         outline
-            .enclosing(4)
+            .enclosing(4, 0)
             .map(|e| (e.symbol_name, e.line, e.end_line)),
         Some(("use".into(), 3, 5))
     );

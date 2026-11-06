@@ -23,10 +23,28 @@ pub(super) fn reuse_checkout(
     if !git::safe_to_replace(context, clone_dir, reference)? {
         return Ok(None);
     }
+    // A checkout made before credential-named files were withheld still
+    // holds them: it is not reusable, the caller replaces it.
+    let listed = git::withheld_files(
+        context,
+        clone_dir,
+        "HEAD",
+        plan.sparse.as_ref().map(Sparse::paths),
+    )?;
+    // The blobs count too: an earlier full clone stored them unwritten.
+    if listed
+        .iter()
+        .any(|file| clone_dir.join(&file.path).exists())
+        || !git::blobs_absent(context, clone_dir, &listed)?
+    {
+        return Ok(None);
+    }
+    let withheld = git::withheld_paths(listed);
     let checkout = Checkout {
         commit_sha: reference.to_ascii_lowercase(),
         size: storage::checked_out_size(clone_dir),
         symlinks: git::symlinks(context, clone_dir)?,
+        withheld,
     };
     context
         .path_policy
@@ -51,8 +69,9 @@ pub(super) fn fresh_clone(
         return Err(dirty_checkout(clone_dir));
     }
     let stage = storage::stage_dir(&context.config.home, clone_dir)?;
-    let published = checkout_stage(plan, reference, &stage)
-        .and_then(|commit_sha| publish_stage(plan, &stage, &commit_sha, clone_dir));
+    let published = checkout_stage(plan, reference, &stage).and_then(|(commit_sha, withheld)| {
+        publish_stage(plan, &stage, &commit_sha, withheld, clone_dir)
+    });
     let checkout = published.inspect_err(|_| discard_stage(&stage))?;
     context
         .path_policy
@@ -68,6 +87,7 @@ fn publish_stage(
     plan: &Plan<'_>,
     stage: &Path,
     commit_sha: &str,
+    withheld: Vec<String>,
     clone_dir: &Path,
 ) -> Result<Checkout, CloneError> {
     let context = plan.context;
@@ -75,6 +95,7 @@ fn publish_stage(
         commit_sha: commit_sha.to_owned(),
         size: storage::checked_out_size(stage),
         symlinks: git::symlinks(context, stage)?,
+        withheld,
     };
     // The lock serializes only Octocode: a user can create or edit the
     // destination while the stage is fetched, so recheck before replacing.
@@ -88,11 +109,15 @@ fn publish_stage(
 
 /// Check out the commit `reference` into `stage` and verify it: every
 /// sparse path exists, and the commit is the checked-out HEAD. Returns the
-/// checked-out commit.
-fn checkout_stage(plan: &Plan<'_>, reference: &str, stage: &Path) -> Result<String, CloneError> {
+/// checked-out commit and the credential-named files left out of it.
+fn checkout_stage(
+    plan: &Plan<'_>,
+    reference: &str,
+    stage: &Path,
+) -> Result<(String, Vec<String>), CloneError> {
     let context = plan.context;
     let sparse_paths = plan.sparse.as_ref().map(Sparse::paths);
-    git::checkout(
+    let withheld = git::checkout(
         context,
         &plan.repository_url,
         reference,
@@ -103,7 +128,7 @@ fn checkout_stage(plan: &Plan<'_>, reference: &str, stage: &Path) -> Result<Stri
     if let Some(paths) = sparse_paths {
         let missing = paths
             .iter()
-            .filter(|path| !checked_out(stage, path))
+            .filter(|path| !checked_out(stage, path) && !is_withheld(&withheld, path))
             .map(String::as_str)
             .collect::<Vec<_>>();
         if !missing.is_empty() {
@@ -117,7 +142,19 @@ fn checkout_stage(plan: &Plan<'_>, reference: &str, stage: &Path) -> Result<Stri
             format!("Checkout HEAD {commit_sha} does not match requested commit {reference}."),
         ));
     }
-    Ok(commit_sha)
+    Ok((commit_sha, withheld))
+}
+
+/// Whether `path` (a requested sparse path) is a withheld file or holds one:
+/// its absence from the checkout is by design, not a missing path.
+fn is_withheld(withheld: &[String], path: &str) -> bool {
+    let path = path.trim_end_matches('/');
+    withheld.iter().any(|file| {
+        file == path
+            || file
+                .strip_prefix(path)
+                .is_some_and(|rest| rest.starts_with('/'))
+    })
 }
 
 /// Whether `path` is in the checkout `stage` under exactly that spelling.

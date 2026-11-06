@@ -15,6 +15,10 @@ export function batteryFailures(rows) {
     }
     if (row.ingest?.exit !== 0 && !failures.length) failures.push({ lang: row.lang, tool: 'graphBuild', ...row.ingest });
     if (row.callers?.pagesComplete === false) failures.push({ lang: row.lang, tool: 'graphQuery', error: 'callers pages incomplete' });
+    if (row.recall && Object.hasOwn(row.recall, 'oracleExit')) {
+      const failure = callFailure({ code: row.recall.oracleExit }, row.recall);
+      if (failure) failures.push({ lang: row.lang, tool: 'rg', operation: 'oracle', ...failure });
+    }
     return failures;
   });
 }

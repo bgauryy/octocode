@@ -49,6 +49,7 @@ fn materialize_first_row_as<C: CancellationCheck>(
         expected_digest: &expected,
         security,
         cancel,
+        judged: &verify::JudgedWindows::default(),
     };
     verify::materialize(&scope, file, 0..1)
 }

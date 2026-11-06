@@ -38,14 +38,14 @@ const OSV_ROW = { package: ecosystem => ({ ecosystem, packageName: COORDINATE[ec
 export const securityCheck = {
   tool: 'securityCheck',
   base: row => {
-    if (row.operation === 'advisory') return { id: 'GHSA-HAPPY' };
+    if (row.operation === 'advisory') return { id: 'GHSA-happy' };
     if (row.operation === 'commit') return { commit: '6879efc2c1596d11a6a6ad296f80063b558d5e0f' };
     if (row.operation === 'url') return { url: 'pkg:pypi/proof@1.0.0' };
     return OSV_ROW.package(row.ecosystem ?? 'npm');
   },
   judge: (worker, { testCase, pages }) => {
     const row = dataOf(pages)[0] ?? {};
-    if (testCase.query.operation === 'advisory') return row.advisories?.[0]?.id === 'GHSA-HAPPY' ? null : `advisory ${JSON.stringify(row).slice(0, 160)}`;
+    if (testCase.query.operation === 'advisory') return row.advisories?.[0]?.id === 'GHSA-happy' ? null : `advisory ${JSON.stringify(row).slice(0, 160)}`;
     return 'answer' in row ? null : `no answer sentence: ${JSON.stringify(row).slice(0, 160)}`;
   },
   indistinct: { operation: 'one value per form', ecosystem: 'each ecosystem has its own coordinate' },

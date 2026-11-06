@@ -152,15 +152,15 @@ pub(super) fn shape(
     mark_empty(&mut value, paging.more);
     // A page past the end is restarted by the shared response stage, not
     // broadened: the search has results.
-    if value["status"] == "empty"
-        && !paging.past_end
-        && let Some(lead) = leads::broaden_search(query)
-    {
-        crate::tools::leads::broaden::set_broadened(
-            &mut value,
-            &crate::response::result::query_row(&**query, &[]),
-            lead,
-        );
+    if value["status"] == "empty" && !paging.past_end {
+        match leads::broaden_search(query) {
+            Some(lead) => crate::tools::leads::broaden::set_broadened(
+                &mut value,
+                &crate::response::result::query_row(&**query, &[]),
+                lead,
+            ),
+            None => crate::tools::leads::broaden::set_no_broader(&mut value),
+        }
     }
     // A path scope that listed nothing may name no path at all: its
     // parent's listing checks it.
@@ -170,6 +170,21 @@ pub(super) fn shape(
             crate::tools::gh_shared::path_check(&crate::response::result::query_row(&**query, &[]))
     {
         value["calls"]["viewTree"] = check;
+    }
+    if value["status"] == "empty"
+        && !paging.past_end
+        && gh_search_history_query::operation(query) == HistoryOperation::Commit
+        && let Some(path) = gh_search_history_query::path(query)
+    {
+        // GitHub lists pushed history only: a file that exists only in the
+        // caller's checkout reads the same as a path that never existed.
+        let at = gh_search_history_query::reference(query).unwrap_or("the default branch");
+        crate::tools::leads::push_hint(
+            &mut value,
+            format!(
+                "No commit touches `{path}` on {at} of GitHub: history covers only what was pushed there, so a file or commit that exists only in your checkout (never pushed, or on an unpushed branch) has none here; read it with local git history, or retry with the ref that holds it. The related[] ghStructure request lists the path's parent to check it exists at that ref."
+            ),
+        );
     }
     disclose_provider_limits(&mut value, query, paging, narrow);
     value

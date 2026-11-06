@@ -245,7 +245,7 @@ test('lease_overlap is registered and uses the frozen key rules', t => {
   db.close();
 });
 
-test('bound values keep the legacy semantics: booleans are 0/1, whole numbers are INTEGER, NULL columns are dropped', t => {
+test('bound values use booleans as 0/1 and whole numbers as INTEGER; NULL columns are dropped', t => {
   const workspace = tempWorkspace(t, 'database-', { real: true });
   const db = database.openDatabase(join(workspace, 'bind.sqlite'), false, true);
   assert.equal(db.value('SELECT typeof(?)', [5]), 'integer');

@@ -8,7 +8,7 @@ use super::*;
 fn an_identical_continuation_has_one_handle() {
     let registry = registry("policy");
     let issue = |access: u8, tool, input: Value, index| {
-        let mut pending = Pending::new([access; 32], None);
+        let mut pending = registry.pending([access; 32], None);
         let token = pending.insert(tool, input, SavedWork::ToolResume { index: Some(index) });
         assert!(registry.retain(pending, &context()).is_ok());
         token
@@ -40,4 +40,85 @@ fn an_identical_continuation_has_one_handle() {
         first.len(),
         crate::response::cursor::issued::placeholder().len()
     );
+}
+
+/// Reissuing the same work under a new policy must never resurrect an old
+/// token: the new configuration, workspace, contract or planner can change
+/// the evidence represented by that continuation.
+#[test]
+fn reissuing_work_under_another_policy_does_not_resurrect_old_tokens() {
+    let disk = tempfile::tempdir().unwrap();
+    let make = |policy: &str| {
+        Registry::new(
+            CacheConfig::derived(),
+            Some(disk.path().into()),
+            policy.into(),
+        )
+    };
+    let (old, current) = (make("old-policy"), make("current-policy"));
+    let access = [1; 32];
+    let input = json!({"queries":[{"path":"src"}]});
+    for work in [
+        SavedWork::ToolResume { index: Some(0) },
+        SavedWork::Rows {
+            indices: vec![0, 1],
+        },
+        SavedWork::ResponsePage {
+            cursor: Cursor {
+                key: [2; 32],
+                digest: [3; 32],
+                length: 600,
+                offset: 1,
+            },
+            index: None,
+            rows: None,
+        },
+    ] {
+        let mut old_pending = old.pending(access, None);
+        let old_token = old_pending.insert(ToolId::LocalFetch, input.clone(), work.clone());
+        old.retain(old_pending, &context()).unwrap();
+        old.clear_memory();
+        assert!(old.open(ToolId::LocalFetch, &old_token, access).is_ok());
+        assert!(matches!(
+            current.open(ToolId::LocalFetch, &old_token, access),
+            Err(Refusal::NotRetained)
+        ));
+        let mut pending = current.pending(access, None);
+        let new_token = pending.insert(ToolId::LocalFetch, input.clone(), work);
+        current.retain(pending, &context()).unwrap();
+        current.clear_memory();
+        assert!(current.open(ToolId::LocalFetch, &new_token, access).is_ok());
+        assert!(
+            matches!(
+                current.open(ToolId::LocalFetch, &old_token, access),
+                Err(Refusal::NotRetained)
+            ),
+            "new policy resurrected old token {old_token}",
+        );
+        assert_ne!(old_token, new_token);
+    }
+}
+
+/// This wire fixture was issued before handles included the replay policy,
+/// for access [1; 32], localFetch({queries:[{path:"src"}]}), ToolResume(0).
+#[test]
+fn policy_free_handles_stay_expired_after_identical_work_is_reissued() {
+    let old_token = "cursor2.-GTMq4TBZprr_BG8mbWo3gYNqvcjihLiANcr7kGTweaA";
+    let registry = registry("current-policy");
+    let mut pending = registry.pending([1; 32], None);
+    let new_token = pending.insert(
+        ToolId::LocalFetch,
+        json!({"queries":[{"path":"src"}]}),
+        SavedWork::ToolResume { index: Some(0) },
+    );
+    registry.retain(pending, &context()).unwrap();
+    assert!(
+        registry
+            .open(ToolId::LocalFetch, &new_token, [1; 32])
+            .is_ok()
+    );
+    assert!(matches!(
+        registry.open(ToolId::LocalFetch, old_token, [1; 32]),
+        Err(Refusal::NotRetained)
+    ));
 }

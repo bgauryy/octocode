@@ -21,15 +21,15 @@ node skills-dev/octocode-graph-dev/scripts/bench-compare.mjs <dir>/before.json <
 - `--edges` adds every call edge into the probe (`witnesses`: from, to, line, confidence) to each row.
 - Per-edge agreement with LSP: [lsp-crosscheck.mjs](../scripts/lsp-crosscheck.mjs) `--peer <graph-view data.json> --crates <dir,...> --out <file>` compares every `witnesses` call edge of each crate with an octocode-graph-view LSP cross-check.
 
-Use [graph-bench.mjs](../scripts/graph-bench.mjs) `--help` for flags. The battery exits 1 on failed calls or incomplete callers pages. Inspect the failed input before using a partial measurement. [bench-compare.mjs](../scripts/bench-compare.mjs) exits 1 on a precision drop, a new ingest failure, or a previously successful workflow stage that now fails or is missing. It reports recall changes for source review.
+Use [graph-bench.mjs](../scripts/graph-bench.mjs) `--help` for flags. The battery exits 1 on failed calls, oracle execution errors or incomplete callers pages. A failed oracle retains its diagnostic and produces no ratios; ripgrep's successful empty result remains valid. Inspect the failed input before using a partial measurement. [bench-compare.mjs](../scripts/bench-compare.mjs) checks both runs with the battery's failure rules and exits 2 if either contains an invalid measurement. For valid measurements, it exits 1 on a precision drop or a previously successful workflow stage that is now missing. Ratios retain full precision; recall changes are reported for source review.
 
-When changing the runner, oracle or comparison gate, run both suites from the skill directory:
+When changing the runner, oracle or comparison gate, run these suites from the skill directory:
 
 ```bash
-node --test scripts/bench-compare.test.mjs scripts/battery-status.test.mjs
+node --test scripts/bench-compare.test.mjs scripts/battery-status.test.mjs scripts/graph-bench.test.mjs
 ```
 
-[Comparison and oracle tests](../scripts/bench-compare.test.mjs) cover per-language metrics and matched sites. [Battery status tests](../scripts/battery-status.test.mjs) distinguish an empty result from a failed call, incomplete paging or a missing workflow stage.
+[Comparison and oracle tests](../scripts/bench-compare.test.mjs) cover per-language metrics and matched sites. [Battery status tests](../scripts/battery-status.test.mjs) distinguish an empty result from a failed call, incomplete paging or a missing workflow stage. [Command tests](../scripts/graph-bench.test.mjs) exercise failed continuations, a missing oracle and a successful empty search through the runner and comparison CLI.
 
 ## Reading a row
 

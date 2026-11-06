@@ -53,14 +53,6 @@ pub(crate) fn redact_lines<'a>(
     })
 }
 
-/// Whether its lines cannot judge `source`: it names a pattern that spans them.
-pub(crate) fn only_whole_judges(source: &str, path: &Path) -> bool {
-    use octocode_engine::security::WholeSourcePatterns;
-    WholeSourcePatterns::for_path(&path.to_string_lossy())
-        .is_some_and(|patterns| patterns.named_by(source))
-        || WholeSourcePatterns::outruns_a_page(source)
-}
-
 fn redact_with<'a>(
     source: &'a str,
     sanitize: impl Fn(&'a str) -> Result<Cow<'a, str>, (ErrorCode, String)>,
@@ -87,7 +79,7 @@ fn redact_with<'a>(
 /// [`ContentScan::sanitize`] of provider text: the redacted text, or the
 /// scanner's refusal message as a `Validation` provider error.
 pub(crate) fn sanitize_provider_text(
-    security: &impl ContentScan,
+    security: &(impl ContentScan + ?Sized),
     text: &str,
     path: &Path,
 ) -> Result<String, octocode_github::ProviderError> {

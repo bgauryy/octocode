@@ -29,44 +29,112 @@ pub(crate) use diagnosis::{diagnose, diagnose_shown};
 pub(crate) use reasons::ignore_rule;
 pub(crate) use tagged::{FileProbe, Tagged};
 
-/// Wall-clock bound of one relaxed probe walk behind a local result (a
-/// [`FileProbe`], localSearch's re-walks, structureSearch's listing probes):
-/// past it the probe is cut and absence behind the skipped paths unproven.
-/// The one budget every local tool's probes share.
+/// The work one relaxed probe walk behind a local result may do (a
+/// [`FileProbe`], localSearch's re-walks and alternate spellings,
+/// structureSearch's listing probes): past it the probe is cut and absence
+/// behind the skipped paths unproven. The one budget every local tool's
+/// probes share.
 ///
-/// Kept as a clock on measurement, not a structural stop: no earlier signal
-/// proves absence (`Absent` needs the relaxed walk to finish), and finishing
-/// costs what the skipped paths hold, not what the request asked for. On this
-/// repository (2026-11-04) the requested walk takes about 70 ms and a relaxed
-/// walk tens of seconds, so no budget finishes it; a small tree finishes well
-/// inside this one. The budget is what one more requested walk costs, so an
-/// empty answer stays within a few times the search. A cut probe is disclosed
-/// (`Verdict::Unproven`, `Hits::cut`) with the lead that lifts the flags, which
-/// runs the full walk under the request's deadline.
-pub(crate) const PROBE_BUDGET: std::time::Duration = std::time::Duration::from_millis(100);
+/// Counted in work, never in time, so the same tree gives the same finding
+/// on every surface and under any load: each probe walks in a fixed order and
+/// is charged per entry it admits and per file byte it reads. No earlier
+/// signal proves absence (`Absent` needs the relaxed walk to finish), and
+/// finishing costs what the skipped paths hold, not what the request asked
+/// for: a dependency or build tree holds far more than any request walks, so
+/// the budget is sized to a small project, which a probe finishes. A cut probe
+/// is disclosed (`Verdict::Unproven`, `Hits::cut`, "at least") with the lead
+/// that lifts the flags, which runs the full walk under the request's deadline.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ProbeLimits {
+    /// Walk entries (files and directories) a probe admits.
+    pub(crate) entries: usize,
+    /// File bytes a probe reads.
+    pub(crate) bytes: u64,
+}
+
+pub(crate) const PROBE_LIMITS: ProbeLimits = ProbeLimits {
+    entries: 10_000,
+    bytes: 64 * 1024 * 1024,
+};
 
 #[cfg(test)]
 thread_local! {
-    static TEST_PROBE_BUDGET: std::cell::Cell<Option<std::time::Duration>> =
+    static TEST_PROBE_LIMITS: std::cell::Cell<Option<ProbeLimits>> =
         const { std::cell::Cell::new(None) };
 }
 
-/// [`PROBE_BUDGET`], or a test's own on this thread ([`with_probe_budget`]).
-pub(crate) fn probe_budget() -> std::time::Duration {
+/// [`PROBE_LIMITS`], or a test's own on this thread ([`with_probe_limits`]).
+pub(crate) fn probe_limits() -> ProbeLimits {
     #[cfg(test)]
-    if let Some(budget) = TEST_PROBE_BUDGET.with(std::cell::Cell::get) {
-        return budget;
+    if let Some(limits) = TEST_PROBE_LIMITS.with(std::cell::Cell::get) {
+        return limits;
     }
-    PROBE_BUDGET
+    PROBE_LIMITS
 }
 
-/// Runs `body` with [`probe_budget`] set to `budget` on this thread.
+/// Runs `body` with [`probe_limits`] set to `limits` on this thread.
 #[cfg(test)]
-pub(crate) fn with_probe_budget<T>(budget: std::time::Duration, body: impl FnOnce() -> T) -> T {
-    TEST_PROBE_BUDGET.with(|cell| cell.set(Some(budget)));
+pub(crate) fn with_probe_limits<T>(limits: ProbeLimits, body: impl FnOnce() -> T) -> T {
+    TEST_PROBE_LIMITS.with(|cell| cell.set(Some(limits)));
     let out = body();
-    TEST_PROBE_BUDGET.with(|cell| cell.set(None));
+    TEST_PROBE_LIMITS.with(|cell| cell.set(None));
     out
+}
+
+/// Probe limits no test fixture reaches: the probe finishes.
+#[cfg(test)]
+pub(crate) const FINISHES: ProbeLimits = ProbeLimits {
+    entries: usize::MAX,
+    bytes: u64::MAX,
+};
+
+/// Probe limits that admit nothing: the probe is cut at its first entry.
+#[cfg(test)]
+pub(crate) const CUT_AT_ONCE: ProbeLimits = ProbeLimits {
+    entries: 0,
+    bytes: 0,
+};
+
+/// One probe's spend against [`probe_limits`], charged in its walk order:
+/// once an entry does not fit, the probe is cut there and stays cut.
+#[derive(Debug)]
+pub(crate) struct ProbeWork {
+    limits: ProbeLimits,
+    entries: std::sync::atomic::AtomicUsize,
+    bytes: std::sync::atomic::AtomicU64,
+    cut: std::sync::atomic::AtomicBool,
+}
+
+impl ProbeWork {
+    pub(crate) fn new() -> Self {
+        Self {
+            limits: probe_limits(),
+            entries: std::sync::atomic::AtomicUsize::new(0),
+            bytes: std::sync::atomic::AtomicU64::new(0),
+            cut: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// Charges one entry that reads `bytes` of file content (0 for a
+    /// directory or an entry not read): whether it fits.
+    pub(crate) fn charge(&self, bytes: u64) -> bool {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.cut.load(Relaxed) {
+            return false;
+        }
+        let entries = self.entries.fetch_add(1, Relaxed).saturating_add(1);
+        let read = self.bytes.fetch_add(bytes, Relaxed).saturating_add(bytes);
+        let fits = entries <= self.limits.entries && read <= self.limits.bytes;
+        if !fits {
+            self.cut.store(true, Relaxed);
+        }
+        fits
+    }
+
+    /// Whether an entry did not fit: what was not walked is unproven.
+    pub(crate) fn cut(&self) -> bool {
+        self.cut.load(std::sync::atomic::Ordering::Relaxed)
+    }
 }
 
 /// Files of a probe's finding kept to name skip reasons.

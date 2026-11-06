@@ -76,8 +76,14 @@ fn delivered(pages: &[(Map<String, Value>, ResponsePagination)]) -> Vec<(u64, St
     let mut seen = Vec::new();
     for (page, _) in pages {
         for row in page["results"].as_array().expect("rows") {
+            // A part continuing a string continues the item that holds it:
+            // its first item was delivered by the part before.
+            let mut continued = row.pointer("/rowPart/text").is_some();
             for file in row["data"]["files"].as_array().into_iter().flatten() {
                 for item in file["matches"].as_array().into_iter().flatten() {
+                    if std::mem::take(&mut continued) {
+                        continue;
+                    }
                     seen.push((
                         row["index"].as_u64().expect("index"),
                         file["path"].as_str().expect("path").to_owned(),

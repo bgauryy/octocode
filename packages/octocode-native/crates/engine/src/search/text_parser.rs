@@ -11,8 +11,12 @@ pub(crate) struct RawMatch {
     pub(crate) line_text: String,
     pub(crate) line_number: u32,
     pub(crate) column: u32,
-    /// The hit's byte in its line, when `line_text` is only a window of the line.
-    pub(crate) windowed_at: Option<u32>,
+    /// The hit's byte in its source line (not in `line_text`, which may be
+    /// only a window of a long line).
+    pub(crate) byte_offset: u32,
+    /// [`relevance::line_rank`](super::relevance::line_rank) of the hit,
+    /// taken on its whole source line.
+    pub(crate) rank: u32,
 }
 
 pub(crate) struct FileEntry {
@@ -49,27 +53,6 @@ pub(crate) fn strip_trailing_newline(mut s: String) -> String {
     s
 }
 
-/// Char index for a UTF-16 `column` within `line` (clamped to the line).
-fn utf16_to_char_index(line: &str, column: u32) -> usize {
-    let mut units = 0usize;
-    for (index, ch) in line.chars().enumerate() {
-        if units >= column as usize {
-            return index;
-        }
-        units += ch.len_utf16();
-    }
-    line.chars().count()
-}
-
-/// [`relevance::line_rank`](super::relevance::line_rank) of a match at UTF-16 `column` of `line`.
-fn line_rank_at(line: &str, column: u32) -> u32 {
-    let byte = line
-        .char_indices()
-        .nth(utf16_to_char_index(line, column))
-        .map_or(line.len(), |(byte, _)| byte);
-    super::relevance::line_rank(line.as_bytes(), byte)
-}
-
 /// Assemble each match with every requested contiguous context line.
 pub(crate) fn assemble_file(
     path: String,
@@ -90,7 +73,17 @@ pub(crate) fn assemble_file(
         let matches = entry
             .raw_matches
             .into_iter()
-            .map(|m| line_match(&m.line_text, m.line_number, m.column))
+            .map(|m| TextSearchMatch {
+                deferred: None,
+                line: m.line_number,
+                last_line: last_line(&m.line_text, m.line_number),
+                column: m.column,
+                byte_offset: m.byte_offset,
+                value_digest: TextSearchMatch::digest_of(&m.line_text),
+                value: m.line_text,
+                count: None,
+                rank: Some(m.rank),
+            })
             .collect::<Vec<_>>();
         return TextSearchFile {
             path,
@@ -146,13 +139,11 @@ pub(crate) fn assemble_file(
                 line: m.line_number,
                 last_line,
                 column: m.column,
-                byte_offset: m
-                    .windowed_at
-                    .unwrap_or_else(|| utf16_to_byte_offset(&m.line_text, m.column)),
+                byte_offset: m.byte_offset,
                 value,
                 value_digest,
                 count: None,
-                rank: Some(line_rank_at(&m.line_text, m.column)),
+                rank: Some(m.rank),
             }
         })
         .collect();
@@ -167,10 +158,16 @@ pub(crate) fn assemble_file(
     }
 }
 
-/// Recreate the exact context-free snippet, rank and full-value identity.
-pub fn line_match(line_text: &str, line_number: u32, column: u32) -> TextSearchMatch {
-    let rank = line_rank_at(line_text, column);
-    let byte_offset = utf16_to_byte_offset(line_text, column);
+/// Recreate the exact context-free snippet, rank and full-value identity of
+/// the whole line `line_text`, whose hit starts at byte `byte_offset` (UTF-16
+/// `column`): the sink knows both, so neither is scanned for again.
+pub fn line_match(
+    line_text: &str,
+    line_number: u32,
+    column: u32,
+    byte_offset: u32,
+) -> TextSearchMatch {
+    let rank = super::relevance::line_rank(line_text.as_bytes(), byte_offset as usize);
     let value_digest = TextSearchMatch::digest_of(line_text);
     TextSearchMatch {
         deferred: None,
@@ -189,19 +186,6 @@ pub fn line_match(line_text: &str, line_number: u32, column: u32) -> TextSearchM
 fn last_line(match_text: &str, line_number: u32) -> Option<u32> {
     let breaks = saturating_u32(match_text.bytes().filter(|&byte| byte == b'\n').count());
     (breaks > 0).then(|| line_number.saturating_add(breaks))
-}
-
-/// Byte offset of UTF-16 `column` within `line` (clamped to the line): where
-/// a byte-window read of the line starts at the match.
-fn utf16_to_byte_offset(line: &str, column: u32) -> u32 {
-    let mut units = 0usize;
-    for (offset, ch) in line.char_indices() {
-        if units >= column as usize {
-            return saturating_u32(offset);
-        }
-        units += ch.len_utf16();
-    }
-    saturating_u32(line.len())
 }
 
 #[cfg(test)]

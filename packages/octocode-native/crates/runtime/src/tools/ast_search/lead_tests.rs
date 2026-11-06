@@ -367,11 +367,15 @@ fn a_cut_probe_discloses_that_its_lead_walks_everything_the_causes_hide() {
         root.write(&format!("dist/f{index}.ts"), "hit(2);\n");
     }
     let request = json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"hit($A)"}});
-    let out = crate::tools::empty_walk::with_probe_budget(std::time::Duration::ZERO, || {
-        run(&root.0, request)
-    });
+    let out =
+        crate::tools::empty_walk::with_probe_limits(crate::tools::empty_walk::CUT_AT_ONCE, || {
+            run(&root.0, request)
+        });
     let warnings = out["hints"].to_string();
-    assert!(warnings.contains("not checked in time"), "{out}");
+    assert!(
+        warnings.contains("not checked within the probe budget"),
+        "{out}"
+    );
     assert!(
         warnings.contains(crate::tools::leads::skipped::WALKS_ALL_SKIPPED),
         "{out}"

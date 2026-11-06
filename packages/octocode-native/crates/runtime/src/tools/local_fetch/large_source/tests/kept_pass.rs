@@ -134,9 +134,14 @@ impl CancellationCheck for WriterDuringRead<'_> {
 fn a_write_restoring_its_time_during_a_window_read_refuses_the_windows() {
     let file = temp(&lines(b'd'));
     let handle = opened(file.path());
-    let pass = super::super::stream::stream_pass(&handle, file.path(), &[], &NeverCancel)
-        .expect("pass")
-        .pass;
+    let pass = super::super::stream::stream_pass(
+        &handle,
+        file.path(),
+        &[],
+        &crate::security::ContentSecurity::new(),
+        &NeverCancel,
+    )
+    .expect("pass");
     let writer = WriterDuringRead::on(file.path());
     let windows = pass.proven.windows(
         &handle,
@@ -178,9 +183,14 @@ fn a_write_restoring_its_time_after_a_pass_leaves_it_not_unchanged() {
     let file = temp(&lines(b'f'));
     let handle = opened(file.path());
     let meta = std::fs::metadata(file.path()).expect("meta");
-    let pass = super::super::stream::stream_pass(&handle, file.path(), &[], &NeverCancel)
-        .expect("pass")
-        .pass;
+    let pass = super::super::stream::stream_pass(
+        &handle,
+        file.path(),
+        &[],
+        &crate::security::ContentSecurity::new(),
+        &NeverCancel,
+    )
+    .expect("pass");
     assert!(pass.proven.unchanged(&handle, &meta));
     write_restoring_time(file.path());
     assert!(!pass.proven.unchanged(&handle, &meta));

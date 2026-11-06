@@ -18,7 +18,9 @@ const score = (question, decision) => {
 const answering = decide => request => ({ body: classificationAnswer(request, (question, id) => score(question, decide(request, id))) });
 const predicates = (id, more = {}) => ({ classification: { predicates: [`scenario ${id}`], ...more } });
 const LONG_BLOCK = `export function big() {\n${'  step();\n'.repeat(450)}}\n`;
-const MANY_LINES = Array.from({ length: 700 }, (_, index) => `evidence line ${index} that a judge reads for the selection walk`).join('\n');
+const MANY_LINES = Array.from({ length: 700 }, (_, index) => `${index < 350 ? 'selected' : 'unknown'} evidence line ${index} that a judge reads for the selection walk`).join('\n');
+
+const mixedRead = answering(request => JSON.stringify(request.state).includes('unknown evidence line') ? 'unknown' : 'selected');
 
 const HISTORY = [
   scene('continueCommitFiles', 'ghGetHistoryItem')({ ...PR, sections: ['commitFiles'] }, { channels: ['continueCommitFiles'] }, {
@@ -48,8 +50,8 @@ function cappedCompare(request) {
 const READS = [
   scene('continueBlock.local', 'localFetch')({ path: '$DIR/a.ts', ranges: [{ startLine: 1, endLine: 1 }], block: true }, { channels: ['continueBlock'] }, { files: { 'a.ts': LONG_BLOCK } }),
   scene('continueBlock.github', 'ghGetFileContent')({ ...R, path: 'long.ts', ref: 'a'.repeat(40), ranges: [{ startLine: 1, endLine: 1 }], block: true }, { channels: ['continueBlock'] }, { github: contentOf('long.ts', LONG_BLOCK) }),
-  scene('unfiltered.local', 'localFetch')({ path: '$DIR/a.txt', ...predicates('fetch-unknown') }, { channels: ['unfilteredUnknown'] }, { files: { 'a.txt': MANY_LINES.slice(0, 40_000) }, provider: answering(() => 'unknown') }),
-  scene('unfiltered.github', 'ghGetFileContent')({ ...R, path: 'long.txt', ref: 'a'.repeat(40), ...predicates('gh-fetch') }, { channels: ['unfilteredUnknown'] }, { github: contentOf('long.txt', MANY_LINES.slice(0, 40_000)), provider: answering(() => 'unknown') }),
+  scene('unfiltered.local', 'localFetch')({ path: '$DIR/a.txt', ...predicates('fetch-unknown') }, { channels: ['unfilteredUnknown'] }, { files: { 'a.txt': MANY_LINES }, provider: mixedRead }),
+  scene('unfiltered.github', 'ghGetFileContent')({ ...R, path: 'long.txt', ref: 'a'.repeat(40), ...predicates('gh-fetch') }, { channels: ['unfilteredUnknown'] }, { github: contentOf('long.txt', MANY_LINES), provider: mixedRead }),
   scene('unfiltered.search', 'localSearch')({ path: '$DIR', matchString: ['evidence'], ...predicates('search-mixed') }, { channels: ['unfiltered', 'unfilteredUnknown'] }, {
     files: { 'keep.txt': 'evidence keep\n', 'drop.txt': 'evidence drop\n', 'odd.txt': 'evidence odd\n' },
     provider: request => ({ body: classificationAnswer(request, question => score(question, JSON.stringify(request).includes('drop.txt') ? 'excluded' : JSON.stringify(request).includes('odd.txt') ? 'unknown' : 'selected')) }),
@@ -73,11 +75,33 @@ const STRUCTURE = [
 ];
 
 const searchAnswer = body => request => (request.p === '/search/repositories' ? { body } : null);
+const MISSING_VERSION = { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '9.9.9', registryUrl: '$MOCK' };
+
+async function readNearestVersions({ walk }) {
+  const first = await walk('artifactSearch', { queries: [MISSING_VERSION] });
+  if (first.failures.length) return first.failures.map(failure => failure.detail).join('; ');
+  const data = first.pages[0]?.json?.results?.[0]?.data;
+  if (data?.next?.repair) return 'a different version must be an optional related read';
+  const lead = data?.related?.find(call => call.tool === 'artifactSearch');
+  if (lead?.kind !== 'related' || !lead.input?.queries?.length) return 'nearest-version related read missing';
+  const queries = lead.input.queries;
+  if (queries.some(query => query.operation !== 'resolve' || query.ecosystem !== MISSING_VERSION.ecosystem
+    || query.packageName !== MISSING_VERSION.packageName || !query.version || query.version === MISSING_VERSION.version)) {
+    return 'nearest-version read changed package identity or repeated the missing version';
+  }
+  const read = await walk(lead.tool, lead.input);
+  if (read.failures.length) return read.failures.map(failure => failure.detail).join('; ');
+  const versions = new Set(read.pages.flatMap(page => page.json?.results ?? [])
+    .flatMap(row => row.data?.artifacts ?? []).map(artifact => artifact.version));
+  return queries.every(query => versions.has(query.version)) ? null : 'related read did not resolve every offered version';
+}
+
 const PROVIDER_SHAPES = [
   scene('providerResultCap', 'ghSearchRepo')({ operation: 'search', keywords: ['alpha'], limit: 1 }, { reasons: ['providerResultCap'] }, { github: request => (request.p === '/search/repositories' ? { body: { total_count: 5000, incomplete_results: false, items: [] } } : null), allow: ['lead.execution'] }),
   scene('providerIncompleteResults', 'ghSearchRepo')({ operation: 'search', keywords: ['alpha'] }, { reasons: ['providerIncompleteResults'], channels: [] }, { github: searchAnswer({ total_count: 0, incomplete_results: true, items: [] }), allow: ['lead.repeat'] }),
-  // `page` is private walk state now; a version the registry lacks is the reachable repair.
-  scene('repair.search', 'artifactSearch')({ operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '9.9.9', registryUrl: '$MOCK' }, { codes: ['versionNotFound'], channels: ['repair'] }),
+  // Selecting another version changes the request: these are related reads.
+  // The distinct required page repair is exercised by native page-state tests.
+  scene('repair.search', 'artifactSearch')(MISSING_VERSION, { codes: ['versionNotFound'] }, { run: readNearestVersions }),
   { id: 'lead.restart', tool: 'localFetch', files: { 'a.txt': Array.from({ length: 4000 }, (_, index) => `line ${index}\n`).join('') }, channels: ['restart'], codes: ['staleSnapshot'], run: async ({ call, dir }) => {
     const first = await call('localFetch', { queries: [{ path: '$DIR/a.txt' }], responseChars: 500 });
     const next = first.json?.responsePagination?.next ?? first.json?.results?.[0]?.data?.next?.nextPage;

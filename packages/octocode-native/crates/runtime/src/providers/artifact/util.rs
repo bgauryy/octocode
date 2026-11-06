@@ -8,6 +8,10 @@ use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 use serde_json::{Map, Value};
 use url::Url;
 
+mod repository;
+
+pub(crate) use repository::{canonical_repository, github_repository, repository_url};
+
 pub(crate) fn object_for(
     value: &Value,
     artifact_type: ArtifactType,
@@ -63,87 +67,6 @@ pub(crate) fn safe_url(value: Option<&Value>) -> Option<String> {
         return None;
     }
     Some(url.into())
-}
-
-/// The one repository-link normalizer every registry's `repository` passes:
-/// the link as a canonical `https://host/path` without `git+`, a trailing
-/// `/` or `.git`. It reads `git+https://…`, scp (`git@host:o/r.git`),
-/// `ssh://`/`git://`, Maven `scm:git:…`, and npm's `github:`/`gitlab:`/
-/// `bitbucket:` and `owner/repo` shorthands. A link with credentials or
-/// another scheme is no repository.
-pub(crate) fn repository_url(value: Option<&Value>) -> Option<String> {
-    canonical_repository(&string(value)?)
-}
-
-/// [`repository_url`] of one link text.
-pub(crate) fn canonical_repository(link: &str) -> Option<String> {
-    let link = link.trim();
-    let link = link.strip_prefix("git+").unwrap_or(link);
-    // `scm:git:<url>` (Maven SCM): the provider tag before the link.
-    let link = link.strip_prefix("scm:").map_or(link, |rest| {
-        rest.split_once(':').map_or(rest, |(_, tail)| tail)
-    });
-    let lower = link.to_ascii_lowercase();
-    let shorthand = [
-        ("github:", "github.com"),
-        ("gitlab:", "gitlab.com"),
-        ("bitbucket:", "bitbucket.org"),
-    ]
-    .into_iter()
-    .find(|(prefix, _)| lower.starts_with(prefix));
-    let https = if let Some((prefix, host)) = shorthand {
-        format!("https://{host}/{}", &link[prefix.len()..])
-    } else if let Some((scheme, rest)) = link.split_once("://") {
-        match scheme.to_ascii_lowercase().as_str() {
-            "http" | "https" => link.to_owned(),
-            // `ssh://git@host[:port]/o/r`: the host serves the same
-            // repository over HTTPS; user and port are transport details.
-            "ssh" | "git" => {
-                let rest = rest.split_once('@').map_or(rest, |(_, tail)| tail);
-                let (authority, path) = rest.split_once('/')?;
-                let host = authority
-                    .split_once(':')
-                    .map_or(authority, |(host, _)| host);
-                format!("https://{host}/{path}")
-            }
-            _ => return None,
-        }
-    } else if let Some((user_host, path)) = link.split_once(':')
-        && let Some((_, host)) = user_host.split_once('@')
-    {
-        // scp form `git@host:o/r.git`.
-        format!("https://{host}/{path}")
-    } else {
-        let first = link.split('/').next().unwrap_or_default();
-        match link.matches('/').count() {
-            // npm `owner/repo` is a GitHub repository.
-            1 if !first.contains('.') && !link.contains(':') => {
-                format!("https://github.com/{link}")
-            }
-            // `host.tld/o/r` without a scheme.
-            count if count >= 2 && first.contains('.') => format!("https://{link}"),
-            _ => return None,
-        }
-    };
-    let url = Url::parse(&https).ok()?;
-    if !matches!(url.scheme(), "http" | "https")
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.host_str().is_none_or(str::is_empty)
-    {
-        return None;
-    }
-    let text: String = url.into();
-    let text = text.trim_end_matches('/');
-    let text = text.strip_suffix(".git").unwrap_or(text);
-    Some(text.trim_end_matches('/').to_owned())
-}
-
-/// `https://github.com/<owner>/<repo>` of a link into a GitHub repository
-/// (a homepage or module path that names one), the repository a registry
-/// row without its own `repository` still points at.
-pub(crate) fn github_repository(link: &str) -> Option<String> {
-    github_slug(link).map(|(owner, repo)| format!("https://github.com/{owner}/{repo}"))
 }
 
 pub(crate) fn license(value: Option<&Value>) -> Option<String> {
@@ -249,12 +172,16 @@ pub(crate) fn github_slug(link: &str) -> Option<(String, String)> {
         .then(|| (owner.to_owned(), repo.to_owned()))
 }
 
-/// Monorepo subdirectory from a `/tree/<ref>/<dir>` or `/blob/<ref>/<file>`
-/// repository URL. The ref is dropped: refs may contain slashes, and URL refs
-/// are often stale; only viewReleaseSource pins the registry's source ref.
-pub(crate) fn github_repo_dir(url: &str) -> Option<String> {
-    let (kind, _ref, parts) = github_page(url)?;
-    let mut segments: Vec<&str> = parts.collect();
+/// The path segments below `/tree/` or `/blob/` in a GitHub page URL: the ref
+/// and, after it, the directory. A blob's last segment is the file, so it is
+/// dropped. `None` for any other page, and unless a segment remains below the
+/// first one, since a link that stops at its ref names no directory. A ref may
+/// itself contain `/`, so the URL alone cannot say where it ends: the caller
+/// settles the split ([`super::link_directory`]).
+pub(crate) fn github_ref_path(url: &str) -> Option<Vec<&str>> {
+    let (kind, reference, parts) = github_page(url)?;
+    let mut segments = vec![reference];
+    segments.extend(parts);
     match kind {
         "tree" => {}
         "blob" => {
@@ -262,7 +189,30 @@ pub(crate) fn github_repo_dir(url: &str) -> Option<String> {
         }
         _ => return None,
     }
-    (!segments.is_empty()).then(|| segments.join("/"))
+    (segments.len() > 1).then_some(segments)
+}
+
+/// A registry's source link split into the repository it names and, for a
+/// GitHub page below a ref, the segments of that page below `tree`/`blob`.
+pub(crate) struct SourceLink {
+    pub repository: String,
+    /// The ref and directory segments of the link ([`github_ref_path`]).
+    pub ref_path: Option<Vec<String>>,
+}
+
+/// A registry's source link as the repository it names and the page path
+/// below its ref. A GitHub link is the repository root
+/// (`https://github.com/<owner>/<repo>`) whatever page the link is
+/// (`/tree/<ref>/<dir>`, `/issues`); another host keeps its canonical link.
+pub(crate) fn source_link(link: &str) -> Option<SourceLink> {
+    let canonical = canonical_repository(link)?;
+    let ref_path = github_ref_path(&canonical)
+        .map(|segments| segments.into_iter().map(str::to_owned).collect());
+    let repository = github_repository(&canonical).unwrap_or(canonical);
+    Some(SourceLink {
+        repository,
+        ref_path,
+    })
 }
 
 /// The ref of a `/tree/<ref>` or `/blob/<ref>` repository URL when it names

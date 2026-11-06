@@ -13,7 +13,7 @@ const ALLOWED: &[&str] = &[
     // the split. The walk marks itself abandoned and quits: an explicit
     // failure, not a skip.
     "runtime/src/tools/lsp_search/scope.rs",
-    "runtime/src/tools/lsp_search/scope/scan.rs",
+    "runtime/src/tools/lsp_search/scope/fingerprint.rs",
     "runtime/src/tools/lsp_search/scope/text.rs",
 ];
 

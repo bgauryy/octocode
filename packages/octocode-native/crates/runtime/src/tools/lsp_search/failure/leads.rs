@@ -7,11 +7,11 @@ use octocode_contract_types::{CaseMode, LocalSearchQueryContent, RegexEngine};
 /// dynamic dispatch, files it could not tie to the symbol). When every file
 /// that spells the name is in the answer (`textOnlyFiles == 0`), such a
 /// reason is moot and is not flagged. Cfg-gated code can hide sites inside
-/// listed files, so file agreement never clears it.
-pub(in super::super) const FILE_LEVEL_REASONS: [crate::response::paging::PartialReason; 9] = [
+/// listed files, and failed importer verification leaves their bindings
+/// unknown, so file agreement never clears either.
+pub(in super::super) const FILE_LEVEL_REASONS: [crate::response::paging::PartialReason; 8] = [
     super::super::inferred_project::REASON,
     super::super::importers::CAPPED_REASON,
-    super::super::inferred_project::FAILED_REASON,
     super::super::inferred_project::compile_database::NO_COMPILE_DATABASE_REASON,
     super::super::server_coverage::BUILD_SCRIPTS_REASON,
     super::super::server_coverage::OUTSIDE_INCLUDE_REASON,

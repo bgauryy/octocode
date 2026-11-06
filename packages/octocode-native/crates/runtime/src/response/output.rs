@@ -51,8 +51,10 @@ impl ToolOutput for SharedOutput {}
 /// the quickest fix for another project is to start from that directory.
 pub(crate) const SANDBOX_HINT: &str = "Outside allowed roots (the workspace is WORKSPACE_ROOT, else the directory octocode started in): run from inside that project or set WORKSPACE_ROOT to it, or add the dir to ALLOWED_PATHS (comma list) in the env or ~/.octocode/.env, not a workspace file.";
 
-/// Recovery for a path that does not resolve: check it from its parent.
-pub(crate) const VERIFY_PATH_HINT: &str = "Path not found: list its parent directory with structureSearch, then retry with the exact listed path.";
+/// Recovery for a path that does not resolve: check it from its parent. One
+/// text serves local and GitHub tools, so it names no tool: the row's own
+/// related[] request lists the parent where one exists.
+pub(crate) const VERIFY_PATH_HINT: &str = "Path not found: list its parent directory (the related[] listing request when one is given), then retry with the exact listed path.";
 
 /// An `error_hint` for a code whose typed error and leads are the whole
 /// answer: no fallback text is added.

@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { inventoryRows, nextHints, sourceLines, sourceView, structureFiles, rawPatch } from '../responses.mjs';
+import { inventoryRows, joinTextParts, nextHints, sourceLines, sourceView, structureFiles, rawPatch } from '../responses.mjs';
 import { tokenFor } from './surfaces.mjs';
 import { advancedRegistries } from './advanced-registry.mjs';
 import { advancedSecurityCheck } from './advanced-osv.mjs';
@@ -128,7 +128,7 @@ async function reader(ctx) {
   return [...out, ...await readerForms(ctx), ...await readerFlows(ctx)];
 }
 
-const readRows = report => report.responses.filter(row => row.tool === 'ghGetFileContent').flatMap(row => row.result.json?.results ?? []);
+const readRows = report => joinTextParts(report.responses.filter(row => row.tool === 'ghGetFileContent').flatMap(row => row.result.json?.results ?? []));
 const numberedSource = text => addedLines(text).map((line, index) => [index + 1, line]);
 const readText = rows => rows.map(row => sourceView(row.data).text).join('');
 const readEvidence = result => result.json.results.map(row => [row.index, row.status ?? null, row.data.errorCode ?? null, sourceView(row.data).text]);
@@ -191,7 +191,7 @@ async function readerBatch(ctx, surface, out, sources) {
   const empty = forIndex(3).length === 1 && forIndex(3)[0].status === 'empty';
   const evidence = readText(forIndex(2)) === sources['flow-lines.txt']
     && equal(forIndex(4).flatMap(row => sourceLines(row.data)), [[2, 'export interface Greeting {'], [3, '  text: string;'], [4, '}']]);
-  out.push([`advanced.flow.batchIndexes.${surface}`, !report.failures.length && failures && empty && evidence && rows.every(row => row.index >= 0 && row.index <= 4), `${report.responses.length} calls; indexes ${rows.map(row => row.index)}; ${JSON.stringify(report.failures)}`]);
+  out.push([`advanced.flow.batchIndexes.${surface}`, !report.failures.length && failures && empty && evidence && rows.every(row => row.index >= 0 && row.index <= 4), `${report.responses.length} calls; indexes ${JSON.stringify(rows.map(row => row.index))}; ${JSON.stringify(report.failures)}`]);
   await readerBatchReplay(ctx, surface, out, report);
 }
 
@@ -209,7 +209,7 @@ async function readerMatchPages(ctx, surface, out, sources) {
   const expected = numberedSource(sources['flow-lines.txt']).filter(([line]) => line >= 4 && line <= 22 && line % 3 !== 0);
   const rows = readRows(report);
   const matches = rows.flatMap(row => row.data.matchedLines ?? []);
-  out.push([`advanced.flow.matchPages.${surface}`, !report.failures.length && equal(rows.flatMap(row => sourceLines(row.data)), expected) && equal(matches, [4, 7, 10, 13, 16, 19, 22]), `${report.responses.length} calls; matched ${matches}`]);
+  out.push([`advanced.flow.matchPages.${surface}`, !report.failures.length && equal(rows.flatMap(row => sourceLines(row.data)), expected) && equal(matches, [4, 7, 10, 13, 16, 19, 22]), `${report.responses.length} calls; matched ${JSON.stringify(matches)}`]);
   await exactRead(ctx, surface, out, {
     label: 'oversizedMatchRange', query: { ...query, path: 'flow-long.txt', matchString: ['0:界😀;', '5999:界😀;'], ranges: [{ startLine: 1, endLine: 1 }], contextLines: { before: 100, after: 100 } },
     expected: `${sources['flow-long.txt'].split('\n')[0]}\n`, responseChars: 1000,
@@ -233,10 +233,10 @@ async function readerRecoveries(ctx, surface, out) {
     { label: 'pastEnd', fields: { ranges: [{ startLine: 99, endLine: 100 }] }, status: 'error', lines: [17, 18] },
   ]) {
     const initial = await ctx.call(ctx.q({ ...REPO, path: 'src/greeter.ts', ...scenario.fields }), surface);
-    const repair = nextHints(initial.json).find(call => call.kind === 'related' && call.tool === 'ghGetFileContent');
+    const repair = initial.json && nextHints(initial.json).find(call => call.kind === 'related' && call.tool === 'ghGetFileContent');
     const report = repair && await ctx.explore(repair.tool, repair.input, surface);
     const expected = source.filter(([line]) => scenario.lines.includes(line));
-    out.push([`advanced.flow.${scenario.label}Recovery.${surface}`, initial.json.results[0].status === scenario.status && !!report && !report.failures.length && equal(readRows(report).flatMap(row => sourceLines(row.data)), expected), JSON.stringify({ initial: initial.json, repair })]);
+    out.push([`advanced.flow.${scenario.label}Recovery.${surface}`, initial.json?.results?.[0]?.status === scenario.status && !!report && !report.failures.length && equal(readRows(report).flatMap(row => sourceLines(row.data)), expected), JSON.stringify({ initial: initial.json, repair })]);
   }
 }
 

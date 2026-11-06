@@ -2,9 +2,10 @@ mod admission;
 mod sparse;
 
 use super::{CloneContext, CloneError, GitRunRequest, control};
+use crate::policy::discovery::is_sensitive_repository_file;
 use admission::git_permit;
 use octocode_contract_types::ErrorCode;
-use sparse::sparse_set_args;
+use sparse::{sparse_set_args, withhold_args};
 use std::ffi::OsString;
 use std::path::Path;
 use std::time::Duration;
@@ -154,8 +155,103 @@ pub(super) fn symlinks(
     Ok(links)
 }
 
+/// Repo-relative paths of the credential-named files (`policy::discovery`:
+/// `.env`, key files, ...) in the tree of `rev` that fall inside `scope` (the
+/// requested sparse paths; everything when `None`), each with its blob id.
+/// Checkouts never write them. Tree objects only: no blob is fetched.
+pub(super) fn withheld_files(
+    context: &CloneContext<'_>,
+    directory: &Path,
+    rev: &str,
+    scope: Option<&[String]>,
+) -> Result<Vec<WithheldFile>, CloneError> {
+    let mut withheld = Vec::new();
+    let request = GitRunRequest {
+        args: hardened(scoped(directory, &["ls-tree", "-r", "-z", rev])),
+        timeout: head_timeout(context),
+        label: "list credential-named files".into(),
+        authorization: None,
+        authorization_url: None,
+    };
+    context
+        .git
+        .run_nul_records(&request, &control(context), &mut |line| {
+            let line = String::from_utf8_lossy(line);
+            // `<mode> <type> <blob>\t<path>`; a submodule is no blob.
+            let Some((meta, path)) = line.split_once('\t') else {
+                return Ok(());
+            };
+            let mut meta = meta.split_whitespace().skip(1);
+            let (Some("blob"), Some(blob)) = (meta.next(), meta.next()) else {
+                return Ok(());
+            };
+            let in_scope = scope.is_none_or(|paths| {
+                paths.iter().any(|requested| {
+                    let requested = requested.trim_end_matches('/');
+                    path == requested
+                        || path
+                            .strip_prefix(requested)
+                            .is_some_and(|rest| rest.starts_with('/'))
+                })
+            });
+            if in_scope && is_sensitive_repository_file(path) {
+                withheld.push(WithheldFile {
+                    path: path.to_owned(),
+                    blob: blob.to_owned(),
+                });
+            }
+            Ok(())
+        })?;
+    Ok(withheld)
+}
+
+/// A credential-named file of a commit: its path and its blob id.
+pub(super) struct WithheldFile {
+    pub(super) path: String,
+    blob: String,
+}
+
+/// Paths of `files`.
+pub(super) fn withheld_paths(files: Vec<WithheldFile>) -> Vec<String> {
+    files.into_iter().map(|file| file.path).collect()
+}
+
+/// Whether no blob of `files` is in the object store of `directory`. The
+/// walk reads the store without fetching: a missing blob of a partial clone
+/// is listed as `?<id>`.
+pub(super) fn blobs_absent(
+    context: &CloneContext<'_>,
+    directory: &Path,
+    files: &[WithheldFile],
+) -> Result<bool, CloneError> {
+    if files.is_empty() {
+        return Ok(true);
+    }
+    let mut args = scoped(
+        directory,
+        &["rev-list", "--objects", "--no-walk", "--missing=print"],
+    );
+    args.extend(files.iter().map(|file| OsString::from(&file.blob)));
+    let output = run(
+        context,
+        args,
+        head_timeout(context),
+        "check credential blobs are not stored",
+        None,
+    )?;
+    let missing = output
+        .stdout
+        .lines()
+        .filter_map(|line| line.strip_prefix('?'))
+        .collect::<std::collections::HashSet<_>>();
+    Ok(files
+        .iter()
+        .all(|file| missing.contains(file.blob.as_str())))
+}
+
 /// Check out `commit` (a full SHA: `run` pins every row to one) with
-/// `depth` commits of history, limited to `sparse_paths`.
+/// `depth` commits of history, limited to `sparse_paths`, leaving out every
+/// credential-named file in scope. Returns the files left out.
 pub(super) fn checkout(
     context: &CloneContext<'_>,
     repository_url: &str,
@@ -163,7 +259,7 @@ pub(super) fn checkout(
     sparse_paths: Option<&[String]>,
     depth: u64,
     target: &Path,
-) -> Result<(), CloneError> {
+) -> Result<Vec<String>, CloneError> {
     run(
         context,
         vec!["init".into(), "--".into(), target.as_os_str().to_owned()],
@@ -179,30 +275,28 @@ pub(super) fn checkout(
         "configure commit remote",
         None,
     )?;
-    if sparse_paths.is_some() {
-        run(
-            context,
-            scoped(target, &["config", "remote.origin.promisor", "true"]),
-            sparse_timeout(context),
-            "configure sparse promisor",
-            None,
-        )?;
-        run(
-            context,
-            scoped(
-                target,
-                &["config", "remote.origin.partialclonefilter", "blob:none"],
-            ),
-            sparse_timeout(context),
-            "configure sparse filter",
-            None,
-        )?;
-    }
+    // Every checkout is a partial one: blobs arrive only when the checkout
+    // needs them, so a credential-named file left out of it is never fetched.
+    run(
+        context,
+        scoped(target, &["config", "remote.origin.promisor", "true"]),
+        sparse_timeout(context),
+        "configure sparse promisor",
+        None,
+    )?;
+    run(
+        context,
+        scoped(
+            target,
+            &["config", "remote.origin.partialclonefilter", "blob:none"],
+        ),
+        sparse_timeout(context),
+        "configure sparse filter",
+        None,
+    )?;
     let depth = depth.to_string();
     let mut fetch = scoped(target, &["fetch", "--no-tags", "--depth", &depth]);
-    if sparse_paths.is_some() {
-        fetch.extend([OsString::from("--filter"), OsString::from("blob:none")]);
-    }
+    fetch.extend([OsString::from("--filter"), OsString::from("blob:none")]);
     fetch.extend([
         OsString::from("--"),
         OsString::from("origin"),
@@ -215,12 +309,29 @@ pub(super) fn checkout(
         "fetch requested commit",
         Some(repository_url),
     )?;
-    if let Some(paths) = sparse_paths {
+    let listed = withheld_files(context, target, "FETCH_HEAD", sparse_paths)?;
+    // A remote that ignores the blob filter sends every blob, credential
+    // files included: refuse rather than keep them.
+    if !blobs_absent(context, target, &listed)? {
+        return Err(CloneError::new(
+            ErrorCode::GitFailed,
+            "The remote ignored the partial-clone blob filter, so credential-named files this checkout withholds were downloaded; nothing was cloned. Use a remote that supports partial clone.",
+        ));
+    }
+    let withheld = withheld_paths(listed);
+    let scope = match sparse_paths {
+        Some(paths) => Some((
+            sparse_set_args(context, target, paths, &withheld)?,
+            "set sparse commit paths",
+        )),
+        None => withhold_args(target, &withheld).map(|args| (args, "withhold credential files")),
+    };
+    if let Some((args, label)) = scope {
         run(
             context,
-            sparse_set_args(context, target, paths)?,
+            args,
             sparse_timeout(context),
-            "set sparse commit paths",
+            label,
             Some(repository_url),
         )?;
     }
@@ -231,7 +342,7 @@ pub(super) fn checkout(
         "check out requested commit",
         Some(repository_url),
     )?;
-    Ok(())
+    Ok(withheld)
 }
 
 fn scoped(target: &Path, args: &[&str]) -> Vec<OsString> {

@@ -56,6 +56,7 @@ impl Plan<'_> {
                 resolved_ref: commit.to_owned(),
                 requested_paths: paths.map(<[String]>::to_vec),
                 symlinks: (!checkout.symlinks.is_empty()).then_some(checkout.symlinks),
+                skipped: (!checkout.withheld.is_empty()).then_some(checkout.withheld),
                 history_depth: (self.depth > 1).then_some(self.depth),
                 cloned_at: None,
                 reused: false,
@@ -126,7 +127,7 @@ fn authorize_home(context: &CloneContext<'_>) -> Result<(), CloneError> {
     // Create the clones root before validating a clone target below it:
     // otherwise a fresh root has only an existing parent outside the allowed
     // roots to canonicalize.
-    std::fs::create_dir_all(&clones_root).map_err(|error| {
+    storage::create_private_dir_all(&clones_root).map_err(|error| {
         CloneError::new(
             ErrorCode::FileAccessFailed,
             format!("Could not initialize the configured clone output directory: {error}"),
@@ -140,6 +141,8 @@ pub(super) struct Checkout {
     pub(super) commit_sha: String,
     pub(super) size: u64,
     pub(super) symlinks: Vec<String>,
+    /// Credential-named files in scope, left out of the checkout.
+    pub(super) withheld: Vec<String>,
 }
 
 /// `next.exploreClone`: list the checkout (the sparse subtree when one was

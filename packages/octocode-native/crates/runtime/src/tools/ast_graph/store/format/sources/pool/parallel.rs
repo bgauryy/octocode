@@ -119,7 +119,16 @@ impl OriginPool {
         let start = self.index.len() - 1 - (self.index.len() - 1) % BLOCK;
         if let Err(error) = super::admit_block(&mut budget.scratch(), &self.index[start..]) {
             self.index.pop();
-            self.encoded.truncate(offset);
+            #[cfg_attr(
+                octocode_clippy_ratchet,
+                expect(
+                    clippy::disallowed_methods,
+                    reason = "Roll back only the rejected append to its exact prior length; the admission error is returned"
+                )
+            )]
+            {
+                self.encoded.truncate(offset);
+            }
             return Err(error);
         }
         Ok(reference)

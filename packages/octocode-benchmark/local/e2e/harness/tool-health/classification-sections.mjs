@@ -97,16 +97,36 @@ export async function unreadSectionsChecks(ctx, surface, provider) {
 export async function memorySectionsChecks(ctx, surface, provider) {
   if (surface !== 'cli') return [];
   const file = path.join(ctx.cwd, 'memory-section-resource.rs');
-  fs.writeFileSync(file, sectionSource());
+  const questions = { evidence: noul('Is source evidence available?') };
+  const source = { tool: 'localFetch', query: { path: file } };
+  const section = { operation: 'sections', resources: { local: source }, questions };
+  const evaluate = { operation: 'evaluate', source, questions };
+  const literal = { operation: 'evaluate', content: 'There is literal evidence here.', questions };
+  const checks = [];
+  const call = queries => ctx.cliCall('clasify', { queries, responseChars: 50_000 }, { env: { OCTOCODE_STORAGE_MODE: 'memory' } });
+  const refused = row => row?.status === 'error' && row.data?.errorCode === 'classificationContextUnavailable'
+    && row.data.error?.includes('no source was read') && row.data.error?.includes('no classification provider was called')
+    && row.data.hints?.some(hint => hint.includes('persistent storage') && hint.includes('MCP'))
+    && (row.data.usage?.calls ?? 0) === 0 && !JSON.stringify(row).includes('"kind":"continue"');
   try {
+    for (const [name, text] of [['simple', 'pub fn evidence() {}\n'], ['seventy', sectionSource()]]) {
+      fs.writeFileSync(file, text);
+      for (const query of [section, evaluate]) {
+        const before = provider.sent.length;
+        const response = await call([query]);
+        const rows = response.json?.results ?? [];
+        checks.push([`sections.memoryRefuses.${name}.${query.operation}`, response.status !== 0
+          && rows.length === 1 && refused(rows[0]) && response.json.responsePagination?.hasMore !== true
+          && provider.sent.length === before, { response: response.json, providerCalls: provider.sent.length - before }]);
+      }
+    }
     const before = provider.sent.length;
-    const input = { ...ctx.q({ operation: 'sections', resources: { local: { tool: 'localFetch', query: { path: file } } }, questions: { evidence: noul('Is source evidence available?') } }), responseChars: 50_000 };
-    const response = await ctx.cliCall('clasify', input, { env: { OCTOCODE_STORAGE_MODE: 'memory' } });
-    const row = response.json?.results?.[0], resource = row?.data.resources.local;
-    // No next call can continue a plan in memory: this one judges the whole plan.
-    return [['sections.memoryPlanAnswersWhole', response.status === 0 && !row?.status
-      && resource?.sections.length === 70 && resource.sections.every(section => section.answers.evidence.status === 'answered')
-      && response.json.responsePagination?.hasMore !== true
-      && provider.sent.length > before, response.json]];
+    const response = await call([section, literal, evaluate]);
+    const rows = response.json?.results ?? [];
+    checks.push(['sections.memoryMixedLiteral', rows.length === 3 && refused(rows[0]) && refused(rows[2])
+      && !rows[1]?.status && rows[1]?.data.answers?.evidence?.noul === 0.9
+      && response.json.responsePagination?.hasMore !== true && provider.sent.length === before + 1,
+    { response: response.json, providerCalls: provider.sent.length - before }]);
+    return checks;
   } finally { fs.rmSync(file); }
 }

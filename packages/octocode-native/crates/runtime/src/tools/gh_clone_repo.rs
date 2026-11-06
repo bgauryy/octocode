@@ -130,6 +130,10 @@ pub struct CloneLocation {
     /// link target; absent when there are none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub symlinks: Option<Vec<String>>,
+    /// Credential-named files (`.env`, keys, ...) in scope that the checkout
+    /// leaves out, as ghStructure materialize does; absent when there are none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<Vec<String>>,
     /// History depth when more than the shallow single commit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub history_depth: Option<u64>,

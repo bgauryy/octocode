@@ -2,21 +2,107 @@
 
 use super::*;
 
+/// The bytes a search holding `spans` "needle" spans of `file` keeps, as
+/// the engine charges them.
+fn held_by_spans(file: &str, spans: usize) -> usize {
+    use crate::search::text_search::state::record_weight;
+    spans * (std::mem::size_of::<crate::types::TextSearchMatch>() + "needle".len())
+        + record_weight(file, &[])
+}
+
+/// A file keeps every span, as line mode keeps every line, up to the bytes
+/// the search may hold: no count per file bounds it, and one byte past the
+/// bound refuses the search instead of cutting it.
 #[test]
-fn span_collection_past_the_per_file_bound_reports_incomplete() {
+fn span_collection_keeps_every_span_its_held_bound_admits() {
     let t = TmpDir::new();
-    let bound = MAX_ONLY_MATCHING_PER_FILE as usize;
-    t.write("many.txt", "needle ".repeat(bound + 1));
+    let spans = 1_000;
+    t.write("many.txt", "needle ".repeat(spans));
+    let file = format!("{}/many.txt", t.path());
+    let bound = held_by_spans(&file, spans);
     let mut options = opts(t.path(), "needle");
     options.output = SearchOutput::Spans(SpanValues::Every);
-    let result = search(options).expect("search ok");
-    assert_eq!(result.stats.match_count, Some(bound as u32 + 1));
-    assert_eq!(result.stats.capped, Some(true));
+    options.max_held_bytes = Some(bound - 1);
+    let refused = search(options.clone()).expect_err("one byte past the bound");
     assert_eq!(
-        result.stats.cap_reasons,
-        [CapReason::MaxOnlyMatchingPerFile]
+        *refused.kind(),
+        crate::error::ErrorKind::ResourceExhausted,
+        "{refused}"
     );
-    assert_eq!(result.files[0].matches.len(), bound);
+    options.max_held_bytes = Some(bound);
+    let result = search(options).expect("search ok");
+    assert_eq!(result.stats.match_count, Some(spans as u32));
+    assert_eq!(result.stats.capped, Some(false));
+    assert!(result.stats.cap_reasons.is_empty());
+    let matches = &result.files[0].matches;
+    assert_eq!(matches.len(), spans);
+    let offsets = matches
+        .iter()
+        .map(|m| m.byte_offset as usize)
+        .collect::<Vec<_>>();
+    assert_eq!(offsets, (0..spans).map(|n| n * 7).collect::<Vec<_>>());
+}
+
+/// Spans inside one line past [`crate::security::LONG_LINE_BYTES`] are
+/// collected by the long-line path, and held as every other span is: one
+/// byte past the bound refuses the search instead of cutting it.
+#[test]
+fn long_line_spans_are_held_against_the_bound() {
+    let t = TmpDir::new();
+    let spans = 100;
+    let line = format!(
+        "{}{}\n",
+        "x".repeat(crate::security::LONG_LINE_BYTES),
+        " needle".repeat(spans)
+    );
+    t.write("long.txt", line);
+    let file = format!("{}/long.txt", t.path());
+    let bound = held_by_spans(&file, spans);
+    let mut options = opts(t.path(), "needle");
+    options.output = SearchOutput::Spans(SpanValues::Every);
+    options.max_held_bytes = Some(bound - 1);
+    let refused = search(options.clone()).expect_err("one byte past the bound");
+    assert_eq!(
+        *refused.kind(),
+        crate::error::ErrorKind::ResourceExhausted,
+        "{refused}"
+    );
+    options.max_held_bytes = Some(bound);
+    let result = search(options).expect("search ok");
+    assert_eq!(result.files[0].matches.len(), spans);
+    assert!(result.files[0].matches.iter().all(|m| m.value == "needle"));
+}
+
+/// A search past its held bound stops and is refused on every engine and
+/// view that keeps rows: lines, spans and their context lines, never a
+/// partial result that reads as complete.
+#[test]
+fn a_search_past_its_held_bound_is_refused_not_cut() {
+    let t = TmpDir::new();
+    let lines = 1_000;
+    t.write("a.txt", "needle\n".repeat(lines));
+    t.write("b.txt", "needle\n".repeat(lines));
+    let file = format!("{}/a.txt", t.path());
+    // Less than one file's spans: no search that keeps rows fits.
+    let bound = held_by_spans(&file, lines) / 2;
+    for syntax in [PatternSyntax::Literal, PatternSyntax::Pcre2] {
+        for output in [SearchOutput::Lines, SearchOutput::Spans(SpanValues::Every)] {
+            let mut options = opts(t.path(), "needle");
+            options.syntax = syntax;
+            options.output = output;
+            options.max_held_bytes = Some(bound);
+            let refused = search(options.clone()).expect_err("past the bound");
+            assert_eq!(
+                *refused.kind(),
+                crate::error::ErrorKind::ResourceExhausted,
+                "{syntax:?} {output:?}: {refused}"
+            );
+            // Counting keeps no row: the same scope is counted whole.
+            options.output = SearchOutput::CountMatches;
+            let counted = search(options).expect("a count fits");
+            assert_eq!(counted.stats.match_count, Some(2 * lines as u32));
+        }
+    }
 }
 
 // ── only-matching ───────────────────────────────────────────────

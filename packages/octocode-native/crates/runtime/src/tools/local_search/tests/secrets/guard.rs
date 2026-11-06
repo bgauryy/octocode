@@ -40,6 +40,7 @@ fn source_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
             security: &security,
             match_only: false,
             cancel: &NeverCancel,
+            judged: None,
         },
     )
     .expect("not cancelled");
@@ -85,6 +86,7 @@ fn source_secret_guard_fails_closed_when_the_match_line_is_gone() {
             security: &security,
             match_only: false,
             cancel: &NeverCancel,
+            judged: None,
         },
     )
     .expect("not cancelled");

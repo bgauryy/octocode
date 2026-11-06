@@ -51,8 +51,8 @@ const local = [
   code('pathNotFound.clone', 'ghCloneRepo')({ owner: 'octo', repo: 'demo', paths: ['nope'] }, 'pathNotFound'),
   { ...code('persistentStorageDisabled', 'ghCloneRepo')({ owner: 'octo', repo: 'demo' }, 'persistentStorageDisabled'), env: () => ({ OCTOCODE_STORAGE_MODE: 'memory' }) },
   { ...code('gitUnavailable', 'ghCloneRepo')({ owner: 'octo', repo: 'demo' }, 'gitUnavailable'), env: ({ dir }) => ({ PATH: dir }) },
-  { ...code('commitMismatch', 'ghCloneRepo')({ owner: 'octo', repo: 'demo' }, 'commitMismatch'), setup: ({ dir }) => fakeGit(dir, `[ "$3 $4" = "rev-parse --verify" ] && { echo ${'f'.repeat(40)}; exit 0; }`), env: ({ dir }) => ({ PATH: `${dir}/bin:${process.env.PATH}` }) },
-  { ...code('gitFailed', 'ghCloneRepo')({ owner: 'octo', repo: 'demo' }, 'gitFailed'), setup: ({ dir }) => fakeGit(dir, '[ "$3 $4" = "rev-parse --verify" ] && { echo not-a-sha; exit 0; }'), env: ({ dir }) => ({ PATH: `${dir}/bin:${process.env.PATH}` }) },
+  { ...code('commitMismatch', 'ghCloneRepo')({ owner: 'octo', repo: 'demo' }, 'commitMismatch'), setup: ({ dir }) => fakeGit(dir, 'f'.repeat(40)), env: ({ dir }) => ({ PATH: `${dir}/bin:${process.env.PATH}` }) },
+  { ...code('gitFailed', 'ghCloneRepo')({ owner: 'octo', repo: 'demo' }, 'gitFailed'), setup: ({ dir }) => fakeGit(dir, 'not-a-sha'), env: ({ dir }) => ({ PATH: `${dir}/bin:${process.env.PATH}` }) },
 ];
 
 const providerSide = [
@@ -83,10 +83,21 @@ const providerSide = [
 
 const write = (dir, file, text) => FS.writeFileSync(PATH.join(dir, file), text);
 const chmod = (dir, file, mode) => FS.chmodSync(PATH.join(dir, file), mode);
-function fakeGit(dir, rule) {
+function fakeGit(dir, head) {
   FS.mkdirSync(PATH.join(dir, 'bin'), { recursive: true });
   const real = spawnSync('which', ['git'], { encoding: 'utf8' }).stdout.trim();
-  FS.writeFileSync(PATH.join(dir, 'bin/git'), `#!/bin/sh\n${rule}\nexec ${real} "$@"\n`);
+  FS.writeFileSync(PATH.join(dir, 'bin/git'), `#!/bin/sh
+state=0
+for arg do
+  case "$state:$arg" in
+    0:rev-parse) state=1 ;;
+    1:--verify) state=2 ;;
+    '2:HEAD^{commit}') printf '%s\\n' '${head}'; exit 0 ;;
+    *) state=0 ;;
+  esac
+done
+exec '${real.replaceAll("'", "'\\''")}' "$@"
+`);
   FS.chmodSync(PATH.join(dir, 'bin/git'), 0o755);
 }
 

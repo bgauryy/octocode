@@ -3,12 +3,10 @@
 //!
 //! A pass over every byte says whether the source names one ([`SourceNames`]), and
 //! a walk of it says which bytes are secret. Those spans come after the pass that
-//! holds the windows (`data` comes before `kind`), so they are written onto the
-//! windows it held. A mask keeps a value's length: a window's offsets count the
-//! source's bytes, and every page of a byte walk seeks by them. The placeholder
-//! replaces it where a page is scanned ([`super::unjudged::Masked`]), so no text
-//! shows how long a value was. A byte page's offsets still do, as they do for any
-//! redaction in a line that pages by bytes.
+//! holds the windows (`data` comes before `kind`), so each becomes a placeholder
+//! edit ([`placeholder_edits`]) beside the scanner's ([`super::sealed`]): every
+//! window shows the same sealed view. Only when the walk outgrew its budget does a
+//! window hide every value it shows on its own ([`cover_every_value`]).
 use super::stream::seek;
 use crate::execution::cancel::CancellationCheck;
 use octocode_engine::security::{
@@ -122,6 +120,60 @@ pub(super) fn with_placeholders(text: &str) -> std::borrow::Cow<'_, str> {
     }
     out.push_str(&text[from..]);
     out.into()
+}
+
+/// The placeholders a secret span shows: one per line, from the line's first
+/// byte that is not a blank to its end, as [`cover`] then [`with_placeholders`]
+/// show it. Fed the span's bytes in chunks, it keeps only the current line's
+/// first non-blank offset, so a span of any length is read through a bounded
+/// buffer.
+pub(super) struct PlaceholderEdits {
+    text: Box<str>,
+    base: usize,
+    at: usize,
+    first: Option<usize>,
+    edits: Vec<super::sealed::Edit>,
+}
+
+impl PlaceholderEdits {
+    pub(super) fn new(span: &SecretSpan) -> Self {
+        Self {
+            text: octocode_engine::security::redaction_placeholder(span.form.pattern()).into(),
+            base: span.range.start,
+            at: 0,
+            first: None,
+            edits: Vec::new(),
+        }
+    }
+
+    /// The span's next bytes.
+    pub(super) fn feed(&mut self, chunk: &[u8]) {
+        for &byte in chunk {
+            if byte == b'\n' {
+                self.close();
+            } else if self.first.is_none() && !matches!(byte, b' ' | b'\t' | b'\r') {
+                self.first = Some(self.at);
+            }
+            self.at += 1;
+        }
+    }
+
+    /// The line ending at `self.at` (its `\n`, or the span's end) is one edit
+    /// from its first non-blank byte; a blank line hides nothing.
+    fn close(&mut self) {
+        if let Some(first) = self.first.take() {
+            self.edits.push(super::sealed::Edit {
+                range: self.base + first..self.base + self.at,
+                text: self.text.clone(),
+            });
+        }
+    }
+
+    /// Every edit, once the whole span was fed.
+    pub(super) fn finish(mut self) -> Vec<super::sealed::Edit> {
+        self.close();
+        self.edits
+    }
 }
 
 /// Mask `window[from..to]`, each line from its first byte that is not a blank: a

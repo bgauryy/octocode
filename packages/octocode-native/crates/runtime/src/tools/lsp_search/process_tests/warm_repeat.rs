@@ -145,7 +145,6 @@ fn repeated_references_ask_again_and_read_each_file_once() {
                         character: 16,
                         language_id: Some("typescript"),
                         budget: 16_000,
-                        response_window: None,
                     }
                     .run()
                     .await

@@ -122,7 +122,17 @@ async fn a_second_materialize_restores_every_file_from_its_kept_answer() {
             .as_str()
             .expect("localPath"),
     );
+    // An atomic write replaces the file (a new inode): an untouched file
+    // keeps its own, a tampered one gets a new one.
+    #[cfg(unix)]
+    let inode = |name: &str| {
+        std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(local.join(name)).expect("file"))
+    };
+    #[cfg(unix)]
+    let (one_before, two_before) = (inode("one.rs"), inode("two.rs"));
     std::fs::write(local.join("two.rs"), "modified!!").expect("same-size tamper");
+    #[cfg(unix)]
+    let two_tampered = inode("two.rs");
     let second = call(&runtime, "ghStructure", query).await.expect("second");
     assert_eq!(
         row_status(&second),
@@ -142,6 +152,16 @@ async fn a_second_materialize_restores_every_file_from_its_kept_answer() {
         std::fs::read_to_string(local.join("two.rs")).expect("two"),
         "// two.rs\n"
     );
+    #[cfg(unix)]
+    {
+        assert_eq!(
+            inode("one.rs"),
+            one_before,
+            "an identical file was rewritten"
+        );
+        assert_ne!(inode("two.rs"), two_tampered, "the tampered file was kept");
+        let _ = two_before;
+    }
     server.verify().await;
     runtime.close().await;
 }
@@ -161,5 +181,71 @@ async fn materialize_sends_no_date_request() {
     .expect("materialize");
     assert_eq!(row_status(&outcome), "success");
     assert!(graphql_requests(&server).await.is_empty());
+    runtime.close().await;
+}
+
+/// A credential-named file is never written to disk, and never read from the
+/// provider either; the row names it and stays complete (nothing a local
+/// tool may read is missing).
+#[tokio::test]
+async fn materialize_skips_credential_named_files_without_reading_them() {
+    let server = MockServer::builder().start().await;
+    mount_head_at_sha(&server).await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents"))
+        .and(query_param("ref", SHA))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"name":"one.rs","path":"one.rs","type":"file","size":10,"sha":"1".repeat(40)},
+            {"name":".env","path":".env","type":"file","size":12,"sha":"2".repeat(40)}
+        ])))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/one.rs"))
+        .and(query_param("ref", SHA))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type": "file", "encoding": "base64", "content": STANDARD.encode("// one.rs\n"),
+            "size": 10, "sha": "a".repeat(40), "path": "one.rs"
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/.env"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type": "file", "encoding": "base64", "content": STANDARD.encode("TOKEN=hunter2\n"),
+            "size": 12, "sha": "b".repeat(40), "path": ".env"
+        })))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let outcome = call(
+        &runtime,
+        "ghStructure",
+        json!({"operation":"tree","owner": "a", "repo": "b", "ref": SHA, "materialize": true}),
+    )
+    .await
+    .expect("materialize");
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
+    let data = row_data(&outcome);
+    let local =
+        std::path::PathBuf::from(data["location"]["localPath"].as_str().expect("localPath"));
+    assert!(local.join("one.rs").exists(), "{data}");
+    assert!(
+        !local.join(".env").exists(),
+        "a credential file was written"
+    );
+    assert_eq!(data["location"]["skipped"], json!([".env"]), "{data}");
+    assert_eq!(data["location"]["coverage"]["state"], "complete", "{data}");
+    let text = data.to_string();
+    assert!(text.contains("credential"), "the row says why: {data}");
+    assert!(!text.contains("hunter2"), "{data}");
+    server.verify().await;
     runtime.close().await;
 }

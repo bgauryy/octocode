@@ -31,7 +31,7 @@ fn location_links_select_the_symbol_and_preserve_definition_context() {
         }
         assert_eq!(locations[0].content, "// context\nfunction target() {\n  return 1;\n}");
         assert_eq!(locations[1].content, "function target() {");
-        assert_eq!(locations[0].display_range, Some(json!({"startLine":1,"endLine":4})));
+        assert_eq!(locations[0].display_range, Some(json!({"startLine":1,"startCharacter":1,"endLine":4})));
         assert!(locations[1].display_range.is_none());
     });
 }

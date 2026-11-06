@@ -7,41 +7,56 @@ use crate::lsp::types::LspLanguageServerConfig;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Upper bound for an availability probe that must execute the command (a
-/// rustup proxy can otherwise block for minutes installing a toolchain).
-pub(crate) const COMMAND_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+/// Why a probe gave no successful answer.
+#[derive(Debug)]
+pub(crate) enum ProbeError {
+    /// The command could not start.
+    Spawn(std::io::Error),
+    /// The started command could not be placed in its process job; it was
+    /// killed.
+    Contain(String),
+    /// The caller stopped (its deadline passed or it was cancelled) before
+    /// the command exited; its process tree was killed.
+    Stopped,
+    /// Waiting for the command failed.
+    Wait(std::io::Error),
+    /// The command ran and exited unsuccessfully: its answer is "no".
+    Exited(std::process::ExitStatus),
+}
 
-/// Run `command args..` with null stdio and report whether it exited
-/// successfully within `timeout`. On timeout the child is killed and reaped and
-/// the probe reports `false`. Blocking: call from a blocking thread, never from
-/// an async executor or the Node main thread when avoidable.
-pub(crate) fn probe_command_succeeds(
-    command: &str,
-    args: &[&str],
-    timeout: std::time::Duration,
-) -> bool {
+impl std::fmt::Display for ProbeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Spawn(error) => write!(f, "the probe could not start: {error}"),
+            Self::Contain(error) => write!(f, "the probe could not be contained: {error}"),
+            Self::Stopped => f.write_str("the probe was stopped before it answered"),
+            Self::Wait(error) => write!(f, "waiting for the probe failed: {error}"),
+            Self::Exited(status) => write!(f, "the probe exited unsuccessfully ({status})"),
+        }
+    }
+}
+
+/// Run `command args..` with null stdio; `Ok` when it exited successfully.
+/// See [`probe_command`]. Blocking: call from a blocking thread.
+#[cfg(test)]
+pub(crate) fn probe_command_succeeds(command: &str, args: &[&str]) -> Result<(), ProbeError> {
     let mut probe = Command::new(command);
     probe.args(args);
-    run_bounded(&mut probe, false, timeout).is_some()
+    probe_command(&mut probe, false).map(drop)
 }
 
 /// Run a prepared `probe` (its stdin and stderr are nulled) and return its
-/// stdout when it exited successfully within `timeout`; `None` on a failure
-/// exit, a timeout (the child is killed) or a spawn error. Blocking, like
-/// [`probe_command_succeeds`]. The output is read after the child exits, so
-/// it must be small: a command that fills the pipe times out.
-pub(crate) fn probe_command_stdout(
-    probe: &mut Command,
-    timeout: std::time::Duration,
-) -> Option<Vec<u8>> {
-    run_bounded(probe, true, timeout)
+/// stdout when it exited successfully. The probe has no clock of its own: it
+/// runs until it exits or its caller stops ([`crate::deep_stack::while_stoppable`],
+/// raised at the request's deadline or cancel), and then its whole process
+/// tree is killed ([`ProbeError::Stopped`]). Blocking. The output is read
+/// after the child exits, so it must be small: a command that fills the pipe
+/// waits for its caller to stop.
+pub(crate) fn probe_command_stdout(probe: &mut Command) -> Result<Vec<u8>, ProbeError> {
+    probe_command(probe, true)
 }
 
-fn run_bounded(
-    probe: &mut Command,
-    capture_stdout: bool,
-    timeout: std::time::Duration,
-) -> Option<Vec<u8>> {
+fn probe_command(probe: &mut Command, capture_stdout: bool) -> Result<Vec<u8>, ProbeError> {
     use std::io::Read;
     use std::process::Stdio;
     probe
@@ -53,41 +68,56 @@ fn run_bounded(
         })
         .stderr(Stdio::null());
     crate::process::contain(probe);
-    let mut child = probe.spawn().ok()?;
-    let Ok(mut job) = crate::process::Job::attach(&child, None) else {
-        let _ = child.kill();
-        let _ = child.wait();
-        return None;
+    let mut child = probe.spawn().map_err(ProbeError::Spawn)?;
+    let mut job = match crate::process::Job::attach(&child, None) {
+        Ok(job) => job,
+        Err(error) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(ProbeError::Contain(error.to_string()));
+        }
     };
-    let deadline = std::time::Instant::now() + timeout;
-    let completed = loop {
+    let waited = loop {
         #[cfg(unix)]
         let exited = crate::process::exited_without_reaping(child.id());
         #[cfg(not(unix))]
         let exited = child.try_wait().map(|status| status.is_some());
         match exited {
-            Ok(true) => break true,
-            Ok(false) if std::time::Instant::now() < deadline => {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            _ => break false,
+            Ok(true) => break Ok(()),
+            Ok(false) if crate::deep_stack::caller_stopped() => break Err(ProbeError::Stopped),
+            Ok(false) => std::thread::sleep(PROBE_POLL),
+            Err(error) => break Err(ProbeError::Wait(error)),
         }
     };
     crate::process::kill_tree(child.id());
     job.terminate();
-    if !completed {
+    if waited.is_err() {
         let _ = child.kill();
     }
     let mut stdout = Vec::new();
-    if completed && let Some(mut pipe) = child.stdout.take() {
-        let _ = pipe.read_to_end(&mut stdout);
+    if waited.is_ok()
+        && let Some(mut pipe) = child.stdout.take()
+    {
+        pipe.read_to_end(&mut stdout).map_err(ProbeError::Wait)?;
     }
-    let status = child.wait();
-    (completed && status.is_ok_and(|status| status.success())).then_some(stdout)
+    let status = child.wait().map_err(ProbeError::Wait);
+    waited?;
+    let status = status?;
+    if status.success() {
+        Ok(stdout)
+    } else {
+        Err(ProbeError::Exited(status))
+    }
 }
 
-/// Whether `command` resolves to a usable language-server executable. Bounded
-/// by [`COMMAND_PROBE_TIMEOUT`] when the check has to execute the command.
+/// How often a running probe checks whether it exited or its caller stopped.
+const PROBE_POLL: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// Whether `command` resolves to a usable language-server executable. A
+/// rust-analyzer is asked `--version` with `RUSTUP_AUTO_INSTALL=0`, so a rustup
+/// proxy answers instead of installing a toolchain; a probe that could not
+/// answer (stopped, or failed for another reason than a missing or
+/// non-executable program) is an error, not "unavailable".
 pub fn is_command_available(command: &str) -> Result<bool, String> {
     let command = resolve_known_server_command(command);
     if is_rejected_shell(&command) {
@@ -97,11 +127,21 @@ pub fn is_command_available(command: &str) -> Result<bool, String> {
         return Ok(current_node_command().is_some());
     }
     if is_rust_analyzer_command(&command) {
-        return Ok(probe_command_succeeds(
-            &command,
-            &["--version"],
-            COMMAND_PROBE_TIMEOUT,
-        ));
+        let mut probe = Command::new(&command);
+        probe.arg("--version").env("RUSTUP_AUTO_INSTALL", "0");
+        return match probe_command(&mut probe, false) {
+            Ok(_) => Ok(true),
+            Err(ProbeError::Exited(_)) => Ok(false),
+            Err(ProbeError::Spawn(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound | std::io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                Ok(false)
+            }
+            Err(error) => Err(format!("{command}: {error}")),
+        };
     }
     if command
         == std::env::current_exe()

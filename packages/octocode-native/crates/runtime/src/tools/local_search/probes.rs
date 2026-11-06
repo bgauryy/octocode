@@ -7,11 +7,11 @@ use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::policy::prune::DefaultsFlag;
 use crate::response::result::ToolError;
-use crate::tools::empty_walk::{Cause, Globs, Hits, Tagged, Verdict, Walk, diagnose};
+use crate::tools::empty_walk::{Cause, Globs, Hits, ProbeWork, Tagged, Verdict, Walk, diagnose};
 use crate::tools::leads::skipped::{SkippedEntry, skipped_cause, skipped_paths};
 use octocode_contract_types::{LocalSearchQuery, SkippedPaths};
 use octocode_engine::search::text_search::{TextSearchPathFilter, search_cancellable};
-use octocode_engine::types::{SearchOutput, TextSearchOptions};
+use octocode_engine::types::{SearchOutput, SearchSort, TextSearchOptions};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -250,9 +250,12 @@ fn probe_walks() -> usize {
     PROBE_WALKS.with(std::cell::Cell::get)
 }
 
-/// Run a bounded search over the skipped scope with policy enforcement.
+/// Run a bounded search over the skipped scope with policy enforcement: one
+/// walker in traversal order, charged per admitted entry and the bytes of
+/// each admitted file ([`ProbeWork`]), so the same tree is cut at the same
+/// entry on every run.
 fn probe_walked(
-    options: TextSearchOptions,
+    mut options: TextSearchOptions,
     paths: &PathPolicy,
     defaults: bool,
     searched: Option<&[std::path::PathBuf]>,
@@ -270,35 +273,74 @@ fn probe_walked(
         defaults,
         options.include.as_deref().unwrap_or_default(),
     ));
-    let filter: Arc<dyn TextSearchPathFilter> = match searched {
+    let admitted: Arc<dyn TextSearchPathFilter> = match searched {
         Some(searched) => Arc::new(BeyondSearched {
             walk: Arc::clone(&walk),
             searched: searched.iter().cloned().collect(),
         }),
         None => walk.clone(),
     };
-    let (found, cut) = within_budget(cancel, |stopped| {
-        search_cancellable(options, filter, stopped)
+    let work = Arc::new(ProbeWork::new());
+    let filter = Arc::new(Charged {
+        admitted,
+        work: Arc::clone(&work),
     });
-    Some((found.ok()?, cut, walk.skipped().withheld))
+    // One walker: the parallel walk admits entries in no fixed order.
+    options.sort = SearchSort::Traversal;
+    let found = search_cancellable(options, filter, &|| cancel.check().is_err() || work.cut());
+    let mut found = found.ok()?;
+    // Named by path, as a whole walk would list them.
+    found.files.sort_by(|a, b| a.path.cmp(&b.path));
+    Some((found, work.cut(), walk.skipped().withheld))
 }
 
-/// `run` under the probe budget and `cancel`, and whether the budget cut it.
-fn within_budget<T>(
-    cancel: &impl CancellationCheck,
-    run: impl FnOnce(&(dyn Fn() -> bool + Sync)) -> T,
-) -> (T, bool) {
-    let started = std::time::Instant::now();
-    let deadline = crate::tools::empty_walk::probe_budget();
-    let cut = std::sync::atomic::AtomicBool::new(false);
-    let out = run(&|| {
-        let late = started.elapsed() > deadline;
-        if late {
-            cut.store(true, std::sync::atomic::Ordering::Relaxed);
+/// A probe walk's path filter that charges each entry it admits to the
+/// probe's work, a file by its length: past the work it admits nothing, and
+/// the walk's stop check ends it.
+struct Charged {
+    admitted: Arc<dyn TextSearchPathFilter>,
+    work: Arc<ProbeWork>,
+}
+
+impl TextSearchPathFilter for Charged {
+    fn allows(&self, path: &std::path::Path, is_dir: bool) -> bool {
+        self.admitted.allows(path, is_dir)
+    }
+
+    fn allows_entry(&self, path: &std::path::Path, file_type: Option<std::fs::FileType>) -> bool {
+        if !self.admitted.allows_entry(path, file_type) {
+            return false;
         }
-        cancel.check().is_err() || late
-    });
-    (out, cut.load(std::sync::atomic::Ordering::Relaxed))
+        let bytes = if file_type.is_some_and(|kind| kind.is_file()) {
+            std::fs::metadata(path).map_or(0, |meta| meta.len())
+        } else {
+            0
+        };
+        self.work.charge(bytes)
+    }
+
+    fn skipped_hidden(&self, path: &std::path::Path, is_dir: bool) {
+        self.admitted.skipped_hidden(path, is_dir);
+    }
+
+    fn skipped_ignored(&self, path: &std::path::Path, is_dir: bool) {
+        self.admitted.skipped_ignored(path, is_dir);
+    }
+
+    fn skipped_symlink(&self, path: &std::path::Path) {
+        self.admitted.skipped_symlink(path);
+    }
+}
+
+/// The prefix of `files`, in their order, that fits one probe's work (each
+/// charged by its length), and whether files were left out.
+fn within_work(files: &[std::path::PathBuf]) -> (&[std::path::PathBuf], bool) {
+    let work = ProbeWork::new();
+    let fits = files
+        .iter()
+        .take_while(|file| work.charge(std::fs::metadata(file).map_or(0, |meta| meta.len())))
+        .count();
+    (&files[..fits], fits < files.len())
 }
 
 /// The files `options`' search finds under the fully relaxed `walk` (files
@@ -328,9 +370,11 @@ fn probe_lifted(
         include: options.include.as_deref().unwrap_or_default(),
         exclude: options.exclude.as_deref().unwrap_or_default(),
     };
-    let (searched, _, withheld) =
+    let (searched, cut, withheld) =
         probe_walked(lifted, paths, walk.default_excludes, searched, cancel).ok_or(())?;
-    let cut = !searched.stats.cap_reasons.is_empty();
+    // Refusing the final entry can end the walk before its next cancellation
+    // check. The probe's own cut flag still makes the unchecked scope unknown.
+    let cut = cut || !searched.stats.cap_reasons.is_empty();
     let tagged = Tagged::found(
         &root,
         globs,

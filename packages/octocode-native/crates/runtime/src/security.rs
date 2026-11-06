@@ -12,8 +12,8 @@ pub(crate) use content::tests::{key_formats, marker_lines};
 pub(crate) use content::{
     KeyBlockState, KeyBlockTracker, LineShapeScan, MarkerScan, hide_key_line,
     key_fragment_placeholder, key_line_lead, lines_a_row_cannot_judge,
-    match_window_intersects_key_block, private_key_block_line_ranges, redact_private_key_blocks,
-    snippet_may_hold_key_material,
+    match_window_intersects_key_block, private_key_block_line_ranges, private_key_blocks_hidden,
+    redact_private_key_blocks, snippet_may_hold_key_material,
 };
 pub(crate) use input::{CheckedQuery, InputPolicy};
 pub use limits::SourceLimits;

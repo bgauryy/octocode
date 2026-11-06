@@ -127,6 +127,14 @@ pub(super) fn map_commit_list(v: Value) -> Value {
     if !same && !committer.is_null() {
         row["committer"] = committer;
     }
+    // A merge commit changes what its parents did, not a file's own history:
+    // marked, so a reader moves to a parent instead of reading its file list.
+    if v.get("parents")
+        .and_then(Value::as_array)
+        .is_some_and(|parents| parents.len() > 1)
+    {
+        row["merge"] = json!(true);
+    }
     row
 }
 

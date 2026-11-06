@@ -68,6 +68,7 @@ fn a_parallel_redaction_records_in_file_order() {
         expected_digest: &expected,
         security: &security,
         cancel: &NeverCancel,
+        judged: &super::JudgedWindows::default(),
     };
     let redact = || {
         let mut parsed = scan.clone();
@@ -185,6 +186,7 @@ fn an_unbufferable_line_mentioning_a_private_key_fails_closed() {
             security: &ContentSecurity::new(),
             match_only: true,
             cancel: &NeverCancel,
+            judged: None,
         },
     )
     .expect("not cancelled");
@@ -210,6 +212,7 @@ fn an_unbufferable_line_mentioning_a_private_key_fails_closed() {
                 security: &ContentSecurity::new(),
                 match_only: true,
                 cancel: &NeverCancel,
+                judged: None,
             },
         )
         .expect("not cancelled"),
@@ -239,6 +242,7 @@ fn a_stored_digest_binds_the_check_to_the_stored_bytes() {
                 security: &ContentSecurity::new(),
                 match_only: false,
                 cancel: &NeverCancel,
+                judged: None,
             },
         )
         .expect("not cancelled");
@@ -274,6 +278,7 @@ fn a_row_of_a_line_past_the_retained_budget_stands() {
             security: &ContentSecurity::new(),
             match_only: false,
             cancel: &NeverCancel,
+            judged: None,
         },
     )
     .expect("not cancelled");
@@ -298,6 +303,7 @@ fn a_neighborhood_over_the_retained_budget_fails_closed() {
             security: &ContentSecurity::new(),
             match_only: false,
             cancel: &NeverCancel,
+            judged: None,
         },
     )
     .expect("not cancelled");
@@ -326,6 +332,7 @@ fn verification_stops_when_cancelled() {
             security: &ContentSecurity::new(),
             match_only: false,
             cancel: &Cancelled,
+            judged: None,
         },
     )
     .expect_err("cancelled during the stream");
@@ -359,5 +366,21 @@ fn key_block_redaction_is_line_precise() {
     assert_eq!(
         redact_key_block_lines(2, "not in the source\nMIIEowIB", &ranges, at),
         placeholder
+    );
+}
+
+/// A line that is not UTF-8 is kept as the search decoded it, so a row's byte
+/// offset, counted in the search's text, lands on the same bytes here.
+#[test]
+fn a_non_utf8_line_is_kept_as_the_search_decoded_it() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let source = dir.path().join("latin1.txt");
+    let line = b"caf\xe9 aa ghp_Z9Q8W7E6R5T4Y3U2I1O0P9L8K7J6H5G4F3D2";
+    std::fs::write(&source, [&line[..], b"\n"].concat()).expect("fixture");
+    let read = read_verification_lines(&mut open(&source), &[(1, 1)], 1, None, &NeverCancel)
+        .unwrap_or_else(|_| panic!("readable"));
+    assert_eq!(
+        read.retained[&1],
+        octocode_engine::text::Decoded::interior(line).text
     );
 }

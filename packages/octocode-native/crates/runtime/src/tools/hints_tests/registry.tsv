@@ -35,7 +35,7 @@ shared	providers/saved_answers.rs	Answer observed {}: its origin was not asked a
 shared	response/notices.rs	{code}: {meaning}
 shared	response/output.rs	Outside allowed roots (the workspace is WORKSPACE_ROOT, else the directory octocode started in): run from inside that project or set WORKSPACE_ROOT to it, or add the dir to ALLOWED_PATHS (comma list) in the env or ~/.octocode/.env, not a workspace file.
 shared	response/output.rs	Path did not open as a file: list it with structureSearch operation:"files", then retry with one exact listed file.
-shared	response/output.rs	Path not found: list its parent directory with structureSearch, then retry with the exact listed path.
+shared	response/output.rs	Path not found: list its parent directory (the related[] listing request when one is given), then retry with the exact listed path.
 shared	response/rows/recovery.rs	Check httpStatus and the message; this status is not a network failure.
 shared	response/rows/recovery.rs	Check storage configuration and access; use GitHub read tools when a persistent local checkout is unavailable.
 shared	response/rows/recovery.rs	Check the package name, registry and manifest/lockfile version; discover published versions before choosing another version.
@@ -126,6 +126,7 @@ astSearch	tools/ast_search/symbols/page.rs	0 declarations {named}in {files_scann
 astSearch	tools/ast_search/symbols/page.rs	named {} 
 shared	tools/bounded_process/capture.rs	[stderr cut: {error}]
 shared	tools/bounded_process/capture.rs	[stderr truncated at {STDERR_BYTES} bytes]
+clasify	tools/clasify/admission.rs	Use persistent storage across CLI calls or a long-lived MCP runtime, or supply the text as literal content.
 clasify	tools/clasify/evaluate.rs	Supply the text to judge.
 clasify	tools/clasify/recovery.rs	Each image question re-reads its images: ask fewer image questions per call, or crop the image.
 clasify	tools/clasify/recovery.rs	source takes text; a PNG or JPEG image is judged under assets, as the clasify call in related[] does.
@@ -136,8 +137,8 @@ clasify	tools/clasify/sections/capture.rs	Use raw readers or a smaller resource 
 clasify	tools/clasify/sections/capture.rs	Use the pinned raw reader or a smaller resource selection.
 clasify	tools/clasify/sections/capture.rs	Use the resource's read call to inspect the sanitized source; for a new evaluation, select complete lines.
 ghCloneRepo	tools/gh_clone_repo/checkout.rs	Verify the path with ghStructure, or omit path for a full clone.
+ghSearchCode	tools/gh_search_code.rs	A file-name search lists indexed files only: GitHub's code index skips files over 384 KB, so a larger file of that name is not listed; read it by path with ghGetFileContent, or list its folder with ghStructure.
 ghSearchCode	tools/gh_search_code.rs	GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.
-ghSearchCode	tools/gh_search_code.rs	keywords hold OR, which code search does not support: run the related[] ghSearchCode request, one row per alternative.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 `{branch}`
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 with `path:"{}"`
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	Code search indexes only the default branch{branch}; `{reference}` was not searched.
@@ -150,7 +151,10 @@ ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	`path` is a directo
 ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	 at {}
 ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	; `lines` read at {reference}
 ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	Files from the default-branch index{index}, not {reference}{lines}.
+ghSearchCode	tools/gh_search_code/empty.rs	keywords hold OR, which code search does not support: run the related[] ghSearchCode request, one row per alternative.
+ghSearchHistory	tools/gh_search_history/shape.rs	No commit touches `{path}` on {at} of GitHub: history covers only what was pushed there, so a file or commit that exists only in your checkout (never pushed, or on an unpushed branch) has none here; read it with local git history, or retry with the ref that holds it. The related[] ghStructure request lists the path's parent to check it exists at that ref.
 ghSearchHistory	tools/gh_search_history/shape.rs	pull request
+ghSearchRepo	tools/gh_search_repo.rs	`{owner}` exists but lists no repositories visible to this token; no filter hid any.
 ghSearchRepo	tools/gh_search_repo/page.rs	archived repositories
 ghSearchRepo	tools/gh_search_repo/page.rs	archived repository
 ghSearchRepo	tools/gh_search_repo/page.rs	filters.archive "{mode}" left out {} (a filter, not a gap)
@@ -166,6 +170,7 @@ ghStructure	tools/gh_structure/failures.rs	Only the path's case differs.
 ghStructure	tools/gh_structure/failures.rs	The path names a file (its case differs).
 ghStructure	tools/gh_structure/listing.rs	One or more repository subdirectories could not be read; retry the same page or narrow the path/depth.
 ghStructure	tools/gh_structure/materialize/writer.rs	{} binary file(s) are in location.skipped: not text, so not written.
+ghStructure	tools/gh_structure/materialize/writer.rs	{} credential-named file(s) are in location.skipped: withheld, so neither read nor written.
 ghStructure	tools/gh_structure/traverse/entries.rs	{path} ({label})
 shared	tools/judgment.rs	Set OCTOCODE_CLASSIFICATION_API.
 shared	tools/judgment.rs	Set a model identifier without credentials.
@@ -173,12 +178,14 @@ shared	tools/judgment/batch.rs	Inspect the current clasify query schema.
 shared	tools/judgment/batch.rs	Not retried in the provider's {}-token long-context window: this request cannot be shown to fit it.
 shared	tools/judgment/batch.rs	Split the source with ranges or resources, send fewer images, or shorten the questions.
 shared	tools/leads/broaden.rs	No match with these filters: each related[] request drops one; run it only if the wider scope still answers the question.
+shared	tools/leads/broaden.rs	No match: search terms are ANDed, so every word must match; try one distinctive word, or a different spelling.
 shared	tools/leads/skipped.rs	At least 
-shared	tools/leads/skipped.rs	Skipped paths ({}) were not checked in time, so absence there is unproven. {WALKS_ALL_SKIPPED}
+shared	tools/leads/skipped.rs	Skipped paths ({}) were not checked within the probe budget, so absence there is unproven. {WALKS_ALL_SKIPPED}
 shared	tools/leads/skipped.rs	{text} {WALKS_ALL_SKIPPED}
 shared	tools/leads/skipped.rs	{}{} {} behind skipped paths ({why}).
 localFetch	tools/local_fetch/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and next reads on: first the rest of those lines, then the other ranges after them.
 localFetch	tools/local_fetch/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and their later pages read that range alone.
+localFetch	tools/local_fetch/large_source/ranges.rs	This page ends inside lines {start}-{end}, whose rest no page reads (see the warnings); next reads the other ranges after them.
 localFetch	tools/local_fetch/large_source/window.rs	redactedContent: this source names a Kubernetes Secret or a JSON Web Key, and its nesting outgrew the memory budget before the walk that places their values finished, so every value on this page is hidden, secret or not. Split the source to read it.
 localSearch	tools/local_search/coverage.rs	No matches where searched; the withheld entries in skippedPaths may hold it (unproven).
 localSearch	tools/local_search/coverage.rs	Nothing searched: include/exclude matched no file; the related[] structureSearch request lists the names to fix the globs.
@@ -186,6 +193,10 @@ localSearch	tools/local_search/coverage.rs	Nothing searched: no file under path;
 localSearch	tools/local_search/coverage.rs	Nothing searched: the target file was skipped ({}). Read it with localFetch.
 localSearch	tools/local_search/coverage.rs	The target file is binary (NUL byte found); it was not searched past that point.
 localSearch	tools/local_search/coverage.rs	{} unreadable
+localSearch	tools/local_search/executor/scanned.rs	 (related[] listScope lists the scope to split it by)
+localSearch	tools/local_search/executor/scanned.rs	 or run related[] viewFileCount (per-file counts keep no rows) and search the files it ranks (a refused one-file search offers related[] readFile)
+localSearch	tools/local_search/executor/scanned.rs	Nothing was shown: narrow path, include or the pattern{list}{count}.
+localSearch	tools/local_search/executor/scanned.rs	Nothing was shown: run related[] readFile (localFetch pages this file whole) or narrow the pattern.
 localSearch	tools/local_search/leads.rs	{total} matches: run the related[] view:"countMatches" request to rank files before paging.
 localSearch	tools/local_search/output.rs	Check read access to the path; a broader search reads the same files.
 localSearch	tools/local_search/output.rs	Correct the regex named in the error. If the intended match is literal text, set regexEngine to literal and keep matchString unchanged.
@@ -298,7 +309,7 @@ shared	tools/source_view/block/recovery.rs	The parser could not parse lines {} o
 shared	tools/source_view/no_match.rs	matchString ran on redacted text: text behind this file's [REDACTED…] placeholders cannot match.
 shared	tools/source_view/prepare.rs	Redacted private-key block(s) found in the source before selecting the window.
 shared	tools/source_view/view/page.rs	The compact view removed every selected line; use view:content to read the source.
-shared	tools/source_view/view/page.rs	This page holds {}, short of limit {limit}: the response budget sized it, no line is lost; next reads on, and a larger responseChars lengthens the page.
+shared	tools/source_view/view/page/budget_hint.rs	This page holds {}, short of limit {limit}: the response budget sized it, no line is lost; next reads on, and a larger responseChars lengthens the page.
 structureSearch	tools/structure_search/probe.rs	No entry matches within {bound} level(s) of path; {}{count} {} deeper: the related[] structureSearch request lists {}.
 structureSearch	tools/structure_search/probe.rs	No entry matches {}; {}{count} {} without {}: the related[] structureSearch request lists {}.
 structureSearch	tools/structure_search/probe.rs	at least 

@@ -5,7 +5,7 @@ use octocode_engine::types::IgnorePolicy;
 use std::path::{Path, PathBuf};
 
 use super::reasons::prefixes;
-use super::{Cause, Globs, Hits, SAMPLE_FILES, Walk, probe_budget};
+use super::{Cause, Globs, Hits, ProbeWork, SAMPLE_FILES, Walk};
 
 /// Every file one fully lifted walk reached, each tagged with the causes
 /// that hide it ([`Cause::bit`]), and whether the walk was cut: every relaxed
@@ -117,13 +117,14 @@ impl Tagged {
 }
 
 /// A file probe for a tool without a text engine of its own: the files under
-/// `root` that `keep` admits, within [`probe_budget`], under a relaxed [`Walk`]. One walk with every cause lifted tags
+/// `root` that `keep` admits, within the probe's work ([`ProbeWork`]: one
+/// charge per entry of its name-sorted walk), under a relaxed [`Walk`]. One walk with every cause lifted tags
 /// each file with the causes that hide it; every relaxed walk is then
 /// answered from those tags. The walk is the discovery policy's (`permits`),
 /// `globs`, ignore rules and prune list the tool's scan honors.
 pub(crate) struct FileProbe<'a> {
     root: PathBuf,
-    deadline: std::time::Instant,
+    work: ProbeWork,
     globs: Globs<'a>,
     /// The discovery policy's verdict on each file, by its listing type. Every
     /// directory on the way is shown to it too, its verdict unused, so a
@@ -145,7 +146,7 @@ impl<'a> FileProbe<'a> {
     ) -> Self {
         Self {
             root: root.to_path_buf(),
-            deadline: std::time::Instant::now() + probe_budget(),
+            work: ProbeWork::new(),
             globs: Globs::default(),
             permits,
             keep,
@@ -199,7 +200,7 @@ impl<'a> FileProbe<'a> {
                 (self.permits)(entry.path(), entry.file_type());
                 continue;
             }
-            if std::time::Instant::now() >= self.deadline || self.stop.is_some_and(|stop| stop()) {
+            if !self.work.charge(0) || self.stop.is_some_and(|stop| stop()) {
                 return Ok(Tagged { files, cut: true });
             }
             let path = entry.path();

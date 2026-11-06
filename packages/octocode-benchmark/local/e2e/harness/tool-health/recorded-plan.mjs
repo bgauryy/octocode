@@ -6,6 +6,7 @@
 const repo = { owner: 'octocat', repo: 'Hello-World' };
 const NUGET_REG = 'https://api.nuget.org/v3';
 const NUGET_WHOLE = ['resources'];
+const MAVEN_REPOSITORIES = ['project.url.text', 'project.scm.url.text', 'project.scm.connection.text', 'project.scm.developerConnection.text'];
 const NPM_MAPS = ['versions', 'time', 'versions.*.dependencies', 'versions.*.devDependencies', 'versions.*.scripts', 'versions.*.directories', 'versions.*.bin', 'versions.*.engines', 'dependencies', 'devDependencies', 'scripts', 'users'];
 
 export const EXTRA_HOSTS = ['api.github.com', 'azuresearch-usnc.nuget.org', 'azuresearch-ussc.nuget.org', 'search.maven.org', 'static.crates.io', 'index.crates.io'];
@@ -27,9 +28,9 @@ export const PLAN = [
   { id: 'pypi/exact-advisory', tool: 'artifactSearch', query: { operation: 'resolve', ecosystem: 'pypi', packageName: 'requests', version: '2.19.0' }, maps: ['releases', 'info.project_urls', 'urls[*].digests', 'releases.*[*].digests'] },
   { id: 'crates/exact', tool: 'artifactSearch', query: { operation: 'resolve', ecosystem: 'crates', packageName: 'cfg-if', version: '1.0.0' } },
   { id: 'crates/search', tool: 'artifactSearch', query: { operation: 'search', ecosystem: 'crates', keywords: ['regex-syntax'], limit: 5 } },
-  { id: 'maven/exact', tool: 'artifactSearch', query: { operation: 'resolve', ecosystem: 'maven', packageName: 'com.google.code.gson:gson', version: '2.8.9' } },
-  { id: 'maven/search', whole: ['response.docs'], tool: 'artifactSearch', query: { operation: 'search', ecosystem: 'maven', keywords: ['gson'], limit: 5 } },
-  { id: 'go/exact', tool: 'artifactSearch', query: { operation: 'resolve', ecosystem: 'go', packageName: 'github.com/pkg/errors', version: 'v0.9.1' } },
+  { id: 'maven/exact', repositories: MAVEN_REPOSITORIES, tool: 'artifactSearch', query: { operation: 'resolve', ecosystem: 'maven', packageName: 'com.google.code.gson:gson', version: '2.8.9' } },
+  { id: 'maven/search', repositories: MAVEN_REPOSITORIES, whole: ['response.docs'], tool: 'artifactSearch', query: { operation: 'search', ecosystem: 'maven', keywords: ['gson'], limit: 5 } },
+  { id: 'go/exact', dates: ['Time'], tool: 'artifactSearch', query: { operation: 'resolve', ecosystem: 'go', packageName: 'github.com/pkg/errors', version: 'v0.9.1' } },
   { id: 'packagist/exact', tool: 'artifactSearch', query: { operation: 'resolve', ecosystem: 'packagist', packageName: 'psr/log', version: '1.1.4' }, maps: ['packages', 'packages.*[*].require', 'packages.*[*].require-dev', 'packages.*[*].autoload', 'packages.*[*].extra', 'packages.*[*].suggest'] },
   { id: 'packagist/search', tool: 'artifactSearch', query: { operation: 'search', ecosystem: 'packagist', keywords: ['psr log'], limit: 5 } },
   { id: 'rubygems/exact', tool: 'artifactSearch', query: { operation: 'resolve', ecosystem: 'rubygems', packageName: 'rack', version: '2.2.3' } },

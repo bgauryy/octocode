@@ -3,7 +3,7 @@
 //! `skippedPaths` record of the paths themselves ([`SkippedEntry`],
 //! [`skipped_paths`]), the sentence that says what sits behind them, the
 //! `includeSkipped` lead that lifts exactly those causes, and the partial
-//! policy when the check of them ran out of time. Each tool supplies only its
+//! policy when the check of them spent its work budget. Each tool supplies only its
 //! subject (what it looks for) and its query; the diagnosis is `empty_walk`'s,
 //! fed by the walk's admission ledger (`policy::discovery::WalkAdmission`).
 
@@ -206,7 +206,8 @@ pub(crate) struct Disclosure {
     pub(crate) causes: Vec<Cause>,
     /// The sentence: what the check found, or that it was cut.
     pub(crate) text: String,
-    /// The check ran out of time, so the skipped paths stay unsearched.
+    /// The check spent its work budget first, so the skipped paths stay
+    /// unsearched.
     pub(crate) unchecked: bool,
 }
 
@@ -259,7 +260,7 @@ pub(crate) fn disclose(
         Verdict::Unproven => (!unchecked.causes.is_empty()).then(|| Disclosure {
             causes: unchecked.causes.to_vec(),
             text: format!(
-                "Skipped paths ({}) were not checked in time, so absence there is unproven. {WALKS_ALL_SKIPPED}",
+                "Skipped paths ({}) were not checked within the probe budget, so absence there is unproven. {WALKS_ALL_SKIPPED}",
                 unchecked.named
             ),
             unchecked: true,

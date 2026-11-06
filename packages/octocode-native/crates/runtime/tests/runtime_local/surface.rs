@@ -70,11 +70,7 @@ async fn cli_ignores_discovery_filters_but_mcp_on_cli_host_enforces_them() {
             // Only a required setting decides; no MCP filter touches the CLI.
             assert_eq!(
                 runtime.is_available(tool.as_str()),
-                !matches!(
-                    tool,
-                    octocode_native::id::ToolId::Clasify
-                        | octocode_native::id::ToolId::SecurityCheck
-                ),
+                tool != octocode_native::id::ToolId::Clasify,
                 "CLI {}",
                 tool.as_str()
             );

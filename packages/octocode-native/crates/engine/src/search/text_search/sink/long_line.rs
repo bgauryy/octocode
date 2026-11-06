@@ -68,7 +68,8 @@ impl<M: Matcher> CollectSink<'_, M> {
                     line_text: value,
                     line_number: line,
                     column,
-                    windowed_at: Some(byte_offset),
+                    byte_offset,
+                    rank: relevance::line_rank(bytes, start),
                 });
         }
         Ok(())
@@ -94,36 +95,30 @@ impl<M: Matcher> CollectSink<'_, M> {
         self.not_utf8 |= decoded.warning.is_some();
         let text = decoded.text.as_ref();
         let judged = self.judged(text);
-        let cap = super::MAX_ONLY_MATCHING_PER_FILE as usize;
         let mut count = 0u32;
         let mut columns = super::SpanColumns::new(bytes, text);
-        let om = &mut self.om_matches;
-        let capped = &mut self.span_cap_reached;
+        let (om, charge, stop) = (&mut self.om_matches, &mut self.charge, self.stop);
         self.matcher
             .find_iter(bytes, |found| {
                 count = count.saturating_add(1);
                 first_start.get_or_insert(found.start());
-                if om.len() < cap {
-                    let start = columns.lossy(found.start()).min(text.len());
-                    let end = columns.lossy(found.end()).min(text.len());
-                    let shown = text.floor_char_boundary(start)..text.ceil_char_boundary(end);
-                    let (_, column, byte_offset) = columns.position(start);
-                    let value = judged.cut(text, shown);
-                    om.push(TextSearchMatch {
-                        deferred: None,
-                        line,
-                        last_line: None,
-                        column,
-                        byte_offset,
-                        value_digest: TextSearchMatch::digest_of(&value),
-                        value,
-                        count: None,
-                        rank: None,
-                    });
-                } else {
-                    *capped = true;
-                }
-                true
+                let start = columns.lossy(found.start()).min(text.len());
+                let end = columns.lossy(found.end()).min(text.len());
+                let shown = text.floor_char_boundary(start)..text.ceil_char_boundary(end);
+                let (_, column, byte_offset) = columns.position(start);
+                let value = judged.cut(text, shown);
+                let span = TextSearchMatch {
+                    deferred: None,
+                    line,
+                    last_line: None,
+                    column,
+                    byte_offset,
+                    value_digest: TextSearchMatch::digest_of(&value),
+                    value,
+                    count: None,
+                    rank: None,
+                };
+                super::keep_span((&mut *om, &mut *charge, stop), span)
             })
             .map_err(|error| std::io::Error::other(error.to_string()))?;
         Ok(count)

@@ -6,7 +6,7 @@ use super::*;
 use crate::execution::ExecutionContext;
 use crate::id::ToolId;
 use crate::response::cursor::issued;
-use crate::runtime::engine::cursors::{Pending, SavedWork};
+use crate::runtime::engine::cursors::SavedWork;
 use crate::runtime::engine::{Channel, ToolRuntime};
 use octocode_io::cancellation::Cancellation;
 use std::time::{Duration, Instant};
@@ -24,7 +24,9 @@ fn context() -> ExecutionContext {
 
 /// A handle `runtime` retains for `tool`, issued on the `mcp` surface.
 fn issue(runtime: &ToolRuntime, tool: ToolId, mcp: bool) -> String {
-    let mut pending = Pending::new(page_replay_key("", mcp, &[], &[], None), None);
+    let mut pending = runtime
+        .cursors
+        .pending(page_replay_key("", mcp, &[], &[], None), None);
     let token = pending.insert(
         tool,
         json!({"queries":[{"path":"must-not-be-read"}]}),

@@ -1,6 +1,7 @@
 //! A repeat of a multi-section pull-request read (GraphQL) within the lifetime
 //! GitHub states for that pull request over REST: no request, disclosed by the
-//! time the answer was observed. No stated lifetime, no reuse.
+//! time the answer was observed. With no stated lifetime, the chosen
+//! `PULL_REQUEST_REUSE_WINDOW` stands in.
 use crate::support::{Workspace, call, row_data, row_status};
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
@@ -140,19 +141,21 @@ async fn a_repeat_past_the_stated_lifetime_asks_again() {
     runtime.close().await;
 }
 
-/// No number is assumed: when GitHub stated no lifetime, or none was seen yet,
-/// a repeat asks again, exactly as without a window.
+/// GitHub stating no lifetime, or none seen yet, still lets a repeat inside the
+/// chosen window stand for asking again, disclosed by when it was observed.
 #[tokio::test]
-async fn no_stated_lifetime_means_no_reuse() {
+async fn with_no_stated_lifetime_a_repeat_stands_for_the_chosen_window() {
     let unseen = server(graphql_answer(), "private, max-age=60").await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", unseen.uri()))]);
-    for _ in 0..2 {
-        call(&runtime, "ghGetHistoryItem", sections())
-            .await
-            .expect("read");
-    }
-    assert_eq!(graphql_sent(&unseen).await, 2);
+    call(&runtime, "ghGetHistoryItem", sections())
+        .await
+        .expect("read");
+    let repeat = call(&runtime, "ghGetHistoryItem", sections())
+        .await
+        .expect("repeat");
+    assert_eq!(graphql_sent(&unseen).await, 1, "the repeat asked again");
+    assert!(row_data(&repeat).to_string().contains("observed"));
     runtime.close().await;
 
     let refused = server(graphql_answer(), "no-cache").await;
@@ -166,7 +169,7 @@ async fn no_stated_lifetime_means_no_reuse() {
             .await
             .expect("read");
     }
-    assert_eq!(graphql_sent(&refused).await, 2);
+    assert_eq!(graphql_sent(&refused).await, 1);
     runtime.close().await;
 }
 

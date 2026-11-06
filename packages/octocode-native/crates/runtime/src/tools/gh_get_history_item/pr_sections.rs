@@ -10,6 +10,7 @@ use super::window::{WindowState, lift_page_limits};
 use super::{HistoryItemRequest, validation};
 use crate::response::result::wire_query;
 use crate::response::result::{Continuation, remove_nulls};
+use crate::tools::gh_get_history_item::Source;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::sections::Section;
 use crate::tools::gh_shared::commit;
@@ -17,7 +18,7 @@ use crate::tools::gh_shared::dates::utc_value;
 use futures_util::{StreamExt as _, TryStreamExt as _};
 use octocode_contract_types::GhGetFileContentQuery;
 use octocode_github::MAX_PER_PAGE;
-use octocode_github::{GitHubTransport, ProviderError, RequestContext};
+use octocode_github::{ProviderError, RequestContext};
 use serde_json::{Map, Value, json};
 
 mod commit_files;
@@ -233,7 +234,7 @@ pub(super) fn shape_pr_reviews(
 /// page), never in a list nested in the commit. Returns those
 /// continuations.
 pub(super) async fn shape_pr_commits(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     row: &mut Value,
     pagination: &mut Map<String, Value>,
     commits: Vec<Value>,
@@ -267,7 +268,7 @@ pub(super) async fn shape_pr_commits(
             if include_files {
                 let per_page = MAX_PER_PAGE;
                 let (files, mut files_page) =
-                    commit_files::first_page(transport, query, &sha, filter, per_page, context)
+                    commit_files::first_page(source, query, &sha, filter, per_page, context)
                         .await?;
                 commit["files"] = Value::Array(compact_inventory(&files));
                 // The cursor rides the continuation, never the block.

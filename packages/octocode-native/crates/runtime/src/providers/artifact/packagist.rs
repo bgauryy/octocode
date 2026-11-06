@@ -86,11 +86,14 @@ fn composer(row: &serde_json::Map<String, Value>) -> Result<ArtifactItem, Artifa
     artifact.version = string(row.get("version"));
     artifact.description = string(row.get("description"));
     artifact.license = license(row.get("license"));
-    artifact.repository = row
+    let source = row
         .get("source")
         .and_then(Value::as_object)
         .and_then(|value| repository_url(value.get("url")))
         .or_else(|| repository_url(row.get("repository")));
+    if let Some(link) = source {
+        artifact.set_source_link(&link);
+    }
     artifact.source_ref = row
         .get("source")
         .and_then(Value::as_object)

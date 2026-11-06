@@ -57,6 +57,25 @@ fn a_settled_read_serves_repeats_until_a_build_file_changes() {
     assert!(!edited.includes(&root.join("b")));
 }
 
+/// The dependents walk follows the one walk policy of every local tool: a
+/// dependency or build-output directory (`node_modules`, `target`) is never
+/// entered, so a package vendored there is not a dependent project.
+#[test]
+fn the_walk_leaves_out_what_every_local_walk_prunes() {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("canonical");
+    write(&root.join("a/go.mod"), "module example.com/a\n");
+    write(&root.join("a/x.go"), "package a\n");
+    let requires = "module example.com/d\n\nrequire example.com/a v1.0.0\n";
+    write(&root.join("b/go.mod"), requires);
+    write(&root.join("node_modules/d/go.mod"), requires);
+    write(&root.join("target/e/go.mod"), requires);
+    let found = read(&root).expect("read");
+    assert!(found.includes(&root.join("b")), "{found:?}");
+    assert!(!found.includes(&root.join("node_modules/d")), "{found:?}");
+    assert!(!found.includes(&root.join("target/e")), "{found:?}");
+}
+
 /// A read whose inputs were written within the settle window is not kept.
 #[test]
 fn an_unsettled_read_is_not_kept() {

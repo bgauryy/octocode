@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { FIXTURES, ROOT } from './paths.mjs';
-import { startServer, writeResults } from './mcp-client.mjs';
+import { writeResults } from './mcp-client.mjs';
 import { contract, contractValidators } from './contract.mjs';
 import { nativeBinaryStamp } from './native-binary.mjs';
 import { createDriver } from './tool-health/driver.mjs';
@@ -20,7 +20,8 @@ import { createInputCoverage } from './tool-health/input-coverage.mjs';
 import { planTool, unplanned } from './schema-matrix/derive.mjs';
 import { drain, workerCount } from './schema-matrix/pool.mjs';
 import { createLedger } from './schema-matrix/ledger.mjs';
-import { runRow, walkOn } from './schema-matrix/runner.mjs';
+import { runRow } from './schema-matrix/runner.mjs';
+import { replayLeads } from './schema-matrix/lead-replay.mjs';
 import { buildLocalWorld, fixtureTexts } from './schema-matrix/world-local.mjs';
 import { buildGraphWorld } from './schema-matrix/world-graph.mjs';
 import { addSectionPullRequest, corpusAnswer } from './schema-matrix/world-github.mjs';
@@ -30,6 +31,7 @@ import { PNG } from './tool-health/classification-checks.mjs';
 import { SPECS } from './schema-matrix/specs.mjs';
 import { runScenario } from './schema-matrix/scenarios.mjs';
 import { SCENARIOS } from './schema-matrix/scenario-list.mjs';
+import { withScenario } from './schema-matrix/scenario-scope.mjs';
 
 const started = performance.now();
 const say = line => process.stdout.write(`${line}\n`);
@@ -64,34 +66,30 @@ async function startWorker(index) {
   mock.model.repos.push({ owner: 'octo', name: 'matrix', description: 'Matrix fixture', language: 'TypeScript', stars: 1, files: fixtureTexts() });
   const sectionCommit = addSectionPullRequest(mock.model);
   const providerHeaders = [];
+  const responders = {
+    github: request => worker.override.github?.(request) ?? corpusAnswer(request),
+    classification: (request, headers) => {
+      providerHeaders.push(headers);
+      return worker.override.provider?.(request, headers) ?? { body: classificationAnswer(request) };
+    },
+  };
   const worker = {
     index, surfaces: ['cli', 'mcp'], driver, world, cwd, server, pending: [], owned: surfaces, override: {}, schemaOf: name => schemas.get(name),
     context: { world, cwd, mock, registry: surfaces.ctx.registry, providerHeaders, home: path.join(surfaces.ctx.tmp, 'home'), graphId: null, sectionCommit },
     normalize: text => text.replaceAll(surfaces.ctx.tmp, '<tmp>').replaceAll(surfaces.ctx.mock.url, '<mock>'),
     call: async (surface, tool, input) => {
-      const result = surface === 'mcp' ? await surfaces.mcpCall(worker.scopedServer ?? server, tool, input) : await surfaces.cliCall(tool, input, { cwd, credentialTool: 'ghCloneRepo', extraEnv: worker.scopedEnv ?? {} });
+      const result = surface === 'mcp' ? await surfaces.mcpCall(server, tool, input) : await surfaces.cliCall(tool, input, { cwd, credentialTool: 'ghCloneRepo' });
       coverage.observe(tool, surface, input, result);
       return result;
     },
-    // A scenario with its own environment gets its own MCP server for that run.
-    withEnv: async (surface, env, run) => {
-      if (!Object.keys(env).length) return run();
-      worker.scopedEnv = env;
-      if (surface === 'mcp') worker.scopedServer = await startServer({ cwd, env: { ...server.envFor, ...env }, replaceEnv: true, timeoutMs: 120_000 });
-      try { return await run(); } finally {
-        worker.scopedServer?.close();
-        worker.scopedServer = null;
-        worker.scopedEnv = null;
-      }
-    },
+    withScenario: (scenario, surface, env, run) => withScenario(surfaces, { tool: scenario.tool ?? 'schema', name: scenario.id, surface, cwd, env }, responders, async () => {
+      await run();
+      failures.push(...await replayLeads(worker, ledger, { allow: scenario.allow }));
+    }),
   };
-  server.envFor = surfaces.envFor('ghCloneRepo', 'mcp');
   for (const surface of ['cli', 'mcp']) {
-    mock.model.githubResponders.set(tokenFor('ghCloneRepo', surface), request => worker.override.github?.(request) ?? corpusAnswer(request));
-    mock.classificationResponders.set(tokenFor('ghCloneRepo', surface), (request, headers) => {
-      providerHeaders.push(headers);
-      return worker.override.provider?.(request, headers) ?? { body: classificationAnswer(request) };
-    });
+    mock.model.githubResponders.set(tokenFor('ghCloneRepo', surface), responders.github);
+    mock.classificationResponders.set(tokenFor('ghCloneRepo', surface), responders.classification);
   }
   if (plan.some(row => row.tool === 'graphQuery')) {
     const built = await worker.call('cli', 'graphBuild', { queries: [{ path: 'matrix-world/graph' }] });
@@ -106,27 +104,16 @@ const report = { at: new Date().toISOString(), provenance: { contract: contract.
 const workers = await Promise.all(Array.from({ length: count }, (_, index) => startWorker(index)));
 const failures = [];
 const proved = new Map();
-const prove = (row, surface) => { for (const [field, value] of row.values) (proved.get(`${row.tool}\0${field}\0${JSON.stringify(value)}`) ?? proved.set(`${row.tool}\0${field}\0${JSON.stringify(value)}`, new Set()).get(`${row.tool}\0${field}\0${JSON.stringify(value)}`)).add(surface); };
+const prove = (row, surface, values) => { for (const [field, value] of values) (proved.get(`${row.tool}\0${field}\0${JSON.stringify(value)}`) ?? proved.set(`${row.tool}\0${field}\0${JSON.stringify(value)}`, new Set()).get(`${row.tool}\0${field}\0${JSON.stringify(value)}`)).add(surface); };
 const discrimination = discriminationProblems(plan, SPECS, workers[0].context);
 const queue = [...plan];
 let done = 0;
 
-async function replayLeads(worker) {
-  while (worker.pending.length) {
-    const lead = worker.pending.shift();
-    const { report: walked } = await walkOn(worker, { surface: lead.surface, tool: lead.tool, input: lead.input, ledger });
-    // Cache files appear under this tree while it is walked: a lead over it may rightly report a changed tree.
-    for (const failure of walked.failures.filter(entry => !/staleSnapshot|next\.restart/.test(String(entry.detail)))) failures.push({ id: `lead:${lead.from}->${lead.tool}`, tool: lead.tool, surface: lead.surface, check: `lead.${failure.check}`, detail: failure.detail, input: lead.input });
-    const root = walked.root?.json;
-    if (root?.errorCode === 'invalidInput' || root?.results?.some(row => row.data?.errorCode === 'invalidInput')) failures.push({ id: `lead:${lead.from}->${lead.tool}`, tool: lead.tool, surface: lead.surface, check: 'lead.rejected', detail: JSON.stringify(root).slice(0, 400), input: lead.input });
-  }
-}
-
 await drain(workers, queue, async (worker, row) => {
   const outcome = await runRow(worker, SPECS[row.tool], row, ledger);
   failures.push(...outcome.failures);
-  if (outcome.hasOracle) for (const surface of outcome.passed) prove(row, surface);
-  await replayLeads(worker);
+  if (outcome.hasOracle) for (const surface of outcome.passed) prove(row, surface, outcome.provedValues);
+  failures.push(...await replayLeads(worker, ledger));
   done += 1;
   if (done % 100 === 0) process.stderr.write(`${done}/${plan.length} rows, ${failures.length} failures\n`);
 });
@@ -136,7 +123,6 @@ await drain(workers, scenarioQueue.flatMap(scenario => (scenario.surfaces ?? ['c
   const problems = await runScenario(worker, scenario, surface, ledger);
   failures.push(...problems);
   process.stderr.write(`${scenario.id} ${surface}: ${problems.length ? 'FAILED' : 'ok'}\n`);
-  await replayLeads(worker);
 });
 
 await Promise.all(workers.map(async worker => { worker.server.close(); await worker.owned.close(); }));

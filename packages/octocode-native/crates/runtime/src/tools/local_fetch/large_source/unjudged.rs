@@ -3,11 +3,9 @@
 //! shape a JSON Web Key's private member, or at a path a whole-file pattern applies
 //! to a Kubernetes Secret's value, holds is hidden whatever the source says: a
 //! window alone shows no object.
-use super::masks::with_placeholders;
 use crate::security::scan::ContentScan;
 use octocode_contract_types::ErrorCode;
 use regex::Regex;
-use std::borrow::Cow;
 use std::path::Path;
 use std::sync::LazyLock;
 
@@ -15,44 +13,6 @@ pub(super) struct Unjudged<'a, S> {
     pub(super) scan: &'a S,
     /// A whole-file pattern applies at this source's path.
     pub(super) path_gated: bool,
-}
-
-/// The scan of a streamed window, which may hold masks of secret bytes
-/// ([`super::masks`]). A page's scan turns them into placeholders and judges the
-/// page with its margins. Nothing is judged before a page is cut from the window: a
-/// byte page seeks by the source's offsets, so the view must keep them.
-pub(super) struct Masked<'a, S> {
-    pub(super) scan: &'a S,
-    pub(super) masked: bool,
-}
-
-impl<S: ContentScan> ContentScan for Masked<'_, S> {
-    fn limits(&self) -> crate::security::SourceLimits {
-        self.scan.limits()
-    }
-
-    fn sanitize(
-        &self,
-        text: &str,
-        path: &Path,
-    ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
-        if self.masked {
-            return self.scan.sanitize(&with_placeholders(text), path);
-        }
-        self.scan.sanitize(text, path)
-    }
-
-    fn redact_key_blocks<'a>(&self, content: &'a str) -> (Cow<'a, str>, bool) {
-        self.scan.redact_key_blocks(content)
-    }
-
-    fn redact_source_lines<'a>(
-        &self,
-        source: &'a str,
-        _: &Path,
-    ) -> Result<(Cow<'a, str>, bool), (ErrorCode, String)> {
-        Ok((source.into(), false))
-    }
 }
 
 impl<S: ContentScan> ContentScan for Unjudged<'_, S> {
@@ -91,20 +51,15 @@ fn hide_values(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    /// A wrapped scan judges at the limits of the scan it wraps.
+    /// The wrapped scan judges at the limits of the scan it wraps.
     #[test]
     fn wrappers_judge_at_their_scan_s_limits() {
         let small =
             crate::security::ContentSecurity::with_limits(crate::security::SourceLimits::SMALL);
-        let masked = super::Masked {
-            scan: &small,
-            masked: true,
-        };
         let unjudged = super::Unjudged {
             scan: &small,
             path_gated: false,
         };
-        assert_eq!(masked.limits(), crate::security::SourceLimits::SMALL);
         assert_eq!(unjudged.limits(), crate::security::SourceLimits::SMALL);
     }
 

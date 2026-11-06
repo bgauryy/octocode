@@ -1,11 +1,10 @@
 //! Absence needs a disclosure the agent can see: a window that states it, on a
 //! scan its budget cut, names what the skipped walks left unproven.
 use super::*;
-use crate::tools::empty_walk::with_probe_budget;
+use crate::tools::empty_walk::{CUT_AT_ONCE, with_probe_limits};
 use serde_json::Value;
-use std::time::Duration;
 
-const UNCHECKED: &str = "not checked in time";
+const UNCHECKED: &str = "not checked within the probe budget";
 
 fn no_hit_row(root: &std::path::Path) -> Value {
     json!({"operation":"match","path":root,"parser":"rust","rule":{"kind":"identifier","regex":"^zzqneverzz$"}})
@@ -38,7 +37,7 @@ fn a_cut_scan_with_a_cut_probe_never_states_absence_undisclosed() {
         root.write(name, "pub fn source() {}\n");
     }
     let _window = crate::tools::ast_search::scan_window::test_window(1);
-    let walked = with_probe_budget(Duration::ZERO, || windows(&root.0, no_hit_row(&root.0)));
+    let walked = with_probe_limits(CUT_AT_ONCE, || windows(&root.0, no_hit_row(&root.0)));
     assert!(walked.len() > 1, "{walked:?}");
     let last = walked.last().expect("a window");
     assert_eq!(last["status"], "empty", "{walked:?}");
@@ -62,7 +61,7 @@ fn a_cut_first_window_with_hits_says_the_check_was_cut_and_later_hits_do_not() {
     let row =
         json!({"operation":"match","path":root.0,"parser":"rust","rule":{"kind":"function_item"}});
     let _window = crate::tools::ast_search::scan_window::test_window(1);
-    let walked = with_probe_budget(Duration::ZERO, || windows(&root.0, row));
+    let walked = with_probe_limits(CUT_AT_ONCE, || windows(&root.0, row));
     assert_eq!(walked[0]["matchCount"], 1, "{walked:?}");
     assert!(discloses(&walked[0]), "{}", walked[0]);
     assert_eq!(walked[1]["matchCount"], 1, "{walked:?}");
@@ -99,7 +98,7 @@ fn a_first_window_that_parsed_nothing_still_discloses_a_cut_probe() {
     root.write("dist/late.rs", "pub fn source() {}\n");
     root.write("z.rs", "pub fn source() {}\n");
     let _window = crate::tools::ast_search::scan_window::test_window(1);
-    let first = with_probe_budget(Duration::ZERO, || {
+    let first = with_probe_limits(CUT_AT_ONCE, || {
         run(&root.0, no_hit_row(&root.0)).expect("first window")
     });
     assert!(first["next"]["expandScan"].is_object(), "{first}");
@@ -132,7 +131,7 @@ fn every_match_page_states_the_same_coverage_after_an_unchecked_probe() {
     root.write("dist/late.rs", "pub fn source() {}\n");
     let row =
         json!({"operation":"match","path":root.0,"parser":"rust","rule":{"kind":"function_item"}});
-    let (first, later) = with_probe_budget(Duration::ZERO, || {
+    let (first, later) = with_probe_limits(CUT_AT_ONCE, || {
         let first = run(&root.0, row).expect("page 1");
         let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
         assert_eq!(next["matchPage"], 2, "{first}");

@@ -114,5 +114,15 @@ pub(crate) fn set_broadened(value: &mut Value, _row: &Value, lead: Value) {
     );
 }
 
+/// An empty search with nothing broader to offer (a lone keyword, no
+/// filter to drop): say how GitHub matched it, so the next query changes the
+/// words.
+pub(crate) fn set_no_broader(value: &mut Value) {
+    super::push_hint(
+        value,
+        "No match: search terms are ANDed, so every word must match; try one distinctive word, or a different spelling.",
+    );
+}
+
 #[cfg(test)]
 mod tests;

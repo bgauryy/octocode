@@ -118,7 +118,12 @@ fn from_page(url: &Url) -> Option<Coordinate> {
         ("packagist.org", ["packages", vendor, name, ..]) => coordinate(
             ArtifactType::Packagist,
             format!("{}/{}", decoded(vendor), decoded(name)),
-            None,
+            // A package page names a release only by its fragment
+            // (`…/guzzle#6.3.0`); without it the page is the latest.
+            url.fragment()
+                .map(|fragment| fragment.trim_start_matches('v'))
+                .filter(|fragment| fragment.starts_with(|c: char| c.is_ascii_digit()))
+                .map(str::to_owned),
         ),
         ("pkg.go.dev", path) if !path.is_empty() => {
             let joined = path

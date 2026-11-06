@@ -1,13 +1,17 @@
 //! Cutting the returned page from the view and building its success row.
+mod budget_hint;
+mod source_lines;
+
 use super::super::pagination::{SourceLines, continuation, result_counts};
 use super::super::types::*;
 use super::super::{page_scan::*, prepare::*};
 use super::classified::attach_unfiltered;
 use super::warnings::read_scope_warnings;
 use super::{View, compress_ranges, past_end};
-use crate::security::scan::ContentScan;
 use crate::tools::source_view::local_fetch_query;
+use budget_hint::budget_cut_hint;
 use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit, ReadView};
+use source_lines::page_lines;
 
 /// The scanned page of a view, and the query it was cut for.
 pub(super) struct CutPage<'a> {
@@ -30,8 +34,6 @@ pub(super) fn cut_page<'a>(
     ext: &super::super::extraction::Extraction,
     source: &Source<'_>,
     facts: &SourceFacts,
-    source_path: &std::path::Path,
-    security: &impl ContentScan,
 ) -> Result<CutPage<'a>, Box<LocalFetchResult>> {
     let asked = q;
     let q = std::borrow::Cow::Borrowed(q);
@@ -43,8 +45,18 @@ pub(super) fn cut_page<'a>(
             crate::response::page_windows::page_budget(Some(window))
         });
     let page_q = q.as_ref();
+    let off = match &facts.byte_origin {
+        None => off_edge_offset(page_q, &view.text),
+        Some(origin) => origin.off_edge(page_q, &view.text),
+    };
+    if let Some(offset) = off {
+        return Err(Box::new(off_edge(page_q, offset)));
+    }
     // A byte page of a streamed window is cut at its offset in the window.
-    let in_window = facts.byte_origin.map(|origin| origin.within(page_q));
+    let in_window = facts
+        .byte_origin
+        .as_ref()
+        .map(|origin| origin.within(page_q));
     let page_q = in_window.as_ref().unwrap_or(page_q);
     // A transformed view pages in the lines a raw read of the same
     // selection pages in: raw source lines for a whole file (the unit of
@@ -70,10 +82,9 @@ pub(super) fn cut_page<'a>(
         view: &view.text,
         budget,
         source_lines: source_lines.as_ref(),
-        scans: &view.scans,
     };
-    let mut scanned = scan_page(&q, &window, source_path, security, source, ext.start)?;
-    if let Some(origin) = facts.byte_origin
+    let mut scanned = page_of(&window);
+    if let Some(origin) = &facts.byte_origin
         && scanned.page.pagination.unit == ReadProgressUnit::Bytes
     {
         origin.place(&mut scanned.page.pagination);
@@ -84,6 +95,34 @@ pub(super) fn cut_page<'a>(
         read: asked,
         scanned,
     })
+}
+
+/// A byte offset of `q` inside `view` that no window of it ends at: inside
+/// a character, a CRLF pair or a redaction marker. Offsets count the
+/// redacted view and every emitted window ends on a clean cut
+/// ([`crate::response::cut::clean_cut`]), so such an offset was not emitted
+/// for this view; it is refused, never snapped to a byte the caller did not
+/// name.
+fn off_edge_offset(q: &LocalFetchQuery, view: &str) -> Option<usize> {
+    let offset = local_fetch_query::offset(q)?;
+    (local_fetch_query::unit(q) == ReadProgressUnit::Bytes
+        && offset <= view.len()
+        && !crate::response::cut::is_clean_cut(view, offset))
+    .then_some(offset)
+}
+
+/// The refusal of a byte cursor no window emitted: the read restarts from
+/// its first page.
+fn off_edge(q: &LocalFetchQuery, offset: usize) -> LocalFetchResult {
+    let mut result = LocalFetchResult::error(
+        local_fetch_query::path(q).to_owned(),
+        octocode_contract_types::ErrorCode::InvalidPagination,
+        format!(
+            "readProgress byte offset {offset} is not a window edge of this view: it falls inside a character, a CRLF pair or a redaction marker. Continue with an emitted next call, or restart the read."
+        ),
+    );
+    result.next = Some(past_end(q));
+    result
 }
 
 /// The success row for a scanned page: its warnings, continuations and
@@ -138,7 +177,8 @@ pub(super) fn page_result(
         scanned.redactions + source_redactions,
         &mut warnings,
     );
-    if pg.pagination.offset == 0 {
+    // The read's first page states what every page shares.
+    if pg.pagination.offset == 0 || local_fetch_query::read_progress(asked).is_none() {
         warn_unmatchable(q, source, ext, &mut warnings);
         warnings.extend(
             selection_outcome
@@ -246,29 +286,6 @@ pub(super) fn page_result(
     result
 }
 
-/// Why a line page ended short of the caller's `limit` with more to read:
-/// the response budget sized it (`responseChars`), nothing was lost, and
-/// `next.nextPage` reads on. `None` when no `limit` was asked, or the
-/// page reached it.
-fn budget_cut_hint(
-    read: &LocalFetchQuery,
-    pagination: &Pagination,
-    out_of_range: bool,
-) -> Option<String> {
-    let limit = local_fetch_query::line_limit(read);
-    (pagination.unit == ReadProgressUnit::Lines
-        && pagination.has_more
-        && !out_of_range
-        && limit != usize::MAX
-        && pagination.length < limit)
-        .then(|| {
-            format!(
-                "This page holds {}, short of limit {limit}: the response budget sized it, no line is lost; next reads on, and a larger responseChars lengthens the page.",
-                octocode_engine::text::counted(pagination.length, "line", "lines")
-            )
-        })
-}
-
 /// The hint of a read whose minified view removed every selected line.
 const MINIFIED_AWAY_HINT: &str =
     "The compact view removed every selected line; use view:content to read the source.";
@@ -305,33 +322,6 @@ fn page_next(q: &LocalFetchQuery, pg: &super::super::pagination::Page) -> Option
     }
 }
 
-/// The source lines a page touches: a raw page's through the view-to-source
-/// line map (or its own lines), a transformed view's from its gutter.
-fn page_lines(
-    pg: &super::super::pagination::Page,
-    source_lines: Option<&[usize]>,
-    mode: Option<ReadView>,
-) -> Vec<usize> {
-    if mode.is_some() {
-        return pg
-            .text
-            .lines()
-            .filter_map(|line| {
-                let (number, _) = line.split_once(crate::response::numbered::SEPARATOR)?;
-                number.split('-').next()?.parse().ok()
-            })
-            .collect();
-    }
-    let (first, last) = pg.view_lines;
-    match source_lines {
-        Some(lines) => lines
-            .get(first.saturating_sub(1)..last.min(lines.len()))
-            .unwrap_or_default()
-            .to_vec(),
-        None => (first..=last).collect(),
-    }
-}
-
 /// The source lines a page shows: through the view-to-source line map when
 /// the extraction kept one, else the page's own line span.
 fn page_source_ranges(
@@ -352,45 +342,4 @@ fn page_source_ranges(
         .collect();
     page_lines.dedup();
     compress_ranges(&page_lines)
-}
-
-#[cfg(test)]
-mod budget_cut_hint_tests {
-    use super::*;
-
-    /// One line is "1 line", and any other count its plural.
-    #[test]
-    fn the_hint_counts_a_short_page_in_the_right_number() {
-        let read: LocalFetchQuery =
-            serde_json::from_value(serde_json::json!({"path":"a.rs","limit":5}))
-                .expect("a read with a limit");
-        let hint = |length| {
-            budget_cut_hint(
-                &read,
-                &Pagination {
-                    unit: ReadProgressUnit::Lines,
-                    offset: 0,
-                    length,
-                    window: length,
-                    total_lines: 9,
-                    total_bytes: 90,
-                    has_more: true,
-                    next_offset: Some(length),
-                    resume_line: None,
-                },
-                false,
-            )
-            .expect("a short page")
-        };
-        assert!(
-            hint(1).starts_with("This page holds 1 line, "),
-            "{}",
-            hint(1)
-        );
-        assert!(
-            hint(2).starts_with("This page holds 2 lines, "),
-            "{}",
-            hint(2)
-        );
-    }
 }

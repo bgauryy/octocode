@@ -312,3 +312,57 @@ async fn matched_lines_name_the_hits_only_when_context_is_listed() {
     assert_eq!(matched("src/handler.py"), json!([3]), "{}", out.data);
     assert_eq!(matched("src/routing.py"), json!([1, 5, 9]), "{}", out.data);
 }
+
+/// A hit whose blob the scan refuses (over the scan limit) is not silently
+/// reduced to `lineResolved:false`: on the default branch, as at a ref, the
+/// page leads to a ghGetFileContent read of its keyword lines at the commit.
+#[tokio::test]
+async fn an_oversize_default_branch_hit_leads_to_a_read_of_its_lines() {
+    let server = MockServer::builder().start().await;
+    wrap_app_hits(&server, &["big", "small"]).await;
+    mount_ref(&server, "HEAD").await;
+    mount_content(&server, "src/small.rs", "\nfn wrap_app() {}\n").await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/src%2Fbig.rs"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/vnd.github.raw; charset=utf-8")
+                .insert_header("etag", "\"0123456789abcdef0123456789abcdef01234567\"")
+                .set_body_bytes(vec![
+                    b'x';
+                    crate::tools::gh_search_code::lines::MAX_SCAN_BYTES + 1
+                ]),
+        )
+        .mount(&server)
+        .await;
+    let out = run(
+        &server,
+        json!({"owner":"a","repo":"b","keywords":["wrap_app"]}),
+    )
+    .await
+    .expect("search");
+    let data = &out.data;
+    let files = data["files"].as_array().expect("files");
+    let big = files
+        .iter()
+        .find(|row| row["path"] == "src/big.rs")
+        .expect("big row");
+    assert_eq!(big["lineResolved"], false, "{data}");
+    let small = files
+        .iter()
+        .find(|row| row["path"] == "src/small.rs")
+        .expect("small row");
+    assert!(small["lines"].is_array(), "{data}");
+    let reads = data["next"]
+        .as_object()
+        .expect("next")
+        .values()
+        .filter(|read| read["input"]["queries"][0]["path"] == "src/big.rs")
+        .collect::<Vec<_>>();
+    assert_eq!(reads.len(), 1, "{data}");
+    let read = &reads[0]["input"]["queries"][0];
+    assert_eq!(read["ref"], TREE_SHA, "{data}");
+    assert_eq!(read["matchString"], json!(["wrap_app"]), "{data}");
+    crate::contracts::validate_query("ghGetFileContent", read.clone())
+        .expect("read is a valid ghGetFileContent query");
+}

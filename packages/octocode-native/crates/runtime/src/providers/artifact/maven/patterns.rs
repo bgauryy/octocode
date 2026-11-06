@@ -17,23 +17,27 @@ pattern!(valid_coordinate, r"^[A-Za-z0-9_][A-Za-z0-9_.-]*$");
 pattern!(doctype, r"(?i)<!DOCTYPE|<!ENTITY");
 pattern!(comment, r"(?s)<!--.*?-->");
 pattern!(url_tag, r"<url>\s*([^<]+?)\s*</url>");
-pattern!(scm, r"(?s)<scm>(.*?)</scm>");
+pattern!(connection, r"<connection>\s*([^<]+?)\s*</connection>");
+pattern!(
+    developer_connection,
+    r"<developerConnection>\s*([^<]+?)\s*</developerConnection>"
+);
+pattern!(scm_tag, r"<tag>\s*([^<]+?)\s*</tag>");
+// One opening, closing or self-closing element tag (not a declaration,
+// processing instruction or comment), for walking a POM's nesting.
+pattern!(
+    element,
+    r"<(/?)([A-Za-z_][A-Za-z0-9_.-]*)(?:\s[^>]*?)?(/?)>"
+);
 pattern!(group_id, r"<groupId>\s*([^<]+?)\s*</groupId>");
 pattern!(artifact_id, r"<artifactId>\s*([^<]+?)\s*</artifactId>");
 pattern!(release, r"<release>\s*([^<]+?)\s*</release>");
 pattern!(latest, r"<latest>\s*([^<]+?)\s*</latest>");
 pattern!(version, r"<version>\s*([^<]+?)\s*</version>");
-pattern!(
-    inherited_blocks,
-    r"(?s)<(dependencyManagement|build|profiles|reporting)>.*?</(dependencyManagement|build|profiles|reporting)>"
-);
-pattern!(dependencies, r"(?s)<dependencies>(.*?)</dependencies>");
 pattern!(dependency, r"(?s)<dependency>(.*?)</dependency>");
 pattern!(exclusions, r"(?s)<exclusions>.*?</exclusions>");
 pattern!(scope, r"<scope>\s*([^<]+?)\s*</scope>");
 pattern!(optional, r"<optional>\s*([^<]+?)\s*</optional>");
-pattern!(parent, r"(?s)<parent>(.*?)</parent>");
-pattern!(properties, r"(?s)<properties>(.*?)</properties>");
 pattern!(
     property,
     r"<([A-Za-z0-9_.\-]+)>\s*([^<]*?)\s*</([A-Za-z0-9_.\-]+)>"

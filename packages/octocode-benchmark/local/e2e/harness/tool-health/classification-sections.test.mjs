@@ -62,10 +62,10 @@ test('section acceptance requires exact UTF-8 source coverage, unique cells, and
   }
 });
 
-test('a memory plan is judged whole, with enough room to show it all', async () => {
+test('memory classification refuses source rows before billing and keeps literal siblings', async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-memory-plan-oracle-'));
   try {
-    for (const hasMore of [false, true]) {
+    for (const defect of [null, 'billedRefusal', 'lostSibling', 'deadRead', 'pagedRefusal', 'missingGuidance']) {
       const sent = [];
       const checks = await memorySectionsChecks({
         cwd, q: query => ({ queries: [query] }),
@@ -73,13 +73,25 @@ test('a memory plan is judged whole, with enough room to show it all', async () 
           assert.equal(tool, 'clasify');
           assert.equal(input.responseChars, 50_000);
           assert.equal(options.env.OCTOCODE_STORAGE_MODE, 'memory');
-          sent.push(input);
-          return { status: 0, json: { responsePagination: { hasMore }, results: [{ index: 0, data: {
-            resources: { local: { sections: Array.from({ length: 70 }, () => ({ answers: { evidence: { status: 'answered' } } })) } },
-          } }] } };
+          const rows = input.queries.map((query, index) => {
+            if (Object.hasOwn(query, 'content')) {
+              if (defect !== 'lostSibling') sent.push(query);
+              return { index, data: { answers: defect === 'lostSibling' ? {} : { evidence: { type: 'noul', noul: 0.9 } } } };
+            }
+            if (defect === 'billedRefusal') sent.push(query);
+            return { index, status: 'error', data: {
+              errorCode: 'classificationContextUnavailable',
+              error: 'This runtime cannot retain pinned reads; no source was read and no classification provider was called.',
+              hints: defect === 'missingGuidance' ? [] : ['Use persistent storage or a long-lived MCP runtime.'],
+              ...(defect === 'deadRead' ? { next: { read } } : {}),
+            } };
+          });
+          return { status: 5, json: { responsePagination: { hasMore: defect === 'pagedRefusal' }, results: rows } };
         },
       }, 'cli', { sent });
-      assert.equal(checks[0][1], !hasMore);
+      assert.equal(checks.length, 5, 'simple and seventy-section source/sections refusals plus mixed literal');
+      if (defect === 'lostSibling') assert.equal(checks.at(-1)[1], false);
+      else assert.equal(checks.every(row => row[1]), defect === null, defect ?? 'valid refusal');
     }
   } finally { fs.rmSync(cwd, { recursive: true, force: true }); }
 });

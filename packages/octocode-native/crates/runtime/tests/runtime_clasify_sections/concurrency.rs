@@ -125,6 +125,8 @@ async fn admitted_sections_are_judged_concurrently_and_all_answer() {
         sections_count,
         "every admitted section is on the wire at once"
     );
-    assert!(out.get("next").is_none(), "{out:#}");
+    // The plan is complete: whatever `next` holds is a pinned read of the
+    // judged lines, never a page.
+    super::assert_next_is_only_pinned_reads(&out);
     runtime.close().await;
 }

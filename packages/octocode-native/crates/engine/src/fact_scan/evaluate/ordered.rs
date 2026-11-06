@@ -30,9 +30,18 @@ pub(super) fn in_walk_order<E: Sync, R: Send, X: Send>(
     (0..rayon::current_num_threads().min(entries.len()).max(1))
         .into_par_iter()
         .for_each(|_| {
-            while !failed.load(Ordering::Relaxed) && (next.load(Ordering::Relaxed) == 0 || !held())
-            {
-                let at = next.fetch_add(1, Ordering::Relaxed);
+            while !failed.load(Ordering::Relaxed) {
+                // Once held, only the first entry may still start: claimed by
+                // one exchange, so two workers cannot both see it unclaimed
+                // and start the first two.
+                let at = if held() {
+                    match next.compare_exchange(0, 1, Ordering::Relaxed, Ordering::Relaxed) {
+                        Ok(first) => first,
+                        Err(_) => return,
+                    }
+                } else {
+                    next.fetch_add(1, Ordering::Relaxed)
+                };
                 let Some(entry) = entries.get(at) else {
                     return;
                 };
@@ -132,6 +141,18 @@ mod tests {
     fn the_first_entry_always_starts() {
         let results = in_walk_order::<_, _, ()>(&[7, 8, 9], &|| true, |entry| Ok(*entry));
         assert_eq!(results, Ok(vec![7]));
+    }
+
+    /// Workers racing for the first entry while the scan is already held:
+    /// only one of them starts it (once, two read it unclaimed and started
+    /// the first two).
+    #[test]
+    fn the_first_entry_starts_alone_however_workers_race() {
+        let entries = (0..64).collect::<Vec<usize>>();
+        for _ in 0..2_000 {
+            let results = in_walk_order::<_, _, ()>(&entries, &|| true, |entry| Ok(*entry));
+            assert_eq!(results, Ok(vec![0]));
+        }
     }
 
     #[test]

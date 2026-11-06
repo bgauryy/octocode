@@ -296,3 +296,34 @@ fn a_far_line_does_not_resolve_to_a_mention() {
         );
     }
 }
+
+/// A one-line bundle spelling the name 30,000 times, after non-ASCII text:
+/// every occurrence's UTF-16 column comes from one pass over the line, the
+/// same columns a per-occurrence measure gives, and the hint picks its one.
+#[test]
+fn a_line_with_thirty_thousand_occurrences_lists_each_column() {
+    let line = (0..30_000)
+        .map(|index| format!("v(é{index});"))
+        .collect::<String>();
+    let resolved = resolve_position_in_file_content(
+        "bundle.js",
+        &format!("{line}\n"),
+        &LspFuzzyPosition {
+            symbol_name: "v".to_owned(),
+            line_hint: Some(1),
+            order_hint: Some(20_000),
+        },
+    )
+    .expect("resolves");
+    let columns = &resolved.occurrences_on_line;
+    assert_eq!(columns.len(), 30_000);
+    let measured = |byte: usize| u32::try_from(line[..byte].encode_utf16().count()).expect("fits");
+    let starts = line
+        .match_indices("v(")
+        .map(|(at, _)| at)
+        .collect::<Vec<_>>();
+    for index in [0, 1, 19_999, 20_000, 29_999] {
+        assert_eq!(columns[index], measured(starts[index]), "{index}");
+    }
+    assert_eq!(resolved.position.character, measured(starts[20_000]));
+}

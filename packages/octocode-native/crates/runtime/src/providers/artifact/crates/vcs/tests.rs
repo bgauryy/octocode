@@ -128,3 +128,36 @@ async fn crate_vcs_info_stops_the_download_at_its_entry() {
         }
     }
 }
+
+/// A published crate version never changes: the commit its archive named
+/// is kept, so a repeat reads no archive, and a version whose archive could
+/// not be read is asked again.
+#[tokio::test]
+async fn a_crate_versions_commit_is_derived_from_its_archive_once() {
+    use crate::providers::saved_answers::KeptAnswers;
+    let info =
+        br#"{"git":{"sha1":"b6a77c4413f902523646be0d7f5520631df53ff6"},"path_in_vcs":"serde"}"#;
+    let entry = "kept-1.0.0/.cargo_vcs_info.json";
+    let http = crate::providers::artifact::test_http::ChunkedHttp::new(
+        test_archive(&[(entry, &info[..], b'0')]),
+        4096,
+    );
+    let budget = crate::providers::artifact::test_http::test_budget();
+    let answers = KeptAnswers::new(None);
+    let client = RegistryClient {
+        answers: Some(&answers),
+        ..RegistryClient::new(&http, &budget)
+    };
+    let expected = Some((
+        "b6a77c4413f902523646be0d7f5520631df53ff6".to_owned(),
+        Some("serde".to_owned()),
+    ));
+    assert_eq!(crate_vcs("kept", "1.0.0", &client).await, expected);
+    let read = http.fed();
+    assert!(read > 0);
+    assert_eq!(crate_vcs("kept", "1.0.0", &client).await, expected);
+    assert_eq!(http.fed(), read, "the repeat read no archive");
+    // Another version is another fact.
+    let _ = crate_vcs("kept", "1.0.1", &client).await;
+    assert!(http.fed() > read);
+}

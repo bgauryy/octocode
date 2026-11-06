@@ -1,7 +1,6 @@
 use super::file_search::*;
 use super::mode::*;
 use super::result::*;
-use super::sink::*;
 use super::state::*;
 use super::*;
 use crate::error::Result;

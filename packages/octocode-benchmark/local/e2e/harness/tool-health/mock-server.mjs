@@ -76,7 +76,7 @@ export async function startMock({ fixtureDir, tmpDir, token, configureModel, cla
   // A shared credential over a whole matrix run must not wait out a quota window it only reports.
   const meter = unmetered ? () => ({}) : rateLimiter();
   const repoGit = tmpDir ? makeGitRepo(model, tmpDir) : { reason: 'no tmpDir' };
-  const git = { root: repoGit.root, tokens: new Set([token].flat().filter(Boolean)), gitAuth: [] };
+  const git = { root: repoGit.root, tokens: new Map([token].flat().filter(Boolean).map(value => [value, 1])), gitAuth: [] };
   let base = '';
   const handle = async (req, res, raw) => {
     const url = new URL(req.url, base);
@@ -103,6 +103,15 @@ export async function startMock({ fixtureDir, tmpDir, token, configureModel, cla
   return {
     url: base, model, requests, requestsFrom, classificationRequests: classification.requests, classificationResponders: classification.responders, unhandled, unhandledFrom, gitAuth: git.gitAuth,
     git: !!git.root, gitUnavailable: repoGit.reason,
+    withGitCredential: async (credential, run) => {
+      git.tokens.set(credential, (git.tokens.get(credential) ?? 0) + 1);
+      try { return await run(); }
+      finally {
+        const remaining = git.tokens.get(credential) - 1;
+        if (remaining) git.tokens.set(credential, remaining);
+        else git.tokens.delete(credential);
+      }
+    },
     close: () => new Promise(resolve => { server.closeAllConnections?.(); server.close(() => resolve()); }),
   };
 }

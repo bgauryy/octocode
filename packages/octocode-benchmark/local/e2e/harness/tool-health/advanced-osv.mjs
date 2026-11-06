@@ -10,7 +10,8 @@ const data = result => result.json?.results?.[0]?.data ?? {};
 const row = (kind, fields = {}) => ({ operation: 'package', ecosystem: kind, packageName: coordinate(kind), version: exact(kind), ...fields });
 // OSV's real record (test-utils/provider-answers), its identity and fix moved to the proof package.
 const REAL = recordedJson('osv/advisory-ghsa', '/v1/vulns/');
-const vuln = (id, name = 'proof', ecosystem = 'npm') => ({ ...REAL, id, affected: [{ ...REAL.affected[0], package: { name, ecosystem }, ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { fixed: '1.2.3' }] }] }] });
+// Records that share an alias (a CVE) are one advisory, so a record of its own id has no alias.
+const vuln = (id, name = 'proof', ecosystem = 'npm', aliases = []) => ({ ...REAL, id, aliases, affected: [{ ...REAL.affected[0], package: { name, ecosystem }, ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { fixed: '1.2.3' }] }] }] });
 const json = value => JSON.stringify(value);
 const ids = rows => (rows ?? []).map(item => item.id);
 
@@ -91,9 +92,16 @@ async function paging(ctx, surface, record) {
   record('osv.tinyWindowLossless', surface, !report.failures.length && json(ids(walked)) === json(many.map(item => item.id)), `${report.responses.length} calls; ${json(report.failures)}`);
 }
 
+/** A GHSA record and its twin that alias the same CVE are one advisory row. */
+async function twins(ctx, surface, record) {
+  const shared = ['CVE-2024-0001'];
+  const { row: merged } = await asked(ctx, surface, row('pypi'), [{ body: { vulns: [vuln('GHSA-T1', 'proof', 'PyPI', [...shared, 'PYSEC-T2']), vuln('PYSEC-T2', 'proof', 'PyPI', [...shared, 'GHSA-T1'])] } }, { body: {} }]);
+  record('osv.aliasTwinsMerge', surface, merged.advisories?.length === 1 && merged.advisories[0].aliases?.includes('PYSEC-T2'), json(merged));
+}
+
 async function targets(ctx, surface, record) {
-  ctx.registry.osvRecords.set('GHSA-W', { body: { ...vuln('GHSA-W'), withdrawn: '2024-01-01T00:00:00Z', details: 'Whole text.' } });
-  const whole = await asked(ctx, surface, { operation: 'advisory', id: 'GHSA-W' });
+  ctx.registry.osvRecords.set('GHSA-w', { body: { ...vuln('GHSA-w'), withdrawn: '2024-01-01T00:00:00Z', details: 'Whole text.' } });
+  const whole = await asked(ctx, surface, { operation: 'advisory', id: 'GHSA-w' });
   record('osv.advisoryWhole', surface, whole.row.advisories?.[0]?.withdrawn === '2024-01-01T00:00:00Z' && whole.row.advisories?.[0]?.details === 'Whole text.' && whole.row.advisories?.[0]?.affected?.length === 1, json(whole));
   record('osv.realVectors', surface, REAL.severity.every(vector => json(whole.row).includes(vector.score)), json(whole.row));
   const absent = await asked(ctx, surface, { operation: 'advisory', id: 'GHSA-NONE' });
@@ -109,16 +117,18 @@ async function advisoryChecks(ctx, surface, record) {
   await failures(ctx, surface, record);
   await gate(ctx, surface, record);
   await paging(ctx, surface, record);
+  await twins(ctx, surface, record);
   await targets(ctx, surface, record);
 }
 
-/** Off: absent, refused, and not one request to OSV or any registry. */
+/** The switch gates MCP discovery only: a CLI call is the user's own request and still reaches OSV. */
 async function advisoryOffChecks(ctx, record) {
-  const before = ctx.registry.requests.length;
   ctx.registry.osvBodies.length = 0;
-  const result = await ctx.cliCall('securityCheck', ctx.q(row('npm')), { env: { OCTOCODE_SECURITY_CHECKS: 'false' } });
-  const text = json(result.json);
-  record('osv.off', 'cli', /tools\.enableSecurityCheck|OCTOCODE_SECURITY_CHECKS/.test(text) && !('advisories' in data(result)) && ctx.registry.requests.length === before && ctx.registry.osvBodies.length === 0, json({ json: result.json, requests: ctx.registry.requests.slice(before) }));
+  ctx.registry.osvAnswers.push({ body: { vulns: [vuln('GHSA-1')] } }, { body: {} });
+  const result = await ctx.cliCall('securityCheck', ctx.q(row('npm')), { extraEnv: { OCTOCODE_SECURITY_CHECKS: 'false' } });
+  const bodies = [...ctx.registry.osvBodies];
+  ctx.registry.osvAnswers.length = 0;
+  record('osv.cliOffSwitchStillAnswers', 'cli', data(result).affected === true && ids(data(result).advisories).join() === 'GHSA-1' && bodies.length > 0, json({ json: result.json, bodies }));
 }
 
 /**
@@ -140,7 +150,7 @@ export async function advancedSecurityCheck(ctx) {
     record('refuses.repositoryUrl', surface, repository.errorCode === 'invalidInput' && /nothing was sent/.test(repository.error), json(repository));
     const short = await check(ctx, surface, ctx.q({ operation: 'commit', commit: '6879efc' }));
     record('refuses.shortCommit', surface, json(short.json).includes('invalidInput'), json(short.json));
-    const token = await check(ctx, surface, ctx.q({ operation: 'advisory', id: 'GHSA-HAPPY', resume: 'osv-token' }));
+    const token = await check(ctx, surface, ctx.q({ operation: 'advisory', id: 'GHSA-happy', resume: 'osv-token' }));
     record('refuses.callerToken', surface, json(token.json).includes('invalidInput'), json(token.json));
   }
   return checks;

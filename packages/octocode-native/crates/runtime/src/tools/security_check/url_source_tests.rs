@@ -220,3 +220,19 @@ fn anything_else_says_it_cannot_be_resolved() {
             .contains("cannot be resolved")
     );
 }
+
+/// A packagist page names a release by its fragment; one that is no version
+/// (a page section) leaves the page as the latest.
+#[test]
+fn a_packagist_fragment_names_the_version() {
+    let at = |fragment: &str| {
+        parsed(&format!(
+            "https://packagist.org/packages/guzzlehttp/guzzle{fragment}"
+        ))
+        .2
+    };
+    assert_eq!(at("#6.3.0").as_deref(), Some("6.3.0"));
+    assert_eq!(at("#v7.0.1").as_deref(), Some("7.0.1"));
+    assert_eq!(at("#readme"), None);
+    assert_eq!(at(""), None);
+}

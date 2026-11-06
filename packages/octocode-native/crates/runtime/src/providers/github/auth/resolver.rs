@@ -121,11 +121,8 @@ impl Authentication {
         host: &str,
         selection: Option<&AuthSelection>,
     ) -> Result<String, ProviderError> {
-        if selection.is_some_and(|selected| self.is_rejected(host, selected.token())) {
-            return Err(ProviderError::new(
-                ProviderErrorKind::Authentication,
-                "The current GitHub credential was rejected.",
-            ));
+        if let Some(selected) = selection {
+            self.check_not_rejected(host, selected.token())?;
         }
         Ok(octocode_github::Partition::new(
             host,
@@ -133,6 +130,16 @@ impl Authentication {
         )
         .identity()
         .to_owned())
+    }
+
+    fn check_not_rejected(&self, host: &str, token: &str) -> Result<(), ProviderError> {
+        if self.is_rejected(host, token) {
+            return Err(ProviderError::new(
+                ProviderErrorKind::Authentication,
+                "The current GitHub credential was rejected.",
+            ));
+        }
+        Ok(())
     }
 
     async fn resolve_with(
@@ -148,6 +155,11 @@ impl Authentication {
             && configured_credential_host(&self.config.resolved.github.api_url)
                 .is_some_and(|configured| configured == host)
         {
+            if mode == AuthMode::Request {
+                // An explicit environment token never falls back to another account.
+                // Refuse it before provider work, just as saved identity checks do.
+                self.check_not_rejected(&host, token.token())?;
+            }
             return Ok(Some(AuthSelection {
                 credential: ResolvedCredential::new(token.token(), CredentialSource::Environment),
                 username: None,

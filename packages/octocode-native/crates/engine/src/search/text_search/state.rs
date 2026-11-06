@@ -1,6 +1,9 @@
 //! Search-wide accumulation: per-file records, the shared counters walk workers write, and their
 //! snapshot.
 
+mod held;
+pub(super) use held::{Charge, Held, context_weight, match_weight, raw_weight, record_weight};
+
 use crate::num::saturating_u32;
 use crate::search::text_parser::FileEntry;
 use crate::text::extension_of;
@@ -40,6 +43,8 @@ pub(super) struct FileRec {
     pub(super) source: Option<SearchedSource>,
     /// A returned line was not UTF-8: the values are decoded text.
     pub(super) not_utf8: bool,
+    /// The file starts with a UTF-8 byte-order mark the searcher dropped.
+    pub(super) utf8_bom: bool,
     /// Per searched term: its matches or matched lines (see
     /// [`crate::types::TextSearchFile::term_counts`]).
     pub(super) term_counts: Vec<u32>,
@@ -54,8 +59,6 @@ pub(super) struct CollectResult {
     pub(super) files_matched: u64,
     pub(super) submatches: u64,
     pub(super) matched_lines: u64,
-    /// A per-file only-matching span cap was hit (`maxOnlyMatchingPerFile`).
-    pub(super) span_capped: bool,
     /// At least one file exceeded the byte ceiling and was skipped (`fileTooLarge`).
     pub(super) size_skipped: bool,
     /// At least one file was quit as binary (`binaryQuit`); coverage is partial.
@@ -85,7 +88,6 @@ pub(super) struct CollectState {
     pub(super) files_matched: AtomicU64,
     pub(super) submatches: AtomicU64,
     pub(super) matched_lines: AtomicU64,
-    pub(super) span_capped: AtomicBool,
     pub(super) size_skipped: AtomicBool,
     binary_quit: AtomicBool,
     pub(super) binary_files: Mutex<Vec<String>>,
@@ -117,7 +119,6 @@ impl CollectState {
             files_matched: AtomicU64::new(0),
             submatches: AtomicU64::new(0),
             matched_lines: AtomicU64::new(0),
-            span_capped: AtomicBool::new(false),
             size_skipped: AtomicBool::new(false),
             binary_quit: AtomicBool::new(false),
             binary_files: Mutex::new(Vec::new()),
@@ -223,7 +224,6 @@ impl CollectState {
             files_matched: self.files_matched.load(Ordering::Relaxed),
             submatches: self.submatches.load(Ordering::Relaxed),
             matched_lines: self.matched_lines.load(Ordering::Relaxed),
-            span_capped: self.span_capped.load(Ordering::Relaxed),
             size_skipped: self.size_skipped.load(Ordering::Relaxed),
             binary_quit: self.binary_quit.load(Ordering::Relaxed),
             binary_files: {
@@ -279,7 +279,6 @@ impl CollectResult {
         self.files_matched += later.files_matched;
         self.submatches += later.submatches;
         self.matched_lines += later.matched_lines;
-        self.span_capped |= later.span_capped;
         self.size_skipped |= later.size_skipped;
         self.binary_quit |= later.binary_quit;
         self.binary_files.extend(later.binary_files);
@@ -334,29 +333,22 @@ impl CollectResult {
         self
     }
 
-    /// Rough heap bytes of the kept files: what holding them costs.
+    /// Heap bytes of the kept files: what holding them costs, as a search
+    /// charges them to its [`Held`] bound.
     pub(super) fn weight(&self) -> usize {
-        let text = |matched: &TextSearchMatch| 64 + matched.value.len();
         self.recs
             .iter()
             .map(|rec| {
-                std::mem::size_of::<FileRec>()
-                    + rec.path.len()
-                    + rec
-                        .entry
-                        .raw_matches
-                        .iter()
-                        .map(|raw| 32 + raw.line_text.len())
-                        .sum::<usize>()
+                record_weight(&rec.path, &rec.term_counts)
+                    + rec.entry.raw_matches.iter().map(raw_weight).sum::<usize>()
                     + rec
                         .entry
                         .contexts
                         .values()
-                        .map(|line| 32 + line.len())
+                        .map(|line| context_weight(line))
                         .sum::<usize>()
-                    + rec.entry.prepared.iter().map(text).sum::<usize>()
-                    + rec.om_matches.iter().map(text).sum::<usize>()
-                    + rec.term_counts.len() * std::mem::size_of::<u32>()
+                    + rec.entry.prepared.iter().map(match_weight).sum::<usize>()
+                    + rec.om_matches.iter().map(match_weight).sum::<usize>()
             })
             .sum::<usize>()
             + self.binary_files.iter().map(String::len).sum::<usize>()

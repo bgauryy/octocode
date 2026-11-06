@@ -1,0 +1,173 @@
+//! Credential-named files are never written to a checkout, sparse or full, and are listed in `location.skipped`.
+use super::*;
+use crate::policy::discovery::is_sensitive_repository_file;
+
+const SECRETS: [&str; 2] = [".env", "examples/auth0/.env.local.example"];
+
+/// The fixture origin plus a second commit that adds credential-named files
+/// at the root and nested, each beside an ordinary file.
+fn fixture_with_secrets() -> Fixture {
+    let fixture = Fixture::new();
+    for secret in SECRETS {
+        assert!(
+            is_sensitive_repository_file(secret),
+            "{secret} not sensitive"
+        );
+    }
+    fs::create_dir_all(fixture.work.join("examples/auth0")).expect("examples");
+    fs::write(fixture.work.join(".env"), "TOKEN=hunter2\n").expect("env");
+    fs::write(
+        fixture.work.join("examples/auth0/.env.local.example"),
+        "AUTH0=hunter2\n",
+    )
+    .expect("nested env");
+    fs::write(fixture.work.join("examples/auth0/app.js"), "ok\n").expect("app");
+    git(&fixture.work, &["add", "."]);
+    git(&fixture.work, &["commit", "-m", "secrets"]);
+    git(&fixture.work, &["push", "origin", "main"]);
+    fixture
+}
+
+fn clone_with(fixture: &Fixture, query: GhCloneRepoQuery) -> CloneResult {
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let first = clone_pinned(fixture, &query, &context).expect("clone");
+    // The second clone reuses the verified checkout and still withholds.
+    let again = clone_pinned(fixture, &query, &context).expect("reused clone");
+    assert!(again.location.reused, "{again:?}");
+    assert_eq!(again.location.skipped, first.location.skipped);
+    // Keep the temp root alive until here, then hand back the first result.
+    drop(root);
+    first
+}
+
+fn skipped(result: &CloneResult) -> Vec<&str> {
+    let mut files = result
+        .location
+        .skipped
+        .iter()
+        .flatten()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    files.sort_unstable();
+    files
+}
+
+#[test]
+fn a_full_clone_leaves_out_credential_named_files() {
+    let fixture = fixture_with_secrets();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let result = clone_pinned(&fixture, &query(), &context).expect("full clone");
+    let local = Path::new(&result.location.local_path);
+    for secret in SECRETS {
+        assert!(!local.join(secret).exists(), "{secret} was written");
+    }
+    assert!(local.join("README.md").is_file());
+    assert!(local.join("examples/auth0/app.js").is_file());
+    assert_eq!(skipped(&result), SECRETS);
+}
+
+#[test]
+fn a_sparse_directory_clone_leaves_out_credential_named_files_in_scope() {
+    let fixture = fixture_with_secrets();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let result = clone_pinned(
+        &fixture,
+        &GhCloneRepoQuery {
+            paths: one("examples"),
+            ..query()
+        },
+        &context,
+    )
+    .expect("sparse clone");
+    let local = Path::new(&result.location.local_path);
+    assert!(local.join("examples/auth0/app.js").is_file());
+    for secret in SECRETS {
+        assert!(!local.join(secret).exists(), "{secret} was written");
+    }
+    // Only the credential-named files inside the requested scope are listed.
+    assert_eq!(skipped(&result), ["examples/auth0/.env.local.example"]);
+}
+
+#[test]
+fn an_explicitly_requested_credential_file_is_skipped_not_missing() {
+    let fixture = fixture_with_secrets();
+    let result = clone_with(
+        &fixture,
+        GhCloneRepoQuery {
+            paths: many(&[".env", "README.md"]),
+            ..query()
+        },
+    );
+    assert_eq!(skipped(&result), [".env"]);
+}
+
+/// Every object the checkout's repository holds, as text.
+fn stored_objects(local: &Path) -> String {
+    let output = fixture_git(local, &["cat-file", "--batch-all-objects", "--batch"]);
+    assert!(output.status.success(), "{output:?}");
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// A credential-named file's content never reaches the object store, whether
+/// the clone is full or sparse: its blob is not fetched.
+#[test]
+fn credential_content_is_never_downloaded() {
+    let fixture = fixture_with_secrets();
+    for paths in [None, Some("examples")] {
+        let (root, home) = home_root();
+        let policy = test_support::workspace_policy(&root.0);
+        let endpoint = api_github_endpoint();
+        let runner = fixture_runner(&fixture);
+        let config = CloneConfig::persistent(&home);
+        let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+        let result = clone_pinned(
+            &fixture,
+            &GhCloneRepoQuery {
+                paths: paths.map(one).unwrap_or_default(),
+                ..query()
+            },
+            &context,
+        )
+        .expect("clone");
+        let objects = stored_objects(Path::new(&result.location.local_path));
+        assert!(!objects.contains("hunter2"), "secret stored ({paths:?})");
+        // The ordinary file beside it was fetched, so the probe sees blobs.
+        assert!(objects.contains("ok\n"), "no blob stored ({paths:?})");
+    }
+}
+
+/// A remote that ignores the blob filter would send the credential blob
+/// anyway: a clone that withholds it refuses instead of storing it.
+#[test]
+fn a_remote_that_ignores_the_blob_filter_is_refused() {
+    let fixture = fixture_with_secrets();
+    let bare = url::Url::parse(&fixture.bare_url)
+        .expect("url")
+        .to_file_path()
+        .expect("path");
+    git(&bare, &["config", "uploadpack.allowFilter", "false"]);
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let error = clone_pinned(&fixture, &query(), &context).expect_err("refused");
+    assert_eq!(error.code, ErrorCode::GitFailed, "{error:?}");
+    assert!(error.message.contains("ignored"), "{error:?}");
+}

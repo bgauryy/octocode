@@ -1,8 +1,8 @@
 //! Leads from an exact registry row to its source on GitHub.
 use crate::id::ToolId;
-use crate::providers::artifact::query::artifact_search_query;
+use crate::providers::artifact::query::{artifact_search_query, artifact_type};
 use crate::providers::artifact::{
-    ArtifactError, ArtifactItem, github_repo_dir, github_slug, page_out_of_range, release_ref_in,
+    ArtifactError, ArtifactItem, RepositoryStatus, github_slug, page_out_of_range, release_ref_in,
 };
 use crate::response::result::{Continuation, query_row};
 use crate::tools::leads::broaden::{Broaden, broaden};
@@ -25,6 +25,7 @@ pub(super) fn label_release_source(artifact: &mut ArtifactItem, exact: bool) {
     }
     artifact.verification = if artifact.source_ref.is_none() {
         (exact
+            && artifact.repository_status != Some(RepositoryStatus::Missing)
             && artifact
                 .repository
                 .as_deref()
@@ -47,17 +48,23 @@ pub(super) fn label_release_source(artifact: &mut ArtifactItem, exact: bool) {
 /// often does.
 pub(super) fn source_warning(artifact: &ArtifactItem) -> Option<String> {
     let default_branch = artifact.verification == Some("defaultBranch");
-    let reason = match artifact.missing_ref.as_deref() {
-        Some(reference) => {
-            let repository = artifact
-                .repository
-                .as_deref()
-                .and_then(github_slug)
-                .map_or_else(|| "its repository".to_owned(), |(o, r)| format!("{o}/{r}"));
+    let repository = artifact
+        .repository
+        .as_deref()
+        .and_then(github_slug)
+        .map_or_else(|| "its repository".to_owned(), |(o, r)| format!("{o}/{r}"));
+    let reason = match (artifact.repository_status, artifact.missing_ref.as_deref()) {
+        (Some(RepositoryStatus::Missing), _) => format!(
+            "GitHub has no repository {repository} (deleted, private, or never there), so no release ref or GitHub lead is given"
+        ),
+        (Some(RepositoryStatus::Moved), _) => format!(
+            "GitHub redirects {repository} to another name (renamed or transferred), so the registry's link is stale; GitHub tools follow the redirect"
+        ),
+        (None, Some(reference)) => {
             format!("release commit {reference} is not in {repository} (unpushed or rewritten)")
         }
-        None if default_branch => "the registry names no release ref".to_owned(),
-        None => {
+        (None, None) if default_branch => "the registry names no release ref".to_owned(),
+        (None, None) => {
             let release = artifact.tag_differs.as_ref()?;
             let reference = artifact.source_ref.as_deref().unwrap_or_default();
             format!(
@@ -78,6 +85,32 @@ pub(super) fn source_warning(artifact: &ArtifactItem) -> Option<String> {
     Some(format!("{package}: {reason}{source}."))
 }
 
+/// The warning of an exact row whose source is not a GitHub repository: the
+/// registry (and, for Maven, the POM's parent chain) names none, or names one
+/// elsewhere, so the row has no release ref and no GitHub lead.
+pub(super) fn unknown_source_warning(artifact: &ArtifactItem) -> Option<String> {
+    if artifact
+        .repository
+        .as_deref()
+        .and_then(github_slug)
+        .is_some()
+    {
+        return None;
+    }
+    let package = match artifact.version.as_deref() {
+        Some(version) => format!("{} {version}", artifact.package_name),
+        None => artifact.package_name.clone(),
+    };
+    Some(match artifact.repository.as_deref() {
+        Some(repository) => format!(
+            "{package}: its source repository {repository} is not on GitHub, so no release ref or GitHub lead is given."
+        ),
+        None => format!(
+            "{package}: the registry names no source repository, so no release ref or GitHub lead is given."
+        ),
+    })
+}
+
 /// The warning of a row whose dependency versions name properties its
 /// release metadata does not define: they are shown as declared, and this
 /// says so instead of leaving a `${…}` to read as a version.
@@ -91,8 +124,25 @@ pub(super) fn property_warning(artifact: &ArtifactItem) -> Option<String> {
         None => artifact.package_name.clone(),
     };
     Some(format!(
-        "{package}: dependency versions {} are properties its POM does not define (a parent POM sets them); shown as declared.",
+        "{package}: dependency versions {} are properties neither its POM nor the parent POMs read define; shown as declared.",
         names.join(", ")
+    ))
+}
+
+/// The warning of a Go version its module's latest `go.mod` retracts: the
+/// module's own word that the version should not be used, with its reason.
+pub(super) fn retraction_warning(artifact: &ArtifactItem) -> Option<String> {
+    let retraction = artifact.retraction.as_ref()?;
+    let reason = retraction
+        .reason
+        .as_deref()
+        .map_or(String::new(), |reason| {
+            format!(": {}", reason.trim_end_matches('.'))
+        });
+    Some(format!(
+        "{} {} is retracted by its module's latest go.mod{reason}.",
+        artifact.package_name,
+        artifact.version.as_deref().unwrap_or_default()
     ))
 }
 
@@ -120,16 +170,18 @@ pub(super) fn source_leads(artifact: &ArtifactItem) -> Map<String, Value> {
     let Some((owner, repo)) = artifact.repository.as_deref().and_then(github_slug) else {
         return leads;
     };
+    if artifact.repository_status == Some(RepositoryStatus::Missing) {
+        return leads;
+    }
     let directory = artifact
         .repository_directory
-        .clone()
-        .or_else(|| artifact.repository.as_deref().and_then(github_repo_dir))
+        .as_deref()
         .filter(|directory| !directory.is_empty());
     // The root at depth one is ghStructure's default listing.
     let at = crate::tools::gh_shared::RepoPath {
         owner: &owner,
         repo: &repo,
-        path: directory.as_deref().unwrap_or_default(),
+        path: directory.unwrap_or_default(),
         reference: artifact.source_ref.as_deref(),
     };
     let name = if at.reference.is_some() {
@@ -139,6 +191,26 @@ pub(super) fn source_leads(artifact: &ArtifactItem) -> Map<String, Value> {
     };
     leads.insert(name.into(), at.lead(ToolId::GhStructure).build());
     leads
+}
+
+/// The exact row's lead to `securityCheck`: the advisories OSV lists for this
+/// package at the version the row resolved, for every registry (the row itself
+/// carries CVE data on a few only). Absent on a row without a version. The
+/// runtime drops it where `securityCheck` is not offered.
+pub(super) fn advisory_lead(artifact: &ArtifactItem) -> Option<Value> {
+    let version = artifact.version.as_deref()?;
+    Some(
+        Continuation::related(
+            ToolId::SecurityCheck,
+            json!({
+                "operation": "package",
+                "ecosystem": artifact_type::as_str(artifact.artifact_type),
+                "packageName": artifact.package_name,
+                "version": version,
+            }),
+        )
+        .build(),
+    )
 }
 
 /// The query as a lead copies it: every field the caller set except the

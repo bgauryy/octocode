@@ -56,6 +56,82 @@ impl CollectionRoutes {
     }
 }
 
+/// Keywords that bound a string's value: such a value is meaningful only
+/// whole, so a page never cuts it into windows.
+const VALUE_BOUNDS: [&str; 6] = [
+    "enum",
+    "const",
+    "format",
+    "pattern",
+    "minLength",
+    "maxLength",
+];
+
+/// Whether the string at `pointer` (in a result row of `tool`, `/data/…`) is
+/// free text a page may cut into windows: the tool's output schema, the one
+/// the output validator checks, reaches it and bounds its value nowhere.
+/// A string the schema does not reach stays whole.
+pub(crate) fn free_text_at(tool: ToolId, pointer: &str) -> bool {
+    use super::schema_facts::{child_schemas, item_schemas, property_schemas};
+    let Ok(contract) = super::tool_contract(tool) else {
+        return false;
+    };
+    let schema = &contract["outputSchema"];
+    let defs = &schema["$defs"];
+    let mut at = property_schemas(schema, defs, "results")
+        .into_iter()
+        .flat_map(|results| item_schemas(results, defs))
+        .collect::<Vec<_>>();
+    for segment in pointer.strip_prefix('/').unwrap_or(pointer).split('/') {
+        if pointer.is_empty() {
+            break;
+        }
+        let key = crate::json_pointer::unescape(segment);
+        at = at
+            .into_iter()
+            .flat_map(|schema| {
+                let children = child_schemas(schema, defs, &key);
+                if children.is_empty() && segment.parse::<usize>().is_ok() {
+                    item_schemas(schema, defs)
+                } else {
+                    children
+                }
+            })
+            .collect();
+    }
+    !at.is_empty()
+        && at
+            .iter()
+            .all(|schema| !bounds_value(schema, defs, &mut Vec::new()))
+}
+
+/// Whether `schema`, through references and composition branches, bounds a
+/// value with any of [`VALUE_BOUNDS`].
+fn bounds_value<'a>(
+    schema: &'a serde_json::Value,
+    defs: &'a serde_json::Value,
+    seen: &mut Vec<*const serde_json::Value>,
+) -> bool {
+    if seen.contains(&std::ptr::from_ref(schema)) {
+        return false;
+    }
+    seen.push(std::ptr::from_ref(schema));
+    if VALUE_BOUNDS
+        .iter()
+        .any(|keyword| super::schema_facts::schema_keyword(schema, defs, keyword).is_some())
+    {
+        return true;
+    }
+    let resolved = super::schema_facts::resolve_ref(schema, defs);
+    ["anyOf", "oneOf", "allOf"].iter().any(|keyword| {
+        resolved[*keyword]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|branch| bounds_value(branch, defs, seen))
+    })
+}
+
 pub(crate) struct PageContextFields {
     pub(crate) required: BTreeSet<String>,
     pub(crate) optional: BTreeSet<String>,
@@ -138,6 +214,16 @@ pub(crate) fn page_context_fields(tool: ToolId) -> &'static PageContextFields {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A bounded value (the clasify answer `type` enum) is never free text;
+    /// file content is; a path the schema does not reach stays whole.
+    #[test]
+    fn free_text_follows_the_output_schema() {
+        assert!(!free_text_at(ToolId::Clasify, "/data/answers/q0/type"));
+        assert!(!free_text_at(ToolId::Clasify, "/data/questions/q0/type"));
+        assert!(free_text_at(ToolId::GhGetFileContent, "/data/content"));
+        assert!(!free_text_at(ToolId::GhGetFileContent, "/data/undeclared"));
+    }
 
     #[test]
     fn every_tool_declares_disjoint_page_context_fields() {

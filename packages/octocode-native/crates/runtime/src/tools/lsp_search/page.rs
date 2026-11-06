@@ -263,7 +263,6 @@ pub(super) async fn run_target(
             character: anchor.character,
             language_id,
             budget: crate::response::page_windows::page_budget(response_window),
-            response_window,
         }
         .run()
         .await

@@ -16,4 +16,5 @@ fn extract(content: &str, path: &str) -> Option<String> {
 mod facts;
 mod flow_js;
 mod outline;
+mod owners;
 mod ranges;

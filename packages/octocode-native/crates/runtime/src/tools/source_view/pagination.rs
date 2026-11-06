@@ -2,9 +2,7 @@ use super::extraction::line_count;
 use super::types::*;
 use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
 
-mod sanitize;
 mod source_lines;
-pub use sanitize::{WindowScans, sanitize_byte_page, sanitize_line_page};
 pub(super) use source_lines::SourceLines;
 
 pub struct Page {
@@ -16,6 +14,7 @@ pub struct Page {
     /// not because the view ended here.
     pub out_of_range: bool,
 }
+
 /// Bytes one line page may hold when the caller has no response window to
 /// size it from, and a byte page's default size; a single line longer than
 /// the line page is read in byte pages. The one owner of this default for
@@ -79,8 +78,9 @@ fn oversized_line_end(
 /// walk one line; the response pager splits an oversized row losslessly.
 pub(crate) const MIN_BYTE_PAGE: usize = 4_096;
 
-/// A byte page's default size: [`LINE_PAGE_BYTES`], or the line page budget
-/// when that is smaller, and never under [`MIN_BYTE_PAGE`].
+/// A byte page's room, in the escaped UTF-16 units a JSON string of it
+/// takes (the unit of `responseChars`): [`LINE_PAGE_BYTES`], or the line
+/// page budget when that is smaller, and never under [`MIN_BYTE_PAGE`].
 fn byte_page(line_page_bytes: usize) -> usize {
     line_page_bytes.clamp(MIN_BYTE_PAGE, LINE_PAGE_BYTES)
 }
@@ -173,18 +173,23 @@ fn view_page(content: &str, q: &LocalFetchQuery, budget: LineBudget) -> Page {
     view_page_limited(content, q, budget, local_fetch_query::line_limit(q))
 }
 
+/// A window of the view, at most `limit` lines of it. A line too long for
+/// one page starts byte paging at its first byte. A match selects the whole
+/// line, so required continuations must reach its prefix as well as its hit.
 fn view_page_limited(content: &str, q: &LocalFetchQuery, budget: LineBudget, limit: usize) -> Page {
     let kind = local_fetch_query::unit(q);
     let offset = local_fetch_query::offset(q).unwrap_or(0);
     match kind {
         ReadProgressUnit::Bytes => {
             let out_of_range = offset > 0 && offset >= content.len();
-            // An offset inside a character starts the page at that
-            // character's first byte (the end snaps forward the same way),
-            // so no byte is skipped; the row states the page's offset.
-            let offset = content.floor_char_boundary(offset);
+            // The reader refused an offset no window emits; a streamed
+            // window's raw offset starts at its character's first byte.
+            let offset = content.floor_char_boundary(offset.min(content.len()));
             let chunk_size = byte_page(budget.line);
-            let mut end = content.ceil_char_boundary((offset + chunk_size).min(content.len()));
+            // The window that fits the room as serialized text, ending at
+            // a line end when one fits, never inside a character, a CRLF
+            // pair or a redaction marker.
+            let mut end = crate::response::cut::window_end(content, offset, chunk_size);
             let first = octocode_engine::text::line_containing(content, offset);
             let resume = oversized_line_end(content, first, offset, end, budget.line);
             if let Some((line_end, _)) = resume {
@@ -237,7 +242,8 @@ fn view_page_limited(content: &str, q: &LocalFetchQuery, budget: LineBudget, lim
                         offset: wire_count(byte_offset),
                     }),
                 );
-                return whole_line_page(view_page(content, &byte_query, budget), offset);
+                let page = view_page(content, &byte_query, budget);
+                return whole_line_page(page, offset);
             }
             let end_byte = advance_lines(content, byte_offset, page).unwrap_or(content.len());
             let text = content[byte_offset..end_byte].to_owned();
@@ -286,12 +292,6 @@ fn whole_line_page(mut page: Page, offset: usize) -> Page {
     };
     page
 }
-
-/// Context kept on each side of a line page when it is scanned alone, so a
-/// multi-line secret straddling the page boundary is still matched whole. Same
-/// bound as the engine's chunk overlap (bounded token patterns top out at a few
-/// hundred chars; PEM blocks are redacted over the full file before selection).
-pub(super) const PAGE_SCAN_MARGIN_BYTES: usize = 8_192;
 
 /// The byte where the line `count` lines after the one starting at `at`
 /// starts (the view's length after its last line), or `None` past that.

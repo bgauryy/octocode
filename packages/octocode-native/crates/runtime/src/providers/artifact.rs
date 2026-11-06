@@ -1,11 +1,13 @@
 mod crates;
 mod go;
 mod http;
+mod link_directory;
 mod maven;
 mod npm;
 mod npmrc;
 mod nuget;
 mod packagist;
+mod pins;
 mod pypi;
 pub(crate) mod query;
 mod release_ref;
@@ -23,13 +25,14 @@ pub(crate) use http::{ArtifactHttpRequest, JSON, rejection_detail};
 pub(crate) use npm::registry::invalid_registry_url;
 pub(crate) use npmrc::npm_authorization;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
-pub use release_ref::{ReleaseTag, ReleaseTags, TagCommitFuture, TagFuture};
+pub(crate) use pins::{Pin, exact_pins};
+pub use release_ref::{CommitCheck, CommitFuture, ReleaseTag, ReleaseTags, TagCommitFuture};
 pub(crate) use types::alias_groups;
 pub use types::{
     Advisory, ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState,
-    ResolvedNpmRegistry, TerminalLimit,
+    RepositoryStatus, ResolvedNpmRegistry, TerminalLimit,
 };
-pub(crate) use util::{github_repo_dir, github_repository, github_slug, release_ref_in};
+pub(crate) use util::{github_repository, github_slug, release_ref_in};
 
 use http::RegistryClient;
 use octocode_io::budget::RequestBudget;
@@ -81,7 +84,7 @@ pub async fn execute_artifact(
             ));
         }
     }
-    match artifact_search_query::artifact_type(query) {
+    let mut page = match artifact_search_query::artifact_type(query) {
         ArtifactType::Npm => {
             let default_registry;
             let registry = match context.npm_registry {
@@ -107,7 +110,10 @@ pub async fn execute_artifact(
         ArtifactType::Rubygems => rubygems::rubygems(query, &state, &client).await,
         ArtifactType::Maven => maven::maven(query, &state, &client).await,
         ArtifactType::Nuget => nuget::nuget(query, &state, &client).await,
-    }
+    }?;
+    // A source link below a ref names its directory only once the ref's end is known.
+    link_directory::settle(&mut page.artifacts, &client).await?;
+    Ok(page)
 }
 
 /// The provider position of the saved private `page`: an item offset for

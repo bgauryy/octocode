@@ -60,3 +60,37 @@ fn it_says_why_when_no_version_can_be_named() {
     let why = candidate("1.0.0", &[fixed("A", &["2.0.0-rc1"])]).unwrap_err();
     assert!(why.contains("A states no fixed version"), "{why}");
 }
+
+/// An upgrade across a major says which advisories the current major leaves
+/// unfixed and what the current major does fix; one inside the major, or
+/// a current major that clears everything, says nothing.
+#[test]
+fn a_cross_major_upgrade_names_what_the_current_major_leaves_unfixed() {
+    let rows = [
+        fixed("A", &["6.5.8", "7.4.5"]),
+        fixed("B", &["7.4.5", "7.15.2"]),
+    ];
+    assert_eq!(candidate("6.3.0", &rows), Ok("7.4.5".to_owned()));
+    let note = major_gap("6.3.0", "7.4.5", &rows).expect("gap");
+    assert!(
+        note.contains("No 6.x release is listed as fixing B"),
+        "{note}"
+    );
+    assert!(
+        note.contains("7.4.5 is the lowest listed fix in a later major"),
+        "{note}"
+    );
+    assert!(
+        note.contains("6.5.8 is the highest fix listed within 6.x"),
+        "{note}"
+    );
+    // Nothing of the current major to offer: only the first part.
+    let note = major_gap("6.3.0", "7.4.5", &rows[1..]).expect("gap");
+    assert!(!note.contains("highest fix listed within"), "{note}");
+    // Same major, or every advisory fixed in it: nothing to add.
+    let within = [fixed("A", &["6.5.8", "7.4.5"]), fixed("B", &["6.5.9"])];
+    assert_eq!(candidate("6.3.0", &within), Ok("6.5.9".to_owned()));
+    assert_eq!(major_gap("6.3.0", "6.5.9", &within), None);
+    assert_eq!(major_gap("6.3.0", "7.0.0", &within), None);
+    assert!(major_gap("v6.3.0", "v7.4.5", &rows).is_some());
+}
