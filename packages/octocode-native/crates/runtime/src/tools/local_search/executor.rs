@@ -188,7 +188,7 @@ pub(super) fn page_of(
         }
     }
     if let Some(selected) = &shaped.selection {
-        let leads = selected.leads(query, &scan.identity, !root.is_file())?;
+        let leads = selected.leads(query, &scan.identity)?;
         if !leads.is_empty() {
             let next = result.next.get_or_insert_with(|| json!({}));
             for (name, lead) in leads {
@@ -214,7 +214,9 @@ pub(super) fn page_of(
             .unwrap_or_else(|| absolute.to_string_lossy().into_owned());
     }
     result.source_snapshot = Some(scan.identity);
-    result.selection = shaped.selection.map(|selection| selection.outcome.receipt);
+    result.selection = shaped
+        .selection
+        .and_then(super::selection::Selected::into_receipt);
     Ok(result)
 }
 

@@ -34,9 +34,13 @@ pub(super) fn list_view(view: View) -> bool {
 /// The pages one scan's stream cut yields. Every call of a walk cuts the
 /// same pages from the same scan (see [`Layout::stream`]), so the stored
 /// scan keeps them once cut: a continuation takes its page instead of
-/// pricing every row of the scan again.
+/// pricing every row of the scan again. Once the scan is stored, a cut is
+/// charged to the store ([`Billing`]) and kept only when the charge holds.
 #[derive(Default)]
-pub(super) struct StreamCuts(std::sync::Mutex<Option<std::sync::Arc<Vec<PageRows>>>>);
+pub(super) struct StreamCuts(
+    std::sync::Mutex<Option<std::sync::Arc<Vec<PageRows>>>>,
+    super::manifest::Billing,
+);
 
 impl StreamCuts {
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<std::sync::Arc<Vec<PageRows>>>> {
@@ -47,15 +51,40 @@ impl StreamCuts {
 
     /// Bytes the cut keeps.
     pub(super) fn weight(&self) -> usize {
-        self.lock().as_ref().map_or(0, |pages| {
-            pages
-                .iter()
-                .map(|page| {
-                    std::mem::size_of::<PageRows>()
-                        + page.len() * std::mem::size_of::<(usize, std::ops::Range<usize>)>()
-                })
-                .sum()
+        self.lock().as_deref().map_or(0, |pages| cut_weight(pages))
+    }
+
+    /// Where a cut made once the scan is stored is charged.
+    pub(super) fn billing(&self) -> &super::manifest::Billing {
+        &self.1
+    }
+
+    /// Keep `pages` as the scan's cut, unless one is kept already, when its
+    /// bytes are charged (or nothing bills them yet). Charged and kept under
+    /// one lock, so a cut two pages make is charged once.
+    pub(super) fn keep(&self, pages: &std::sync::Arc<Vec<PageRows>>) {
+        let mut kept = self.lock();
+        if kept.is_none() && self.1.charge(cut_weight(pages)) {
+            *kept = Some(std::sync::Arc::clone(pages));
+        }
+    }
+}
+
+/// Bytes a cut of `pages` keeps.
+fn cut_weight(pages: &[PageRows]) -> usize {
+    pages
+        .iter()
+        .map(|page| {
+            std::mem::size_of::<PageRows>()
+                + page.len() * std::mem::size_of::<(usize, std::ops::Range<usize>)>()
         })
+        .sum()
+}
+
+impl StreamCuts {
+    #[cfg(test)]
+    pub(super) fn kept(&self) -> bool {
+        self.lock().is_some()
     }
 }
 
@@ -254,7 +283,7 @@ impl Layout {
         let pages = known.unwrap_or_else(|| {
             let pages = std::sync::Arc::new(cut(costs, None));
             if let Some(cuts) = cuts {
-                *cuts.lock() = Some(std::sync::Arc::clone(&pages));
+                cuts.keep(&pages);
             }
             pages
         });

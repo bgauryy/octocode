@@ -59,7 +59,7 @@ pub(crate) async fn pin_release_tag(
     let Some(repository) = unpinned_repository(artifact) else {
         return;
     };
-    let found = github_release_tag(
+    let mut found = github_release_tag(
         &repository,
         artifact.repository_directory.as_deref(),
         package,
@@ -68,7 +68,33 @@ pub(crate) async fn pin_release_tag(
         client,
     )
     .await;
+    // No tag names the release: a declared tag of another release (a release
+    // candidate's) that exists is still nearer the release than the default
+    // branch. It is pinned as the registry's claim (`registryRef`), never as
+    // a checked release tag, and the response names it.
+    let mut declared_ref = false;
+    if found.is_none()
+        && let Some(tag) = declared
+            .map(str::trim)
+            .filter(|tag| !names_version(tag, bare_version(version)))
+        && let (Some(tags), Some((owner, repo))) = (client.tags, github_slug(&repository))
+    {
+        found = first_existing_tag(tags, &owner, &repo, &[&[tag.to_owned()]]).await;
+        declared_ref = found.is_some();
+    }
     settle_pin(artifact, &repository, found, client).await;
+    if declared_ref {
+        artifact.source_tag = false;
+        artifact.declared_ref = true;
+    }
+}
+
+/// A version written with its `v` (`v2.2.8`) names the same release as without.
+fn bare_version(version: &str) -> &str {
+    version
+        .strip_prefix('v')
+        .filter(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+        .unwrap_or(version)
 }
 
 /// [`pin_release_tag`] for a Go module, whose tags follow the go command's own
@@ -177,21 +203,57 @@ async fn github_release_tag(
 ) -> Option<ReleaseTag> {
     let tags = client.tags?;
     let (owner, repo) = github_slug(repository)?;
-    // A version written with its `v` (`v2.2.8`) names the same release as without.
-    let bare = version
-        .strip_prefix('v')
-        .filter(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
-        .unwrap_or(version);
+    let bare = bare_version(version);
     let mut candidates = tag_candidates(&repo, package, directory, bare);
     let named = declared
-        .filter(|tag| !tag.is_empty() && !candidates.iter().any(|known| known == tag))
-        .map(|tag| candidates.insert(0, tag.to_owned()))
+        .and_then(|tag| declared_candidate(tag, bare))
+        .filter(|tag| !candidates.contains(tag))
+        .map(|tag| candidates.insert(0, tag))
         .is_some();
     // Two rounds: the plain tags most releases carry (and the one the
     // package declares), then a monorepo package's own shapes, each round's
     // checks together.
     let (plain, own) = candidates.split_at(candidates.len().min(2 + usize::from(named)));
     first_existing_tag(tags, &owner, &repo, &[plain, own]).await
+}
+
+/// Whether `tag` names release `version`: it ends with the version, and the
+/// version starts the token (no digit or `.` before it: `rel/2.14.1`,
+/// `log4j-2.14.1` and `v2.14.1` name 2.14.1; `12.14.1` and `2.14.1-rc1` do not).
+fn names_version(tag: &str, version: &str) -> bool {
+    tag.strip_suffix(version).is_some_and(|before| {
+        !version.is_empty() && !before.ends_with(|c: char| c.is_ascii_digit() || c == '.')
+    })
+}
+
+/// The candidate a declared tag (a Maven `<scm><tag>`) gives for `version`. A
+/// declared tag is evidence of its shape, not of the release: one that names
+/// this version is asked as is; one naming another release or a release
+/// candidate (`rel/2.25.3`, `log4j-2.14.1-rc1`) lends only its prefix before
+/// its version (`rel/`, `log4j-`), asked with this version. A tag with no
+/// version token (`HEAD`) gives none.
+fn declared_candidate(tag: &str, version: &str) -> Option<String> {
+    let tag = tag.trim();
+    if names_version(tag, version) {
+        return Some(tag.to_owned());
+    }
+    // The first `<digits>.<digit>` that starts a token: not inside a word
+    // (`log4j`), only after a separator, a lone `v`, or the start.
+    let bytes = tag.as_bytes();
+    let starts = (0..bytes.len()).find(|&at| {
+        let token = bytes[at].is_ascii_digit()
+            && match at.checked_sub(1).map(|before| bytes[before]) {
+                None => true,
+                Some(b'v' | b'V') => at < 2 || !bytes[at - 2].is_ascii_alphanumeric(),
+                Some(before) => !before.is_ascii_alphanumeric() && before != b'.',
+            };
+        let rest = &bytes[at..];
+        let digits = rest.iter().take_while(|byte| byte.is_ascii_digit()).count();
+        token
+            && rest.get(digits) == Some(&b'.')
+            && rest.get(digits + 1).is_some_and(u8::is_ascii_digit)
+    })?;
+    Some(format!("{}{version}", tag.get(..starts)?))
 }
 
 /// The release tag of a Go module version in a GitHub repository: the go

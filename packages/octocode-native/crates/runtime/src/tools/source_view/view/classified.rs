@@ -82,6 +82,7 @@ pub(super) fn select_no_match(
     }
     match crate::tools::selection::select(
         input.runtime,
+        ToolId::LocalFetch,
         input.query_json(),
         &input.source_key(),
         local_fetch_query::selection(q),
@@ -150,8 +151,13 @@ pub(super) fn select_view_chunks(
         );
         let blocks = &ext.blocks;
         super::super::selection::hit_chunks(
-            &view.text,
-            &source_lines,
+            super::super::selection::HitView {
+                text: &view.text,
+                lines: &source_lines,
+                source: source_text,
+                path: input.source_path,
+                provider_path: input.provider_path,
+            },
             &ext.matched_lines,
             |hit| {
                 blocks
@@ -162,8 +168,6 @@ pub(super) fn select_view_chunks(
                         |block| (block.line, block.end_line),
                     )
             },
-            input.source_path,
-            input.provider_path,
             security,
             input.runtime,
             local_fetch_query::selection(q),
@@ -184,6 +188,7 @@ pub(super) fn select_view_chunks(
     let (outcome, provider) =
         crate::tools::selection::unless_transient(crate::tools::selection::select(
             input.runtime,
+            ToolId::LocalFetch,
             input.query_json(),
             &input.source_key(),
             local_fetch_query::selection(q),

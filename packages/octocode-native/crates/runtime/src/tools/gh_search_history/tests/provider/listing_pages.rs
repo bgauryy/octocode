@@ -121,10 +121,13 @@ async fn total_pages_appear_only_beside_an_exact_total() {
     }
 }
 
-/// A REST list page states no total and says nothing more about it: the
-/// missing `totalItems` beside `hasMore` is the per-call fact.
+/// A REST list page has no total: `totalItems` counts the rows listed so far
+/// (`countScope: loaded`, a floor), with no static warning. A pull request
+/// list also offers one count call: the same filters searched (created since
+/// the epoch, every pull request), one row, whose `totalItems` is the count.
+/// A commit list has none: commit search needs keywords.
 #[tokio::test]
-async fn a_rest_list_page_with_more_carries_no_static_total_warning() {
+async fn a_rest_list_page_with_more_counts_rows_so_far_and_offers_a_count() {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -169,8 +172,25 @@ async fn a_rest_list_page_with_more_carries_no_static_total_warning() {
         .await
         .expect("listing");
         assert_eq!(data["pagination"]["hasMore"], true, "{data}");
-        assert!(data["pagination"].get("totalItems").is_none(), "{data}");
+        assert_eq!(data["pagination"]["totalItems"], 1, "{data}");
+        assert_eq!(data["pagination"]["countScope"], "loaded", "{data}");
         assert!(data.get("warnings").is_none(), "{row}: {data}");
+        if row["operation"] == "pullRequest" {
+            let count = &crate::tools::test_support::checks::related_call(
+                &data,
+                "ghSearchHistory",
+                |input| input["queries"][0]["limit"] == 1,
+            )["input"]["queries"][0];
+            assert_eq!(
+                (&count["operation"], &count["owner"], &count["repo"]),
+                (&json!("pullRequest"), &json!("o"), &json!("r")),
+                "{data}"
+            );
+            assert!(
+                count.pointer("/filters/createdAt/include/0/from").is_some(),
+                "{data}"
+            );
+        }
     }
 }
 

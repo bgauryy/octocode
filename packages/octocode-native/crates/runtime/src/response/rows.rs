@@ -6,7 +6,7 @@ pub use envelope::envelope;
 pub(crate) use envelope::{placeholders_per_row, warn_redacted_rows};
 pub(crate) use recovery::{
     CANCELLED_HINT, GITHUB_AUTH_RECOVERY_HINT, attach_diagnostics, attach_error_hint,
-    attach_error_notice, error_code_hint,
+    error_code_hint,
 };
 pub(crate) use restart::require_restart;
 use serde_json::{Value, json};

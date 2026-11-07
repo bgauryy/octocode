@@ -119,6 +119,13 @@ const REASONS = [
     query: { path: '$DIR/a.ts', symbolName: 'f', line: DECLARATION.split('\n').findIndex(line => line === 'f();') + 1, operation: 'definition', view: 'content', contextLines: { before: 0, after: DECLARATION_END } }, reasons: ['declarationClipped'], channels: ['readDeclaration'],
     script: base => ({ answers: [{ method: 'textDocument/definition', result: [{ targetUri: `${base}/a.ts`, targetRange: { start: { line: 0, character: 0 }, end: { line: DECLARATION_END, character: 1 } }, targetSelectionRange: range(0, 16) }] }] }),
   }),
+  // An omitted contextLines stays absent: the definition returns its
+  // declaration page (up to 60 lines), and readDeclaration reads the rest.
+  scene('declarationClippedByDefault', {
+    files: { ...TS_PROJECT, 'a.ts': DECLARATION },
+    query: { path: '$DIR/a.ts', symbolName: 'f', line: DECLARATION.split('\n').findIndex(line => line === 'f();') + 1, operation: 'definition', view: 'content' }, reasons: ['declarationClipped'], channels: ['readDeclaration'],
+    script: base => ({ answers: [{ method: 'textDocument/definition', result: [{ targetUri: `${base}/a.ts`, targetRange: { start: { line: 0, character: 0 }, end: { line: DECLARATION_END, character: 1 } }, targetSelectionRange: range(0, 16) }] }] }),
+  }),
   scene('definitionHopFailed', {
     files: { ...TS_PROJECT, 'a.ts': "import { b } from './b';\nb();\n", 'b.ts': "export { b } from './c';\n", 'c.ts': 'export function b() {}\n' },
     query: { path: '$DIR/a.ts', symbolName: 'b', line: 2, operation: 'definition' }, reasons: ['definitionHopFailed'],

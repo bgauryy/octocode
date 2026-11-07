@@ -8,6 +8,9 @@ use octocode_contract_types::{Selection, SelectionFailure, SelectionStatus};
 use serde_json::{Value, json};
 
 mod judge;
+#[cfg(test)]
+pub(crate) mod long_window_fake;
+pub(crate) use judge::section_question;
 mod plan;
 mod provider_hits;
 mod provider_page;
@@ -131,6 +134,14 @@ pub(crate) fn serialized_chars(value: &Value) -> usize {
     serde_json::to_writer(&mut chars, value).map_or(0, |()| chars.0)
 }
 
+/// What an undecided view says of the `shown` units it lists.
+pub(crate) fn undecided_note(shown: usize) -> String {
+    format!(
+        "Lists only the {} the selection's walk left undecided (judged unsure, unjudged or not judgeable), unfiltered, as next.unfiltered lists every hit: they are not selected evidence, and the selection receipt of the page that decided them counts them.",
+        octocode_engine::text::counted(shown, "hit", "hits")
+    )
+}
+
 pub(crate) struct Outcome {
     pub selected: Vec<usize>,
     /// Judged related but not direct evidence: hidden, not unknown.
@@ -149,6 +160,18 @@ pub(crate) struct Outcome {
     /// The token that opens the next candidate page over the unjudged
     /// ordinals, when the budget left any.
     next_candidates: Option<String>,
+    /// The ordinals of the whole walk no page decided, ascending: the units
+    /// `unknownItems` counts ([`plan::Plan::undecided_ordinals`]).
+    undecided: Vec<usize>,
+    /// The sealed plan this outcome finished, from which the undecided view's
+    /// token is built when a reader asks for it.
+    plan: plan::Plan,
+    /// This outcome is an undecided view: `selected` holds the undecided
+    /// ordinals of the walk it replays, nothing else is judged.
+    lists_undecided: bool,
+    /// What this page's long-context retries billed, when it made any
+    /// ([`crate::tools::judgment::stats::ClassificationUsage::long_context_notice`]).
+    pub(crate) long_context_notice: Option<String>,
 }
 
 impl Outcome {
@@ -197,6 +220,29 @@ impl Outcome {
     pub(crate) fn next_candidates(&self) -> Option<&str> {
         self.next_candidates.as_deref()
     }
+
+    /// The `selection` token that replays this page as exactly the units its
+    /// walk left undecided, every candidate page's, unbilled:
+    /// `next.unfilteredUnknown` of a reader whose pages replay a selection.
+    /// `None` when none, or every unit of the walk, was left undecided. Built
+    /// on demand: only a reader emitting that lead pays for it.
+    pub(crate) fn undecided_view(&self) -> Option<String> {
+        (!self.lists_undecided
+            && !self.undecided.is_empty()
+            && self.undecided.len() < self.plan.total as usize)
+            .then(|| self.plan.undecided_view())
+    }
+
+    /// Whether this outcome is an undecided view ([`Self::undecided_view`]).
+    pub(crate) fn lists_undecided(&self) -> bool {
+        self.lists_undecided
+    }
+
+    /// Whether no page of the walk decided `ordinal`: an unknown answer, a
+    /// unit unjudged or without a state. A view decides nothing.
+    pub(crate) fn is_undecided(&self, ordinal: usize) -> bool {
+        !self.lists_undecided && self.undecided.binary_search(&ordinal).is_ok()
+    }
 }
 
 pub(crate) enum Failure {
@@ -221,7 +267,7 @@ pub(crate) struct ProviderFailure {
 /// [transient](crate::providers::classification::is_transient) code
 /// becomes its finished `unavailable` outcome, whose view shows every
 /// candidate ([`Outcome::shown`]), with the error the row warns with
-/// ([`unclassified_warning`]). A refused credential, quota, content or size
+/// ([`unclassified_notice`]). A refused credential, quota, content or size
 /// error stays the failure: the caller must fix it, so it is never masked as
 /// a page.
 pub(crate) fn unless_transient(
@@ -241,7 +287,8 @@ pub(crate) fn unless_transient(
 /// The note of a classified page that left units out, in the receipt's own
 /// counts over the whole walk: how many it kept, how many of them this page
 /// shows when an earlier candidate page kept some, whether units wait for
-/// `next.nextCandidatePage` or none is left to judge, and, when this page
+/// `next.nextCandidatePage` or none is left to judge, how many it hid as
+/// related near misses (complete is not full recall), and, when this page
 /// shows none, that an empty classified result is no absence.
 pub(crate) fn kept_note(outcome: &Outcome, shown: usize) -> Option<String> {
     let receipt = &outcome.receipt;
@@ -286,6 +333,12 @@ pub(crate) fn kept_note(outcome: &Outcome, shown: usize) -> Option<String> {
             if unknown == 1 { "stays" } else { "stay" }
         ));
     }
+    if let Some(related) = receipt.related_items {
+        note.push_str(&format!(
+            "; {} judged related (near misses, hidden): next.unfiltered shows them",
+            counted(usize::try_from(related.get()).unwrap_or(usize::MAX))
+        ));
+    }
     note.push('.');
     if shown == 0 {
         note.push_str(
@@ -295,15 +348,37 @@ pub(crate) fn kept_note(outcome: &Outcome, shown: usize) -> Option<String> {
     Some(note)
 }
 
+/// The view a reader shows unfiltered when the provider could not answer.
+#[derive(Clone, Copy)]
+pub(crate) enum Unclassified {
+    /// A localSearch page: its hits.
+    Search,
+    /// A localFetch or ghGetFileContent read: its content.
+    Read,
+    /// A provider page (ghSearchCode): its files.
+    Page,
+}
+
 /// The warning of a view shown unfiltered because the provider could not
-/// answer: `subject` names the view ("this search"), `shown` what is shown
-/// ("its hits are"); the provider's code, message and hints follow.
-pub(crate) fn unclassified_warning(error: &ProviderError, subject: &str, shown: &str) -> String {
-    let mut note = format!(
-        "classification could not classify {subject} ({}: {}); {shown} shown unfiltered.",
-        error.code, error.message
-    );
-    for hint in &error.hints {
+/// answer: the view, then the provider's code, message and hints.
+pub(crate) fn unclassified_notice(error: &ProviderError, view: Unclassified) -> String {
+    let ProviderError {
+        code,
+        message,
+        hints,
+    } = error;
+    let mut note = match view {
+        Unclassified::Search => format!(
+            "classification could not classify this search ({code}: {message}); its hits are shown unfiltered."
+        ),
+        Unclassified::Read => format!(
+            "classification could not classify this read ({code}: {message}); its content is shown unfiltered."
+        ),
+        Unclassified::Page => format!(
+            "classification could not classify this page ({code}: {message}); its files are shown unfiltered."
+        ),
+    };
+    for hint in hints {
         note.push(' ');
         note.push_str(hint);
     }

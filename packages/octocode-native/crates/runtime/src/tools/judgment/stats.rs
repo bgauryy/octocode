@@ -13,6 +13,14 @@ pub(crate) struct ClassificationUsage {
     pub models: BTreeSet<String>,
     /// What the rest of the walk would bill, at the rate this page measured.
     pub remaining_input_tokens: u64,
+    /// Evaluations the default window refused and the long-context window
+    /// answered, the input tokens they reported, how many reported usage for
+    /// some long-window request, and how many did not for some (those tokens
+    /// are unknown).
+    pub long_context_retries: u64,
+    pub long_context_input_tokens: u64,
+    pub long_context_reported: u64,
+    pub long_context_unreported: u64,
 }
 
 impl ClassificationUsage {
@@ -60,11 +68,59 @@ impl ClassificationUsage {
         self.output_tokens = self.output_tokens.saturating_add(output_tokens);
     }
 
+    /// What a row that billed long-context retries says of them, through
+    /// its reader's own channel; `None` when none was retried.
+    pub(crate) fn long_context_notice(&self) -> Option<String> {
+        if self.long_context_retries == 0 {
+            return None;
+        }
+        let retried = octocode_engine::text::counted(
+            self.long_context_retries,
+            "evaluation",
+            "evaluations",
+        );
+        let tokens = self.long_context_input_tokens;
+        let unknown = self.long_context_unreported;
+        Some(if unknown == 0 {
+            format!(
+                "{retried} refused in the default window retried in the long-context window (slower, less accurate): {tokens} input tokens billed. longContext:false refuses instead."
+            )
+        } else if self.long_context_reported == 0 {
+            format!(
+                "{retried} refused in the default window retried in the long-context window (slower, less accurate): input tokens billed unknown (the provider reported no usage). longContext:false refuses instead."
+            )
+        } else {
+            format!(
+                "{retried} refused in the default window retried in the long-context window (slower, less accurate): at least {tokens} input tokens billed; {unknown} of them reported no usage. longContext:false refuses instead."
+            )
+        })
+    }
+
+    /// Count `judged` among the long-context retries when it was one.
+    pub(crate) fn add_retry(&mut self, judged: &super::Judged) {
+        let Some(retry) = judged.long_context_retry else {
+            return;
+        };
+        self.long_context_retries = self.long_context_retries.saturating_add(1);
+        self.long_context_input_tokens = self
+            .long_context_input_tokens
+            .saturating_add(judged.input_tokens);
+        // The refused request never reports usage, so any known one is the
+        // long window's.
+        if judged.known_usage_calls > 0 {
+            self.long_context_reported = self.long_context_reported.saturating_add(1);
+        }
+        if retry.unreported_calls > 0 {
+            self.long_context_unreported = self.long_context_unreported.saturating_add(1);
+        }
+    }
+
     /// Fold one evaluation in: its provider requests and reported tokens.
     pub(crate) fn add(&mut self, outcome: &Result<super::Judged, super::ClassificationError>) {
         match outcome {
             Ok(judged) => {
                 self.models.insert(judged.model.clone());
+                self.add_retry(judged);
                 if judged.provider_calls > 0 {
                     self.add_usage(
                         judged.provider_calls,

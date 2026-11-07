@@ -168,8 +168,11 @@ async fn hits_of_one_file_are_one_provider_call_with_one_question_each() {
     runtime.close().await;
 }
 
-/// A hit's line reaches the provider once, in its label, unless it is also a
-/// neighbour's context: the state then holds it for that neighbour.
+/// Each source line reaches the shared state once: every hit's own line and
+/// each context line, even one that informs two neighbours. Each question's
+/// label names its hit by line number and quotes it (B58 measures dropping
+/// the quote), so a hit's text appears once in the state and once in its
+/// own label, never in another hit's.
 #[tokio::test]
 async fn each_hit_line_is_sent_once() {
     let server = provider().await;
@@ -190,17 +193,41 @@ async fn each_hit_line_is_sent_once() {
     let sent = crate::runtime_clasify::sent(&server).await;
     assert_eq!(sent.len(), 2, "{sent:?}");
     for (request, context) in sent.iter().zip([0, 1]) {
-        let body = request.to_string();
-        for text in ["needle KEEP one", "needle drop two", "needle KEEP five"] {
-            assert_eq!(body.matches(text).count(), 1, "context {context}: {body}");
+        let state = request["state"]["lines"].as_str().unwrap_or_default();
+        let labels = request["questions"]
+            .as_object()
+            .expect("questions")
+            .values()
+            .map(|question| question["instructions"]["target"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>();
+        for (line, text) in [(1, "needle KEEP one"), (3, "needle drop two"), (9, "needle KEEP five")] {
+            assert_eq!(
+                state
+                    .lines()
+                    .filter(|record| *record == format!("{line}\t{text}"))
+                    .count(),
+                1,
+                "context {context}: the state holds line {line} once: {request}"
+            );
+            let quoting = labels.iter().filter(|label| label.contains(text)).collect::<Vec<_>>();
+            assert_eq!(
+                quoting,
+                [&format!("line {line}: {text}")],
+                "context {context}: only its own label quotes line {line}: {request}"
+            );
+            assert_eq!(
+                request.to_string().matches(text).count(),
+                2,
+                "context {context}: state and label, nowhere else: {request}"
+            );
         }
     }
-    assert!(sent[0]["state"].get("lines").is_none(), "{:?}", sent[0]);
-    // With one line of context, line 2 (blank) informs both neighbours.
-    assert!(
-        sent[1]["state"]["lines"]
-            .as_str()
-            .is_some_and(|lines| lines.contains("2\t")),
+    // With one line of context, line 2 (blank) informs both neighbours and
+    // is still sent once.
+    let state = sent[1]["state"]["lines"].as_str().unwrap_or_default();
+    assert_eq!(
+        state.lines().filter(|line| line.starts_with("2\t")).count(),
+        1,
         "{:?}",
         sent[1]
     );

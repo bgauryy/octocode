@@ -170,36 +170,229 @@ fn each_hit_is_judged_and_counts_describe_the_kept_hits() {
     assert_eq!(result.stats.matched_lines, Some(2));
     let next = result.next.as_ref().expect("leads");
     let unknown = &next["unfilteredUnknown"]["input"]["queries"][0];
-    assert_eq!(unknown["include"], json!(["/b.rs"]), "{next}");
-    assert!(unknown.get("classification").is_none());
-    assert!(unknown.get("snapshot").is_none());
+    assert!(unknown.get("include").is_none(), "{next}");
+    assert!(unknown.get("selection").is_some(), "{next}");
+    assert!(unknown.get("snapshot").is_some(), "{next}");
     let whole = &next["unfiltered"]["input"]["queries"][0];
     assert!(whole.get("include").is_none());
     assert!(whole.get("snapshot").is_some());
 }
 
-#[test]
-fn the_unknown_lead_reaches_exactly_the_files_holding_unknown_hits() {
-    let root = fixture();
-    let result = search(root.path(), json!({}), None).expect("selected search");
-    let lead = result.next.expect("leads")["unfilteredUnknown"]["input"]["queries"][0].clone();
-    let query: LocalSearchQuery = serde_json::from_value(lead).expect("executable lead");
-    let policy = crate::tools::test_support::workspace_policy(root.path());
-    let unfiltered = super::super::execute_local_search(
-        &query,
+/// Selects `keep`, judges `near` related, excludes `drop`, else unknown.
+struct SortingJudge;
+
+impl SelectionJudge for SortingJudge {
+    fn identity(&self) -> Value {
+        json!({"test":"sorting"})
+    }
+    fn select(&self, call: JudgeCall<'_>) -> Judgments {
+        Ok(call
+            .admitted
+            .iter()
+            .map(|&ordinal| {
+                let text = call.candidates[ordinal]
+                    .state
+                    .as_ref()
+                    .map(|state| state["target"].to_string())
+                    .unwrap_or_default();
+                let decision = [
+                    ("keep", Decision::Selected),
+                    ("near", Decision::Related),
+                    ("drop", Decision::Excluded),
+                ]
+                .into_iter()
+                .find_map(|(word, decision)| text.contains(word).then_some(decision))
+                .unwrap_or(Decision::Unknown);
+                (ordinal, decision)
+            })
+            .collect())
+    }
+}
+
+fn sorted_search(root: &std::path::Path, query: &LocalSearchQuery) -> LocalSearchResult {
+    sorted_search_with(root, query, None)
+}
+
+/// [`sorted_search`] judging at most `max` hits' worth of states per call.
+fn sorted_search_with(
+    root: &std::path::Path,
+    query: &LocalSearchQuery,
+    max: Option<usize>,
+) -> LocalSearchResult {
+    let policy = crate::tools::test_support::workspace_policy(root);
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let mut selection = selection_fake::runtime(
+        SortingJudge,
+        executor.handle().clone(),
+        Duration::from_secs(5),
+    );
+    if let Some(max) = max {
+        // A hit with its one-line state charges about a hundred characters.
+        selection.limits.max_chars = max * 100;
+    }
+    execute_local_search(
+        query,
         &policy,
         &ContentSecurity::new(),
         &NeverCancel,
         None,
-        None,
+        Some(&selection),
     )
-    .expect("unknown evidence");
-    let paths = unfiltered
+    .expect("search")
+}
+
+fn hit_lines(result: &LocalSearchResult) -> Vec<(String, u32)> {
+    result
         .files
         .iter()
-        .map(|file| file.path.as_str())
-        .collect::<Vec<_>>();
-    assert_eq!(paths, ["b.rs"]);
+        .flat_map(|file| {
+            file.matches
+                .iter()
+                .flatten()
+                .map(|hit| (file.path.clone(), hit.line))
+        })
+        .collect()
+}
+
+/// `next.unfilteredUnknown` replays the selection's undecided view over the
+/// same scan: walking every page of it reaches exactly the hits judged
+/// unsure, once each, and none that were kept, related or excluded, nor the
+/// rest of a file that holds one.
+#[test]
+fn walking_the_unknown_lead_reaches_exactly_the_undecided_hits_once() {
+    // Each hit 21 lines from the next, so the default classification
+    // context gives every hit a window of its own.
+    let spaced = |hits: &[&str]| hits.join(&format!("\n{}", "x\n".repeat(20))) + "\n";
+    let root = tempfile::tempdir().expect("fixture");
+    std::fs::write(
+        root.path().join("a.rs"),
+        spaced(&[
+            "needle keep one",
+            "needle maybe one",
+            "needle near one",
+            "needle drop one",
+            "needle maybe two",
+        ]),
+    )
+    .expect("a");
+    std::fs::write(root.path().join("b.rs"), "needle maybe three\n").expect("b");
+    std::fs::write(
+        root.path().join("c.rs"),
+        spaced(&["needle keep two", "needle drop two"]),
+    )
+    .expect("c");
+    let first: LocalSearchQuery = serde_json::from_value(json!({
+        "path": root.path(), "matchString": ["needle"], "limit": 1,
+        "classification": {"predicates": ["Is this kept?"]},
+    }))
+    .expect("query");
+    let result = sorted_search(root.path(), &first);
+    let receipt = result.selection.as_ref().expect("receipt");
+    assert_eq!(
+        (
+            receipt.selected_items,
+            receipt.excluded_items,
+            receipt.unknown_items
+        ),
+        (2, 2, 3)
+    );
+    let lead = &result.next.as_ref().expect("leads")["unfilteredUnknown"]["input"]["queries"][0];
+    let mut query: LocalSearchQuery =
+        serde_json::from_value(lead.clone()).expect("executable lead");
+    let mut reached = Vec::new();
+    for pages in 1.. {
+        assert!(pages < 20, "the unknown lead never ends");
+        let page = sorted_search(root.path(), &query);
+        let row = page.to_row().expect("row");
+        assert!(
+            row.get("selection").is_none(),
+            "an unfiltered listing: {row}"
+        );
+        for channel in ["unfiltered", "unfilteredUnknown", "nextCandidatePage"] {
+            assert!(row["next"].get(channel).is_none(), "{channel}: {row}");
+        }
+        // Selection notes are said on the first page.
+        assert!(
+            pages > 1
+                || page.warnings.iter().any(|note| note
+                    .contains("Lists only the 3 hits the selection's walk left undecided")),
+            "{:?}",
+            page.warnings
+        );
+        reached.extend(hit_lines(&page));
+        let next = row["next"]["nextPage"]["input"]["queries"][0].clone();
+        if !next.is_object() {
+            break;
+        }
+        query = serde_json::from_value(next).expect("next page");
+    }
+    reached.sort();
+    let undecided =
+        [("a.rs", 22), ("a.rs", 85), ("b.rs", 1)].map(|(path, line)| (path.to_owned(), line));
+    assert_eq!(reached, undecided);
+}
+
+/// Every page of a candidate chain counts the whole walk's unknown hits, and
+/// its `unfilteredUnknown` lead lists that same scope: walking the last
+/// page's lead reaches each page's undecided hit once, none still pending.
+/// The leads are followed as emitted, under an explicit zero context.
+#[test]
+fn the_unknown_lead_of_a_candidate_chain_covers_the_whole_walk() {
+    let root = tempfile::tempdir().expect("fixture");
+    for (name, text) in [
+        ("a.rs", "needle maybe one\nx\nx\nneedle keep one\n"),
+        ("b.rs", "needle maybe two\nx\nx\nneedle drop\n"),
+        ("c.rs", "needle maybe three\nx\nx\nneedle near\n"),
+    ] {
+        std::fs::write(root.path().join(name), text).expect("fixture");
+    }
+    let mut query: LocalSearchQuery = serde_json::from_value(json!({
+        "path": root.path(), "matchString": ["needle"],
+        "contextLines": {"before": 0, "after": 0},
+        "classification": {"predicates": ["Is this kept?"]},
+    }))
+    .expect("query");
+    let lead = |result: &LocalSearchResult, channel: &str| {
+        let row = result.next.as_ref()?.get(channel)?["input"]["queries"][0].clone();
+        Some(serde_json::from_value::<LocalSearchQuery>(row).expect("executable lead"))
+    };
+    let (mut pages, mut unknown) = (0, Vec::new());
+    let last = loop {
+        pages += 1;
+        assert!(pages < 10, "the chain ends");
+        let result = sorted_search_with(root.path(), &query, Some(2));
+        unknown.push(result.selection.as_ref().expect("receipt").unknown_items);
+        match lead(&result, "nextCandidatePage") {
+            Some(next) => query = next,
+            None => break result,
+        }
+    };
+    assert!(pages >= 3, "a chain of candidate pages: {unknown:?}");
+    assert_eq!(unknown.last(), Some(&3), "{unknown:?}");
+    let mut view = lead(&last, "unfilteredUnknown").expect("the unknown lead");
+    let mut reached = Vec::new();
+    for page in 1.. {
+        assert!(page < 20, "the unknown lead never ends");
+        let result = sorted_search(root.path(), &view);
+        assert!(
+            page > 1
+                || result.warnings.iter().any(|note| note
+                    .contains("Lists only the 3 hits the selection's walk left undecided")),
+            "{:?}",
+            result.warnings
+        );
+        reached.extend(hit_lines(&result));
+        let row = result.to_row().expect("row");
+        let next = row["next"]["nextPage"]["input"]["queries"][0].clone();
+        if !next.is_object() {
+            break;
+        }
+        view = serde_json::from_value(next).expect("next page");
+    }
+    reached.sort();
+    let undecided =
+        [("a.rs", 1), ("b.rs", 1), ("c.rs", 1)].map(|(path, line)| (path.to_owned(), line));
+    assert_eq!(reached, undecided);
 }
 
 /// Groups past the candidate budget, including the rest of a file the
@@ -298,5 +491,46 @@ fn a_candidate_page_chains_under_the_default_classification_context() {
     assert_eq!(totals, [4, 4], "each page counts the whole walk");
 }
 
+/// A scout whose evaluations the default window refused and the
+/// long-context window answered says so on its row, with the tokens billed.
+#[test]
+fn a_long_context_retry_is_disclosed_on_the_scout_row() {
+    use crate::tools::selection::long_window_fake::{BILLED, LongWindow};
+    let root = fixture();
+    let window = LongWindow::start();
+    let query: LocalSearchQuery = serde_json::from_value(json!({
+        "path": root.path(), "matchString": ["needle"],
+        "classification": {"predicates": ["Is this kept?"]},
+    }))
+    .expect("query");
+    let result = execute_local_search(
+        &query,
+        &crate::tools::test_support::workspace_policy(root.path()),
+        &ContentSecurity::new(),
+        &NeverCancel,
+        None,
+        Some(&window.selection),
+    )
+    .expect("search");
+    let retried = u64::try_from(window.long_requests()).expect("count");
+    assert!(retried > 0, "the provider answered in the long window");
+    let notice = result
+        .warnings
+        .iter()
+        .find(|note| note.contains("long-context window"))
+        .unwrap_or_else(|| panic!("no retry notice: {:?}", result.warnings));
+    let evaluations = octocode_engine::text::counted(retried, "evaluation", "evaluations");
+    assert!(notice.starts_with(&evaluations), "{notice}");
+    assert!(
+        notice.contains(&format!("{} input tokens billed", retried * BILLED)),
+        "{notice}"
+    );
+    assert!(
+        notice.contains("longContext:false refuses instead"),
+        "{notice}"
+    );
+}
+
 mod candidates;
+mod corpus;
 mod failures;

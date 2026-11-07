@@ -116,5 +116,7 @@ fn word_lines(words: &[&str]) -> String {
 
 mod chunks;
 mod classified_reads;
+mod hit_states;
+mod long_window;
 mod provider;
 mod state_budget;

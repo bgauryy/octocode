@@ -11,12 +11,54 @@ use serde_json::Value;
 use crate::id::ToolId;
 
 /// One `oneOf`/`anyOf` branch of a tool's query schema (or the whole schema).
-struct Variant {
+struct Variant<'a> {
     /// `operation` values the branch admits; `None` when it has no discriminant.
-    operations: Option<Vec<&'static str>>,
+    operations: Option<Vec<&'a str>>,
     /// Top-level properties, each with its `$ref` chain against `$defs`:
     /// the property schema first, the final definition last.
-    fields: HashMap<&'static str, Vec<&'static Value>>,
+    fields: HashMap<&'a str, Vec<&'a Value>>,
+    /// Top-level properties the branch requires: a query omitting one never
+    /// takes this branch, so the branch applies none of its defaults.
+    required: HashSet<&'a str>,
+}
+
+impl<'a> Variant<'a> {
+    fn of(branch: &'a Value, defs: &'a Value) -> Self {
+        let branch = resolve_ref(branch, defs);
+        let fields = branch["properties"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(field, schema)| (field.as_str(), ref_chain(schema, defs)))
+            .collect::<HashMap<_, _>>();
+        let operations = fields
+            .get("operation")
+            .and_then(|chain| chain.last())
+            .map(|operation| {
+                operation["const"].as_str().map_or_else(
+                    || {
+                        operation["enum"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
+                            .collect()
+                    },
+                    |single| vec![single],
+                )
+            });
+        let required = branch["required"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
+        Self {
+            operations,
+            fields,
+            required,
+        }
+    }
 }
 
 /// The schema a local `$ref` (`#/$defs/<name>`) names, followed through
@@ -141,8 +183,8 @@ fn members<'a>(
 
 /// Query-schema variants of one tool, built on first use from that tool's
 /// contract entry only (see [`super::tool_contract`]).
-fn variants(tool: ToolId) -> Option<&'static [Variant]> {
-    static VARIANTS: [OnceLock<Vec<Variant>>; ToolId::ALL.len()] =
+fn variants(tool: ToolId) -> Option<&'static [Variant<'static>]> {
+    static VARIANTS: [OnceLock<Vec<Variant<'static>>>; ToolId::ALL.len()] =
         [const { OnceLock::new() }; ToolId::ALL.len()];
     let index = ToolId::ALL.iter().position(|id| *id == tool)?;
     let variants = VARIANTS[index].get_or_init(|| {
@@ -157,33 +199,7 @@ fn variants(tool: ToolId) -> Option<&'static [Variant]> {
             .map_or_else(|| vec![schema], |branches| branches.iter().collect());
         branches
             .into_iter()
-            .map(|branch| {
-                let branch = resolve_ref(branch, defs);
-                let fields = branch["properties"]
-                    .as_object()
-                    .into_iter()
-                    .flatten()
-                    .map(|(field, schema)| (field.as_str(), ref_chain(schema, defs)))
-                    .collect::<HashMap<_, _>>();
-                let operations =
-                    fields
-                        .get("operation")
-                        .and_then(|chain| chain.last())
-                        .map(|operation| {
-                            operation["const"].as_str().map_or_else(
-                                || {
-                                    operation["enum"]
-                                        .as_array()
-                                        .into_iter()
-                                        .flatten()
-                                        .filter_map(Value::as_str)
-                                        .collect()
-                                },
-                                |single| vec![single],
-                            )
-                        });
-                Variant { operations, fields }
-            })
+            .map(|branch| Variant::of(branch, defs))
             .collect()
     });
     (!variants.is_empty()).then_some(variants.as_slice())
@@ -192,7 +208,9 @@ fn variants(tool: ToolId) -> Option<&'static [Variant]> {
 /// `keyword` (`"default"`, `"maximum"`, …) that `tool`'s query schema declares
 /// for the top-level `field`, over the variants admitting `operation` (every
 /// variant when `None`). Along a `$ref` chain the outermost declaration wins. Each such variant that has `field` must declare the
-/// same value; a missing or disagreeing declaration yields `None`.
+/// same value; a missing or disagreeing declaration yields `None`. A
+/// `default` applies only where the field may be omitted, so a variant
+/// requiring the field has no say in it.
 #[must_use]
 pub(crate) fn query_schema_value(
     tool: ToolId,
@@ -200,11 +218,23 @@ pub(crate) fn query_schema_value(
     field: &str,
     keyword: &str,
 ) -> Option<&'static Value> {
+    declared_value(variants(tool)?, operation, field, keyword)
+}
+
+fn declared_value<'a>(
+    variants: &[Variant<'a>],
+    operation: Option<&str>,
+    field: &str,
+    keyword: &str,
+) -> Option<&'a Value> {
     let mut found = None;
-    for variant in variants(tool)? {
+    for variant in variants {
         if let (Some(operation), Some(admitted)) = (operation, &variant.operations)
             && !admitted.contains(&operation)
         {
+            continue;
+        }
+        if keyword == "default" && variant.required.contains(field) {
             continue;
         }
         let Some(chain) = variant.fields.get(field) else {
@@ -295,6 +325,42 @@ mod tests {
         assert_eq!(
             query_schema_number(ToolId::GraphQuery, None, "limit", "minimum"),
             Some(1)
+        );
+    }
+
+    /// A default is the value an omitted field parses to: a variant that
+    /// requires the field (a `view` const) cannot disagree with it, while two
+    /// optional variants declaring different defaults leave none.
+    #[test]
+    fn a_default_is_read_from_the_variants_where_the_field_is_optional() {
+        let schema = serde_json::json!({"$defs":{}, "oneOf":[
+            {"properties":{"operation":{"const":"definition"},"view":{"default":"content"}}},
+            {"required":["view"],
+             "properties":{"operation":{"const":"definition"},"view":{"const":"files"}}},
+            {"properties":{"operation":{"const":"callers"},"depth":{"default":1}}},
+            {"properties":{"operation":{"const":"callers"},"depth":{"default":2}}},
+            {"required":["line"],"properties":{"operation":{"const":"hover"},"line":{"minimum":1}}}
+        ]});
+        let defs = &schema["$defs"];
+        let variants = schema["oneOf"]
+            .as_array()
+            .expect("branches")
+            .iter()
+            .map(|branch| Variant::of(branch, defs))
+            .collect::<Vec<_>>();
+        let value = |operation, field, keyword| declared_value(&variants, Some(operation), field, keyword);
+        assert_eq!(value("definition", "view", "default"), Some(&serde_json::json!("content")));
+        assert_eq!(value("callers", "depth", "default"), None, "optional variants disagree");
+        assert_eq!(value("hover", "line", "default"), None, "no optional variant remains");
+        assert_eq!(
+            value("hover", "line", "minimum"),
+            Some(&serde_json::json!(1)),
+            "only defaults skip a requiring variant"
+        );
+        // The live lspSearch contract has this shape.
+        assert_eq!(
+            query_schema_value(ToolId::LspSearch, Some("definition"), "view", "default"),
+            Some(&serde_json::json!("content"))
         );
     }
 

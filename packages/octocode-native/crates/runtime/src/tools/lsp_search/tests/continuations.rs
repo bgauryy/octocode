@@ -130,9 +130,15 @@ async fn reference_pages_reach_every_location_once_and_preserve_the_saved_reques
             };
             assert_eq!(call["kind"], "continue");
             let saved = &call["input"]["queries"][0];
-            // Non-default controls ride along; defaulted ones are left out.
+            // Non-default controls ride along, an explicit zero context too (omission
+            // differs from it); defaulted ones are left out.
             assert_eq!(saved["includeDeclaration"], false);
-            assert!(saved.get("contextLines").is_none(), "{saved}");
+            assert_eq!(
+                saved["contextLines"],
+                json!({"before":0,"after":0}),
+                "{saved}"
+            );
+            assert!(saved.get("occurrence").is_none(), "{saved}");
             current = query(
                 crate::contracts::validate_built_query("lspSearch", saved.clone())
                     .expect("saved row"),

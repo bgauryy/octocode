@@ -45,11 +45,7 @@ pub struct LoginEndpoints {
 impl LoginEndpoints {
     pub fn from_host(host: &str) -> Self {
         let host = host.trim().trim_end_matches('/');
-        if octocode_github::credential_host(host) == "github.com" {
-            Self::from_api_url("https://api.github.com")
-        } else {
-            Self::from_api_url(&format!("https://{host}/api/v3"))
-        }
+        Self::from_api_url(&octocode_github::api_base_for_host(host))
     }
 
     pub(crate) fn from_api_url(api_url: &str) -> Self {
@@ -58,11 +54,12 @@ impl LoginEndpoints {
             .as_ref()
             .and_then(|url| url.host_str())
             .unwrap_or("api.github.com");
-        if api_host == "api.github.com" {
+        if octocode_github::Deployment::of_host(api_host) == octocode_github::Deployment::Cloud {
+            let web = octocode_github::credential_host(api_host);
             Self {
-                web_origin: "https://github.com".into(),
-                api_origin: "https://api.github.com".into(),
-                host: "github.com".into(),
+                web_origin: format!("https://{web}"),
+                api_origin: format!("https://{api_host}"),
+                host: web.to_owned(),
             }
         } else {
             let origin = parsed
@@ -255,6 +252,35 @@ fn mask_token_text(message: &str) -> String {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod deployment_tests {
+    use super::LoginEndpoints;
+
+    /// A GHE.com enterprise logs in like github.com: its web and API hosts
+    /// are cloud hosts, its credentials stored for the web host.
+    #[test]
+    fn a_ghe_com_host_logs_in_at_its_cloud_api() {
+        for host in ["acme.ghe.com", "api.acme.ghe.com"] {
+            let login = LoginEndpoints::from_host(host);
+            assert_eq!(login.api_origin, "https://api.acme.ghe.com", "{host}");
+            assert_eq!(login.web_origin, "https://acme.ghe.com", "{host}");
+            assert_eq!(login.host, "acme.ghe.com", "{host}");
+        }
+        let dotcom = LoginEndpoints::from_host("github.com");
+        assert_eq!(
+            (
+                dotcom.web_origin.as_str(),
+                dotcom.api_origin.as_str(),
+                dotcom.host.as_str()
+            ),
+            ("https://github.com", "https://api.github.com", "github.com")
+        );
+        let server = LoginEndpoints::from_host("ghe.example.com");
+        assert_eq!(server.api_origin, "https://ghe.example.com/api/v3");
+        assert_eq!(server.host, "ghe.example.com");
+    }
+}
 
 #[cfg(test)]
 mod quota_tests {

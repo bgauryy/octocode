@@ -124,6 +124,9 @@ pub(super) fn emit(
     if let Some(model) = &session.resolved_model {
         output["model"] = json!(model);
     }
+    if let Some(notice) = usage.long_context_notice() {
+        output["hints"] = json!([notice]);
+    }
     output
 }
 

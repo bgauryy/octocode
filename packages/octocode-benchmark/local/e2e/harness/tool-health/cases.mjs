@@ -147,7 +147,7 @@ export const CASES = {
     page: { query: { ...repo, operation: 'tree', ref: 'feature-4', include: ['**/mod1*.ts'], limit: 100 }, lead: 'nextPage', expect: ctx => ctx.mock.model.pulls.find(pr => pr.number === 4).head.added.filter(p => /^pkg\/mod1\d*\.ts$/.test(p)) },
     empty: { query: { ...repo, operation: 'tree', include: ['**/zzzNoSuchName*'] } },
     invalid: { query: { operation: 'tree', owner: 'octo' } },
-    explore: [{ label: 'refs', query: { ...repo, operation: 'refs' }, check: data => data.tags?.includes('v1.0.0') && data.branches?.main ? null : 'fixture branch or tag missing' }],
+    explore: [{ label: 'refs', query: { ...repo, operation: 'refs' }, check: data => data.tags?.includes('v1.0.0') && data.branches?.some(branch => branch.name === 'main' && branch.sha) ? null : 'fixture branch or tag missing' }],
   },
   ghSearchRepo: {
     budgetMs: REMOTE,

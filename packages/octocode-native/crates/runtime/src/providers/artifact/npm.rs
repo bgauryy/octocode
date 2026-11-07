@@ -335,8 +335,13 @@ fn release_facts(artifact: &mut ArtifactItem, row: &serde_json::Map<String, Valu
         .map(|engines| {
             engines
                 .iter()
-                .filter_map(|(name, range)| Some((name.clone(), range.as_str()?.to_owned())))
-                .collect::<BTreeMap<_, _>>()
+                .filter_map(|(name, range)| {
+                    Some(octocode_contract_types::ArtifactSearchRowEnginesItem {
+                        name: name.clone(),
+                        range: range.as_str()?.to_owned(),
+                    })
+                })
+                .collect::<Vec<_>>()
         })
         .filter(|engines| !engines.is_empty());
     artifact.published_at = published_at(row);

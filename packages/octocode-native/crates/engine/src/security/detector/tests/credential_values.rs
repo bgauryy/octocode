@@ -6,6 +6,26 @@ mod dotenv_files;
 mod locators;
 mod phrases;
 
+/// A hex value is no proof of a git object id: tokens of that shape (classic
+/// GitHub PATs, CircleCI, Sentry) under a credential-named key stay redacted,
+/// in file content and in a structured response alike. A data value such as a
+/// branch name must therefore stay out of JSON key position instead.
+#[test]
+fn hex_shaped_tokens_under_credential_names_stay_redacted() {
+    let hex40 = "df5e4353e6dbef3b8a6e70441e7322092dbe110b";
+    let hex64 = format!("{hex40}0123456789abcdef01234567");
+    for secret in [hex40, hex64.as_str()] {
+        for key in ["GITHUB_TOKEN", "secret/data/prod/datadog_app_key"] {
+            let content = format!("{{\"{key}\": \"{secret}\"}}\n");
+            let result = detect(&content, None);
+            assert!(!result.sanitized.contains(secret), "leaked: {content}");
+            let mut value = serde_json::json!({ key: secret });
+            crate::security::sanitizer::sanitize_structure(&mut value).expect("scan");
+            assert!(!value.to_string().contains(secret), "leaked: {value}");
+        }
+    }
+}
+
 /// A base64-encoded PEM private key (Kubernetes `data:`, Helm values,
 /// JSON) is redacted in any window, without `kind: Secret` context.
 #[test]

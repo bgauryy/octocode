@@ -2,24 +2,53 @@
 //! and the view of the windows kept.
 use super::{Chunk, unselected_marker};
 use crate::security::scan::ContentScan;
+use crate::tools::declarations::{Declared, all_declarations, innermost};
 use crate::tools::selection::Candidate;
 use serde_json::json;
 use std::path::Path;
 
+/// The innermost named declaration holding `line`, as a hit's target names
+/// it.
+fn enclosing(declared: &[Declared], line: usize) -> Option<serde_json::Value> {
+    let owner = innermost(declared.iter().filter(|d| !d.name.is_empty()), line)?;
+    Some(json!({"kind":owner.kind, "symbolName":owner.name}))
+}
+
+/// The read a matchString selection judges.
+#[derive(Clone, Copy)]
+pub(in crate::tools::source_view) struct HitView<'a> {
+    /// The shown view, one record per entry of `lines`.
+    pub(in crate::tools::source_view) text: &'a str,
+    /// Each record's source line, or the omission marker.
+    pub(in crate::tools::source_view) lines: &'a [usize],
+    /// The whole source the hit lines number.
+    pub(in crate::tools::source_view) source: &'a str,
+    pub(in crate::tools::source_view) path: &'a Path,
+    /// The path the judge is shown.
+    pub(in crate::tools::source_view) provider_path: &'a str,
+}
+
 /// What a matchString read judges: each hit, its window (the requested
 /// context lines, or the declaration a `block` read widened it to) informing
-/// the verdict. `windows` maps a hit line to its inclusive source lines.
+/// the verdict, and what the shown read names beside it: the declaration
+/// around it and the key path of its line in a keyed file (`matchKeys`), so a
+/// window that lacks the deciding section still names it. `windows` maps a
+/// hit line to its inclusive source lines.
 pub(in crate::tools::source_view) fn hit_chunks(
-    text: &str,
-    source_lines: &[usize],
+    view: HitView<'_>,
     hits: &[usize],
     windows: impl Fn(usize) -> (usize, usize),
-    path: &Path,
-    provider_path: &str,
     security: &impl ContentScan,
     runtime: Option<&crate::tools::selection::Runtime>,
     prior: Option<&str>,
 ) -> (Vec<Candidate>, Vec<Chunk>) {
+    let HitView {
+        text,
+        lines: source_lines,
+        source: source_text,
+        path,
+        provider_path,
+    } = view;
     let needs_states =
         crate::tools::selection::needs_candidate_states(runtime, prior, None, hits.len());
     // The view was scanned as a whole; a redaction that changes its geometry
@@ -38,6 +67,15 @@ pub(in crate::tools::source_view) fn hit_chunks(
         safe.as_deref()
             .is_some_and(|safe| safe.split_inclusive('\n').count() == source_lines.len())
     });
+    let (keys, declared) = if records.is_some() {
+        let keys = crate::tools::match_keys::line_key_paths(path, source_text, hits)
+            .into_iter()
+            .collect::<std::collections::HashMap<_, _>>();
+        let declared = all_declarations(source_text, &path.to_string_lossy()).unwrap_or_default();
+        (keys, declared)
+    } else {
+        Default::default()
+    };
     let mut candidates = Vec::with_capacity(hits.len());
     let mut chunks = Vec::with_capacity(hits.len());
     for &hit in hits {
@@ -56,7 +94,14 @@ pub(in crate::tools::source_view) fn hit_chunks(
                 .filter(|(_, line)| (first..=last).contains(line))
                 .map(|(text, line)| json!([line, text]))
                 .collect::<Vec<_>>();
-            Some(json!({"path":provider_path, "target":{"line":hit, "text":text}, "lines":window}))
+            let mut target = json!({"line":hit, "text":text});
+            if let Some(enclosing) = enclosing(&declared, hit) {
+                target["enclosing"] = enclosing;
+            }
+            if let Some(key) = keys.get(&hit) {
+                target["key"] = json!(key);
+            }
+            Some(json!({"path":provider_path, "target":target, "lines":window}))
         });
         candidates.push(Candidate::new(state));
         chunks.push(Chunk { bytes: 0..0, lines });

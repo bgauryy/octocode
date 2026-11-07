@@ -154,11 +154,16 @@ async fn npm_versions_resolve_exact_range_and_tag() {
     // Every declared engine stays: not only `node`.
     assert_eq!(
         item.engines,
-        Some(std::collections::BTreeMap::from([
-            ("node".to_owned(), ">=18".to_owned()),
-            ("npm".to_owned(), ">=9".to_owned()),
-            ("pnpm".to_owned(), ">=8".to_owned()),
-        ]))
+        Some(
+            [("node", ">=18"), ("npm", ">=9"), ("pnpm", ">=8")]
+                .map(
+                    |(name, range)| octocode_contract_types::ArtifactSearchRowEnginesItem {
+                        name: name.to_owned(),
+                        range: range.to_owned(),
+                    }
+                )
+                .to_vec()
+        )
     );
     let coordinate = lookup(
         &http,

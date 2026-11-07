@@ -76,6 +76,36 @@ fn continuation_pages_reuse_the_walk_and_restart_on_change() {
     assert_eq!(stale["errorCode"], "staleSnapshot", "{stale}");
 }
 
+/// A listing field stated at its contract default is its omission: the
+/// continuation drops it, and following it as emitted continues the same
+/// walk instead of restarting it.
+#[test]
+fn a_listing_field_at_its_default_continues_as_emitted() {
+    let root = Fixture::new();
+    for i in 0..4 {
+        std::fs::write(root.0.join(format!("f{i}.rs")), "x\n").expect("file");
+    }
+    let sort = crate::contracts::query_schema_value(
+        crate::id::ToolId::StructureSearch,
+        Some("files"),
+        "sort",
+        "default",
+    )
+    .expect("the contract defaults sort")
+    .clone();
+    let first = run_budget(
+        &root.0,
+        json!({"operation":"files","path":root.0,"entryType":"file","sort":sort}),
+        1,
+    )
+    .expect("page 1");
+    let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
+    assert!(next.get("sort").is_none(), "the default is dropped: {next}");
+    let second = run_budget(&root.0, next, 1).expect("page 2");
+    assert!(second.get("errorCode").is_none(), "{second}");
+    assert_eq!(second["pagination"]["page"], 2, "{second}");
+}
+
 /// `maxDepth` counts the same in both operations: 1 lists `path`'s
 /// children, 2 their children too.
 #[test]

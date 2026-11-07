@@ -39,21 +39,12 @@ pub(crate) const CANCELLED_HINT: &str = "Retry only if the result is still neede
 const TRANSIENT_HINT: &str = "Retry once only if retryable is true; if it persists, check provider availability and report the coverage gap.";
 
 /// Fill missing guidance without replacing producer-specific recovery or
-/// repeating it. Call before the output security gate so query-derived facts
+/// repeating it. Every failed row carries its own recovery: guidance is
+/// per-row evidence, so a batch never states it only on the first row. Call before the output security gate so query-derived facts
 /// and future tool-owned guidance share the normal redaction boundary.
 pub(crate) fn attach_error_hint(tool: &dyn ToolOutput, data: &mut Value, query: &Value) {
     if let Some(hint) = missing_error_hint(tool, data, query) {
         data["hints"] = json!([hint]);
-    }
-}
-
-/// [`attach_error_hint`] for a row of a batch: the shared recovery rides
-/// `notices`, so the stage states it once per response, on the first error
-/// row that needs it, instead of on every failed row
-/// ([`crate::response::notices::place`]).
-pub(crate) fn attach_error_notice(tool: &dyn ToolOutput, data: &mut Value, query: &Value) {
-    if let Some(hint) = missing_error_hint(tool, data, query) {
-        crate::response::paging::push_notice(data, hint);
     }
 }
 

@@ -6,6 +6,8 @@ fn hit(line: u32, value: &str) -> TextSearchMatch {
     TextSearchMatch {
         deferred: None,
         line,
+        // Values that start before their match (context joined), and at it.
+        first_line: line - (line % 3).min(line.saturating_sub(1)),
         last_line: line.is_multiple_of(5).then_some(line + 2),
         column: line * 3,
         byte_offset: line * 5,
@@ -28,6 +30,7 @@ fn assert_same(left: &TextSearchResult, right: &TextSearchResult) {
             assert_eq!(
                 (
                     x.line,
+                    x.first_line,
                     x.last_line,
                     x.column,
                     x.byte_offset,
@@ -38,6 +41,7 @@ fn assert_same(left: &TextSearchResult, right: &TextSearchResult) {
                 ),
                 (
                     y.line,
+                    y.first_line,
                     y.last_line,
                     y.column,
                     y.byte_offset,

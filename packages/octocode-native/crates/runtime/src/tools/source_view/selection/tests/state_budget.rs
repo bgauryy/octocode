@@ -38,6 +38,7 @@ fn serialized_state_budget_uses_sanitized_content() {
     );
     let outcome = crate::tools::selection::select(
         Some(&runtime),
+        crate::id::ToolId::LocalFetch,
         &json!({"classification":{"predicates":["Find evidence"]}}),
         "source",
         None,
@@ -84,6 +85,7 @@ fn a_chunk_over_the_page_budget_runs_alone_and_replays() {
     let select = |prior: Option<&str>, candidates: &[crate::tools::selection::Candidate]| {
         crate::tools::selection::select(
             Some(&runtime),
+            crate::id::ToolId::LocalFetch,
             &query,
             "source",
             prior,

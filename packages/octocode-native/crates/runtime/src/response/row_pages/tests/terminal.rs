@@ -84,8 +84,8 @@ fn preliminary_sibling_arrays_and_records_cannot_spend_terminal_room() {
         .collect::<Vec<_>>();
     let graph = json!({"operation":"impact","rows":results,"summary":{"testsToRun":names}});
     let branches = (0..18)
-        .map(|i| (format!("branch-{i}"), json!("b".repeat(60))))
-        .collect::<Map<_, _>>();
+        .map(|i| json!({"name": format!("branch-{i}"), "sha": "b".repeat(60)}))
+        .collect::<Vec<_>>();
     let tree = json!({"defaultBranch":"main","commitSha":"fixed","branches":branches,"tags":names});
     for (tool, data) in [(ToolId::GraphQuery, graph), (ToolId::GhStructure, tree)] {
         let pages = pages(data.clone(), tool, 700, Some(1_100));
@@ -129,19 +129,13 @@ fn preliminary_sibling_arrays_and_records_cannot_spend_terminal_room() {
                 .iter()
                 .flat_map(|row| {
                     row["data"]["branches"]
-                        .as_object()
+                        .as_array()
                         .into_iter()
                         .flatten()
-                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .cloned()
                 })
                 .collect::<Vec<_>>();
-            assert_eq!(
-                collected,
-                branches
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect::<Vec<_>>()
-            );
+            assert_eq!(collected, branches);
             let collected = rows
                 .iter()
                 .flat_map(|row| {

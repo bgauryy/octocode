@@ -4,24 +4,37 @@ use super::axis::Axis;
 use serde_json::{Map, Value};
 
 /// The body windows of one page that one shared `offset` continues: the first
-/// cut window is the page's public body entry.
+/// cut window is the page's public body entry; with none cut, the first
+/// window a redaction marker moved is, so the flag is never lost.
 #[derive(Debug, Default)]
 pub(super) struct BodyWindows {
     first: Option<Value>,
+    /// The first body window of the page a redaction marker moved
+    /// ([`super::text::paginate_text`]): the shared entry states it.
+    oversized: Option<Value>,
 }
 
 impl BodyWindows {
     /// Notes one body's window `page`.
     pub(super) fn add(&mut self, page: &Value) {
+        if page["oversized"] == true {
+            self.oversized.get_or_insert_with(|| page.clone());
+        }
         if page["hasMore"] == true {
             self.first.get_or_insert_with(|| page.clone());
         }
     }
 
-    /// Puts the page's first cut window under `axis`.
+    /// Puts the page's first cut window under `axis`, or its first flagged
+    /// one when none is cut; either carries `oversized:true` when any body
+    /// window of the page was flagged.
     pub(super) fn attach(self, axis: Axis, pagination: &mut Map<String, Value>) {
-        if let Some(first) = self.first {
-            pagination.insert(axis.key().into(), first);
+        let flagged = self.oversized.is_some();
+        if let Some(mut entry) = self.first.or(self.oversized) {
+            if flagged {
+                entry["oversized"] = Value::Bool(true);
+            }
+            pagination.insert(axis.key().into(), entry);
         }
     }
 }

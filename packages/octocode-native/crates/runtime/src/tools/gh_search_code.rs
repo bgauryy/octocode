@@ -165,16 +165,6 @@ pub(crate) async fn execute(
     let past_end = data.fetched == 0 && data.total > 0 && current > data.pages;
     let more = current < data.pages;
     let mut items = code_output::files(&data.items, query, security)?;
-    // The file a name search asks for exists elsewhere in the results: a
-    // larger copy of it, beyond the index's size limit, would be missing.
-    let exact_name_listed = query.name_contains.as_ref().is_some_and(|name| {
-        items.iter().any(|row| {
-            row.get("path")
-                .and_then(serde_json::Value::as_str)
-                .and_then(|path| path.rsplit('/').next())
-                .is_some_and(|file| file.eq_ignore_ascii_case(name.as_str()))
-        })
-    });
     let mut value = json!({});
     let resolution = code_output::resolve_lines(
         provider,
@@ -223,19 +213,26 @@ pub(crate) async fn execute(
                 .out_of_range(past_end)
                 .to_value();
     }
+    // Every page of a ref search states the index scope (a page can be read
+    // on its own); the head the first page read rides the continuation.
+    let head = if items.is_empty() {
+        None
+    } else {
+        code_output::index_head(provider, query, context).await?
+    };
     add_next(
         &mut value,
         ToolId::GhSearchCode,
-        &walked(query, &data),
+        &walked(query, &data, head.as_deref()),
         current,
         more,
     );
     // A file lists at most a few of its hit lines; `readHits` reads the rest.
     let hits_unlisted = !reads.hits.is_empty();
     add_reads(&mut value, reads);
-    // The index scope is stated once, on the first page of a ref search.
-    if !items.is_empty() && current == 1 {
-        code_output::disclose_index_ref(provider, &mut value, query, resolved_sha, context).await?;
+    if !items.is_empty() {
+        code_output::disclose_index_ref(provider, &mut value, query, resolved_sha, head, context)
+            .await?;
     }
     disclose_completeness(&mut value, query, &data, current, hits_unlisted);
     let mut output = ToolData::from(value);
@@ -247,12 +244,6 @@ pub(crate) async fn execute(
             "GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.",
         );
     }
-    // Temporary until core declares the index-limit coverage fact
-    // (core-requests.md): a larger file of the name searched is absent
-    // without a trace, so the page names the limit.
-    if exact_name_listed {
-        output.diagnostics.hint(UNINDEXED_LARGE_FILE_HINT);
-    }
     if data.fetched == 0 {
         output.status = Some("empty");
     }
@@ -262,21 +253,49 @@ pub(crate) async fn execute(
     if data.fetched == 0 && !past_end {
         empty::page(provider, query, context, checked, &mut output).await?;
     }
+    disclose_coverage(&mut output, provider.transport.endpoint());
     crate::response::result::finish_calls(&mut output.data);
     Ok(output)
 }
 
-/// A file-name search lists the files GitHub's code index holds; the index
-/// skips files over 384 KB, so one that large is missing from the list.
-const UNINDEXED_LARGE_FILE_HINT: &str = "A file-name search lists indexed files only: GitHub's code index skips files over 384 KB, so a larger file of that name is not listed; read it by path with ghGetFileContent, or list its folder with ghStructure.";
+/// The searched page's `coverage`: `state` reads the page's own partial
+/// decision once it is final (the `isPartial` the page marked and the
+/// reasons its diagnostics carry, which the row stage marks the same way),
+/// so the two never disagree; `indexLimit` states the index's file-size
+/// boundary, since a larger file is absent from every search without a trace.
+fn disclose_coverage(output: &mut ToolData, endpoint: &octocode_github::GitHubEndpoint) {
+    let partial =
+        output.data["isPartial"] == true || !output.diagnostics.partial_reasons.is_empty();
+    output.data["coverage"] = json!({
+        "state": if partial { "partial" } else { "complete" },
+        "indexLimit": {"maxFileBytes": index_max_file_bytes(endpoint)},
+    });
+}
+
+/// The largest file GitHub's code index holds on `endpoint`'s deployment,
+/// in bytes: a larger file is absent from every code search, a file-name
+/// search included. GitHub's cloud (github.com and GHE.com) indexes files
+/// under 384 KB (<https://docs.github.com/en/rest/search/search#search-code>);
+/// an Enterprise Server, files under 5 MB
+/// (<https://docs.github.com/en/enterprise-server@latest/search-github/searching-on-github/searching-code#considerations-for-code-search>).
+pub(crate) fn index_max_file_bytes(endpoint: &octocode_github::GitHubEndpoint) -> u64 {
+    match endpoint.deployment() {
+        octocode_github::Deployment::Cloud => 384 * 1024,
+        octocode_github::Deployment::Server => 5 * 1024 * 1024,
+    }
+}
 
 /// `query` carrying the walk through `data`'s page, for `next.nextPage`:
-/// every file listed so far and the match count GitHub stated, private
-/// state the issued continuation carries across independent requests.
-fn walked(query: &GhSearchCodeQuery, data: &SearchPage) -> GhSearchCodeQuery {
+/// every file listed so far, the match count GitHub stated and the index
+/// head a ref search read, private state the issued continuation carries
+/// across independent requests.
+fn walked(query: &GhSearchCodeQuery, data: &SearchPage, head: Option<&str>) -> GhSearchCodeQuery {
     GhSearchCodeQuery {
         listed: data.listed.state().and_then(|state| state.try_into().ok()),
         matched: Some(u64::try_from(data.matched).unwrap_or(u64::MAX)),
+        index_head: head
+            .and_then(|head| head.try_into().ok())
+            .or_else(|| query.index_head.clone()),
         ..query.clone()
     }
 }

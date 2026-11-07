@@ -77,7 +77,7 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
     assert_eq!(data["commitSha"], sha(9), "{data}");
     assert_eq!(
         data["branches"],
-        json!({"dev":sha(1),"main":sha(2)}),
+        json!([{"name":"dev","sha":sha(1)},{"name":"main","sha":sha(2)}]),
         "{data}"
     );
     assert_eq!(data["tags"], json!(["v1.0.0"]), "{data}");
@@ -87,9 +87,63 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
         .await
         .expect("refs page 2");
     let data = row_data(&second);
-    assert_eq!(data["branches"], json!({"release":sha(3)}), "{data}");
+    assert_eq!(
+        data["branches"],
+        json!([{"name":"release","sha":sha(3)}]),
+        "{data}"
+    );
     assert_eq!(data["tags"], json!([]), "{data}");
     assert!(data.get("next").is_none(), "{data}");
+    runtime.close().await;
+}
+
+/// A branch name is data, never a JSON key: a branch whose name ends in
+/// `-token-refresh` keeps its commit SHA verbatim through the output
+/// secret gate, with no redaction (the tester's bgauryy/octocode branch).
+#[tokio::test]
+async fn a_credential_worded_branch_keeps_its_commit_sha() {
+    let server = MockServer::builder().start().await;
+    mount_default_branch(&server).await;
+    let head = "df5e4353e6dbef3b8a6e70441e7322092dbe110b";
+    let name = "execute-plan/f5008669-pr-3-featocto-github-device-login-and-token-refresh";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/HEAD"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/branches"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!([{"name":name,"commit":{"sha":head}}])),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/git/matching-refs/tags"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let out = call(
+        &runtime,
+        "ghStructure",
+        json!({"owner": "a", "repo": "b", "operation": "refs"}),
+    )
+    .await
+    .expect("refs");
+    let data = row_data(&out);
+    assert_eq!(
+        data["branches"],
+        json!([{"name":name,"sha":head}]),
+        "{}",
+        out.structured_content
+    );
+    assert!(
+        !out.structured_content.to_string().contains("REDACTED"),
+        "{}",
+        out.structured_content
+    );
     runtime.close().await;
 }
 
@@ -135,5 +189,48 @@ async fn refs_with_ref_resolves_one_ref() {
         data.get("next").is_none(),
         "a resolved ref is complete: {data}"
     );
+    runtime.close().await;
+}
+
+/// Recovery guidance is per-row evidence: in a batch whose rows all fail with
+/// the same `notFound`, every row carries the recovery hint, not only the first.
+#[tokio::test]
+async fn every_not_found_row_of_a_batch_carries_its_own_recovery_hint() {
+    let server = MockServer::builder().start().await;
+    mount_default_branch(&server).await;
+    Mock::given(method("GET"))
+        .and(path_regex(
+            "/api/v3/repos/a/b/(commits|git/ref|git/trees)/.*nope-",
+        ))
+        .respond_with(
+            ResponseTemplate::new(422)
+                .set_body_json(json!({"message":"No commit found for SHA: nope"})),
+        )
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let bad = |name: &str| json!({"owner":"a","repo":"b","operation":"tree","ref":name});
+    let outcome = call(
+        &runtime,
+        "ghStructure",
+        json!({"queries":[bad("nope-1"), bad("nope-2")]}),
+    )
+    .await
+    .expect("batch");
+    let rows = outcome.structured_content["results"]
+        .as_array()
+        .expect("rows");
+    assert_eq!(rows.len(), 2);
+    for row in rows {
+        assert_eq!(row["data"]["errorCode"], "notFound", "{row}");
+        let hints = row["data"]["hints"].as_array().expect("row hints");
+        assert!(
+            hints
+                .iter()
+                .any(|hint| hint.as_str().is_some_and(|h| h.starts_with("Not found:"))),
+            "{row}"
+        );
+    }
     runtime.close().await;
 }

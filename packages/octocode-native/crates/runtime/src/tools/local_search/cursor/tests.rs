@@ -5,6 +5,7 @@ fn scan() -> (Vec<TextSearchFile>, TextSearchStats) {
     let hit = |line: u32, value: &str| TextSearchMatch {
         deferred: None,
         line,
+        first_line: line,
         last_line: None,
         column: 3,
         byte_offset: 3,

@@ -339,7 +339,10 @@ fn a_one_file_scan_past_its_held_bound_leads_to_a_read_of_that_file() {
             error.message
         );
         assert!(
-            error.hints.iter().any(|hint| hint.contains("readFile")),
+            error
+                .hints
+                .iter()
+                .any(|hint| hint.contains("related[] localFetch call")),
             "{view}: {:?}",
             error.hints
         );

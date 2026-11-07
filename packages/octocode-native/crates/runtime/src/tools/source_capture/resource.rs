@@ -44,6 +44,8 @@ pub(crate) fn acquisition_key(
     if let Some(query) = query.as_object_mut() {
         query.remove("ranges");
     }
+    // A field stated at its contract default is its omission.
+    crate::response::result::canonical_row(tool, &mut query);
     Ok(crate::digest::json_sha256(
         &json!({"tool":tool.as_str(),"query":query}),
     ))

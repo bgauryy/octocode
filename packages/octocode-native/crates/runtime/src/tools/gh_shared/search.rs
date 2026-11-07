@@ -218,12 +218,10 @@ pub(crate) fn apply_partial(
         // The match count is this call's fact; that search stops at its
         // window is the cap reason (`providerResultCap`), not a per-call
         // note.
-        let count = (page == 1).then(|| {
-            format!(
-                "GitHub matched {matched} {subject} results; the first {reachable} are reachable."
-            )
-        });
-        let warnings = Vec::from_iter(count);
+        // Every page states it: a page can be read on its own.
+        let warnings = vec![format!(
+            "GitHub matched {matched} {subject} results; the first {reachable} are reachable."
+        )];
         if let Some(pagination) = value.get_mut("pagination").and_then(Value::as_object_mut) {
             pagination.insert("totalItemsCapped".into(), Value::Bool(true));
         }

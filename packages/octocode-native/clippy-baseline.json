@@ -414,7 +414,6 @@
       "crates/runtime/src/tools/gh_structure/tag_order.rs": 6,
       "crates/runtime/src/tools/judgment.rs": 2,
       "crates/runtime/src/tools/local_fetch/large_source/masks.rs": 2,
-      "crates/runtime/src/tools/local_search/verify/exposed.rs": 3,
       "crates/runtime/src/tools/lsp_search/anchor.rs": 7,
       "crates/runtime/src/tools/lsp_search/heritage.rs": 3,
       "crates/runtime/src/tools/lsp_search/import_stop.rs": 1,

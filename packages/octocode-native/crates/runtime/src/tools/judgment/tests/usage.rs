@@ -125,6 +125,7 @@ fn selection_preserves_sibling_decisions_and_accounts_for_every_request() {
         .collect::<Vec<_>>();
     let outcome = selection::select(
         Some(&runtime),
+        crate::id::ToolId::LocalFetch,
         &json!({"classification":{"predicates":["Does this contain relevant evidence?"]}}),
         "test-source",
         None,
@@ -158,6 +159,7 @@ fn per_call_usage_counts_attempts_and_ignores_results_without_requests() {
         output_tokens: 2,
         provider_calls: 3,
         known_usage_calls: 1,
+        long_context_retry: None,
     };
     usage.add(&Ok(judged.clone()));
     judged.provider_calls = 0;
@@ -178,5 +180,47 @@ fn per_call_usage_counts_attempts_and_ignores_results_without_requests() {
             "calls":4,"knownUsageCalls":1,"unknownUsageCalls":3,
             "inputTokens":10,"outputTokens":2,"models":["resolved"]
         })
+    );
+}
+
+/// The long-context notice counts only the retried evaluations and their
+/// tokens, whatever the default window billed beside them; a retry whose
+/// provider reported no usage leaves its tokens unknown, never zero.
+#[test]
+fn the_long_context_notice_counts_only_retries_and_never_reports_unknown_usage_as_zero() {
+    let judged = |input_tokens: u64, known_usage_calls: u64, long_context_retry: bool| Judged {
+        answers: vec![],
+        model: "resolved".into(),
+        input_tokens,
+        output_tokens: 1,
+        provider_calls: 1,
+        known_usage_calls,
+        long_context_retry: long_context_retry.then_some(LongContextRetry {
+            unreported_calls: 1 - known_usage_calls,
+        }),
+    };
+    let notice = |evaluations: &[Judged]| {
+        let mut usage = stats::ClassificationUsage::default();
+        for judged in evaluations {
+            usage.add(&Ok(judged.clone()));
+        }
+        usage.long_context_notice()
+    };
+    assert_eq!(notice(&[judged(700, 1, false)]), None, "no retry, no notice");
+    let mixed = notice(&[judged(700, 1, false), judged(40, 1, true), judged(2, 1, true)])
+        .expect("retries are disclosed");
+    assert!(
+        mixed.starts_with("2 evaluations refused") && mixed.contains(": 42 input tokens billed."),
+        "only the retried evaluations and their tokens: {mixed}"
+    );
+    let unreported = notice(&[judged(0, 0, true)]).expect("a retry is disclosed");
+    assert!(
+        unreported.contains("input tokens billed unknown") && !unreported.contains("0 input"),
+        "{unreported}"
+    );
+    let partly = notice(&[judged(40, 1, true), judged(0, 0, true)]).expect("retries");
+    assert!(
+        partly.contains("at least 40 input tokens billed; 1 of them reported no usage"),
+        "{partly}"
     );
 }

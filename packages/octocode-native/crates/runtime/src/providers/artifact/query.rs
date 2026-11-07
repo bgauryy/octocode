@@ -23,73 +23,99 @@ pub(crate) mod artifact_type {
 /// Registry-facing views over the generated wire query.
 pub(crate) mod artifact_search_query {
     use octocode_contract_types::{
-        ArtifactSearchQuery, ArtifactSearchQueryResolve2Ecosystem,
-        ArtifactSearchQueryResolve4Ecosystem, ArtifactSearchQuerySearch5Ecosystem, ArtifactType,
+        ArtifactSearchQuery, ArtifactType, ResolveNugetGoPackagistOrRubygemsEcosystem,
+        ResolvePypiOrCratesEcosystem, SearchCratesMavenNugetGoPackagistOrRubygemsEcosystem,
     };
 
     pub(crate) fn artifact_type(query: &ArtifactSearchQuery) -> ArtifactType {
         match query {
-            ArtifactSearchQuery::Resolve0(_) | ArtifactSearchQuery::Search1(_) => ArtifactType::Npm,
-            ArtifactSearchQuery::Resolve2(query) => match query.ecosystem {
-                ArtifactSearchQueryResolve2Ecosystem::Pypi => ArtifactType::Pypi,
-                ArtifactSearchQueryResolve2Ecosystem::Crates => ArtifactType::Crates,
+            ArtifactSearchQuery::ResolveNpm(_) | ArtifactSearchQuery::SearchNpm(_) => {
+                ArtifactType::Npm
+            }
+            ArtifactSearchQuery::ResolvePypiOrCrates(query) => match query.ecosystem {
+                ResolvePypiOrCratesEcosystem::Pypi => ArtifactType::Pypi,
+                ResolvePypiOrCratesEcosystem::Crates => ArtifactType::Crates,
             },
-            ArtifactSearchQuery::Resolve3(_) => ArtifactType::Maven,
-            ArtifactSearchQuery::Resolve4(query) => match query.ecosystem {
-                ArtifactSearchQueryResolve4Ecosystem::Nuget => ArtifactType::Nuget,
-                ArtifactSearchQueryResolve4Ecosystem::Go => ArtifactType::Go,
-                ArtifactSearchQueryResolve4Ecosystem::Packagist => ArtifactType::Packagist,
-                ArtifactSearchQueryResolve4Ecosystem::Rubygems => ArtifactType::Rubygems,
-            },
-            ArtifactSearchQuery::Search5(query) => match query.ecosystem {
-                ArtifactSearchQuerySearch5Ecosystem::Crates => ArtifactType::Crates,
-                ArtifactSearchQuerySearch5Ecosystem::Maven => ArtifactType::Maven,
-                ArtifactSearchQuerySearch5Ecosystem::Nuget => ArtifactType::Nuget,
-                ArtifactSearchQuerySearch5Ecosystem::Go => ArtifactType::Go,
-                ArtifactSearchQuerySearch5Ecosystem::Packagist => ArtifactType::Packagist,
-                ArtifactSearchQuerySearch5Ecosystem::Rubygems => ArtifactType::Rubygems,
+            ArtifactSearchQuery::ResolveMaven(_) => ArtifactType::Maven,
+            ArtifactSearchQuery::ResolveNugetGoPackagistOrRubygems(query) => {
+                match query.ecosystem {
+                    ResolveNugetGoPackagistOrRubygemsEcosystem::Nuget => ArtifactType::Nuget,
+                    ResolveNugetGoPackagistOrRubygemsEcosystem::Go => ArtifactType::Go,
+                    ResolveNugetGoPackagistOrRubygemsEcosystem::Packagist => {
+                        ArtifactType::Packagist
+                    }
+                    ResolveNugetGoPackagistOrRubygemsEcosystem::Rubygems => ArtifactType::Rubygems,
+                }
+            }
+            ArtifactSearchQuery::SearchCratesMavenNugetGoPackagistOrRubygems(query) => match query
+                .ecosystem
+            {
+                SearchCratesMavenNugetGoPackagistOrRubygemsEcosystem::Crates => {
+                    ArtifactType::Crates
+                }
+                SearchCratesMavenNugetGoPackagistOrRubygemsEcosystem::Maven => ArtifactType::Maven,
+                SearchCratesMavenNugetGoPackagistOrRubygemsEcosystem::Nuget => ArtifactType::Nuget,
+                SearchCratesMavenNugetGoPackagistOrRubygemsEcosystem::Go => ArtifactType::Go,
+                SearchCratesMavenNugetGoPackagistOrRubygemsEcosystem::Packagist => {
+                    ArtifactType::Packagist
+                }
+                SearchCratesMavenNugetGoPackagistOrRubygemsEcosystem::Rubygems => {
+                    ArtifactType::Rubygems
+                }
             },
         }
     }
     pub(crate) fn package_name(query: &ArtifactSearchQuery) -> Option<&str> {
         match query {
-            ArtifactSearchQuery::Resolve0(query) => Some(query.package_name.as_str()),
-            ArtifactSearchQuery::Resolve2(query) => Some(query.package_name.as_str()),
-            ArtifactSearchQuery::Resolve3(query) => Some(query.package_name.as_str()),
-            ArtifactSearchQuery::Resolve4(query) => Some(query.package_name.as_str()),
-            ArtifactSearchQuery::Search1(_) | ArtifactSearchQuery::Search5(_) => None,
+            ArtifactSearchQuery::ResolveNpm(query) => Some(query.package_name.as_str()),
+            ArtifactSearchQuery::ResolvePypiOrCrates(query) => Some(query.package_name.as_str()),
+            ArtifactSearchQuery::ResolveMaven(query) => Some(query.package_name.as_str()),
+            ArtifactSearchQuery::ResolveNugetGoPackagistOrRubygems(query) => {
+                Some(query.package_name.as_str())
+            }
+            ArtifactSearchQuery::SearchNpm(_)
+            | ArtifactSearchQuery::SearchCratesMavenNugetGoPackagistOrRubygems(_) => None,
         }
     }
     pub(crate) fn version(query: &ArtifactSearchQuery) -> Option<&str> {
         match query {
-            ArtifactSearchQuery::Resolve0(query) => query.version.as_deref().map(String::as_str),
-            ArtifactSearchQuery::Resolve2(query) => query.version.as_deref().map(String::as_str),
-            ArtifactSearchQuery::Resolve3(query) => query.version.as_deref().map(String::as_str),
-            ArtifactSearchQuery::Resolve4(query) => query.version.as_deref().map(String::as_str),
-            ArtifactSearchQuery::Search1(_) | ArtifactSearchQuery::Search5(_) => None,
+            ArtifactSearchQuery::ResolveNpm(query) => query.version.as_deref().map(String::as_str),
+            ArtifactSearchQuery::ResolvePypiOrCrates(query) => {
+                query.version.as_deref().map(String::as_str)
+            }
+            ArtifactSearchQuery::ResolveMaven(query) => {
+                query.version.as_deref().map(String::as_str)
+            }
+            ArtifactSearchQuery::ResolveNugetGoPackagistOrRubygems(query) => {
+                query.version.as_deref().map(String::as_str)
+            }
+            ArtifactSearchQuery::SearchNpm(_)
+            | ArtifactSearchQuery::SearchCratesMavenNugetGoPackagistOrRubygems(_) => None,
         }
     }
     pub fn registry_url(query: &ArtifactSearchQuery) -> Option<&str> {
         match query {
-            ArtifactSearchQuery::Resolve0(query) => query.registry_url.as_deref(),
-            ArtifactSearchQuery::Search1(query) => query.registry_url.as_deref(),
+            ArtifactSearchQuery::ResolveNpm(query) => query.registry_url.as_deref(),
+            ArtifactSearchQuery::SearchNpm(query) => query.registry_url.as_deref(),
             _ => None,
         }
     }
     pub(crate) fn page(query: &ArtifactSearchQuery) -> u64 {
         match query {
-            ArtifactSearchQuery::Search1(query) => query.page.map_or(1, std::num::NonZero::get),
-            ArtifactSearchQuery::Search5(query) => query.page.map_or(1, std::num::NonZero::get),
+            ArtifactSearchQuery::SearchNpm(query) => query.page.map_or(1, std::num::NonZero::get),
+            ArtifactSearchQuery::SearchCratesMavenNugetGoPackagistOrRubygems(query) => {
+                query.page.map_or(1, std::num::NonZero::get)
+            }
             _ => 1,
         }
     }
     pub(crate) fn set_page(query: &mut ArtifactSearchQuery, page: u64) {
         let page = std::num::NonZeroU64::new(page);
         match query {
-            ArtifactSearchQuery::Search1(query) => {
+            ArtifactSearchQuery::SearchNpm(query) => {
                 (query.page, query.registry_cursor) = (page, None);
             }
-            ArtifactSearchQuery::Search5(query) => {
+            ArtifactSearchQuery::SearchCratesMavenNugetGoPackagistOrRubygems(query) => {
                 (query.page, query.registry_cursor) = (page, None);
             }
             _ => {}
@@ -97,10 +123,10 @@ pub(crate) mod artifact_search_query {
     }
     pub(crate) fn cursor(query: &ArtifactSearchQuery) -> Option<&str> {
         match query {
-            ArtifactSearchQuery::Search1(query) => {
+            ArtifactSearchQuery::SearchNpm(query) => {
                 query.registry_cursor.as_deref().map(String::as_str)
             }
-            ArtifactSearchQuery::Search5(query) => {
+            ArtifactSearchQuery::SearchCratesMavenNugetGoPackagistOrRubygems(query) => {
                 query.registry_cursor.as_deref().map(String::as_str)
             }
             _ => None,
@@ -108,10 +134,10 @@ pub(crate) mod artifact_search_query {
     }
     pub(crate) fn set_cursor(query: &mut ArtifactSearchQuery, cursor: Option<&str>) {
         match query {
-            ArtifactSearchQuery::Search1(query) => {
+            ArtifactSearchQuery::SearchNpm(query) => {
                 query.registry_cursor = cursor.and_then(|text| text.parse().ok());
             }
-            ArtifactSearchQuery::Search5(query) => {
+            ArtifactSearchQuery::SearchCratesMavenNugetGoPackagistOrRubygems(query) => {
                 query.registry_cursor = cursor.and_then(|text| text.parse().ok());
             }
             _ => {}
@@ -121,10 +147,10 @@ pub(crate) mod artifact_search_query {
     /// when omitted. A resolve reads one release and pages nothing.
     pub(crate) fn page_size(query: &ArtifactSearchQuery) -> usize {
         match query {
-            ArtifactSearchQuery::Search1(query) => {
+            ArtifactSearchQuery::SearchNpm(query) => {
                 octocode_engine::num::saturating_usize(query.limit.get())
             }
-            ArtifactSearchQuery::Search5(query) => {
+            ArtifactSearchQuery::SearchCratesMavenNugetGoPackagistOrRubygems(query) => {
                 octocode_engine::num::saturating_usize(query.limit.get())
             }
             _ => crate::contracts::query_limits::artifact_search::search::LIMIT_DEFAULT,
@@ -132,10 +158,10 @@ pub(crate) mod artifact_search_query {
     }
     pub(crate) fn keyword_list(query: &ArtifactSearchQuery) -> Vec<String> {
         match query {
-            ArtifactSearchQuery::Search1(query) => {
+            ArtifactSearchQuery::SearchNpm(query) => {
                 query.keywords.iter().map(ToString::to_string).collect()
             }
-            ArtifactSearchQuery::Search5(query) => {
+            ArtifactSearchQuery::SearchCratesMavenNugetGoPackagistOrRubygems(query) => {
                 query.keywords.iter().map(ToString::to_string).collect()
             }
             _ => Vec::new(),

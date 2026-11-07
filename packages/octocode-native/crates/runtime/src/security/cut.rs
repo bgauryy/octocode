@@ -61,25 +61,33 @@ pub(crate) fn exposes(redacted: &Edits, cut: &Range<usize>) -> bool {
     redacted.overlaps(cut)
 }
 
-/// What a span shows of the lines it was cut from, judged by the same scan that
-/// decided it exposed: its own bytes, each run a redaction took (`runs`, in the
-/// coordinates `at` was placed in, with what replaced it) replaced once. A span
-/// not at its place (`at` is not its own bytes), or a cut of whole lines, goes
-/// whole.
-pub(crate) fn shown_span<'a>(
+/// What a row shows of source bytes `at`, its `text`, judged by the scan that
+/// decided it exposed: `text` with each run of `runs` it reaches (source ranges,
+/// in `at`'s coordinates, with what replaced them) replaced once. A run that
+/// reaches past `bound`, the row's own lines, or left nothing, shows as
+/// [`REDACTED`]: what replaced it may hold other lines' text. Each byte left
+/// shown is checked against `source` (the source's bytes of an unreplaced
+/// range), so a row that is not the source's bytes at its place goes whole.
+pub(crate) fn rendered<'a, 'b>(
     runs: impl IntoIterator<Item = (Range<usize>, &'a str)>,
+    text: &str,
     at: &Range<usize>,
-    cut: &Cut<'_>,
+    bound: &Range<usize>,
+    source: impl Fn(Range<usize>) -> Option<&'b str>,
 ) -> String {
-    let Cut::Span { text, .. } = *cut else {
-        return REDACTED.to_owned();
-    };
     if at.len() != text.len() {
         return REDACTED.to_owned();
     }
+    // `text`'s bytes `seg`, when they are the source's at their place.
+    let kept = |seg: Range<usize>| {
+        let shown = text.get(seg.clone())?;
+        (seg.is_empty() || source(at.start + seg.start..at.start + seg.end) == Some(shown))
+            .then_some(shown)
+    };
     let mut out = String::with_capacity(text.len());
     // Bytes of `text` shown or replaced so far.
-    let mut from = None::<usize>;
+    let mut from = 0;
+    let mut replaced = false;
     for (range, placeholder) in runs {
         if range.end <= at.start || at.end <= range.start {
             continue;
@@ -87,26 +95,26 @@ pub(crate) fn shown_span<'a>(
         // Widened to whole characters: a cut can only over-mask.
         let lo = text.floor_char_boundary(range.start.max(at.start) - at.start);
         let hi = text.ceil_char_boundary(range.end.min(at.end) - at.start);
-        let placeholder = if placeholder.trim().is_empty() {
-            REDACTED
-        } else {
-            placeholder
-        };
-        match from {
-            // Inside the last run's bytes: already replaced.
-            Some(end) if lo < end => from = Some(end.max(hi)),
-            _ => {
-                out.push_str(text.get(from.unwrap_or(0)..lo).unwrap_or_default());
-                out.push_str(placeholder);
-                from = Some(hi);
-            }
+        if replaced && lo < from {
+            from = from.max(hi);
+            continue;
         }
+        let Some(shown) = kept(from..lo) else {
+            return REDACTED.to_owned();
+        };
+        out.push_str(shown);
+        let within = bound.start <= range.start && range.end <= bound.end;
+        out.push_str(if within && !placeholder.trim().is_empty() {
+            placeholder
+        } else {
+            REDACTED
+        });
+        (from, replaced) = (hi, true);
     }
-    // No redaction reached it: nothing shows it safe.
-    let Some(from) = from else {
+    let Some(shown) = kept(from..text.len()) else {
         return REDACTED.to_owned();
     };
-    out.push_str(text.get(from..).unwrap_or_default());
+    out.push_str(shown);
     out
 }
 
@@ -117,36 +125,45 @@ pub(crate) const REDACTED: &str = "[REDACTED]";
 mod tests {
     use super::*;
 
-    /// A span shows its own bytes with each redacted run replaced once; one not
-    /// at its place, or no redaction in it, goes whole.
+    /// A row shows its own bytes with each run it reaches replaced once; a run
+    /// past the row's lines, or a row that is not the source's bytes at its
+    /// place (whatever its length), goes as the bare placeholder.
     #[test]
-    fn a_shown_span_replaces_exactly_its_redacted_runs() {
-        let text = "blob: Qm # ghp_Z";
-        let cut = Cut::Span { offset: 2, text };
-        let at = 102..102 + text.len();
-        assert_eq!(
-            shown_span([(108..110, "[A]"), (113..140, "[B]")], &at, &cut),
-            "blob: [A] # [B]"
-        );
-        assert_eq!(shown_span([(90..200, "[A]")], &at, &cut), "[A]");
-        assert_eq!(
-            shown_span([(108..112, "")], &at, &cut),
-            "blob: [REDACTED] ghp_Z"
-        );
-        assert_eq!(shown_span([(0..1, "[A]")], &at, &cut), REDACTED);
-        assert_eq!(shown_span([(108..110, "[A]")], &(0..3), &cut), REDACTED);
-        assert_eq!(
-            shown_span([(108..110, "[A]")], &at, &Cut::Lines(1)),
-            REDACTED
-        );
-        let unicode = "ü·é";
-        let cut = Cut::Span {
-            offset: 0,
-            text: unicode,
+    fn a_rendered_row_replaces_exactly_its_runs() {
+        let source = format!("{}blob: Qm # ghp_Zq7 tail", " ".repeat(102));
+        let at = 102..102 + "blob: Qm # ghp_Z".len();
+        let text = &source[at.clone()];
+        let line = 0..source.len();
+        let from = |r: Range<usize>| source.get(r);
+        let render = |runs: &[(Range<usize>, &str)], text: &str, bound: &Range<usize>| {
+            rendered(runs.iter().cloned(), text, &at, bound, from)
         };
         assert_eq!(
-            shown_span([(1..2, "[A]")], &(0..unicode.len()), &cut),
-            "[A]·é"
+            render(&[(108..110, "[A]"), (113..120, "[B]")], text, &line),
+            "blob: [A] # [B]"
+        );
+        assert_eq!(
+            render(&[(108..112, "")], text, &line),
+            "blob: [REDACTED] ghp_Z"
+        );
+        assert_eq!(render(&[(90..200, "[A]")], text, &(100..150)), REDACTED);
+        assert_eq!(render(&[(0..1, "[A]")], text, &line), text);
+        let forged = "blob: Qm # xxx_Z";
+        assert_eq!(render(&[(108..110, "[A]")], forged, &line), REDACTED);
+        assert_eq!(
+            rendered([(108..110, "[A]")], text, &(0..3), &line, from),
+            REDACTED
+        );
+        let unicode = "\u{fc}\u{b7}\u{e9}";
+        assert_eq!(
+            rendered(
+                [(1..2, "[A]")],
+                unicode,
+                &(0..unicode.len()),
+                &(0..9),
+                |r| unicode.get(r)
+            ),
+            "[A]\u{b7}\u{e9}"
         );
     }
 

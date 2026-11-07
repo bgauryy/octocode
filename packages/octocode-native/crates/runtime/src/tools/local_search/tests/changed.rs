@@ -81,6 +81,18 @@ fn a_fresh_page_withholds_only_the_file_written_after_its_scan() {
         "the page discloses the withheld values: {:?}",
         page.warnings
     );
+    // The placeholder's warning names every reason a placeholder can give.
+    assert!(
+        page.warnings
+            .iter()
+            .any(|warning| warning == crate::tools::local_search::coverage::UNVERIFIED_WARNING),
+        "{:?}",
+        page.warnings
+    );
+    assert!(
+        crate::tools::local_search::coverage::UNVERIFIED_WARNING
+            .contains("the row's window disagrees with its source")
+    );
 }
 
 #[test]

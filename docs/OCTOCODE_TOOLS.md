@@ -76,7 +76,7 @@ Use a returned repository identity for code, tree and history calls.
 
 ### `ghSearchCode`
 
-Hits always come from the default-branch index: `ref` re-reads them at that revision and never widens the search. GitHub indexes only files under 384 KB and skips archived repositories and most forks, so `empty` never rules out such a file: read it with `ghGetFileContent` `matchString`, or clone. Read continuations reach evidence omitted from the displayed hit window.
+Hits always come from the default-branch index: `ref` re-reads them at that revision and never widens the search. GitHub indexes only files under its index limit, which every searched page states as `coverage.indexLimit.maxFileBytes` (384 KB on github.com and GHE.com, 5 MB on Enterprise Server), and skips archived repositories and most forks, so `empty` never rules out such a file: read it with `ghGetFileContent` `matchString`, or clone. Read continuations reach evidence omitted from the displayed hit window.
 
 ```json
 {"queries":[{"keywords":["localSearch"],"owner":"bgauryy","repo":"octocode"}]}

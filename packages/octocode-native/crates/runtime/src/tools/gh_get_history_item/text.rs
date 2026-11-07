@@ -4,6 +4,7 @@ use super::HistoryItemRequest;
 use super::remaining::BodyWindows;
 use super::util::string;
 use crate::response::cut::clean_cut;
+use octocode_engine::security::{CONTENT_REDACTION_PREFIX, REDACTION_PREFIX};
 use serde_json::Value;
 
 /// The byte index of char `chars` in `value` (its end when past it).
@@ -21,7 +22,11 @@ fn byte_at(value: &str, chars: usize) -> usize {
 /// ([`clean_cut`]). Every body of a page shares one `offset`, so each body's
 /// windows tile it exactly: walking `nextOffset` rejoins `value` once, with
 /// no gap and no repeat, whichever bodies share the page. A window narrower
-/// than one marker may show no text; its `nextOffset` still advances.
+/// than one marker may show no text; its `nextOffset` still advances. A
+/// window whose edge a marker moved shows text other than its nominal
+/// `length` (the whole marker from before `offset`, or text cut short of
+/// the marker that the next window shows), so it states `oversized:true`;
+/// a CRLF pair moves an edge by its `\r` alone and states nothing.
 pub(super) fn paginate_text(
     value: &str,
     offset: Option<usize>,
@@ -31,22 +36,34 @@ pub(super) fn paginate_text(
     let start = offset.unwrap_or(0).min(total);
     let len = length.unwrap_or(super::DEFAULT_TEXT_WINDOW).max(1);
     let end = (start + len).min(total);
+    // Each edge's byte, and whether a redaction marker moved it: the cut
+    // then lands on the marker's start (a CRLF move lands on its CR).
     let edge = |chars: usize| match chars {
-        0 => 0,
-        chars if chars >= total => value.len(),
-        chars => clean_cut(value, byte_at(value, chars)),
+        0 => (0, false),
+        chars if chars >= total => (value.len(), false),
+        chars => {
+            let nominal = byte_at(value, chars);
+            let cut = clean_cut(value, nominal);
+            let marker = value.split_at(cut).1;
+            let moved = cut < nominal
+                && (marker.starts_with(REDACTION_PREFIX)
+                    || marker.starts_with(CONTENT_REDACTION_PREFIX));
+            (cut, moved)
+        }
     };
     // Both cuts are ordered character boundaries of the same sealed text.
-    let (start_byte, end_byte) = (edge(start), edge(end));
+    let ((start_byte, start_moved), (end_byte, end_moved)) = (edge(start), edge(end));
     let text = value
         .split_at(start_byte)
         .1
         .split_at(end_byte - start_byte)
         .0;
-    (
-        text.to_owned(),
-        crate::response::pages::SpanFacts::window("chars", start, end - start, total).to_value(),
-    )
+    let mut page =
+        crate::response::pages::SpanFacts::window("chars", start, end - start, total).to_value();
+    if start_moved || end_moved {
+        page["oversized"] = Value::Bool(true);
+    }
+    (text.to_owned(), page)
 }
 
 /// Lower-cased `matchString`, the needle every content filter matches.
@@ -218,6 +235,99 @@ mod tests {
         assert_eq!(first, "aaaaaaaa");
         assert_eq!(second, "b".repeat(12));
         assert_eq!(page["nextOffset"], 12, "{page}");
+    }
+
+    /// A window whose edge a redaction marker moved states nominal offsets
+    /// but shows other text (the whole marker from before `offset`, or text
+    /// cut short of `length`, empty when the marker starts the window), so it
+    /// carries `oversized:true`; a plain window and one a CRLF pair moved
+    /// carry none, and the flag is never `false`. Walking every window
+    /// still rejoins the text exactly once.
+    #[test]
+    fn a_window_a_marker_moved_is_flagged_oversized() {
+        let marker = "[REDACTED-GITHUBTOKENS]";
+        let marked = format!("ab{marker}cd");
+        let flag = |text: &str, offset: usize, length: usize| {
+            let (shown, page) = paginate_text(text, Some(offset), Some(length));
+            assert_ne!(page.get("oversized"), Some(&json!(false)), "{page}");
+            (shown, page.get("oversized") == Some(&json!(true)))
+        };
+        // Ends inside the marker: cut short before it.
+        assert_eq!(flag(&marked, 0, 3), ("ab".to_owned(), true));
+        // Starts and ends inside it: empty, the marker is the next window's.
+        assert_eq!(flag(&marked, 3, 3), (String::new(), true));
+        // Starts inside it and ends past it: the whole marker, wider.
+        assert_eq!(flag(&marked, 6, 30), (format!("{marker}cd"), true));
+        // No edge inside a marker.
+        assert_eq!(flag(&marked, 0, 2), ("ab".to_owned(), false));
+        assert_eq!(flag("abcdef", 0, 3), ("abc".to_owned(), false));
+        // A CRLF pair moves an edge by its `\r`: not a redaction marker.
+        assert_eq!(flag("ab\r\ncd", 0, 3), ("ab".to_owned(), false));
+        for length in 1..=marked.chars().count() + 1 {
+            assert_eq!(walk(&marked, length).concat(), marked, "length {length}");
+        }
+    }
+
+    /// The page's shared body entry (one `offset` continues every body)
+    /// discloses that a body window of the page is oversized.
+    #[test]
+    fn a_page_entry_flags_an_oversized_body_window() {
+        let pr = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","owner":"o","repo":"r","number":1
+        }))
+        .expect("pr query");
+        let window = super::super::DEFAULT_TEXT_WINDOW;
+        let marked = format!("{}[REDACTED-GITHUBTOKENS]tail", "a".repeat(window - 10));
+        let plain = "b".repeat(window + 1_000);
+        for (bodies, flagged) in [
+            (vec![plain.clone(), marked.clone()], true),
+            (vec![plain.clone(), plain.clone()], false),
+        ] {
+            let mut windows = BodyWindows::default();
+            for body in &bodies {
+                window_body(body, None, &pr, &mut windows);
+            }
+            let mut pagination = serde_json::Map::new();
+            windows.attach(super::super::axis::Axis::CommentBody, &mut pagination);
+            let page = &pagination["commentBody"];
+            assert_eq!(
+                page.get("oversized") == Some(&json!(true)),
+                flagged,
+                "{page}"
+            );
+            assert_ne!(page.get("oversized"), Some(&json!(false)), "{page}");
+        }
+    }
+
+    /// A continuation hop whose only flagged window is a body's last one
+    /// (no `hasMore`: the marker that started before `offset` ends the
+    /// body) still states the flag on the page's entry.
+    #[test]
+    fn an_uncut_last_window_still_flags_the_page_entry() {
+        let pr = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","owner":"o","repo":"r","number":1
+        }))
+        .expect("pr query");
+        let window = super::super::DEFAULT_TEXT_WINDOW;
+        let marked = format!("{}[REDACTED-GITHUBTOKENS]", "a".repeat(window - 5));
+        let short = "c".repeat(window + 3);
+        let mut windows = BodyWindows::default();
+        let (shown, page) = window_body(&marked, Some(window), &pr, &mut windows);
+        assert_eq!(shown, "[REDACTED-GITHUBTOKENS]");
+        assert_eq!(
+            (page["oversized"].clone(), page["hasMore"].clone()),
+            (json!(true), json!(false))
+        );
+        window_body(&short, Some(window), &pr, &mut windows);
+        let mut pagination = serde_json::Map::new();
+        windows.attach(super::super::axis::Axis::CommentBody, &mut pagination);
+        assert_eq!(
+            pagination
+                .get("commentBody")
+                .and_then(|page| page.get("oversized")),
+            Some(&json!(true)),
+            "{pagination:?}"
+        );
     }
 
     #[test]

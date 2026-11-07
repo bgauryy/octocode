@@ -79,8 +79,11 @@ fn selection_recovery_keeps_fetch_snapshot_and_rejects_changed_source() {
 fn unknown_and_whole_selection_recovery_reject_source_drift() {
     let temp = Fixture::new();
     let path = temp.0.join("evidence.txt");
-    let lines = ["selected", "unknown one", "unknown two"]
-        .map(|label| format!("{label} {}\n", "x".repeat(1_200)));
+    // The word judge keeps `keep` and answers `maybe` unsure: the unknown
+    // recovery lists judged-unsure chunks (budget-pending ones are
+    // `nextCandidatePage`'s).
+    let lines =
+        ["keep", "maybe one", "maybe two"].map(|label| format!("{label} {}\n", "x".repeat(1_200)));
     let original = lines.concat();
     fs::write(&path, &original).expect("fixture");
     let paths = Paths(temp.0.clone());
@@ -91,8 +94,11 @@ fn unknown_and_whole_selection_recovery_reject_source_drift() {
         }),
     );
     let executor = tokio::runtime::Runtime::new().expect("runtime");
-    let mut runtime = selection_runtime(executor.handle().clone());
-    runtime.limits.max_chars = 1;
+    let runtime = crate::tools::test_support::selection_fake::runtime(
+        crate::tools::test_support::selection_fake::WordJudge { fail: None },
+        executor.handle().clone(),
+        std::time::Duration::from_secs(5),
+    );
     let first = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, Some(&runtime));
     let receipt = first.selection.expect("selection receipt");
     assert_eq!((receipt.selected_items, receipt.unknown_items), (1, 2));
@@ -120,7 +126,7 @@ fn unknown_and_whole_selection_recovery_reject_source_drift() {
     }
     let changed_source = lines
         .iter()
-        .map(|line| line.replace("unknown", "changed"))
+        .map(|line| line.replace("maybe", "changed"))
         .collect::<String>();
     fs::write(&path, changed_source).expect("change source");
     for (recovery, _) in &recoveries {

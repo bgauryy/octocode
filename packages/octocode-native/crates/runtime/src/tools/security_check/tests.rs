@@ -159,6 +159,104 @@ async fn a_mixed_case_advisory_id_is_found_as_given() {
     assert_eq!(http.targets(), [path]);
 }
 
+/// An advisory row leads with `answer`: the id, its aliases, each affected
+/// package with its ranges and the fix that closes each one (RUSTSEC-2020-0071:
+/// 0.2.10 is affected and needs 0.2.23, not 0.2.0), then the whole record.
+#[tokio::test]
+async fn an_advisory_row_answers_with_its_ranges_and_fixes() {
+    let id = "RUSTSEC-2020-0071";
+    let http = RouteHttp::new().json(
+        "/v1/vulns/RUSTSEC-2020-0071",
+        json!({"id": id, "summary": "Potential segfault in the time crate",
+            "aliases": ["CVE-2020-26235", "GHSA-wcg3-cvx6-7396"],
+            "affected": [{"package": {"ecosystem": "crates.io", "name": "time"},
+                "ranges": [{"type": "SEMVER", "events": [
+                    {"introduced": "0.0.0-0"}, {"fixed": "0.2.0"},
+                    {"introduced": "0.2.1-0"}, {"fixed": "0.2.1"},
+                    {"introduced": "0.2.7-0"}, {"fixed": "0.2.23"}]}]}]}),
+    );
+    let data = answer(&http, json!({"operation": "advisory", "id": id}))
+        .await
+        .expect("row");
+    let sentence = data["answer"].as_str().expect("answer");
+    for expected in [
+        id,
+        "CVE-2020-26235",
+        "GHSA-wcg3-cvx6-7396",
+        "time",
+        "<0.2.0 (fixed 0.2.0)",
+        ">=0.2.1-0 <0.2.1 (fixed 0.2.1)",
+        ">=0.2.7-0 <0.2.23 (fixed 0.2.23)",
+    ] {
+        assert!(sentence.contains(expected), "{expected}: {sentence}");
+    }
+    let keys = data.as_object().expect("row").keys().collect::<Vec<_>>();
+    let at = |key: &str| keys.iter().position(|known| *known == key);
+    assert!(at("answer") < at("advisories"), "{keys:?}");
+    assert_eq!(data["advisories"][0]["id"], id, "the record stays whole");
+}
+
+/// OSV only recommends sorted events, and its evaluation sorts them by the
+/// range's version order: shuffled events pair the same as sorted ones.
+#[test]
+fn shuffled_osv_events_pair_in_version_order() {
+    let row = json!({"advisories": [{"id": "RUSTSEC-2020-0071",
+        "affected": [{"packageName": "time", "ranges": [{"type": "SEMVER", "events": [
+            {"fixed": "0.2.23"}, {"introduced": "0.2.1-0"}, {"fixed": "0.2.0"},
+            {"introduced": "0.2.7-0"}, {"introduced": "0.0.0-0"}, {"fixed": "0.2.1"}]}]}]}]});
+    let lead = super::answer::advisory_lead(&row);
+    let sentence = lead["answer"].as_str().expect("answer");
+    assert!(
+        sentence.contains(
+            "<0.2.0 (fixed 0.2.0), >=0.2.1-0 <0.2.1 (fixed 0.2.1), >=0.2.7-0 <0.2.23 (fixed 0.2.23)"
+        ),
+        "{sentence}"
+    );
+}
+
+/// An entry with no ranges says what it holds: GHSA-jfh8-c2jp-5v3q lists
+/// single versions for some packages, and an entry with only GIT ranges
+/// names commits.
+#[test]
+fn an_entry_without_version_ranges_says_what_it_lists() {
+    let row = json!({"advisories": [{"id": "GHSA-jfh8-c2jp-5v3q",
+        "affected": [
+            {"packageName": "org.xbib.elasticsearch:log4j", "ranges": null,
+                "versions": ["6.3.2.1"]},
+            {"packageName": "g:git", "ranges": [{"type": "GIT", "repo": "https://g",
+                "events": [{"introduced": "0"}, {"fixed": "abc"}]}]},
+            {"packageName": "g:none"}]}]});
+    let lead = super::answer::advisory_lead(&row);
+    let sentence = lead["answer"].as_str().expect("answer");
+    for expected in [
+        "org.xbib.elasticsearch:log4j (1 version listed in the record)",
+        "g:git (git commit ranges in the record)",
+        "g:none (no ranges or versions in the record)",
+    ] {
+        assert!(sentence.contains(expected), "{expected}: {sentence}");
+    }
+    assert!(!sentence.contains("(ranges in the record)"), "{sentence}");
+}
+
+/// An ECOSYSTEM range keeps the order OSV lists: a generic comparator
+/// mis-orders Maven's `1.0-sp1` and PyPI's `1.0.post1`, both after `1.0`.
+#[test]
+fn ecosystem_osv_events_keep_their_listed_order() {
+    let row = json!({"advisories": [{"id": "GHSA-test",
+        "affected": [
+            {"packageName": "p", "ranges": [{"type": "ECOSYSTEM", "events": [
+                {"introduced": "1.0"}, {"fixed": "1.0.post1"}]}]},
+            {"packageName": "g:m", "ranges": [{"type": "ECOSYSTEM", "events": [
+                {"introduced": "1.0"}, {"fixed": "1.0-sp1"}]}]}]}]});
+    let lead = super::answer::advisory_lead(&row);
+    let sentence = lead["answer"].as_str().expect("answer");
+    assert!(
+        sentence.contains("p >=1.0 <1.0.post1 (fixed 1.0.post1)")
+            && sentence.contains("g:m >=1.0 <1.0-sp1 (fixed 1.0-sp1)"),
+        "{sentence}"
+    );
+}
+
 /// A spelling OSV does not know falls back to the usual one once, and says so.
 #[tokio::test]
 async fn a_lower_case_advisory_id_resolves_through_one_disclosed_retry() {

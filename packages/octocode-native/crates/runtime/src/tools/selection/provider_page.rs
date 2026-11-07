@@ -3,7 +3,8 @@
 //! source and each of its hits a candidate; its unfiltered lead keeps the page.
 use super::provider_hits;
 use super::{
-    Candidate, Failure, Runtime, select_scoped, unclassified_warning, unfiltered, unless_transient,
+    Candidate, Failure, Runtime, Unclassified, select_scoped, unclassified_notice, unfiltered,
+    unless_transient,
 };
 use crate::id::ToolId;
 use crate::response::selection_errors::{receipt_kind, unavailable};
@@ -96,6 +97,7 @@ pub(crate) fn apply_sanitized_rows(
         let candidates = states.into_iter().map(Candidate::new).collect::<Vec<_>>();
         let (outcome, provider) = match unless_transient(select_scoped(
             Some(runtime),
+            tool,
             query,
             &source,
             query["selection"].as_str(),
@@ -143,8 +145,9 @@ pub(crate) fn apply_sanitized_rows(
             data,
             provider
                 .as_ref()
-                .map(|error| unclassified_warning(error, "this page", "its files are"))
+                .map(|error| unclassified_notice(error, Unclassified::Page))
                 .into_iter()
+                .chain(outcome.long_context_notice.clone())
                 .chain(withheld_note),
         );
         let response_row = if queries.len() == 1 {
@@ -260,6 +263,11 @@ fn candidate_source_digest(
     data: &Value,
     states: &[Option<Value>],
 ) -> String {
+    // A field stated at its contract default (`page:1`) is its omission, as
+    // the continuation that drops it runs.
+    let mut canonical = query.clone();
+    crate::response::result::canonical_row(tool, &mut canonical);
+    let query = &canonical;
     let mut source = json!({
         "tool":tool.as_str(), "path":query.get("path"),
         "owner":query.get("owner"), "repo":query.get("repo"), "page":query.get("page"),

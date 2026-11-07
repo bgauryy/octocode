@@ -10,7 +10,7 @@ const _: () =
     assert!(crate::contracts::query_limits::gh_structure::refs::LIMIT_MAXIMUM <= MAX_PER_PAGE);
 
 /// The default branch and its head commit, one page of branches
-/// (`{name: sha}`), and tags ordered newest version first ([`super::tag_order`]).
+/// (`[{name, sha}]`), and tags ordered newest version first ([`super::tag_order`]).
 /// Saved cursor progress continues while either list has more. Tags carry
 /// names because each name is already a ref. With `ref`, return only that
 /// ref's commit and `refKind`.
@@ -116,16 +116,13 @@ pub(super) async fn refs(
     // Copy the semantic request before adding the next saved page position.
     let mut continued = query_row(query, &["page"]);
     let past_end = page > 1 && tags.names.is_empty() && branches.refs.is_empty();
-    {
-        // `{name: sha}`: one key per branch instead of repeated `name`/`sha` keys.
-        value["branches"] = Value::Object(
-            branches
-                .refs
-                .iter()
-                .map(|named: &NamedRef| (named.name.clone(), json!(named.sha)))
-                .collect(),
-        );
-    }
+    // Rows, never `{name: sha}`: a branch name is data, and in a JSON key the
+    // output secret gate reads `"…-token-x":"<sha>"` as a credential.
+    value["branches"] = branches
+        .refs
+        .iter()
+        .map(|named: &NamedRef| json!({ "name": named.name, "sha": named.sha }))
+        .collect();
     let more = tags.has_more || branches.has_more;
     let pages = crate::response::pages::PageFacts::open(page, Some(per_page), more && !past_end);
     if past_end {

@@ -37,6 +37,8 @@ pattern!(version, r"<version>\s*([^<]+?)\s*</version>");
 pattern!(dependency, r"(?s)<dependency>(.*?)</dependency>");
 pattern!(exclusions, r"(?s)<exclusions>.*?</exclusions>");
 pattern!(scope, r"<scope>\s*([^<]+?)\s*</scope>");
+pattern!(dependency_type, r"<type>\s*([^<]+?)\s*</type>");
+pattern!(classifier, r"<classifier>\s*([^<]+?)\s*</classifier>");
 pattern!(optional, r"<optional>\s*([^<]+?)\s*</optional>");
 pattern!(
     property,

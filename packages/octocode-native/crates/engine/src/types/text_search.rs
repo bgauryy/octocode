@@ -4,6 +4,9 @@
 pub struct TextSearchMatch {
     /// 1-based line number.
     pub line: u32,
+    /// 1-based source line `value` starts at: `line`, or the first context
+    /// line the search joined before it.
+    pub first_line: u32,
     /// The match's last line when it spans several (multiline mode); `None`
     /// for a one-line match.
     pub last_line: Option<u32>,

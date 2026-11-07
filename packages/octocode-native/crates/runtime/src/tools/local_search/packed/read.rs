@@ -93,16 +93,21 @@ impl<'a> Reader<'a> {
             } else {
                 self.bytes(32)?.try_into().ok()?
             };
+            let last_line = self.optional()?;
+            let count = self.optional()?;
+            let rank = self.optional()?;
+            let before = u32::try_from(self.number()?).ok()?;
             matches.push(TextSearchMatch {
                 line,
-                last_line: self.optional()?,
+                first_line: line.checked_sub(before)?,
+                last_line,
                 column,
                 byte_offset,
                 deferred,
                 value,
                 value_digest,
-                count: self.optional()?,
-                rank: self.optional()?,
+                count,
+                rank,
             });
         }
         Some(TextSearchFile {

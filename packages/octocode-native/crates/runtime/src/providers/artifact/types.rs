@@ -1,9 +1,8 @@
 //! The rows, pages, state and errors every registry provider returns, and
 //! the resolved npm registry a lookup runs against.
-use octocode_contract_types::{ArtifactType, ErrorCode};
+use octocode_contract_types::{ArtifactSearchRowEnginesItem, ArtifactType, ErrorCode};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::fmt;
 use url::Url;
 
@@ -12,7 +11,7 @@ mod advisory;
 pub use advisory::Advisory;
 pub(crate) use advisory::alias_groups;
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactItem {
     /// The queried registry; the request states it, so rows omit it.
@@ -68,9 +67,10 @@ pub struct ArtifactItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peer_dependencies: Option<Vec<String>>,
     /// npm `engines`: every runtime or tool the package declares, with its
-    /// range (`node`, `npm`, `pnpm`, …).
+    /// range (`node`, `npm`, `pnpm`, …), as rows: a name is data, never a
+    /// JSON key.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub engines: Option<BTreeMap<String, String>>,
+    pub engines: Option<Vec<ArtifactSearchRowEnginesItem>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requires_python: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -94,6 +94,11 @@ pub struct ArtifactItem {
     /// `source_ref` is an upstream release tag checked to exist.
     #[serde(skip)]
     pub source_tag: bool,
+    /// `source_ref` is the release tag the package's metadata declares (a
+    /// Maven `<scm><tag>`), which exists upstream but names no tag of this
+    /// version: pinned as the registry's claim, and the response says so.
+    #[serde(skip)]
+    pub declared_ref: bool,
     /// The registry's release ref that GitHub does not have (an unpushed
     /// or rewritten commit): no lead pins it; the response warns with it.
     #[serde(skip)]
@@ -220,6 +225,7 @@ impl ArtifactItem {
             verification: None,
             source_attested: false,
             source_tag: false,
+            declared_ref: false,
             tag_differs: None,
             missing_ref: None,
             repository_status: None,
@@ -269,7 +275,7 @@ impl TerminalLimit {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ArtifactProviderPage {
     pub artifacts: Vec<ArtifactItem>,
     pub next_state: Option<ArtifactProviderState>,

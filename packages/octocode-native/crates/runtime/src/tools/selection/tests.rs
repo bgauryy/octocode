@@ -73,6 +73,7 @@ fn select_source(
 ) -> Result<Outcome, Failure> {
     select(
         Some(runtime),
+        crate::id::ToolId::LocalFetch,
         query,
         "source",
         prior,

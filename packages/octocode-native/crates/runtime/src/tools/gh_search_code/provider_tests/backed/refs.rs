@@ -2,7 +2,7 @@
 use super::*;
 use octocode_github::mock_http::mount_json;
 use serde_json::json;
-use wiremock::matchers::{method, path};
+use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 /// `branch` verifies the top files at that ref: lines come from the
@@ -264,20 +264,30 @@ async fn every_row_of_a_ref_page_is_read_at_the_ref() {
     assert_eq!(reads[0]["input"]["queries"][0]["ref"], TREE_SHA, "{data}");
 }
 
-/// A ref page discloses the default-branch index once (page 1); later
-/// pages carry neither the warning nor its HEAD lookup.
+/// Each page of a ref search can be read on its own, so each discloses the
+/// default-branch index; the head the first page read rides the
+/// continuation, so the walk asks for it once.
 #[tokio::test]
-async fn the_index_warning_is_stated_on_the_first_ref_page_only() {
+async fn the_index_warning_is_stated_on_every_ref_page() {
     let server = MockServer::builder().start().await;
-    mount_json(
-        &server,
-        "/api/v3/search/code",
-        200,
-        json!({
-            "total_count":40,"incomplete_results":false,"items":[code_item("a.rs")]
-        }),
-    )
-    .await;
+    // GitHub's pages: one file per narrow page, all three on a wide one.
+    let files = ["a.rs", "b.rs", "c.rs"];
+    let pages = files
+        .iter()
+        .enumerate()
+        .map(|(at, file)| ((at + 1).to_string(), "1", vec![code_item(file)]))
+        .chain([("1".to_owned(), "100", files.map(code_item).to_vec())]);
+    for (page, per_page, items) in pages {
+        Mock::given(method("GET"))
+            .and(path("/api/v3/search/code"))
+            .and(query_param("page", page.as_str()))
+            .and(query_param("per_page", per_page))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "total_count":3,"incomplete_results":false,"items":items
+            })))
+            .mount(&server)
+            .await;
+    }
     mount_ref(&server, "dev").await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/HEAD"))
@@ -285,18 +295,24 @@ async fn the_index_warning_is_stated_on_the_first_ref_page_only() {
         .expect(1)
         .mount(&server)
         .await;
-    mount_content(&server, "a.rs", "needle\n").await;
+    for file in ["a.rs", "b.rs", "c.rs"] {
+        mount_content(&server, file, "needle\n").await;
+    }
+    let mut query = json!({"owner":"a","repo":"b","keywords":["needle"],
+        "ref":"dev","limit":1});
     for page in [1, 2] {
-        let out = run(
-            &server,
-            json!({"owner":"a","repo":"b","keywords":["needle"],
-                "ref":"dev","page":page}),
-        )
-        .await
-        .expect("search");
+        let out = match run(&server, query.clone()).await {
+            Ok(out) => out,
+            Err(error) => {
+                let seen = server.received_requests().await.unwrap_or_default();
+                let seen = seen.iter().map(|r| r.url.to_string()).collect::<Vec<_>>();
+                panic!("page {page}: {error:?}; requests {seen:#?}")
+            }
+        };
+        query = serde_json::to_value(super::super::next_page(&out)).expect("query");
         let warned = out.data["warnings"]
             .to_string()
             .contains("default-branch index");
-        assert_eq!(warned, page == 1, "page {page}: {}", out.data);
+        assert!(warned, "page {page}: {}", out.data);
     }
 }

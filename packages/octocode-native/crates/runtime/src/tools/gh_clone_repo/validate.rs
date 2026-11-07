@@ -1,7 +1,7 @@
 //! Query and endpoint validation: repository segments, sparse paths, and the git web root clones come from.
 use super::{CloneError, GhCloneRepoQuery, Sparse};
 use octocode_contract_types::ErrorCode;
-use octocode_github::GitHubEndpoint;
+use octocode_github::{Deployment, GitHubEndpoint};
 
 pub(super) fn validate_query(query: &GhCloneRepoQuery) -> Result<(), CloneError> {
     for (name, value) in [
@@ -60,9 +60,11 @@ pub(super) fn is_sparse_path(path: &str) -> bool {
             .all(|segment| !matches!(segment, "" | "." | ".."))
 }
 
-/// The git web root of `endpoint` that repositories are cloned from:
-/// `https://github.com` for the public API, the GitHub Enterprise host (and
-/// any path prefix before `/api/v3`) otherwise.
+/// The git web root of `endpoint` that repositories are cloned from, by its
+/// deployment: GitHub's cloud serves its API at the root of `api.<web host>`
+/// and git at the web host (`https://github.com`, `https://<sub>.ghe.com`);
+/// an Enterprise Server serves git at its host and any path prefix before
+/// `/api/v3`.
 pub(super) fn web_root(endpoint: &GitHubEndpoint) -> Result<url::Url, CloneError> {
     let base = endpoint
         .rest(&[])
@@ -78,8 +80,15 @@ pub(super) fn web_root(endpoint: &GitHubEndpoint) -> Result<url::Url, CloneError
         return Err(unsupported_endpoint());
     }
     let path = base.path().trim_end_matches('/');
-    if base.host_str() == Some("api.github.com") && path.is_empty() {
-        return url::Url::parse("https://github.com").map_err(|_| unsupported_endpoint());
+    if endpoint.deployment() == Deployment::Cloud {
+        let host = base.host_str().unwrap_or_default();
+        let web = octocode_github::credential_host(host);
+        // A cloud API lives at the root of its `api.` host only, on the
+        // default port: the git host has no other port to carry over.
+        if !path.is_empty() || web == host || base.port().is_some() {
+            return Err(unsupported_endpoint());
+        }
+        return url::Url::parse(&format!("https://{web}")).map_err(|_| unsupported_endpoint());
     }
     let Some(prefix) = path.strip_suffix("/api/v3") else {
         return Err(unsupported_endpoint());
@@ -107,6 +116,6 @@ pub(super) fn repository_url(
 fn unsupported_endpoint() -> CloneError {
     CloneError::new(
         ErrorCode::Config,
-        "ghCloneRepo requires an HTTPS GitHub API endpoint (plain http only on loopback): https://api.github.com or a GitHub Enterprise endpoint ending in /api/v3, without credentials or query parameters. Use ghGetFileContent for other API proxies.",
+        "ghCloneRepo requires an HTTPS GitHub API endpoint (plain http only on loopback): https://api.github.com, https://api.<subdomain>.ghe.com or a GitHub Enterprise Server endpoint ending in /api/v3, without credentials or query parameters. Use ghGetFileContent for other API proxies.",
     )
 }

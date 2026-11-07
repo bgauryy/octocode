@@ -352,7 +352,7 @@ fn held_past_budget(
             )
             .build(),
         );
-        "Nothing was shown: run related[] readFile (localFetch pages this file whole) or narrow the pattern.".to_owned()
+        ONE_FILE_HINT.to_owned()
     } else {
         if !list_view(local_search_query::view(query))
             && let Ok(lead) = leads::count_lead(query)
@@ -379,20 +379,22 @@ fn held_past_budget(
     }
 }
 
+/// The refusal hint for a one-file scope, whose only lead is its read.
+const ONE_FILE_HINT: &str = "Nothing was shown: run the related[] localFetch call (it pages the file whole) or narrow the pattern.";
+
 /// The refusal hint for a directory scope, naming only the leads offered: a
-/// per-file count (`counted`) and a listing of the scope (`listed`).
+/// per-file count (`counted`) and a listing of the scope (`listed`), each by
+/// the tool its related[] call runs (call keys never reach the output).
 fn directory_hint(counted: bool, listed: bool) -> String {
-    let list = if listed {
-        " (related[] listScope lists the scope to split it by)"
-    } else {
-        ""
+    let leads = match (counted, listed) {
+        (true, true) => {
+            "run the related[] localSearch call for per-file counts or the structureSearch listing to split the scope, or "
+        }
+        (true, false) => "run the related[] localSearch call for per-file counts, or ",
+        (false, true) => "run the related[] structureSearch listing to split the scope, or ",
+        (false, false) => "",
     };
-    let count = if counted {
-        " or run related[] viewFileCount (per-file counts keep no rows) and search the files it ranks (a refused one-file search offers related[] readFile)"
-    } else {
-        ""
-    };
-    format!("Nothing was shown: narrow path, include or the pattern{list}{count}.")
+    format!("Nothing was shown: {leads}narrow path, include or the pattern.")
 }
 
 /// Every candidate failed before it could be searched: there is no evidence,
@@ -422,15 +424,49 @@ pub(crate) fn unreadable_scope(stats: &octocode_engine::types::TextSearchStats) 
 
 #[cfg(test)]
 mod hint_tests {
-    /// Each lead the hint names is one the refusal offers, and only those.
+    /// Call keys never reach the output (`attach_calls` lists a related
+    /// call in `related[]` without its key), so a hint naming one points
+    /// at nothing.
+    const INTERNAL_KEYS: [&str; 3] = ["readFile", "viewFileCount", "listScope"];
+
+    /// Each lead the hint names is one the refusal offers, and only those,
+    /// named by the tool its related[] call runs.
     #[test]
-    fn a_directory_hint_names_only_offered_leads() {
+    fn a_directory_hint_names_only_offered_leads_by_tool() {
         for counted in [false, true] {
             for listed in [false, true] {
                 let hint = super::directory_hint(counted, listed);
-                assert_eq!(hint.contains("viewFileCount"), counted, "{hint}");
-                assert_eq!(hint.contains("listScope"), listed, "{hint}");
+                assert_eq!(
+                    hint.contains("related[] localSearch call for per-file counts"),
+                    counted,
+                    "{hint}"
+                );
+                assert_eq!(
+                    hint.contains("structureSearch listing to split the scope"),
+                    listed,
+                    "{hint}"
+                );
+                assert!(
+                    hint.contains("narrow path, include or the pattern"),
+                    "{hint}"
+                );
+                for key in INTERNAL_KEYS {
+                    assert!(!hint.contains(key), "{hint}");
+                }
             }
+        }
+    }
+
+    /// A one-file refusal names its localFetch lead by tool.
+    #[test]
+    fn a_one_file_hint_names_the_localfetch_call() {
+        let hint = super::ONE_FILE_HINT;
+        assert!(
+            hint.contains("related[] localFetch call (it pages the file whole)"),
+            "{hint}"
+        );
+        for key in INTERNAL_KEYS {
+            assert!(!hint.contains(key), "{hint}");
         }
     }
 }

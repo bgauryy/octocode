@@ -194,13 +194,17 @@ async fn capped_search_states_the_full_match_count() {
     );
     let warnings = out.data["warnings"].to_string();
     assert!(warnings.contains("4156"), "{}", out.data);
-    // Later pages do not repeat it.
+    // A page can be read on its own: a later page states the count too.
     let second = run(
         &server,
         json!({"owner":"o","sort":{"by":"stars","order":"desc"},"page":2,"operation":"search"}),
     )
     .await;
-    crate::tools::test_support::checks::assert_absent(&second.data["warnings"], "4156");
+    assert!(
+        second.data["warnings"].to_string().contains("4156"),
+        "{}",
+        second.data
+    );
 }
 
 /// GitHub silently drops a `language:` it does not know and returns

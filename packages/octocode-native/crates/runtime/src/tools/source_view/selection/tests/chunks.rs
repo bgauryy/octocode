@@ -44,6 +44,7 @@ fn disjoint_spans_never_spend_candidate_slots_on_omission_markers() {
         }
         let outcome = crate::tools::selection::select(
             Some(&runtime),
+            crate::id::ToolId::LocalFetch,
             &query,
             "source",
             None,

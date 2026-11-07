@@ -83,9 +83,11 @@ pub(super) trait Listing:
     /// the window it cuts (the offsets, the rows and their layout): the
     /// walk a cursor continues. That is the root, the operation and every
     /// field the contract gives a listing role (`x-listing`), as the
-    /// request spells them.
+    /// request spells them, a field at its contract default as its omission
+    /// ([`crate::response::result::canonical_row`]).
     fn walk_identity(&self, root: &std::path::Path) -> Value {
-        let row = serde_json::to_value(self).unwrap_or_default();
+        let mut row = serde_json::to_value(self).unwrap_or_default();
+        crate::response::result::canonical_row(crate::id::ToolId::StructureSearch, &mut row);
         let fields = structure_search::FIELDS
             .iter()
             .filter_map(|(field, _)| Some(((*field).to_owned(), row.get(*field)?.clone())))

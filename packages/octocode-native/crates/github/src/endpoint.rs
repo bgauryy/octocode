@@ -2,14 +2,74 @@ use url::Url;
 
 use super::{ProviderError, ProviderErrorKind, budget::GitHubResource};
 
-/// The host stored credentials and limits belong to for an API host:
-/// github.com's API host `api.github.com` folds to `github.com`; any other
-/// host is itself.
+/// Where a GitHub API runs, which decides its URL layout and limits.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Deployment {
+    /// GitHub's cloud: github.com (`api.github.com`) and GHE.com
+    /// (`api.<subdomain>.ghe.com`), which mirrors api.github.com
+    /// (<https://docs.github.com/en/enterprise-cloud@latest/rest/meta/meta>):
+    /// REST at the host root, GraphQL at `<base>/graphql`, credentials
+    /// stored for the host without `api.`.
+    Cloud,
+    /// GitHub Enterprise Server (any other host, loopback test servers
+    /// included): REST under `/api/v3`, GraphQL at `/api/graphql`.
+    Server,
+}
+
+impl Deployment {
+    /// The deployment of an API host, or of the web host its credentials
+    /// are stored for (`github.com`, `<subdomain>.ghe.com`).
+    #[must_use]
+    pub fn of_host(host: &str) -> Self {
+        let web = strip_api(host).unwrap_or(host);
+        if is_cloud_web_host(web) {
+            Self::Cloud
+        } else {
+            Self::Server
+        }
+    }
+}
+
+/// `host` without a leading `api.` label, case-insensitively.
+fn strip_api(host: &str) -> Option<&str> {
+    host.split_at_checked(4)
+        .filter(|(label, _)| label.eq_ignore_ascii_case("api."))
+        .map(|(_, web)| web)
+}
+
+/// Whether `host` is a cloud web host: github.com, or one GHE.com
+/// subdomain.
+fn is_cloud_web_host(host: &str) -> bool {
+    const GHE_COM: &str = ".ghe.com";
+    let enterprise = host
+        .len()
+        .checked_sub(GHE_COM.len())
+        .filter(|&at| at > 0 && host.is_char_boundary(at))
+        .map(|at| host.split_at(at))
+        .filter(|(_, suffix)| suffix.eq_ignore_ascii_case(GHE_COM));
+    host.eq_ignore_ascii_case("github.com")
+        || enterprise.is_some_and(|(subdomain, _)| !subdomain.contains('.'))
+}
+
+/// The host stored credentials and limits belong to for an API host (or
+/// that web host itself): a cloud API host drops its `api.` label
+/// (`api.github.com` -> `github.com`, `api.acme.ghe.com` -> `acme.ghe.com`,
+/// as gh stores them); a Server host is itself.
 pub fn credential_host(api_host: &str) -> &str {
-    if api_host.eq_ignore_ascii_case("api.github.com") {
-        "github.com"
-    } else {
-        api_host
+    match (Deployment::of_host(api_host), strip_api(api_host)) {
+        (Deployment::Cloud, Some(web)) => web,
+        _ => api_host,
+    }
+}
+
+/// The REST API base URL for a host a user names (a web or API host): a
+/// cloud host's API is `https://api.<web host>`, a Server's is
+/// `https://<host>/api/v3`.
+#[must_use]
+pub fn api_base_for_host(host: &str) -> String {
+    match Deployment::of_host(host) {
+        Deployment::Cloud => format!("https://api.{}", credential_host(host)),
+        Deployment::Server => format!("https://{host}/api/v3"),
     }
 }
 
@@ -17,6 +77,7 @@ pub fn credential_host(api_host: &str) -> &str {
 pub struct GitHubEndpoint {
     rest_base: Url,
     graphql: Url,
+    deployment: Deployment,
 }
 
 impl GitHubEndpoint {
@@ -43,12 +104,14 @@ impl GitHubEndpoint {
         if !rest_base.path().ends_with('/') {
             rest_base.set_path(&format!("{}/", rest_base.path()));
         }
-        let graphql = if rest_base.host_str() == Some("api.github.com") {
-            rest_base.join("graphql")
-        } else {
-            let mut value = rest_base.clone();
-            value.set_path("/api/graphql");
-            Ok(value)
+        let deployment = Deployment::of_host(rest_base.host_str().unwrap_or_default());
+        let graphql = match deployment {
+            Deployment::Cloud => rest_base.join("graphql"),
+            Deployment::Server => {
+                let mut value = rest_base.clone();
+                value.set_path("/api/graphql");
+                Ok(value)
+            }
         }
         .map_err(|_| {
             ProviderError::new(
@@ -56,7 +119,17 @@ impl GitHubEndpoint {
                 "invalid GitHub GraphQL URL",
             )
         })?;
-        Ok(Self { rest_base, graphql })
+        Ok(Self {
+            rest_base,
+            graphql,
+            deployment,
+        })
+    }
+
+    /// Where this API runs.
+    #[must_use]
+    pub fn deployment(&self) -> Deployment {
+        self.deployment
     }
 
     /// Whether the API is on a loopback host.
@@ -172,6 +245,78 @@ mod localhost_rule_tests {
         ] {
             assert!(!is_loopback(&Url::parse(url).unwrap()), "{url}");
         }
+    }
+}
+
+#[cfg(test)]
+mod deployment_tests {
+    use super::{Deployment, GitHubEndpoint, api_base_for_host, credential_host};
+    use url::Url;
+
+    /// One deployment kind decides the GraphQL URL, the credential host
+    /// and the API base of every host a user can name.
+    #[test]
+    fn each_host_derives_its_urls_and_credential_host_from_one_kind() {
+        for (base, kind, graphql, credentials) in [
+            (
+                "https://api.github.com",
+                Deployment::Cloud,
+                "https://api.github.com/graphql",
+                "github.com",
+            ),
+            (
+                "https://api.acme.ghe.com",
+                Deployment::Cloud,
+                "https://api.acme.ghe.com/graphql",
+                "acme.ghe.com",
+            ),
+            (
+                "https://ghe.example.com/api/v3",
+                Deployment::Server,
+                "https://ghe.example.com/api/graphql",
+                "ghe.example.com",
+            ),
+            // A loopback test server keeps the Server layout.
+            (
+                "http://127.0.0.1:8080/api/v3",
+                Deployment::Server,
+                "http://127.0.0.1:8080/api/graphql",
+                "127.0.0.1",
+            ),
+        ] {
+            let endpoint = GitHubEndpoint::new(Url::parse(base).expect("url")).expect("endpoint");
+            assert_eq!(endpoint.deployment(), kind, "{base}");
+            assert_eq!(endpoint.graphql().as_str(), graphql, "{base}");
+            assert_eq!(endpoint.credential_host(), credentials, "{base}");
+        }
+    }
+
+    /// Host strings (a configured host, a login host) follow the same rule.
+    #[test]
+    fn host_strings_use_the_same_rule() {
+        assert_eq!(credential_host("api.acme.ghe.com"), "acme.ghe.com");
+        assert_eq!(credential_host("acme.ghe.com"), "acme.ghe.com");
+        assert_eq!(credential_host("api.github.com"), "github.com");
+        assert_eq!(
+            credential_host("api.ghe.example.com"),
+            "api.ghe.example.com"
+        );
+        // Only one subdomain label is a GHE.com enterprise.
+        assert_eq!(Deployment::of_host("api.a.b.ghe.com"), Deployment::Server);
+        assert_eq!(Deployment::of_host("api.ghe.com"), Deployment::Server);
+        assert_eq!(api_base_for_host("github.com"), "https://api.github.com");
+        assert_eq!(
+            api_base_for_host("acme.ghe.com"),
+            "https://api.acme.ghe.com"
+        );
+        assert_eq!(
+            api_base_for_host("api.acme.ghe.com"),
+            "https://api.acme.ghe.com"
+        );
+        assert_eq!(
+            api_base_for_host("ghe.example.com"),
+            "https://ghe.example.com/api/v3"
+        );
     }
 }
 

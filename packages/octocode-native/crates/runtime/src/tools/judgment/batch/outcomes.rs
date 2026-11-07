@@ -167,6 +167,7 @@ pub(super) fn judged(parts: Vec<(Response, u64)>) -> Result<Judged, Classificati
         output_tokens: 0,
         provider_calls: 0,
         known_usage_calls: 0,
+        long_context_retry: None,
     };
     let mut model_mismatch = false;
     for (part, calls) in parts {

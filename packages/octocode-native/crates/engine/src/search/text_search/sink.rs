@@ -135,6 +135,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                 let span = TextSearchMatch {
                     deferred: None,
                     line,
+                    first_line: line,
                     last_line: (lines > 1).then(|| line.saturating_add(lines - 1)),
                     column,
                     byte_offset,
@@ -154,6 +155,7 @@ impl<M: Matcher> CollectSink<'_, M> {
             let span = TextSearchMatch {
                 deferred: None,
                 line: line_number,
+                first_line: line_number,
                 last_line: None,
                 column: 0,
                 byte_offset: 0,

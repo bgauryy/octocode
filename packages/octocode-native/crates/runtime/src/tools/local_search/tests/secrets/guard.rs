@@ -14,6 +14,7 @@ fn source_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
         matches: vec![octocode_engine::types::TextSearchMatch {
             deferred: None,
             line: 1,
+            first_line: 1,
             last_line: None,
             column: 0,
             byte_offset: 0,
@@ -38,7 +39,7 @@ fn source_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
         0..10,
         &verify::ValueCheck {
             security: &security,
-            match_only: false,
+            shape: verify::RowShape::Lines(Default::default()),
             cancel: &NeverCancel,
             judged: None,
         },
@@ -64,6 +65,7 @@ fn source_secret_guard_fails_closed_when_the_match_line_is_gone() {
         matches: vec![octocode_engine::types::TextSearchMatch {
             deferred: None,
             line: 40,
+            first_line: 40,
             last_line: None,
             column: 0,
             byte_offset: 0,
@@ -84,7 +86,7 @@ fn source_secret_guard_fails_closed_when_the_match_line_is_gone() {
         0..10,
         &verify::ValueCheck {
             security: &security,
-            match_only: false,
+            shape: verify::RowShape::Lines(Default::default()),
             cancel: &NeverCancel,
             judged: None,
         },

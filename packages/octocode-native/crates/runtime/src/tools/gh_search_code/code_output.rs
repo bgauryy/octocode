@@ -15,7 +15,7 @@ pub(super) use empty_scope::{
 pub(super) use hit_commits::{
     Resolution, index_commits, line_commit, requested_ref, resolve_lines, row_repo,
 };
-pub(super) use index_ref::disclose_index_ref;
+pub(super) use index_ref::{disclose_index_ref, index_head};
 
 /// Optional top-hit exploration and required reads of unresolved source.
 pub(super) struct PageReads {

@@ -54,25 +54,21 @@ fn transient_guidance_respects_final_failures() {
     );
 }
 
-/// A batch's error rows that share a recovery state it once per response:
-/// the first failed row carries it in `hints`, later ones do not repeat it,
-/// and a row with its own hints keeps them.
+/// Recovery guidance is per-row evidence: every failed row of a batch that
+/// needs the shared recovery carries it in its own `hints`, as the shaping
+/// stage attaches it; a row with its own hints keeps them.
 #[test]
-fn a_shared_error_hint_is_stated_once_per_response() {
-    let failed = || json!({"status":"error","data":{"errorCode":"transport","error":"down"}});
+fn every_error_row_of_a_batch_carries_its_own_shared_hint() {
+    let failed = || json!({"status":"error","data":{"errorCode":"notFound","error":"gone"}});
     let mut structured = json!({"results":[failed(), failed(),
-        {"status":"error","data":{"errorCode":"transport","error":"down","hints":["own"]}}]});
+        {"status":"error","data":{"errorCode":"notFound","error":"gone","hints":["own"]}}]});
     for row in structured["results"].as_array_mut().expect("rows") {
-        attach_error_notice(
-            ToolId::GhSearchCode.output(),
-            &mut row["data"],
-            &Value::Null,
-        );
+        attach_error_hint(ToolId::GhStructure.output(), &mut row["data"], &Value::Null);
     }
     crate::response::notices::place(&mut structured, "results");
     let hints = |index: usize| structured["results"][index]["data"].get("hints").cloned();
-    assert_eq!(hints(0), Some(json!([TRANSIENT_HINT])), "{structured}");
-    assert_eq!(hints(1), None, "said once: {structured}");
+    assert_eq!(hints(0), hints(1), "{structured}");
+    assert!(hints(1).is_some(), "second row has its hint: {structured}");
     assert_eq!(hints(2), Some(json!(["own"])), "{structured}");
     assert!(!structured.to_string().contains("notices"), "{structured}");
 }

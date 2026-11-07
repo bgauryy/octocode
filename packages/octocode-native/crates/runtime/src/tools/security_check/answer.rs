@@ -132,6 +132,163 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
     data
 }
 
+/// The lead of an advisory row: each record's id, its aliases, and every
+/// package it affects with each affected range and the fix closing it, from
+/// the record's own events (`>=0.2.7-0 <0.2.23 (fixed 0.2.23)`). Every range
+/// is listed; a git range names commits, so the record keeps it.
+pub(super) fn advisory_lead(row: &Value) -> Value {
+    let records = row["advisories"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let sentences = records
+        .iter()
+        .map(|record| {
+            let mut sentence = typed(record["id"].as_str().unwrap_or_default());
+            let aliases = strings(&record["aliases"]);
+            if !aliases.is_empty() {
+                sentence.push_str(&format!(" (aliases {})", aliases.join(", ")));
+            }
+            if record["withdrawn"].is_string() {
+                sentence.push_str(" is withdrawn");
+            }
+            let packages = record["affected"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| {
+                    let ranges = entry["ranges"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|range| range["type"] != "GIT")
+                        .flat_map(intervals)
+                        .collect::<Vec<_>>();
+                    let name = typed(entry["packageName"].as_str().unwrap_or_default());
+                    (!name.is_empty()).then(|| {
+                        if !ranges.is_empty() {
+                            return format!("{name} {}", ranges.join(", "));
+                        }
+                        format!("{name} ({})", unranged(entry))
+                    })
+                })
+                .collect::<Vec<_>>();
+            if packages.is_empty() {
+                sentence.push('.');
+            } else {
+                sentence.push_str(&format!(" affects {}.", packages.join("; ")));
+            }
+            sentence
+        })
+        .collect::<Vec<_>>();
+    if sentences.is_empty() {
+        return json!({});
+    }
+    json!({ "answer": sentences.join(" ") })
+}
+
+/// What an entry with no version range holds, as the answer names it.
+fn unranged(entry: &Value) -> String {
+    let git = entry["ranges"]
+        .as_array()
+        .is_some_and(|ranges| ranges.iter().any(|range| range["type"] == "GIT"));
+    let versions = entry["versions"].as_array().map_or(0, Vec::len);
+    match (versions, git) {
+        (0, true) => "git commit ranges in the record".to_owned(),
+        (0, false) => "no ranges or versions in the record".to_owned(),
+        (1, _) => "1 version listed in the record".to_owned(),
+        (count, _) => format!("{count} versions listed in the record"),
+    }
+}
+
+fn strings(value: &Value) -> Vec<String> {
+    value
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(typed)
+        .collect()
+}
+
+/// The version an OSV event names (`introduced`, `fixed`, `last_affected` or
+/// `limit`).
+fn event_version(event: &Value) -> &str {
+    ["introduced", "fixed", "last_affected", "limit"]
+        .into_iter()
+        .find_map(|key| event[key].as_str())
+        .unwrap_or_default()
+}
+
+/// A range's events in the order to pair them. OSV only recommends a sorted
+/// list, and its evaluation sorts by the range's own scheme. A `SEMVER`
+/// range is sorted by SemVer (`introduced: "0"` first) when every version
+/// parses; any other range (`ECOSYSTEM`: Maven, PyPI and others order
+/// versions their own way) keeps the order OSV lists, as the schema
+/// recommends it be sorted.
+fn ordered_events(range: &Value) -> Vec<&Value> {
+    let events = range["events"]
+        .as_array()
+        .map(|events| events.iter().collect::<Vec<_>>())
+        .unwrap_or_default();
+    if range["type"] != "SEMVER" {
+        return events;
+    }
+    let versions = events
+        .iter()
+        .map(|event| match event_version(event) {
+            "0" => Some(None),
+            version => semver::Version::parse(version.strip_prefix('v').unwrap_or(version))
+                .ok()
+                .map(Some),
+        })
+        .collect::<Option<Vec<_>>>();
+    let Some(versions) = versions else {
+        return events;
+    };
+    let mut keyed = versions.into_iter().zip(events).collect::<Vec<_>>();
+    keyed.sort_by(|(left, _), (right, _)| left.cmp(right));
+    keyed.into_iter().map(|(_, event)| event).collect()
+}
+
+/// A range's events as intervals, in [`ordered_events`] order: `introduced`
+/// opens one (`0` or `0.0.0-0`: no lower bound), `fixed` closes it with its
+/// fix, `last_affected` closes it inclusively with no fix named, and an open
+/// one has no fix.
+fn intervals(range: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut open: Option<String> = None;
+    let lower = |from: &str| match from {
+        "0" | "0.0.0-0" | "0.0.0" => String::new(),
+        from => format!(">={} ", typed(from)),
+    };
+    let events = ordered_events(range);
+    for event in events {
+        if let Some(from) = event["introduced"].as_str() {
+            open = Some(lower(from));
+        } else if let Some(fixed) = event["fixed"].as_str() {
+            let fixed = typed(fixed);
+            out.push(format!(
+                "{}<{fixed} (fixed {fixed})",
+                open.take().unwrap_or_default()
+            ));
+        } else if let Some(last) = event["last_affected"].as_str() {
+            let last = typed(last);
+            out.push(format!(
+                "{}<={last} (no fix named)",
+                open.take().unwrap_or_default()
+            ));
+        }
+    }
+    if let Some(from) = open {
+        out.push(match from.trim() {
+            "" => "every version (no fix named)".to_owned(),
+            from => format!("{from} (no fix named)"),
+        });
+    }
+    out
+}
+
 /// The lead of a commit row. An empty answer is the same for a commit OSV tracks
 /// and one it has never seen, and OSV can hold a release's advisories by version
 /// and none by commit: empty here proves nothing, so it never says `affected`.

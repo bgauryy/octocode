@@ -183,6 +183,12 @@ async fn advisory(id: &str, net: &Net<'_>) -> Result<Value, ArtifactError> {
         other => other?,
     };
     let mut data = source::into_row(json!({}), &results, View::Whole);
+    // The answer leads; the whole record follows it, paged and uncapped.
+    let mut lead = answer::advisory_lead(&data);
+    if let (Some(lead), Some(rest)) = (lead.as_object_mut(), data.as_object()) {
+        lead.extend(rest.clone());
+        data = Value::Object(std::mem::take(lead));
+    }
     if let Some(canonical) = retried {
         paging::push_warnings(
             &mut data,

@@ -2,12 +2,33 @@
 //! identity; paging controls do not, and a changed binding is stale.
 use super::*;
 
+/// A field stated at its contract default binds as its omission: a
+/// continuation drops it, so its replay binds the same plan.
+#[test]
+fn a_field_at_its_contract_default_binds_as_its_omission() {
+    let classified = json!({"matchString":["needle"],
+        "classification":{"predicates":["Is this kept?"]}});
+    let mut stated = classified.clone();
+    stated["contextLines"] = json!({"before":0,"after":0});
+    let tool = crate::id::ToolId::LocalSearch;
+    assert_eq!(
+        binding(tool, &stated, "source", None),
+        binding(tool, &classified, "source", None)
+    );
+    let mut widened = classified.clone();
+    widened["contextLines"] = json!({"before":2,"after":2});
+    assert_ne!(
+        binding(tool, &widened, "source", None),
+        binding(tool, &classified, "source", None)
+    );
+}
+
 #[test]
 fn context_selection_binds_optional_research_context() {
     let query = json!({
         "classification":{"predicates":["Does this evidence describe retry termination?"]}
     });
-    let ordinary = binding(&query, "source", None);
+    let ordinary = binding(crate::id::ToolId::LocalFetch, &query, "source", None);
     for (field, value) in [
         ("context", json!("different research context")),
         ("predicates", json!(["different predicate"])),
@@ -16,7 +37,7 @@ fn context_selection_binds_optional_research_context() {
         contextual["classification"][field] = value;
         assert_ne!(
             ordinary,
-            binding(&contextual, "source", None),
+            binding(crate::id::ToolId::LocalFetch, &contextual, "source", None),
             "changing supplied {field} must invalidate the prior judgment"
         );
     }
@@ -30,24 +51,36 @@ fn selected_output_paging_controls_do_not_change_assessment_binding() {
     continued["readProgress"] = json!({"unit":"bytes","offset":10});
     continued["selection"] = json!("saved-plan");
     assert_eq!(
-        binding(&query, "same-source", None),
-        binding(&continued, "same-source", None)
+        binding(crate::id::ToolId::LocalFetch, &query, "same-source", None),
+        binding(
+            crate::id::ToolId::LocalFetch,
+            &continued,
+            "same-source",
+            None
+        )
     );
     continued["ranges"] = json!([{"startLine":41,"endLine":80}]);
     assert_ne!(
-        binding(&query, "same-source", None),
-        binding(&continued, "same-source", None)
+        binding(crate::id::ToolId::LocalFetch, &query, "same-source", None),
+        binding(
+            crate::id::ToolId::LocalFetch,
+            &continued,
+            "same-source",
+            None
+        )
     );
 }
 
 #[test]
 fn binding_uses_canonical_source_identity_across_path_spellings() {
     let absolute = binding(
+        crate::id::ToolId::LocalFetch,
         &json!({"path":"/workspace/docs/readme.md","classification":{"predicates":["find evidence"]}}),
         "/workspace/docs/readme.md:abc123",
         None,
     );
     let relative = binding(
+        crate::id::ToolId::LocalFetch,
         &json!({"path":"docs/readme.md","classification":{"predicates":["find evidence"]}}),
         "/workspace/docs/readme.md:abc123",
         None,
@@ -56,6 +89,7 @@ fn binding_uses_canonical_source_identity_across_path_spellings() {
     assert_ne!(
         absolute,
         binding(
+            crate::id::ToolId::LocalFetch,
             &json!({"path":"docs/readme.md","classification":{"predicates":["find evidence"]}}),
             "/workspace/other/readme.md:abc123",
             None,
@@ -143,6 +177,7 @@ fn skipped_and_replayed_plans_keep_the_order_without_candidate_states() {
     assert!(matches!(
         select(
             Some(&runtime),
+            crate::id::ToolId::LocalFetch,
             &query,
             "changed source",
             Some(&selected.token),

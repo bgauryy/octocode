@@ -17,6 +17,8 @@ pub(super) fn answered(
     let locate = judged.answers.iter().any(|answer| {
         answer["type"] != "box" && answer["noul"].as_f64().is_none_or(|noul| noul >= 0.5)
     });
+    let mut usage = crate::tools::judgment::stats::ClassificationUsage::default();
+    usage.add_retry(&judged);
     let answers: Map<String, Value> = row.keys.iter().cloned().zip(judged.answers).collect();
     let mut out = json!({
         "model": judged.model,
@@ -27,6 +29,9 @@ pub(super) fn answered(
             "calls": judged.provider_calls,
         },
     });
+    if let Some(notice) = usage.long_context_notice() {
+        out["hints"] = json!([notice]);
+    }
     if let Some(assets) = assets {
         out["assets"] = assets;
     }

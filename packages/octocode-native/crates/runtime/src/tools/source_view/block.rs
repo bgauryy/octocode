@@ -7,7 +7,7 @@
 mod recovery;
 
 use super::types::LineRange;
-use crate::tools::declarations::{Declared, all_declarations};
+use crate::tools::declarations::{self, Declared, all_declarations};
 pub(super) use recovery::outline_recovery_warning;
 use recovery::recovered_parse;
 
@@ -101,13 +101,9 @@ fn with_docs(lines: &[&str], path: &str, (start, end): (usize, usize)) -> (usize
     (first, end)
 }
 
-/// The smallest declaration containing `line`.
+/// The smallest declaration span containing `line`.
 fn innermost(spans: &[(usize, usize)], line: usize) -> Option<(usize, usize)> {
-    spans
-        .iter()
-        .filter(|(start, end)| *start <= line && line <= *end)
-        .min_by_key(|(start, end)| end - start)
-        .copied()
+    declarations::innermost_by(spans, line, |&span| span).copied()
 }
 
 fn no_outline(content: &str, path: &str) -> String {
@@ -187,18 +183,10 @@ pub fn widen_ranges(
     widened
 }
 
-/// The innermost declaration containing `line`.
-fn innermost_declared(declared: &[Declared], line: usize) -> Option<&Declared> {
-    declared
-        .iter()
-        .filter(|d| d.start <= line && line <= d.end)
-        .min_by_key(|d| d.end - d.start)
-}
-
 /// Whether `hit` is a declaration's own head: its first line or its name
 /// line.
 fn declares(declared: &[Declared], hit: usize) -> bool {
-    innermost_declared(declared, hit).is_some_and(|d| d.start == hit || d.line == hit)
+    declarations::innermost(declared, hit).is_some_and(|d| d.start == hit || d.line == hit)
 }
 
 /// Replace each match window with the innermost declaration containing the
@@ -239,7 +227,7 @@ pub fn widen_matches(
             // A hit on the declaration's head reads it as written, docs
             // included; a hit inside reads the declaration it sits in.
             Some((start, end)) if end + 1 - start <= BLOCK_MAX_LINES => {
-                if let Some(owner) = innermost_declared(declared, hit)
+                if let Some(owner) = declarations::innermost(declared, hit)
                     && !owner.name.is_empty()
                     && !blocks.iter().any(|block| block.line == owner.line)
                 {

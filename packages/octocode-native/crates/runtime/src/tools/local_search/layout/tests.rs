@@ -10,6 +10,7 @@ fn hit(line: u32) -> TextSearchMatch {
     TextSearchMatch {
         deferred: None,
         line,
+        first_line: line,
         last_line: None,
         column: 0,
         byte_offset: 0,

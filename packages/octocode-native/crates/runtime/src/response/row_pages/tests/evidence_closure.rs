@@ -365,16 +365,17 @@ fn indivisible_origin_is_complete_and_explicitly_oversized_at_tiny_budget() {
 #[test]
 fn artifact_engine_names_are_metadata_without_a_source_catalog() {
     let engines = (0..25)
-        .map(|i| (format!("engine{i}"), json!("version".repeat(20))))
+        .map(|i| (format!("engine{i}"), "version".repeat(20)))
         .chain([
-            ("analysisUnitId".into(), json!(">=22")),
-            ("segments".into(), json!("^1.0")),
+            ("analysisUnitId".into(), ">=22".into()),
+            ("segments".into(), "^1.0".into()),
         ])
-        .collect::<Map<String, Value>>();
+        .map(|(name, range): (String, String)| json!({"name": name, "range": range}))
+        .collect::<Vec<_>>();
     let data = json!({"artifacts":[{"packageName":"fixture","engines":engines}]});
     let plan = plan(data, ToolId::ArtifactSearch, 700);
     assert!(plan.total_pages > 1);
-    let mut seen = BTreeMap::new();
+    let mut seen = Vec::new();
     for page in 0..plan.total_pages {
         for row in plan
             .build_page(page, &[None], &Cancellation::new())
@@ -383,9 +384,7 @@ fn artifact_engine_names_are_metadata_without_a_source_catalog() {
             assert_row_contract(ToolId::ArtifactSearch, &row["data"]);
             assert!(row["data"].get("sourceEvidence").is_none());
             for artifact in row["data"]["artifacts"].as_array().unwrap() {
-                for (key, value) in artifact["engines"].as_object().unwrap() {
-                    assert!(seen.insert(key.clone(), value.clone()).is_none());
-                }
+                seen.extend(artifact["engines"].as_array().unwrap().iter().cloned());
             }
         }
     }

@@ -234,6 +234,159 @@ fn a_refused_connection_is_named_not_the_circuit_it_opens() {
     assert!(error.message.contains("could not connect"), "{error:?}");
 }
 
+/// A provider answering every question with direct evidence.
+fn direct_answers(request: &Request) -> ResponseTemplate {
+    let body: Value = request.body_json().expect("request");
+    let answers = body["questions"]
+        .as_object()
+        .expect("questions")
+        .iter()
+        .map(|(id, question)| {
+            let legend = question["criteria"]
+                .as_array()
+                .expect("criteria")
+                .iter()
+                .enumerate()
+                .map(|(i, criterion)| (i.to_string(), criterion.clone()))
+                .collect::<serde_json::Map<String, Value>>();
+            (
+                id.clone(),
+                json!({"type":"score","score":2.0,"confidence":1.0,
+                "legend":legend,"probabilities":{"0":0.0,"1":0.0,"2":1.0}}),
+            )
+        })
+        .collect::<serde_json::Map<String, Value>>();
+    ResponseTemplate::new(200).set_body_json(json!({
+        "model":"jev-resolved","answers":answers,
+        "usage":{"input_tokens":10,"output_tokens":2}
+    }))
+}
+
+/// The `lines` of every state the provider received.
+fn sent_lines(executor: &tokio::runtime::Runtime, server: &MockServer) -> Vec<String> {
+    executor
+        .block_on(server.received_requests())
+        .expect("requests")
+        .iter()
+        .map(|request| {
+            let body: Value = request.body_json().expect("request");
+            body["state"]["lines"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned()
+        })
+        .collect()
+}
+
+/// The hits of one file share a state that holds the union of their windows,
+/// each hit's own line included: a target whose line is missing from the
+/// state is judged from its label alone. Two hits with identical text (the
+/// reporter's `sign-in.ts:88`/`:89`) see the same evidence.
+#[test]
+fn a_shared_state_holds_every_hits_own_line() {
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let server = executor.block_on(MockServer::start());
+    executor.block_on(
+        Mock::given(method("POST"))
+            .respond_with(direct_answers)
+            .mount(&server),
+    );
+    let evaluator = evaluator("test-key", server.uri());
+    let same = "fromBrowser.catch(() => undefined);";
+    let hit = |line: u64, window: &[(u64, &str)]| {
+        Candidate::new(Some(json!({
+            "path":"oauth/sign-in.ts",
+            "target":{"line":line,"text":window[0].1},
+            "lines":window.iter().map(|(at, text)| json!([at, text])).collect::<Vec<_>>(),
+        })))
+    };
+    let candidates = [
+        hit(82, &[(82, "store.catch(() => {});"), (83, "return token;")]),
+        hit(88, &[(88, same), (89, same)]),
+        hit(89, &[(89, same), (90, "done();")]),
+    ];
+    let context = context(Duration::from_secs(10));
+    evaluator
+        .select(JudgeCall {
+            failures: &mut Vec::new(),
+            candidates: &candidates,
+            admitted: &[0, 1, 2],
+            predicates: &["Does this discard the error?".to_owned()],
+            research_context: None,
+            long_context: crate::tools::judgment::LongContext::Never,
+            handle: executor.handle(),
+            context: &context,
+            usage: &mut ClassificationUsage::default(),
+        })
+        .expect("judged");
+    let states = sent_lines(&executor, &server);
+    assert_eq!(states.len(), 1, "one file, one shared state");
+    let lines = states[0].lines().collect::<Vec<_>>();
+    assert_eq!(
+        lines,
+        [
+            "82\tstore.catch(() => {});",
+            "83\treturn token;",
+            &format!("88\t{same}"),
+            &format!("89\t{same}"),
+            "90\tdone();",
+        ],
+        "every target line and every window line, once each"
+    );
+}
+
+/// A target's label names the declaration and the key path its line sits
+/// in, so a judge reading one bare line still sees which section holds it.
+#[test]
+fn a_target_label_names_its_declaration_and_key_path() {
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let server = executor.block_on(MockServer::start());
+    executor.block_on(
+        Mock::given(method("POST"))
+            .respond_with(direct_answers)
+            .mount(&server),
+    );
+    let evaluator = evaluator("test-key", server.uri());
+    let candidates = [Candidate::new(Some(json!({
+        "path":"package.json",
+        "target":{"line":15,"text":"    \"x\": \"^1.0.0\"",
+            "enclosing":{"kind":"object","symbolName":"devDependencies"},
+            "key":"devDependencies.x"},
+        "lines":[[15,"    \"x\": \"^1.0.0\""]],
+    })))];
+    let context = context(Duration::from_secs(10));
+    evaluator
+        .select(JudgeCall {
+            failures: &mut Vec::new(),
+            candidates: &candidates,
+            admitted: &[0],
+            predicates: &["Is this a runtime dependency?".to_owned()],
+            research_context: None,
+            long_context: crate::tools::judgment::LongContext::Never,
+            handle: executor.handle(),
+            context: &context,
+            usage: &mut ClassificationUsage::default(),
+        })
+        .expect("judged");
+    let requests = executor
+        .block_on(server.received_requests())
+        .expect("requests");
+    let body: Value = requests[0].body_json().expect("body");
+    let labels = body["questions"]
+        .as_object()
+        .expect("questions")
+        .values()
+        .map(|question| question["instructions"]["target"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        labels,
+        [json!(
+            "line 15: \"x\": \"^1.0.0\" (in object devDependencies) (key devDependencies.x)"
+        )]
+    );
+    assert_eq!(body["state"]["lines"], "15\t    \"x\": \"^1.0.0\"");
+}
+
 /// Candidates with identical states in one call are one evaluation: one
 /// provider request, one decision for each, spend counted once.
 #[test]

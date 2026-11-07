@@ -53,6 +53,7 @@ impl<M: Matcher> CollectSink<'_, M> {
             self.entry.prepared.push(TextSearchMatch {
                 deferred: None,
                 line,
+                first_line: line,
                 last_line: None,
                 column,
                 byte_offset,
@@ -110,6 +111,7 @@ impl<M: Matcher> CollectSink<'_, M> {
                 let span = TextSearchMatch {
                     deferred: None,
                     line,
+                    first_line: line,
                     last_line: None,
                     column,
                     byte_offset,

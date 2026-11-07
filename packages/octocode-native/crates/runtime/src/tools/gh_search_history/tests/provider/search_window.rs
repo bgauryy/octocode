@@ -83,13 +83,12 @@ async fn cap_is_terminal_only_after_the_last_reachable_page() {
             "{data}"
         );
         assert_eq!(data["next"]["nextPage"].is_object(), page < 20, "{data}");
-        // The first page states GitHub's full match count, once per search
-        // (the shared provider-limit rule of every GitHub search).
-        assert_eq!(
+        // Every page states GitHub's full match count: a page can be read on
+        // its own (the shared provider-limit rule of every GitHub search).
+        assert!(
             data["warnings"].as_array().is_some_and(|warnings| warnings
                 .iter()
                 .any(|warning| warning.as_str().is_some_and(|w| w.contains("1001")))),
-            page == 1,
             "{data}"
         );
         // A search beyond one repository names each row's owner and repo

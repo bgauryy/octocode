@@ -57,6 +57,16 @@ fn target_question() -> Option<&'static Value> {
         .filter(|question| question.is_string())
 }
 
+/// The template's scope for a section question (core
+/// `CLASSIFIER_TEMPLATE.sectionQuestion`): answer about the target section,
+/// its context entries being background only. A section state carries it as
+/// its `question`, as a shared hit state carries [`target_question`].
+pub(crate) fn section_question() -> Option<&'static Value> {
+    template()?
+        .get("sectionQuestion")
+        .filter(|question| question.is_string())
+}
+
 fn candidate_state(mut state: Value) -> Value {
     fn strip(value: &mut Value) {
         match value {

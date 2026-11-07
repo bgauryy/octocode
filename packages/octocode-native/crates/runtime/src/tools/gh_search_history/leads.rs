@@ -211,6 +211,25 @@ pub(super) fn broaden_search(q: &GhSearchHistoryQuery) -> Option<Value> {
     Some(lead)
 }
 
+/// A pull request list's count: the same filters searched, one row. The REST
+/// list states no total; a search does (`totalItems`). Pull requests created
+/// since the epoch are every pull request, so the window only routes the same
+/// rows to search. `None` when the row does not validate.
+pub(super) fn count_listed(q: &HistorySearch) -> Option<Value> {
+    let mut row = same_query(q);
+    let selection = &mut row["filters"]["createdAt"];
+    if selection.is_null() {
+        selection["include"] = json!([{ "from": "1970-01-01T00:00:00Z" }]);
+    }
+    row["limit"] = json!(1);
+    crate::contracts::validate(
+        ToolId::GhSearchHistory.as_str(),
+        json!({ "queries": [row] }),
+    )
+    .ok()?;
+    Some(Continuation::related_query(wire_query::<GhSearchHistoryQuery>(row)?).build())
+}
+
 /// A capped search's narrowing (`narrowScope`), one call. Rows in a date
 /// order continue past GitHub's 1,000-result window from this page's last
 /// row: creation order narrows `filters.createdAt`, and update order narrows

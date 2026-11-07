@@ -132,31 +132,36 @@ fn without_private_progress(tool: ToolId, mut input: Value) -> Value {
     input
 }
 
-/// `input` with each query row's fields that equal their contract default
-/// dropped: parsing re-applies the default, so the call (and a cursor that
-/// saves it) runs exactly the same query in fewer bytes. A default is read
-/// from the variants of the row's `operation`; a field whose variants
-/// disagree or declare none stays. `operation` itself always stays.
+/// `input` with each query row as [`canonical_row`]: the call (and a cursor
+/// that saves it) runs exactly the same query in fewer bytes.
 fn without_defaults(tool: ToolId, mut input: Value) -> Value {
     let Some(rows) = input.get_mut("queries").and_then(Value::as_array_mut) else {
         return input;
     };
-    for row in rows.iter_mut().filter_map(Value::as_object_mut) {
-        let operation = row
-            .get("operation")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        row.retain(|field, value| {
-            field == "operation"
-                || crate::contracts::query_schema_value(
-                    tool,
-                    operation.as_deref(),
-                    field,
-                    "default",
-                ) != Some(&*value)
-        });
+    for row in rows.iter_mut() {
+        canonical_row(tool, row);
     }
     input
+}
+
+/// `row` without the fields that equal their contract default: parsing
+/// re-applies the default, so a row stating one and a row omitting it are
+/// one query, and compare equal once canonical. A default is read from the
+/// variants of the row's `operation`; a field whose variants disagree or
+/// declare none stays. `operation` itself always stays.
+pub(crate) fn canonical_row(tool: ToolId, row: &mut Value) {
+    let Some(row) = row.as_object_mut() else {
+        return;
+    };
+    let operation = row
+        .get("operation")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    row.retain(|field, value| {
+        field == "operation"
+            || crate::contracts::query_schema_value(tool, operation.as_deref(), field, "default")
+                != Some(&*value)
+    });
 }
 
 /// Rows one `tool` call accepts: the contract's `queries.maxItems`, so a
@@ -300,6 +305,9 @@ pub(crate) fn remove_null_fields(value: &mut Value) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod canonical_tests;
 
 pub(crate) fn attach_related(data: &mut Value, call: Value) {
     if data.get("related").is_none() {

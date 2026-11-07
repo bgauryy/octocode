@@ -32,6 +32,7 @@ pub(super) fn project_shape(
         column: Some(crate::num::one_based_column(matched.column)),
         value: String::new(),
         byte_offset: matched.byte_offset,
+        first_line: matched.first_line,
         match_lines: spanned_lines(matched),
         count: matched.count,
         enclosing: None,
@@ -49,27 +50,91 @@ fn spanned_lines(matched: &octocode_engine::types::TextSearchMatch) -> Option<Ve
         .map(|last| (matched.line..=last).collect())
 }
 
-/// Source line range and lines of a content-view row's context window, or
-/// `None` when the value is not a plain window (redacted, grouped, or a shape the window arithmetic cannot account for).
-/// The engine joins the requested contiguous lines before and after the match,
-/// clamped at the file start/end.
+/// First source line and lines of a content-view row's context window, or
+/// `None` when the value is not a plain window (redacted, grouped, or lines
+/// that disagree with the window the search reports). The window starts where
+/// the search says the value starts ([`SearchMatch::first_line`]): the
+/// contiguous lines it joined, which stop at the file's edges and at an
+/// absent neighbour.
 pub(super) fn context_window(
     matched: &SearchMatch,
     context: SearchContext,
 ) -> Option<(u32, Vec<&str>)> {
-    if matched.count.is_some() || matched.line == 0 {
-        return None;
-    }
-    let lines: Vec<&str> = matched.value.split('\n').collect();
     let span = matched
         .match_lines
         .as_ref()
         .map_or(Some(1), |spanned| u32::try_from(spanned.len()).ok())?;
-    let before = context.before.min(matched.line - 1);
-    let after = u32::try_from(lines.len())
-        .ok()?
-        .checked_sub(before + span)?;
-    (after <= context.after).then_some((matched.line - before, lines))
+    let shape = WindowShape {
+        line: matched.line,
+        first_line: matched.first_line,
+        span,
+        counted: matched.count.is_some(),
+    };
+    shape.window(&matched.value, context)
+}
+
+/// What places a row's value in its source: its match line, the line the
+/// search says the value starts at, how many lines the match spans, and
+/// whether the value is a count rather than lines.
+struct WindowShape {
+    line: u32,
+    first_line: u32,
+    span: u32,
+    counted: bool,
+}
+
+impl WindowShape {
+    /// `value`'s first source line and lines when it is a plain window
+    /// ([`context_window`]).
+    fn window(self, value: &str, context: SearchContext) -> Option<(u32, Vec<&str>)> {
+        if self.counted || self.line == 0 || self.first_line == 0 {
+            return None;
+        }
+        let lines: Vec<&str> = value.split('\n').collect();
+        let before = self.line.checked_sub(self.first_line)?;
+        let after = u32::try_from(lines.len())
+            .ok()?
+            .checked_sub(before.checked_add(self.span)?)?;
+        (before <= context.before && after <= context.after).then_some((self.first_line, lines))
+    }
+}
+
+/// The source lines a hit's row holds: `first..=last` of its context window,
+/// or its matched lines alone when its value is not a plain window (it is
+/// then shown as it is and numbers no line).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct HitWindow {
+    pub(super) line: u32,
+    pub(super) first: u32,
+    pub(super) last: u32,
+}
+
+impl HitWindow {
+    /// The window `matched`'s value holds, as the search joined it.
+    pub(super) fn of(
+        matched: &octocode_engine::types::TextSearchMatch,
+        context: SearchContext,
+    ) -> Self {
+        let last_matched = matched.last_line.unwrap_or(matched.line).max(matched.line);
+        let shape = WindowShape {
+            line: matched.line,
+            first_line: matched.first_line,
+            span: last_matched - matched.line + 1,
+            counted: matched.count.is_some(),
+        };
+        match shape.window(&matched.value, context) {
+            Some((first, lines)) => Self {
+                line: matched.line,
+                first,
+                last: first.saturating_add(saturating_u32(lines.len())) - 1,
+            },
+            None => Self {
+                line: matched.line,
+                first: matched.line,
+                last: last_matched,
+            },
+        }
+    }
 }
 
 /// Merge rows whose context windows overlap or touch into one block, so each
@@ -78,27 +143,30 @@ pub(super) fn context_window(
 /// merge only when both windows are plain and their shared lines are
 /// byte-identical, so a redacted window is never spliced.
 ///
-/// `hits` are every hit line of the file (sorted, any page): a window shows
-/// only the lines its hit owns ([`owned_lines`]), so a hit or context line
-/// that another page's row owns is never shown twice across pages.
-/// The lines `[low, high]` of hit `line`'s context window it owns among
-/// the file's `hits` (sorted): a line within reach of two hits belongs to
-/// the nearer one, the earlier on a tie. Each line of every window is owned
-/// by exactly one hit, so pages showing disjoint hits show disjoint lines.
-pub(super) fn owned_lines(line: u32, context: SearchContext, hits: &[u32]) -> (u32, u32) {
-    let mut low = line.saturating_sub(context.before);
-    let mut high = line.saturating_add(context.after);
-    let at = hits.partition_point(|&hit| hit < line);
-    if let Some(&previous) = at.checked_sub(1).and_then(|i| hits.get(i)) {
-        // Lines past the previous hit's reach, or nearer this hit.
-        let past_reach = previous.saturating_add(context.after).saturating_add(1);
-        let nearer = previous + (line - previous) / 2 + 1;
-        low = low.max(past_reach.min(nearer));
+/// `hits` are the windows of every hit of the file (sorted by line, one per
+/// line, any page, [`HitWindow::of`]): a window shows only the lines its hit
+/// owns ([`owned_lines`]), so a hit or context line that another page's row
+/// owns is never shown twice across pages.
+/// The lines `[low, high]` of `window` its hit owns among the file's `hits`:
+/// a line only one window holds is that hit's; a line two windows hold
+/// belongs to the nearer hit, the earlier on a tie. Each line a window holds
+/// is owned by exactly one hit that holds it, so pages showing disjoint hits
+/// show disjoint lines, and none is left out.
+pub(super) fn owned_lines(window: HitWindow, hits: &[HitWindow]) -> (u32, u32) {
+    let HitWindow { line, first, last } = window;
+    let (mut low, mut high) = (first, last);
+    let at = hits.partition_point(|hit| hit.line < line);
+    if let Some(previous) = at.checked_sub(1).and_then(|i| hits.get(i)) {
+        // Lines past the previous window, or nearer this hit.
+        let past = previous.last.saturating_add(1);
+        let nearer = previous.line + (line - previous.line) / 2 + 1;
+        low = low.max(past.min(nearer));
     }
-    if let Some(&next) = hits[at..].iter().find(|&&hit| hit > line) {
-        let before_reach = next.saturating_sub(context.before).saturating_sub(1);
-        let nearer = line + (next - line) / 2;
-        high = high.min(before_reach.max(nearer));
+    if let Some(next) = hits[at..].iter().find(|hit| hit.line > line) {
+        // Lines before the next window, or nearer this hit.
+        let before = next.first.saturating_sub(1);
+        let nearer = line + (next.line - line) / 2;
+        high = high.min(before.max(nearer));
     }
     (low, high)
 }
@@ -106,7 +174,7 @@ pub(super) fn owned_lines(line: u32, context: SearchContext, hits: &[u32]) -> (u
 pub(super) fn merge_context_windows(
     rows: Vec<SearchMatch>,
     context: SearchContext,
-    hits: &[u32],
+    hits: &[HitWindow],
 ) -> Vec<SearchMatch> {
     struct Block {
         head: SearchMatch,
@@ -118,6 +186,7 @@ pub(super) fn merge_context_windows(
     // line never has to be counted from `line`.
     fn flush(block: Block) -> SearchMatch {
         let mut head = block.head;
+        head.first_line = block.start;
         // One number per window line, blank lines included (a window can end
         // on an empty line, which a split-based numberer would drop).
         let mut value = String::new();
@@ -155,8 +224,13 @@ pub(super) fn merge_context_windows(
             continue;
         }
         let (start, lines) = {
-            let (low, high) = owned_lines(row.line, context, hits);
             let end = start.saturating_add(saturating_u32(lines.len())); // exclusive
+            let window = HitWindow {
+                line: row.line,
+                first: start,
+                last: end - 1,
+            };
+            let (low, high) = owned_lines(window, hits);
             let from = low.max(start);
             let to = high.saturating_add(1).min(end).max(from);
             (

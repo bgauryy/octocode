@@ -137,7 +137,7 @@ async fn tags_list_newest_version_first_across_pages() {
         first.data
     );
     assert!(first.data.pointer("/next/nextPage").is_none());
-    assert!(first.data["branches"].is_object());
+    assert!(first.data["branches"].is_array());
 
     let fallback = server().await;
     Mock::given(method("GET"))

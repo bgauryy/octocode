@@ -155,6 +155,33 @@ pub(crate) fn all_declarations(content: &str, path: &str) -> Option<Vec<Declared
     Some(document.declarations.iter().map(Declared::of).collect())
 }
 
+/// The innermost of `declared` containing `line`: the shortest span.
+pub(crate) fn innermost<'a>(
+    declared: impl IntoIterator<Item = &'a Declared>,
+    line: usize,
+) -> Option<&'a Declared> {
+    innermost_by(declared, line, |d| (d.start, d.end))
+}
+
+/// The innermost of `items` whose inclusive `span` contains `line`: the
+/// shortest one.
+pub(crate) fn innermost_by<'a, T>(
+    items: impl IntoIterator<Item = &'a T>,
+    line: usize,
+    span: impl Fn(&T) -> (usize, usize),
+) -> Option<&'a T> {
+    items
+        .into_iter()
+        .filter(|item| {
+            let (start, end) = span(item);
+            start <= line && line <= end
+        })
+        .min_by_key(|item| {
+            let (start, end) = span(item);
+            end - start
+        })
+}
+
 #[cfg(test)]
 mod tests;
 

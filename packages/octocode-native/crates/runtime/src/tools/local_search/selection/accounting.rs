@@ -53,16 +53,26 @@ impl Selected {
         &self.outcome.receipt
     }
 
+    /// The receipt the row carries: none for an undecided view, an
+    /// unfiltered listing as `next.unfiltered` is (its hits are not selected
+    /// evidence; the page that decided them carries the receipt).
+    pub(in crate::tools::local_search) fn into_receipt(
+        self,
+    ) -> Option<octocode_contract_types::Selection> {
+        (!self.outcome.lists_undecided()).then_some(self.outcome.receipt)
+    }
+
     /// The plan token later pages replay.
     pub(in crate::tools::local_search) fn token(&self) -> &str {
         &self.outcome.token
     }
 
     /// `next.unfiltered`, the whole unfiltered result of this scan, and
-    /// `next.unfilteredUnknown` when it is narrower: the unknown hits (the
-    /// same search over exactly the files holding them). Without unknown
-    /// hits, or when they span every file, the whole result is the one
-    /// lead. Hits the page's budget or a provider
+    /// `next.unfilteredUnknown` when it is narrower: exactly the hits this
+    /// page left undecided (the same scan replaying the selection's
+    /// undecided view, unbilled, paged as any result). Without undecided
+    /// hits, or when every hit is one, the whole result is the one lead. An
+    /// undecided view leads nowhere: it is that list. Hits the page's budget or a provider
     /// that could not answer left unjudged get `nextCandidatePage`: the same
     /// classified search of the same scan judging exactly them, so a chain of
     /// candidate pages judges every hit once.
@@ -70,63 +80,32 @@ impl Selected {
         &self,
         query: &LocalSearchQuery,
         snapshot: &str,
-        root_is_dir: bool,
     ) -> Result<Vec<(&'static str, Value)>, ToolError> {
         // A page that kept every hit, or that the provider failed, already
         // shows every hit unfiltered.
-        if !self.outcome.leaves_out() {
+        if !self.outcome.leaves_out() || self.outcome.lists_undecided() {
             return Ok(Vec::new());
         }
-        let mut leads = self.unfiltered_leads(query, snapshot, root_is_dir)?;
-        if let Some(token) = self.outcome.next_candidates() {
-            let mut changes = serde_json::Map::new();
-            for field in crate::contracts::state_fields(ToolId::LocalSearch) {
-                changes.insert(field.clone(), Value::Null);
-            }
-            changes.insert("snapshot".into(), json!(snapshot));
-            changes.insert("selection".into(), json!(token));
-            let next = local_search_query::edited(query, &Value::Object(changes))?;
-            leads.push((
-                "nextCandidatePage",
-                crate::response::result::Continuation::continued_query(next).build(),
-            ));
-        }
-        Ok(leads)
-    }
-
-    fn unfiltered_leads(
-        &self,
-        query: &LocalSearchQuery,
-        snapshot: &str,
-        root_is_dir: bool,
-    ) -> Result<Vec<(&'static str, Value)>, ToolError> {
         let mut changes = crate::tools::selection::unfiltered_changes(&[]);
         changes["snapshot"] = json!(snapshot);
         let whole = crate::response::result::Continuation::continued_query(
             local_search_query::edited(query, &changes)?,
         )
         .build();
-        let globs = self
-            .unknown_files
-            .iter()
-            .map(|path| exact_glob(path))
-            .collect::<Option<Vec<_>>>()
-            .filter(|globs| {
-                root_is_dir
-                    && !globs.is_empty()
-                    && globs.len() < self.scan_files
-                    && globs.len() <= include_cap()
-            });
-        let Some(globs) = globs else {
-            return Ok(vec![("unfiltered", whole)]);
-        };
-        let mut changes = crate::tools::selection::unfiltered_changes(&[]);
-        changes["include"] = json!(globs);
-        let unknown = crate::response::result::Continuation::continued_query(
-            local_search_query::edited(query, &changes)?,
-        )
-        .build();
-        Ok(vec![("unfiltered", whole), ("unfilteredUnknown", unknown)])
+        let mut leads = vec![("unfiltered", whole)];
+        let replays = [
+            ("unfilteredUnknown", self.outcome.undecided_view()),
+            (
+                "nextCandidatePage",
+                self.outcome.next_candidates().map(str::to_owned),
+            ),
+        ];
+        for (channel, token) in replays {
+            if let Some(token) = token {
+                leads.push((channel, replay(query, snapshot, &token)?));
+            }
+        }
+        Ok(leads)
     }
 
     /// The provider's error when it failed this page; else, when selection
@@ -135,11 +114,14 @@ impl Selected {
     pub(in crate::tools::local_search) fn disclosure(&self) -> Vec<String> {
         let mut notes = Vec::new();
         if let Some(error) = &self.provider {
-            notes.push(crate::tools::selection::unclassified_warning(
+            notes.push(crate::tools::selection::unclassified_notice(
                 error,
-                "this search",
-                "its hits are",
+                crate::tools::selection::Unclassified::Search,
             ));
+        }
+        if self.outcome.lists_undecided() {
+            notes.push(crate::tools::selection::undecided_note(self.rows_kept));
+            return notes;
         }
         if self.provider.is_none() && self.rows_before > 0 {
             notes.extend(crate::tools::selection::kept_note(
@@ -147,6 +129,20 @@ impl Selected {
                 self.rows_kept,
             ));
         }
+        notes.extend(self.outcome.long_context_notice.clone());
         notes
     }
+}
+
+/// The same classified search of the same scan replaying `token`, a
+/// selection plan; the page fields start over.
+fn replay(query: &LocalSearchQuery, snapshot: &str, token: &str) -> Result<Value, ToolError> {
+    let mut changes = serde_json::Map::new();
+    for field in crate::contracts::state_fields(ToolId::LocalSearch) {
+        changes.insert(field.clone(), Value::Null);
+    }
+    changes.insert("snapshot".into(), json!(snapshot));
+    changes.insert("selection".into(), json!(token));
+    let next = local_search_query::edited(query, &Value::Object(changes))?;
+    Ok(crate::response::result::Continuation::continued_query(next).build())
 }

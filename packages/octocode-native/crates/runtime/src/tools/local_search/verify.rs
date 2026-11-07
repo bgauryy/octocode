@@ -1,7 +1,6 @@
 //! Secret safety of shown values: redaction of the scan, the re-read that
 //! checks clipped values against their source bytes, and bounded line reads.
 use crate::tools::local_search::local_search_query;
-use crate::tools::local_search::local_search_query::View;
 
 use super::{cursor::*, layout::*};
 use crate::execution::cancel::CancellationCheck;
@@ -20,8 +19,8 @@ mod settle;
 mod verification_tests;
 
 pub(super) use guard::{
-    MAX_PROBE_LINE_BYTES, MAX_VERIFY_RETAINED_BYTES, VERIFY_CANCEL_EVERY, VERIFY_CHUNK_BYTES,
-    ValueCheck, Verification, guard_read, guard_source_secrets,
+    MAX_PROBE_LINE_BYTES, MAX_VERIFY_RETAINED_BYTES, RowShape, VERIFY_CANCEL_EVERY,
+    VERIFY_CHUNK_BYTES, ValueCheck, Verification, guard_read, guard_source_secrets,
 };
 #[cfg(test)]
 pub(super) use guard::{OVERSIZED_PLACEHOLDER, UNVERIFIED_PLACEHOLDER};
@@ -143,7 +142,7 @@ pub(super) fn verify_candidate(
         rows,
         &ValueCheck {
             security: scope.security,
-            match_only: local_search_query::view(scope.query) == View::MatchOnly,
+            shape: RowShape::of(scope.query),
             cancel: scope.cancel,
             judged: Some(scope.judged),
         },
@@ -192,7 +191,7 @@ pub(super) fn verify_shown(
     } = *scope;
     let check = ValueCheck {
         security,
-        match_only: local_search_query::view(query) == View::MatchOnly,
+        shape: RowShape::of(query),
         cancel,
         judged: Some(scope.judged),
     };

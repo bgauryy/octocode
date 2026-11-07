@@ -7,6 +7,7 @@ fn hit(line: u32, value: &str) -> octocode_engine::types::TextSearchMatch {
     octocode_engine::types::TextSearchMatch {
         deferred: None,
         line,
+        first_line: line,
         last_line: None,
         column: 0,
         byte_offset: 0,
@@ -184,7 +185,7 @@ fn an_unbufferable_line_mentioning_a_private_key_fails_closed() {
         0..10,
         &ValueCheck {
             security: &ContentSecurity::new(),
-            match_only: true,
+            shape: RowShape::Span,
             cancel: &NeverCancel,
             judged: None,
         },
@@ -210,7 +211,7 @@ fn an_unbufferable_line_mentioning_a_private_key_fails_closed() {
             0..10,
             &ValueCheck {
                 security: &ContentSecurity::new(),
-                match_only: true,
+                shape: RowShape::Span,
                 cancel: &NeverCancel,
                 judged: None,
             },
@@ -240,7 +241,7 @@ fn a_stored_digest_binds_the_check_to_the_stored_bytes() {
             0..10,
             &ValueCheck {
                 security: &ContentSecurity::new(),
-                match_only: false,
+                shape: RowShape::Lines(Default::default()),
                 cancel: &NeverCancel,
                 judged: None,
             },
@@ -276,7 +277,7 @@ fn a_row_of_a_line_past_the_retained_budget_stands() {
         0..10,
         &ValueCheck {
             security: &ContentSecurity::new(),
-            match_only: false,
+            shape: RowShape::Lines(Default::default()),
             cancel: &NeverCancel,
             judged: None,
         },
@@ -301,7 +302,7 @@ fn a_neighborhood_over_the_retained_budget_fails_closed() {
         0..10,
         &ValueCheck {
             security: &ContentSecurity::new(),
-            match_only: false,
+            shape: RowShape::Lines(Default::default()),
             cancel: &NeverCancel,
             judged: None,
         },
@@ -330,7 +331,7 @@ fn verification_stops_when_cancelled() {
         0..10,
         &ValueCheck {
             security: &ContentSecurity::new(),
-            match_only: false,
+            shape: RowShape::Lines(Default::default()),
             cancel: &Cancelled,
             judged: None,
         },
@@ -383,4 +384,240 @@ fn a_non_utf8_line_is_kept_as_the_search_decoded_it() {
         read.retained[&1],
         octocode_engine::text::Decoded::interior(line).text
     );
+}
+
+/// A walk of a source too large to keep masks a shown line where its secret is,
+/// whatever bytes come before the secret on that line: a Latin-1 line counts
+/// one character per raw byte, a UTF-8 one its own bytes. Nothing of the value
+/// shows, and nothing beside it is lost.
+#[test]
+fn a_walk_masks_a_non_utf8_line_exactly_where_its_secret_is() {
+    const VALUE: &str = "QmFzZTY0VmFsdWVIZXJlWFla";
+    let reversed: String = VALUE.chars().rev().collect();
+    for key in [vec![0xe9_u8; 12], "\u{e9}".repeat(12).into_bytes()] {
+        let mut yaml =
+            b"apiVersion: v1\nkind: Secret\nmetadata:\n  name: demo\ndata:\n  other: ".to_vec();
+        yaml.extend_from_slice(reversed.as_bytes());
+        yaml.extend_from_slice(b"\n  ");
+        yaml.extend_from_slice(&key);
+        yaml.extend_from_slice(format!(": {VALUE}\ntype: Opaque\n").as_bytes());
+        let mut json = b"{\"apiVersion\": \"v1\", \"kind\": \"Secret\", \"data\": {\"".to_vec();
+        json.extend_from_slice(&key);
+        json.extend_from_slice(
+            format!("\": \"{VALUE}\", \"tail\": \"{reversed}\"}},\n\"type\": \"Opaque\"}}\n")
+                .as_bytes(),
+        );
+        for (name, bytes, line, lines) in [("s.yaml", yaml, 7, 8), ("s.json", json, 1, 2)] {
+            let walked = super::exposed::walked_pass(
+                || Ok(std::io::Cursor::new(bytes.clone())),
+                Expected::Fresh,
+                &[(line, line)],
+                lines,
+                std::path::Path::new(name),
+                &NeverCancel,
+            )
+            .ok()
+            .flatten()
+            .expect("walked");
+            let shown = &walked.read.retained[&line];
+            for at in 0..VALUE.len() - 3 {
+                assert!(!shown.contains(&VALUE[at..at + 4]), "{name}: {shown:?}");
+            }
+            assert!(walked.masked.contains_key(&line), "{name}: {shown:?}");
+            if name == "s.json" {
+                assert_eq!(
+                    shown,
+                    "{\"apiVersion\": \"v1\", \"kind\": \"Secret\", \"data\": {[REDACTED-KUBERNETESSECRETJSON]},"
+                );
+            } else {
+                assert_eq!(shown, "  [REDACTED-KUBERNETESSECRETS]", "{name}");
+            }
+        }
+    }
+}
+
+/// On a source too large to scan whole, a content row with context is judged
+/// at the lines it starts at: a before-context line holding a Secret's value is
+/// masked, and each line shows its own text. That holds too when the search
+/// joined fewer lines than the context asks (`joined`): its before-context
+/// stopped at a line it left out, such as test code under `testCode`.
+#[test]
+fn a_walked_context_row_is_judged_at_its_own_lines() {
+    const VALUE: &str = "QmFzZTY0VmFsdWVIZXJlWFla";
+    let pad = format!("# {}\n", "x".repeat(998)).repeat(MAX_VERIFY_RETAINED_BYTES / 1000 + 64);
+    let text = format!(
+        "apiVersion: v1\nkind: Secret\ndata:\n  blob: {VALUE}\n# trailer marker line\nlast plain line\n{pad}"
+    );
+    let source: Vec<&str> = text.lines().collect();
+    for (before, joined, after) in [
+        (1u32, 1u32, 0u32),
+        (0, 0, 1),
+        (1, 1, 1),
+        (2, 2, 1),
+        (2, 1, 1),
+        (3, 1, 0),
+        (3, 2, 1),
+    ] {
+        let first = 5 - joined as usize;
+        let value = source[first - 1..5 + after as usize].join("\n");
+        let mut file = file_with(vec![hit(5, &value)]);
+        file.matches[0].first_line = u32::try_from(first).expect("line");
+        let verified = guard_read(
+            &mut file,
+            std::path::Path::new("big.yaml"),
+            || Ok(text.as_bytes()),
+            Expected::Fresh,
+            0..1,
+            &ValueCheck {
+                security: &ContentSecurity::new(),
+                shape: RowShape::Lines(octocode_engine::types::SearchContext { before, after }),
+                cancel: &NeverCancel,
+                judged: None,
+            },
+        )
+        .expect("not cancelled");
+        assert_eq!(verified, Verification::Verified, "{before}/{after}");
+        let shown = &file.matches[0].value;
+        for at in 0..VALUE.len() - 3 {
+            assert!(
+                !shown.contains(&VALUE[at..at + 4]),
+                "{before}/{after}: {shown:?}"
+            );
+        }
+        let lines: Vec<&str> = shown.split('\n').collect();
+        assert_eq!(lines.len(), value.split('\n').count(), "{shown:?}");
+        for (at, line) in (first..).zip(&lines) {
+            if at == 4 {
+                assert_eq!(
+                    line.trim(),
+                    "[REDACTED-KUBERNETESSECRETS]",
+                    "{before}/{after}"
+                );
+            } else {
+                assert_eq!(*line, source[at - 1], "{before}/{after}: line {at}");
+            }
+        }
+    }
+}
+
+/// A row whose lines disagree with the window the search reports for it is
+/// withheld under its own reason, not as an unreadable source: more lines
+/// before its match than the context allows, a value too short for the
+/// lines it claims, and a first line past its match.
+#[test]
+fn a_row_its_window_cannot_place_is_withheld_as_unplaced() {
+    let dir = tempfile::tempdir().expect("fixture");
+    let path = dir.path().join("a.txt");
+    let text = "l1\nl2\nl3\nl4 marker\nl5\nl6\n";
+    std::fs::write(&path, text).expect("fixture");
+    let context = octocode_engine::types::SearchContext {
+        before: 1,
+        after: 1,
+    };
+    for (first, value) in [
+        (2, "l2\nl3\nl4 marker\nl5"),
+        (3, "l4 marker"),
+        (5, "l4 marker\nl5"),
+    ] {
+        let mut file = file_with(vec![hit(4, value)]);
+        file.matches[0].first_line = first;
+        let verified = guard_read(
+            &mut file,
+            &path,
+            || std::fs::File::open(&path),
+            Expected::Fresh,
+            0..1,
+            &ValueCheck {
+                security: &ContentSecurity::new(),
+                shape: RowShape::Lines(context),
+                cancel: &NeverCancel,
+                judged: None,
+            },
+        )
+        .expect("not cancelled");
+        assert_eq!(verified, Verification::Unverified, "{first}: {value:?}");
+        assert_eq!(
+            file.matches[0].value,
+            super::guard::UNPLACED_PLACEHOLDER,
+            "{first}: {value:?}"
+        );
+    }
+    // The same row, placed where the search joined it, is shown.
+    let mut file = file_with(vec![hit(4, "l3\nl4 marker\nl5")]);
+    file.matches[0].first_line = 3;
+    let verified = guard_read(
+        &mut file,
+        &path,
+        || std::fs::File::open(&path),
+        Expected::Fresh,
+        0..1,
+        &ValueCheck {
+            security: &ContentSecurity::new(),
+            shape: RowShape::Lines(context),
+            cancel: &NeverCancel,
+            judged: None,
+        },
+    )
+    .expect("not cancelled");
+    assert_eq!(verified, Verification::Verified);
+    assert_eq!(file.matches[0].value, "l3\nl4 marker\nl5");
+}
+
+/// A walk masks a last line no newline ends exactly where its secret is, as it
+/// masks any other line, whatever its encoding.
+#[test]
+fn a_walk_masks_an_unterminated_last_line_in_place() {
+    const VALUE: &str = "QmFzZTY0VmFsdWVIZXJlWFla";
+    for key in [vec![0xe9_u8; 12], "\u{e9}".repeat(12).into_bytes()] {
+        let mut yaml = b"apiVersion: v1\nkind: Secret\ndata:\n  ".to_vec();
+        yaml.extend_from_slice(&key);
+        yaml.extend_from_slice(format!(": {VALUE}").as_bytes());
+        let walked = super::exposed::walked_pass(
+            || Ok(std::io::Cursor::new(yaml.clone())),
+            Expected::Fresh,
+            &[(4, 4)],
+            4,
+            std::path::Path::new("s.yaml"),
+            &NeverCancel,
+        )
+        .ok()
+        .flatten()
+        .expect("walked");
+        assert_eq!(walked.read.retained[&4], "  [REDACTED-KUBERNETESSECRETS]");
+    }
+}
+
+/// In a source too large to scan whole, a row touching a private key's block
+/// judges its other lines in their window, not alone: a signify key secret only
+/// by the comment above it stays hidden beside the block it precedes.
+#[test]
+fn a_key_block_row_of_a_large_source_judges_its_other_lines_in_their_window() {
+    const KEY: &str = "q8Zr4LmT2vXw9KpN7sYd3HfJ6gBc1QeRu5WaVo0MiExDzlUt";
+    let pad = format!("# {}\n", "x".repeat(998)).repeat(MAX_VERIFY_RETAINED_BYTES / 1000 + 64);
+    let text = format!(
+        "untrusted comment: signify secret key\n{KEY}\n-----BEGIN PRIVATE KEY-----\nMIIBVQIBADANBgkqhkiG9w0BAQEFAASCAT8wggE7AgEAAkEA\n-----END PRIVATE KEY-----\n{pad}"
+    );
+    let mut file = file_with(vec![hit(3, &format!("{KEY}\n-----BEGIN PRIVATE KEY-----"))]);
+    file.matches[0].first_line = 2;
+    guard_read(
+        &mut file,
+        std::path::Path::new("big.txt"),
+        || Ok(text.as_bytes()),
+        Expected::Fresh,
+        0..1,
+        &ValueCheck {
+            security: &ContentSecurity::new(),
+            shape: RowShape::Lines(octocode_engine::types::SearchContext {
+                before: 1,
+                after: 0,
+            }),
+            cancel: &NeverCancel,
+            judged: None,
+        },
+    )
+    .expect("not cancelled");
+    let shown = &file.matches[0].value;
+    assert!(!shown.contains("LmT2"), "{shown:?}");
+    assert!(!shown.contains("BEGIN PRIVATE"), "{shown:?}");
+    assert_eq!(shown.split('\n').count(), 2, "{shown:?}");
 }

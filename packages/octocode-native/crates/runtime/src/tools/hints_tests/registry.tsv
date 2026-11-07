@@ -137,7 +137,6 @@ clasify	tools/clasify/sections/capture.rs	Use raw readers or a smaller resource 
 clasify	tools/clasify/sections/capture.rs	Use the pinned raw reader or a smaller resource selection.
 clasify	tools/clasify/sections/capture.rs	Use the resource's read call to inspect the sanitized source; for a new evaluation, select complete lines.
 ghCloneRepo	tools/gh_clone_repo/checkout.rs	Verify the path with ghStructure, or omit path for a full clone.
-ghSearchCode	tools/gh_search_code.rs	A file-name search lists indexed files only: GitHub's code index skips files over 384 KB, so a larger file of that name is not listed; read it by path with ghGetFileContent, or list its folder with ghStructure.
 ghSearchCode	tools/gh_search_code.rs	GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 `{branch}`
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 with `path:"{}"`
@@ -177,6 +176,9 @@ shared	tools/judgment.rs	Set a model identifier without credentials.
 shared	tools/judgment/batch.rs	Inspect the current clasify query schema.
 shared	tools/judgment/batch.rs	Not retried in the provider's {}-token long-context window: this request cannot be shown to fit it.
 shared	tools/judgment/batch.rs	Split the source with ranges or resources, send fewer images, or shorten the questions.
+shared	tools/judgment/stats.rs	{retried} refused in the default window retried in the long-context window (slower, less accurate): at least {tokens} input tokens billed; {unknown} of them reported no usage. longContext:false refuses instead.
+shared	tools/judgment/stats.rs	{retried} refused in the default window retried in the long-context window (slower, less accurate): input tokens billed unknown (the provider reported no usage). longContext:false refuses instead.
+shared	tools/judgment/stats.rs	{retried} refused in the default window retried in the long-context window (slower, less accurate): {tokens} input tokens billed. longContext:false refuses instead.
 shared	tools/leads/broaden.rs	No match with these filters: each related[] request drops one; run it only if the wider scope still answers the question.
 shared	tools/leads/broaden.rs	No match: search terms are ANDed, so every word must match; try one distinctive word, or a different spelling.
 shared	tools/leads/skipped.rs	At least 
@@ -193,10 +195,11 @@ localSearch	tools/local_search/coverage.rs	Nothing searched: no file under path;
 localSearch	tools/local_search/coverage.rs	Nothing searched: the target file was skipped ({}). Read it with localFetch.
 localSearch	tools/local_search/coverage.rs	The target file is binary (NUL byte found); it was not searched past that point.
 localSearch	tools/local_search/coverage.rs	{} unreadable
-localSearch	tools/local_search/executor/scanned.rs	 (related[] listScope lists the scope to split it by)
-localSearch	tools/local_search/executor/scanned.rs	 or run related[] viewFileCount (per-file counts keep no rows) and search the files it ranks (a refused one-file search offers related[] readFile)
-localSearch	tools/local_search/executor/scanned.rs	Nothing was shown: narrow path, include or the pattern{list}{count}.
-localSearch	tools/local_search/executor/scanned.rs	Nothing was shown: run related[] readFile (localFetch pages this file whole) or narrow the pattern.
+localSearch	tools/local_search/executor/scanned.rs	Nothing was shown: run the related[] localFetch call (it pages the file whole) or narrow the pattern.
+localSearch	tools/local_search/executor/scanned.rs	Nothing was shown: {leads}narrow path, include or the pattern.
+localSearch	tools/local_search/executor/scanned.rs	run the related[] localSearch call for per-file counts or the structureSearch listing to split the scope, or 
+localSearch	tools/local_search/executor/scanned.rs	run the related[] localSearch call for per-file counts, or 
+localSearch	tools/local_search/executor/scanned.rs	run the related[] structureSearch listing to split the scope, or 
 localSearch	tools/local_search/leads.rs	{total} matches: run the related[] view:"countMatches" request to rank files before paging.
 localSearch	tools/local_search/output.rs	Check read access to the path; a broader search reads the same files.
 localSearch	tools/local_search/output.rs	Correct the regex named in the error. If the intended match is literal text, set regexEngine to literal and keep matchString unchanged.
@@ -255,7 +258,12 @@ shared	tools/selection.rs	 (none on this page)
 shared	tools/selection.rs	 ({shown} on this page)
 shared	tools/selection.rs	 An empty classified result is not absence: next.unfiltered lists them all.
 shared	tools/selection.rs	; none is left to judge, and {} {} unknown
+shared	tools/selection.rs	; {} judged related (near misses, hidden): next.unfiltered shows them
 shared	tools/selection.rs	; {} not judged yet: next.nextCandidatePage judges them
+shared	tools/selection.rs	Lists only the {} the selection's walk left undecided (judged unsure, unjudged or not judgeable), unfiltered, as next.unfiltered lists every hit: they are not selected evidence, and the selection receipt of the page that decided them counts them.
+shared	tools/selection.rs	classification could not classify this page ({code}: {message}); its files are shown unfiltered.
+shared	tools/selection.rs	classification could not classify this read ({code}: {message}); its content is shown unfiltered.
+shared	tools/selection.rs	classification could not classify this search ({code}: {message}); its hits are shown unfiltered.
 shared	tools/selection.rs	classification kept {} of {} that pass the classifiers
 shared	tools/selection/provider_page.rs	Not judged: the classification egress withholds credential-named files, so nothing of these was read or sent to the provider: {}.
 shared	tools/source_capture.rs	A ghGetFileContent read without classification returns this file redacted and sends nothing to a provider.

@@ -38,7 +38,9 @@ pub use content::{
     ContentRequest, ContentResponse, GitHubProvider, Submodule, decode_content, is_full_sha,
 };
 pub use credentials::{CredentialSource, ResolvedCredential};
-pub use endpoint::{GitHubEndpoint, credential_host, is_loopback, names_localhost};
+pub use endpoint::{
+    Deployment, GitHubEndpoint, api_base_for_host, credential_host, is_loopback, names_localhost,
+};
 pub use error::{ProviderError, ProviderErrorKind, ProviderErrorReason, RateLimit};
 pub use history::{CommitListRequest, HistoryPage, HistoryRequest, PullListRequest};
 pub use partition::Partition;

@@ -8,7 +8,7 @@ use std::ops::Range;
 use std::path::Path;
 
 mod hits;
-pub(super) use hits::{hit_chunks, project_lines};
+pub(super) use hits::{HitView, hit_chunks, project_lines};
 
 const TARGET_CHARS: usize = 2_048;
 
@@ -169,13 +169,6 @@ impl Chosen {
         provider: Option<crate::tools::selection::ProviderError>,
         chunks: &[Chunk],
     ) -> Self {
-        let judged = outcome
-            .selected
-            .iter()
-            .chain(&outcome.related)
-            .chain(&outcome.excluded)
-            .copied()
-            .collect::<std::collections::HashSet<_>>();
         let mut view_lines = std::collections::BTreeSet::new();
         let mut unknown = std::collections::BTreeSet::new();
         for (ordinal, chunk) in chunks.iter().enumerate() {
@@ -184,7 +177,7 @@ impl Chosen {
                 .iter()
                 .copied()
                 .filter(|&line| line != super::extraction::OMISSION_LINE);
-            if !outcome.considers(ordinal) || judged.contains(&ordinal) {
+            if !outcome.is_undecided(ordinal) {
                 view_lines.extend(lines);
             } else {
                 for line in lines {
@@ -216,14 +209,14 @@ impl Chosen {
     /// ([`crate::tools::selection::kept_note`]).
     pub(super) fn disclosure(&self) -> Vec<String> {
         if let Some(error) = &self.provider {
-            return vec![crate::tools::selection::unclassified_warning(
+            return vec![crate::tools::selection::unclassified_notice(
                 error,
-                "this read",
-                "its content is",
+                crate::tools::selection::Unclassified::Read,
             )];
         }
         crate::tools::selection::kept_note(&self.outcome, self.outcome.selected.len())
             .into_iter()
+            .chain(self.outcome.long_context_notice.clone())
             .collect()
     }
 

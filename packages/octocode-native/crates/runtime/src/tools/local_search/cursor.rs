@@ -245,6 +245,9 @@ pub(super) fn query_key(
     page_budget: usize,
 ) -> String {
     let mut semantics = query_value(q);
+    // A field stated at its contract default is its omission, as a
+    // continuation that drops it runs.
+    crate::response::result::canonical_row(crate::id::ToolId::LocalSearch, &mut semantics);
     if let Some(fields) = semantics.as_object_mut() {
         for field in NON_SEMANTIC_FIELDS {
             fields.remove(field);

@@ -132,6 +132,7 @@ fn selection_tokens_reject_malformed_and_excessively_expanded_data() {
 #[test]
 fn token_preserves_disjoint_partitions_and_rejects_drift() {
     let bound = binding(
+        crate::id::ToolId::LocalFetch,
         &json!({"classification":{"predicates":["find it"]},"page":1}),
         "source",
         None,
@@ -193,7 +194,7 @@ fn token_preserves_disjoint_partitions_and_rejects_drift() {
 /// An opening token carries no decisions: one that claims any is stale.
 #[test]
 fn an_opening_token_with_decisions_is_stale() {
-    let bound = binding(&json!({}), "source", None);
+    let bound = binding(crate::id::ToolId::LocalFetch, &json!({}), "source", None);
     let mut plan = Plan::new(
         bound.clone(),
         4,

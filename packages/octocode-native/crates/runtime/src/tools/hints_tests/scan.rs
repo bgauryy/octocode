@@ -30,7 +30,9 @@ const EMITTERS: &[(&str, usize)] = &[
     ("ClassificationError::new(", 2),
 ];
 const CONST_MARKS: &[&str] = &["HINT", "TIP", "NOTE", "NOTICE"];
-const FN_MARKS: &[&str] = &["hint", "tip", "note", "notice", "disclose"];
+/// A name part starting with one marks the function (`disclos`: disclose,
+/// disclosed, disclosure).
+const FN_MARKS: &[&str] = &["hint", "tip", "note", "notice", "disclos"];
 
 /// A string literal: its byte span in the source and its text.
 struct Literal {
@@ -248,6 +250,33 @@ fn test_modules(src: &str, skip: &[usize]) -> Vec<(usize, usize)> {
     out
 }
 
+/// Whether the function declared at `at` is a test (`#[test]`,
+/// `#[tokio::test]`, `#[tokio::test(flavor = …)]`, `#[cfg(test)]` among the
+/// attributes above it): its literals are expectations, never emitted prose,
+/// whatever it is named. `#[cfg(not(test))]` is production code.
+fn is_test_fn(src: &str, at: usize) -> bool {
+    let line_start = src[..at].rfind('\n').map_or(0, |n| n + 1);
+    src[..line_start]
+        .lines()
+        .rev()
+        .map(str::trim)
+        .take_while(|line| line.starts_with("#[") || line.starts_with("//"))
+        .filter_map(|line| line.strip_prefix("#[")?.strip_suffix(']'))
+        .any(is_test_attribute)
+}
+
+/// Whether an attribute's content (inside `#[…]`) marks a test: a path
+/// ending in `test`, or `cfg(test)`.
+fn is_test_attribute(attribute: &str) -> bool {
+    let attribute = attribute.trim();
+    let path = attribute
+        .split_once('(')
+        .map_or(attribute, |(path, _)| path)
+        .trim();
+    path.rsplit("::").next() == Some("test")
+        || attribute.replace(' ', "") == "cfg(test)"
+}
+
 /// Spans of `src` whose literals are hint or notice prose.
 fn hint_spans(src: &str, skip: &[usize]) -> Vec<(usize, usize)> {
     let mut spans = Vec::new();
@@ -289,6 +318,7 @@ fn hint_spans(src: &str, skip: &[usize]) -> Vec<(usize, usize)> {
         if FN_MARKS
             .iter()
             .any(|mark| name.split('_').any(|part| part.starts_with(mark)))
+            && !is_test_fn(src, at)
         {
             spans.push((at, block_end(src, at, skip)));
         }
@@ -346,4 +376,20 @@ pub(super) fn registry(text: &str) -> BTreeMap<Template, String> {
             (Template { file, text }, owner)
         })
         .collect()
+}
+
+#[test]
+fn only_test_attributes_exempt_a_function() {
+    let at = |src: &str| is_test_fn(src, src.find("fn ").expect("a function"));
+    for attribute in [
+        "#[test]",
+        "#[tokio::test]",
+        "#[tokio::test(flavor = \"multi_thread\")]",
+        "#[cfg(test)]",
+    ] {
+        assert!(at(&format!("{attribute}\nfn f() {{}}\n")), "{attribute}");
+    }
+    for attribute in ["#[cfg(not(test))]", "#[must_use]", "#[expect(dead_code)]"] {
+        assert!(!at(&format!("{attribute}\nfn f() {{}}\n")), "{attribute}");
+    }
 }

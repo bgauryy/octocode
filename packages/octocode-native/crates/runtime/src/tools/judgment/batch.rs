@@ -85,6 +85,11 @@ pub(crate) async fn answer_questions(
         Ok(outcomes) => outcomes,
         Err(error) => QuestionOutcomes::from_complete(Err(error), input.questions.len()),
     };
+    if let Ok(judged) = &mut outcomes.complete {
+        judged.long_context_retry = Some(super::LongContextRetry {
+            unreported_calls: judged.provider_calls.saturating_sub(judged.known_usage_calls),
+        });
+    }
     add_refused(&mut outcomes, refused);
     outcomes
 }

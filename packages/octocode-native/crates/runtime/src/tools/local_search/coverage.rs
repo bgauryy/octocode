@@ -9,6 +9,10 @@ use octocode_contract_types::LocalSearchQuery;
 use octocode_engine::num::saturating_u32;
 use octocode_engine::types::CapReason;
 
+/// The page's warning when some shown values are placeholders the secret
+/// check put in their place.
+pub(super) const UNVERIFIED_WARNING: &str = "Some match values are [REDACTED: …] placeholders, each naming why its text could not be checked for secrets: the source is too large around the match, could not be re-read, or changed during the call, or the row's window disagrees with its source. Read those lines with localFetch at the returned anchors.";
+
 /// What the scan could not cover, and how the row says so.
 pub(super) struct Coverage {
     pub(super) error_count: u32,
@@ -152,9 +156,7 @@ impl Coverage {
             ));
         }
         if unverified {
-            warnings.push(
-                "Some match values are [REDACTED: …] placeholders, each naming why its text could not be checked for secrets: the source is too large around the match, could not be re-read, or changed during the call. Read those lines with localFetch at the returned anchors.".into(),
-            );
+            warnings.push(UNVERIFIED_WARNING.into());
         }
         // Values are decoded as localFetch decodes the file; say so once.
         if let Some(files) = &self.not_utf8_files

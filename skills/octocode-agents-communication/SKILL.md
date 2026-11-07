@@ -7,7 +7,7 @@ description: "Coordinate agents across sessions, hosts or worktrees through a sh
 
 For installation, MCP wiring or hook repair, use `octocode-communication-bootstrap`; this skill owns ongoing communication.
 
-Use native coordination inside one Octocode or Pi team (Pi provides `coordinate`, `sendMessage` and `agent`). Use this package across teams, hosts or worktrees sharing a local SQLite database. Its A2A-inspired message parts and named evidence documents have no remote endpoint, authentication, AgentCard or Task API.
+Use native coordination inside one Octocode or Pi team (Pi provides `coordinate`, `sendMessage` and `agent`). Use this package across teams, hosts or worktrees sharing a local SQLite database. Its A2A-inspired message parts and named evidence documents have no remote endpoint, authentication, AgentCard or Task API. To prompt one agent from another vendor, or to run Octocode inside an editor, use ACP: [acp.md](references/acp.md).
 
 ## Choose the interface
 

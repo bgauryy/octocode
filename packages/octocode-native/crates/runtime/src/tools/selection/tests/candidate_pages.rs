@@ -210,6 +210,40 @@ fn the_last_candidate_page_tallies_the_whole_walk() {
     );
 }
 
+/// A complete selection that kept nothing because every hit was a near miss
+/// says so, and where they are: complete is not full recall.
+#[test]
+fn the_kept_note_names_hidden_near_misses() {
+    struct Related;
+    impl SelectionJudge for Related {
+        fn identity(&self) -> serde_json::Value {
+            json!({"test":"related"})
+        }
+        fn select(&self, call: JudgeCall<'_>) -> Judgments {
+            Ok(call
+                .admitted
+                .iter()
+                .map(|&i| (i, Decision::Related))
+                .collect())
+        }
+    }
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let runtime = test_runtime(std::sync::Arc::new(Related), executor.handle().clone());
+    let candidates = (0..3)
+        .map(|i| Candidate::new(Some(json!({"content":format!("evidence {i}")}))))
+        .collect::<Vec<_>>();
+    let query = json!({"classification":{"predicates":["evidence"]}});
+    let outcome = select_source(&runtime, &query, None, &candidates, SelectionUnit::Hits)
+        .unwrap_or_else(|_| panic!("selection"));
+    assert_eq!(outcome.receipt.status, SelectionStatus::Complete);
+    assert_eq!(
+        kept_note(&outcome, 0).as_deref(),
+        Some(
+            "classification kept 0 of 3 hits that pass the classifiers; 3 hits judged related (near misses, hidden): next.unfiltered shows them. An empty classified result is not absence: next.unfiltered lists them all."
+        )
+    );
+}
+
 #[test]
 fn provider_candidate_pages_cover_the_same_page_and_refuse_source_drift() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");

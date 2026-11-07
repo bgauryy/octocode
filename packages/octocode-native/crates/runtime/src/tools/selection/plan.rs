@@ -11,9 +11,10 @@ use std::collections::HashSet;
 
 mod finish;
 
-/// Version 11 carries the earlier candidate pages' counts, so every page of a
-/// chain reports the whole walk.
-pub(super) const VERSION: u8 = 11;
+/// Version 12 carries the earlier candidate pages' counts and undecided
+/// ordinals, so every page of a chain reports, and its undecided view lists,
+/// the whole walk.
+pub(super) const VERSION: u8 = 12;
 
 /// What the candidate pages before this one decided or left unknown: their
 /// share of the walk, so each page's receipt counts the whole of it.
@@ -29,6 +30,10 @@ pub(super) struct Tally {
     /// Why the first earlier page left units unanswered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) reason: Option<String>,
+    /// The `unknown` ordinals themselves, as runs: the undecided view of a
+    /// later page lists them beside its own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty", with = "runs")]
+    pub(super) undecided: Vec<[u32; 2]>,
 }
 
 impl Tally {
@@ -75,6 +80,11 @@ pub(super) struct Plan {
     /// instead of replaying a judged page.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(super) opens: bool,
+    /// The token replays this page as its undecided view: the pool's
+    /// ordinals it judged neither selected, related nor excluded (unknown
+    /// answers, unjudged units, units without a state), with no provider call.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) undecided: bool,
     /// The earlier candidate pages of this chain.
     #[serde(default, skip_serializing_if = "Tally::is_empty")]
     pub(super) carried: Tally,
@@ -180,6 +190,7 @@ impl Plan {
             unjudged: Vec::new(),
             pool: Vec::new(),
             opens: false,
+            undecided: false,
             carried: Tally::default(),
             unanswered: 0,
             checksum: String::new(),
@@ -206,7 +217,7 @@ impl Plan {
             "version":self.version, "binding":self.binding, "status":self.status,
             "scope":self.scope, "unit":self.unit, "selected":self.selected,
             "related":self.related, "excluded":self.excluded, "total":self.total, "reason":self.reason,
-            "unjudged":self.unjudged, "pool":self.pool, "opens":self.opens,
+            "unjudged":self.unjudged, "pool":self.pool, "opens":self.opens, "undecided":self.undecided,
             "failures":self.failures, "carried":self.carried, "unanswered":self.unanswered,
         }))
     }
@@ -265,6 +276,7 @@ impl Plan {
         unit: SelectionUnit,
     ) -> bool {
         if self.version != VERSION
+            || (self.undecided && self.opens)
             || self.binding != binding
             || self.scope != scope
             || self.unit != unit
@@ -282,6 +294,20 @@ impl Plan {
             // The earlier pages and this pool are the whole walk.
             || self.carried.items().checked_add(self.pool_size()) != Some(total)
             || self.carried.unanswered > self.carried.unknown
+            // The earlier pages' undecided units lie outside this pool, and
+            // are every unit they counted unknown.
+            || self.carried.undecided.iter().any(|&[start, end]| {
+                start >= end
+                    || end > self.total
+                    || (start..end).any(|ordinal| self.in_pool(ordinal as usize))
+            })
+            || self
+                .carried
+                .undecided
+                .iter()
+                .map(|[start, end]| u64::from(end - start))
+                .sum::<u64>()
+                != u64::from(self.carried.unknown)
         {
             return false;
         }

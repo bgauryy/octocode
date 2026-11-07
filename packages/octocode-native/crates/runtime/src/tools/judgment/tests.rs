@@ -39,6 +39,74 @@ fn response(request: &Request) -> ResponseTemplate {
     ResponseTemplate::new(200).set_body_json(json!({"model":"jev-resolved","answers":answers,"usage":{"input_tokens":10,"output_tokens":2}}))
 }
 
+/// A request the default window refuses is retried in the long-context
+/// window when `longContext` is omitted; the answer says so, with the input
+/// tokens billed and how to get the refusal instead.
+#[tokio::test]
+async fn a_long_context_retry_is_disclosed_with_its_billed_tokens() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(|request: &Request| {
+            if request
+                .headers
+                .get("typesafe-danger-zone-long-context")
+                .is_none()
+            {
+                return ResponseTemplate::new(400)
+                    .set_body_json(json!({"detail":{"error_type":"max_tokens_exceeded"}}));
+            }
+            let body: Value = request.body_json().expect("body");
+            let answers = body["questions"]
+                .as_object()
+                .expect("questions")
+                .keys()
+                .map(|id| (id.clone(), json!({"type":"noul","noul":0.8})))
+                .collect::<serde_json::Map<String, Value>>();
+            ResponseTemplate::new(200).set_body_json(json!({"model":"jev-resolved",
+                "answers":answers,"usage":{"input_tokens":123_456,"output_tokens":2}}))
+        })
+        .mount(&server)
+        .await;
+    let evaluator = evaluator(&server);
+    let budget = evaluation_budget(&evaluator);
+    let gate = evaluator.gate();
+    let state = json!("source");
+    let questions = vec![json!({"type":"noul","instructions":"Evidence?"})];
+    let judged = evaluator
+        .evaluate_prepared(
+            EvaluationInput {
+                state: &state,
+                questions: &questions,
+                assets: None,
+                long_context: LongContext::OnRefusal,
+            },
+            None,
+            &budget,
+            &gate,
+        )
+        .await
+        .expect("answered in the long window");
+    assert_eq!(judged.provider_calls, 2, "the refusal and the retry");
+    assert_eq!(
+        judged.long_context_retry,
+        Some(super::LongContextRetry {
+            unreported_calls: 0
+        }),
+        "the retry is a fact of the row, its usage reported"
+    );
+    let mut usage = super::stats::ClassificationUsage::default();
+    usage.add(&Ok(judged));
+    let notice = usage.long_context_notice().expect("the retry is disclosed");
+    for part in [
+        "1 evaluation refused",
+        "long-context window",
+        "123456 input tokens",
+        "longContext:false",
+    ] {
+        assert!(notice.contains(part), "{part}: {notice}");
+    }
+}
+
 mod media;
 mod sanitization;
 mod shared;

@@ -207,7 +207,7 @@ export const ghStructure = {
   observed: (ctx, { query }, pages) => {
     const data = rowsOf(pages);
     if (query.operation === 'languages') return Object.keys(data[0]?.languages ?? {}).map(name => [name]);
-    if (query.operation === 'refs') return [...Object.keys(data[0]?.branches ?? {}).filter(name => name === 'main'), ...(data[0]?.tags ?? [])].map(name => [name]);
+    if (query.operation === 'refs') return [...(data[0]?.branches ?? []).map(branch => branch.name).filter(name => name === 'main'), ...(data[0]?.tags ?? [])].map(name => [name]);
     return distinct(data.flatMap(row => structureFiles(row.files ?? [])).filter(entry => entry.type !== 'directory').map(entry => entry.path)).map(file => [file]);
   },
   check: (ctx, { query }, pages) => {

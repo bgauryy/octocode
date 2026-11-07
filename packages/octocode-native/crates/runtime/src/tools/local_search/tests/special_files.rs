@@ -36,6 +36,7 @@ fn a_fifo_in_place_of_a_source_is_refused_without_blocking() {
             matches: vec![octocode_engine::types::TextSearchMatch {
                 deferred: None,
                 line: 1,
+                first_line: 1,
                 last_line: None,
                 column: 0,
                 byte_offset: 0,
@@ -53,7 +54,7 @@ fn a_fifo_in_place_of_a_source_is_refused_without_blocking() {
             0..10,
             &verify::ValueCheck {
                 security: &ContentSecurity::new(),
-                match_only: false,
+                shape: verify::RowShape::Lines(Default::default()),
                 cancel: &NeverCancel,
                 judged: None,
             },

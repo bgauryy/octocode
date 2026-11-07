@@ -11,23 +11,41 @@ use octocode_github::{ProviderErrorKind, RequestContext};
 use serde_json::{Value, json};
 use std::num::NonZeroU64;
 
+/// The default-branch head a ref search's index warning names: the one the
+/// walk's first page read (`indexHead`, carried by the continuation), else
+/// asked now. `None` for a search without a ref or a head GitHub lacks.
+pub(in crate::tools::gh_search_code) async fn index_head(
+    provider: &octocode_github::GitHubProvider,
+    query: &GhSearchCodeQuery,
+    context: &RequestContext,
+) -> Result<Option<String>, ProviderError> {
+    let (Some(_), Some(repo)) = (requested_ref(query), query.repo.as_deref()) else {
+        return Ok(None);
+    };
+    if let Some(head) = &query.index_head {
+        return Ok(Some(head.to_string()));
+    }
+    commit_or_none(provider, query.owner.as_str(), repo, None, context).await
+}
+
 /// A search pinned to a ref other than the default-branch head: its files
 /// come from the default-branch index, so files only at the ref are missing
 /// and unresolved rows show default-branch text. Warn with the index commit
 /// and lead first to the ref's own listing. `resolved_sha` is the ref's
-/// commit when the hit lines were read at it.
+/// commit when the hit lines were read at it; `head` is the default-branch
+/// head ([`index_head`]).
 pub(in crate::tools::gh_search_code) async fn disclose_index_ref(
     provider: &octocode_github::GitHubProvider,
     value: &mut Value,
     query: &GhSearchCodeQuery,
     resolved_sha: Option<String>,
+    head: Option<String>,
     context: &RequestContext,
 ) -> Result<(), ProviderError> {
     let (Some(reference), Some(repo)) = (requested_ref(query), query.repo.as_deref()) else {
         return Ok(());
     };
     let owner = query.owner.as_str();
-    let head = commit_or_none(provider, owner, repo, None, context).await?;
     let at_ref = match resolved_sha {
         Some(sha) => Some(sha),
         None => commit_or_none(provider, owner, repo, Some(reference), context).await?,

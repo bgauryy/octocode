@@ -40,9 +40,17 @@ pub(crate) fn needs_candidate_states(
 }
 
 /// Bind assessment semantics, including optional research context. Pagination
-/// cursors are excluded; canonical source identity owns path spelling.
-pub(super) fn binding(query: &Value, source: &str, runtime: Option<&Runtime>) -> String {
+/// cursors are excluded; canonical source identity owns path spelling; a
+/// field stated at its contract default binds as its omission
+/// ([`crate::response::result::canonical_row`]), as a continuation drops it.
+pub(super) fn binding(
+    tool: crate::id::ToolId,
+    query: &Value,
+    source: &str,
+    runtime: Option<&Runtime>,
+) -> String {
     let mut selected = query.clone();
+    crate::response::result::canonical_row(tool, &mut selected);
     if let Some(map) = selected.as_object_mut() {
         for field in super::progress_fields() {
             map.remove(field);
@@ -61,6 +69,7 @@ pub(super) fn binding(query: &Value, source: &str, runtime: Option<&Runtime>) ->
 
 pub(crate) fn select(
     runtime: Option<&Runtime>,
+    tool: crate::id::ToolId,
     query: &Value,
     source: &str,
     prior: Option<&str>,
@@ -70,6 +79,7 @@ pub(crate) fn select(
 ) -> Result<Outcome, Failure> {
     select_scoped(
         runtime,
+        tool,
         query,
         source,
         prior,
@@ -82,6 +92,7 @@ pub(crate) fn select(
 
 pub(super) fn select_scoped(
     runtime: Option<&Runtime>,
+    tool: crate::id::ToolId,
     query: &Value,
     source: &str,
     prior: Option<&str>,
@@ -93,10 +104,11 @@ pub(super) fn select_scoped(
     let finish = |plan: Plan, usage: &ClassificationUsage| {
         let mut outcome = plan.finish();
         outcome.receipt.usage = Some(usage.output());
+        outcome.long_context_notice = usage.long_context_notice();
         outcome
     };
     let mut usage = ClassificationUsage::default();
-    let bound = binding(query, source, runtime);
+    let bound = binding(tool, query, source, runtime);
     // A saved plan replays; a token opening a candidate page judges its pool.
     let (mut pool, mut carried) = (Vec::new(), super::plan::Tally::default());
     if let Some(token) = prior {

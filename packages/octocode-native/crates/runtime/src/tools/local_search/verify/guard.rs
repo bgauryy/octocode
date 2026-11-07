@@ -42,11 +42,32 @@ pub(in crate::tools::local_search) fn guard_source_secrets(
 /// placeholder), and the cancel that stops the read.
 pub(in crate::tools::local_search) struct ValueCheck<'a, C> {
     pub(in crate::tools::local_search) security: &'a ContentSecurity,
-    pub(in crate::tools::local_search) match_only: bool,
+    pub(in crate::tools::local_search) shape: RowShape,
     pub(in crate::tools::local_search) cancel: &'a C,
     /// The stored scan's judged windows, reused for a source whose read
     /// proved the stored digest (`None`: judge every window afresh).
     pub(in crate::tools::local_search) judged: Option<&'a settle::JudgedWindows>,
+}
+
+/// What a shown row's value holds of its source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::tools::local_search) enum RowShape {
+    /// A matchOnly span of its match.
+    Span,
+    /// Its match's lines with the context the search joined around them.
+    Lines(octocode_engine::types::SearchContext),
+}
+
+impl RowShape {
+    /// The shape `query`'s rows have: its view, and the context the search
+    /// resolved for it.
+    pub(in crate::tools::local_search) fn of(query: &LocalSearchQuery) -> Self {
+        if local_search_query::view(query) == local_search_query::View::MatchOnly {
+            Self::Span
+        } else {
+            Self::Lines(local_search_query::context(query))
+        }
+    }
 }
 
 /// [`guard_source_secrets`] over the reader `open` returns, opened only
@@ -61,7 +82,7 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
 ) -> Result<Verification, String> {
     let ValueCheck {
         security,
-        match_only,
+        shape,
         cancel,
         judged: known,
     } = *check;
@@ -72,12 +93,17 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
     let start = shown.start.min(end);
     let shown = &mut file.matches[start..end];
     // 1-based inclusive source lines each shown value needs re-sanitized.
+    // Each row's lines, and the window around them its value is judged in.
+    let placed = shown
+        .iter()
+        .map(|m| settle::row_lines(shape, m))
+        .collect::<Vec<_>>();
     let windows = shown
         .iter()
-        .map(|m| {
-            let span = m.value.lines().count().max(1);
-            let line = m.line as usize;
-            (line.saturating_sub(span).max(1), line + span)
+        .zip(&placed)
+        .map(|(m, lines)| {
+            let (first, span) = lines.map_or((m.line as usize, 1), |l| (l.first, l.span));
+            (first.saturating_sub(span).max(1), first + 2 * span - 1)
         })
         .collect::<Vec<_>>();
     let Some(last_line) = windows.iter().map(|&(_, hi)| hi).max() else {
@@ -166,7 +192,7 @@ pub(in crate::tools::local_search) fn guard_read<R: std::io::Read>(
         },
         source,
         security,
-        (match_only, known.zip(proven)),
+        (&placed, shape, known.zip(proven)),
     ))
 }
 
@@ -230,6 +256,12 @@ pub(in crate::tools::local_search) fn drain_digest<R: std::io::Read>(
 /// source-secret check.
 pub(in crate::tools::local_search) const UNVERIFIED_PLACEHOLDER: &str =
     "[REDACTED: source unreadable for secret check]";
+
+/// Value shown in place of a row whose lines disagree with the window the
+/// search reports for it (where its value starts, and the context it
+/// joined): nothing places its lines in the source, so none is shown.
+pub(in crate::tools::local_search) const UNPLACED_PLACEHOLDER: &str =
+    "[REDACTED: row window disagrees with its source]";
 
 /// Value shown in place of a match whose source neighborhood exceeds
 /// [`MAX_VERIFY_RETAINED_BYTES`].

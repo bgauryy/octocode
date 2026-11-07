@@ -9,7 +9,7 @@ use octocode_engine::types::SearchSort;
 use super::super::enclosing::{annotate_enclosing, annotate_match_keys};
 use super::super::handoff::Definition;
 use super::super::layout::{Layout, file_pagination};
-use super::super::rows::{merge_context_windows, project_match};
+use super::super::rows::{HitWindow, merge_context_windows, project_match};
 use super::super::types::SearchFile;
 use super::super::verify::{Outlines, PageScope, Redacted};
 
@@ -190,9 +190,14 @@ fn project_files(
             later.dedup();
             let shown = match layout.merge_context {
                 Some(context) => {
-                    let mut hits = f.matches.iter().map(|m| m.line).collect::<Vec<_>>();
-                    hits.sort_unstable();
-                    hits.dedup();
+                    // Every hit's window, on any page: the lines it holds.
+                    let mut hits = f
+                        .matches
+                        .iter()
+                        .map(|m| HitWindow::of(m, context))
+                        .collect::<Vec<_>>();
+                    hits.sort_unstable_by_key(|hit| (hit.line, hit.first, hit.last));
+                    hits.dedup_by_key(|hit| hit.line);
                     merge_context_windows(shown, context, &hits)
                 }
                 None => shown,

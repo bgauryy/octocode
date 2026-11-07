@@ -165,6 +165,7 @@ fn fetch_partition_binding_rejects_same_count_legacy_replay() {
     let select = |source: &str, prior: Option<&str>, candidates: &[Candidate]| {
         crate::tools::selection::select(
             Some(&runtime),
+            crate::id::ToolId::LocalFetch,
             &query_json,
             source,
             prior,

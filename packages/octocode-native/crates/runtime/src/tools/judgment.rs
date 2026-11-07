@@ -113,6 +113,19 @@ pub(crate) struct Judged {
     pub provider_calls: u64,
     #[serde(skip)]
     pub known_usage_calls: u64,
+    /// The default window refused this evaluation and the long-context
+    /// window answered it; its tokens are the long window's
+    /// ([`stats::ClassificationUsage::long_context_notice`]).
+    #[serde(skip)]
+    pub long_context_retry: Option<LongContextRetry>,
+}
+
+/// A long-context retry of a refused evaluation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LongContextRetry {
+    /// The long window's requests that reported no usage: their tokens are
+    /// unknown, not zero.
+    pub unreported_calls: u64,
 }
 
 /// Per-question results retain successful siblings when another request fails.

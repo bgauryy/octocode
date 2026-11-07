@@ -30,6 +30,7 @@ fn one_match(path: &std::path::Path, line: u32, value: &str) -> TextSearchResult
             matches: vec![TextSearchMatch {
                 deferred: None,
                 line,
+                first_line: line,
                 last_line: None,
                 column: 0,
                 byte_offset: 0,
@@ -196,4 +197,28 @@ fn learned_prices_are_charged_or_not_kept() {
         .learn(&files, HashMap::from([(0, FilePrice::Unread)]));
     assert_eq!(refused.prices.weight(), 0);
     assert!(refused.prices.by_index(&files).is_empty());
+}
+
+/// A stream cut a page makes once its scan is stored is charged its bytes; a
+/// refused one is not kept, and a later page cuts the scan again.
+#[test]
+fn a_learned_stream_cut_is_charged_or_not_kept() {
+    let pages = Arc::new(vec![vec![(0, 0..2), (1, 0..1)], vec![(2, 0..3)]]);
+    let learned = Learned::default();
+    let charged = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let total = Arc::clone(&charged);
+    learned.bill_to(move |bytes| {
+        total.fetch_add(bytes, std::sync::atomic::Ordering::SeqCst);
+        true
+    });
+    learned.cuts.keep(&pages);
+    learned.cuts.keep(&pages);
+    let weight = learned.cuts.weight();
+    assert!(weight > 0);
+    assert_eq!(charged.load(std::sync::atomic::Ordering::SeqCst), weight);
+    let refused = Learned::default();
+    refused.bill_to(|_| false);
+    refused.cuts.keep(&pages);
+    assert!(!refused.cuts.kept());
+    assert_eq!(refused.cuts.weight(), 0);
 }

@@ -109,6 +109,28 @@ fn a_default_branch_source_warns_that_it_may_be_another_version() {
     assert_eq!(source_warning(&discovery), None);
 }
 
+/// A declared tag pinned because no tag names the version is the registry's
+/// claim (`registryRef`), and the warning names it.
+#[test]
+fn a_declared_tag_pin_is_a_registry_ref_and_names_the_tag() {
+    let mut row = item(
+        ArtifactType::Maven,
+        "https://github.com/apache/logging-log4j2",
+    );
+    row.package_name = "org.apache.logging.log4j:log4j-core".into();
+    row.version = Some("2.14.1".into());
+    row.source_ref = Some("log4j-2.14.1-rc1".into());
+    row.declared_ref = true;
+    label_release_source(&mut row, true);
+    assert_eq!(row.verification, Some("registryRef"));
+    assert_eq!(
+        source_warning(&row).as_deref(),
+        Some(
+            "org.apache.logging.log4j:log4j-core 2.14.1: no tag names this version; ref log4j-2.14.1-rc1 is the tag its metadata declares, unchecked against the release."
+        )
+    );
+}
+
 /// The row is the one source of the label; a discovery row
 /// without a ref gets none, and a rubygems tag URL is a registry ref.
 #[test]

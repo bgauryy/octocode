@@ -22,6 +22,8 @@ pub(super) struct Paging {
     matched: usize,
     /// A complete one-page REST list counts its rows exactly.
     exact_list_total: Option<usize>,
+    /// Rows a REST list has listed through this page.
+    loaded: usize,
     listed: bool,
     incomplete: bool,
     /// The page lies past the last one: no rows, though the search has some
@@ -50,6 +52,10 @@ impl Paging {
             capped: reach.capped,
             matched: result.total_count,
             exact_list_total: (result.listed && page == 1 && !more).then_some(result.items.len()),
+            loaded: page
+                .saturating_sub(1)
+                .saturating_mul(per)
+                .saturating_add(result.items.len()),
             listed: result.listed,
             incomplete: result.incomplete_results,
             past_end: result.items.is_empty()
@@ -63,6 +69,14 @@ impl Paging {
             self.exact_list_total
         } else {
             Some(self.total)
+        }
+    }
+    /// A REST list page with more pages has no total: the rows listed so far
+    /// (`countScope: loaded`, a floor) say how far the list reaches.
+    fn mark_loaded(&self, pagination: &mut Value) {
+        if self.listed && self.more && !self.past_end {
+            pagination["totalItems"] = json!(self.loaded);
+            pagination["countScope"] = json!("loaded");
         }
     }
     /// The total when it is exact: an uncapped, complete search count or an
@@ -236,6 +250,13 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
     } else if let Some(total) = paging.exact_list_total {
         v["pagination"]["totalItems"] = json!(total);
     }
+    paging.mark_loaded(&mut v["pagination"]);
+    if paging.listed
+        && paging.more
+        && let Some(count) = leads::count_listed(query)
+    {
+        v["calls"]["countMatches"] = count;
+    }
     // List mode runs the REST endpoint, not the search terms.
     if paging.listed
         && let Some(map) = v.as_object_mut()
@@ -312,6 +333,8 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
             crate::response::pages::PageFacts::open(paging.page, Some(paging.per), paging.more)
                 .out_of_range(paging.past_end)
                 .to_value();
+        // Commit search needs keywords: a commit list offers no count call.
+        paging.mark_loaded(&mut v["pagination"]);
         return v;
     }
     let commits = items

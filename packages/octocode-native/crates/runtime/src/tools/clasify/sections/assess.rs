@@ -150,6 +150,20 @@ pub(super) fn assess_and_save(
     Ok(Outcome { output })
 }
 
+/// A section's provider state with the template's section scope as its
+/// `question`: the judge answers about the target, never from its context
+/// entries. Added when the batch runs, so a saved plan gets it too.
+pub(super) fn scoped(state: std::borrow::Cow<'_, serde_json::Value>) -> serde_json::Value {
+    let mut state = state.into_owned();
+    if let (Some(question), Some(fields)) = (
+        crate::tools::selection::section_question(),
+        state.as_object_mut(),
+    ) {
+        fields.insert("question".into(), question.clone());
+    }
+    state
+}
+
 /// Every admitted unit's `pending` questions, judged concurrently under the
 /// call's budget and gate; the answers come in admitted order.
 fn judge_units(
@@ -174,10 +188,10 @@ fn judge_units(
                     .iter()
                     .map(|&index| questions[index].clone())
                     .collect();
-                let state = super::super::rows::contextual_state(
+                let state = scoped(super::super::rows::contextual_state(
                     &session.resources[resource].units[unit].state,
                     session.context.as_deref(),
-                );
+                ));
                 // One request's time starts when it runs; the call's
                 // deadline bounds them all.
                 let budget = evaluator.budget(context.deadline, context.cancellation.clone());
@@ -276,3 +290,7 @@ fn apply_results(
     }
     settled
 }
+
+#[cfg(test)]
+#[path = "assess/retry_tests.rs"]
+mod retry_tests;

@@ -139,6 +139,11 @@ pub(super) fn run(
             let mut output = saved.clone();
             output["usage"] = serde_json::to_value(ClassificationUsage::default().output())
                 .unwrap_or(Value::Null);
+            // A replay bills nothing: the batch's retry notice went with
+            // its usage.
+            if let Some(output) = output.as_object_mut() {
+                output.remove("hints");
+            }
             output["replayed"] = json!(true);
             return Ok(Outcome { output });
         }

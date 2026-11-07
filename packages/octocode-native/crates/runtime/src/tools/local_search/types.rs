@@ -23,6 +23,12 @@ pub struct SearchMatch {
     /// line starts at the match. Read by leads, never shown.
     #[serde(skip)]
     pub byte_offset: u32,
+    /// Source line the value starts at, as the search joined it: its match
+    /// line less the context lines before it, which stop at an absent
+    /// neighbour (a line `testCode` left out). Read to number a window,
+    /// never shown.
+    #[serde(skip)]
+    pub first_line: u32,
     /// Every matched line inside a merged context block, in order; present
     /// only when overlapping/adjacent windows were merged into this one.
     #[serde(rename = "matchedLines", skip_serializing_if = "Option::is_none")]

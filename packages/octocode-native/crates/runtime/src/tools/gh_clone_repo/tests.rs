@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 mod access;
 mod bench;
 mod concurrency;
+mod deployment;
 mod git_process;
 mod home;
 mod lifecycle;

@@ -64,6 +64,10 @@ pub(super) fn source_warning(artifact: &ArtifactItem) -> Option<String> {
             format!("release commit {reference} is not in {repository} (unpushed or rewritten)")
         }
         (None, None) if default_branch => "the registry names no release ref".to_owned(),
+        (None, None) if artifact.declared_ref => format!(
+            "no tag names this version; ref {} is the tag its metadata declares, unchecked against the release",
+            artifact.source_ref.as_deref().unwrap_or_default()
+        ),
         (None, None) => {
             let release = artifact.tag_differs.as_ref()?;
             let reference = artifact.source_ref.as_deref().unwrap_or_default();

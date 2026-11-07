@@ -1,15 +1,16 @@
 //! The provider requests one page of candidates becomes. A hit is a question,
-//! not a request: the hits of one file share one state holding their windows
-//! and the question text every target shares, and every question names its
-//! target line, so a state is sent once and a window informs its hit without
-//! passing it. The provider judges the questions over one state independently
+//! not a request: the hits of one file share one state holding the union of
+//! their windows, each hit's own line included, and the question text every
+//! target shares; every question names its target line, so a state is sent
+//! once and a window informs its hit without passing it. A target whose own
+//! line is missing from the state would be judged from its label alone. The provider judges the questions over one state independently
 //! and bills the state once (docs.typesafe.ai/cookbooks/parallel_questions).
 //! A candidate with no target is a whole unit: its own state, one question per
 //! predicate; identical ones share a request.
 use super::{compile, provider_state, target_question};
 use crate::tools::selection::JudgeCall;
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 /// Characters of the windows one request's state holds before the next hit
 /// starts another: at the worst measured 1.3 characters a token, under the
@@ -30,10 +31,8 @@ pub(super) struct Request {
 #[derive(Default)]
 struct Group {
     path: Option<String>,
+    /// Every line of every hit's window, its own line included.
     lines: BTreeMap<u64, String>,
-    /// Lines the state sends: each hit's window but the line its own label
-    /// quotes, which its question already carries.
-    sent: BTreeSet<u64>,
     chars: usize,
     targets: HashMap<String, usize>,
     questions: Vec<Value>,
@@ -52,7 +51,8 @@ impl Group {
 }
 
 /// `line 14: <its text>`, `lines 14-16: <its text>`, then the declaration
-/// around the hit. The text is quoted beside the number: with adjacent hits and
+/// around the hit and the key path of its line in a keyed file, so a hit
+/// whose window lacks the deciding declaration or section still names it. The text is quoted beside the number: with adjacent hits and
 /// no context, a number alone let neighbours bleed (9 of 20 false positives on
 /// the frozen fixture, none when quoted, for about 8% more tokens).
 fn target_label(target: &Value) -> String {
@@ -72,21 +72,10 @@ fn target_label(target: &Value) -> String {
                 .unwrap_or("declaration")
         ));
     }
-    label
-}
-
-/// The line a hit's label quotes whole: its own line, unless the label quotes
-/// a match span instead.
-fn quoted_line(target: &Value, lines: &[(u64, &str)]) -> Option<u64> {
-    if target.get("match").is_some() {
-        return None;
+    if let Some(key) = target["key"].as_str() {
+        label.push_str(&format!(" (key {key})"));
     }
-    let line = target["line"].as_u64()?;
-    let text = target["text"].as_str()?;
-    lines
-        .iter()
-        .any(|&(at, window)| at == line && window == text)
-        .then_some(line)
+    label
 }
 
 fn window(state: &Value) -> Vec<(u64, &str)> {
@@ -122,7 +111,6 @@ pub(super) fn requests(call: &JudgeCall<'_>) -> Option<Vec<Request>> {
         let lines = group
             .lines
             .iter()
-            .filter(|(line, _)| group.sent.contains(line))
             .map(|(line, text)| format!("{line}\t{text}"))
             .collect::<Vec<_>>()
             .join("\n");
@@ -169,12 +157,8 @@ pub(super) fn requests(call: &JudgeCall<'_>) -> Option<Vec<Request>> {
         }
         group.path = Some(path.to_owned());
         group.chars = group.chars.saturating_add(chars);
-        let quoted = quoted_line(target, &lines);
         for (line, text) in lines {
             group.lines.entry(line).or_insert_with(|| text.to_owned());
-            if quoted != Some(line) {
-                group.sent.insert(line);
-            }
         }
         let label = target_label(target);
         let first = match group.targets.get(&label) {

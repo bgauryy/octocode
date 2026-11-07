@@ -76,6 +76,7 @@ pub(crate) fn assemble_file(
             .map(|m| TextSearchMatch {
                 deferred: None,
                 line: m.line_number,
+                first_line: m.line_number,
                 last_line: last_line(&m.line_text, m.line_number),
                 column: m.column,
                 byte_offset: m.byte_offset,
@@ -124,6 +125,9 @@ pub(crate) fn assemble_file(
                 .map_while(|i| m.line_number.checked_sub(i).and_then(neighbour))
                 .collect();
             before.reverse();
+            // The line the value starts at: as many lines before its match as
+            // were joined, which stops at an absent neighbour.
+            let first_line = m.line_number - saturating_u32(before.len());
             let end = last_line.unwrap_or(m.line_number);
             let after = (1..=context.after).map_while(|i| end.checked_add(i).and_then(neighbour));
             let value = before
@@ -137,6 +141,7 @@ pub(crate) fn assemble_file(
             TextSearchMatch {
                 deferred: None,
                 line: m.line_number,
+                first_line,
                 last_line,
                 column: m.column,
                 byte_offset: m.byte_offset,
@@ -172,6 +177,7 @@ pub fn line_match(
     TextSearchMatch {
         deferred: None,
         line: line_number,
+        first_line: line_number,
         last_line: last_line(line_text, line_number),
         column,
         byte_offset,

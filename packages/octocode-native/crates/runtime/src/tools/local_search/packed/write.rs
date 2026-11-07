@@ -107,6 +107,8 @@ impl<W: Write> Writer<W> {
             for value in [hit.last_line, hit.count, hit.rank] {
                 self.optional(value)?;
             }
+            // How many context lines before its match the value starts.
+            self.number(u64::from(hit.line.checked_sub(hit.first_line)?))?;
         }
         Some(())
     }

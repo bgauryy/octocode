@@ -2,7 +2,6 @@ use super::*;
 use crate::id::ToolId;
 use crate::tools::test_support::assert_row_contract;
 use octocode_io::cancellation::Cancellation;
-use std::collections::BTreeMap;
 
 fn pages(tool: ToolId, data: Value) -> Vec<Value> {
     assert_row_contract(tool, &data);
@@ -28,22 +27,14 @@ fn names(prefix: &str) -> Vec<Value> {
         .collect()
 }
 
-fn record(prefix: &str) -> Map<String, Value> {
-    let mut values = (0..80)
-        .map(|index| (format!("{prefix}-{index}"), json!("value".repeat(12))))
-        .collect::<Map<_, _>>();
-    values.insert("feature/a~b".into(), json!("escaped"));
-    values.insert("0".into(), json!("numeric record key"));
-    values
-}
-
-fn take_records(target: &mut BTreeMap<String, Value>, source: &Value) {
-    for (key, value) in source.as_object().into_iter().flatten() {
-        assert!(
-            target.insert(key.clone(), value.clone()).is_none(),
-            "duplicate record {key}"
-        );
-    }
+/// Named rows (`{name, <value>}`): branches and engines, whose names are data
+/// and never JSON keys.
+fn named(prefix: &str, value: &str) -> Vec<Value> {
+    (0..80)
+        .map(|index| format!("{prefix}-{index}"))
+        .chain(["feature/a~b".to_owned(), "0".to_owned()])
+        .map(|name| json!({"name": name, value: "value".repeat(12)}))
+        .collect()
 }
 
 #[test]
@@ -71,28 +62,34 @@ fn clone_symlinks_and_sparse_scope_each_page_once() {
 
 #[test]
 fn structure_branch_records_and_tags_are_each_delivered_once() {
-    let branches = record("branch");
+    let branches = named("branch", "sha");
     let tags = names("tag");
     let data = json!({"defaultBranch":"main","commitSha":"fixed","branches":branches,"tags":tags});
-    let (mut seen_records, mut seen_tags) = (BTreeMap::new(), Vec::new());
+    let (mut seen_branches, mut seen_tags) = (Vec::new(), Vec::new());
     for row in pages(ToolId::GhStructure, data) {
-        take_records(&mut seen_records, &row["branches"]);
+        seen_branches.extend(row["branches"].as_array().into_iter().flatten().cloned());
         seen_tags.extend(row["tags"].as_array().into_iter().flatten().cloned());
     }
-    assert_eq!(seen_records, branches.into_iter().collect());
+    assert_eq!(seen_branches, branches);
     assert_eq!(seen_tags, tags);
 }
 
 #[test]
 fn artifact_dependencies_and_engine_records_are_each_delivered_once() {
     let dependencies = names("dependency");
-    let engines = record("runtime");
+    let engines = named("runtime", "range");
     let data = json!({"artifacts":[{"packageName":"package","version":"1.0.0","dependencies":dependencies,"engines":engines}]});
-    let (mut seen_records, mut seen_dependencies) = (BTreeMap::new(), Vec::new());
+    let (mut seen_engines, mut seen_dependencies) = (Vec::new(), Vec::new());
     for row in pages(ToolId::ArtifactSearch, data) {
         for artifact in row["artifacts"].as_array().expect("artifacts") {
             assert_eq!(artifact["packageName"], "package");
-            take_records(&mut seen_records, &artifact["engines"]);
+            seen_engines.extend(
+                artifact["engines"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .cloned(),
+            );
             seen_dependencies.extend(
                 artifact["dependencies"]
                     .as_array()
@@ -102,14 +99,14 @@ fn artifact_dependencies_and_engine_records_are_each_delivered_once() {
             );
         }
     }
-    assert_eq!(seen_records, engines.into_iter().collect());
+    assert_eq!(seen_engines, engines);
     assert_eq!(seen_dependencies, dependencies);
 }
 
 #[test]
 fn artifact_original_empty_dependencies_remain_distinct_from_unknown() {
     for known in [true, false] {
-        let mut artifact = json!({"packageName":"package","engines":record("engine")});
+        let mut artifact = json!({"packageName":"package","engines":named("engine", "range")});
         if known {
             artifact["dependencies"] = json!([]);
             artifact["peerDependencies"] = json!([]);

@@ -67,6 +67,7 @@ impl Learned {
     fn bill_to(&self, bill: impl Fn(usize) -> bool + Send + Sync + 'static) {
         let bill: Arc<dyn Fn(usize) -> bool + Send + Sync> = Arc::new(bill);
         self.prices.1.set(Arc::clone(&bill));
+        self.cuts.billing().set(Arc::clone(&bill));
         self.judged.billing().set(bill);
     }
 }

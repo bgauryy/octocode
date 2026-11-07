@@ -98,7 +98,7 @@ pub(crate) fn anchor_line(q: &Q) -> Option<u32> {
     anchored_shape!(q, line => Some(saturating_u32(line.get())), else => None)
 }
 pub(crate) fn occurrence(q: &Q) -> Option<u32> {
-    anchored_shape!(q, occurrence => (*occurrence != 0).then(|| u32_of_signed(*occurrence)),
+    anchored_shape!(q, occurrence => (*occurrence != 0).then(|| saturating_u32(*occurrence)),
         else => None)
 }
 pub(crate) fn include_declaration(q: &Q) -> Option<bool> {
@@ -214,18 +214,6 @@ pub(crate) fn workspace_symbol_lead(term: &str, path: &str, workspace: Option<&Q
 /// re-apply on parse.
 pub(crate) fn to_row(q: &Q) -> Value {
     let mut row = serde_json::to_value(q).unwrap_or_else(|_| json!({}));
-    if let Some(fields) = row.as_object_mut() {
-        for (key, default) in [
-            ("occurrence", json!(0)),
-            ("view", json!("content")),
-            ("contextLines", json!({"before": 0, "after": 0})),
-            ("includeDeclaration", json!(true)),
-            ("depth", json!(1)),
-        ] {
-            if fields.get(key) == Some(&default) {
-                fields.remove(key);
-            }
-        }
-    }
+    crate::response::result::canonical_row(crate::id::ToolId::LspSearch, &mut row);
     row
 }
