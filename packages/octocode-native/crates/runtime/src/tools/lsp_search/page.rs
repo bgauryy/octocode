@@ -113,11 +113,13 @@ pub(super) async fn execute_page(
     {
         Ok(mut row) | Err(Exit::Row(mut row)) => {
             failure::stamp_coverage(&mut row);
+            level::stamp(&mut row);
             Ok(row)
         }
         Err(Exit::Failed(failure)) if failure.lexical_fallback => {
             let mut row = failure.row(&query, lsp_search_query::path(&query).unwrap_or_default());
             failure::stamp_coverage(&mut row);
+            level::stamp(&mut row);
             Ok(row)
         }
         Err(Exit::Failed(failure)) => Err(failure),
@@ -140,38 +142,6 @@ pub(super) fn unpinned_page_row(query: &LspSearchQuery) -> Value {
 pub(super) fn unpinned_later_page(query: &LspSearchQuery) -> bool {
     lsp_search_query::page(query).is_some_and(|page| page > 1)
         && lsp_search_query::snapshot(query).is_none()
-}
-
-pub(super) async fn run_page(
-    query: &LspSearchQuery,
-    path: String,
-    cancel: &dyn CancellationCheck,
-    pool: &LspClientPool,
-    paths: &PathPolicy,
-    execution_config: &LspExecutionConfig,
-    response_window: Option<usize>,
-) -> Result<Value, Exit> {
-    let target = discover_server(query, path, paths, execution_config)?;
-    let outcome = run_target(query, &target, cancel, pool, paths, response_window).await;
-    let notes = target
-        .root_note
-        .into_iter()
-        .chain(target.config_notes)
-        .collect::<Vec<_>>();
-    if notes.is_empty() {
-        return outcome;
-    }
-    match outcome {
-        Ok(mut row) => {
-            crate::response::paging::push_warnings(&mut row, notes);
-            Ok(row)
-        }
-        Err(Exit::Row(mut row)) => {
-            crate::response::paging::push_warnings(&mut row, notes);
-            Err(Exit::Row(row))
-        }
-        failed => failed,
-    }
 }
 
 /// The row of an anchor that resolves to nothing, with its recovery.
@@ -199,11 +169,12 @@ pub(super) async fn run_target(
     cancel: &dyn CancellationCheck,
     pool: &LspClientPool,
     paths: &PathPolicy,
+    security: &crate::security::ContentSecurity,
     response_window: Option<usize>,
 ) -> Result<Value, Exit> {
     // Before any read of the request's sources: a file written after it
     // may be read by this page before the write.
-    let started = std::time::SystemTime::now();
+    let started = octocode_engine::stamp::settle_clock();
     let language_id = target.config.language_id.as_deref();
     let scope = scope::Scope::resolve(
         &target.path,
@@ -217,9 +188,6 @@ pub(super) async fn run_target(
     // context windows; a bad document or anchor costs no server start.
     let mut sources = SourceCache::new(paths);
     let document = read_anchor_document(query, target, &mut sources).await?;
-    if !scope_responses(query, &scope, document.as_deref(), cancel).await? {
-        return Ok(locations::snapshot_changed(query));
-    }
     let text = document.as_deref().map(|source| source.content.as_str());
     let anchor = anchor::resolve_anchor(query, &target.path, &target.uri, text)
         .map_err(|error| anchor_unresolved(query, target, text, &error))?;
@@ -236,6 +204,12 @@ pub(super) async fn run_target(
         pool,
     )
     .await?;
+    // The revision a continuation pins is proved by the rung that answers it:
+    // here, once the server runs. A server that does not start leaves it to
+    // the syntax rung, which proves its own.
+    if !scope_responses(query, &scope, document.as_deref(), cancel).await? {
+        return Ok(locations::snapshot_changed(query));
+    }
     // An outline reads only the anchor, which its open synchronized: no other
     // file's change bears on it, so it walks no scope.
     if lsp_search_query::op(query) != Op::DocumentSymbols {
@@ -263,6 +237,7 @@ pub(super) async fn run_target(
             character: anchor.character,
             language_id,
             budget: crate::response::page_windows::page_budget(response_window),
+            security,
         }
         .run()
         .await
@@ -333,9 +308,6 @@ pub(super) async fn run_target(
         cancel,
     )
     .await?;
-    if answers_sites {
-        locations::attach_read_lead(&mut result);
-    }
     let mut row = with_next(query, result);
     // A continuation page re-proved the revision its first page pinned.
     if lsp_search_query::snapshot(query).is_none()

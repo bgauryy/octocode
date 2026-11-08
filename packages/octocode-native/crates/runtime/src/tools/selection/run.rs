@@ -9,7 +9,6 @@ use crate::tools::judgment::stats::ClassificationUsage;
 use octocode_contract_types::{SelectionFailure, SelectionScope, SelectionStatus, SelectionUnit};
 use serde_json::{Value, json};
 use std::collections::HashSet;
-use std::time::Instant;
 
 fn skip_reason(
     runtime: Option<&Runtime>,
@@ -109,6 +108,9 @@ pub(super) fn select_scoped(
     };
     let mut usage = ClassificationUsage::default();
     let bound = binding(tool, query, source, runtime);
+    let saved = prior
+        .zip(runtime)
+        .map(|(token, runtime)| (token, &*runtime.saved, runtime.limits.max_chars));
     // A saved plan replays; a token opening a candidate page judges its pool.
     let (mut pool, mut carried) = (Vec::new(), super::plan::Tally::default());
     if let Some(token) = prior {
@@ -117,6 +119,14 @@ pub(super) fn select_scoped(
             .ok_or(Failure::Stale)?;
         if !plan.opens {
             return Ok(finish(plan, &usage));
+        }
+        // The cursor was read before: its page is as it was judged then.
+        if let Some(page) = saved.and_then(|(token, saved, max_chars)| saved.get(token, max_chars))
+            && page
+                .plan
+                .valid(&plan.binding, candidates.len(), scope, unit)
+        {
+            return Ok(finish(page.plan, &page.usage));
         }
         (pool, carried) = (plan.pool, plan.carried);
     }
@@ -152,35 +162,15 @@ pub(super) fn select_scoped(
     let Some(runtime) = runtime else {
         return Ok(finish(plan, &usage));
     };
-    // A page charges states and questions in source order until its
-    // checkpoint: the first candidate always runs, and the next page takes the
-    // rest, so nothing is lost to the budget.
     let question_chars = runtime.judge.question_chars(&predicates);
     let charge = |candidate: &Candidate| candidate.state_chars().saturating_add(question_chars);
-    let mut admitted = Vec::new();
-    let mut chars = 0usize;
-    for (ordinal, candidate) in candidates.iter().enumerate() {
-        if candidate.state.is_none() || !plan.in_pool(ordinal) {
-            continue;
-        }
-        if !admitted.is_empty()
-            && chars.saturating_add(charge(candidate)) > runtime.limits.max_chars
-        {
-            break;
-        }
-        chars = chars.saturating_add(charge(candidate));
-        admitted.push(ordinal);
-    }
-    let eligible = candidates
-        .iter()
-        .enumerate()
-        .filter(|(ordinal, candidate)| candidate.state.is_some() && plan.in_pool(*ordinal))
-        .count();
-    let omitted_reason = match (eligible < pool_size, admitted.len() < eligible) {
-        (true, true) => "candidateEligibilityAndBudget",
-        (true, false) => "candidateIneligible",
-        _ => "candidateBudget",
-    };
+    let (admitted, chars, omitted_reason) = admit(
+        &plan,
+        candidates,
+        runtime.limits.max_chars,
+        pool_size,
+        &charge,
+    );
     plan.mark_unjudged(candidates, &admitted);
     if admitted.is_empty() {
         // Nothing in the pool had a state to judge.
@@ -202,13 +192,18 @@ pub(super) fn select_scoped(
         handle: &runtime.handle,
         context: &runtime.context,
     });
-    if runtime.context.cancellation.is_cancelled() || Instant::now() >= runtime.context.deadline {
+    if runtime.context.check().is_err() {
         return Err(Failure::Cancelled);
     }
+    let mut keep = false;
     match outcomes {
         Ok(outcomes) => {
             record(&mut plan, candidates.len(), &admitted, outcomes, failures);
             plan.settle(admitted.len(), omitted_reason);
+            keep = !plan
+                .failures
+                .iter()
+                .any(|failure| crate::providers::classification::is_transient(failure.error_code));
             // The rest of the walk, at the rate this page measured.
             let rest = plan
                 .unjudged_ordinals()
@@ -231,7 +226,49 @@ pub(super) fn select_scoped(
             })));
         }
     }
-    Ok(finish(plan, &usage))
+    let outcome = finish(plan, &usage);
+    // A page the provider answered for good is what a replay of its cursor
+    // reads; one that left candidates to a retry judges again.
+    if let Some((token, saved, max_chars)) = saved.filter(|_| keep) {
+        saved.put(token, max_chars, &outcome.plan, &usage, &runtime.context);
+    }
+    Ok(outcome)
+}
+
+/// A page charges states and questions in source order until its
+/// checkpoint: the first candidate always runs, and the next page takes the
+/// rest, so nothing is lost to the budget. Returns the admitted ordinals,
+/// their characters and why the pool's rest was left out.
+fn admit(
+    plan: &Plan,
+    candidates: &[Candidate],
+    max_chars: usize,
+    pool_size: usize,
+    charge: &dyn Fn(&Candidate) -> usize,
+) -> (Vec<usize>, usize, &'static str) {
+    let mut admitted = Vec::new();
+    let mut chars = 0usize;
+    for (ordinal, candidate) in candidates.iter().enumerate() {
+        if candidate.state.is_none() || !plan.in_pool(ordinal) {
+            continue;
+        }
+        if !admitted.is_empty() && chars.saturating_add(charge(candidate)) > max_chars {
+            break;
+        }
+        chars = chars.saturating_add(charge(candidate));
+        admitted.push(ordinal);
+    }
+    let eligible = candidates
+        .iter()
+        .enumerate()
+        .filter(|(ordinal, candidate)| candidate.state.is_some() && plan.in_pool(*ordinal))
+        .count();
+    let reason = match (eligible < pool_size, admitted.len() < eligible) {
+        (true, true) => "candidateEligibilityAndBudget",
+        (true, false) => "candidateIneligible",
+        _ => "candidateBudget",
+    };
+    (admitted, chars, reason)
 }
 
 /// Records the judge's decisions on admitted ordinals (a repeated decision

@@ -13,8 +13,10 @@ use crate::search::walk::Stop;
 use crate::stamp::SourceStamp;
 use crate::types::GraphFactsScanOptions;
 use ordered::watch_stop;
-pub use outcome::SOURCE_BUDGET_EXCEEDED;
-use outcome::{GraphFactsScanOutcome, Mapped, mapped_outcome, skipped};
+use outcome::{GraphFactsScanOutcome, Mapped, contained, failed, mapped_outcome, skipped};
+pub use outcome::{PANICKED, SOURCE_BUDGET_EXCEEDED, panicked};
+
+use crate::contain::{Phase, contain, observe, within};
 
 use crate::signatures::languages::{RegistryEntry, RegistryView};
 use crate::text::analysis::{AnalysisOperation, MapLimits};
@@ -70,6 +72,10 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
         .min(entries.len());
     entries.drain(..skip);
     let evaluator = EntryEvaluator {
+        root: Root {
+            canonical: root.canonicalize().ok(),
+            given: &root,
+        },
         // Read once, on the calling thread: a file written after the scan
         // began is not settled, and parallel reads share one clock.
         settle_now: crate::stamp::settle_clock(),
@@ -100,9 +106,18 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
         }
         let chunk = &rest[..pacer.next_chunk().min(rest.len())];
         let outcomes = watch_stop(stop, &stopped, &|| {
-            ordered::weighed_chunk(chunk, (held, limit), hold, |entry| {
-                crate::deep_stack::while_stoppable(&stopped, || evaluator.evaluate(entry))
-            })
+            ordered::weighed_chunk(
+                chunk,
+                (held, limit),
+                hold,
+                |entry| crate::deep_stack::while_stoppable(&stopped, || evaluator.evaluate(entry)),
+                |entry, panic| {
+                    GraphFactsScanOutcome::Skipped(outcome::panicked(
+                        crate::text::slash_path(Path::new(&entry.relative_path)),
+                        panic,
+                    ))
+                },
+            )
         })?;
         // Where the running total in walk order passes the limit is a fact of the
         // files, so a page that scans again stops at the same one; what the workers
@@ -150,9 +165,47 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
     })
 }
 
+/// Test-only: a file whose relative path holds one of these markers panics
+/// in its decode step.
+#[cfg(test)]
+pub(super) static DECODE_FAULTS: std::sync::Mutex<Vec<&'static str>> =
+    std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+fn decode_fault(relative_path: &str) {
+    let faulted = DECODE_FAULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .any(|marker| relative_path.contains(marker));
+    assert!(!faulted, "injected decode fault");
+}
+
+/// The walk's root as the caller spelled it, and as the file system names it.
+struct Root<'s> {
+    given: &'s Path,
+    canonical: Option<std::path::PathBuf>,
+}
+
+impl Root<'_> {
+    /// The canonical path of the walked file at `path`. The walk lists a
+    /// file under the root without following a link (and a listed link is
+    /// refused when read), so the canonical root plus the file's path under
+    /// the root names it: one `realpath` for the walk, not one per file. A
+    /// path not under the root is resolved itself.
+    fn identity(&self, path: &Path) -> std::io::Result<std::path::PathBuf> {
+        match (&self.canonical, path.strip_prefix(self.given)) {
+            (Some(canonical), Ok(under)) if under.as_os_str().is_empty() => Ok(canonical.clone()),
+            (Some(canonical), Ok(under)) => Ok(canonical.join(under)),
+            _ => path.canonicalize(),
+        }
+    }
+}
+
 /// What evaluating one walked file needs: the settle time, the byte limit,
 /// the parser overrides, and the caller's prefilter, map and stop.
 struct EntryEvaluator<'s, T> {
+    root: Root<'s>,
     registry: RegistryView<'s>,
     map_limits: MapLimits,
     settle_now: std::time::SystemTime,
@@ -164,6 +217,31 @@ struct EntryEvaluator<'s, T> {
     stop: &'s Stop<'s>,
 }
 
+/// One file's mapping, its panic or failure on the file itself returned
+/// as the file's named skip: the scan goes on.
+macro_rules! guarded {
+    ($path:ident, $work:expr) => {
+        match contain(Phase::Map, || $work) {
+            Ok(Ok(value)) => value,
+            Ok(Err(error)) => return failed($path, Phase::Map, error),
+            Err(panic) => return contained($path, &panic),
+        }
+    };
+}
+
+/// [`guarded`] for extraction, which has designed fallbacks (oxc to
+/// tree-sitter): a panic it recovered from voids the file only when no
+/// facts came of it.
+macro_rules! extracted {
+    ($path:ident, $work:expr) => {
+        match observe(Phase::Extract, || $work) {
+            Ok((Ok(None), Some(panic))) | Err(panic) => return contained($path, &panic),
+            Ok((Ok(value), _)) => value,
+            Ok((Err(error), _)) => return failed($path, Phase::Extract, error),
+        }
+    };
+}
+
 struct MappedFacts<'a> {
     facts: &'a crate::graph::GraphFactsDocument,
     reference_counts: &'a [crate::graph::GraphReferenceCount],
@@ -173,7 +251,8 @@ struct MappedFacts<'a> {
 impl<T> EntryEvaluator<'_, T> {
     /// Reads one walked file and maps its facts, parsed or reused from the
     /// caller's checkpoint: `None` when `keep` rejects its source, a skip diagnostic when it
-    /// cannot be read, matches several parsers, or yields no facts.
+    /// cannot be read, matches several parsers, yields no facts, or its
+    /// extraction or mapping panics or fails on the file itself.
     fn evaluate(
         &self,
         entry: &crate::types::FileSystemEntry,
@@ -182,7 +261,7 @@ impl<T> EntryEvaluator<'_, T> {
             return Err(GraphScanError::Failed("cancelled".to_owned()));
         }
         let path = Path::new(&entry.path);
-        let relative_path = entry.relative_path.replace('\\', "/");
+        let relative_path = crate::text::slash_path(Path::new(&entry.relative_path));
         let outcome =
             |code: &str, message: &str| Ok(Some(skipped(relative_path.clone(), code, message)));
         let too_large = || {
@@ -195,7 +274,9 @@ impl<T> EntryEvaluator<'_, T> {
         if entry.size.unwrap_or_default() > i64::from(self.max_file_bytes) {
             return too_large();
         }
-        let source = match crate::text::read_regular(path, u64::from(self.max_file_bytes)) {
+        let source = match within(Phase::Read, || {
+            crate::text::read_regular(path, u64::from(self.max_file_bytes))
+        }) {
             Ok(source) => source,
             Err(crate::text::ReadError::TooLarge(_)) => return too_large(),
             Err(_) => return outcome("graph.scan.readFailed", "file could not be opened"),
@@ -207,14 +288,19 @@ impl<T> EntryEvaluator<'_, T> {
             crate::signatures::extractor::whole_file_deadline(),
             &cancelled,
         );
-        let admitted = match crate::text::analysis::AdmittedSource::from_bytes(
-            &source.bytes,
-            &path
-                .canonicalize()
-                .map_err(|error| GraphScanError::Failed(format!("source identity: {error}")))?
-                .to_string_lossy(),
-            &mut map_budget,
-        ) {
+        let identity = self
+            .root
+            .identity(path)
+            .map_err(|error| GraphScanError::Failed(format!("source identity: {error}")))?;
+        let admitted = match within(Phase::Decode, || {
+            #[cfg(test)]
+            decode_fault(&relative_path);
+            crate::text::analysis::AdmittedSource::from_bytes(
+                &source.bytes,
+                &identity.to_string_lossy(),
+                &mut map_budget,
+            )
+        }) {
             Ok(admitted) => admitted,
             Err(crate::text::analysis::SourceError::Refused(_)) => {
                 return outcome(
@@ -225,9 +311,30 @@ impl<T> EntryEvaluator<'_, T> {
             Err(error) => return Err(GraphScanError::Source(error)),
         };
         let content = admitted.text();
-        if !(self.keep)(content) {
+        if !within(Phase::Keep, || (self.keep)(content)) {
             return Ok(None);
         }
+        self.evaluate_admitted(
+            path,
+            relative_path,
+            (&source.bytes, &source.metadata),
+            &admitted,
+            &mut map_budget,
+        )
+    }
+
+    /// [`Self::evaluate`] of a file admitted as text that `keep` kept.
+    fn evaluate_admitted(
+        &self,
+        path: &Path,
+        relative_path: String,
+        (bytes, metadata): (&[u8], &std::fs::Metadata),
+        admitted: &crate::text::analysis::AdmittedSource<'_>,
+        map_budget: &mut crate::text::analysis::MapBudget<'_>,
+    ) -> Result<Option<GraphFactsScanOutcome<T>>, GraphScanError> {
+        let content = admitted.text();
+        let outcome =
+            |code: &str, message: &str| Ok(Some(skipped(relative_path.clone(), code, message)));
         let Ok(parser) = self.selected_parser(path) else {
             return outcome(
                 "graph.scan.ambiguousParser",
@@ -238,8 +345,8 @@ impl<T> EntryEvaluator<'_, T> {
         // decoded text only fixes the coordinates of its facts.
         let content_digest = admitted
             .source_digest()
-            .map_or_else(|| crate::digest::sha256(&source.bytes), str::to_owned);
-        let source_stamp = self.source_stamp(&source.metadata, source.bytes.len());
+            .map_or_else(|| crate::digest::sha256(bytes), str::to_owned);
+        let source_stamp = self.source_stamp(metadata, bytes.len());
         let extension = crate::text::extension_of(&relative_path, true, "");
         let grammar_extension = crate::text::file_extension::grammar_extension(content, &extension);
         let selected_entry = self.registry.find(parser.unwrap_or(grammar_extension));
@@ -255,75 +362,95 @@ impl<T> EntryEvaluator<'_, T> {
             );
         };
         if let RegistryEntry::Facts(provider) = selected_entry {
-            let Some((entry, reused)) = self.provider_facts(
-                provider,
-                &admitted,
-                &relative_path,
-                parser,
-                &content_digest,
-                operation,
-            )?
-            else {
+            let Some((entry, reused)) = extracted!(
+                relative_path,
+                self.provider_facts(
+                    provider,
+                    admitted,
+                    &relative_path,
+                    parser,
+                    &content_digest,
+                    operation,
+                )
+            ) else {
                 return outcome(
                     "graph.scan.extractFailed",
                     "facts provider returned no result",
                 );
             };
-            let kept = self.map_facts(
-                MappedFacts {
-                    facts: &entry.facts,
-                    reference_counts: &entry.reference_counts,
-                    reused,
-                },
-                &admitted,
-                &relative_path,
-                &content_digest,
-                source_stamp,
-                &mut map_budget,
-            )?;
+            let kept = guarded!(
+                relative_path,
+                self.map_facts(
+                    MappedFacts {
+                        facts: &entry.facts,
+                        reference_counts: &entry.reference_counts,
+                        reused,
+                    },
+                    admitted,
+                    &relative_path,
+                    &content_digest,
+                    source_stamp,
+                    &mut *map_budget,
+                )
+            );
             return mapped_outcome(relative_path, kept);
         }
         if let FactsSource::Declarations(extract) = self.source {
-            let Some(facts) = extract(content, path, parser) else {
+            let Some(facts) = extracted!(
+                relative_path,
+                Ok::<_, GraphScanError>(extract(content, path, parser))
+            ) else {
                 return outcome(
                     "graph.scan.extractFailed",
                     "native graph-fact extraction returned no result",
                 );
             };
-            let kept = self.map_facts(
-                MappedFacts {
-                    facts: &facts,
-                    reference_counts: &[],
-                    reused: false,
-                },
-                &admitted,
-                &relative_path,
-                &content_digest,
-                source_stamp,
-                &mut map_budget,
-            )?;
+            let kept = guarded!(
+                relative_path,
+                self.map_facts(
+                    MappedFacts {
+                        facts: &facts,
+                        reference_counts: &[],
+                        reused: false,
+                    },
+                    admitted,
+                    &relative_path,
+                    &content_digest,
+                    source_stamp,
+                    &mut *map_budget,
+                )
+            );
             return mapped_outcome(relative_path, kept);
         }
-        let Some((parsed, reused)) =
-            self.extract_facts(&admitted, &relative_path, parser, &content_digest)
-        else {
+        let Some((parsed, reused)) = extracted!(
+            relative_path,
+            Ok::<_, GraphScanError>(self.extract_facts(
+                admitted,
+                &relative_path,
+                parser,
+                &content_digest
+            ))
+        ) else {
             return outcome(
                 "graph.scan.extractFailed",
                 "native graph-fact extraction returned no result",
             );
         };
-        let kept = self.map_facts(
-            MappedFacts {
-                facts: &parsed.facts,
-                reference_counts: &parsed.reference_counts,
-                reused,
-            },
-            &admitted,
-            &relative_path,
-            &content_digest,
-            source_stamp,
-            &mut map_budget,
-        )?;
+        let kept = guarded!(
+            relative_path,
+            self.map_facts(
+                MappedFacts {
+                    facts: &parsed.facts,
+                    reference_counts: &parsed.reference_counts,
+                    reused,
+                },
+                admitted,
+                &relative_path,
+                &content_digest,
+                source_stamp,
+                &mut *map_budget,
+            )
+        );
         mapped_outcome(relative_path, kept)
     }
 

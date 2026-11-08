@@ -112,6 +112,7 @@ impl FileScan<'_> {
             None | Some(Anchored::Miss(_)) => read_source(file_path, self.max_file_bytes),
             Some(Anchored::Hit(bytes)) => Ok(bytes),
             Some(Anchored::Large(len)) => Err(SourceSkip::Large(len)),
+            Some(Anchored::Unread(skip)) => Err(skip),
         };
         let bytes = match bytes {
             Ok(bytes) => bytes,

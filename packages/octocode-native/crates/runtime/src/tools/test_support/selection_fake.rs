@@ -19,10 +19,11 @@ pub(crate) fn runtime(
         limits: crate::execution::RuntimeLimits::DEFAULT.selection,
         available: true,
         judge: std::sync::Arc::new(judge),
+        saved: std::sync::Arc::default(),
         handle,
         context: crate::execution::ExecutionContext {
             cancellation: octocode_io::cancellation::Cancellation::new(),
-            deadline: Instant::now() + timeout,
+            deadline: Some(Instant::now() + timeout),
             response_window: None,
             github_credential: None,
         },

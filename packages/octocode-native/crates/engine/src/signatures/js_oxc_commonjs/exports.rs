@@ -14,8 +14,11 @@ use crate::graph::{COMMONJS_WHOLE_EXPORT, GraphFactCode, GraphFactDiagnostic};
 use crate::signatures::js_oxc_shared::SpanPositions;
 
 mod census;
+mod members;
+mod wrapped;
 
 use census::{Target, census, global, target};
+use members::value_members;
 
 /// Skip the export walk when no token can spell `module` or `exports`.
 pub(in crate::signatures) fn may_contain_exports(
@@ -66,6 +69,17 @@ enum Held<'a> {
 pub(in crate::signatures) struct CommonJsExports<'a> {
     pub(in crate::signatures) names: Vec<(String, String)>,
     pub(in crate::signatures) defined: Vec<(String, DefinedExport<'a>)>,
+    /// The call `module.exports` is assigned (`module.exports = f(..)`): when
+    /// it is a proven load, the module forwards everything that load exports.
+    pub(in crate::signatures) whole_call: Option<Span>,
+    /// Declarations the exported value holds, by their binding span, with
+    /// the public name each is exported under: the members of
+    /// `module.exports = v` ([`value_members`]) and, for a UMD wrapper, the
+    /// value itself.
+    pub(in crate::signatures) members: Vec<(Span, String)>,
+    /// The names hold only on some runs: the whole export sits in a branch,
+    /// or the value escapes to code that may change its members.
+    pub(in crate::signatures) conditional: bool,
 }
 
 /// The module's proven exports, or one linking diagnostic when the writes
@@ -93,6 +107,18 @@ pub(in crate::signatures) fn collect_common_js_exports<'a>(
         || census.whole_writes != program_wholes
         || program_wholes > 1
     {
+        if let Some(whole) = wrapped::wrapped_whole(semantic, program)
+            && let Some(held) = value_members(semantic, whole.value)
+        {
+            let mut members = held.members;
+            members.push((held.value, COMMONJS_WHOLE_EXPORT.to_owned()));
+            let exports = CommonJsExports {
+                members,
+                conditional: whole.conditional || held.escapes,
+                ..CommonJsExports::default()
+            };
+            return (exports, None);
+        }
         let diagnostic = (census.first_write.is_some() || census.exports_rebinds > 0).then(|| {
             GraphFactDiagnostic {
                 code: GraphFactCode::UnsupportedCommonJsExports,
@@ -105,12 +131,17 @@ pub(in crate::signatures) fn collect_common_js_exports<'a>(
     let mut program_keys = HashMap::<&str, usize>::new();
     let mut whole = Held::Opaque;
     let mut seen_whole = false;
+    let mut whole_call = None;
     let mut keys = BTreeMap::<String, Held>::new();
     for write in writes {
         match write {
             Write::Whole(value) => {
                 seen_whole = true;
                 keys.clear();
+                whole_call = match inner(value) {
+                    Expression::CallExpression(call) => Some(call.span),
+                    _ => None,
+                };
                 whole = match inner(value) {
                     Expression::ObjectExpression(object) => {
                         census.keys_unknown |= object_keys(object, &mut keys);
@@ -143,7 +174,10 @@ pub(in crate::signatures) fn collect_common_js_exports<'a>(
             && scoping.symbol_redeclarations(symbol).is_empty())
         .then(|| identifier.name.as_str().to_owned())
     };
-    let mut exports = CommonJsExports::default();
+    let mut exports = CommonJsExports {
+        whole_call,
+        ..CommonJsExports::default()
+    };
     let mut admit = |public: String, held: Held<'a>| match held {
         Held::Local(identifier) => {
             if let Some(name) = local(identifier) {
@@ -157,6 +191,12 @@ pub(in crate::signatures) fn collect_common_js_exports<'a>(
         }
         _ => {}
     };
+    if let Held::Local(identifier) = &whole
+        && let Some(held) = value_members(semantic, identifier)
+    {
+        exports.members = held.members;
+        exports.conditional = held.escapes;
+    }
     admit(COMMONJS_WHOLE_EXPORT.to_owned(), whole);
     if !census.keys_unknown {
         for (key, held) in keys {

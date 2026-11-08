@@ -17,8 +17,8 @@ fn declared_nested_collections_preserve_atomic_answers_and_shared_definitions() 
                     expected.insert((resource.to_owned(), format!("s{section}"), key.clone()), answer.clone());
                     (key, answer)
                 }).collect::<Map<_, _>>();
-                json!({"id":format!("s{section}"),"target":{"bytes":[section*100,(section+1)*100],"lines":[section*5+1,(section+1)*5]},
-                    "context":[{"bytes":[0,5],"lines":[1,1]}],"answers":answers})
+                json!({"id":format!("s{section}"),"target":{"bytes":[section*100,(section+1)*100],"lines":{"startLine":section*5+1,"endLine":(section+1)*5}},
+                    "context":[{"bytes":[0,5],"lines":{"startLine":1,"endLine":1}}],"answers":answers})
             }).collect::<Vec<_>>();
         resources.insert(
             resource.into(),
@@ -30,13 +30,13 @@ fn declared_nested_collections_preserve_atomic_answers_and_shared_definitions() 
             "next":{"nextPage":{"tool":"clasify","query":{"queries":[{"operation":"sections","assessment":"next"}]}}}});
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":row})],
-        &[None],
         crate::id::ToolId::Clasify,
     )
     .plan(1_800, &Cancellation::new())
     .expect("valid plan");
     assert!(plan.total_pages > 1);
     let mut seen = std::collections::BTreeMap::new();
+    let mut contexts = std::collections::BTreeMap::new();
     let mut definitions = 0;
     let mut next_calls = 0;
     for page in 0..plan.total_pages {
@@ -55,17 +55,16 @@ fn declared_nested_collections_preserve_atomic_answers_and_shared_definitions() 
                         section["target"]["bytes"].as_array().expect("bytes").len(),
                         2
                     );
-                    assert_eq!(
-                        section["target"]["lines"].as_array().expect("lines").len(),
-                        2
-                    );
-                    assert_eq!(section["context"][0]["bytes"], json!([0, 5]));
+                    assert!(section["target"]["lines"]["endLine"].is_u64());
+                    let id = section["id"].as_str().expect("id").to_owned();
+                    // `context` is required evidence with a valid empty
+                    // form: it arrives once, then `[]`.
+                    if section["context"] != json!([]) {
+                        assert_eq!(section["context"][0]["bytes"], json!([0, 5]));
+                        *contexts.entry((resource.clone(), id.clone())).or_insert(0) += 1;
+                    }
                     for (question, answer) in section["answers"].as_object().expect("answers") {
-                        let key = (
-                            resource.clone(),
-                            section["id"].as_str().expect("id").to_owned(),
-                            question.clone(),
-                        );
+                        let key = (resource.clone(), id.clone(), question.clone());
                         assert!(
                             seen.insert(key, answer.clone()).is_none(),
                             "duplicate answer"
@@ -76,6 +75,8 @@ fn declared_nested_collections_preserve_atomic_answers_and_shared_definitions() 
         }
     }
     assert_eq!(seen, expected);
+    assert_eq!(contexts.len(), 6, "every section's context arrives");
+    assert!(contexts.values().all(|count| *count == 1), "{contexts:?}");
     assert_eq!(definitions, 1);
     assert_eq!(next_calls, 1);
 }
@@ -87,10 +88,9 @@ fn declared_collections_leave_a_single_oversized_answer_whole() {
         .collect::<Map<_, _>>();
     let answer = json!({"status":"answered","answer":{"type":"choice","choice":probabilities.keys().next().expect("option"),"confidence":0.0,"probabilities":probabilities}});
     let row = json!({"id":"research","operation":"sections","questions":{"q":{"type":"choice"}},
-            "resources":{"r":{"sections":[{"id":"s","target":{"bytes":[0,1],"lines":[1,1]},"answers":{"q":answer}}]}}});
+            "resources":{"r":{"sections":[{"id":"s","target":{"bytes":[0,1],"lines":{"startLine":1,"endLine":1}},"answers":{"q":answer}}]}}});
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":row})],
-        &[None],
         crate::id::ToolId::Clasify,
     )
     .plan(500, &Cancellation::new())
@@ -119,10 +119,9 @@ fn large_resource_identity_does_not_force_one_page_per_small_answer() {
         .collect::<Map<_, _>>();
     let row = json!({"id":"research","operation":"sections",
             "resources":{"r":{"source":{"url":format!("https://example.test/{}","x".repeat(4000))},
-            "sections":[{"id":"s","target":{"bytes":[0,1],"lines":[1,1]},"answers":answers}]}}});
+            "sections":[{"id":"s","target":{"bytes":[0,1],"lines":{"startLine":1,"endLine":1}},"answers":answers}]}}});
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":row})],
-        &[None],
         crate::id::ToolId::Clasify,
     )
     .plan(500, &Cancellation::new())
@@ -150,10 +149,9 @@ fn answer_fragments_continue_their_only_section() {
         })
         .collect::<Map<_, _>>();
     let row = json!({"id":"research","operation":"sections",
-            "resources":{"r/~0":{"sections":[{"id":"s","target":{"bytes":[0,1],"lines":[1,1]},"answers":answers}]}}});
+            "resources":{"r/~0":{"sections":[{"id":"s","target":{"bytes":[0,1],"lines":{"startLine":1,"endLine":1}},"answers":answers}]}}});
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":row})],
-        &[None],
         crate::id::ToolId::Clasify,
     )
     .plan(600, &Cancellation::new())

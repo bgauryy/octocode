@@ -168,6 +168,61 @@ fn include_and_unscoped_search_everything_and_disclose_nothing() {
     }
 }
 
+/// A production module's `tests.rs` (or `x_test.rs`) is production code
+/// whatever its name, however deep its production parent lies: `exclude`
+/// keeps its hits and `only` leaves them out.
+#[test]
+fn a_production_module_named_like_a_test_is_kept_by_exclude() {
+    const NESTED: [(&str, &str); 4] = [
+        ("src/lib.rs", "mod foo;\n"),
+        ("src/foo.rs", "mod tests;\nmod x_test;\n"),
+        ("src/foo/tests.rs", "fn a() { needle(); }\n"),
+        ("src/foo/x_test.rs", "fn b() { needle(); }\n"),
+    ];
+    let search = |test_code: &str| {
+        search_fixture(
+            &NESTED,
+            ls_query(
+                serde_json::json!({"matchString":["needle"],"testCode":test_code,"view":"content"}),
+                None,
+            ),
+        )
+    };
+    let exclude = search("exclude");
+    assert_eq!(
+        hits(&exclude),
+        ["src/foo/tests.rs:1", "src/foo/x_test.rs:1"],
+        "{exclude}"
+    );
+    let only = search("only");
+    assert!(hits(&only).is_empty(), "{only}");
+}
+
+/// A spelled-test file that only a production `#[path]` mounts is production
+/// code: `exclude` searches it, though a verdict by module roots cannot see
+/// the declarer.
+#[test]
+fn exclude_searches_a_spelled_file_a_production_path_mounts() {
+    const DIAMOND: [(&str, &str); 3] = [
+        ("src/lib.rs", "mod a;\n"),
+        ("src/a.rs", "#[path = \"shared/tests.rs\"]\nmod c;\n"),
+        ("src/shared/tests.rs", "fn s() { needle(); }\n"),
+    ];
+    let search = |test_code: &str| {
+        search_fixture(
+            &DIAMOND,
+            ls_query(
+                serde_json::json!({"matchString":["needle"],"testCode":test_code,"view":"content"}),
+                None,
+            ),
+        )
+    };
+    let exclude = search("exclude");
+    assert_eq!(hits(&exclude), ["src/shared/tests.rs:1"], "{exclude}");
+    let only = search("only");
+    assert!(hits(&only).is_empty(), "{only}");
+}
+
 const OPEN: &str = "pub mod sub;\n";
 const GATED: &str = "#[cfg(test)]\npub mod sub;\n";
 
@@ -257,10 +312,46 @@ fn a_search_with_no_test_code_filter_keeps_its_scan() {
     }
 }
 
-/// A new file that mounts the searched one by `#[path]` moves it across the
-/// line, though no file the search read changed: the pages go stale.
+/// A new crate root that mounts the searched test module by `#[path]` in
+/// production moves it across the line, though no file the search read
+/// changed: the pages go stale. (A new file nothing mounts, or one mounting it
+/// only under test, places nothing: production by any parent wins.)
 #[test]
 fn a_scoped_search_follows_a_file_that_appears_and_mounts_it() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    module_beside_its_parent(root.path(), GATED);
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({"path": root.path().join("src/sub/a.rs").to_string_lossy(), "matchString": ["needle"], "testCode": "only"}),
+        None,
+    );
+    let snapshot = search_in(&request, &policy, &security, Some(6_000))
+        .expect("page 1")
+        .source_snapshot
+        .expect("snapshot");
+    let next = ls_query(
+        serde_json::json!({"snapshot": snapshot, "page": 2}),
+        Some(&request),
+    );
+    search_in(&next, &policy, &security, Some(6_000)).expect("page 2");
+    fs::write(
+        root.path().join("src/main.rs"),
+        "#[path = \"sub/a.rs\"]\nmod renamed;\n",
+    )
+    .expect("added");
+    let failed = search_in(&next, &policy, &security, Some(6_000)).expect_err("a new mount");
+    assert_eq!(
+        failed.code,
+        octocode_contract_types::ErrorCode::StaleSnapshot,
+        "{}",
+        failed.message
+    );
+}
+
+/// The other side of that rule: a new file mounting a production module only
+/// under test moves nothing, so the pages stay current.
+#[test]
+fn a_new_test_only_mount_leaves_a_production_module_current() {
     let root = tempfile::tempdir().expect("fixture directory");
     module_beside_its_parent(root.path(), OPEN);
     let (policy, security) = policy_for(root.path());
@@ -282,13 +373,7 @@ fn a_scoped_search_follows_a_file_that_appears_and_mounts_it() {
         "#[cfg(test)]\n#[path = \"a.rs\"]\nmod renamed;\n",
     )
     .expect("added");
-    let failed = search_in(&next, &policy, &security, Some(6_000)).expect_err("a new mount");
-    assert_eq!(
-        failed.code,
-        octocode_contract_types::ErrorCode::StaleSnapshot,
-        "{}",
-        failed.message
-    );
+    search_in(&next, &policy, &security, Some(6_000)).expect("production still wins");
 }
 
 /// Each side of a file past the parse limit stays on its side, and nothing is

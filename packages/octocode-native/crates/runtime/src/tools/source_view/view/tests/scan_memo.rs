@@ -58,9 +58,11 @@ pub(super) fn ranged() -> LocalFetchQuery {
     query(json!({"ranges":[{"startLine":1,"endLine":3}]}))
 }
 
-/// A source whose `password:` line redacts only in a configuration file.
+/// A source whose `password:` line redacts only in a configuration file: in
+/// Rust it is a struct field set from an identifier (code, shown); as YAML it
+/// is a secret value (hidden).
 fn config(seed: &str) -> String {
-    format!("# {seed}\ndb:\n  password: hunter2hunter2hunter2\n")
+    format!("// {seed}\nconst db: Db = Db {{\n  password: hunter2hunter2hunter2,\n}};\n")
 }
 
 /// Whichever path scanned the bytes first: a scan made at `a.yaml` must not hide
@@ -169,7 +171,7 @@ fn another_scanner_or_interior_bytes_do_not_share_a_scan() {
     assert!(other["content"].as_str().unwrap().contains("[OTHER]"));
     assert!(other["content"].as_str().unwrap().contains("hunter2"));
     assert!(!ours["content"].as_str().unwrap().contains("[OTHER]"));
-    assert!(ours["content"].as_str().unwrap().starts_with("# another"));
+    assert!(ours["content"].as_str().unwrap().starts_with("// another"));
     assert!(inside["content"].as_str().unwrap().starts_with('\u{feff}'));
     for _ in 0..2 {
         assert_eq!(read(&ranged(), &source, "a.yaml", &plain, &Other), other);

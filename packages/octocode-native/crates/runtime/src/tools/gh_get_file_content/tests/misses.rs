@@ -1,6 +1,18 @@
 //! Missed matches: empty reads, their leads and the fallback hint.
 use super::*;
 
+/// The last-change read answers: the path has no history.
+async fn mount_no_history(server: &MockServer) {
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"data":{"repository":{"object":{"history":{"nodes":[]}}}}})),
+        )
+        .mount(server)
+        .await;
+}
+
 /// A matchString with no hit in an existing file is `matchNotFound` with
 /// an empty `content` (the contract requires it, as in localFetch) and
 /// its leads; it carries no prose beside them, no zero counters and no
@@ -10,6 +22,7 @@ async fn no_match_read_keeps_its_leads_without_empty_echo() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     mount_json(&server, "/api/v3/repos/a/b/contents/a.txt", 200, serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("one\ntwo\n")}),).await;
+    mount_no_history(&server).await;
     let provider = mock_provider(&server, RetryPolicy::default());
     let read = run_default(
         &provider,
@@ -137,6 +150,7 @@ async fn a_miss_leads_only_to_reads_that_select_visible_lines() {
     let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     mount_json(&server, "/api/v3/repos/a/b/contents/a.txt", 200, serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("one\nkey TOKEN\nthree\nfour needle\n")}),).await;
+    mount_no_history(&server).await;
     let provider = mock_provider(&server, RetryPolicy::default());
     let base = serde_json::json!({"owner":"a","repo":"b","path":"a.txt","ref":sha});
     let with = |fields: Value| {

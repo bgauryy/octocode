@@ -1,6 +1,7 @@
 //! Export resolution through re-exports, and each file's import bindings.
 use super::*;
 use octocode_engine::graph::COMMONJS_WHOLE_EXPORT;
+use octocode_engine::text::analysis::ObservedSpan;
 
 /// A resolved binding retains unknown branches as well as observed targets.
 #[derive(Clone)]
@@ -231,6 +232,9 @@ pub(crate) struct FileBindings<'a> {
     pub(crate) commonjs_locals: HashSet<&'a str>,
     /// Whole-module `require` bindings → linked files.
     pub(crate) commonjs_modules: HashMap<&'a str, Vec<&'a str>>,
+    /// `require` bindings that hold over one scope extent only (a function
+    /// or block, or the one call of an inline `require(x).k()`).
+    pub(crate) scoped_requires: Vec<ScopedRequire<'a>>,
     /// Scala, Java and C# imports as written (`cats.data.{A, B => C}`,
     /// `static a.b.C.*`, `Acme.Util`), each with the declaration whose body
     /// holds it (`None` at file level) and its alias (C# `using H = …`).
@@ -249,6 +253,7 @@ impl<'a> FileBindings<'a> {
             strict_names: HashSet::new(),
             commonjs_locals: HashSet::new(),
             commonjs_modules: HashMap::new(),
+            scoped_requires: Vec::new(),
             written_imports: if matches!(language, "scala" | "java" | "csharp") {
                 facts
                     .imports
@@ -350,42 +355,94 @@ impl<'a> FileBindings<'a> {
             bindings.strict_names.extend(bindings.named.keys().copied());
         }
         for binding in &facts.commonjs {
-            let import = &binding.import;
-            let Some(local) = import.local_name.as_deref() else {
-                continue;
-            };
-            bindings.commonjs_locals.insert(local);
-            bindings.strict_names.insert(local);
-            let whole = import.imported_name == COMMONJS_WHOLE_EXPORT;
-            match &import.target {
-                Some(target) => {
-                    bindings
-                        .named
-                        .entry(local)
-                        .or_default()
-                        .push((target.as_str(), import.imported_name.as_str()));
-                    if whole {
-                        bindings
-                            .commonjs_modules
-                            .entry(local)
-                            .or_default()
-                            .push(target.as_str());
-                    }
-                }
-                None if import.external => {
-                    bindings.external.insert(local.to_owned());
-                    bindings
-                        .external
-                        .extend(package_name(&import.specifier, language));
-                }
-                None if links_imports(language) => {
-                    bindings.unknown.insert(local);
-                }
-                None => {}
-            }
+            bindings.add_require(binding, language);
         }
         bindings
     }
+
+    /// One proven `require` binding: a scope binding holds over its extent
+    /// only; a module binding resolves like an import, across the file.
+    fn add_require(
+        &mut self,
+        binding: &'a crate::tools::ast_graph::types::CommonJsBinding,
+        language: &str,
+    ) {
+        let import = &binding.import;
+        let Some(local) = import.local_name.as_deref() else {
+            return;
+        };
+        if let Some(scope) = &binding.scope {
+            self.scoped_requires.push(ScopedRequire {
+                local,
+                scope,
+                target: import.target.as_deref(),
+                imported: import.imported_name.as_str(),
+            });
+            return;
+        }
+        self.commonjs_locals.insert(local);
+        self.strict_names.insert(local);
+        let whole = import.imported_name == COMMONJS_WHOLE_EXPORT;
+        match &import.target {
+            Some(target) => {
+                self.named
+                    .entry(local)
+                    .or_default()
+                    .push((target.as_str(), import.imported_name.as_str()));
+                if whole {
+                    self.commonjs_modules
+                        .entry(local)
+                        .or_default()
+                        .push(target.as_str());
+                }
+            }
+            None if import.external => {
+                self.external.insert(local.to_owned());
+                self.external
+                    .extend(package_name(&import.specifier, language));
+            }
+            None if links_imports(language) => {
+                self.unknown.insert(local);
+            }
+            None => {}
+        }
+    }
+
+    /// The innermost scope `require` whose extent holds the start of `span`
+    /// (a call starts at its callee, which an inline load's extent is) and
+    /// binds the call's head: the bare name, the whole qualifier
+    /// (`require()`), or its first segment (`m` of `m.a.f()`).
+    pub(crate) fn scoped_require(
+        &self,
+        qualifier: &str,
+        name: &str,
+        span: &ObservedSpan,
+    ) -> Option<&ScopedRequire<'a>> {
+        let head = if qualifier.is_empty() {
+            name
+        } else {
+            first_segment(qualifier)
+        };
+        self.scoped_requires
+            .iter()
+            .filter(|binding| binding.local == head || binding.local == qualifier)
+            .filter(|binding| {
+                binding.scope.unit == span.unit
+                    && binding.scope.range.start_byte <= span.range.start_byte
+                    && span.range.start_byte < binding.scope.range.end_byte
+            })
+            .min_by_key(|binding| binding.scope.range.end_byte - binding.scope.range.start_byte)
+    }
+}
+
+/// A `require` binding that holds over one scope extent.
+pub(crate) struct ScopedRequire<'a> {
+    pub(crate) local: &'a str,
+    pub(crate) scope: &'a ObservedSpan,
+    /// The file the load reaches; `None` for a package or an unlinked path.
+    pub(crate) target: Option<&'a str>,
+    /// The property bound, else `module.exports`.
+    pub(crate) imported: &'a str,
 }
 
 /// Whether the graph links `language`'s imports to files, so an unlinked one is

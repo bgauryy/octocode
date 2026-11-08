@@ -95,7 +95,9 @@ impl TestCodeIndex {
     pub(super) fn crate_dir(&self, dir: &Path) -> Option<PathBuf> {
         self.crate_dirs.of(dir, || match self.level_above(dir) {
             Some(up) => self.crate_dir(up),
-            None => dir.join("Cargo.toml").is_file().then(|| dir.to_path_buf()),
+            None => self
+                .is_file(&dir.join("Cargo.toml"))
+                .then(|| dir.to_path_buf()),
         })
     }
 
@@ -144,7 +146,7 @@ impl TestCodeIndex {
             .production
             .iter()
             .chain(&targets.tests)
-            .filter(|root| root.parent() == Some(dir.as_path()) && root.is_file())
+            .filter(|root| root.parent() == Some(dir.as_path()) && self.is_file(root))
             .cloned()
             .collect()
     }

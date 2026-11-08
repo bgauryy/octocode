@@ -4,7 +4,7 @@ use super::*;
 fn offset_reads_fill_the_rows_share_and_other_tools_the_automatic_page() {
     let context = |response_window| ExecutionContext {
         cancellation: octocode_io::cancellation::Cancellation::new(),
-        deadline: std::time::Instant::now() + std::time::Duration::from_secs(5),
+        deadline: Some(std::time::Instant::now() + std::time::Duration::from_secs(5)),
         response_window,
         github_credential: None,
     };

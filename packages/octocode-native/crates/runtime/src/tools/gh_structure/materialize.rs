@@ -87,7 +87,7 @@ pub(super) async fn materialize_page(
     }
     crate::response::paging::push_warnings(value, warnings);
     if let Some(hint) = outcome.hint {
-        value["hints"] = json!([hint]);
+        crate::response::result::add_hints(value, [hint]);
     }
     Ok(resume)
 }
@@ -257,7 +257,10 @@ pub(super) async fn materialize_tree(
             })
             .buffered(READ_CONCURRENCY);
         while let Some((entry, read)) = reads.next().await {
-            if std::time::Instant::now() >= stop_at || !writer.write(entry, read).await? {
+            // The stop applies once the call wrote something: a call that
+            // wrote nothing would resume at the same entry for ever.
+            let out_of_time = writer.cursor > offset && std::time::Instant::now() >= stop_at;
+            if out_of_time || !writer.write(entry, read).await? {
                 break;
             }
         }

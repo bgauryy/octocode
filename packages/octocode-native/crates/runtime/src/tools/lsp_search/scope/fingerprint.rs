@@ -233,13 +233,12 @@ pub(in super::super) fn same_file(path: &Path, before: &str, after: &str) -> boo
 /// from this walk cannot prove the page's rows. A file's last write is the
 /// later of its mtime and ctime. A timestamp of whole seconds comes from a
 /// coarse clock, where a write after `started` can carry a time before it:
-/// the write must then be [`SourceStamp::SETTLE`] older than `started`, as
-/// for any settled stamp. A stamp that does not parse proves nothing.
+/// the write must then be its [`SourceStamp::settle_for`] window older than
+/// `started`, as for any settled stamp. A stamp that does not parse proves nothing.
 pub(in super::super) fn written_since(
     entries: &BTreeMap<String, String>,
     started: SystemTime,
 ) -> bool {
-    const SECOND_NS: u64 = 1_000_000_000;
     let Some(started_ns) = started
         .duration_since(std::time::UNIX_EPOCH)
         .ok()
@@ -247,16 +246,17 @@ pub(in super::super) fn written_since(
     else {
         return true;
     };
-    let settle =
-        u64::try_from(octocode_engine::stamp::SourceStamp::SETTLE.as_nanos()).unwrap_or(u64::MAX);
     entries.values().any(|stamp| {
         let mut fields = stamp.split('\u{0}').skip(1).map(str::parse::<u64>);
-        let (Some(Ok(modified)), Some(Ok(changed))) = (fields.next(), fields.next()) else {
+        let (Some(Ok(modified_ns)), Some(Ok(changed_ns))) = (fields.next(), fields.next()) else {
             return true;
         };
-        let last_write = modified.max(changed);
-        let coarse = last_write % SECOND_NS == 0;
-        last_write.saturating_add(if coarse { settle } else { 0 }) > started_ns
+        let stamp = octocode_engine::stamp::SourceStamp {
+            modified_ns,
+            changed_ns,
+            ..Default::default()
+        };
+        !stamp.settled_by(started_ns)
     })
 }
 

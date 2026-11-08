@@ -54,6 +54,11 @@ impl NativeLspClient {
     }
 
     /// See [`crate::lsp::config::workspace_symbol_limit`].
+    pub fn workspace_symbol_cap_advice(&self) -> &'static str {
+        crate::lsp::config::workspace_symbol_cap_advice(&self.inner.config)
+    }
+
+    /// See [`crate::lsp::config::workspace_symbol_limit`].
     pub fn workspace_symbol_limit(&self) -> Option<usize> {
         crate::lsp::config::workspace_symbol_limit(&self.inner.config)
     }

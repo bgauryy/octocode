@@ -2,13 +2,13 @@
 // the authored envelope and every required cursor through both built surfaces.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { inventoryRows, joinTextParts, nextHints, sourceLines, sourceView, structureFiles, rawPatch } from '../responses.mjs';
 import { tokenFor } from './surfaces.mjs';
 import { advancedRegistries } from './advanced-registry.mjs';
 import { advancedSecurityCheck } from './advanced-osv.mjs';
 import { advancedHistoryForms } from './advanced-history.mjs';
 import { addedLines, blobSha } from './mock-model.mjs';
+import { clone } from './advanced-clone.mjs';
 
 const REPO = { owner: 'octo', repo: 'demo' };
 const data = result => result?.json?.results?.[0]?.data ?? {};
@@ -99,6 +99,7 @@ async function reader(ctx) {
     ['matcher.wholeWordCase', { ...REPO, path: 'src/greeter.ts', matchString: ['Greeter'], caseMode: 'sensitive', wholeWord: true }, d => equal(sourceLines(d).map(([line]) => line), [11])],
     ['matcher.pcre2', { ...REPO, path: 'src/greeter.ts', matchString: ['(?<=healthMarker )greeter-\\d'], regexEngine: 'pcre2' }, d => equal(sourceLines(d).map(([line]) => line), [7, 15])],
     ['matcher.regex', { ...REPO, path: 'src/greeter.ts', matchString: ['^export (function|class)'], regexEngine: 'rust' }, d => equal(sourceLines(d).map(([line]) => line), [6, 11])],
+    ['view.content', { ...REPO, path: 'src/greeter.ts', view: 'content' }, d => (d.view ?? 'content') === 'content' && d.content.includes('function greet')],
     ['view.compact', { ...REPO, path: 'src/greeter.ts', view: 'compact' }, d => (d.view ?? 'compact') === 'compact' && d.content.includes('function greet') && !d.content.includes('healthMarker')],
     ['view.symbols', { ...REPO, path: 'src/greeter.ts', view: 'symbols' }, d => (d.view ?? 'symbols') === 'symbols' && d.content.includes('Greeting') && d.content.includes('say(') && !d.content.includes('return this.prefix')],
     ['ref.branch', { ...REPO, path: 'pkg/mod00.ts', ref: 'feature-4' }, d => equal(sourceLines(d), [[1, '// healthMarker bulk-0'], [2, 'export const mod0 = 0;']])],
@@ -131,7 +132,9 @@ async function reader(ctx) {
 const readRows = report => joinTextParts(report.responses.filter(row => row.tool === 'ghGetFileContent').flatMap(row => row.result.json?.results ?? []));
 const numberedSource = text => addedLines(text).map((line, index) => [index + 1, line]);
 const readText = rows => rows.map(row => sourceView(row.data).text).join('');
-const readEvidence = result => result.json.results.map(row => [row.index, row.status ?? null, row.data.errorCode ?? null, sourceView(row.data).text]);
+/** Rows as comparable evidence, or null when the response is not a parsed result record (a failed call, an interrupted binary). */
+const readEvidence = result => Array.isArray(result?.json?.results) ? result.json.results.map(row => [row.index, row.status ?? null, row.data?.errorCode ?? null, sourceView(row.data ?? {}).text]) : null;
+const unreadable = result => `response is not a result record (status ${result?.status ?? 'n/a'}): ${String(result?.text ?? result?.stdout ?? '').slice(0, 300)}`;
 
 async function readerForms(ctx) {
   const source = numberedSource(ctx.mock.model.files['src/greeter.ts']);
@@ -200,7 +203,10 @@ async function readerBatchReplay(ctx, surface, out, report) {
   if (!issued) { out.push([`advanced.flow.batchReplay.${surface}`, false, 'No issued page for batch index2']); return; }
   const before = readerRequests(ctx, surface).length;
   const replay = await ctx.callOn(surface)(issued.tool, issued.input);
-  out.push([`advanced.flow.batchReplay.${surface}`, !replay.isError && equal(readEvidence(replay), readEvidence(issued.result)) && readerRequests(ctx, surface).length === before, JSON.stringify(readEvidence(replay))]);
+  const replayed = readEvidence(replay);
+  const original = readEvidence(issued.result);
+  if (!replayed || !original) { out.push([`advanced.flow.batchReplay.${surface}`, false, unreadable(replayed ? issued.result : replay)]); return; }
+  out.push([`advanced.flow.batchReplay.${surface}`, !replay.isError && equal(replayed, original) && readerRequests(ctx, surface).length === before, JSON.stringify(replayed)]);
 }
 
 async function readerMatchPages(ctx, surface, out, sources) {
@@ -312,9 +318,9 @@ async function history(ctx) {
     ['commits.ref', { ...REPO, operation: 'commit', ref: ctx.mock.model.commits[0].oid }, d => equal((d.commits ?? []).map(c => c.commitSha), [ctx.mock.model.commits[0].oid])],
     ['prs.open', { ...REPO, operation: 'pullRequest', filters: { state: 'open' } }, d => equal(numbers(d.pullRequests).toSorted((a, b) => a - b), [3, 4])],
     ['prs.merged', { ...REPO, operation: 'pullRequest', filters: { isMerged: true } }, d => equal(numbers(d.pullRequests), [1])],
-    ['prs.branchSelection', { ...REPO, operation: 'pullRequest', filters: { headRef: { include: ['feature-4'], exclude: ['feature-3'] }, baseRef: { include: ['main'] } } }, d => equal(numbers(d.pullRequests), [4])],
-    ['issues.author', { ...REPO, operation: 'issue', keywords: ['prefix'], filters: { author: { include: ['octo-dev'] } } }, d => equal(numbers(d.issues), [2])],
-    ['issues.excludedAuthor', { ...REPO, operation: 'issue', keywords: ['prefix'], filters: { author: { exclude: ['octo-dev'] } } }, (d, r) => r.json?.results?.[0]?.status === 'empty' && !d.issues?.length],
+    ['prs.branchSelection', { ...REPO, operation: 'pullRequest', filters: { headRef: 'feature-4', notHeadRef: ['feature-3'], baseRef: 'main' } }, d => equal(numbers(d.pullRequests), [4])],
+    ['issues.author', { ...REPO, operation: 'issue', keywords: ['prefix'], filters: { author: 'octo-dev' } }, d => equal(numbers(d.issues), [2])],
+    ['issues.excludedAuthor', { ...REPO, operation: 'issue', keywords: ['prefix'], filters: { notAuthor: ['octo-dev'] } }, (d, r) => r.json?.results?.[0]?.status === 'empty' && !d.issues?.length],
   ]);
   for (const surface of ctx.surfaces) {
     const report = await ctx.explore('ghSearchHistory', { queries: [{ ...REPO, operation: 'issue', keywords: ['Paged history'] }], responseChars: 3000 }, surface);
@@ -365,28 +371,6 @@ async function artifacts(ctx) {
     ['search.intersection', { operation: 'search', ecosystem: 'npm', keywords: ['health', 'greet'], registryUrl }, d => equal((d.artifacts ?? []).map(a => a.packageName), ['tiny-greet'])],
   ]);
   return [...out, ...await advancedRegistries(ctx)];
-}
-
-const count = cwd => Number(spawnSync('git', ['rev-list', '--count', 'HEAD'], { cwd, encoding: 'utf8' }).stdout?.trim());
-const sparseFiles = (location, included, excluded) => !!location && fs.existsSync(path.join(location, included)) && !fs.existsSync(path.join(location, excluded));
-
-async function clone(ctx) {
-  const call = async query => data(await ctx.call(ctx.q({ ...REPO, ...query }), 'cli'));
-  const first = await call({ paths: ['src'], historyDepth: 1 });
-  const second = await call({ paths: ['docs'], historyDepth: 1 });
-  const deep = await call({ paths: ['src'], historyDepth: 2 });
-  const a = first.location?.localPath, b = second.location?.localPath, c = deep.location?.localPath;
-  const out = [
-    ['advanced.clone.sparseIdentity', a !== b && sparseFiles(a, 'src/greeter.ts', 'docs/notes.md') && sparseFiles(b, 'docs/notes.md', 'src/greeter.ts'), JSON.stringify({ first, second })],
-    ['advanced.clone.depthIdentity', !!a && !!c && a !== c && count(a) === 1 && count(c) === 2, JSON.stringify(deep)],
-  ];
-  if (a) {
-    const file = path.join(a, 'src/greeter.ts');
-    fs.appendFileSync(file, '\n// local edit retained\n');
-    const refreshed = await call({ paths: ['src'], historyDepth: 1 });
-    out.push(['advanced.clone.preserveLocalEdits', refreshed.errorCode === 'checkoutDirty' && fs.readFileSync(file, 'utf8').endsWith('// local edit retained\n'), JSON.stringify(refreshed)]);
-  }
-  return out;
 }
 
 export const ADVANCED_REMOTE = {

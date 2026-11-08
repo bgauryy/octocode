@@ -28,9 +28,15 @@ pub fn run_if_due(home: &Path, capture_ttl: Duration) -> bool {
     }
     // Clone outputs may contain local edits. Neither current outputs nor
     // older tmp/clone checkouts are cache entries or safe age-sweep targets.
-    // The response and registry caches (`tmp/response`, `tmp/artifact`) age
-    // by entry class and byte budget in their own store, which alone evicts
-    // them: an age sweep would drop entries the store keeps.
+    // Retained-state stores age each entry by the class it was saved under
+    // (a file age would drop entries the store keeps): each store removes
+    // its own expired entries here, as its writes do a share at a time.
+    for directory in crate::cache::Directory::ALL {
+        let dir = directory.path(home);
+        if dir.is_dir() {
+            crate::cache::Disk::new(dir).prune_expired();
+        }
+    }
     // `tmp/tree` and `tmp/tree-staging` are written by octocode-mcp 19.x,
     // which shares this home; native never reads them, so aged entries are
     // cleared here.
@@ -210,27 +216,88 @@ mod tests {
         );
     }
 
-    /// Response and registry caches age by their own entry class and byte
-    /// budget (`cache::Disk::prune`); the daily sweep never removes an
-    /// entry the store keeps, however old its file.
+    /// A store entry `age` past its save and its last use: its header's save
+    /// time and its file's modification time both moved back.
+    fn age_entry(file: &Path, age: Duration) {
+        let bytes = fs::read(file).unwrap();
+        let split = bytes.iter().position(|byte| *byte == b'\n').unwrap();
+        let mut header: serde_json::Value = serde_json::from_slice(&bytes[..split]).unwrap();
+        header["storedAtUnix"] =
+            serde_json::json!(crate::civil_date::unix_secs().unsigned_abs() - age.as_secs());
+        let mut aged = serde_json::to_vec(&header).unwrap();
+        aged.extend_from_slice(&bytes[split..]);
+        fs::write(file, aged).unwrap();
+        self::age(file, age);
+    }
+
+    /// Every store directory's expired entries go with the daily sweep, by
+    /// the class each entry was saved under: an expired section plan's text
+    /// does not wait on disk for the next write to that store (CLS-C30).
+    /// A live entry stays, and so does an immutable one however old its
+    /// file: only the store's byte budget evicts it.
     #[test]
-    fn maintenance_leaves_store_owned_cache_entries_to_the_store() {
+    fn maintenance_prunes_expired_store_entries_and_keeps_live_ones() {
+        use crate::cache::{CacheClass, CacheConfig, CacheKey, Directory, Disk, Store};
+        use crate::tools::clasify::sections::PLAN_RETENTION;
+        let home = tempfile::tempdir().unwrap();
+        fs::create_dir_all(home.path().join("tmp")).unwrap();
+        let key = |resource: &str| CacheKey {
+            namespace: "maintenance".into(),
+            scope: "policy".into(),
+            resource: resource.into(),
+        };
+        let ttl = PLAN_RETENTION.ttl().expect("a plan expires");
+        let mut expired = Vec::new();
+        let mut kept = Vec::new();
+        for directory in Directory::ALL {
+            let dir = directory.path(home.path());
+            let store = Store::<u32>::new(CacheConfig::derived(), Some(dir.clone()));
+            let disk = Disk::new(dir);
+            for (name, class) in [
+                ("expired", PLAN_RETENTION),
+                ("live", PLAN_RETENTION),
+                ("immutable", CacheClass::Immutable),
+            ] {
+                assert!(store.put_confirmed(key(name), 1, 4, class).1);
+                let file = disk.file(&key(name));
+                if name == "live" {
+                    kept.push(file);
+                } else {
+                    age_entry(&file, ttl + INTERVAL);
+                    if name == "expired" {
+                        expired.push(file);
+                    } else {
+                        kept.push(file);
+                    }
+                }
+            }
+        }
+        assert!(run_if_due(home.path(), INTERVAL));
+        for file in expired {
+            assert!(!file.exists(), "{} is past its lifetime", file.display());
+        }
+        for file in kept {
+            assert!(file.exists(), "{} is kept", file.display());
+        }
+    }
+
+    /// The sweep never creates a store directory that no write made.
+    #[test]
+    fn maintenance_creates_no_store_directory() {
+        let home = tempfile::tempdir().unwrap();
+        fs::create_dir_all(home.path().join("tmp")).unwrap();
+        assert!(run_if_due(home.path(), INTERVAL));
+        for directory in crate::cache::Directory::ALL {
+            assert!(!directory.path(home.path()).exists());
+        }
+    }
+
+    /// Clone checkouts and the trees an older server wrote keep their own
+    /// rules: tree directories still age out by their modification time.
+    #[test]
+    fn maintenance_still_ages_out_old_tree_directories() {
         let home = tempfile::tempdir().unwrap();
         let old = SystemTime::now() - INTERVAL * 2;
-        let mut kept = Vec::new();
-        for dir in ["response", "artifact"] {
-            let dir = home.path().join("tmp").join(dir);
-            fs::create_dir_all(&dir).unwrap();
-            let pinned = dir.join("pinned.json");
-            fs::write(&pinned, "{}").unwrap();
-            fs::File::options()
-                .write(true)
-                .open(&pinned)
-                .unwrap()
-                .set_times(fs::FileTimes::new().set_modified(old))
-                .unwrap();
-            kept.push(pinned);
-        }
         let stale: Vec<_> = ["tmp/tree/old", "tmp/tree-staging/old"]
             .into_iter()
             .map(|dir| home.path().join(dir))
@@ -243,9 +310,6 @@ mod tests {
                 .unwrap();
         }
         assert!(run_if_due(home.path(), INTERVAL));
-        for pinned in kept {
-            assert!(pinned.exists(), "{}", pinned.display());
-        }
         for dir in stale {
             assert!(!dir.exists(), "{} still ages out", dir.display());
         }

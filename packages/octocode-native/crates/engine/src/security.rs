@@ -16,6 +16,17 @@ pub use detector::{
 };
 pub use edits::Edits;
 
+/// Whether `path` (a path or a file name, either separator) names a dotenv
+/// file: the class whose credential names hold credentials, and the `.env`
+/// family the local path policy withholds.
+#[expect(clippy::expect_used, reason = "static pattern, valid by construction")]
+pub fn is_dotenv_name(path: &str) -> bool {
+    static CLASS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(patterns::DOTENV_FILE_CONTEXT).expect("dotenv name class")
+    });
+    CLASS.is_match(path)
+}
+
 /// Prefix of detector placeholders (`[REDACTED-<NAME>]`).
 pub const REDACTION_PREFIX: &str = "[REDACTED";
 

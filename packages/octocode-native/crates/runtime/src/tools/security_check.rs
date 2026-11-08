@@ -1,11 +1,22 @@
 //! `securityCheck`: known vulnerabilities of a package, a package URL or purl, an
 //! advisory id, or a commit. Off until the user turns it on
 //! (`tools.enableSecurityCheck`): admission refuses it before this runs.
+mod advisories;
 mod answer;
+mod commit;
+mod dispute;
+mod ecosystem;
+#[cfg(test)]
+pub(crate) mod github_double;
 mod osv;
+#[cfg(test)]
+pub(crate) mod osv_double;
 mod package;
 mod record;
+mod repository;
 mod source;
+mod trust;
+mod update;
 mod upgrade;
 mod url_source;
 
@@ -15,10 +26,15 @@ use crate::providers::artifact::{ArtifactError, ArtifactHttp, SystemArtifactHttp
 use crate::providers::saved_answers::{ReusedSince, disclose_reuse};
 use crate::response::paging::{self, PartialReason};
 use crate::response::result::Continuation;
+pub(crate) use advisories::{AdvisoryFuture, AdvisoryRead};
+pub(crate) use commit::{CommitFacts, CommitFuture, CommitLookup, OtherRefs, Unread};
 use octocode_contract_types::{ErrorCode, SecurityCheckQuery};
 use octocode_io::budget::{PROVIDER_BODY_BYTES, RequestBudget};
 use octocode_io::cancellation::Cancellation;
 use package::Package;
+pub(crate) use repository::{
+    FailedRepository, RepoFacts, RepoFailure, RepoFuture, RepoRead, RepositoryRead, Visibility,
+};
 use serde_json::{Map, Value, json};
 use source::{Target, View};
 use std::time::Instant;
@@ -34,6 +50,10 @@ pub(crate) struct SecurityCall<'a> {
     /// Registry answers kept across calls; `None` keeps none.
     pub answers: Option<&'a dyn octocode_github::SavedAnswers>,
     pub config: &'a ResolvedConfig,
+    /// GitHub's repository read; `None` when no transport could be built.
+    pub github: Option<&'a dyn RepositoryRead>,
+    /// OSV's API base (`RuntimeLimits::osv_api`).
+    pub osv_api: &'a str,
 }
 
 /// The network a row runs on: one transport, budget and set of kept answers.
@@ -43,6 +63,9 @@ pub(super) struct Net<'a> {
     pub answers: Option<&'a dyn octocode_github::SavedAnswers>,
     pub reused: &'a ReusedSince,
     pub config: &'a ResolvedConfig,
+    pub github: Option<&'a dyn RepositoryRead>,
+    /// OSV's API base, with no trailing slash.
+    pub osv_api: &'a str,
 }
 
 pub(crate) async fn execute(
@@ -62,6 +85,8 @@ pub(crate) async fn execute(
         answers: call.answers,
         reused: &reused,
         config: call.config,
+        github: call.github,
+        osv_api: call.osv_api,
     };
     let mut data = run(&query, &net).await?;
     if let Some(observed) = reused.get() {
@@ -84,12 +109,22 @@ async fn run(query: &SecurityCheckQuery, net: &Net<'_>) -> Result<Value, Artifac
         SecurityCheckQuery::Package(row) => {
             package::run(
                 &Package {
-                    kind: row.ecosystem,
+                    ecosystem: row.ecosystem,
                     name: &row.package_name,
                     version: row.version.as_deref().map(String::as_str),
+                    release: row.release.as_deref().map(String::as_str),
                     resume: row.resume.as_deref().map(String::as_str),
                     brief: brief(query),
                 },
+                net,
+            )
+            .await
+        }
+        SecurityCheckQuery::Repository(row) => {
+            repository::run(
+                &row.repo,
+                row.resume.as_deref().map(String::as_str),
+                brief(query),
                 net,
             )
             .await
@@ -109,31 +144,32 @@ async fn run(query: &SecurityCheckQuery, net: &Net<'_>) -> Result<Value, Artifac
     }
 }
 
-/// A URL names a package and runs as one; one that names none ends the row
-/// here, having sent nothing.
+/// A URL names a package and runs as one, a GitHub repository, commit or
+/// advisory and runs as that; one that names none ends the row here, having sent nothing.
 async fn from_url(
     text: &str,
     brief: Map<String, Value>,
     net: &Net<'_>,
 ) -> Result<Value, ArtifactError> {
-    let found = url_source::parse(text).map_err(|why| {
-        let mut error = ArtifactError::new(ErrorCode::InvalidInput, why.reason);
-        // The repository's root tree shows the manifest that names its
-        // package; GitHub already hosts the repository, and no registry or
-        // OSV hears its name.
-        if let Some((owner, repo)) = &why.repository {
-            let lead = crate::tools::gh_shared::RepoPath::root(owner, repo)
-                .lead(ToolId::GhStructure)
-                .build();
-            error.calls = Some(Box::new(json!({ "viewTree": lead })));
+    match url_source::github(text) {
+        Some(Ok(url_source::GithubUrl::Advisory { id })) => return advisory(&id, net).await,
+        Some(Ok(url_source::GithubUrl::Repository { owner, repo })) => {
+            return repository::run(&format!("{owner}/{repo}"), None, brief, net).await;
         }
-        error
-    })?;
+        Some(Ok(url_source::GithubUrl::Commit { owner, repo, sha })) => {
+            return commit(&sha, Some(&format!("{owner}/{repo}")), None, brief, net).await;
+        }
+        Some(Err(why)) => return Err(ArtifactError::new(ErrorCode::InvalidInput, why.reason)),
+        None => {}
+    }
+    let found = url_source::parse(text)
+        .map_err(|why| ArtifactError::new(ErrorCode::InvalidInput, why.reason))?;
     package::run(
         &Package {
-            kind: found.kind,
+            ecosystem: found.ecosystem,
             name: &found.name,
             version: found.version.as_deref(),
+            release: found.release.as_deref(),
             resume: None,
             brief,
         },
@@ -201,8 +237,9 @@ async fn advisory(id: &str, net: &Net<'_>) -> Result<Value, ArtifactError> {
     Ok(data)
 }
 
-/// One commit, asked alone. `repo` is never sent: it only checks the records
-/// that came back, because OSV takes no repository.
+/// One commit, asked alone. OSV takes no repository, so `repo` is never sent
+/// to it: a GitHub repository is read by GitHub, and only the records that came
+/// back from OSV are checked against it.
 async fn commit(
     commit: &str,
     repo: Option<&str>,
@@ -214,10 +251,33 @@ async fn commit(
         commit: commit.to_owned(),
         resume: resume.map(str::to_owned),
     };
-    let results = source::ask_all(&target, net).await?;
+    let mut results = source::ask_all(&target, net).await?;
     let lead = answer::commit_lead(commit, &answer::Facts::of(&results));
+    // Only a repository GitHub hosts is read there. A resumed call repeats
+    // nothing GitHub already said until OSV's walk is complete: then the row is
+    // whole, with GitHub's advisories compared with all of OSV's records.
+    let complete = results.iter().all(|result| result.resume.is_none());
+    let mut not_github = None;
+    let github = match repo.map(repository::parse) {
+        Some(Ok((owner, name))) if resume.is_none() || complete => {
+            let read =
+                commit::read_all((&owner, &name, commit), &mut results, complete, net).await?;
+            Some((owner, name, read))
+        }
+        Some(Err(error)) => {
+            not_github = Some(format!("{} It was not read on GitHub.", error.message));
+            None
+        }
+        _ => None,
+    };
     let mut data = source::into_row(lead, &results, View::Brief);
     answer::read_whole(&mut data, &results, &brief);
+    if let Some((owner, name, read)) = &github {
+        commit::apply(&mut data, (owner, name, commit), read, &brief)?;
+    }
+    if let Some(warning) = not_github {
+        paging::push_warnings(&mut data, [warning]);
+    }
     if let Some(warning) = repo.and_then(|repo| other_repository(repo, &results)) {
         paging::push_warnings(&mut data, [warning]);
     }
@@ -245,18 +305,13 @@ async fn commit(
 }
 
 /// A warning when no returned record names `repo`: the hash matched in another
-/// repository.
+/// repository. Repositories compare by identity, not by spelling.
 fn other_repository(repo: &str, results: &[source::SourceResult]) -> Option<String> {
-    let plain = |url: &str| {
-        url.trim_end_matches('/')
-            .trim_end_matches(".git")
-            .to_ascii_lowercase()
-    };
-    let wanted = plain(repo);
+    let wanted = repository::RepositoryId::of(repo)?;
     let rows = results.iter().flat_map(|result| &result.advisories);
-    let mut named = rows.clone().flat_map(record::repositories).peekable();
+    let mut named = rows.flat_map(record::repositories).peekable();
     named.peek()?;
-    (!named.any(|url| plain(url) == wanted))
+    (!named.any(|url| repository::RepositoryId::of(url).is_some_and(|found| found == wanted)))
         .then(|| format!("No record names {repo}: they name the commit in another repository."))
 }
 

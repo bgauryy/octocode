@@ -1,4 +1,5 @@
 use super::*;
+use crate::tools::security_check::osv_double::OsvPages;
 
 /// A gem that bundles its parts (rails over actionpack) carries their
 /// advisories under their own names: its own row says none known, so it
@@ -18,7 +19,7 @@ async fn an_umbrella_package_leads_to_its_exactly_pinned_dependencies() {
                 ]}
             }),
         )
-        .post_sequence(vec![(200, json!({}))]);
+        .osv_pages(vec![(200, json!({}))]);
     let data = answer_for(
         &http,
         ArtifactType::Rubygems,
@@ -44,7 +45,7 @@ async fn an_umbrella_package_leads_to_its_exactly_pinned_dependencies() {
     assert!(call.contains("\"version\":\"8.1.4.1\""), "{call}");
     assert!(!call.contains("bundler"), "{call}");
     // A package that pins nothing says nothing of the kind.
-    let http = registry().post_sequence(vec![(200, json!({}))]);
+    let http = registry().osv_pages(vec![(200, json!({}))]);
     let data = answer(&http, Some("4.17.20"), None).await.expect("row");
     assert!(data.get("related").is_none(), "{data}");
     assert!(!data["answer"].as_str().unwrap_or_default().contains("pins"));

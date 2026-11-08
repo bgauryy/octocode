@@ -256,6 +256,34 @@ impl PathPolicy {
         })
     }
 
+    /// `text` with the workspace root dropped from every path it names, so a
+    /// message shows a file as a result row does (`src/a.rs`, not the host
+    /// layout). Paths outside the workspace stay as they are, as rows show them.
+    pub(crate) fn workspace_relative_text(&self, text: &str) -> String {
+        let mut shown = text.to_owned();
+        for root in [&self.workspace_root, &self.workspace_real]
+            .into_iter()
+            .flatten()
+        {
+            let prefix = format!("{}{}", root.display(), std::path::MAIN_SEPARATOR);
+            // Only a path that starts here: `/var/w/` inside `/private/var/w/`
+            // is the tail of another path (a symlinked root's real one).
+            let mut parts = shown.split(prefix.as_str());
+            let mut kept = parts.next().unwrap_or_default().to_owned();
+            for part in parts {
+                let starts_a_path = kept.chars().next_back().is_none_or(|before| {
+                    before.is_whitespace() || matches!(before, '\'' | '"' | '(' | ':' | '`')
+                });
+                if !starts_a_path {
+                    kept.push_str(&prefix);
+                }
+                kept.push_str(part);
+            }
+            shown = kept;
+        }
+        shown
+    }
+
     /// The closest ancestor of `requested` the policy admits as a
     /// directory, named relative to the workspace when it lies inside it;
     /// `None` when no admitted ancestor exists (the climb never leaves the

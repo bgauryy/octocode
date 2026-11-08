@@ -3,7 +3,7 @@ use super::*;
 fn context(deadline: std::time::Duration) -> ExecutionContext {
     ExecutionContext {
         cancellation: octocode_io::cancellation::Cancellation::new(),
-        deadline: std::time::Instant::now() + deadline,
+        deadline: Some(std::time::Instant::now() + deadline),
         response_window: None,
         github_credential: None,
     }

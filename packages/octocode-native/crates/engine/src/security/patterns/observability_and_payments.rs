@@ -9,37 +9,37 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "mapboxSecretToken",
         file_context: None,
-        regex: r###"\bsk\.eyJ[a-zA-Z0-9._-]{87}\b"###,
+        regex: r###"sk\.eyJ[a-zA-Z0-9._-]{87}"###,
     },
     SecretPattern {
         name: "mapboxPublicToken",
         file_context: None,
-        regex: r###"\bpk\.eyJ[a-zA-Z0-9._-]{80,}\b"###,
+        regex: r###"pk\.eyJ[a-zA-Z0-9._-]{80,}\b"###,
     },
     SecretPattern {
         name: "grafanaCloudApiKey",
         file_context: None,
-        regex: r###"\bglc_[a-zA-Z0-9]{32}\b"###,
+        regex: r###"glc_[a-zA-Z0-9]{32}"###,
     },
     SecretPattern {
         name: "newRelicApiKey",
         file_context: None,
-        regex: r###"\bNRAK-[A-Z0-9]{27}\b"###,
+        regex: r###"NRAK-[A-Z0-9]{27}"###,
     },
     SecretPattern {
         name: "newRelicInsightKey",
         file_context: None,
-        regex: r###"\bNRIK-[A-Z0-9]{32}\b"###,
+        regex: r###"NRIK-[A-Z0-9]{32}"###,
     },
     SecretPattern {
         name: "newRelicBrowserApiToken",
         file_context: None,
-        regex: r###"\bNRJS-[a-f0-9]{19}\b"###,
+        regex: r###"NRJS-[a-f0-9]{19}"###,
     },
     SecretPattern {
         name: "newRelicInsertKey",
         file_context: None,
-        regex: r###"(?i)\bNRII-[a-z0-9-]{32}\b"###,
+        regex: r###"(?i)NRII-[a-z0-9-]{32}"###,
     },
     SecretPattern {
         name: "grafanaApiKey",
@@ -49,17 +49,17 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "grafanaServiceAccountToken",
         file_context: None,
-        regex: r###"\bglsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8}\b"###,
+        regex: r###"glsa_[A-Za-z0-9]{32}_[A-Fa-f0-9]{8}"###,
     },
     SecretPattern {
         name: "sentryOrgToken",
         file_context: None,
-        regex: r###"\bsntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl91cmwi|cmVnaW9uX3VybCI6)[a-zA-Z0-9+/]{10,200}={0,2}_[a-zA-Z0-9+/]{43}\b"###,
+        regex: r###"sntrys_eyJpYXQiO[a-zA-Z0-9+/]{10,200}(?:LCJyZWdpb25fdXJs|InJlZ2lvbl91cmwi|cmVnaW9uX3VybCI6)[a-zA-Z0-9+/]{10,200}={0,2}_[a-zA-Z0-9+/]{43}"###,
     },
     SecretPattern {
         name: "sentryUserToken",
         file_context: None,
-        regex: r###"\bsntryu_[a-f0-9]{64}\b"###,
+        regex: r###"sntryu_[a-f0-9]{64}"###,
     },
     SecretPattern {
         name: "sumoLogicAccessId",
@@ -84,12 +84,14 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "stripeSecretKey",
         file_context: None,
-        regex: r###"\b[rs]k_(?:live|test)_[a-zA-Z0-9]{20,247}\b"###,
+        // A live key opens with its tag; a test key's `rk_test_` also ends
+        // identifiers (`network_test_…`), so it keeps the boundary.
+        regex: r###"[rs]k_live_[a-zA-Z0-9]{20,247}|\b[rs]k_test_[a-zA-Z0-9]{20,247}"###,
     },
     SecretPattern {
         name: "stripeWebhookSecret",
         file_context: None,
-        regex: r###"\bwhsec_[a-zA-Z0-9]{32,}\b"###,
+        regex: r###"whsec_[a-zA-Z0-9]{32,}\b"###,
     },
     SecretPattern {
         name: "stripePublishableKey",
@@ -114,27 +116,27 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "squareOauthSecret",
         file_context: None,
-        regex: r###"\bsq0csp-[0-9A-Za-z\-_]{43}\b"###,
+        regex: r###"sq0csp-[0-9A-Za-z\-_]{43}"###,
     },
     SecretPattern {
         name: "squareApplicationId",
         file_context: None,
-        regex: r###"\bsq0ids-[a-zA-Z0-9_-]{43}\b"###,
+        regex: r###"sq0ids-[a-zA-Z0-9_-]{43}"###,
     },
     SecretPattern {
         name: "shopifyPrivateAppPassword",
         file_context: None,
-        regex: r###"\bshppa_[a-fA-F0-9]{32}\b"###,
+        regex: r###"shppa_[a-fA-F0-9]{32}"###,
     },
     SecretPattern {
         name: "shopifyAccessToken",
         file_context: None,
-        regex: r###"\bshpat_[a-fA-F0-9]{32}\b"###,
+        regex: r###"shpat_[a-fA-F0-9]{32}"###,
     },
     SecretPattern {
         name: "shopifyWebhookToken",
         file_context: None,
-        regex: r###"\bshpwh_[a-fA-F0-9]{32}\b"###,
+        regex: r###"shpwh_[a-fA-F0-9]{32}"###,
     },
     SecretPattern {
         name: "adyenApiKey",
@@ -144,12 +146,12 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "razorpayApiKey",
         file_context: None,
-        regex: r###"\brzp_(?:test|live)_[a-zA-Z0-9]{14}\b"###,
+        regex: r###"rzp_(?:test|live)_[a-zA-Z0-9]{14}"###,
     },
     SecretPattern {
         name: "flutterwaveKeys",
         file_context: None,
-        regex: r###"\bFLW(?:PUBK|SECK)_(?:TEST|LIVE)-[a-h0-9]{32}-X\b"###,
+        regex: r###"FLW(?:PUBK|SECK)_(?:TEST|LIVE)-[a-h0-9]{32}-X\b"###,
     },
     SecretPattern {
         name: "coinbaseAccessToken",

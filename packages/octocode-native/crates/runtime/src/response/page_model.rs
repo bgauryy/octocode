@@ -59,11 +59,15 @@ pub(crate) struct ResponsePagination {
     pub(crate) returned_chars: usize,
     pub(crate) snapshot: String,
     pub(crate) next_offset: Option<usize>,
-    pub(crate) oversized: Option<bool>,
     pub(crate) next: Option<Value>,
 }
 impl ResponsePagination {
+    /// A fresh response states its block only while a walk remains. A
+    /// complete one-page response is no page of a split, so an oversized
+    /// indivisible value there is not a reason to state one: a block with
+    /// `hasMore:false` would read as the end of a walk that never began. Its
+    /// size is stated by the envelope's top-level `oversized` instead.
     pub(crate) fn should_emit(&self) -> bool {
-        self.has_more || self.next.is_some() || self.oversized == Some(true)
+        self.has_more || self.next.is_some()
     }
 }

@@ -1,10 +1,12 @@
 //! Placing a source link's directory: the registry's own, the pinned ref, or a
 //! ref the repository confirms.
 use super::super::http::RegistryClient;
+use super::super::release_ref::CheckFailure;
 use super::super::test_http::{KnownTags, RouteHttp, test_budget};
 use super::super::{CommitCheck, RepositoryStatus};
 use super::{ArtifactItem, settle};
 use octocode_contract_types::{ArtifactType, ErrorCode};
+use octocode_github::ProviderErrorKind;
 
 const REPOSITORY: &str = "https://github.com/o/r";
 
@@ -125,10 +127,13 @@ async fn an_unconfirmed_multi_segment_link_gives_no_directory_and_a_warning() {
 #[tokio::test]
 async fn an_unchecked_link_is_disclosed_as_unchecked_with_its_reason() {
     let link = format!("{REPOSITORY}/tree/users/x/pkg");
-    let unanswered = KnownTags::always(None);
+    let rate_limited = KnownTags::always(Some(true))
+        .with_failure(CheckFailure::Provider(ProviderErrorKind::RateLimited));
+    let credential = KnownTags::always(Some(true)).with_failure(CheckFailure::Request);
     for (tags, reason) in [
         (None, "not available"),
-        (Some(&unanswered), "gave no answer"),
+        (Some(&rate_limited), "rate limit"),
+        (Some(&credential), "credentials"),
     ] {
         let item = settled(row(&link, None, None), tags).await;
         assert_eq!(item.repository_directory, None, "{reason}");

@@ -1,5 +1,7 @@
 use super::*;
 
+mod key;
+
 /// A selection over one capture's memory says how to judge it in parts.
 #[test]
 fn a_too_large_selection_says_how_to_judge_it_in_parts() {
@@ -51,7 +53,9 @@ fn a_reader_that_repeats_a_page_fails_without_looping() {
 }
 
 /// The GitHub tools that can send a row to a classifier, each passing the name
-/// rule. A GitHub tool that gains `classification` has to pass it too.
+/// rule: a read by `withheld_github_source`, a provider page by its row units
+/// (`selection::row_units`, which withhold credential-named paths). A GitHub
+/// tool that gains `classification` has to pass one of them.
 #[test]
 fn only_the_covered_github_tools_take_classification() {
     let taking = ToolId::ALL
@@ -61,16 +65,54 @@ fn only_the_covered_github_tools_take_classification() {
             tool.is_github() && crate::contracts::query_declares(*tool, "classification")
         })
         .collect::<Vec<_>>();
-    assert_eq!(taking, [ToolId::GhSearchCode, ToolId::GhGetFileContent]);
+    let covered = ToolId::ALL
+        .iter()
+        .copied()
+        .filter(|tool| {
+            tool.is_github() && (tool.selects_provider_page() || *tool == ToolId::GhGetFileContent)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(taking, covered);
 }
 
 #[test]
-fn a_withheld_github_source_is_the_local_refusal_with_its_direct_read() {
-    let query = json!({"owner":"o","repo":"r","path":"a/.ssh/config","ref":"main"});
-    let error = withheld_github_source(&query).expect("withheld");
-    assert_eq!(error.code, ErrorCode::PathPolicyDenied);
-    let (name, read) = &error.leads[0];
-    assert_eq!(name, "read");
-    assert_eq!(read["tool"], "ghGetFileContent");
-    assert!(withheld_github_source(&json!({"owner":"o","repo":"r","path":"src/a.rs"})).is_none());
+fn a_withheld_github_source_is_refused_and_names_only_a_route_the_policy_opens() {
+    let policy = |allow: bool| {
+        let root = tempfile::tempdir().expect("root");
+        PathPolicy::new(crate::policy::path::PathPolicyConfig {
+            workspace_root: Some(root.path().to_path_buf()),
+            allow_credential_files: allow,
+            ..Default::default()
+        })
+        .expect("policy")
+    };
+    let env = json!({"owner":"o","repo":"r","path":".env"});
+    let ssh = json!({"owner":"o","repo":"r","path":"a/.ssh/config","ref":"main"});
+    for allow in [false, true] {
+        let reads = policy(allow);
+        // A sensitive directory opens to no read: no lead, and the hint says so.
+        let error = withheld_github_source(&ssh, &reads).expect("withheld");
+        assert_eq!(error.code, ErrorCode::PathPolicyDenied);
+        assert!(error.leads.is_empty(), "{:?}", error.leads);
+        assert!(
+            error.hints.join(" ").contains("No read returns it"),
+            "{:?}",
+            error.hints
+        );
+        // A credential name: classification refuses it under both settings;
+        // the plain read is the route only where the user's policy opens it.
+        let error = withheld_github_source(&env, &reads).expect("withheld");
+        assert_eq!(error.code, ErrorCode::PathPolicyDenied);
+        let hints = error.hints.join(" ");
+        if allow {
+            assert_eq!(error.leads.len(), 1, "{:?}", error.leads);
+            assert_eq!(error.leads[0].1["tool"], "ghGetFileContent");
+            assert!(hints.contains("redacted"), "{hints}");
+        } else {
+            assert!(error.leads.is_empty(), "{:?}", error.leads);
+            assert!(hints.contains("security.credentialFiles: allow"), "{hints}");
+        }
+        let normal = json!({"owner":"o","repo":"r","path":"src/a.rs"});
+        assert!(withheld_github_source(&normal, &reads).is_none());
+    }
 }

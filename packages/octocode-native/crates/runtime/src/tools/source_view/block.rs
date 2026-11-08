@@ -183,10 +183,10 @@ pub fn widen_ranges(
     widened
 }
 
-/// Whether `hit` is a declaration's own head: its first line or its name
-/// line.
+/// Whether `hit` is a declaration's own head: a line from its first line
+/// (its decorators or attributes) through its name line.
 fn declares(declared: &[Declared], hit: usize) -> bool {
-    declarations::innermost(declared, hit).is_some_and(|d| d.start == hit || d.line == hit)
+    declarations::innermost(declared, hit).is_some_and(|d| d.start <= hit && hit <= d.line)
 }
 
 /// Replace each match window with the innermost declaration containing the
@@ -237,7 +237,7 @@ pub fn widen_matches(
                         end_line: owner.end,
                     });
                 }
-                let (start, end) = if hit == start {
+                let (start, end) = if declares(declared, hit) {
                     with_docs(&lines, path, (start, end))
                 } else {
                     (start, end)

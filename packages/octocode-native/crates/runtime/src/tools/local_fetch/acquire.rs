@@ -236,7 +236,9 @@ fn directory_tree(path: &str) -> Option<serde_json::Value> {
         StructureSearchQueryTree, StructureSearchQueryTreeOperation, StructureSearchView,
     };
     let query = StructureSearchQueryTree {
+        classification: None,
         default_excludes: None,
+        selection: None,
         entry_type: None,
         exclude: Vec::new(),
         extensions: Vec::new(),

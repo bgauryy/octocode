@@ -18,6 +18,10 @@ pub(crate) fn parent_glob_warning(include: &[String], exclude: &[String]) -> Opt
     ))
 }
 
+/// The empty result's fact when include/exclude left the walk no file: one
+/// text for every tool that walks a scope (localSearch, astSearch).
+pub(crate) const GLOB_MISS_HINT: &str = "Nothing searched: include/exclude matched no file. A glob with `/` matches from `path`, not the workspace root, so `src/*.rs` is `path`/src/*.rs: start it with `**/` to match at any depth. The related[] structureSearch request lists the names to fix the globs.";
+
 #[cfg(test)]
 mod tests {
     use super::*;

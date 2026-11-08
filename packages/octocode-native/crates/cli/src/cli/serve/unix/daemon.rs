@@ -115,6 +115,18 @@ impl Daemon {
         )
     }
 
+    /// Tell each client waiting for this server to drain (`cache clear`) how
+    /// many calls it waits for, once, before the wait.
+    pub(super) async fn tell_draining(&self, in_flight: usize) {
+        use tokio::io::AsyncWriteExt;
+        let line = format!("{{\"draining\":{in_flight}}}\n");
+        let mut waiters = std::mem::take(&mut *self.stopped.borrow_mut());
+        for waiter in &mut waiters {
+            let _ = waiter.write_all(line.as_bytes()).await;
+        }
+        self.stopped.borrow_mut().extend(waiters);
+    }
+
     pub(super) fn with_build(socket: PathBuf, build: Build) -> Self {
         Self {
             socket,
@@ -270,6 +282,8 @@ pub(super) async fn serve_on(
     // process; the ones taken finish first.
     drop(listener);
     leave();
+    let in_flight = MAX_CONNECTIONS.saturating_sub(slots.available_permits());
+    daemon.tell_draining(in_flight).await;
     let all = u32::try_from(MAX_CONNECTIONS).unwrap_or(u32::MAX);
     let _ = slots.acquire_many(all).await;
 }

@@ -7,7 +7,7 @@ function run(performanceCheck) {
     suite: { performance: performanceCheck }, name: 'lspSearch', spec: { budgetMs: 25_000 },
     timings: [{ phase: 'happy', surface: 'cli', ms: 100_000, responseBytes: 100 }],
     checks: [], reports: { cli: [], mcp: [] }, skips: [], advancedCalls: [],
-    ctx: { mock: { unhandledFrom: [] } }, record(check, ok, detail) { this.checks.push({ check, ok, detail }); },
+    ctx: { mock: { unhandledFrom: [] }, registry: { unhandled: [], denied: [] } }, record(check, ok, detail) { this.checks.push({ check, ok, detail }); },
   };
 }
 
@@ -26,7 +26,7 @@ test('explicit performance mode retains the latency oracle with supplied measure
 });
 
 test('saved checks retain complete Unicode diagnostics and parseable evidence', () => {
-  const state = createRun({ surfaces: { ctx: {} } }, { name: 'localFetch', spec: {} });
+  const state = createRun({ surfaces: { ctx: {}, registryFor: () => ({}) } }, { name: 'localFetch', spec: {} });
   const evidence = { missing: Array.from({ length: 100 }, (_, index) => `${index}: source 界😀`) };
   const detail = JSON.stringify(evidence);
   state.record('evidence', false, detail);

@@ -1,5 +1,6 @@
 use super::*;
 use crate::id::ToolId;
+use serde_json::json;
 
 #[test]
 fn shared_failures_have_recovery_across_every_tool() {

@@ -36,13 +36,14 @@ fn match_rows_without_unread_pages_are_complete() {
     assert!(gap.get("coverage").is_none(), "{gap}");
 }
 
-/// Files without a grammar are named once, as a static notice that says
+/// Files without a grammar (here of no known type, which the inferred
+/// language could hold) are named once, as a static notice that says
 /// absence there is unproven, and a match set that fills more than one
 /// page names its size and how to narrow it.
 #[test]
 fn census_notices_are_static_and_a_multi_page_set_names_how_to_narrow() {
     let root = Fixture::new();
-    root.write("notes.md", "call(1)\n");
+    root.write("notes.ts.in", "call(1)\n");
     root.write("a.ts", "call(1);\n");
     root.write("b.ts", "call(2);\n");
     let out = run(
@@ -355,6 +356,107 @@ fn happy_path_rows_carry_the_next_hop_anchors() {
             "{row}"
         );
     }
+}
+
+/// The capture lead of a page returns that page's clipped rows: walking it
+/// lists each of them exactly once, whole, and reads only the files the
+/// page shows them in, never the rest of the query's scope.
+#[test]
+fn the_capture_lead_returns_each_clipped_row_of_its_page_once() {
+    let root = Fixture::new();
+    let body = format!("  const x = 1;\n  {}\n  return x;\n", "y();".repeat(40));
+    // The first two files' names need escaping as a glob (a backslash is
+    // literal in a file name, an escape in a glob); `sub/b.ts` shares a
+    // later file's name below it and is never on page 1.
+    for name in ["a[1]*.ts", "a\\g.ts", "b.ts", "c.ts", "d.ts", "sub/b.ts"] {
+        let source = (0..3)
+            .map(|n| format!("function f{n}() {{\n{body}}}\n"))
+            .collect::<String>();
+        root.write(name, &source);
+    }
+    let query =
+        json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"},"limit":4});
+    let first = run(&root.0, query).expect("page 1");
+    let key =
+        |path: &str, row: &serde_json::Value| format!("{path}:{}:{}", row["line"], row["column"]);
+    let mut clipped = std::collections::BTreeSet::new();
+    let mut shown = std::collections::BTreeSet::new();
+    for file in first["files"].as_array().expect("files") {
+        let path = file["path"].as_str().expect("path");
+        shown.insert(path.to_owned());
+        for row in file["matches"].as_array().expect("matches") {
+            if row["clipped"] == true {
+                clipped.insert(key(path, row));
+            }
+        }
+    }
+    assert!(!clipped.is_empty(), "{first}");
+    assert!(shown.len() < 6, "page 1 shows some of the files: {first}");
+    let lead = first["related"]
+        .as_array()
+        .and_then(|calls| {
+            calls
+                .iter()
+                .find(|call| call["input"]["queries"][0]["includeCaptures"] == true)
+        })
+        .expect("capture lead");
+    let pages = ast_chain(&root.0, lead["input"]["queries"][0].clone());
+    let mut seen = std::collections::BTreeMap::<String, usize>::new();
+    for page in &pages {
+        for file in page["files"].as_array().into_iter().flatten() {
+            let path = file["path"].as_str().expect("path");
+            assert!(shown.contains(path), "{path} is not on page 1: {page}");
+            for row in file["matches"].as_array().expect("matches") {
+                assert!(row.get("clipped").is_none(), "{row}");
+                *seen.entry(key(path, row)).or_default() += 1;
+            }
+        }
+    }
+    for row in &clipped {
+        assert_eq!(seen.get(row), Some(&1), "{row}: {seen:?}");
+    }
+}
+
+/// A page whose withheld rows sit in more files than `include` holds keeps
+/// the capture lead on the whole scope, and says so: the lead returns a
+/// superset of those rows.
+#[test]
+fn a_whole_scope_capture_lead_says_it_returns_a_superset() {
+    let root = Fixture::new();
+    let limit = crate::contracts::query_limits::ast_search::r#match::INCLUDE_MAX_ITEMS + 1;
+    let body = format!("  const x = 1;\n  {}\n  return x;\n", "y();".repeat(40));
+    for n in 0..limit {
+        root.write(
+            &format!("f{n:03}.ts"),
+            format!("function f() {{\n{body}}}\n"),
+        );
+    }
+    let query = json!({"operation":"match","path":root.0,"rule":{"kind":"function_declaration"},"limit":limit});
+    let first = run_window(&root.0, query, 100_000_000).expect("page 1");
+    assert_eq!(
+        first["files"].as_array().map(Vec::len),
+        Some(limit),
+        "{first}"
+    );
+    let lead = first["related"]
+        .as_array()
+        .and_then(|calls| {
+            calls
+                .iter()
+                .find(|call| call["input"]["queries"][0]["includeCaptures"] == true)
+        })
+        .expect("capture lead");
+    assert!(
+        lead["input"]["queries"][0].get("include").is_none(),
+        "{lead}"
+    );
+    let hints = first["hints"].as_array().into_iter().flatten();
+    assert!(
+        hints
+            .filter_map(serde_json::Value::as_str)
+            .any(|hint| hint.contains("includeCaptures") && hint.contains("whole scope")),
+        "{first}"
+    );
 }
 
 /// The optional capture expansion: a related lead (never `next`) to the same

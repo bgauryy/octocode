@@ -2,6 +2,8 @@ Load when you type `#[napi]` signatures, read a generated `.d.ts`, debug a JS↔
 
 # napi-rs: types, binding crate, per-platform packages
 
+For napi-rs projects; not used in this repo (no napi crates in `packages/octocode-native`).
+
 ## Types: scalars
 | Rust | TS | Watch |
 |---|---|---|

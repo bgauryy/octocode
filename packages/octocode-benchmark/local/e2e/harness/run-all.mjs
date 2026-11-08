@@ -23,6 +23,7 @@ import path from 'node:path';
 import { LIVE } from './mcp-client.mjs';
 import { RESULTS, TESTING } from './paths.mjs';
 import { hermeticEnv } from '../../../../../test-utils/hermetic-env.ts';
+import { snapshotBuild } from './build-snapshot.mjs';
 
 const script = name => [path.join(TESTING, 'harness', `${name}.mjs`)];
 const HERMETIC = {
@@ -57,6 +58,9 @@ function counts(stdout) {
 const OVERSUBSCRIBED = 2 * os.cpus().length;
 const loadAtStart = os.loadavg()[0];
 
+// One snapshot of the build under test for every suite: they inherit it through the environment,
+// so a concurrent `build:dev` cannot change what the later suites run.
+snapshotBuild();
 fs.mkdirSync(RESULTS, { recursive: true });
 const rows = [];
 const wallStart = Date.now();

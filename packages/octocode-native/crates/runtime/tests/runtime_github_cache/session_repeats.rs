@@ -60,12 +60,8 @@ async fn repeated_repository_and_history_searches_spend_one_search() {
         {
             let outcome = call(&runtime, tool, query.clone()).await.unwrap();
             let mut data = row_data(&outcome).clone();
-            assert!(
-                data["hints"][0]
-                    .as_str()
-                    .is_some_and(|hint| hint.contains("observed"))
-            );
-            data.as_object_mut().unwrap().remove("hints");
+            assert!(data["observedAt"].is_string(), "{tool}: {data}");
+            data.as_object_mut().unwrap().remove("observedAt");
             assert_eq!(&data, &first[index], "{tool} repeat");
         }
     }

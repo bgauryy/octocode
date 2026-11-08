@@ -2,13 +2,14 @@ use super::*;
 use crate::id::ToolId;
 use crate::tools::test_support::{Fixture, workspace_policy};
 
+mod homes;
 mod impact_paging;
 mod leases;
 
 fn context() -> ExecutionContext {
     ExecutionContext {
         cancellation: octocode_io::cancellation::Cancellation::new(),
-        deadline: Instant::now() + std::time::Duration::from_secs(60),
+        deadline: Some(Instant::now() + std::time::Duration::from_secs(60)),
         response_window: None,
         github_credential: None,
     }

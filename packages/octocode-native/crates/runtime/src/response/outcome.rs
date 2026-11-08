@@ -19,6 +19,9 @@ pub(crate) struct DomainResult {
     pub status: Option<&'static str>,
     pub(crate) source_digest: Option<String>,
     pub failure: Option<FailureKind>,
+    /// Leaves of `data` judged against their whole source, for the output
+    /// gate; never part of `data`.
+    pub(crate) judged: crate::security::JudgedLeaves,
 }
 
 impl DomainResult {
@@ -37,6 +40,7 @@ impl DomainResult {
             status,
             source_digest: None,
             failure,
+            judged: Default::default(),
         }
     }
 
@@ -51,9 +55,7 @@ impl DomainResult {
         // One exit class per code: the contract's table decides it.
         let kind = failure_kind(code);
         let mut data = json!({"error": message.into(), "errorCode": code});
-        if !hints.is_empty() {
-            data["hints"] = json!(hints);
-        }
+        crate::response::result::add_hints(&mut data, hints);
         if let Some(calls) = next {
             crate::response::result::attach_calls(&mut data, calls);
         }
@@ -63,6 +65,7 @@ impl DomainResult {
             status: Some("error"),
             source_digest: None,
             failure: Some(kind),
+            judged: Default::default(),
         }
     }
 
@@ -100,9 +103,7 @@ impl DomainResult {
         if let Some(rate_limit) = upstream.rate_limit {
             data["rateLimit"] = rate_limit;
         }
-        if !hints.is_empty() {
-            data["hints"] = json!(hints);
-        }
+        crate::response::result::add_hints(data, hints);
         if let Some(calls) = next {
             crate::response::result::attach_calls(data, calls);
         }

@@ -1,13 +1,41 @@
 //! Building the projector: file nodes and their symbol nodes.
 use super::*;
 
+/// The test-code rule over the scanned `root`. When no path policy can be
+/// built for it the build fails with that error: file roles never silently
+/// fall back to spelling, which would label mounted production modules tests.
+fn root_test_code(
+    root: &std::path::Path,
+) -> Result<crate::tools::test_code::TestCodeIndex, crate::response::result::ToolError> {
+    test_code_index(crate::policy::path::PathPolicy::new(
+        crate::policy::path::PathPolicyConfig {
+            workspace_root: Some(root.to_path_buf()),
+            ..Default::default()
+        },
+    ))
+}
+
+fn test_code_index(
+    policy: Result<crate::policy::path::PathPolicy, crate::policy::PolicyError>,
+) -> Result<crate::tools::test_code::TestCodeIndex, crate::response::result::ToolError> {
+    let policy = policy.map_err(|error| {
+        crate::response::result::ToolError::new(
+            error.shared_code(),
+            format!(
+                "graph file roles need the test-code rule, but its path policy failed: {error}"
+            ),
+        )
+    })?;
+    Ok(crate::tools::test_code::TestCodeIndex::new(&policy))
+}
+
 impl<'a> Projector<'a> {
     /// File nodes, sorted by path.
     pub(super) fn new(
         built: &'a BuiltGraph,
         workspace: &'a Workspace,
         sources: sources::Sources,
-    ) -> Self {
+    ) -> Result<Self, crate::response::result::ToolError> {
         let languages = built
             .nodes
             .keys()
@@ -44,6 +72,7 @@ impl<'a> Projector<'a> {
             roles: HashMap::new(),
             languages,
             unparsed,
+            test_code: root_test_code(&built.root)?,
         };
         let mut all_files = built.nodes.keys().map(String::as_str).collect::<Vec<_>>();
         all_files.extend(projector.unparsed.iter().copied());
@@ -53,7 +82,7 @@ impl<'a> Projector<'a> {
             projector.push_file(file);
         }
         projector.mount_test_modules();
-        projector
+        Ok(projector)
     }
 
     pub(super) fn push_file(&mut self, file: &'a str) {
@@ -62,7 +91,8 @@ impl<'a> Projector<'a> {
         let id = octocode_engine::num::saturating_u32(self.nodes.len());
         let name = file.rsplit('/').next().unwrap_or(file);
         let marks = self.built.facts.get(file).map(|facts| facts.marks);
-        let mut flags = file_roles(&self.built.root, file, marks);
+        let test = self.test_code.test_path(&self.built.root.join(file));
+        let mut flags = file_roles(&self.built.root, file, marks, test);
         if self.workspace.entries.contains_key(file) {
             flags |= ROLE_ENTRY;
         }
@@ -89,7 +119,7 @@ impl<'a> Projector<'a> {
         self.languages.get(file).map_or("", String::as_str)
     }
 
-    pub(super) fn has_role(&self, file: &str, mask: u8) -> bool {
+    pub(super) fn has_role(&self, file: &str, mask: Roles) -> bool {
         self.roles.get(file).is_some_and(|r| r & mask != 0)
     }
 
@@ -202,7 +232,7 @@ impl<'a> Projector<'a> {
         let module_holders = facts
             .commonjs
             .iter()
-            .map(|binding| binding.declaration_id.as_str())
+            .filter_map(|binding| binding.declaration_id.as_deref())
             .collect::<HashSet<_>>();
         // Generated, bundled, vendored and declaration-only code never
         // serves as a unique-name call target.
@@ -315,5 +345,27 @@ impl<'a> Projector<'a> {
             }
         }
         index
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::policy::{PolicyError, PolicyErrorCode};
+
+    /// No path policy for the root means no test-code rule: the build fails
+    /// with that error instead of labelling roles by spelling.
+    #[test]
+    fn a_failed_path_policy_fails_the_projection_instead_of_falling_back_to_spelling() {
+        let failure = PolicyError::new(PolicyErrorCode::Io, "root unreadable");
+        let error = test_code_index(Err(failure.clone()))
+            .err()
+            .expect("no test-code rule without a path policy");
+        assert_eq!(error.code, failure.shared_code());
+        assert!(
+            error.message.contains("root unreadable"),
+            "{}",
+            error.message
+        );
     }
 }

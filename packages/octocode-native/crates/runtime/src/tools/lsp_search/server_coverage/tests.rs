@@ -320,14 +320,15 @@ fn a_row_of_declarations_names_no_use() {
     ));
 }
 
-/// With nothing above the project to say where it ends, an answer naming no use
-/// cannot speak for a module beside it; a row that names a use still stands.
+/// With nothing above the project to say where it ends, no answer can speak for
+/// a module beside it: a row that lists a use (gopls without `go.work` lists
+/// `a/a.go` and never loads `b/`) is as partial as an empty one.
 #[test]
-fn an_unbounded_scope_keeps_a_no_use_answer_partial() {
+fn an_unbounded_scope_keeps_every_answer_partial() {
     let q = query(json!({"path":"/w/a.go","operation":"callers","symbolName":"F","line":1}));
     let mut scope = Scope::new("/w".into(), vec!["*.go".into()]);
     scope.unbounded = true;
-    let run = |mut row: Value| {
+    let run = |scope: &Scope, mut row: Value| {
         annotate(
             &mut row,
             &q,
@@ -336,18 +337,107 @@ fn an_unbounded_scope_keeps_a_no_use_answer_partial() {
                 anchor: "/w/a.go",
                 root: "/w",
             },
-            &scope,
+            scope,
         );
         row
     };
-    let empty = run(json!({"status":"empty"}));
+    let empty = run(&scope, json!({"status":"empty"}));
     assert_eq!(
         empty["partialReasons"],
         json!([UNANSWERED_REASON]),
         "{empty}"
     );
-    let used = run(json!({"files":[{"matches":[{"symbolName":"g"}]}]}));
-    assert!(used.get("isPartial").is_none(), "{used}");
+    let used = run(&scope, json!({"files":[{"matches":[{"symbolName":"g"}]}]}));
+    assert_eq!(used["partialReasons"], json!([UNANSWERED_REASON]), "{used}");
+    // A bounded scope leaves a row listing a use alone.
+    scope.unbounded = false;
+    let bounded = run(&scope, json!({"files":[{"matches":[{"symbolName":"g"}]}]}));
+    assert!(bounded.get("isPartial").is_none(), "{bounded}");
+}
+
+/// The unbounded note says no project lies beside the root only after a walk
+/// that finished; a walk the request stopped is no evidence of absence.
+#[test]
+fn an_unfinished_sibling_walk_claims_no_absence() {
+    let q = query(json!({"path":"/w/a/a.go","operation":"references","symbolName":"F","line":1}));
+    let note = |scope: &Scope| {
+        let mut row = json!({"status":"empty"});
+        annotate(
+            &mut row,
+            &q,
+            Some("go"),
+            Server {
+                anchor: "/w/a/a.go",
+                root: "/w/a",
+            },
+            scope,
+        );
+        row["warnings"].to_string()
+    };
+    let mut unwalked = Scope::new("/w/a".into(), vec!["*.go".into()]);
+    unwalked.unbounded = true;
+    let unknown = note(&unwalked);
+    assert!(
+        !unknown.contains("no project beside it was found") && unknown.contains("not looked for"),
+        "{unknown}"
+    );
+    let mut walked = Scope::new("/w/a".into(), vec!["*.go".into()]);
+    walked.unbounded = true;
+    let _ = walked.siblings.set(Vec::new());
+    assert!(
+        note(&walked).contains("no project beside it was found"),
+        "a finished walk that found none says so"
+    );
+}
+
+/// An unbounded answer names the projects beside the server's root and says to
+/// widen `workspaceRoot` to their parent, and its text lead searches them, not
+/// the root already searched.
+#[test]
+fn an_unbounded_answer_names_the_projects_beside_it_and_where_to_widen() {
+    let q = query(json!({"path":"/w/a/a.go","operation":"references","symbolName":"F","line":1}));
+    let mut scope = Scope::new("/w/a".into(), vec!["*.go".into()]);
+    scope.unbounded = true;
+    let _ = scope.siblings.set(vec!["/w/b".into(), "/w/c".into()]);
+    let mut row = json!({"files":[{"matches":[{"role":"call"}]}]});
+    annotate(
+        &mut row,
+        &q,
+        Some("go"),
+        Server {
+            anchor: "/w/a/a.go",
+            root: "/w/a",
+        },
+        &scope,
+    );
+    let warnings = row["warnings"].to_string();
+    assert!(
+        warnings.contains("b, c") && warnings.contains("Widen (not narrow) workspaceRoot to /w"),
+        "{row}"
+    );
+    let lead = &crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true)["input"]
+        ["queries"];
+    let searched = lead
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|search| search["path"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        searched,
+        ["/w/b", "/w/c"],
+        "the root is not searched again: {row}"
+    );
+    let includes = lead
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|search| search["include"].clone())
+        .collect::<Vec<_>>();
+    assert!(
+        includes.iter().all(|include| include == &json!(["*.go"])),
+        "a sibling search keeps to the family's files: {row}"
+    );
 }
 
 /// A C-family row never reads complete while a file spelling the name is
@@ -371,4 +461,37 @@ fn a_c_family_row_with_an_unanswered_spelling_is_partial() {
         row.get("isPartial").is_none(),
         "no scan, nothing to say: {row}"
     );
+}
+
+/// Every later flag on the row keeps the lead to the projects beside the root:
+/// a server-health report re-flags the row and must not replace that lead with
+/// the root search the unbounded note says already ran.
+#[test]
+fn a_later_flag_keeps_the_lead_to_the_sibling_projects() {
+    use octocode_engine::lsp::client::{HealthLevel, ServerHealth};
+    let q = query(json!({"path":"/w/a/a.go","operation":"references","symbolName":"F","line":1}));
+    let mut scope = Scope::new("/w/a".into(), vec!["*.go".into()]);
+    scope.unbounded = true;
+    let _ = scope.siblings.set(vec!["/w/b".into()]);
+    let mut row = json!({"files":[{"matches":[{"role":"call"}]}]});
+    let server = Server {
+        anchor: "/w/a/a.go",
+        root: "/w/a",
+    };
+    annotate(&mut row, &q, Some("go"), server, &scope);
+    let health = ServerHealth {
+        level: HealthLevel::Warning,
+        message: Some("loading".into()),
+        project: None,
+    };
+    flag_server_health(&mut row, &q, Some(health), "/w/a/a.go", &scope);
+    let lead = &crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true)["input"]
+        ["queries"];
+    let searched = lead
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|search| search["path"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(searched, ["/w/b"], "{row}");
 }

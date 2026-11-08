@@ -9,12 +9,3 @@ pub(crate) mod gh_file_read;
 pub(crate) mod lsp;
 pub(crate) mod skipped;
 
-use serde_json::{Value, json};
-
-pub(crate) fn push_hint(row: &mut Value, hint: impl Into<String>) {
-    let hint = Value::String(hint.into());
-    match &mut row["hints"] {
-        Value::Array(hints) => hints.push(hint),
-        hints => *hints = json!([hint]),
-    }
-}

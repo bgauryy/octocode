@@ -118,7 +118,7 @@ fn a_later_window_does_not_claim_the_scope_holds_no_file() {
     assert!(!out["hints"].to_string().contains("was parsed"), "{out}");
 }
 
-/// The same result answers `coverage` the same on each of its match pages, an
+/// The same result answers `coverage` the same on each of its pages, an
 /// unchecked probe or not: the requested scope was walked whole, and the hint
 /// names what the check of the skipped paths left open.
 #[test]
@@ -134,12 +134,36 @@ fn every_match_page_states_the_same_coverage_after_an_unchecked_probe() {
     let (first, later) = with_probe_limits(CUT_AT_ONCE, || {
         let first = run(&root.0, row).expect("page 1");
         let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
-        assert_eq!(next["matchPage"], 2, "{first}");
-        let later = run(&root.0, next).expect("match page 2");
+        assert_eq!(next["page"], 2, "{first}");
+        let later = run(&root.0, next).expect("page 2");
         (first, later)
     });
     assert!(discloses(&first), "{first}");
     assert!(!discloses(&later), "{later}");
     assert_eq!(first["coverage"]["state"], "complete", "{first}");
     assert_eq!(first["coverage"], later["coverage"], "{first}\n{later}");
+}
+
+/// An include glob that matches no file is said as localSearch says it (one
+/// shared explanation of how a `/` glob anchors, and the listing that names
+/// the files to fix it with), not as an unparsed grammar.
+#[test]
+fn an_include_glob_that_matches_no_file_gets_the_shared_glob_hint_and_lead() {
+    let root = Fixture::new();
+    root.write("src/a.rs", "pub fn source() {}\n");
+    let mut row = no_hit_row(&root.0);
+    row["include"] = json!(["wrong/src/*.rs"]);
+    let out = run(&root.0, row).expect("no file matches the glob");
+    assert_eq!(out["status"], "empty", "{out}");
+    assert_eq!(
+        out["hints"],
+        json!([crate::policy::include::GLOB_MISS_HINT]),
+        "{out}"
+    );
+    let lead = crate::tools::test_support::checks::related_call(&out, "structureSearch", |_| true);
+    assert_eq!(lead["input"]["queries"][0]["operation"], "files", "{out}");
+    assert!(
+        lead["input"]["queries"][0].get("include").is_none(),
+        "{out}"
+    );
 }

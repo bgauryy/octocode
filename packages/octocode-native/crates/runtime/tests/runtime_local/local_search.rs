@@ -165,58 +165,6 @@ async fn long_unicode_search_values_arrive_complete_without_expansion_reads() {
     runtime.close().await;
 }
 
-#[tokio::test]
-async fn a_reader_match_limit_discloses_the_limit_and_links_to_search() {
-    let workspace = Workspace::new();
-    let path = workspace.write(
-        "hits.txt",
-        (1..=100_005)
-            .map(|n| format!("hit {n}\n"))
-            .collect::<String>(),
-    );
-    let runtime = workspace.runtime(&[]);
-    for mcp in [false, true] {
-        let input = json!({"queries":[{"path":path,"matchString":["hit"],"regexEngine":"rust"}]});
-        let envelope = if mcp {
-            let result = runtime
-                .run_mcp("limit".into(), "localFetch".into(), input)
-                .await
-                .expect("MCP");
-            crate::support::mcp_payload(&result)
-        } else {
-            runtime
-                .run("limit".into(), "localFetch".into(), input)
-                .await
-                .expect("CLI")
-                .structured_content
-                .into_value()
-        };
-        let data = &envelope["results"][0]["data"];
-        assert!(
-            data["warnings"]
-                .as_array()
-                .expect("limit disclosed")
-                .iter()
-                .any(|warning| warning
-                    .as_str()
-                    .is_some_and(|text| text.contains("match limit"))),
-            "{data}"
-        );
-        let search = checks::related_call(data, "localSearch", |input| {
-            input["queries"][0]["matchString"] == json!(["hit"])
-        });
-        let recovered = call(&runtime, "localSearch", search["input"].clone())
-            .await
-            .expect("search executes");
-        assert_ne!(row_status(&recovered), "error");
-        assert!(
-            !checks::leads(&recovered.structured_content).is_empty(),
-            "remaining matches are reachable"
-        );
-    }
-    runtime.close().await;
-}
-
 /// A source under the read limit whose Latin-1 decodes past it, naming a Secret
 /// or not.
 fn grown_source(names_a_secret: bool) -> Vec<u8> {

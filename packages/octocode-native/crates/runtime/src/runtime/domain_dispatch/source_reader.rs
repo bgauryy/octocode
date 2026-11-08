@@ -27,6 +27,10 @@ impl SourceReader for DomainDispatcher {
         self.egress_paths.as_ref()
     }
 
+    fn read_paths(&self) -> &PathPolicy {
+        self.paths.as_ref()
+    }
+
     fn security(&self) -> &ContentSecurity {
         &self.security
     }
@@ -66,7 +70,7 @@ impl SourceReader for DomainDispatcher {
         context: &ExecutionContext,
     ) -> Result<DomainResult, ExecutionError> {
         // A source reader's row goes to a classification provider.
-        self.execute_row_under(tool, query, context, true)
+        self.execute_row_under(tool, query, context, true, None)
     }
 
     fn retained_github_identity(
@@ -145,7 +149,7 @@ impl SourceReader for DomainDispatcher {
         context: &ExecutionContext,
         max_bytes: usize,
     ) -> Result<octocode_github::ContentResponse, crate::tools::judgment::ClassificationError> {
-        if let Some(withheld) = withheld_github_source(query) {
+        if let Some(withheld) = withheld_github_source(query, &self.paths) {
             return Err(withheld);
         }
         let acquired = self
@@ -186,15 +190,17 @@ impl SourceReader for DomainDispatcher {
 }
 
 /// The error row of a GitHub read whose text would reach a provider and whose
-/// name the egress withholds.
-pub(super) fn withheld_github_read(query: &Value) -> Option<DomainResult> {
-    let withheld = withheld_github_source(query)?;
-    let next = Value::Object(withheld.leads.into_iter().collect());
+/// name the egress withholds; its route follows the user's policy `reads`.
+/// A refusal with no route carries no `next`.
+pub(super) fn withheld_github_read(query: &Value, reads: &PathPolicy) -> Option<DomainResult> {
+    let withheld = withheld_github_source(query, reads)?;
+    let next =
+        (!withheld.leads.is_empty()).then(|| Value::Object(withheld.leads.into_iter().collect()));
     Some(DomainResult::failure(
         withheld.code,
         withheld.message,
         withheld.hints,
-        Some(next),
+        next,
     ))
 }
 

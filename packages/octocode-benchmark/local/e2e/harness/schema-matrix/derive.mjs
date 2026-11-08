@@ -93,14 +93,55 @@ const shared = createAjv();
 const compiled = new WeakMap();
 const compile = schema => compiled.get(schema) ?? compiled.set(schema, shared.compile(schema)).get(schema);
 
-/** Cross-field checks the schema carries beside its shape. */
-function checksPass(branch, row) {
-  for (const check of branch.checks) {
-    const items = check.each ? Object.values(row[check.each] ?? {}) : [row];
-    for (const item of items) if ((!check.when || compile(check.when)(item)) && !compile(check.assert)(row)) return false;
+/** The first non-null `find(item)` over `items`, or null. */
+function firstOf(items, find) {
+  for (const item of items) {
+    const found = find(item);
+    if (found) return found;
   }
-  return true;
+  return null;
 }
+
+/** The first of one node's cross-field checks `value` fails, each judged on that node's own value; null when all pass. */
+function failedOwnCheck(checks, value) {
+  return firstOf(checks, check => {
+    const items = check.each ? Object.values(value?.[check.each] ?? {}) : [value];
+    return items.some(item => (!check.when || compile(check.when)(item)) && !compile(check.assert)(value)) ? check : null;
+  });
+}
+
+const members = new WeakMap();
+/** A union member compiled with the form's `$defs`, so its references resolve. */
+const memberOf = (branch, member) => members.get(member) ?? members.set(member, shared.compile({ ...member, $defs: branch.schema.$defs })).get(member);
+
+/**
+ * A check failed below the form root (a `filters` object, a rule, a context), walked
+ * over the row's own value as the runtime validates it: each present property, each
+ * map value its `patternProperties` or `additionalProperties` reaches, each array
+ * item, and each union member the value matches.
+ */
+function failedNestedCheck(branch, schema, value) {
+  const node = follow(branch.schema, schema);
+  if (!node || typeof node !== 'object' || value === null || typeof value !== 'object') return null;
+  return failedOwnCheck(node['x-checks'] ?? [], value)
+    ?? firstOf(node.allOf ?? [], part => failedNestedCheck(branch, part, value))
+    ?? firstOf(node.anyOf ?? node.oneOf ?? [], member => (memberOf(branch, member)(value) ? failedNestedCheck(branch, member, value) : null))
+    ?? (Array.isArray(value) ? (node.items ? firstOf(value, item => failedNestedCheck(branch, node.items, item)) : null) : failedInEntries(branch, node, value));
+}
+
+/** Each entry of an object value under the schemas JSON Schema applies to it. */
+function failedInEntries(branch, node, value) {
+  const patterns = Object.entries(node.patternProperties ?? {}).map(([pattern, child]) => [new RegExp(pattern, 'u'), child]);
+  return firstOf(Object.entries(value), ([name, child]) => {
+    const named = Object.hasOwn(node.properties ?? {}, name) ? [node.properties[name]] : [];
+    const matched = patterns.filter(([pattern]) => pattern.test(name)).map(([, schema]) => schema);
+    const additional = !named.length && !matched.length && typeof node.additionalProperties === 'object' ? [node.additionalProperties] : [];
+    return firstOf([...named, ...matched, ...additional], schema => failedNestedCheck(branch, schema, child));
+  });
+}
+
+/** The cross-field check the schema carries beside its shape that `row` fails, the form's own or a nested one; null when none. */
+const failedCheck = (branch, row) => failedOwnCheck(branch.checks, row) ?? failedNestedCheck(branch, branch.schema, row);
 
 /**
  * Every row one tool's schema admits, from `spec.pseudo` axes (fixture choices the
@@ -133,7 +174,7 @@ export function planTool(tool, spec) {
     };
     const valid = assignment => {
       const row = rowOf(withRequired(assignment));
-      return !!row && validate(row) && checksPass(branch, row);
+      return !!row && validate(row) && !failedCheck(branch, row);
     };
     const add = (assignment, kind) => {
       const full = withRequired(assignment);
@@ -156,8 +197,35 @@ export function planTool(tool, spec) {
     if (valid({})) add({}, 'single');
     for (const assignment of oneFactor(free, valid)) add(assignment, 'single');
     for (const assignment of pairwise([...free, ...pseudo], valid)) add(assignment, 'pair');
+    // The runtime refuses a row its checks reject: one row per check the axes can break proves it.
+    const broken = assignment => {
+      const row = rowOf(withRequired(assignment));
+      return row && validate(row) ? failedCheck(branch, row) : null;
+    };
+    const refused = new Set();
+    const shaped = assignment => { const row = rowOf(withRequired(assignment)); return !!row && validate(row); };
+    for (const assignment of [{}, ...oneFactor(free, assignment => !!broken(assignment)), ...pairwise([...free, ...pseudo], shaped)]) {
+      const check = broken(assignment);
+      const name = check && (check.id ?? JSON.stringify(check));
+      if (!check || refused.has(name)) continue;
+      refused.add(name);
+      const smallest = smallestBreaking(assignment, candidate => broken(candidate) === check);
+      const full = withRequired(smallest);
+      cases.push({ id: `${tool.name}#${cases.length}`, tool: tool.name, branch: index, kind: 'refusal', refusal: 'invalidInput', check: name,
+        assignment: { ...pinned, ...full }, query: rowOf(full), values: [], swaps: [] });
+    }
   }
   return cases;
+}
+
+/** `assignment` without every field it still breaks `breaks` without, one at a time. */
+function smallestBreaking(assignment, breaks) {
+  let smallest = { ...assignment };
+  for (const key of Object.keys(assignment)) {
+    const { [key]: _, ...without } = smallest;
+    if (breaks(without)) smallest = without;
+  }
+  return smallest;
 }
 
 function mergeDeep(a, b) {

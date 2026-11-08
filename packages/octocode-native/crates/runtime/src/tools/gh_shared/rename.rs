@@ -46,7 +46,7 @@ pub(crate) async fn canonical_repo(
 }
 
 /// What [`canonical_scope`] learned of a repository's name.
-enum CanonicalScope {
+pub(crate) enum CanonicalScope {
     /// The name stands (case aside), or it cannot be checked; with the
     /// metadata the check read, when it read it.
     Stands(Option<RepositoryMetadata>),
@@ -58,10 +58,11 @@ enum CanonicalScope {
 }
 
 /// [`canonical_repo`], telling a missing repository apart. A metadata read
-/// this request already made names the repository; past it, `check`
-/// decides whether metadata is needed. Only a cancelled or timed-out read
-/// fails.
-async fn canonical_scope(
+/// this request already made names the repository, and an answer GitHub
+/// gave under the name without a redirect proves it stands; past them,
+/// `check` decides whether metadata is needed. Only a cancelled or
+/// timed-out read fails.
+pub(crate) async fn canonical_scope(
     provider: &GitHubProvider,
     owner: &str,
     repo: &str,
@@ -72,7 +73,8 @@ async fn canonical_scope(
         return Ok(renamed_to(owner, repo, &full_name)
             .map_or(CanonicalScope::Stands(None), CanonicalScope::Renamed));
     }
-    if check == RenameCheck::Redirected && !context.followed_rename(owner, repo) {
+    let renamed = context.followed_rename(owner, repo);
+    if (check == RenameCheck::Redirected || context.repository_resolves(owner, repo)) && !renamed {
         return Ok(CanonicalScope::Stands(None));
     }
     let metadata = match provider

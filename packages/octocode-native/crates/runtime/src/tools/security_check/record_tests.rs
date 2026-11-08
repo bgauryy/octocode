@@ -1,11 +1,20 @@
 //! Each database's record as a row.
 use super::*;
 use crate::providers::artifact::test_http::recorded;
+use octocode_contract_types::ArtifactType;
 use serde_json::json;
 
 fn row(record: Value, kind: ArtifactType, name: &str) -> SecurityAdvisory {
     let names = [name.to_owned()];
-    advisory(&record, &Selection::Named(kind, &names)).expect("record")
+    advisory(
+        &record,
+        &Selection::Named(
+            crate::providers::artifact::query::artifact_type::osv_ecosystem(kind),
+            &names,
+            None,
+        ),
+    )
+    .expect("record")
 }
 
 #[test]
@@ -159,7 +168,17 @@ fn entries_select_by_the_ecosystems_own_name_rule() {
     ] {
         let names = [asked.to_owned()];
         assert_eq!(
-            is_own(&entry(osv, stated), &Selection::Named(kind, &names)),
+            matches!(
+                scope(
+                    &entry(osv, stated),
+                    &Selection::Named(
+                        crate::providers::artifact::query::artifact_type::osv_ecosystem(kind),
+                        &names,
+                        None
+                    )
+                ),
+                Scope::Own
+            ),
             own,
             "{kind:?} {osv} {asked}"
         );
@@ -199,6 +218,30 @@ fn a_withdrawn_record_keeps_the_field() {
         "a",
     );
     assert_eq!(item.withdrawn.as_deref(), Some("2024-01-01T00:00:00Z"));
+}
+
+/// A withdrawal stated by either record of one advisory counts, whichever
+/// record leads the group.
+#[test]
+fn a_withdrawal_stated_by_either_twin_is_the_groups() {
+    let osv = row(
+        json!({"id": "GO-2024-1", "aliases": ["GHSA-aaaa-bbbb-cccc"]}),
+        ArtifactType::Npm,
+        "a",
+    );
+    let github = row(
+        json!({"id": "GHSA-aaaa-bbbb-cccc", "withdrawn": "2024-01-01T00:00:00Z"}),
+        ArtifactType::Npm,
+        "a",
+    );
+    for group in [[&osv, &github], [&github, &osv]] {
+        assert_eq!(
+            group_brief(&group)["withdrawn"],
+            "2024-01-01T00:00:00Z",
+            "{:?}",
+            group.map(|record| &record.id)
+        );
+    }
 }
 
 /// A brief row leads with what decides an upgrade and names none of the record's
@@ -259,11 +302,18 @@ fn a_recorded_record_keeps_its_vectors_and_its_word() {
 /// A real record with a score and no word: the brief row shows the vector as published.
 #[test]
 fn a_recorded_record_with_no_word_shows_its_vector() {
-    let answer = recorded::answer("osv/package-score-only", "/v1/query");
-    let bare = answer["vulns"]
+    // Native asks `/v1/querybatch` for the ids, then `/v1/vulns/{id}` for each record.
+    let recording = recorded::recording("osv/package-score-only");
+    let bare = recording["exchanges"]
         .as_array()
-        .expect("vulns")
+        .expect("exchanges")
         .iter()
+        .filter(|exchange| {
+            exchange["request"]["url"]
+                .as_str()
+                .is_some_and(|url| url.contains("/v1/vulns/"))
+        })
+        .map(|exchange| &exchange["body"])
         .find(|record| {
             record["severity"].is_array() && record["database_specific"]["severity"].is_null()
         })

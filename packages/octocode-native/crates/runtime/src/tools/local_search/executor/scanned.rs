@@ -7,6 +7,7 @@ pub(crate) use options::search_options;
 pub(crate) use options::test_held_limit;
 
 use super::super::cursor::{fingerprint, malformed_snapshot, query_key, stale_snapshot};
+use super::super::manifest::StoredValue;
 use super::super::pattern::check_pattern;
 use super::super::verify::Redaction;
 
@@ -46,6 +47,8 @@ pub(crate) struct Scanned {
     /// The search paused at its window's end; `parsed` holds no file then
     /// ([`super::super::window`]).
     pub(crate) paused: Option<Pause>,
+    /// A stored scan read by page; `parsed` holds only its stats then.
+    pub(crate) seek: Option<Arc<super::super::packed::Packed>>,
 }
 
 /// [`scan_resumed`] of a query that resumes no paused search.
@@ -101,6 +104,7 @@ pub(crate) fn scan_resumed(
         stored,
         mut walked,
         paused,
+        seek,
     } = scan_in(query, paths, options, &policy_key, cancel, window)?;
     // What a `testCode` scope's verdicts read, a parent module outside this
     // root too, proves a stored scan as the walk's ignore inputs do, past what
@@ -157,6 +161,7 @@ pub(crate) fn scan_resumed(
         policy_key,
         skipped,
         paused,
+        seek,
     })
 }
 
@@ -202,6 +207,8 @@ pub(crate) struct ScanOutput {
     pub(crate) walked: Option<super::super::walked::Walked>,
     /// The search paused at its window's end.
     pub(crate) paused: Option<Pause>,
+    /// A stored scan read by page (see [`Scanned::seek`]).
+    pub(crate) seek: Option<Arc<super::super::packed::Packed>>,
 }
 
 /// What a stored scan's fresh page derived from it.
@@ -243,18 +250,31 @@ pub(crate) fn scan_in(
     cancel: &impl CancellationCheck,
     window: SearchWindow,
 ) -> Result<ScanOutput, ToolError> {
+    let mut seek = None;
     let (parsed, digests, withheld, derived, walked, paused) = if let Some(snapshot) =
         local_search_query::snapshot(query)
         && let Some(stored) =
             super::super::manifest::get_checked(snapshot, policy_key, &|| cancel.check().is_err())
+                .filter(|stored| serves(&stored.value, query))
     {
         let derived = StoredDerived {
             query_key: stored.query_key,
             redaction: stored.redaction,
             learned: stored.learned,
         };
+        let parsed = match stored.value {
+            StoredValue::Whole(parsed) => *parsed,
+            StoredValue::Seek(packed) => {
+                let stats = packed.stats().clone();
+                seek = Some(packed);
+                octocode_engine::types::TextSearchResult {
+                    files: Vec::new(),
+                    stats,
+                }
+            }
+        };
         (
-            stored.value,
+            parsed,
             Some(stored.digests),
             stored.skipped,
             Some(derived),
@@ -312,6 +332,7 @@ pub(crate) fn scan_in(
     };
     cancel.check().map_err(ToolError::cancelled)?;
     if paused.is_none()
+        && seek.is_none()
         && parsed.files.is_empty()
         && parsed.stats.files_searched.unwrap_or(0) == 0
         && parsed.stats.error_count.unwrap_or(0) > 0
@@ -325,7 +346,25 @@ pub(crate) fn scan_in(
         stored: derived,
         walked,
         paused,
+        seek,
     })
+}
+
+/// Whether a stored scan can serve `query`'s page. A whole scan is cut
+/// again for any page. A seekable one holds the pages of its own cut: a
+/// classification page judges every row before it cuts, so it walks
+/// again (the same snapshot then comes from the fresh scan).
+fn serves(value: &StoredValue, query: &LocalSearchQuery) -> bool {
+    match value {
+        StoredValue::Whole(_) => true,
+        StoredValue::Seek(packed) => {
+            !local_search_query::has_classification(query)
+                && packed.index().is_some_and(|index| {
+                    matches!(index.cut, super::super::packed::Cut::Stream { .. })
+                        == local_search_query::streamed_layout(query)
+                })
+        }
+    }
 }
 
 /// A scan whose matches passed the process memory budget before it ended:

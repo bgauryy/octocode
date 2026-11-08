@@ -156,6 +156,18 @@ fn stopping_and_waiting_needs_each_servers_drain_confirmation() {
     assert_eq!(request, json!({"stop": true, "drain": true}));
     std::fs::remove_file(dir.join("serve-a.sock")).expect("unbind");
 
+    // B75 F4: a server with calls in flight says how many before it drains;
+    // its confirmation still follows.
+    let announced = answering(
+        &dir.join("serve-c.sock"),
+        "{\"draining\":2}\n{\"stopped\":true}\n",
+    );
+    assert_eq!(stop_and_wait_in(temp.path()), Ok(()));
+    announced.join().expect("server");
+    std::fs::remove_file(dir.join("serve-c.sock")).expect("unbind");
+    assert_eq!(draining("{\"draining\":2}\n"), Some(2));
+    assert_eq!(draining("{\"stopped\":true}\n"), None);
+
     let unconfirmed = answering(&dir.join("serve-b.sock"), "{\"stopped\":false}\n");
     assert!(stop_and_wait_in(temp.path()).is_err());
     unconfirmed.join().expect("server");

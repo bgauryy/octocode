@@ -14,6 +14,7 @@ use crate::digest::{ListedFiles, stamp_of};
 use crate::error::{Error, Result};
 use crate::search::walk::{Prune, Stop};
 use crate::signatures::languages;
+use crate::stamp::SourceStamp;
 use crate::text::extension_of;
 
 mod anchors;
@@ -24,7 +25,7 @@ mod walk;
 
 use anchors::AnchorFilter;
 use counts::ScanCounts;
-use file_scan::FileScan;
+use file_scan::{FileOutcome, FileScan};
 pub use rebuild::{Rebuilt, file_matches};
 use walk::{Walked, check_root_exists, collect_files};
 
@@ -185,25 +186,8 @@ pub(crate) fn search_files_with_budget(
         demand,
         keep_line,
     };
-    let mut pacer = crate::scan_budget::ScanPacer::new(budget.filter(|_| timed));
-    let mut outcomes = Vec::with_capacity(candidate_files.len());
-    let mut scan_resume = None;
-    let mut rest = candidate_files.as_slice();
-    while !rest.is_empty() {
-        if pacer.spent() {
-            scan_resume = Some(u32::try_from(skip + outcomes.len()).unwrap_or(u32::MAX));
-            break;
-        }
-        let (chunk, tail) = rest.split_at(pacer.next_chunk().min(rest.len()));
-        rest = tail;
-        outcomes.extend(
-            chunk
-                .par_iter()
-                .map(|file_path| scan.file(file_path))
-                .collect::<Result<Vec<_>>>()?,
-        );
-        pacer.record(chunk.len());
-    }
+    let pacer = crate::scan_budget::ScanPacer::new(budget.filter(|_| timed));
+    let (outcomes, mut scan_resume) = scan_in_chunks(&scan, &candidate_files, skip, pacer)?;
     let scan_truncated = scan_truncated || scan_resume.is_some();
     // Every cut resumes where it stopped: the walk cap of an unset
     // `max_files`, and a caller's file window.
@@ -252,6 +236,46 @@ pub(crate) fn search_files_with_budget(
         diagnostics,
         warnings,
     })
+}
+
+/// What [`scan_in_chunks`] evaluated: each candidate's stamp and outcome, and
+/// where the scan resumes.
+type ScannedChunks = (Vec<(Option<SourceStamp>, FileOutcome)>, Option<u32>);
+
+/// Evaluates `candidates` in the pacer's chunks, in order, and stops at the
+/// first chunk boundary the pacer calls spent. The outcomes are those of the
+/// candidates evaluated; the resume offset (`skip` + how many ran) is set only
+/// when candidates remain.
+fn scan_in_chunks(
+    scan: &FileScan<'_>,
+    candidates: &[PathBuf],
+    skip: usize,
+    mut pacer: crate::scan_budget::ScanPacer,
+) -> Result<ScannedChunks> {
+    let mut outcomes = Vec::with_capacity(candidates.len());
+    let mut resume = None;
+    let mut rest = candidates;
+    while !rest.is_empty() {
+        if pacer.spent() {
+            resume = Some(u32::try_from(skip + outcomes.len()).unwrap_or(u32::MAX));
+            break;
+        }
+        let (chunk, tail) = rest.split_at(pacer.next_chunk().min(rest.len()));
+        rest = tail;
+        // Matching recurses with the pattern, so the chunk runs on the
+        // large-stack pool and each file's matcher runs inline there
+        // ([`super::octo::on_deep_stack`]); without a pool, here, and each
+        // matcher refuses on its own.
+        let run = || {
+            chunk
+                .par_iter()
+                .map(|file_path| scan.file(file_path))
+                .collect::<Result<Vec<_>>>()
+        };
+        outcomes.extend(super::octo::on_deep_stack(run).unwrap_or_else(run)?);
+        pacer.record(chunk.len());
+    }
+    Ok((outcomes, resume))
 }
 
 type CompiledMatchers = BTreeMap<String, std::result::Result<OctoCompiledMatcher, CompileError>>;

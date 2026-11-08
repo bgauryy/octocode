@@ -21,7 +21,7 @@ fn a_slow_server_start_reports_progress_to_the_call() {
         &format!("    setTimeout(() => send({{ jsonrpc: '2.0', id: msg.id, result: {{ capabilities: {{ hoverProvider: true, textDocumentSync: 1 }} }} }}), {delay});"),
     );
     assert_ne!(server, FAKE_SERVER, "the slow start is injected");
-    std::fs::write(&script, server).expect("slow server");
+    crate::tools::lsp_search::tests::write_executable(&script, &server);
     let execution = execution_config(&root, &script, "shellscript");
     let query: LspSearchQuery = serde_json::from_value(serde_json::json!({
         "operation": "documentSymbols", "path": root.join("a.ts").to_string_lossy()
@@ -73,7 +73,7 @@ fn a_cold_start_is_disclosed_and_the_next_call_reuses_the_server() {
             "    send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: { hoverProvider: true, textDocumentSync: 1 } } });",
             &format!("    setTimeout(() => send({{ jsonrpc: '2.0', id: msg.id, result: {{ capabilities: {{ hoverProvider: true, textDocumentSync: 1 }} }} }}), {delay});"),
         );
-    std::fs::write(&script, server).expect("slow server");
+    crate::tools::lsp_search::tests::write_executable(&script, &server);
     let execution = execution_config(&root, &script, "shellscript");
     let query: LspSearchQuery = serde_json::from_value(serde_json::json!({
         "operation": "documentSymbols", "path": root.join("a.ts").to_string_lossy()

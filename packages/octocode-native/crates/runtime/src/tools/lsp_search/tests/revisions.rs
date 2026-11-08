@@ -115,7 +115,8 @@ async fn sealed_after_citing(
         Some("typescript"),
     );
     let document = source::Source::new(std::fs::read_to_string(&anchor).expect("anchor"));
-    let started = SystemTime::now();
+    octocode_engine::stamp::settle_written_so_far();
+    let started = octocode_engine::stamp::settle_clock();
     scope.answer([cited.to_string_lossy()]);
     if remove {
         std::fs::remove_file(&cited).expect("remove");
@@ -187,8 +188,9 @@ async fn the_revision_and_the_watched_diff_share_one_walk() {
     assert!(first.fingerprint.is_some());
 }
 
-/// A write after a page began is seen by its stamp; a coarse (whole-second)
-/// stamp needs the settle window, a fine one only to be after the start.
+/// A write after a page began is seen by its stamp, and so is one inside the
+/// stamp's settle window before it (a coarse clock may date a later write
+/// early): whole seconds wait two, a fine stamp twice the clock tick.
 #[test]
 fn written_since_reads_the_last_write_of_each_stamp() {
     let started = std::time::UNIX_EPOCH + Duration::new(1_700_000_000, 500_000_000);
@@ -199,8 +201,8 @@ fn written_since_reads_the_last_write_of_each_stamp() {
             format!("3\u{0}{modified}\u{0}{changed}\u{0}9\u{0}"),
         )])
     };
-    let before = ns(1_700_000_000, 400_000_000);
-    let after = ns(1_700_000_000, 600_000_000);
+    let before = ns(1_700_000_000, 400_000_001);
+    let after = ns(1_700_000_000, 600_000_001);
     assert!(!scope::written_since(&entries(before, before), started));
     assert!(
         scope::written_since(&entries(before, after), started),
@@ -210,6 +212,16 @@ fn written_since_reads_the_last_write_of_each_stamp() {
         scope::written_since(&entries(after, before), started),
         "mtime"
     );
+    let window = octocode_engine::stamp::SourceStamp::COARSE_CLOCK_TICK * 2;
+    let window_ns = u64::try_from(window.as_nanos()).expect("window");
+    let started_ns = ns(1_700_000_000, 500_000_000);
+    let inside = started_ns - window_ns + 1;
+    assert!(
+        scope::written_since(&entries(inside, inside), started),
+        "a fine stamp within its window of the start"
+    );
+    let outside = started_ns - window_ns - 1;
+    assert!(!scope::written_since(&entries(outside, outside), started));
     let whole = ns(1_699_999_999, 0);
     assert!(
         scope::written_since(&entries(whole, whole), started),

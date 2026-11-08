@@ -191,6 +191,56 @@ fn outer_manifest_lookup_stops_at_the_repository_boundary() {
     assert_eq!(unresolved_internal(root), 1);
 }
 
+/// Node resolves a package's own name from inside it (`require('lodash')` in
+/// lodash) to itself only through self-reference, which needs `exports`
+/// in its `package.json`, or through the workspace link of a workspace
+/// member; otherwise the name is the installed copy in `node_modules`.
+#[test]
+fn a_package_names_itself_only_with_exports_or_as_a_workspace_member() {
+    let temp = fixture(&[
+        (
+            "package.json",
+            r#"{"name":"lodash","main":"lodash.js","devDependencies":{"lodash":"4.17.20"}}"#,
+        ),
+        ("lodash.js", "module.exports = function isObject() {};\n"),
+        (
+            "lib/minify.js",
+            "const _ = require('lodash');\nmodule.exports = _;\n",
+        ),
+        (
+            "exported/package.json",
+            r#"{"name":"exported","exports":"./index.js"}"#,
+        ),
+        ("exported/index.js", "module.exports = 1;\n"),
+        (
+            "exported/lib/self.js",
+            "const self = require('exported');\nmodule.exports = self;\n",
+        ),
+        (
+            "mono/package.json",
+            r#"{"name":"mono","workspaces":["packages/*"]}"#,
+        ),
+        (
+            "mono/packages/member/package.json",
+            r#"{"name":"member","main":"index.js"}"#,
+        ),
+        ("mono/packages/member/index.js", "module.exports = 1;\n"),
+        (
+            "mono/packages/member/lib/self.js",
+            "const self = require('member');\nmodule.exports = self;\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    let deps = ask(root, "deps", Some("lib/minify.js"));
+    assert!(files(&deps).is_empty(), "{deps}");
+    let deps = ask(root, "deps", Some("exported/lib/self.js"));
+    assert_eq!(files(&deps), ["exported/index.js"], "{deps}");
+    let deps = ask(root, "deps", Some("mono/packages/member/lib/self.js"));
+    assert_eq!(files(&deps), ["mono/packages/member/index.js"], "{deps}");
+    // The installed copy is a third-party package, not a linking gap.
+    assert_eq!(unresolved_internal(root), 0);
+}
+
 #[test]
 fn path_edges_carry_import_lines() {
     let temp = fixture(&[
@@ -240,4 +290,32 @@ fn files_on_disk_the_scan_does_not_hold_are_no_linking_gap() {
             .all(|row| !row.to_string().contains("schema.sql")),
         "{issues}"
     );
+}
+
+/// A file that imports one missing module at several lines is one finding
+/// whose evidence names the unresolved import once with every line, so a page
+/// of findings costs by distinct imports, not by repeated message text, and no
+/// site is dropped.
+#[test]
+fn unresolved_import_evidence_groups_sites_by_message_and_keeps_every_line() {
+    let temp = fixture(&[(
+        "src/a.ts",
+        "import { one } from './gone';\nimport { two } from './gone';\nimport { three } from './other';\nexport const all = [one, two, three];\n",
+    )]);
+    let root = ingested(&temp);
+    let issues = ask_with(root, "issues", None, |o| {
+        o.detectors = vec!["unresolved-import".into()];
+        o.min_tier = Some(0);
+    });
+    let evidence = &issues["rows"][0]["evidence"];
+    assert_eq!(evidence["count"], 3, "{issues}");
+    let sites = evidence["sites"].as_array().expect("sites");
+    assert_eq!(sites.len(), 2, "{issues}");
+    let lines = |index: usize| {
+        sites[index]["lines"]
+            .as_array()
+            .map(|lines| lines.iter().filter_map(Value::as_u64).collect::<Vec<_>>())
+    };
+    assert_eq!(lines(0), Some(vec![1, 2]), "{issues}");
+    assert_eq!(lines(1), Some(vec![3]), "{issues}");
 }

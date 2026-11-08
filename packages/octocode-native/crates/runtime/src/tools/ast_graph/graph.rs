@@ -31,6 +31,8 @@ mod scan;
 pub(crate) mod scope;
 mod turn;
 use super::paths::{dirname, join, join_within_root, normalize};
+#[cfg(test)]
+pub(super) use checkpoint::inject_secret_scan_fault;
 use link::*;
 pub(super) use resolve::OUTSIDE_ROOT;
 use resolve::*;
@@ -48,6 +50,8 @@ pub(crate) struct GraphScan {
     pub root: PathBuf,
     /// The caller's path globs to skip, relative to the root.
     pub exclude: Vec<String>,
+    /// The default prune, ignore files and dot entries the walk keeps or lifts.
+    pub walk: super::walk_scope::WalkScope,
     /// The snapshot bounds the scan and linking refuse past.
     pub limits: super::limits::Limits,
     /// AST parsers by root-relative glob.
@@ -215,6 +219,35 @@ pub(crate) fn build_graph_with_registry(
     Ok(built)
 }
 
+/// Path markers whose files panic while linked (tests only).
+#[cfg(test)]
+static LINK_FAULTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Makes linking panic on every file whose path contains `marker`.
+#[cfg(test)]
+pub(super) fn inject_link_fault(marker: &str) {
+    LINK_FAULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(marker.to_owned());
+}
+
+#[cfg(test)]
+fn link_fault(file: &str) {
+    let faults = LINK_FAULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    assert!(
+        !faults.iter().any(|marker| file.contains(marker.as_str())),
+        "injected link panic"
+    );
+}
+
+/// The key under which a link failure's `calls` names its torn file, for
+/// the ingest's exclude retry (it never reaches a response).
+pub(crate) const TORN_FILE: &str = "tornFile";
+
 /// Links one restored file into `built`, refusing once the snapshot passes
 /// a bound: refused now, not after projection, redaction and encoding.
 fn link_restored(
@@ -229,13 +262,29 @@ fn link_restored(
     ),
 ) -> Result<(), ToolError> {
     let file = normalize(&entry.relative_path);
-    link_entry(built, inputs, entry, marks);
+    // A panic mid-link leaves the graph torn, so the build cannot publish:
+    // it fails, naming the file and where linking panicked.
+    octocode_engine::contain::catch(octocode_engine::contain::Phase::Link, || {
+        #[cfg(test)]
+        link_fault(&file);
+        link_entry(built, inputs, entry, marks);
+    })
+    .map_err(|panic| {
+        let mut error = ToolError::new(
+            ErrorCode::ExecutionFailed,
+            format!("graph build failed on {file}: {panic}; no snapshot was published"),
+        );
+        // The ingest turns this into its retry without the file.
+        error.calls = Some(Box::new(serde_json::json!({ TORN_FILE: file })));
+        error
+    })?;
     if let Some(facts) = built.facts.get_mut(&file) {
         facts.source = source;
     }
     if let Err(over) = scan.limits.admit(&built.tally) {
         return Err(scope::too_broad(
             &built.root,
+            &super::build_scope::BuildScope::of_scan(scan),
             known.iter().map(String::as_str),
             &format!(
                 "{} files are too many for one graph snapshot: linking the first {}, they {over}",

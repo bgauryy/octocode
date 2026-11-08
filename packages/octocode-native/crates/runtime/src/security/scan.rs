@@ -40,9 +40,14 @@ pub(crate) trait ContentScan {
     }
 }
 
-/// `source` sanitized with its line structure kept: one whole-source scan,
-/// or line by line when the whole scan changes the line count (a multi-line
-/// pattern) or exceeds the scanner's size limit.
+/// `source` sanitized with its line structure kept: one whole-source scan.
+/// A whole scan that changes the line count (a rewrite that joined lines) has
+/// no line to give back for each source line, and judging lines one by one
+/// would serve a value that spans lines (a continued property, a key block)
+/// less redacted than the whole scan hides it. The source is then withheld:
+/// every line becomes the sanitizer-failure placeholder, so line numbers hold,
+/// and the read reports the text as redacted. A scanner's refusal is the
+/// read's refusal.
 pub(crate) fn redact_lines<'a>(
     scan: &(impl ContentScan + ?Sized),
     source: &'a str,
@@ -58,22 +63,35 @@ fn redact_with<'a>(
     sanitize: impl Fn(&'a str) -> Result<Cow<'a, str>, (ErrorCode, String)>,
 ) -> Result<(Cow<'a, str>, bool), (ErrorCode, String)> {
     let lines = |text: &str| text.split_inclusive('\n').count();
-    match sanitize(source) {
-        Ok(whole) if whole == source => return Ok((source.into(), false)),
-        Ok(whole) if lines(&whole) == lines(source) => return Ok((whole, true)),
-        Ok(_) | Err(_) => {}
+    let whole = sanitize(source)?;
+    if whole == source {
+        return Ok((source.into(), false));
     }
-    let mut out = String::with_capacity(source.len());
-    for segment in source.split_inclusive('\n') {
-        let (body, newline) = segment
-            .strip_suffix('\n')
-            .map_or((segment, ""), |body| (body, "\n"));
-        let clean = sanitize(body)?;
-        out.push_str(&clean.replace('\n', " "));
-        out.push_str(newline);
+    if lines(&whole) == lines(source) {
+        return Ok((whole, true));
     }
-    let changed = out != source;
-    Ok((out.into(), changed))
+    Ok((withheld_lines(source).into(), true))
+}
+
+/// `source` with the text of every line replaced by the sanitizer-failure
+/// placeholder, its line breaks kept.
+fn withheld_lines(source: &str) -> String {
+    source
+        .split_inclusive('\n')
+        .map(|segment| {
+            let carriage = if segment.ends_with("\r\n") {
+                "\r\n"
+            } else if segment.ends_with('\n') {
+                "\n"
+            } else {
+                ""
+            };
+            format!(
+                "{}{carriage}",
+                octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER
+            )
+        })
+        .collect()
 }
 
 /// [`ContentScan::sanitize`] of provider text: the redacted text, or the
@@ -300,17 +318,39 @@ mod tests {
         }
     }
 
-    /// A whole scan that changes the line count falls back to line by line,
-    /// so lines keep their numbers.
+    /// A whole scan that changes the line count (a rewrite that joined the
+    /// lines of a continued value) is never answered by judging lines one by
+    /// one: that serves the value's tail unredacted. Every line is withheld,
+    /// lines and their breaks keep their numbers, and the read says it
+    /// redacted.
     #[test]
-    fn a_line_count_change_falls_back_to_line_scans() {
+    fn a_line_count_change_withholds_every_line() {
         struct Joining;
         impl ContentScan for Joining {
             fn sanitize(&self, text: &str, _: &Path) -> ScanOutcome {
-                Ok((text.replace("a\nb", "[R]"), Vec::new()))
+                Ok((text.replace("a\\\nb", "[R]"), Vec::new()))
             }
         }
-        let (text, changed) = redact_lines(&Joining, "a\nb\nc\n", Path::new("x")).expect("ok");
-        assert_eq!((text.as_ref(), changed), ("a\nb\nc\n", false));
+        let source = "a\\\nb\nsecondline\r\nlast";
+        let (text, changed) = redact_lines(&Joining, source, Path::new("x")).expect("ok");
+        let marker = octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER;
+        assert!(changed);
+        assert_eq!(text, format!("{marker}\n{marker}\n{marker}\r\n{marker}"));
+        assert!(!text.contains("secondline"));
+        assert_eq!(text.matches('\n').count(), source.matches('\n').count());
+    }
+
+    /// A scanner that refuses the whole source refuses the read; no line is
+    /// scanned on its own.
+    #[test]
+    fn a_whole_source_refusal_is_the_reads_refusal() {
+        struct Refusing;
+        impl ContentScan for Refusing {
+            fn sanitize(&self, _: &str, _: &Path) -> ScanOutcome {
+                Err((ErrorCode::ContentSecurityLimit, "too large".into()))
+            }
+        }
+        let refused = redact_lines(&Refusing, "a\nb\n", Path::new("x")).expect_err("refused");
+        assert_eq!(refused.0, ErrorCode::ContentSecurityLimit);
     }
 }

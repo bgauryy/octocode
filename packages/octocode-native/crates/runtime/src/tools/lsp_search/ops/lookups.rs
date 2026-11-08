@@ -150,7 +150,16 @@ impl Operation<'_, '_> {
         provider: &str,
         found: Vec<impl serde::Serialize>,
     ) -> Value {
-        locations(self.query, self.sources, kind, provider, found, self.budget).await
+        locations(
+            self.query,
+            self.sources,
+            kind,
+            provider,
+            found,
+            self.budget,
+            self.security,
+        )
+        .await
     }
 
     pub(super) async fn workspace_symbol(self) -> Result<Value, LspFailure> {
@@ -165,7 +174,8 @@ impl Operation<'_, '_> {
         let capped_at = self
             .client
             .workspace_symbol_limit()
-            .filter(|limit| symbols.as_array().map_or(0, Vec::len) == *limit);
+            .filter(|limit| symbols.as_array().map_or(0, Vec::len) == *limit)
+            .map(|limit| (limit, self.client.workspace_symbol_cap_advice()));
         // workspace/symbol URIs are server-controlled and span the whole
         // project; drop any that fall outside the read policy before emitting.
         let mut symbols = items(&filter_authorized_items(symbols, self.sources.policy()))
@@ -231,7 +241,7 @@ impl Operation<'_, '_> {
                     others.join(", ")
                 )
             };
-            row["hints"] = json!([hint]);
+            crate::response::result::add_hints(&mut row, [hint]);
         }
         super::super::server_coverage::workspace_symbols(
             &mut row,

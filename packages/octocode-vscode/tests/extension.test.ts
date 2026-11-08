@@ -15,6 +15,9 @@ const host = vi.hoisted(() => ({
   log: [] as string[],
   appName: 'Cursor',
   autoInstall: false,
+  ideBridge: false,
+  configChanged: undefined as
+    undefined | ((event: { affectsConfiguration: (key: string) => boolean }) => void),
   sessionChanged: undefined as
     undefined | ((event: { provider: { id: string } }) => Promise<void>),
 }));
@@ -42,10 +45,19 @@ vi.mock('vscode', () => ({
     },
   },
   workspace: {
+    workspaceFolders: [],
     getConfiguration: () => ({
-      get: (key: string) =>
-        key === 'autoInstallMcp' ? host.autoInstall : undefined,
+      get: (key: string) => {
+        if (key === 'autoInstallMcp') return host.autoInstall;
+        if (key === 'ideBridge.enabled') return host.ideBridge;
+        return undefined;
+      },
     }),
+    onDidChangeConfiguration: (callback: typeof host.configChanged) => {
+      host.configChanged = callback;
+      return { dispose() {} };
+    },
+    onDidChangeWorkspaceFolders: () => ({ dispose() {} }),
   },
   commands: {
     registerCommand: (key: string, callback: () => unknown) => {
@@ -93,15 +105,17 @@ beforeEach(async () => {
   host.homeError = undefined;
   host.log.length = 0;
   vi.stubEnv('APPDATA', path.join(directory, 'AppData'));
+  vi.stubEnv('OCTOCODE_HOME', path.join(directory, '.octocode'));
   host.appName = 'Cursor';
   host.autoInstall = false;
+  host.ideBridge = false;
   host.commands.clear();
   host.token.mockReset().mockResolvedValue(undefined);
   host.spawn.mockReset();
 });
 
 afterEach(async () => {
-  extension?.deactivate();
+  await extension?.deactivate();
   subscriptions.splice(0).forEach(item => item.dispose());
   await fs.rm(directory, { recursive: true, force: true });
   vi.unstubAllEnvs();

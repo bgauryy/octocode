@@ -193,3 +193,44 @@ fn every_line_value_is_complete_at_utf16_columns() {
         }
     }
 }
+
+/// `first_line` is the line the value starts at: the match line less the
+/// context lines joined before it.
+#[test]
+fn first_line_stops_at_the_file_start() {
+    let f = assemble(&[(1, "one", None), (2, "needle", Some(0))], 3);
+    assert_eq!(f.matches[0].first_line, 1);
+    assert_eq!(f.matches[0].value, "one\nneedle");
+}
+
+#[test]
+fn first_line_stops_at_a_dropped_line() {
+    // Line 4 is absent (left out by a filter): only 5 and 6 are joined.
+    let f = assemble(
+        &[
+            (3, "three", None),
+            (5, "five", None),
+            (6, "six", None),
+            (7, "needle", Some(0)),
+        ],
+        3,
+    );
+    assert_eq!(f.matches[0].first_line, 5);
+    assert_eq!(f.matches[0].value, "five\nsix\nneedle");
+}
+
+#[test]
+fn first_line_of_a_multiline_match_is_before_its_first_line() {
+    let f = assemble(
+        &[
+            (2, "two", None),
+            (3, "a\nb", Some(0)),
+            (5, "five", None),
+            (6, "six", None),
+        ],
+        1,
+    );
+    let hit = &f.matches[0];
+    assert_eq!((hit.line, hit.first_line, hit.last_line), (3, 2, Some(4)));
+    assert_eq!(hit.value, "two\na\nb\nfive");
+}

@@ -87,6 +87,7 @@ fn an_unsettled_file_is_read_every_time() {
     let (_dir, root) = fixture();
     let (other, name) = files(&root);
     write(&other, "fn f() { origin(); }\n");
+    date_ahead(&other);
     assert_eq!(text_only(&root, "origin"), std::slice::from_ref(&name));
     assert_eq!(text_only(&root, "origin"), [name]);
     assert_eq!(reads::of(&other), 2);

@@ -34,9 +34,10 @@ async fn walk(
         support::checks::Walker::new(tool, json!({"queries":[query],"responseChars":budget}));
     while let Some(input) = walker.next_query() {
         let value = output(runtime, mcp, tool, input).await;
-        let chars = value.to_string().encode_utf16().count();
+        // Per-call provider metadata rides outside the page measure.
+        let chars = octocode_native::response::pager::budgeted_chars(&value).expect("page");
         assert!(
-            chars <= budget || value["responsePagination"]["oversized"] == true,
+            chars <= budget || value["oversized"] == true,
             "size must be bounded or explicitly terminal: {chars}/{budget}"
         );
         walker.accept(support::checks::Page {

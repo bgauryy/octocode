@@ -1,6 +1,6 @@
-use super::defaults::apply_server_default_options;
-use super::invocation::config_from_spec;
+use super::invocation::route_from_spec;
 use super::probe::server_command_resolves;
+use super::route::{Route, kept_route};
 use super::types::{LspDiscoveryOptions, ServerSpec};
 use super::user_config::user_server_for_extension;
 use crate::lsp::grammar::grammar_for_file;
@@ -85,26 +85,42 @@ fn server_for_file(
         return None;
     }
     let extension = extension_key(file_path)?;
+    let route = kept_route(
+        &extension,
+        workspace_root,
+        options,
+        anchor,
+        native_typescript,
+        || resolve_route(&extension, workspace_root, options, anchor, native_typescript),
+    )?;
+    Some(route.finished(options))
+}
 
+/// The route for `extension`: a user `lsp-servers.json` entry, else the
+/// built-in server. The work [`kept_route`] saves.
+pub(super) fn resolve_route(
+    extension: &str,
+    workspace_root: &str,
+    options: &LspDiscoveryOptions,
+    anchor: Option<&Path>,
+    native_typescript: bool,
+) -> Option<Route> {
     // Assembly has no built-in default server (ARCHITECTURE: it requires trusted
     // custom configuration): only a user `lsp-servers.json` entry launches one.
-    if matches!(extension.as_str(), ".asm" | ".assembly" | ".s") {
-        return user_server_for_extension(&extension, workspace_root, options);
+    if matches!(extension, ".asm" | ".assembly" | ".s") {
+        return user_server_for_extension(extension, workspace_root, options).map(Route::as_is);
     }
-
-    let spec = spec_for_extension(&extension);
-
-    if let Some(mut config) = user_server_for_extension(&extension, workspace_root, options) {
-        apply_server_default_options(
-            &mut config,
-            options.octocode_home.as_deref(),
-            options.index_home(),
-        );
-        super::invocation::pin_tsserver(&mut config, options);
-        return Some(config);
+    if let Some(config) = user_server_for_extension(extension, workspace_root, options) {
+        return Some(Route::user(config));
     }
-
-    spec.map(|spec| config_from_spec(spec, workspace_root, options, anchor, native_typescript))
+    let spec = spec_for_extension(extension)?;
+    Some(route_from_spec(
+        &spec,
+        workspace_root,
+        options,
+        anchor,
+        native_typescript,
+    ))
 }
 
 /// Every extension with a built-in route, in catalog order; a test keeps it

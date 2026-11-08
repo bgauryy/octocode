@@ -24,8 +24,8 @@ fn a_read_never_exceeds_the_scan_limit_nor_raises_a_smaller_budget() {
 }
 
 /// A blob over the scan limit is refused while it downloads; one within it
-/// is read and scanned. The oversize file stays `Unavailable`, which the
-/// row states as `lineResolved: false` with its index fragments kept.
+/// is read and scanned. The oversize file is `Oversized`, which the row
+/// states as `lineResolved: false` with its index fragments kept.
 #[tokio::test]
 async fn an_oversize_hit_is_refused_during_the_read_and_the_rest_resolve() {
     let server = MockServer::builder().start().await;
@@ -69,7 +69,7 @@ async fn an_oversize_hit_is_refused_during_the_read_and_the_rest_resolve() {
     )
     .await
     .expect("resolved");
-    assert_eq!(hits[0], FileHits::Unavailable);
+    assert_eq!(hits[0], FileHits::Oversized);
     assert!(
         matches!(hits[1], FileHits::Lines { total: 1, .. }),
         "{:?}",

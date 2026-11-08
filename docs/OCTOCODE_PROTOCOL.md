@@ -31,7 +31,7 @@ A `continue` call carries a saved cursor and reaches remaining or recoverable ev
 
 Text search finds spelling; AST finds syntax; LSP verifies semantic locations using a real server. Graph edges and syntax matches need confirmation before claims about callers or unused code.
 
-Inline `classification` selects candidates on four readers/search tools with one predicates/context policy. Public clasify evaluates content or unread sources, assesses sections, and discovers models. Both preserve provider usage and source provenance while keeping unassessed evidence distinct from negative judgments. [Classification guide](OCTOCODE_CLASIFY.md).
+Inline `classification` selects candidates on the search, read and listing tools listed in [Context selection](OCTOCODE_TOOLS.md#context-selection), with one predicates/context policy. Public clasify evaluates content or unread sources, assesses sections, and discovers models. Both preserve provider usage and source provenance while keeping unassessed evidence distinct from negative judgments. [Classification guide](OCTOCODE_CLASIFY.md).
 
 ## Runtime boundaries
 

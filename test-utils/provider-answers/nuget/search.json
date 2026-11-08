@@ -9,7 +9,7 @@
   ],
   "limit": 5
  },
- "recordedAt": "2026-11-05",
+ "recordedAt": "2026-11-08",
  "unread": [
   "@context",
   "data[*].@id",
@@ -267,7 +267,7 @@
      "application/json; charset=utf-8"
     ]
    ],
-   "digest": "sha256:d781dc1133d466567ee7bb53b1d8b8a2e7daf87109f1c4bfa2b142b0836b07cc",
+   "digest": "sha256:3ce891af8700605154353926e30d4ea0dd1f5ae1f4d8779610ee7c10b24f74d2",
    "body": {
     "@context": {
      "@vocab": "http://schema.nuget.org/schema#",
@@ -298,7 +298,7 @@
        "jamesnk",
        "newtonsoft"
       ],
-      "totalDownloads": 1463356222,
+      "totalDownloads": 1467233525,
       "verified": true,
       "packageTypes": [
        {
@@ -308,17 +308,17 @@
       "versions": [
        {
         "version": "1.0.1",
-        "downloads": 598151280,
+        "downloads": 599423872,
         "@id": "https://api.nuget.org/v3/registration5-gz-semver2/newtonsoft.json.bson/1.0.1.json"
        },
        {
         "version": "1.0.2",
-        "downloads": 836846303,
+        "downloads": 839231454,
         "@id": "https://api.nuget.org/v3/registration5-gz-semver2/newtonsoft.json.bson/1.0.2.json"
        },
        {
         "version": "1.0.3",
-        "downloads": 28053796,
+        "downloads": 28272910,
         "@id": "https://api.nuget.org/v3/registration5-gz-semver2/newtonsoft.json.bson/1.0.3.json"
        }
       ],
@@ -346,7 +346,7 @@
       "owners": [
        "reactiveui"
       ],
-      "totalDownloads": 35889,
+      "totalDownloads": 36310,
       "verified": true,
       "packageTypes": [
        {
@@ -361,7 +361,7 @@
        },
        {
         "version": "13.0.0",
-        "downloads": 2938,
+        "downloads": 3192,
         "@id": "https://api.nuget.org/v3/registration5-gz-semver2/akavache.newtonsoftjson/13.0.0.json"
        }
       ],

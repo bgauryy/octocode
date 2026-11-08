@@ -84,6 +84,8 @@ Hits always come from the default-branch index: `ref` re-reads them at that revi
 
 ### `ghStructure`
 
+`operation: "refs"` lists tags grouped by tag prefix (`termcolor-1.4.1` stays apart from plain `13.0.0`). Within a group the newest version leads, and groups go by their newest version, so the order follows version number, not release date. Tags without a version come last.
+
 ```json
 {"queries":[{"maxDepth":2,"operation":"tree","owner":"bgauryy","path":"packages","repo":"octocode"}]}
 ```
@@ -130,23 +132,30 @@ Provider-native package coordinates remain values, not hidden operation selector
 
 ### `securityCheck`
 
-Known vulnerabilities (CVE, GHSA and other advisory ids) of a package version, a package URL or purl, an advisory, or a commit, from OSV (`api.osv.dev`, operated by Google), with no token. This section owns the tool: where it is offered, what each call sends, and what each status proves. [Security](SECURITY.md#advisory-egress) states the egress policy; [configuration](CONFIGURATION.md#all-settings-and-defaults) the setting.
+Known vulnerabilities (CVE, GHSA and other advisory ids) of a package version, a package URL or purl, an advisory, or a commit, from OSV (`api.osv.dev`, operated by Google), with no token; and the repository facts that bear on trust (stars, last push, archived, missing or moved) from GitHub. This section owns the tool: where it is offered, what each call sends, and what each status proves. [Security](SECURITY.md#advisory-egress) states the egress policy; [configuration](CONFIGURATION.md#all-settings-and-defaults) the setting.
 
 | Surface | Offered | Sends anything |
 |---|---|---|
 | CLI | Always, with no setting | Only when you run a call |
 | MCP, default | No: absent from `tools/list`, and the instructions say a vulnerability claim from memory is not evidence | Nothing |
-| MCP with `OCTOCODE_SECURITY_CHECKS=true` (`tools.enableSecurityCheck`) | Yes; the instructions route known-vulnerability questions here first | Only when an agent calls it |
+| MCP with `OCTOCODE_SECURITY_CHECKS=true` (`tools.enableSecurityCheck`) | Yes; the instructions route known-vulnerability questions here | Only when an agent calls it |
 | Repository settings (`.octocoderc`, `.env`) | Can turn it off for MCP, never on: the setting is home-only | Nothing |
 
-Restart MCP after changing the setting. No other tool contacts OSV; `artifactSearch` carries `advisories` only from the PyPI and NuGet registries, and its silence elsewhere says nothing about vulnerabilities.
+Restart MCP after changing the setting. The `repository` operation is the one call that contacts GitHub instead of OSV. No other tool contacts OSV; `artifactSearch` carries `advisories` only from the PyPI and NuGet registries, and its silence elsewhere says nothing about vulnerabilities.
 
 | `operation` | Takes | Asks | Leaves this machine |
 |---|---|---|---|
-| `package` | `ecosystem`, `packageName`, `version` | The public registry confirms it, then OSV at that exact version | The public name, ecosystem and a registry-confirmed version. A package the public registry does not list, or a failed registry read, sends nothing to OSV (not checked), so a private package is not disclosed. An unlisted version is not sent: OSV is asked about the package only (`versionEvaluated:false`) |
+| `package` | `ecosystem` (any OSV ecosystem the schema lists), `packageName`, `version`, `release` | For npm, PyPI, crates.io, Maven, NuGet, Go, Packagist and RubyGems (the contract's `registryReaders`): the public registry confirms it, then OSV at that exact version. Other ecosystems have no reader: OSV is asked as given and the row says `registryConfirmed:false` | The public name, ecosystem and, for a registry ecosystem, a registry-confirmed version. A package the public registry does not list, or a failed registry read, sends nothing to OSV (not checked), so a private package is not disclosed. An unlisted version is not sent: OSV is asked about the package only (`versionEvaluated:false`). For an ecosystem with no reader the name and version are sent as the caller wrote them, so a private name there is disclosed |
+| `repository` | `repo`: `owner/name`, a `github.com` URL (its query and fragment are ignored) or a GitHub git remote; anything that is not a GitHub name is `invalidInput`, never a missing repository | GitHub's repository record: stars, last push, archived, redirected or missing | `owner/name`, to GitHub with the GitHub credential the other GitHub tools use. Nothing goes to OSV. It returns facts and `cautions`, never a verdict |
 | `url` | A package page or a purl | As `package` | As `package`. A repository page names no package and is refused before any request |
 | `advisory` | `id`, such as `CVE-...` or `GHSA-...` | OSV's whole record, withdrawn ones too | The id |
 | `commit` | A full `commit` hash, optional `repo` | OSV at that hash alone | The full hash, even from a private repository. `repo` is never sent; it only checks the records that return |
+
+`release` applies to the distribution ecosystems that have releases (the contract's `distros`: Debian, Ubuntu, Alpine, Rocky Linux, AlmaLinux, Red Hat, SUSE, openSUSE); on any other ecosystem, Wolfi and Chainguard included (rolling, no releases), it is refused. OSV is asked for `<Ecosystem>:<release>` and `affected[]` keeps only entries of that release. OSV answers a release it does not name with the same empty list as a release with no advisory, so a 0-record answer for a release is disclosed as such: no `status:"empty"` and no `affected`, and `sources[].status` is `notCovered` with a `why`. A version of one of those distributions with no `release` and no advisory is answered the same way (not evaluated: pass `release`), never as none known; advisories OSV did list stand as a finding. With no `version` on an ecosystem with no reader, `affected` is absent: every version was asked about, none was evaluated.
+
+The `repository` cautions come from the contract: `lowTraction` (fewer stars than its `policy.lowTractionStars`), `unmaintained` (last push more than `policy.unmaintainedAfterDays` days ago), `archived`, `repositoryMoved` and `repositoryMissing`, each with the contract's `level` and `basis`. Both thresholds are echoed in the row's `policy`, and `observedAt` is the day GitHub was read. A rate limit or a GitHub failure leaves the row partial with `sourceFailed` and draws no caution: unknown is not clean. `repository` does not run OSV at the repository's head, list its advisories or resume a walk.
+
+A Go package path is answered with its module's records; the ones whose stated imports exclude that package are listed, brief, in `moduleOnly.advisories` and are not counted in `answer` or `advisories`.
 
 A row leads with the answer: `answer` in one sentence, then `affected`, `upgradeTo` (the lowest fixed version clearing every listed advisory, confirmed with OSV at that version) or `upgradeNote` (why none can be named), and `cves`. Each advisory is `id`, `cves`, `summary`, `severity` and its `source`, `fixedIn` and `link`; its `related` calls read every record whole, with details, ranges and references. `sources[]` lists each source asked and its `status`.
 
@@ -205,7 +214,18 @@ Compact reads remove comments and spare whitespace where a grammar in the build 
 
 ### `lspSearch`
 
-Fields: `octocode schema lspSearch --view query`. A missing or still-indexing server does not prove absence. A row's `role` is `declaration`, `call`, `import` or `reference`. `next.nextPage` walks one importer window's locations and `next.nextImporterWindow` enters the next window: follow both, and the other hierarchy continuations, to reach every row.
+Fields: `octocode schema lspSearch --view query`. A missing or still-indexing server does not prove absence. A row's `role` is `declaration`, `call`, `import` or `reference`.
+
+Each row's `lsp.level` names which source answered. The first source that can answer does; a row answered below the first applicable source carries `lsp.fellBackFrom` with that level and the reason:
+
+| `level` | Source | Taken when |
+|---|---|---|
+| `ide` | The editor's own language features, through the Octocode VS Code extension's bridge (`lsp.ide.name` names the editor) | An editor with the bridge on (`octocode.ideBridge.enabled`, the default) has the file inside one of its workspace folders. It gets half the call's deadline; a timeout, an unsupported operation or an error falls to the next level |
+| `server` | A language server Octocode starts: configured in `lsp-servers.json`, a managed install, or found on `PATH` | A server for the file's language is found and starts |
+| `syntax` | The file's tree-sitter grammar: declarations, references and calls by name, without type resolution | No server is available for a file whose grammar is in the build. Answers are candidates, like AST matches; diagnostics are parse errors only |
+| `text` | Nothing structural: the row carries the reason and, when a server can be installed, the install hint | No server and no grammar. Use `localSearch` and `localFetch` |
+
+A policy refusal (fetched code, build scripts) is not a fallback: the row stays refused at its level. Server discovery is cached per workspace and extension, and resolved again when `lsp-servers.json`, the managed install, the language's toolchain state or a `PATH` directory searched up to the found server changes. `next.nextPage` walks one importer window's locations and `next.nextImporterWindow` enters the next window: follow both, and the other hierarchy continuations, to reach every row.
 
 ```json
 {"queries":[{"line":10,"path":"src/index.ts","symbolName":"run"}]}
@@ -223,7 +243,7 @@ Evaluate supplied `content` or an unread `source`, discover models, or assess se
 
 ### Context selection
 
-`classification` is supported by localSearch, localFetch, ghSearchCode and ghGetFileContent. The receipt distinguishes selected, related, excluded and unknown units; unknown is never a negative decision. Paging and absence rules (`next.nextCandidatePage`, `next.unfiltered`, `next.unfilteredUnknown`): [tool flow](../skills/octocode-research/references/tool-flow.md#scout-judge-what-you-have-not-read); the 64-unit page budget and the 0.5 keep threshold are in the schema.
+`classification` is supported by `localSearch`, `localFetch`, `ghSearchCode`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem` and `structureSearch`. Search and read tools judge each hit or line; `ghSearchHistory` judges each row's title and body; `structureSearch` judges each listed path; `ghGetHistoryItem` judges a pull request's or issue's comments, reviews and review comments, so request those sections. The receipt distinguishes selected, related, excluded and unknown units; unknown is never a negative decision. Paging and absence rules (`next.nextCandidatePage`, `next.unfiltered`, `next.unfilteredUnknown`): [tool flow](../skills/octocode-research/references/tool-flow.md#scout-judge-what-you-have-not-read); the 64-unit page budget and the 0.5 keep threshold are in the schema.
 
 ### Rust build context
 
@@ -241,6 +261,14 @@ Evaluate supplied `content` or an unread `source`, discover models, or assess se
 
 Without `workspaceRoot`, the root is the nearest ancestor of the file holding its own language's project file (TypeScript and JavaScript: `tsconfig.json`, `jsconfig.json`, `package.json`, `pnpm-workspace.yaml`, `yarn.lock`; Python: `pyrightconfig.json`, `pyproject.toml`, `setup.py`, `setup.cfg`, `Pipfile`, then `requirements.txt`; Go: `go.mod`; Rust: `Cargo.toml`; Java: `pom.xml`, `build.gradle(.kts)`, `settings.gradle(.kts)`; Scala: `build.sbt`, `build.sc`, `build.mill`; C#: `*.sln`, `*.slnx`, then `*.csproj`; C family: `compile_commands.json`, `build/compile_commands.json`, `compile_flags.txt`, `.clangd`), else its repository (`.git`), else, for the C family, the top of its chain of build files, else the nearest generic marker (`Makefile` or another language's file). A marker of another language or a subdirectory's `Makefile` names no project of this language, even inside `WORKSPACE_ROOT`, widened for Rust to the Cargo workspace root, for TypeScript to the directory of the governing `tsconfig.json`/`jsconfig.json`, for Go to a `go.work` directory above, for Python to a `pyrightconfig.json` (or `pyproject.toml` with `[tool.pyright]` or `[tool.uv.workspace]`) above, and for Java to the Maven parent whose `<modules>` list the module or the Gradle settings that include it; with no marker anywhere, the file's own directory, never the process cwd. An explicit `workspaceRoot` must contain the file. A `workspaceRoot`-only query infers its language from the root's markers (`tsconfig.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`, `setup.py`, `requirements.txt`, `go.work`, `compile_commands.json`, `.clangd`, `CMakeLists.txt`, `meson.build`, `pom.xml`, `build.gradle`, `build.gradle.kts`, `build.sbt`, `jsconfig.json`, `package.json`).
 
+### Root coverage and workspace symbol limits
+
+A row is partial (`serverUnanswered`) when its server cannot have loaded every file that may hold a use. Where no `.git` or workspace file says where the project ends (an unbounded scope), every `references`, `callers`, `implementation` or `subtypes` answer is partial: the row names the project directories beside the server's root, tells you to widen (not narrow) `workspaceRoot` to their parent, and its text-search lead covers those directories. With a `go.mod` outside the opened Go workspace (no `go.work`), the row names the module the server did not load.
+
+#### Workspace symbol limits
+
+A `workspaceSymbol` answer whose count equals its server's cap is partial (`workspaceSymbolCoverageUnknown`) and says the server capped it, because the rest are unknown. The cap is the server's own: gopls 100, rust-analyzer 128 (or `/workspace/symbol/search/limit` when configured), clangd 100 (or its `--limit-results`; 0 means no limit), tsgo 256. The advice is to narrow `symbolQuery`; for tsgo also to route `.ts` to `typescript-language-server` in `lsp-servers.json`.
+
 ### Fetched code
 
 No language server starts on code Octocode fetched: a file or `workspaceRoot` that resolves, symlinks followed, into its `ghCloneRepo` or `ghStructure materialize` checkouts or URL captures gets `errorCode:"policy"`, because a server can run code from the repository it opens ([external processes](SECURITY.md#external-processes)). So does a root that holds any of that code, inferred or named: csharp-ls and jdtls enumerate dot directories, so `$HOME` qualifies once something is fetched. Pass a `workspaceRoot` that does not hold it, such as your project under `$HOME`; a root that holds no fetched code keeps its server. Text (`localSearch`) and syntax (`astSearch`, `structureSearch`) tools read that code without running anything, and so do the graph tools (`graphBuild`, `graphQuery`) when Octocode runs from inside that directory: `graphBuild` takes only a path inside the workspace. Prewarm and `lspSearch` leads skip it, and `octocode lsp-server status` reports the refusal. To opt in, set `lsp.trustFetchedCode` (`OCTOCODE_LSP_TRUST_FETCHED_CODE=true`) in your home settings or the process environment; a workspace `.octocoderc` or `.env` cannot. A local checkout keeps its server.
@@ -256,7 +284,7 @@ Every `lspSearch` operation, including `documentSymbols`, needs a real server; w
 ### TypeScript backends
 
 1. An `lsp-servers.json` entry for the extension ([custom servers](#custom--bring-your-own-servers)); it always wins and gets no substitute.
-2. `tsgo`, for TypeScript (`.ts`, `.mts`, `.cts`, `.tsx`) only: the workspace's own `node_modules/.bin/tsgo` when `lsp.trustProjectConfig` (`OCTOCODE_TRUST_PROJECT_LSP_CONFIG=true`) is on, else the `@typescript/native-preview` platform executable in Octocode's install tree (`octocode-mcp` and the `octocode` CLI depend on it). JavaScript stays on `typescript-language-server`, because tsgo drops constructor functions and `this` expandos. tsgo returns at most 256 workspace symbols; a `workspaceSymbol` answer that reaches 256 warns that the server capped it (narrow `symbolQuery`, or route `.ts` to `typescript-language-server` in `lsp-servers.json`).
+2. `tsgo`, for TypeScript (`.ts`, `.mts`, `.cts`, `.tsx`) only: the workspace's own `node_modules/.bin/tsgo` when `lsp.trustProjectConfig` (`OCTOCODE_TRUST_PROJECT_LSP_CONFIG=true`) is on, else the `@typescript/native-preview` platform executable in Octocode's install tree (`octocode-mcp` and the `octocode` CLI depend on it). JavaScript stays on `typescript-language-server`, because tsgo drops constructor functions and `this` expandos. tsgo returns at most 256 workspace symbols (see [workspace symbol limits](#workspace-symbol-limits)); its capped answer advises narrowing `symbolQuery`, or routing `.ts` to `typescript-language-server` in `lsp-servers.json`.
 3. `typescript-language-server`, for JavaScript, and for TypeScript when no `tsgo` is found or it fails to start (the answer says so): an executable on `PATH`; else `node_modules/typescript-language-server/lib/cli.mjs` through the current Node, from Octocode's install tree, then the workspace's `node_modules` only when the workspace is trusted, then the start directory. Trusted here means `lsp.trustProjectConfig` or a workspace at or inside the start directory, so a scanned checkout such as a clone cannot supply the executable.
 
 Definition locations stay server output; import targets are never rewritten. LSP reads minified `.js`, but original source gives far better results.

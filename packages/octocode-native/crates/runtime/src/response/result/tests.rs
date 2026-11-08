@@ -193,3 +193,49 @@ fn typed_call_bundles_serialize_only_by_explicit_semantics() {
         serde_json::json!({})
     );
 }
+
+/// The one hint writer: each hint once, in order, after any the row already
+/// states, and no empty `hints` list for no hints.
+#[test]
+fn add_hints_appends_each_hint_once_and_never_an_empty_list() {
+    let mut row = json!({"error":"x"});
+    add_hints(&mut row, Vec::<String>::new());
+    assert!(row.get(HINTS_KEY).is_none());
+    add_hints(&mut row, ["a".to_owned(), "b".to_owned(), "a".to_owned()]);
+    add_hints(&mut row, ["b".to_owned(), "c".to_owned()]);
+    assert_eq!(row[HINTS_KEY], json!(["a", "b", "c"]));
+}
+
+#[test]
+fn set_hints_supersedes_the_rows_own_and_never_empties_them() {
+    let mut row = json!({"hints":["old"]});
+    set_hints(&mut row, Vec::<String>::new());
+    assert_eq!(row[HINTS_KEY], json!(["old"]));
+    set_hints(&mut row, ["new".to_owned()]);
+    assert_eq!(row[HINTS_KEY], json!(["new"]));
+}
+
+#[test]
+fn prepend_hints_leads_with_its_hints_and_keeps_each_once() {
+    let mut row = json!({"hints":["b","c"]});
+    prepend_hints(&mut row, ["a".to_owned(), "b".to_owned()]);
+    assert_eq!(row[HINTS_KEY], json!(["a", "b", "c"]));
+}
+
+/// The one `next` writer creates the channel for a first call, keeps the
+/// others, and replaces a same-named call; a row that is not an object is
+/// left alone.
+#[test]
+fn set_next_writes_one_call_under_the_next_channel() {
+    let mut row = json!({"status": "error"});
+    set_next(&mut row, "retry", json!({"kind": "continue", "n": 1}));
+    set_next(&mut row, "restart", json!({"kind": "continue", "n": 2}));
+    set_next(&mut row, "retry", json!({"kind": "continue", "n": 3}));
+    assert_eq!(
+        row["next"],
+        json!({"retry": {"kind": "continue", "n": 3}, "restart": {"kind": "continue", "n": 2}})
+    );
+    let mut not_a_row = json!([1]);
+    set_next(&mut not_a_row, "retry", json!({}));
+    assert_eq!(not_a_row, json!([1]));
+}

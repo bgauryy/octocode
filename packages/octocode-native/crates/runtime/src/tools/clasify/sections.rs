@@ -17,7 +17,7 @@ mod store;
 use assess::assess_and_save;
 pub(super) use budget::Budget;
 use emit::terminal;
-pub(crate) use store::{PLAN_RETENTION, Sessions};
+pub(crate) use store::{PLAN_IDLE, PLAN_RETENTION, Sessions};
 
 #[derive(Clone, Copy)]
 pub(crate) struct Runtime<'a> {
@@ -101,9 +101,7 @@ fn decode(value: &str) -> Option<(&str, usize)> {
 /// read's own leads by name, as the hint lines a failed row publishes.
 fn error_value(error: &ClassificationError) -> Value {
     let mut value = json!({"errorCode": error.code, "error": error.message});
-    if !error.hints.is_empty() {
-        value["hints"] = json!(error.hints);
-    }
+    crate::response::result::add_hints(&mut value, error.hints.clone());
     crate::response::result::attach_calls(
         &mut value,
         Value::Object(error.leads.iter().cloned().collect()),
@@ -126,7 +124,10 @@ pub(super) fn run(
         })?;
         let key = runtime.sessions.key(&runtime.access, id);
         let ticket = runtime.sessions.flights.join(key.resource.clone());
-        let wait_budget = evaluator.budget(context.deadline, context.cancellation.clone());
+        let wait_budget = evaluator.budget(
+            crate::execution::cancel::deadline_of(context),
+            context.cancellation.clone(),
+        );
         let _turn = dispatcher
             .handle()
             .block_on(wait_budget.wait(ticket.turn()))
@@ -180,7 +181,7 @@ pub(super) fn run(
             }
             return Ok(outcome);
         }
-        if let Some(withheld) = withheld_saved_source(&session) {
+        if let Some(withheld) = withheld_saved_source(&session, dispatcher.read_paths()) {
             runtime.sessions.remove(&key, context);
             return Err(withheld);
         }
@@ -223,7 +224,10 @@ fn validate_sources(
 /// A saved plan outlives the binary that made it, and holds its sections' text:
 /// one that holds a file the egress now withholds by name sends nothing more.
 /// A resource refused when planned holds no text, so it stops nothing.
-fn withheld_saved_source(session: &Session) -> Option<ClassificationError> {
+fn withheld_saved_source(
+    session: &Session,
+    reads: &crate::policy::path::PathPolicy,
+) -> Option<ClassificationError> {
     session
         .resources
         .iter()
@@ -232,7 +236,7 @@ fn withheld_saved_source(session: &Session) -> Option<ClassificationError> {
         .filter(|source| source["tool"] == crate::id::ToolId::GhGetFileContent.as_str())
         .find_map(|source| {
             let withheld =
-                crate::tools::source_capture::withheld_github_source(&source["query"])?;
+                crate::tools::source_capture::withheld_github_source(&source["query"], reads)?;
             Some(ClassificationError {
                 message: format!(
                     "The saved plan holds sections of '{}', which classification withholds by its name: no further section was sent, and the plan was dropped.",

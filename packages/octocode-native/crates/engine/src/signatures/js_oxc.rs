@@ -25,7 +25,7 @@ use super::{
     js_oxc_references::{CountTarget, value_reference_counts},
     js_oxc_shared::SpanPositions,
 };
-use crate::graph::{GraphFactEdge, GraphFactsDocument, GraphRange};
+use crate::graph::{GraphFactEdge, GraphFactExport, GraphFactsDocument, GraphRange};
 
 pub(super) mod call_sites;
 mod callers;
@@ -38,7 +38,7 @@ mod validity;
 mod walk;
 
 use dialect::{is_oxc_dialect, on_oxc_worker, source_type_for, with_js_program};
-use outline::{module_outline, push_heritage_edges};
+use outline::{declared_types_of, module_outline, push_heritage_edges};
 use validity::assess_recovery;
 use walk::{collect_member_functions, collect_program, push_defined_exports};
 
@@ -132,7 +132,7 @@ fn extract_graph_facts_with_metadata_inner(
             &line_index,
             &mut symbols,
         ));
-        let (mut declarations, mut edges, imports, exports) = module_outline(
+        let (mut declarations, mut edges, imports, mut exports) = module_outline(
             &parser_ret.program,
             &line_index,
             file_path,
@@ -153,7 +153,10 @@ fn extract_graph_facts_with_metadata_inner(
         }
         // OXC tokens make this an absence check, not a binding claim. Candidate
         // loaders still require the full native scope inventory, including escapes.
-        let common_js = if js_oxc_commonjs::may_contain_loader(&parser_ret.tokens, content) {
+        let js_oxc_commonjs::CommonJsLoads {
+            loads: common_js,
+            proven: proven_loads,
+        } = if js_oxc_commonjs::may_contain_loader(&parser_ret.tokens, content) {
             js_oxc_commonjs::collect_common_js_loads(
                 &semantic,
                 &parser_ret.program,
@@ -161,8 +164,23 @@ fn extract_graph_facts_with_metadata_inner(
                 &declarations,
             )
         } else {
-            Vec::new()
+            Default::default()
         };
+        // `module.exports = require('./impl')` forwards the whole target.
+        if let Some(load) = common_js_exports
+            .whole_call
+            .and_then(|call| proven_loads.get(&call))
+            .map(|index| &common_js[*index])
+        {
+            exports.push(GraphFactExport {
+                id: format!("export:*:{}", load.line),
+                name: "*".to_owned(),
+                line: load.line,
+                export_kind: "value".to_owned(),
+                local_name: None,
+                source: load.specifier.clone(),
+            });
+        }
         let callers = callers::Callers::new(&declarations);
         for (index, call) in calls.iter_mut().enumerate() {
             // Names are display labels. Source ranges identify the enclosing occurrence;
@@ -192,6 +210,10 @@ fn extract_graph_facts_with_metadata_inner(
             });
         }
         push_heritage_edges(&declarations, heritage, &mut edges);
+        let declared_types = declared_types_of(
+            &declarations,
+            super::js_oxc_receiver::declared::declared_types(program, &line_index),
+        );
         let base = super::native_graph_facts(ext, file_path, content);
         let argument_sites = super::js_oxc_arguments::collect(
             &semantic,
@@ -212,6 +234,7 @@ fn extract_graph_facts_with_metadata_inner(
             argument_sites,
             common_js,
             edges,
+            declared_types,
             diagnostics: parser_ret
                 .diagnostics
                 .into_iter()

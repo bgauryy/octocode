@@ -75,56 +75,9 @@ fn a_shape_with_one_reading_runs() {
     assert_eq!(spread["queries"][1]["view"], json!("content"));
 }
 
-/// One date and person shape for every operation: a bare value means `include`.
+/// A list or scalar in place of a row is reported as what was sent.
 #[test]
-fn a_filter_selection_takes_its_value_bare() {
-    let range = json!({"from":"2024-01-01T00:00:00Z","to":"2024-02-01T00:00:00Z"});
-    let row = |operation: &str, filters: Value| json!({"queries":[{"operation":operation,"owner":"o","repo":"r","filters":filters}]});
-    let pull = accepted(
-        "ghSearchHistory",
-        row("pullRequest", json!({"createdAt":range,"author":"octocat"})),
-    );
-    let filters = &pull["queries"][0]["filters"];
-    assert_eq!(filters["createdAt"], json!({"include":[range]}));
-    assert_eq!(filters["author"], json!({"include":["octocat"]}));
-    let commits = accepted(
-        "ghSearchHistory",
-        row("commit", json!({"committedAt":range})),
-    );
-    assert_eq!(commits["queries"][0]["filters"]["committedAt"], range);
-}
-
-/// Several values of a selection are its `include`, as one value is; a filter
-/// that takes fewer says so of the values sent.
-#[test]
-fn a_filter_selection_takes_a_bare_list_of_values() {
-    let row = |filters: Value| json!({"queries":[{"operation":"pullRequest","owner":"o","repo":"r","filters":filters}]});
-    let pull = accepted("ghSearchHistory", row(json!({"labels":["bug","ui"]})));
-    assert_eq!(
-        pull["queries"][0]["filters"]["labels"],
-        json!({"include":["bug","ui"]})
-    );
-    let one = accepted("ghSearchHistory", row(json!({"labels":["bug"]})));
-    assert_eq!(
-        one["queries"][0]["filters"]["labels"],
-        json!({"include":["bug"]})
-    );
-
-    let input = normalized_input("ghSearchHistory", row(json!({"assignee":["a","b"]}))).0;
-    let error = prepare_rows("ghSearchHistory", input).expect_err("two assignees");
-    let issue = error.issues.first().expect("an issue");
-    assert_eq!(
-        issue.path,
-        ["queries", "0", "filters", "assignee"],
-        "{issue:?}"
-    );
-    assert_eq!(issue.message, "Value length 2 exceeds the maximum of 1");
-}
-
-/// A row is no selection though it declares `include`: a list or scalar in its
-/// place is reported as what was sent, not as an `include` nobody wrote.
-#[test]
-fn a_row_with_an_include_field_is_no_selection() {
+fn a_non_object_row_is_reported_as_sent() {
     for sent in [json!({"queries":[["a","b"]]}), json!({"queries":["a"]})] {
         let input = normalized_input("localSearch", sent.clone()).0;
         assert_eq!(input, sent);
@@ -173,10 +126,13 @@ fn a_sort_takes_its_natural_direction() {
     );
 }
 
+/// A cursor keeps the page size it was issued with: a size sent beside it
+/// is left for validation to refuse, never silently dropped.
 #[test]
-fn a_cursor_keeps_the_page_size_it_was_issued_with() {
-    let input = normalized_input("localSearch", json!({"cursor":"c","responseChars":900})).0;
-    assert_eq!(input, json!({"cursor":"c"}));
+fn a_cursor_call_keeps_every_field_it_was_sent_with() {
+    let sent = json!({"cursor":"c","responseChars":900});
+    let input = normalized_input("localSearch", sent.clone()).0;
+    assert_eq!(input, sent);
 }
 
 /// More than one reading, or a guess: the agent decides, as the error asks.
@@ -204,8 +160,7 @@ fn what_has_no_single_reading_stays_rejected() {
     }
 }
 
-/// A row whose other fields happen to include `include` is not a selection, and
-/// an error names only what repair could not settle, never a field it repaired.
+/// An error names only what repair could not settle, never a field it repaired.
 #[test]
 fn an_error_names_only_what_repair_left() {
     let sent = json!({"queries":[
@@ -228,41 +183,4 @@ fn an_error_names_only_what_repair_left() {
 fn a_valid_call_is_untouched() {
     let sent = json!({"queries":[{"path":".","matchString":["x"]}],"responseChars":500});
     assert_eq!(normalized_input("localSearch", sent.clone()).0, sent);
-}
-
-/// A commit list takes one date range and a commit search a `{include, exclude}`
-/// selection: a one-item selection on the list means that range, and the error
-/// must not send the caller after `keywords` it does not want.
-#[test]
-fn a_one_item_date_selection_reads_as_the_range_the_form_takes() {
-    let range = json!({"from":"2025-01-01T00:00:00Z","to":"2025-02-01T00:00:00Z"});
-    let row = |filters: Value, keywords: Option<Value>| {
-        let mut row = json!({"operation":"commit","owner":"a","repo":"b","filters":filters});
-        if let Some(keywords) = keywords {
-            row["keywords"] = keywords;
-        }
-        json!({"queries":[row]})
-    };
-    let listed = accepted(
-        "ghSearchHistory",
-        row(json!({"committedAt":{"include":[range.clone()]}}), None),
-    );
-    assert_eq!(listed["queries"][0]["filters"]["committedAt"], range);
-    let searched = accepted(
-        "ghSearchHistory",
-        row(
-            json!({"committedAt":{"include":[range.clone()]}}),
-            Some(json!(["fix"])),
-        ),
-    );
-    assert_eq!(
-        searched["queries"][0]["filters"]["committedAt"]["include"][0], range,
-        "the search form keeps its selection"
-    );
-    // An exclusion has no reading on the list: it stays as sent, and rejected.
-    let excluded = row(json!({"committedAt":{"exclude":[range.clone()]}}), None);
-    assert_eq!(
-        normalized_input("ghSearchHistory", excluded.clone()).0,
-        excluded
-    );
 }

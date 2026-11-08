@@ -212,7 +212,10 @@ fn assert_rows_exact(name: &str, text: &str, query: serde_json::Value, secret: &
     assert!(!rows.is_empty(), "{name} {query}: no row");
     for value in &rows {
         for at in 0..secret.len() - 3 {
-            assert!(!value.contains(&secret[at..at + 4]), "{name} {query}: {value:?}");
+            assert!(
+                !value.contains(&secret[at..at + 4]),
+                "{name} {query}: {value:?}"
+            );
         }
         let mut previous = None::<usize>;
         for row in value.split('\n') {
@@ -242,8 +245,12 @@ fn a_row_beside_a_left_out_test_line_is_placed_at_its_own_lines() {
     const VALUE: &str = "QmFzZTY0VmFsdWVIZXJlWFla";
     let head = "#[cfg(test)]\nmod tests {\n    // marker t\n}\n// marker p\n";
     let tail_test = "\n#[cfg(test)]\nmod tail {\n    // marker t\n}\n";
-    let secret_a = format!("{{\n\"data\":\n{{\"blob\": \"{VALUE}\"}},\n\"note\": \"x\",\n\"kind\": \"Secret\"\n}}\n");
-    let secret_b = format!("{{\n\"data\": {{\"blob\": \"{VALUE}\"}},\n\"note\": \"x\",\n\"kind\": \"Secret\"\n}}\n");
+    let secret_a = format!(
+        "{{\n\"data\":\n{{\"blob\": \"{VALUE}\"}},\n\"note\": \"x\",\n\"kind\": \"Secret\"\n}}\n"
+    );
+    let secret_b = format!(
+        "{{\n\"data\": {{\"blob\": \"{VALUE}\"}},\n\"note\": \"x\",\n\"kind\": \"Secret\"\n}}\n"
+    );
     let fixtures = [
         ("e.rs", format!("{head}{secret_a}")),
         ("f.rs", format!("{head}{secret_b}")),
@@ -256,7 +263,11 @@ fn a_row_beside_a_left_out_test_line_is_placed_at_its_own_lines() {
     ];
     for (name, text) in &fixtures {
         for crlf in [false, true] {
-            let text = if crlf { text.replace('\n', "\r\n") } else { text.clone() };
+            let text = if crlf {
+                text.replace('\n', "\r\n")
+            } else {
+                text.clone()
+            };
             for (before, after) in [(2, 3), (2, 2), (1, 1), (0, 3), (3, 0)] {
                 for test_code in ["exclude", "include", "only"] {
                     assert_rows_exact(

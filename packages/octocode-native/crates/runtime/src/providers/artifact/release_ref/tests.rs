@@ -1,5 +1,5 @@
 //! Release-tag candidates, current upstream checks, and repository status.
-use super::{RegistryClient, github_release_tag, tag_candidates};
+use super::{RegistryClient, TagSearch, github_release_tag, tag_candidates};
 
 #[test]
 fn a_monorepo_package_is_tagged_by_the_names_it_goes_by() {
@@ -40,7 +40,8 @@ fn tag_client<'a>(
     }
 }
 
-/// A package with no matching tag is checked again on each lookup.
+/// A package with no matching tag is checked again on each lookup: every
+/// candidate, then the repository's tag list, read whole.
 #[tokio::test]
 async fn each_release_lookup_checks_current_upstream_tags() {
     let http = super::super::test_http::RouteHttp::new();
@@ -59,21 +60,32 @@ async fn each_release_lookup_checks_current_upstream_tags() {
                 &client
             )
             .await,
-            None
+            TagSearch::Unnamed(Vec::new())
         );
     }
     let candidates = tag_candidates("monorepo", "widget", Some("packages/widget"), "1.0.0");
-    assert_eq!(tags.seen().len(), candidates.len() * 2, "{:?}", tags.seen());
-    // A failed check is not an absence: it is asked again.
+    assert_eq!(
+        tags.seen().len(),
+        (candidates.len() + 1) * 2,
+        "{:?}",
+        tags.seen()
+    );
+    assert_eq!(
+        tags.seen().last().map(String::as_str),
+        Some("acme/monorepo#tags")
+    );
+    // A failed check is not an absence: it is asked again, and the tag list
+    // that could not be read says why.
     let failing = super::super::test_http::KnownTags::always(None);
     let client = tag_client(&http, &budget, &failing);
     for _ in 0..2 {
         assert_eq!(
             github_release_tag(repository, None, "other", "2.0.0", None, &client).await,
-            None
+            TagSearch::Unlisted(super::CheckFailure::Request)
         );
     }
-    assert_eq!(failing.seen().len(), 4, "{:?}", failing.seen());
+    // The first round's two checks fail, then the tag list is asked.
+    assert_eq!(failing.seen().len(), 6, "{:?}", failing.seen());
 }
 
 /// The plain tags are asked first; a monorepo package's own tags are
@@ -95,6 +107,7 @@ async fn release_tags_are_asked_in_two_rounds_and_the_first_candidate_wins() {
             &client
         )
         .await
+        .found()
         .map(|release| release.tag)
         .as_deref(),
         Some("v1.0.0")
@@ -115,6 +128,7 @@ async fn release_tags_are_asked_in_two_rounds_and_the_first_candidate_wins() {
             &client
         )
         .await
+        .found()
         .map(|release| release.tag)
         .as_deref(),
         Some("core-v1.0.0")
@@ -123,6 +137,108 @@ async fn release_tags_are_asked_in_two_rounds_and_the_first_candidate_wins() {
         stems.seen().len(),
         tag_candidates("widget", "core", Some("packages/core"), "1.0.0").len()
     );
+}
+
+/// A release tag of a shape no candidate spells is found in the
+/// repository's own tag list: whatever prefix the project's tags carry
+/// (`rel/`, `release-`, `<name>-`, `release/v`), a tag naming the version
+/// is its release. A tag of another version (`rel/11.4.0`, `rel/1.4.0-rc1`)
+/// never is.
+#[tokio::test]
+async fn a_release_tag_of_any_prefix_is_found_in_the_repository_tag_list() {
+    let http = super::super::test_http::RouteHttp::new();
+    let budget = super::super::test_http::test_budget();
+    for shape in [
+        "rel/1.4.0",
+        "release-1.4.0",
+        "widget-1.4.0",
+        "release/v1.4.0",
+    ] {
+        let named = format!("acme/monorepo@{shape}");
+        let known: Vec<&'static str> = vec![
+            "acme/monorepo@rel/11.4.0",
+            "acme/monorepo@rel/1.4.0-rc1",
+            "acme/monorepo@v1.3.9",
+            Box::leak(named.into_boxed_str()),
+        ];
+        let tags = super::super::test_http::KnownTags::new(known);
+        let client = tag_client(&http, &budget, &tags);
+        let found = github_release_tag(
+            "https://github.com/acme/monorepo",
+            None,
+            "widget-core",
+            "1.4.0",
+            None,
+            &client,
+        )
+        .await
+        .found();
+        assert_eq!(
+            found.map(|release| (release.tag, release.commit)),
+            Some((shape.to_owned(), format!("commit-of-{shape}"))),
+            "{shape}: {:?}",
+            tags.seen()
+        );
+    }
+}
+
+/// Tags that name the version at one commit are that release, the shortest
+/// pinned; tags naming it at different commits are listed, never chosen
+/// between, and a pin says so on the row instead of pinning either.
+#[tokio::test]
+async fn listed_tags_name_one_release_or_are_stated_as_ambiguous() {
+    use super::{ReleaseTag, pin_release_tag};
+    let http = super::super::test_http::RouteHttp::new();
+    let budget = super::super::test_http::test_budget();
+    let same =
+        super::super::test_http::KnownTags::new(vec!["o/r@release-1.2.6=abc", "o/r@rel/1.2.6=ABC"]);
+    let client = tag_client(&http, &budget, &same);
+    assert_eq!(
+        github_release_tag("https://github.com/o/r", None, "r", "1.2.6", None, &client).await,
+        TagSearch::Found(ReleaseTag {
+            tag: "rel/1.2.6".into(),
+            commit: "ABC".into()
+        })
+    );
+    let split = super::super::test_http::KnownTags::new(vec![
+        "o/r@a@1.2.6=aaa",
+        "o/r@b@1.2.6=bbb",
+        "o/r@HEAD",
+    ]);
+    let client = tag_client(&http, &budget, &split);
+    let mut item = unpinned("https://github.com/o/r");
+    pin_release_tag(&mut item, "minimist", "1.2.6", Some("c@1.2.5"), &client).await;
+    assert_eq!(item.source_ref, None, "{:?}", split.seen());
+    assert!(!item.declared_ref);
+    assert_eq!(
+        item.disclosures,
+        [
+            "minimist: tags a@1.2.6 (commit aaa), b@1.2.6 (commit bbb) each name version 1.2.6 at different commits, so none is taken as its release tag."
+        ]
+    );
+    assert!(
+        !split.seen().iter().any(|seen| seen == "o/r@c@1.2.5"),
+        "the declared tag of another release is not asked as a fallback: {:?}",
+        split.seen()
+    );
+}
+
+/// A tag list that cannot be read is recorded with its cause, so the row's
+/// warning claims no absence the lookup did not check.
+#[tokio::test]
+async fn an_unread_tag_list_is_recorded_with_its_cause() {
+    use super::{CheckFailure, pin_release_tag};
+    use octocode_github::ProviderErrorKind;
+    let http = super::super::test_http::RouteHttp::new();
+    let budget = super::super::test_http::test_budget();
+    let failure = CheckFailure::Provider(ProviderErrorKind::RateLimited);
+    let tags = super::super::test_http::KnownTags::new(vec!["o/r@HEAD"])
+        .with_listing_failure(failure.clone());
+    let client = tag_client(&http, &budget, &tags);
+    let mut item = unpinned("https://github.com/o/r");
+    pin_release_tag(&mut item, "minimist", "1.2.6", None, &client).await;
+    assert_eq!(item.source_ref, None);
+    assert_eq!(item.tags_unlisted, Some(failure.describe()));
 }
 
 fn unpinned(repository: &str) -> super::ArtifactItem {
@@ -150,16 +266,28 @@ async fn a_repository_github_lacks_or_redirects_is_recorded_on_the_row() {
             Some(RepositoryStatus::Missing),
         ),
         (
-            CommitCheck::FoundAfterRedirect,
+            CommitCheck::FoundAfterRedirect { to: None },
+            Some(RepositoryStatus::Moved),
+        ),
+        (
+            CommitCheck::FoundAfterRedirect {
+                to: Some("minimistjs/minimist".into()),
+            },
             Some(RepositoryStatus::Moved),
         ),
         (CommitCheck::Found, None),
     ] {
-        let tags = super::super::test_http::KnownTags::new(vec![]).with_repository(check);
+        let tags = super::super::test_http::KnownTags::new(vec![]).with_repository(check.clone());
         let client = tag_client(&http, &budget, &tags);
         let mut item = unpinned("https://github.com/substack/minimist");
         pin_release_tag(&mut item, "minimist", "1.2.6", None, &client).await;
         assert_eq!(item.repository_status, status, "{check:?}");
+        // A redirect's target is where the project moved.
+        let moved_to = match &check {
+            CommitCheck::FoundAfterRedirect { to } => to.clone(),
+            _ => None,
+        };
+        assert_eq!(item.successor_repository, moved_to, "{check:?}");
         assert_eq!(item.source_ref, None);
         assert_eq!(
             tags.seen().last().map(String::as_str),
@@ -174,6 +302,81 @@ async fn a_repository_github_lacks_or_redirects_is_recorded_on_the_row() {
     pin_release_tag(&mut item, "minimist", "1.2.6", None, &client).await;
     assert_eq!(item.source_ref.as_deref(), Some("v1.2.6"));
     assert_eq!(item.repository_status, None);
+}
+
+/// A commit check is found, missing, or failed with its cause: a link to no
+/// GitHub repository and a call without GitHub are told apart from a
+/// GitHub failure, and only the last is stated on the row.
+#[tokio::test]
+async fn a_commit_check_names_why_it_failed() {
+    use super::{CheckFailure, CommitCheck, commit_check, pin_release_tag};
+    use octocode_github::ProviderErrorKind;
+    let http = super::super::test_http::RouteHttp::new();
+    let budget = super::super::test_http::test_budget();
+    let tags = super::super::test_http::KnownTags::new(vec!["o/r@abc"]);
+    let client = tag_client(&http, &budget, &tags);
+    assert_eq!(
+        commit_check("https://github.com/o/r", "abc", &client).await,
+        Ok(CommitCheck::Found)
+    );
+    assert_eq!(
+        commit_check("https://github.com/o/r", "def", &client).await,
+        Ok(CommitCheck::Missing)
+    );
+    assert_eq!(
+        commit_check("https://gitlab.com/o/r", "abc", &client).await,
+        Err(CheckFailure::NotGitHub)
+    );
+    let bare = RegistryClient::new(&http, &budget);
+    assert_eq!(
+        commit_check("https://github.com/o/r", "abc", &bare).await,
+        Err(CheckFailure::Unavailable)
+    );
+    // Only a failure of the check itself is stated on the row.
+    for (failure, stated) in [
+        (CheckFailure::Request, true),
+        (CheckFailure::Provider(ProviderErrorKind::RateLimited), true),
+        (CheckFailure::Provider(ProviderErrorKind::Server), true),
+        (CheckFailure::Services("bad API URL".to_owned()), true),
+        (CheckFailure::NotGitHub, false),
+        (CheckFailure::Unavailable, false),
+    ] {
+        let tags = super::super::test_http::KnownTags::new(vec![]).with_failure(failure.clone());
+        let client = tag_client(&http, &budget, &tags);
+        let mut item = unpinned("https://github.com/o/r");
+        pin_release_tag(&mut item, "p", "1.0.0", None, &client).await;
+        assert_eq!(item.disclosures.len(), usize::from(stated), "{failure:?}");
+        assert_eq!(item.repository_status, None, "{failure:?}");
+        if stated {
+            assert!(
+                item.disclosures[0].contains(&failure.describe()),
+                "{:?}",
+                item.disclosures
+            );
+        }
+    }
+}
+
+/// A call whose GitHub services cannot be built still checks, and each row
+/// says why: the cause with its message, not a silent skip.
+#[tokio::test]
+async fn unbuildable_github_services_are_stated_with_their_message() {
+    use super::{CheckFailure, FailedTags, pin_release_tag};
+    let http = super::super::test_http::RouteHttp::new();
+    let budget = super::super::test_http::test_budget();
+    let tags = FailedTags(CheckFailure::Services("Invalid GitHub API URL.".to_owned()));
+    let client = RegistryClient {
+        tags: Some(&tags),
+        ..RegistryClient::new(&http, &budget)
+    };
+    let mut item = unpinned("https://github.com/o/r");
+    pin_release_tag(&mut item, "p", "1.0.0", None, &client).await;
+    assert_eq!(item.disclosures.len(), 1, "{:?}", item.disclosures);
+    assert!(
+        item.disclosures[0].contains("Invalid GitHub API URL"),
+        "{:?}",
+        item.disclosures
+    );
 }
 
 /// A Go version's tag is its version with its `v`, below the module's directory
@@ -191,6 +394,8 @@ async fn a_go_release_tag_is_the_version_under_the_module_directory() {
         async move {
             go_release_tag(repository, directory, version, client)
                 .await
+                .ok()
+                .flatten()
                 .map(|release| release.tag)
         }
     };

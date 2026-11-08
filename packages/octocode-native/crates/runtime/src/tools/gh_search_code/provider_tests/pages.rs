@@ -46,6 +46,7 @@ async fn a_complete_page_keeps_every_hit_without_partial_disclosures() {
         &search(json!(["wrap_app"])),
         &context,
         &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
     )
     .await
     .expect("search");
@@ -99,9 +100,15 @@ async fn a_page_counts_files_and_retains_every_hit_of_each_file() {
         serde_json::from_value(json!({"owner":"a","repo":"b","keywords":["wrap_app"]}))
             .expect("query");
     let context = default_context();
-    let out = execute(&provider, &query, &context, &Passthrough)
-        .await
-        .expect("search");
+    let out = execute(
+        &provider,
+        &query,
+        &context,
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("search");
     let (busy, calm) = (&out.data["files"][0], &out.data["files"][1]);
     assert_eq!(
         busy["lines"].as_array().map(Vec::len),
@@ -151,9 +158,15 @@ async fn search_page_of(
         }))
         .expect("query"),
     };
-    execute(provider, &query, &default_context(), &Passthrough)
-        .await
-        .expect("search")
+    execute(
+        provider,
+        &query,
+        &default_context(),
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("search")
 }
 
 fn warnings_of(out: &crate::response::result::ToolData) -> &serde_json::Value {
@@ -259,9 +272,15 @@ async fn empty_index_pages_keep_the_collection_when_partial_normalization_answer
             let query: GhSearchCodeQuery = serde_json::from_value(row.clone()).expect("query");
             let provider = one_shot_provider(&server);
             let context = default_context();
-            let out = execute(&provider, &query, &context, &Passthrough)
-                .await
-                .expect("provider search");
+            let out = execute(
+                &provider,
+                &query,
+                &context,
+                &Passthrough,
+                &crate::policy::discovery::is_sensitive_repository_file,
+            )
+            .await
+            .expect("provider search");
             if incomplete {
                 assert_eq!(out.data["files"], json!([]), "{}", out.data);
                 assert_eq!(out.data["isPartial"], true, "{}", out.data);

@@ -1,5 +1,5 @@
 use super::*;
-use octocode_io::lock::{LOCK_POLL, LockedFile, lock_within};
+use octocode_io::lock::{LOCK_POLL, LockError, LockedFile, lock_within};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -13,6 +13,24 @@ const SCAN_INTERVAL: u64 = 60;
 /// a fresh read. A write its call's answer depends on waits for the request's own
 /// deadline instead ([`crate::cache::Store::put_until`]).
 pub(in crate::cache) const REUSE_LOCK_WAIT: Duration = Duration::from_secs(1);
+/// How often a wait for the store's lock looks for its request's cancel.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::disallowed_methods,
+        reason = "Poll interval for a cancel during a lock wait, not a deadline or evidence limit"
+    )
+)]
+const CANCEL_SLICE: Duration = Duration::from_millis(100);
+
+/// Why the store's lock was not taken.
+enum NotLocked {
+    /// Busy to the deadline, or the lock file failed.
+    Unavailable,
+    /// The request this thread works for was cancelled: nobody reads its
+    /// answer, so nothing is said.
+    Cancelled,
+}
 /// A write refused for the store's lock is said once per call, whatever wrote it.
 const STORE_BUSY: &str = "cache-store-busy";
 /// Expired entries one scan removes, inside a caller's write. A longer backlog
@@ -30,17 +48,39 @@ struct Capacity {
 }
 
 impl Disk {
-    fn lock(&self, deadline: Instant) -> Option<LockedFile> {
-        octocode_io::atomic::create_private_dir_all(&self.dir).ok()?;
-        let file = crate::private_file::open_no_follow(&self.dir.join(LOCK), true).ok()?;
-        let wait = deadline.saturating_duration_since(Instant::now());
-        lock_within(file, wait, LOCK_POLL).ok()
+    /// The store's lock, waited for up to `deadline` or until the request
+    /// this thread works for is cancelled
+    /// ([`octocode_engine::deep_stack::current_stop`]), whichever comes first:
+    /// a cancelled request must not stay joined to a wait only the holder ends.
+    fn lock(&self, deadline: Instant) -> Result<LockedFile, NotLocked> {
+        let unavailable = |_| NotLocked::Unavailable;
+        octocode_io::atomic::create_private_dir_all(&self.dir).map_err(unavailable)?;
+        let file =
+            crate::private_file::open_no_follow(&self.dir.join(LOCK), true).map_err(unavailable)?;
+        let stop = octocode_engine::deep_stack::current_stop();
+        loop {
+            if stop
+                .as_ref()
+                .is_some_and(|stop| stop.load(std::sync::atomic::Ordering::Relaxed))
+            {
+                return Err(NotLocked::Cancelled);
+            }
+            let wait = deadline
+                .saturating_duration_since(Instant::now())
+                .min(CANCEL_SLICE);
+            match lock_within(file.try_clone().map_err(unavailable)?, wait, LOCK_POLL) {
+                Ok(lock) => return Ok(lock),
+                Err(LockError::Busy) if Instant::now() < deadline => {}
+                Err(_) => return Err(NotLocked::Unavailable),
+            }
+        }
     }
 
-    /// The store's lock for a write, or the notice that the write was not kept.
+    /// The store's lock for a write, or the notice that the write was not kept
+    /// (none for a cancelled request, whose answer nobody reads).
     fn lock_to_write(&self, deadline: Instant) -> Option<LockedFile> {
         let lock = self.lock(deadline);
-        if lock.is_none() {
+        if matches!(lock, Err(NotLocked::Unavailable)) {
             octocode_io::notice::raise(
                 STORE_BUSY,
                 format!(
@@ -49,7 +89,7 @@ impl Disk {
                 ),
             );
         }
-        lock
+        lock.ok()
     }
 
     fn capacity(&self) -> Option<Capacity> {
@@ -273,9 +313,31 @@ impl Disk {
         })
     }
 
+    /// Remove every expired entry, and every lock its entry outlived, under
+    /// the store's lock: a scan's share at a time until a scan leaves none.
+    /// Nothing live is evicted (no byte budget applies), and the capacity
+    /// file is rewritten from the scan. The daily maintenance sweep runs this,
+    /// so expired saved work (a section plan holds source text) does not
+    /// wait on disk for the next write to its store. A busy store is left
+    /// to its writers, whose scans remove the same entries.
+    pub(crate) fn prune_expired(&self) {
+        let Ok(_lock) = self.lock(Instant::now() + REUSE_LOCK_WAIT) else {
+            return;
+        };
+        loop {
+            let Ok(capacity) = self.trim(u64::MAX, None, now_unix(), None) else {
+                return;
+            };
+            let _ = self.save_capacity(&capacity);
+            if capacity.scanned_at != 0 {
+                return;
+            }
+        }
+    }
+
     #[cfg(test)]
     pub(crate) fn prune(&self, budget: u64) {
-        let Some(_lock) = self.lock(Instant::now() + REUSE_LOCK_WAIT) else {
+        let Ok(_lock) = self.lock(Instant::now() + REUSE_LOCK_WAIT) else {
             return;
         };
         if let Ok(capacity) = self.trim(budget, None, now_unix(), None) {

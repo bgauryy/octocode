@@ -139,7 +139,7 @@ pub(super) fn exact_closure(data: &Value, full: &Value) {
 
 fn plan(data: Value, tool: ToolId, budget: usize) -> RowPlan {
     assert_row_contract(tool, &data);
-    PreparedRows::new(vec![json!({"index":0,"data":data})], &[None], tool)
+    PreparedRows::new(vec![json!({"index":0,"data":data})], tool)
         .plan(budget, &Cancellation::new())
         .expect("valid dependency closure")
 }
@@ -354,7 +354,7 @@ fn indivisible_origin_is_complete_and_explicitly_oversized_at_tiny_budget() {
         ToolId::GraphQuery,
     );
     assert_eq!(pagination.total_pages, 1);
-    assert_eq!(pagination.oversized, Some(true));
+    assert!(pagination.returned_chars > 128, "wider than the budget");
     assert!(!pagination.has_more);
     assert!(pagination.next_offset.is_none());
     let actual = &page["results"][0]["data"];

@@ -7,13 +7,11 @@ use serde_json::Value;
 use serde_json::json;
 use std::num::NonZeroU64;
 
-/// How a continuation of a match page moves its query: to the next file
-/// page (its matches restart), to the next match page of the shown files, or
-/// past the files a scan window evaluated.
+/// How a continuation of a match page moves its query: to the next page of
+/// its matches, or past the files a scan window evaluated.
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Move {
-    FilePage(u64),
-    MatchPage(u64),
+    Page(u64),
     ScanWindow(u64),
 }
 
@@ -136,9 +134,6 @@ impl<'a> MatchQuery<'a> {
     pub fn limit(self) -> Option<usize> {
         either_form!(self, limit => limit.map(|limit| octocode_engine::num::saturating_usize(limit.get())))
     }
-    pub fn match_page(self) -> u32 {
-        either_form!(self, match_page => saturating_u32(match_page.get()))
-    }
     pub fn snapshot(self) -> Option<String> {
         either_form!(self, snapshot => snapshot.as_ref().map(ToString::to_string))
     }
@@ -158,18 +153,12 @@ impl<'a> MatchQuery<'a> {
             ($query:expr, $variant:path) => {{
                 let mut query = $query.clone();
                 match to {
-                    Move::FilePage(page) => {
+                    Move::Page(page) => {
                         query.page = NonZeroU64::new(page)?;
-                        query.match_page = NonZeroU64::MIN;
-                        query.snapshot = Some(snapshot.parse().ok()?);
-                    }
-                    Move::MatchPage(page) => {
-                        query.match_page = NonZeroU64::new(page)?;
                         query.snapshot = Some(snapshot.parse().ok()?);
                     }
                     Move::ScanWindow(offset) => {
                         query.page = NonZeroU64::MIN;
-                        query.match_page = NonZeroU64::MIN;
                         query.scan_offset = Some(NonZeroU64::new(offset)?);
                         query.snapshot = Some(snapshot.parse().ok()?);
                     }

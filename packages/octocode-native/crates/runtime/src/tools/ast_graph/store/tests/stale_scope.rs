@@ -99,6 +99,7 @@ fn a_repository_marker_gone_is_stale() {
 #[test]
 fn an_unsettled_listing_records_no_proof() {
     let dir = fixture();
+    dir.date_ahead("app/src");
     let built = ingest_fixture(dir.0.as_path(), None);
     assert_fresh_build(&built);
     let graph_dir = PathBuf::from(built.value["dir"].as_str().expect("dir"));
@@ -110,4 +111,53 @@ fn an_unsettled_listing_records_no_proof() {
         stale_rows(dir.0.as_path()),
         json!([{"file": "src/z.ts", "status": "added"}])
     );
+}
+
+/// The stale check walks what the build walks: a source the path policy
+/// withholds under a lifted walk (`.env.py`, a credential store's file) is
+/// no listing difference, so the snapshot is fresh and its listing proven.
+#[test]
+fn a_withheld_source_under_a_lifted_walk_is_fresh() {
+    use crate::tools::ast_graph::walk_scope::WalkScope;
+    use octocode_engine::types::IgnorePolicy;
+    let dir = fixture();
+    dir.write("app/.hid/h.py", "def h():\n    pass\n");
+    dir.write("app/.env.py", "def env():\n    pass\n");
+    dir.write("app/.ssh/k.py", "def k():\n    pass\n");
+    std::fs::create_dir_all(dir.0.as_path().join(".octocode/graph")).expect("graph home");
+    octocode_engine::stamp::settle_written_so_far();
+    let built = ingest(
+        &IngestOptions {
+            path: dir.0.join("app"),
+            workspace: Some(dir.0.to_path_buf()),
+            walk: WalkScope {
+                ignore: IgnorePolicy {
+                    include_ignored: false,
+                    include_hidden: true,
+                },
+                ..WalkScope::default()
+            },
+            ..Default::default()
+        },
+        &workspace_policy(dir.0.as_path()),
+        &ContentSecurity::new(),
+        &NeverCancel,
+        None,
+    );
+    assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+    let graph_dir = PathBuf::from(built.value["dir"].as_str().expect("dir"));
+    let manifest = read_manifest(&graph_dir).expect("manifest");
+    assert!(manifest["scopeProof"]["stamps"].is_string(), "{manifest}");
+    let stale = ask(dir.0.as_path(), "stale", None, |_| {});
+    assert_eq!(stale.value["fresh"], true, "{}", stale.value);
+    assert_eq!(stale.value["rows"], json!([]), "{}", stale.value);
+    // The proof stands in for the walk; without it the walk must agree too.
+    let mut bare = manifest;
+    bare.as_object_mut().expect("manifest").remove("scopeProof");
+    std::fs::write(
+        graph_dir.join(MANIFEST_FILE),
+        serde_json::to_vec(&bare).expect("manifest json"),
+    )
+    .expect("write manifest");
+    assert_eq!(stale_rows(dir.0.as_path()), json!([]));
 }

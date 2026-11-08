@@ -1,6 +1,6 @@
 import Ajv2020 from 'ajv/dist/2020.js';
 import { describe, expect, it } from 'vitest';
-import { MCP_INSTRUCTIONS, MCP_TOOL_INSTRUCTIONS } from '@octocodeai/octocode-core/mcp';
+import { MCP_INSTRUCTION_PARTS, MCP_INSTRUCTIONS, MCP_TOOL_INSTRUCTIONS, mcpInstructions } from '@octocodeai/octocode-core/mcp';
 import {
   DIRECT_TOOL_DEFINITIONS,
   getPublicToolCatalog,
@@ -22,12 +22,21 @@ function commands(help: string): Array<{ name: string; input: unknown }> {
 
 describe('canonical CLI and MCP discovery', () => {
   it('preserves the complete core catalog, instructions and fingerprint', () => {
-    expect(presentation.instructions).toBe(MCP_INSTRUCTIONS);
+    expect(presentation.instructions).toEqual(MCP_INSTRUCTION_PARTS);
+    const parts = at(presentation, 'instructions');
+    const routes = (Array.isArray(parts.routes) ? parts.routes : []) as Array<{ needs: string[]; text: string }>;
+    const everyTool = DIRECT_TOOL_DEFINITIONS.map(entry => entry.name);
+    expect(`${String(parts.head)}${routes.map(route => route.text).join('')}${String(parts.body)}`).toBe(MCP_INSTRUCTIONS);
+    expect(mcpInstructions(everyTool).startsWith(MCP_INSTRUCTIONS)).toBe(true);
     expect(presentation.fingerprint).toBe(getPublicToolCatalog().fingerprint);
     expect(tools.map(entry => entry.name)).toEqual(DIRECT_TOOL_DEFINITIONS.map(entry => entry.name));
     for (const definition of DIRECT_TOOL_DEFINITIONS) {
       expect(tool(definition.name).title).toBe(definition.title);
-      expect(tool(definition.name).instructions).toBe(MCP_TOOL_INSTRUCTIONS[definition.name]);
+      // A tool's block travels once, in the instruction parts.
+      expect(tool(definition.name)).not.toHaveProperty('instructions');
+    }
+    for (const block of MCP_INSTRUCTION_PARTS.blocks) {
+      expect(block.text).toBe(MCP_TOOL_INSTRUCTIONS[block.tool]);
     }
   });
 

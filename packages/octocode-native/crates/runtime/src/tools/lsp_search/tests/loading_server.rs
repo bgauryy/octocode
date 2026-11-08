@@ -17,7 +17,7 @@ const fs = require('fs');
 /*SCENARIO*/
 let buf = Buffer.alloc(0);
 let loaded = false;
-let burning = false;
+let workers = [];
 let asked = 0;
 function send(m) {
   const s = JSON.stringify(m);
@@ -26,11 +26,12 @@ function send(m) {
 const progress = (value) => send({ jsonrpc: '2.0', method: '$/progress', params: { token: 'load', value } });
 const begin = () => progress({ kind: 'begin', title: 'Loading' });
 const status = (health, message) => send({ jsonrpc: '2.0', method: 'experimental/serverStatus', params: { health, quiescent: true, message } });
-function finish() { loaded = true; burning = false; progress({ kind: 'end' }); }
+function finish() { loaded = true; workers.forEach((w) => w.terminate()); workers = []; progress({ kind: 'end' }); }
+// Busy threads: a loaded machine gives each a slice, so the process tree's CPU
+// time shows work however starved the scheduler leaves any one thread.
 function burn() {
-  const until = Date.now() + 20;
-  while (Date.now() < until);
-  if (burning) setImmediate(burn);
+  const { Worker } = require('worker_threads');
+  for (let i = 0; i < 4; i++) workers.push(new Worker('for (;;) {}', { eval: true }));
 }
 function firstAnswer() {
   if (scenario === 'loadAnnouncedWithTheAnswer') { begin(); setTimeout(finish, 300); }
@@ -44,7 +45,6 @@ function handle(msg) {
   if (msg.method === 'initialize') {
     send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: { definitionProvider: true, referencesProvider: true, textDocumentSync: 1 } } });
   } else if (msg.method === 'initialized' && scenario === 'loadAnnouncedAfterTheAnswer') {
-    burning = true;
     burn();
   } else if (msg.method === 'initialized' && scenario === 'healthError') {
     status('error', 'Failed to load workspaces: unparsable Cargo.toml');
@@ -77,6 +77,8 @@ function handle(msg) {
     send({ jsonrpc: '2.0', id: msg.id, result: null });
   }
 }
+// The client closing the pipe ends the server, and with it the burn threads.
+process.stdin.on('end', () => process.exit(0));
 process.stdin.on('data', (d) => {
   buf = Buffer.concat([buf, d]);
   for (;;) {
@@ -106,15 +108,13 @@ impl Loading {
     /// A workspace whose `.ts` files go to the `scenario` server, under
     /// `language`'s readiness budget, with every settle at most `settle`.
     fn new(scenario: &str, language: &str, settle: Duration) -> Self {
-        use std::os::unix::fs::PermissionsExt;
         let dir = crate::tools::test_support::Fixture::new();
         let root = dir.0.canonicalize().expect("canonical root");
         // A repository bounds the project: these tests judge the server's answer.
         std::fs::create_dir_all(root.join(".git")).expect("repository");
         let script = root.join("fake-lsp.js");
         let server = LOADING_SERVER.replace(SCENARIO, &format!("const scenario = '{scenario}';"));
-        std::fs::write(&script, server).expect("script");
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        crate::tools::lsp_search::tests::write_executable(&script, server.as_bytes());
         std::fs::write(root.join("a.ts"), "function helper() {}\nhelper();\n").expect("source");
         std::fs::write(
             root.join("lsp-servers.json"),

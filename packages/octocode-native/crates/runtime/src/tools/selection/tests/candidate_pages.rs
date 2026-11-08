@@ -244,6 +244,164 @@ fn the_kept_note_names_hidden_near_misses() {
     );
 }
 
+/// A ghSearchCode page whose evaluations the default window refused and the
+/// long-context window answered warns on its row with the tokens billed.
+#[test]
+fn a_provider_page_discloses_its_long_context_retries() {
+    use crate::tools::selection::long_window_fake::{BILLED, LongWindow};
+    let window = LongWindow::start();
+    let files: Vec<Value> = (0..2)
+        .map(|i| json!({"path":format!("{i}.rs"),"lines":[format!("1\tfn candidate_{i}() {{}}")]}))
+        .collect();
+    let mut output = json!({"results":[{"index":0,"data":{"owner":"o","repo":"r","files":files}}]});
+    let query = json!({"owner":"o","repo":"r","keywords":["fn"],
+        "classification":{"predicates":["Does this define a function?"]}});
+    apply_code_rows(
+        &mut output,
+        query.clone(),
+        &mut query.clone(),
+        &window.selection,
+    )
+    .expect("classified page");
+    let retried = u64::try_from(window.long_requests()).expect("count");
+    assert!(retried > 0, "the provider answered in the long window");
+    let data = &output["results"][0]["data"];
+    let notice = data["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .find(|note| note.contains("long-context window"))
+        .unwrap_or_else(|| panic!("no retry notice: {data}"));
+    let evaluations = octocode_engine::text::counted(retried, "evaluation", "evaluations");
+    assert!(notice.starts_with(&evaluations), "{notice}");
+    assert!(
+        notice.contains(&format!("{} input tokens billed", retried * BILLED)),
+        "{notice}"
+    );
+}
+
+/// A candidate page judged through long-context retries says so again when
+/// its cursor is replayed, but the replay bills nothing: the notice names the
+/// original read as the one that billed the tokens, and no request is sent.
+#[test]
+fn a_replayed_candidate_page_keeps_its_retry_notice_without_claiming_the_billing() {
+    use crate::tools::selection::long_window_fake::{BILLED, LongWindow};
+    let mut window = LongWindow::start();
+    window.selection.limits.max_chars = 1;
+    let candidates = [
+        Candidate::new(Some(json!({"content":"first"}))),
+        Candidate::new(Some(json!({"content":"second"}))),
+    ];
+    let query = json!({"classification":{"predicates":["find evidence"]}});
+    let run = |prior| {
+        select_source(
+            &window.selection,
+            &query,
+            prior,
+            &candidates,
+            SelectionUnit::Hits,
+        )
+        .unwrap_or_else(|_| panic!("candidate page"))
+    };
+    let first = run(None);
+    let opening = first.next_candidates().expect("the rest").to_owned();
+    let judged = run(Some(&opening));
+    let requests = window.long_requests();
+    assert!(requests > 0, "the provider answered in the long window");
+    let notice = judged.long_context_notice.expect("the retry is disclosed");
+    assert!(
+        notice.contains(&format!("{BILLED} input tokens billed.")) && !notice.contains("original"),
+        "{notice}"
+    );
+    let replay = run(Some(&opening));
+    assert_eq!(window.long_requests(), requests, "the replay sends nothing");
+    assert_eq!(
+        replay.receipt.usage.as_ref().map(|usage| usage.calls),
+        Some(0)
+    );
+    let notice = replay.long_context_notice.expect("the retry is still true");
+    assert!(
+        notice.contains("retried in the long-context window (slower, less accurate)")
+            && notice.contains(&format!(
+                "{BILLED} input tokens billed by the original read."
+            )),
+        "{notice}"
+    );
+}
+
+/// The provider's response contract requires `usage`, so a long-window
+/// answer without it never reaches the notice as a billed-token claim: the
+/// page fails as an invalid provider response, counts those requests as
+/// unknown usage and states no token total. (The notice's own "unknown"
+/// wording is pinned at `judgment::tests::usage`.)
+#[test]
+fn a_long_window_answer_without_usage_is_refused_not_billed_as_a_number() {
+    use crate::tools::selection::long_window_fake::LongWindow;
+    let window = LongWindow::start_without_usage();
+    let files: Vec<Value> = (0..2)
+        .map(|i| json!({"path":format!("{i}.rs"),"lines":[format!("1\tfn candidate_{i}() {{}}")]}))
+        .collect();
+    let mut output = json!({"results":[{"index":0,"data":{"owner":"o","repo":"r","files":files}}]});
+    let query = json!({"owner":"o","repo":"r","keywords":["fn"],
+        "classification":{"predicates":["Does this define a function?"]}});
+    apply_code_rows(
+        &mut output,
+        query.clone(),
+        &mut query.clone(),
+        &window.selection,
+    )
+    .expect("classified page");
+    assert!(window.long_requests() > 0, "the long window was tried");
+    let data = &output["results"][0]["data"];
+    assert_eq!(data["errorCode"], "invalidClassificationResponse", "{data}");
+    let usage = &data["selection"]["usage"];
+    assert_eq!(usage["knownUsageCalls"], 0, "{data}");
+    assert!(usage["unknownUsageCalls"].as_u64() > Some(0), "{data}");
+    assert!(
+        !data.to_string().contains("input tokens billed"),
+        "no billed total is claimed: {data}"
+    );
+}
+
+/// A query stating the contract default `page: 1` emits candidate pages
+/// that omit it; each emitted call, replayed as is, digests the same
+/// provider page, so the walk reaches every file instead of going stale.
+#[test]
+fn a_default_page_walk_follows_each_emitted_candidate_page() {
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let (mut runtime, calls) = selecting_runtime(&executor);
+    runtime.limits.max_chars = 1;
+    let files: Vec<Value> = (0..3)
+        .map(|i| json!({"path":format!("{i}.rs"),"lines":[format!("1\tfn candidate_{i}() {{}}")]}))
+        .collect();
+    let original = json!({"results":[{"index":0,"data":{"owner":"o","repo":"r","files":files}}]});
+    let mut query = json!({"owner":"o","repo":"r","page":1,"keywords":["fn"],
+        "classification":{"predicates":["Does this define a function?"]}});
+    let mut seen = HashSet::new();
+    loop {
+        let mut output = original.clone();
+        apply_code_rows(&mut output, query.clone(), &mut query.clone(), &runtime)
+            .expect("candidate page");
+        let data = &output["results"][0]["data"];
+        assert!(data.get("errorCode").is_none(), "{query} replays: {data}");
+        for file in data["files"].as_array().expect("selected files") {
+            assert!(seen.insert(file["path"].as_str().unwrap().to_owned()));
+        }
+        let next = &data["next"]["nextCandidatePage"]["input"]["queries"][0];
+        if next.is_null() {
+            break;
+        }
+        assert!(
+            next.get("page").is_none(),
+            "the default page is dropped: {next}"
+        );
+        query = next.clone();
+    }
+    assert_eq!(seen.len(), 3, "every file reached once");
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+}
+
 #[test]
 fn provider_candidate_pages_cover_the_same_page_and_refuse_source_drift() {
     let executor = tokio::runtime::Runtime::new().expect("runtime");

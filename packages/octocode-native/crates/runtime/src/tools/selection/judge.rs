@@ -270,7 +270,10 @@ impl SelectionJudge for Evaluator {
                     async move {
                         // One request's time starts when it runs, not when
                         // the page does; the call's deadline bounds them all.
-                        let budget = self.budget(context.deadline, context.cancellation.clone());
+                        let budget = self.budget(
+                            crate::execution::cancel::deadline_of(context),
+                            context.cancellation.clone(),
+                        );
                         let outcome = self
                             .evaluate_questions(
                                 EvaluationInput {

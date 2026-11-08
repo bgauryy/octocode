@@ -124,7 +124,11 @@ pub(crate) fn process_fetched_content_selected<S: ContentScan>(
         query_json: std::cell::OnceCell::new(),
     };
     if ext.count == Some(0) {
-        return select_no_match(&selection_input, no_match(q, &source));
+        let mut missed = no_match(q, &source);
+        if ext.match_limited {
+            disclose_match_limit(&mut missed, ext);
+        }
+        return select_no_match(&selection_input, missed);
     }
     let mut view = match select_view(
         q,
@@ -318,3 +322,14 @@ pub(crate) fn compress_ranges(lines: &[usize]) -> Vec<LineRange> {
 
 #[cfg(test)]
 mod tests;
+
+/// A scan the memory budget stopped before any match it held fell in the
+/// selection: the empty row is partial, not a miss, and says why.
+fn disclose_match_limit(row: &mut LocalFetchResult, ext: super::extraction::Extraction) {
+    row.is_partial = Some(true);
+    row.partial_reasons = vec![PartialReason::ScanBudget];
+    row.warnings.extend(ext.warnings);
+    if let Some(lead) = ext.next.text_search {
+        row.next.get_or_insert_with(NextCalls::default).text_search = Some(lead);
+    }
+}

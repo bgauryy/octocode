@@ -1,6 +1,6 @@
 ---
 name: rust-best-practices
-description: "Write or review Rust when ownership, types, crates, workspace structure, builds, testing, performance, memory or safety need a decision; includes CLI/TUI, subprocess, napi-rs and parsing boundaries."
+description: "Write or review Rust when ownership, types, crates, workspace structure, builds, testing, performance, memory or safety need a decision; includes CLI/TUI, subprocess and parsing boundaries, and napi-rs (for napi-rs projects; not used in this repo)."
 ---
 
 # Rust Best Practices
@@ -9,12 +9,12 @@ Read the owning crate’s `Cargo.toml`, `src/` and target code. Identify the req
 
 ## Resources
 
-Open the page for the decision at hand.
+Read [basics](basics.md) first as the quick-start, then open the page for the decision at hand.
 
 - Choose [idioms](references/idioms.md) for errors, borrowing or async cleanup and [types and patterns](references/types-and-patterns.md) for structs, enums, traits or pointers.
 - Use [crate structure](references/crate-structure.md) for dependency direction and extraction, or [workspace](references/workspace.md) for manifests, features, MSRV and lockfiles.
 - Measure compile time and target size with [build profiles](references/build-profiles.md). For runtime cost, RSS or allocation, use [performance and memory](references/performance-and-memory.md). Support a performance claim with a `--release` benchmark or profile.
-- Use [safety and FFI](references/safety-and-ffi.md) for untrusted input, panics, threads and boundary invariants. Require a demonstrated need for `unsafe` and a written safety invariant per block. [napi](references/napi.md) covers JS signatures and platform packages.
+- Use [safety and FFI](references/safety-and-ffi.md) for untrusted input, panics, threads and boundary invariants. Require a demonstrated need for `unsafe` and a written safety invariant per block. [napi](references/napi.md) covers JS signatures and platform packages (for napi-rs projects; not used in this repo).
 - Open [CLI/TUI/subprocess](references/cli-tui-subprocess.md) for streams, exits and child cleanup, or [parsing and codegen](references/parsing-and-codegen.md) for source coordinates and generated contracts.
 - Use the [Octocode guide](references/octocode-usage.md) to inspect source, [sources and crates](references/sources-and-crates.md) to check the official canon or a dependency, and [testing and tooling](references/testing-and-tooling.md) for the crate’s verification gates.
 

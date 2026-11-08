@@ -21,6 +21,17 @@ fn locks(dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// The notices of `call` about the store at `dir`. A notice raised outside any
+/// scope reaches every live one, so another test's refusal can sit in a call's
+/// notices; only this store's are this test's evidence.
+fn store_notices(call: &octocode_io::notice::Scope, dir: &Path) -> Vec<String> {
+    let dir = dir.display().to_string();
+    call.notices()
+        .into_iter()
+        .filter(|notice| notice.contains(&dir))
+        .collect()
+}
+
 fn store(dir: &Path) -> Store<u64> {
     Store::new(CacheConfig::derived(), Some(dir.into()))
 }
@@ -139,8 +150,51 @@ fn a_write_refused_at_its_deadline_reports_it_and_is_said() {
     );
     assert!(!kept);
     assert!(store.get(&key("late", "x")).is_none());
-    assert_eq!(call.notices().len(), 1, "{:?}", call.notices());
-    assert!(call.notices()[0].contains("was not saved"));
+    let notices = store_notices(&call, dir.path());
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert!(notices[0].contains("was not saved"));
+}
+
+/// B75 F1: a write waits on a held store under its request's stop flag, so a
+/// cancel ends the wait at once, whatever the deadline, instead of leaving the
+/// cancelled request joined to a thread only the holder releases.
+#[test]
+fn a_cancel_ends_a_write_waiting_on_a_held_store() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store(dir.path());
+    let scan = hold_the_store(dir.path());
+    let stopped = std::sync::Arc::new(AtomicBool::new(false));
+    let (done, ended) = std::sync::mpsc::channel();
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let call = octocode_io::notice::Scope::default();
+            let in_call = call.enter();
+            let kept = octocode_engine::deep_stack::while_stoppable(&stopped, || {
+                let deadline = std::time::Instant::now() + crate::execution::MAX_TIMEOUT;
+                store
+                    .put_until(deadline, key("cancelled", "x"), 1, 8, volatile(600))
+                    .1
+            });
+            drop(in_call);
+            // B75 R1c: a cancelled call is not told its store was busy.
+            assert_eq!(
+                store_notices(&call, dir.path()),
+                Vec::<String>::new(),
+                "no busy notice"
+            );
+            let _ = done.send(kept);
+        });
+        std::thread::sleep(Duration::from_millis(200));
+        stopped.store(true, Ordering::Relaxed);
+        let answer = ended.recv_timeout(Duration::from_secs(1));
+        // Release the holder so a wait the cancel missed still ends the test.
+        drop(scan);
+        assert_eq!(
+            answer,
+            Ok(false),
+            "the cancelled write ends within 1 s, not kept"
+        );
+    });
 }
 
 /// A write only later reuse reads gives up sooner, and is said too: nobody would
@@ -157,7 +211,9 @@ fn a_reuse_write_refused_for_a_busy_store_is_said() {
             .put_confirmed(key("reuse", "x"), 1, 8, volatile(600))
             .1
     );
-    assert!(call.notices()[0].contains("was not saved"));
+    let notices = store_notices(&call, dir.path());
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert!(notices[0].contains("was not saved"));
 }
 
 /// Two writers and a sweep that never stops. Each writer's turn on a key with no

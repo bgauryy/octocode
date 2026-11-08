@@ -219,7 +219,7 @@ fn secret_fields_name_every_rewritten_leaf() {
 fn continuation_shaped_values_are_not_credentials() {
     let policy = ContentSecurity::new();
     for value in [
-        "lexical-live-v2:845e0d1f0b51e9d91d398dac8fdc9d3a0b88cb954e6434e78a56ff2b753a9a16",
+        "lexical-live-0123456789abcdef:845e0d1f0b51e9d91d398dac8fdc9d3a0b88cb954e6434e78a56ff2b753a9a16",
         "824df86de3bc3a3ff0c6201874d42955e8b5b12a0",
         "3bc3a3ff0",
         "MAX_STRING_LENGTH",

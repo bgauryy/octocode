@@ -145,9 +145,268 @@ fn cpp_class_owns_its_member_function_declarations() {
         assert_eq!(method["kind"], "method", "{name}");
         assert_eq!(method["parent"], class["id"], "{name}");
     }
-    assert!(
-        !declarations.iter().any(|item| item["name"] == "field"),
-        "plain fields stay out: {declarations:?}"
+    let field = declarations
+        .iter()
+        .find(|item| item["name"] == "field")
+        .unwrap_or_else(|| panic!("field: {declarations:?}"));
+    assert_eq!(field["kind"], "property");
+    assert_eq!(field["parent"], class["id"]);
+}
+
+/// A data-member case: path, source, the type, its `(member, kind, 1-based
+/// line)` rows, and the locals that stay out.
+type MemberCase = (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static [(&'static str, &'static str, u32)],
+    &'static [&'static str],
+);
+
+/// Every data member a type declares is a declaration of that type, in the
+/// outline and the graph facts alike: each declarator of a multi-name field
+/// (`int a, b;`), named on its own line, with a constant field's kind kept.
+/// Locals of a body and members of a literal stay out.
+#[test]
+fn data_members_are_declarations_of_their_type() {
+    let cases: &[MemberCase] = &[
+        #[cfg(feature = "tree-sitter-c-sharp")]
+        (
+            "Square.cs",
+            "public class Square\n{\n    public int Side;\n    private int a, b;\n    public event System.EventHandler Changed;\n    public const int Max = 4, Min = 0;\n    public int Area() { int local = Side; return local; }\n}\n",
+            "Square",
+            &[
+                ("Side", "property", 3),
+                ("a", "property", 4),
+                ("b", "property", 4),
+                ("Changed", "property", 5),
+                ("Max", "constant", 6),
+                ("Min", "constant", 6),
+            ],
+            &["local"],
+        ),
+        (
+            "Square.java",
+            "public class Square {\n    public int side;\n    private int a, b;\n    static final int MAX = 1, MIN = 0;\n    int area() { int local = side; return local; }\n}\n",
+            "Square",
+            &[
+                ("side", "property", 2),
+                ("a", "property", 3),
+                ("b", "property", 3),
+                ("MAX", "constant", 4),
+                ("MIN", "constant", 4),
+            ],
+            &["local"],
+        ),
+        (
+            "point.c",
+            "struct P {\n    int x;\n    int *p, y[3];\n};\nint main(void) { int local = 0; return local; }\n",
+            "P",
+            &[
+                ("x", "property", 2),
+                ("p", "property", 3),
+                ("y", "property", 3),
+            ],
+            &["local"],
+        ),
+        #[cfg(feature = "tree-sitter-cpp")]
+        (
+            "square.cpp",
+            "class Square {\npublic:\n    int side;\n    int a, b;\n    int area() { int local = side; return local; }\n};\n",
+            "Square",
+            &[
+                ("side", "property", 3),
+                ("a", "property", 4),
+                ("b", "property", 4),
+            ],
+            &["local"],
+        ),
+        (
+            "square.go",
+            "package p\n\ntype Square struct {\n\tSide int\n\tA, B int\n}\n\nfunc use() int { s := Square{Side: 1}; return s.Side }\n",
+            "Square",
+            &[
+                ("Side", "property", 4),
+                ("A", "property", 5),
+                ("B", "property", 5),
+            ],
+            &["s"],
+        ),
+        (
+            "square.rs",
+            "pub struct Square {\n    pub side: i32,\n    other: u8,\n}\nfn make() -> Square { let local = 1; Square { side: local, other: 0 } }\n",
+            "Square",
+            &[("side", "property", 2), ("other", "property", 3)],
+            &["local"],
+        ),
+        (
+            "square.py",
+            "class Square:\n    side: int = 1\n    LIMIT = 3\n    def area(self):\n        local = self.side\n        return local\n",
+            "Square",
+            &[("side", "property", 2), ("LIMIT", "constant", 3)],
+            &["local"],
+        ),
+        #[cfg(feature = "tree-sitter-scala")]
+        (
+            "Square.scala",
+            "class Square {\n  var side: Int = 1\n  def area(): Int = { var local = side; local }\n}\n",
+            "Square",
+            &[("side", "variable", 2)],
+            &["local"],
+        ),
+    ];
+    assert_members(cases);
+}
+
+/// Each case's members are declared once each, as its type's members of
+/// their kind on their line, in the graph facts and the outline alike, and
+/// none of its locals is.
+fn assert_members(cases: &[MemberCase]) {
+    for (path, source, owner, members, locals) in cases {
+        let graph = extract_graph_facts_with_metadata(source, path)
+            .expect("graph facts")
+            .facts;
+        let outline =
+            crate::signatures::extract_declarations_document(source, path).expect("declarations");
+        for (lane, document) in [("graph", &graph), ("outline", &outline)] {
+            assert_declares(lane, path, &document.declarations, owner, members, locals);
+        }
+    }
+}
+
+fn assert_declares(
+    lane: &str,
+    path: &str,
+    declarations: &[crate::graph::GraphFactDeclaration],
+    owner: &str,
+    members: &[(&str, &str, u32)],
+    locals: &[&str],
+) {
+    let parent = declarations
+        .iter()
+        .find(|declaration| declaration.name == owner)
+        .unwrap_or_else(|| panic!("{lane} {path} {owner}: {declarations:?}"));
+    for (name, kind, line) in members {
+        let named = declarations
+            .iter()
+            .filter(|declaration| declaration.name == *name)
+            .collect::<Vec<_>>();
+        let [member] = named[..] else {
+            panic!("{lane} {path} {name} once: {declarations:?}");
+        };
+        assert_eq!(member.kind, *kind, "{lane} {path} {name}");
+        assert_eq!(
+            member.selection_range.start.line + 1,
+            *line,
+            "{lane} {path} {name}"
+        );
+        assert_eq!(
+            member.parent.as_deref(),
+            Some(parent.id.as_str()),
+            "{lane} {path} {name}"
+        );
+    }
+    for local in locals {
+        assert!(
+            !declarations
+                .iter()
+                .any(|declaration| declaration.name == *local),
+            "{lane} {path} local {local}: {declarations:?}"
+        );
+    }
+}
+
+/// A Go embedded field is named by its type, through a package qualifier,
+/// a pointer and type arguments, as the language names it.
+#[test]
+fn go_embedded_fields_are_named_by_their_type() {
+    assert_members(&[(
+        "embed.go",
+        "package p\n\nimport \"io\"\n\ntype S struct {\n\tio.Reader\n\t*Base\n\tName string\n\tList[int]\n}\n",
+        "S",
+        &[
+            ("Reader", "property", 6),
+            ("Base", "property", 7),
+            ("Name", "property", 8),
+            ("List", "property", 9),
+        ],
+        &["io", "int"],
+    )]);
+}
+
+/// A Python instance attribute is declared by its first assignment through
+/// `__init__`'s receiver, at any depth of `__init__`'s own body; a later
+/// assignment, another object's attribute, a nested attribute, a nested
+/// function's assignment and another method's assignment declare nothing.
+#[test]
+fn python_instance_attributes_are_declared_once_from_init() {
+    assert_members(&[(
+        "inst.py",
+        "class Square:\n    side: int = 1\n    def __init__(this, n):\n        this.n = n\n        this.n = n + 1\n        if n:\n            this.extra: int = 2\n        other.y = 3\n        this.a.b = 4\n        def inner(me):\n            me.z = 1\n    def area(self):\n        self.cache = 1\n",
+        "Square",
+        &[
+            ("side", "property", 2),
+            ("n", "property", 4),
+            ("extra", "property", 7),
+        ],
+        &["y", "a", "b", "z", "cache"],
+    )]);
+}
+
+/// Every grammar's enum members are its enum's `enumMember`s.
+#[test]
+fn enum_members_are_declarations_of_their_enum() {
+    let members: &[(&str, &str, u32)] = &[("A", "enumMember", 1), ("B", "enumMember", 1)];
+    assert_members(&[
+        (
+            "en.rs",
+            "enum E { A, B(u8), C { x: u8 } }\n",
+            "E",
+            &[
+                ("A", "enumMember", 1),
+                ("B", "enumMember", 1),
+                ("C", "enumMember", 1),
+            ],
+            &[],
+        ),
+        (
+            "En.java",
+            "enum E { A, B; void f() {} }\n",
+            "E",
+            members,
+            &[],
+        ),
+        #[cfg(feature = "tree-sitter-c-sharp")]
+        ("En.cs", "enum E { A, B = 2 }\n", "E", members, &[]),
+        ("en.c", "enum E { A, B = 2 };\n", "E", members, &[]),
+        #[cfg(feature = "tree-sitter-cpp")]
+        ("en.cpp", "enum class E { A, B };\n", "E", members, &[]),
+        #[cfg(feature = "tree-sitter-scala")]
+        (
+            "En.scala",
+            "enum E:\n  case A, B\n  case C(x: Int)\n",
+            "E",
+            &[
+                ("A", "enumMember", 2),
+                ("B", "enumMember", 2),
+                ("C", "enumMember", 3),
+            ],
+            &["x"],
+        ),
+        ("en.ts", "enum E { A, B = 2 }\n", "E", members, &[]),
+    ]);
+    // The tree-sitter lane TypeScript falls back to names them as oxc does.
+    let source = "enum E { A, B = 2 }\n";
+    let facts = extract_graph_facts_with_metadata_with_extension(source, "en.ts", "ts")
+        .expect("tree-sitter graph facts")
+        .facts;
+    assert_declares(
+        "tree-sitter",
+        "en.ts",
+        &facts.declarations,
+        "E",
+        members,
+        &[],
     );
 }
 
@@ -245,7 +504,12 @@ fn row(name: &str, kind: &str, exported: bool) -> (String, String, bool) {
 fn rust_unions_are_declared() {
     assert_eq!(
         kinds("pub union U { a: u8 }\nunion P { b: u8 }\n", "a.rs"),
-        [row("U", "struct", true), row("P", "struct", false)]
+        [
+            row("U", "struct", true),
+            row("a", "property", false),
+            row("P", "struct", false),
+            row("b", "property", false)
+        ]
     );
 }
 
@@ -265,7 +529,8 @@ fn scala_enums_and_givens_are_declared() {
         "a.scala",
     );
     assert_eq!(declared[0], row("Color", "enum", true));
-    assert_eq!(declared[1], row("intOrd", "constant", true));
+    assert_eq!(declared[1], row("Red", "enumMember", false));
+    assert_eq!(declared[2], row("intOrd", "constant", true));
     // An anonymous given has only the type it provides to name it.
-    assert_eq!(declared[2], row("Ord[String]", "constant", true));
+    assert_eq!(declared[3], row("Ord[String]", "constant", true));
 }

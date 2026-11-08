@@ -1,17 +1,24 @@
 //! Reachability from entrypoints and unused-export detection.
 use super::*;
 
-/// Production files no entrypoint reaches: `(file, orphan)` rows, files
-/// only tests reach, and the count of skipped Python library files.
+/// Production files no production entrypoint reaches: `(file, orphan)`
+/// rows, files only tests or support code (an example or bench that is a
+/// Cargo entry) reach, and the count of skipped Python library files.
 pub(super) fn unreached_files(v: &View, entries: &[u32]) -> (Vec<(u32, bool)>, Vec<u32>, usize) {
-    let prod = v.reach(entries, false);
+    // Support entries seed the non-production walk below, with the tests.
+    let production_entries = entries
+        .iter()
+        .copied()
+        .filter(|entry| v.flags(*entry) & ROLE_NOT_PRODUCTION == 0)
+        .collect::<Vec<_>>();
+    let prod = v.reach(&production_entries, false);
     // Test seeds: test/config files plus test functions living inside
     // production files (Rust `mod tests`, pytest functions).
     let tests = v
         .files
         .iter()
         .copied()
-        .filter(|f| v.flags(*f) & (ROLE_TEST | ROLE_CONFIG) != 0)
+        .filter(|f| v.flags(*f) & ROLE_NOT_PRODUCTION != 0)
         .chain(v.t.node_ids().filter(|id| {
             let node = &v.t.nodes[*id as usize];
             node.kind == NodeKind::Symbol && node.flags & FLAG_TEST != 0
@@ -132,12 +139,14 @@ pub(super) fn detect_reachability(c: &mut Ctx) {
                 detector: "test-only",
                 subject: key.clone(),
                 id_parts: &[],
-                title: "Production file used only by tests".into(),
+                title: "Production file used only by tests or support code".into(),
                 severity: 0.45,
                 confidence: entry_quality,
                 impact: 0.2,
                 evidence: json!({"reachedFromTests": true, "reachedFromEntrypoints": false}),
-                controls: vec!["tests and configs treated as a separate entry class"],
+                controls: vec![
+                    "tests, configs and support code (examples, benches) treated as a separate entry class",
+                ],
                 verify: vec![step(
                     ToolId::GraphQuery,
                     json!({"operation": "dependents", "target": key, "edges": ["imports", "uses", "calls"]}),

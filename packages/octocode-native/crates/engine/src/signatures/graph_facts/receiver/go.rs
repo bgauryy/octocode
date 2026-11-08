@@ -1,5 +1,121 @@
 //! Go receiver bindings.
+use super::rust::call_reference;
 use super::*;
+use crate::graph::GraphReceiverCall;
+
+/// The type of a Go function's or method's first result, as written in its
+/// package (`*Store` is `Store`, `pkg.T` stays `pkg.T`): the value a
+/// `x, err := f()` binds to `x`. A result that names no type (slice, map,
+/// function), a result named by a type parameter (`func F[T any]() T`: the
+/// caller's type argument, not a type of the package) or a declaration
+/// without results has none.
+pub(in crate::signatures::graph_facts) fn go_return_type(
+    node: Node<'_>,
+    content: &str,
+) -> Option<String> {
+    matches!(node.kind(), "function_declaration" | "method_declaration").then_some(())?;
+    let result = node.child_by_field_name("result")?;
+    let first = if result.kind() == "parameter_list" {
+        named_children(result)
+            .into_iter()
+            .next()?
+            .child_by_field_name("type")?
+    } else {
+        result
+    };
+    let ty = clean_type_text(node_text(first, content)?, Lang::Go)?;
+    (!type_parameters(node, content).contains(&ty.as_str())).then_some(ty)
+}
+
+/// The names a Go declaration binds as type parameters: its own `[T any]`
+/// list and, for a method, the type arguments of its receiver
+/// (`func (b Box[T]) Get() T`).
+fn type_parameters<'a>(node: Node<'_>, content: &'a str) -> Vec<&'a str> {
+    let mut names = Vec::new();
+    if let Some(list) = node.child_by_field_name("type_parameters") {
+        for declaration in named_children(list) {
+            let mut cursor = declaration.walk();
+            names.extend(
+                declaration
+                    .children_by_field_name("name", &mut cursor)
+                    .filter_map(|name| node_text(name, content)),
+            );
+        }
+    }
+    if let Some(receiver) = node.child_by_field_name("receiver") {
+        receiver_arguments(receiver, false, content, &mut names);
+    }
+    names
+}
+
+/// The type identifiers written inside a receiver's type arguments.
+fn receiver_arguments<'a>(
+    node: Node<'_>,
+    in_arguments: bool,
+    content: &'a str,
+    names: &mut Vec<&'a str>,
+) {
+    if in_arguments && node.kind() == "type_identifier" {
+        names.extend(node_text(node, content));
+    }
+    let in_arguments = in_arguments || node.kind() == "type_arguments";
+    for child in named_children(node) {
+        receiver_arguments(child, in_arguments, content, names);
+    }
+}
+
+/// The call expression a Go value is, through parentheses.
+fn value_call(mut value: Node<'_>) -> Option<Node<'_>> {
+    while value.kind() == "parenthesized_expression" {
+        value = value.named_child(0)?;
+    }
+    (value.kind() == "call_expression").then_some(value)
+}
+
+/// The call that supplies the value of binding `index` of a Go assignment of
+/// `rights` to `lefts`: a call per name, or the first name of a multi-value
+/// call (`s, err := f()`), whose first result it is.
+fn bound_call<'t>(index: usize, names: usize, rights: &[Node<'t>]) -> Option<Node<'t>> {
+    let value = match (names == rights.len(), index, rights) {
+        (true, _, _) => rights.get(index)?,
+        (false, 0, [only]) => only,
+        _ => return None,
+    };
+    value_call(*value)
+}
+
+impl<'t> ReceiverTypes<'t> {
+    /// The call whose value the receiver of the Go member call `call` is: the
+    /// receiver itself (`f().M()`, `pkg.F().M()`) or the call a local
+    /// without a written type was bound to. The receiver's `receiver_type`
+    /// beside it is only a constructor-name guess (`NewT()` is a `T`), which
+    /// the callee's declared result outranks.
+    pub(in crate::signatures::graph_facts) fn go_receiver_call(
+        &mut self,
+        call: Node<'t>,
+        path: &[Node<'t>],
+        content: &str,
+    ) -> Option<GraphReceiverCall> {
+        let function = call.child_by_field_name("function")?;
+        let function = if function.kind() == "generic_function" {
+            function.child_by_field_name("function")?
+        } else {
+            function
+        };
+        let mut receiver = self.lang.member_parts(function)?.0;
+        while receiver.kind() == "parenthesized_expression" {
+            receiver = receiver.named_child(0)?;
+        }
+        match receiver.kind() {
+            "call_expression" => Some(call_reference(receiver, false)),
+            "identifier" => {
+                let name = node_text(receiver, content)?;
+                self.local(receiver, path, name, content)?.value_call
+            }
+            _ => None,
+        }
+    }
+}
 
 pub(super) fn go_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Binding>) {
     let node = up.node;
@@ -48,7 +164,13 @@ pub(super) fn go_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Bindi
                 } else {
                     None
                 };
+                let value = bound_call(index, lefts.len(), &rights)
+                    .filter(|_| name.kind() == "identifier")
+                    .map(|call| call_reference(call, false));
                 bind_pattern(*name, ty, node.end_byte(), until, content, out);
+                if let Some(binding) = out.last_mut().filter(|_| value.is_some()) {
+                    binding.value_call = value;
+                }
             }
         }
         "var_spec" => {
@@ -72,7 +194,13 @@ pub(super) fn go_bindings<'t>(up: Up<'_, 't>, content: &str, out: &mut Vec<Bindi
                         None
                     }
                 });
+                let value = bound_call(index, names.len(), &values)
+                    .filter(|_| declared.is_none())
+                    .map(|call| call_reference(call, false));
                 push(out, *name, ty, node.end_byte(), until, content);
+                if let Some(binding) = out.last_mut().filter(|_| value.is_some()) {
+                    binding.value_call = value;
+                }
             }
         }
         "range_clause" => {

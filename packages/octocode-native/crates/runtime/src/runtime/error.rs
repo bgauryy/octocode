@@ -82,7 +82,7 @@ pub fn mcp_result(
     result: Result<ToolOutcome, RuntimeError>,
 ) -> Result<McpResult, RuntimeError> {
     let (text, is_error) = match result {
-        Ok(outcome) => (wire_json(&outcome.structured_content), outcome.all_failed),
+        Ok(outcome) => (wire_json(&outcome.structured_content), outcome.is_error()),
         Err(error) if matches!(error.code, ErrorCode::Cancelled | ErrorCode::Closed) => {
             return Err(error);
         }

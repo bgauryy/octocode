@@ -295,32 +295,16 @@ impl ResolveContext {
     }
 }
 
-/// Whether `name` is a module of the Python standard library
-/// (`sys.stdlib_module_names`, with the modules recent versions removed): such a
-/// name means the library unless the importer's own root holds one.
+/// Whether `name` is a top-level module of the Python standard library, past
+/// and present: such a name means the library unless the importer's own root
+/// holds one. The names are generated, not written here
+/// (`skills-dev/octocode-graph-dev/scripts/gen-python-stdlib.mjs`).
 fn is_standard_module(name: &str) -> bool {
-    STANDARD_MODULES
-        .split_ascii_whitespace()
-        .any(|module| module == name)
+    static MODULES: std::sync::LazyLock<HashSet<&'static str>> = std::sync::LazyLock::new(|| {
+        include_str!("python_stdlib.txt")
+            .lines()
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .collect()
+    });
+    MODULES.contains(name)
 }
-
-const STANDARD_MODULES: &str = "__future__ _thread abc aifc annotationlib antigravity argparse array ast asynchat asyncio \
-     asyncore atexit audioop base64 bdb binascii binhex bisect builtins bz2 cProfile calendar \
-     cgi cgitb chunk cmath cmd code codecs codeop collections colorsys compileall compression \
-     concurrent configparser contextlib contextvars copy copyreg crypt csv ctypes curses \
-     dataclasses datetime dbm decimal difflib dis distutils doctest email encodings ensurepip \
-     enum errno faulthandler fcntl filecmp fileinput fnmatch fractions ftplib functools gc \
-     genericpath getopt getpass gettext glob graphlib grp gzip hashlib heapq hmac html http \
-     idlelib imaplib imghdr imp importlib inspect io ipaddress itertools json keyword lib2to3 \
-     linecache locale logging lzma mailbox mailcap marshal math mimetypes mmap modulefinder \
-     msilib msvcrt multiprocessing netrc nis nntplib nt ntpath nturl2path numbers opcode \
-     operator optparse os ossaudiodev pathlib pdb pickle pickletools pipes pkgutil platform \
-     plistlib poplib posix posixpath pprint profile profiling pstats pty pwd py_compile pyclbr \
-     pydoc pydoc_data pyexpat queue quopri random re readline reprlib resource rlcompleter \
-     runpy sched secrets select selectors shelve shlex shutil signal site smtpd smtplib sndhdr \
-     socket socketserver spwd sqlite3 ssl stat statistics string stringprep struct subprocess \
-     sunau symtable sys sysconfig syslog tabnanny tarfile telnetlib tempfile termios textwrap \
-     this threading time timeit tkinter token tokenize tomllib trace traceback tracemalloc tty \
-     turtle turtledemo types typing unicodedata unittest urllib uu uuid venv warnings wave \
-     weakref webbrowser winreg winsound wsgiref xdrlib xml xmlrpc zipapp zipfile zipimport \
-     zlib zoneinfo";

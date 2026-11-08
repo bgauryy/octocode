@@ -1,7 +1,6 @@
 //! Continuations and snapshot identity: the next-page calls a result
 //! names and the fingerprint that proves a cursor still answers its query.
 
-use super::layout::*;
 use super::local_search_query;
 use crate::id::ToolId;
 use crate::policy::prune::DefaultsFlag;
@@ -18,8 +17,7 @@ use serde_json::{Value, json};
 /// snapshot.
 pub(super) fn cursor(
     query: &LocalSearchQuery,
-    parsed: &octocode_engine::types::TextSearchResult,
-    layout: &Layout,
+    view: &super::page_view::PageView,
     result_identity: &str,
     reusable: Option<super::manifest::Fresh>,
     policy_key: String,
@@ -28,20 +26,17 @@ pub(super) fn cursor(
 ) -> Result<(Option<Value>, Option<Value>, bool), ToolError> {
     let page = local_search_query::page(query).max(1);
     let match_page = local_search_query::match_page(query).max(1);
+    let layout = &view.layout;
     let streamed = layout.streamed;
-    let empty = parsed.files.is_empty();
+    let empty = view.totals.files == 0;
     // A streamed page names its continuation; a grid page also needs the
     // snapshot while a shown file has rows beyond one match page.
     let snapshot = (selection.is_some()
         || (!empty
             && (local_search_query::snapshot(query).is_some()
                 || page < layout.total_pages
-                || (!streamed
-                    && parsed
-                        .files
-                        .iter()
-                        .any(|f| saturating_u32(f.matches.len()) > layout.matches_per)))))
-    .then(|| result_identity.to_owned());
+                || (!streamed && view.totals.over_matches_per))))
+        .then(|| result_identity.to_owned());
     if snapshot.is_some()
         && let Some(scan) = reusable
     {
@@ -54,8 +49,9 @@ pub(super) fn cursor(
     let leftover_matches = !layout.list
         && !streamed
         && layout.shown.iter().any(|(index, _)| {
-            saturating_u32(parsed.files[*index].matches.len())
-                > match_page.saturating_mul(layout.matches_per)
+            view.facts
+                .get(*index)
+                .is_some_and(|facts| facts.total > match_page.saturating_mul(layout.matches_per))
         });
     let (next, match_next) = build_next(
         query,
@@ -174,17 +170,19 @@ pub(super) fn fingerprint(
         .optional_text(cap_text(&stats.cap_reasons).as_deref())
         .optional(stats.error_count.filter(|count| *count > 0))
         .optional_text(stats.first_error.as_deref());
-    // v6 binds what v5 bound (the source and complete value identities that
+    // The digest binds the source and complete value identities that
     // determine page cuts and duplicate ranking, including text outside
-    // visible rows), hashed from a byte encoding instead of JSON. v8 binds
-    // what v7 bound; its pages charge exact names for the files that decide
-    // the first page instead of a fixed first 64 files, so a v7 cursor would
-    // resume at another cut and restarts instead.
-    format!("{SNAPSHOT_SCHEME}{SNAPSHOT_VERSION}:{}", identity.finish())
+    // visible rows, hashed from a byte encoding. The build identity before it
+    // retires every cursor another build minted, so no version is bumped by
+    // hand when the page cut changes.
+    format!(
+        "{SNAPSHOT_SCHEME}{}:{}",
+        crate::build_identity::BUILD_IDENTITY,
+        identity.finish()
+    )
 }
 
-pub(super) const SNAPSHOT_SCHEME: &str = "lexical-live-v";
-pub(super) const SNAPSHOT_VERSION: u32 = 8;
+pub(super) const SNAPSHOT_SCHEME: &str = "lexical-live-";
 
 /// The cap reasons as one stable text, as the snapshot fingerprint binds
 /// them: comma-joined names in their fixed order, `None` when uncapped.
@@ -198,17 +196,17 @@ fn cap_text(reasons: &[octocode_engine::types::CapReason]) -> Option<String> {
     })
 }
 
-/// A `snapshot` no search could have issued: not `lexical-live-v<N>:` plus a
-/// SHA-256. That is input to correct; a well-formed snapshot of an older
-/// version or another result is stale and restarts instead.
+/// A `snapshot` no search could have issued: not `lexical-live-<build>:` plus a
+/// SHA-256. That is input to correct; a well-formed snapshot of another
+/// build or another result is stale and restarts instead.
 pub(super) fn malformed_snapshot(query: &LocalSearchQuery) -> Option<ToolError> {
     let snapshot = local_search_query::snapshot(query)?;
     let well_formed = snapshot
         .strip_prefix(SNAPSHOT_SCHEME)
         .and_then(|rest| rest.split_once(':'))
-        .is_some_and(|(version, digest)| {
-            !version.is_empty()
-                && version.bytes().all(|byte| byte.is_ascii_digit())
+        .is_some_and(|(build, digest)| {
+            !build.is_empty()
+                && build.bytes().all(|byte| byte.is_ascii_hexdigit())
                 && digest.len() == 64
                 && digest
                     .bytes()

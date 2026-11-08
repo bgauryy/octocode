@@ -12,7 +12,7 @@ use std::ops::Deref;
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 
-use super::{ContentSecurity, sanitize_json};
+use super::{ContentSecurity, JudgedLeaves, sanitize_json};
 
 /// A JSON envelope whose keys and string leaves passed the output gate.
 ///
@@ -28,7 +28,15 @@ use super::{ContentSecurity, sanitize_json};
 /// never reaches a file, the rule saved provider answers follow.
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(transparent)]
-pub struct Sanitized(Value, #[serde(skip)] bool);
+pub struct Sanitized(
+    Value,
+    #[serde(skip)] bool,
+    /// Tests: the judged leaves the gate honored, by text and judged path,
+    /// so a later edit or cut is checked against the same gate.
+    #[cfg(test)]
+    #[serde(skip)]
+    Vec<(String, String)>,
+);
 
 impl Sanitized {
     /// The envelope, leaving the proof (for the wire).
@@ -53,7 +61,22 @@ impl Sanitized {
         let _ = sanitize_json(&mut payload, &mut |text: &str, _: Option<&str>| {
             Ok::<_, std::convert::Infallible>(super::scrub_error_text(text))
         });
-        Self(payload, false)
+        Self::of(payload, false, Vec::new())
+    }
+
+    #[cfg(test)]
+    fn of(value: Value, held: bool, judged: Vec<(String, String)>) -> Self {
+        Self(value, held, judged)
+    }
+
+    #[cfg(not(test))]
+    fn of(value: Value, held: bool, _: Vec<(String, String)>) -> Self {
+        Self(value, held)
+    }
+
+    #[cfg(test)]
+    fn judged(&self) -> &[(String, String)] {
+        &self.2
     }
 
     /// Reshape the envelope in place after the gate. In tests every edit is
@@ -62,7 +85,7 @@ impl Sanitized {
     pub(crate) fn edit<R>(&mut self, reshape: impl FnOnce(&mut Value) -> R) -> R {
         let result = reshape(&mut self.0);
         #[cfg(test)]
-        assert_gate_fixed_point(&self.0);
+        assert_gate_fixed_point(&self.0, self.judged());
         result
     }
 
@@ -73,7 +96,10 @@ impl Sanitized {
     pub(crate) fn cut<E>(&self, cut: impl FnOnce(&Value) -> Result<Value, E>) -> Result<Self, E> {
         let page = cut(&self.0)?;
         #[cfg(test)]
-        assert_gate_fixed_point(&page);
+        assert_gate_fixed_point(&page, self.judged());
+        #[cfg(test)]
+        return Ok(Self(page, self.1, self.2.clone()));
+        #[cfg(not(test))]
         Ok(Self(page, self.1))
     }
 }
@@ -123,21 +149,46 @@ impl ContentSecurity {
     /// envelope [`Sanitized::held`].
     pub(crate) fn seal_output<E>(
         &self,
+        value: Value,
+        emails: bool,
+        check: impl Fn() -> Result<(), E>,
+    ) -> Result<Sanitized, E> {
+        self.seal_judged(value, &JudgedLeaves::default(), emails, check)
+    }
+
+    /// [`Self::seal_output`] of a value some of whose leaves a tool judged
+    /// against their whole source (`judged`, held beside the value): a
+    /// marked leaf whose text still has the marked digest passes only the
+    /// patterns that whole pass did not apply
+    /// ([`Self::sanitize_judged_leaf`]); every other leaf the full gate.
+    pub(crate) fn seal_judged<E>(
+        &self,
         mut value: Value,
+        judged: &JudgedLeaves,
         emails: bool,
         check: impl Fn() -> Result<(), E>,
     ) -> Result<Sanitized, E> {
         check()?;
+        #[cfg(test)]
+        let honored: Vec<(String, String)> = judged
+            .verified(&value)
+            .map(|(text, source)| (text.to_owned(), source.to_owned()))
+            .collect();
+        #[cfg(not(test))]
+        let honored = Vec::new();
         let mut held = false;
-        sanitize_json(&mut value, &mut |text, path| {
+        super::walk::sanitize_judged_json(&mut value, judged, &mut |text, path, source| {
             held |= path.is_some_and(crate::policy::discovery::is_sensitive_repository_file);
-            Ok(self.sanitize_leaf(text, path))
+            Ok(match source {
+                Some(source) => self.sanitize_judged_leaf(text, path, source),
+                None => self.sanitize_leaf(text, path),
+            })
         })?;
         if emails {
             check()?;
             sanitize_json(&mut value, &mut |text, _| Ok(self.redact_emails(text)))?;
         }
-        Ok(Sanitized(value, held))
+        Ok(Sanitized::of(value, held, honored))
     }
 }
 
@@ -151,12 +202,21 @@ impl Sanitized {
     }
 }
 
+/// Tests: `value` is what the gate leaves it. A leaf that is a piece of a
+/// leaf the gate honored as judged (a page cut from it) is judged as that
+/// leaf was.
 #[cfg(test)]
-fn assert_gate_fixed_point(value: &Value) {
+fn assert_gate_fixed_point(value: &Value, judged: &[(String, String)]) {
     let mut again = value.clone();
     let security = ContentSecurity::new();
     let _ = sanitize_json(&mut again, &mut |text, path| {
-        Ok::<_, std::convert::Infallible>(security.sanitize_leaf(text, path))
+        let source = judged
+            .iter()
+            .find(|(whole, _)| !text.is_empty() && whole.contains(text));
+        Ok::<_, std::convert::Infallible>(match source {
+            Some((_, source)) => security.sanitize_judged_leaf(text, path, source),
+            None => security.sanitize_leaf(text, path),
+        })
     });
     assert!(
         again == *value,
@@ -260,7 +320,8 @@ mod tests {
                 .expect("value")
                 .to_owned()
         };
-        for path in ["src/a.ts", "crates/b.rs"] {
+        let rust_member = "struct Cfg {\n    password: hunter2hunter2hunter2,\n}\n";
+        for (path, member) in [("src/a.ts", member), ("crates/b.rs", rust_member)] {
             assert_eq!(run(path, member), member, "{path}");
             let credential = format!("const t = \"{token}\";\n{pem}\n");
             let out = run(path, &credential);

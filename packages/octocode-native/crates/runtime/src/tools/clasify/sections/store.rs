@@ -8,12 +8,15 @@ use octocode_io::flight::KeyedFlight;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-/// Frozen assessment plans, and the cursors that name them, remain reachable
-/// for thirty minutes after their last use: an agent reads a page's hits before
-/// asking for the next, and a restart would bill the plan again.
-pub(crate) const PLAN_RETENTION: CacheClass = CacheClass::Volatile {
-    ttl: Duration::from_secs(30 * 60),
-};
+/// Frozen assessment plans, and the cursors and saved pages that name them,
+/// remain reachable for thirty minutes after their last use: an agent reads a
+/// page's hits before asking for the next, and a restart would bill the plan
+/// again. Idle, so every read restarts the lifetime each page states as
+/// `now + 30 min`.
+pub(crate) const PLAN_RETENTION: CacheClass = CacheClass::Idle { ttl: PLAN_IDLE };
+
+/// [`PLAN_RETENTION`]'s lifetime after the last use.
+pub(crate) const PLAN_IDLE: Duration = Duration::from_secs(30 * 60);
 
 /// Runtime-owned retention; policy/access identities are supplied by the same
 /// owner as display snapshots, never reconstructed from environment here.
@@ -50,8 +53,7 @@ impl Sessions {
             .map_err(|_| unavailable("The assessment storage directory is unavailable."))?;
         let path = disk.join(name);
         loop {
-            let wait = context
-                .deadline
+            let wait = crate::execution::cancel::deadline_of(context)
                 .saturating_duration_since(Instant::now())
                 .min(Duration::from_millis(100));
             match octocode_io::lock::lock_path_within(&path, wait, octocode_io::lock::LOCK_POLL) {
@@ -117,7 +119,13 @@ impl Sessions {
         };
         let bytes = octocode_engine::json_size::bytes(&session).unwrap_or(usize::MAX);
         self.store
-            .put_until(context.deadline, key, session, bytes, PLAN_RETENTION)
+            .put_until(
+                crate::execution::cancel::deadline_of(context),
+                key,
+                session,
+                bytes,
+                PLAN_RETENTION,
+            )
             .1
     }
 }

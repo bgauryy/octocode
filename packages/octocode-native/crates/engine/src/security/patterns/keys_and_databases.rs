@@ -26,7 +26,8 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         // an annotation. It names its own kind beside its data, in the same object,
         // so no path has to say what it is, and `detector::document` hides that
         // object's `data` and `stringData`: a ConfigMap beside it in a List stays.
-        regex: r###"\\*"kind\\*"\s*:\s*\\*"Secret\\*""###,
+        // JSONC and code may put comments before the value.
+        regex: r###"\\*"kind\\*"\s*:(?:\s|//[^\r\n]*|#[^\r\n]*|/\*(?:[^*]|\*+[^*/])*\*+/)*\\*"Secret\\*""###,
     },
     SecretPattern {
         name: "dockerComposeSecrets",
@@ -43,13 +44,16 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     },
     SecretPattern {
         name: "dotnetConnectionStrings",
-        // ASP.NET names them `Web.config`, `Web.Release.config`, `App.config`
-        // and `appsettings.Production.json`. A connection string sits under
-        // any key (`"Default": "…"`), so its own `Password=` is what marks it.
-        file_context: Some(
-            "(?i)(?:appsettings[^/\\\\]*\\.json|(?:web|app)(?:\\.[^/\\\\]*)?\\.config)$",
-        ),
-        regex: r###"(?i)['"][^'"\r\n]*\b(?:password|pwd)\s*=\s*(?P<secret>[^;'"\r\n]{4,})"###,
+        // A connection string (`Server=db;User Id=sa;Password=x`) sits under
+        // any key in any file (`Web.config`, `appsettings.json`, `.env`,
+        // code), so its own field list is what marks it: a `Password=` or
+        // `Pwd=` field after another `Name=value;` field, or before one.
+        // Only that field's value goes; the other fields stay. A field name
+        // opens a line or a value (a dotenv `NAME=` holding the string) or
+        // follows `;`, a quote or whitespace, so minified code (`,pwd=f(x),branch=y;`,
+        // `e.password=t.password;`) is no field.
+        file_context: None,
+        regex: r###"(?im)(?:^|[;='"\s])[A-Za-z][A-Za-z0-9 _]{0,30}=[^;=\r\n'"]*;[ \t]*(?:[A-Za-z][A-Za-z0-9 _]{0,30}=[^;=\r\n'"]*;[ \t]*)*?(?:password|pwd)[ \t]*=[ \t]*(?P<secret>[^;'"\r\n]+)|(?:^|[;='"\s])(?:password|pwd)[ \t]*=[ \t]*(?P<secret_first>[^;'"\r\n]+);[ \t]*[A-Za-z][A-Za-z0-9 _]{0,30}="###,
     },
     SecretPattern {
         name: "base64PemPrivateKey",
@@ -136,7 +140,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         name: "nostrSecretKey",
         file_context: None,
         // Bech32 of a Nostr secret key; the public form is `npub1`.
-        regex: r###"\bnsec1[02-9ac-hj-np-z]{58}\b"###,
+        regex: r###"nsec1[02-9ac-hj-np-z]{58}"###,
     },
     SecretPattern {
         name: "bip32ExtendedPrivateKey",
@@ -148,22 +152,22 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         name: "ageSecretKey",
         file_context: None,
         // X25519 and post-quantum identities, and a plugin's. Recipients read `age1`.
-        regex: r###"\bAGE-SECRET-KEY-(?:PQ-)?1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58,}\b|\bAGE-PLUGIN-[A-Z0-9-]+?-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{20,}\b"###,
+        regex: r###"AGE-SECRET-KEY-(?:PQ-)?1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58,}\b|AGE-PLUGIN-[A-Z0-9-]+?-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{20,}\b"###,
     },
     SecretPattern {
         name: "vaultBatchToken",
         file_context: None,
-        regex: r###"\bhvb\.[a-zA-Z0-9_-]{20,}\b"###,
+        regex: r###"hvb\.[a-zA-Z0-9_-]{20,}\b"###,
     },
     SecretPattern {
         name: "vaultServiceToken",
         file_context: None,
-        regex: r###"\bhvs\.[a-zA-Z0-9_-]{20,}\b"###,
+        regex: r###"hvs\.[a-zA-Z0-9_-]{20,}\b"###,
     },
     SecretPattern {
         name: "vaultPeriodicToken",
         file_context: None,
-        regex: r###"\bhvp\.[a-zA-Z0-9_-]{20,}\b"###,
+        regex: r###"hvp\.[a-zA-Z0-9_-]{20,}\b"###,
     },
     SecretPattern {
         name: "base64PrivateKeyContent",

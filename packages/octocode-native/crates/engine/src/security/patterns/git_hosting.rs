@@ -9,77 +9,77 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "gitlabPersonalAccessToken",
         file_context: None,
-        regex: r###"\bglpat-[A-Za-z0-9_-]{20,}\b"###,
+        regex: r###"glpat-[A-Za-z0-9_-]{20,}\b"###,
     },
     SecretPattern {
         name: "gitlabDeployToken",
         file_context: None,
-        regex: r###"\bgldt-[A-Za-z0-9_-]{20}\b"###,
+        regex: r###"gldt-[A-Za-z0-9_-]{20}"###,
     },
     SecretPattern {
         name: "gitlabRunnerToken",
         file_context: None,
-        regex: r###"\bglrt-[A-Za-z0-9_-]{20}\b"###,
+        regex: r###"glrt-[A-Za-z0-9_-]{20}"###,
     },
     SecretPattern {
         name: "gitlabCiJobToken",
         file_context: None,
-        regex: r###"\bglcbt-[0-9a-zA-Z]{1,5}_[0-9a-zA-Z_-]{20}\b"###,
+        regex: r###"glcbt-[0-9a-zA-Z]{1,5}_[0-9a-zA-Z_-]{20}"###,
     },
     SecretPattern {
         name: "gitlabPipelineTriggerToken",
         file_context: None,
-        regex: r###"\bglptt-[0-9a-f]{40}\b"###,
+        regex: r###"glptt-[0-9a-f]{40}"###,
     },
     SecretPattern {
         name: "bitbucketAppPassword",
         file_context: None,
-        regex: r###"\bATBB[a-zA-Z0-9]{24}\b"###,
+        regex: r###"ATBB[a-zA-Z0-9]{24}"###,
     },
     SecretPattern {
         name: "githubTokens",
         file_context: None,
-        regex: r###"\b((?:ghp|gho|ghu|ghs|ghr|github_pat)_[a-zA-Z0-9_]{36,255})\b"###,
+        regex: r###"((?:ghp|gho|ghu|ghs|ghr|github_pat)_[a-zA-Z0-9_]{36,255})"###,
     },
     SecretPattern {
         name: "githubFineGrainedToken",
         file_context: Some("(?:\\.env|config|settings|secrets)"),
-        regex: r###"\bgithub_pat_[A-Za-z0-9_]{82}\b"###,
+        regex: r###"github_pat_[A-Za-z0-9_]{82}"###,
     },
     SecretPattern {
         name: "githubAppInstallationToken",
         file_context: None,
-        regex: r###"\bghs_[0-9a-zA-Z]{37}\b"###,
+        regex: r###"ghs_[0-9a-zA-Z]{37}"###,
     },
     SecretPattern {
         name: "gitlabScimToken",
         file_context: None,
-        regex: r###"\bglsoat-[0-9a-zA-Z_-]{20}\b"###,
+        regex: r###"glsoat-[0-9a-zA-Z_-]{20}"###,
     },
     SecretPattern {
         name: "gitlabFeatureFlagToken",
         file_context: None,
-        regex: r###"\bglffct-[0-9a-zA-Z_-]{20}\b"###,
+        regex: r###"glffct-[0-9a-zA-Z_-]{20}"###,
     },
     SecretPattern {
         name: "gitlabFeedToken",
         file_context: None,
-        regex: r###"\bglft-[0-9a-zA-Z_-]{20}\b"###,
+        regex: r###"glft-[0-9a-zA-Z_-]{20}"###,
     },
     SecretPattern {
         name: "gitlabIncomingMailToken",
         file_context: None,
-        regex: r###"\bglimt-[0-9a-zA-Z_-]{25}\b"###,
+        regex: r###"glimt-[0-9a-zA-Z_-]{25}"###,
     },
     SecretPattern {
         name: "gitlabK8sAgentToken",
         file_context: None,
-        regex: r###"\bglagent-[0-9a-zA-Z_-]{50}\b"###,
+        regex: r###"glagent-[0-9a-zA-Z_-]{50}"###,
     },
     SecretPattern {
         name: "gitlabOAuthAppSecret",
         file_context: None,
-        regex: r###"\bgloas-[0-9a-zA-Z_-]{64}\b"###,
+        regex: r###"gloas-[0-9a-zA-Z_-]{64}"###,
     },
     SecretPattern {
         name: "gitlabSessionCookie",
@@ -89,6 +89,6 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "bitbucketRepoToken",
         file_context: None,
-        regex: r###"\bATCTT3[a-zA-Z0-9]{24}\b"###,
+        regex: r###"ATCTT3[a-zA-Z0-9]{24}"###,
     },
 ];

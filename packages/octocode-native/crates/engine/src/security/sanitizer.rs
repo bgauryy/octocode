@@ -41,7 +41,25 @@ pub fn sanitize_leaf(
     content: &str,
     source_path: Option<&str>,
 ) -> crate::error::Result<Option<String>> {
-    redact_leaf(content, source_path.map_or(Scope::Pathless, Scope::Leaf))
+    redact_leaf(content, Scope::of_leaf(source_path))
+}
+
+/// [`sanitize_leaf`] of a leaf whose text was cut from what
+/// [`sanitize_content`] returned for the whole file at `judged_path` (see
+/// [`Scope::Judged`]): only the patterns that whole pass did not apply run,
+/// so a fragment is not judged again without the syntax around it.
+pub fn sanitize_judged_leaf(
+    content: &str,
+    source_path: Option<&str>,
+    judged_path: &str,
+) -> crate::error::Result<Option<String>> {
+    redact_leaf(
+        content,
+        Scope::Judged {
+            leaf: source_path,
+            source: judged_path,
+        },
+    )
 }
 
 /// [`sanitize_leaf`] of a leaf about to be kept (see [`Scope::Stored`]): what no
@@ -153,14 +171,21 @@ mod tests {
         assert!(!redacted.expect("redacted").contains("ghp_"));
     }
 
-    /// A leaf of a source file is scanned as that language: a YAML-style
-    /// member stays, a credential beside it does not.
+    /// A leaf of a source file is scanned as that language: a member of a
+    /// declaration stays, a bare `name: value` line (a label, how YAML pasted
+    /// into code parses) and a credential beside it do not.
     #[test]
     fn sanitize_leaf_scopes_by_source_path() {
-        let member = "  password: hunter2hunter2hunter2;";
+        let declared = "interface Cfg {\n  password: hunter2hunter2hunter2;\n}";
         assert_eq!(
-            sanitize_leaf(member, Some("src/a.ts")).expect("scanned"),
+            sanitize_leaf(declared, Some("src/a.ts")).expect("scanned"),
             None
+        );
+        let member = "  password: hunter2hunter2hunter2;";
+        assert!(
+            sanitize_leaf(member, Some("src/a.ts"))
+                .expect("scanned")
+                .is_some()
         );
         assert!(
             sanitize_leaf(member, Some("config/app.yaml"))

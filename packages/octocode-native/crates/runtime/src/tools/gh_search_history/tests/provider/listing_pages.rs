@@ -75,6 +75,58 @@ async fn commit_listing_page_two_is_the_providers_next_page() {
     assert!(two["next"].get("nextPage").is_none(), "{two}");
 }
 
+/// A proxy forwards GitHub's own `Link`, naming `api.github.com`: the page
+/// read stays whole and states `hasMore`, its continuation asks the
+/// configured origin for page 2, and no link to another host is followed.
+#[tokio::test]
+async fn a_proxied_listing_with_a_foreign_next_link_pages_by_its_own_origin() {
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{method, path, query_param},
+    };
+
+    let server = MockServer::builder().start().await;
+    let commit = |sha: &str| json!({"sha": sha, "commit": {"message": sha, "author": {"date": "2026-09-01T00:00:00Z"}}});
+    for (page, sha, link) in [
+        (
+            "1",
+            "a1",
+            Some("<https://api.github.com/repos/o/r/commits?page=2&per_page=50>; rel=\"next\""),
+        ),
+        ("2", "b1", None),
+    ] {
+        let mut response = ResponseTemplate::new(200).set_body_json(json!([commit(sha)]));
+        if let Some(link) = link {
+            response = response.insert_header("link", link);
+        }
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/o/r/commits"))
+            .and(query_param("page", page))
+            .respond_with(response)
+            .mount(&server)
+            .await;
+    }
+    let provider = one_shot_provider(&server);
+    let first: GhSearchHistoryQuery =
+        serde_json::from_value(json!({"operation":"commit","owner":"o","repo":"r","path":"src"}))
+            .expect("query");
+    let one = execute(&provider, &first, &default_context(), &Passthrough)
+        .await
+        .expect("the page is read, not refused");
+    assert_eq!(one["commits"][0]["commitSha"], "a1", "{one}");
+    let next = one["next"]["nextPage"]["input"]["queries"][0].clone();
+    assert_eq!(next["page"], 2, "{one}");
+    let two = execute(
+        &provider,
+        &serde_json::from_value(next).expect("next query"),
+        &default_context(),
+        &Passthrough,
+    )
+    .await
+    .expect("page 2");
+    assert_eq!(two["commits"][0]["commitSha"], "b1", "{two}");
+}
+
 /// `totalPages` appears only beside an exact total: an uncapped search
 /// count states it; a count past GitHub's 1,000-result window states the
 /// reachable `totalItems` and `partialReasons:["providerResultCap"]`, no
@@ -187,7 +239,7 @@ async fn a_rest_list_page_with_more_counts_rows_so_far_and_offers_a_count() {
                 "{data}"
             );
             assert!(
-                count.pointer("/filters/createdAt/include/0/from").is_some(),
+                count.pointer("/filters/createdAt/from").is_some(),
                 "{data}"
             );
         }

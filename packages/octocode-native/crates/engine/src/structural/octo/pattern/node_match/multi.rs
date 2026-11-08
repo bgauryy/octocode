@@ -5,9 +5,8 @@ use tree_sitter::Node;
 use crate::structural::octo::matching::{CaptureEnv, ExecutionError, node_text, raw_range};
 use crate::structural::octo::metavars::minimum_candidate_nodes;
 
-use super::super::unsaid::Unsaid;
 use super::super::{CompiledPattern, MatchBudget};
-use super::Texts;
+use super::{Lists, Texts};
 
 impl CompiledPattern {
     pub(super) fn match_multi_capture(
@@ -15,7 +14,7 @@ impl CompiledPattern {
         name: Option<&str>,
         remaining_pattern: &[Node<'_>],
         candidate_children: &[Node<'_>],
-        unsaid: &Unsaid,
+        lists: &Lists<'_, '_>,
         texts: Texts<'_>,
         captures: &mut CaptureEnv,
         depth: usize,
@@ -25,7 +24,7 @@ impl CompiledPattern {
             name,
             remaining_pattern,
             candidate_children,
-            unsaid,
+            lists,
             texts,
             captures,
             depth,
@@ -48,7 +47,7 @@ impl CompiledPattern {
             name,
             &remaining_pattern[skipped..],
             candidate_children,
-            unsaid,
+            lists,
             texts,
             captures,
             depth,
@@ -70,7 +69,7 @@ impl CompiledPattern {
         name: Option<&str>,
         remaining_pattern: &[Node<'_>],
         candidate_children: &[Node<'_>],
-        unsaid: &Unsaid,
+        lists: &Lists<'_, '_>,
         texts: Texts<'_>,
         captures: &mut CaptureEnv,
         depth: usize,
@@ -119,7 +118,7 @@ impl CompiledPattern {
             if self.match_child_list(
                 remaining_pattern,
                 &candidate_children[take..],
-                unsaid,
+                lists,
                 texts,
                 captures,
                 depth,

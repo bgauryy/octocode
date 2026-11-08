@@ -14,7 +14,8 @@ fn explained(v: &View, subject: &str, mention: &str) -> bool {
     let (Some(from), Some(to)) = (v.t.by_key(file), v.t.by_key(subject)) else {
         return false;
     };
-    v.flags(from) & ROLE_TEST != 0 || v.inc[to as usize].binary_search(&from).is_ok()
+    v.flags(from) & (ROLE_TEST | ROLE_SUPPORT) != 0
+        || v.inc[to as usize].binary_search(&from).is_ok()
 }
 
 /// Re-tiers a file finding by the text that names it: a mentioned file is

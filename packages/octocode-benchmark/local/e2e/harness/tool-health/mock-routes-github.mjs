@@ -274,6 +274,8 @@ const REPO_ROUTES = [
   // The fixture repository has no release tag at a package's version.
   [/^git\/ref\/tags\/.+$/, r => { r.send(404, { message: 'Not Found' }); return true; }],
   [/^(branches|tags)$/, refsRoute],
+  // securityCheck's repository read: the fixture repositories publish no advisory.
+  [/^security-advisories$/, r => sendPage(r, [])],
   [/^pulls$/, pullsRoute],
   [/^(pulls|issues)\/(\d+)(?:\/(\w+))?$/, itemRoute],
 ];

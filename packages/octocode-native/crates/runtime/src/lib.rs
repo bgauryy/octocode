@@ -17,6 +17,7 @@
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
 pub(crate) mod cache;
+mod build_identity;
 mod civil_date;
 pub mod config;
 pub(crate) mod content;

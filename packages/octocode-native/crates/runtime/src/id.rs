@@ -84,11 +84,17 @@ impl ToolId {
     }
 
     /// Whether `classification` selects this tool's rows at the shared response
-    /// boundary, over one sanitized provider page (code search), instead of
+    /// boundary, over one sanitized provider page (code search, history, structure), instead of
     /// before the tool's own source pagination.
     #[must_use]
     pub(crate) const fn selects_provider_page(self) -> bool {
-        matches!(self, Self::GhSearchCode)
+        matches!(
+            self,
+            Self::GhSearchCode
+                | Self::GhSearchHistory
+                | Self::GhGetHistoryItem
+                | Self::StructureSearch
+        )
     }
 
     /// Shared row definitions carried by the first display fragment only:

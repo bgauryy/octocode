@@ -88,6 +88,7 @@ fn issues_pages_after_the_first_run_no_detectors() {
 #[test]
 fn a_fresh_request_never_reuses_a_retained_set() {
     let dir = issues_fixture();
+    dir.date_ahead("app/src/orphan.ts");
     assert_eq!(
         ingest_fixture(dir.0.as_path(), None).class,
         ExitClass::Success
@@ -168,6 +169,7 @@ fn a_retained_set_is_bound_to_its_query_and_snapshot() {
 #[test]
 fn a_page_whose_set_is_not_retained_computes_it_and_retains_it_for_the_next() {
     let dir = issues_fixture();
+    dir.date_ahead("app/src/orphan.ts");
     assert_eq!(
         ingest_fixture(dir.0.as_path(), None).class,
         ExitClass::Success

@@ -141,11 +141,21 @@ fn runtime_for(
     github: &MockServer,
     allow: bool,
 ) -> ToolRuntime {
-    let mut env = github_api(github).to_vec();
-    if allow {
-        env.push(("OCTOCODE_CREDENTIAL_FILES", "allow".to_owned()));
-    }
+    let env = if allow {
+        opted_in(github)
+    } else {
+        github_api(github).to_vec()
+    };
     clasify_runtime(workspace, provider, &env)
+}
+
+/// The GitHub API with the opt-in that opens credential names to a plain read
+/// (kept in memory only), which the no-copy-on-disk checks need: by default
+/// the path policy refuses that read before any request.
+fn opted_in(github: &MockServer) -> Vec<(&'static str, String)> {
+    let mut env = github_api(github).to_vec();
+    env.push(("OCTOCODE_CREDENTIAL_FILES", "allow".to_owned()));
+    env
 }
 
 fn source(file: &str) -> Value {
@@ -170,6 +180,39 @@ fn assert_nothing_left(provider_sent: &[Value], workspace: &Workspace, what: &st
     );
 }
 
+/// A refused classified source names only a route the user's policy opens: a
+/// file in a sensitive directory opens to no read; a credential name to a plain
+/// ghGetFileContent read (redacted) only under the home opt-in, the one case
+/// with that read as a lead. No empty lead container is left.
+fn assert_refusal_routes(data: &Value, file: &str, allow: bool) {
+    let text = data.to_string();
+    let sensitive_directory = file.contains(".ssh/") || file.contains(".config/gh/");
+    let hints = data["hints"].to_string();
+    let read_lead = text.contains("\"tool\":\"ghGetFileContent\"");
+    if sensitive_directory {
+        assert!(hints.contains("No read returns it"), "{file}: {text}");
+        assert!(!read_lead, "{file}: no read opens it: {text}");
+    } else if allow {
+        assert!(hints.contains("redacted"), "{file}: {text}");
+        assert!(read_lead, "{file}: the opt-in read is offered: {text}");
+    } else {
+        assert!(
+            hints.contains("security.credentialFiles"),
+            "{file}: the refusal names the setting: {text}"
+        );
+        assert!(!read_lead, "{file}: the plain read is refused too: {text}");
+    }
+    for empty in ["{}", "[]"] {
+        for key in ["next", "calls", "related"] {
+            assert_ne!(
+                data.get(key).map(Value::to_string).as_deref(),
+                Some(empty),
+                "{file}: an empty {key}: {text}"
+            );
+        }
+    }
+}
+
 #[tokio::test]
 async fn an_evaluated_github_source_is_withheld_by_name_before_any_fetch() {
     for allow in [false, true] {
@@ -187,6 +230,7 @@ async fn an_evaluated_github_source_is_withheld_by_name_before_any_fetch() {
                     .is_some_and(|error| error.contains("withheld")),
                 "the refusal says why: {out}"
             );
+            assert_refusal_routes(&refused["data"], file, allow);
             assert!(
                 out["results"][1]["data"].get("answers").is_some(),
                 "{file}: the normal file in the same call is judged: {out}"
@@ -271,9 +315,10 @@ async fn a_withheld_github_resource_is_its_own_row_and_a_sibling_keeps_its_secti
 
 /// A read with `classification` answers as the local one does: the typed
 /// refusal, while a normal row of the same call is judged. Without
-/// `classification` the same read sends nothing and returns the file.
+/// `classification` the same read sends nothing to the provider: the path
+/// policy refuses it by default, and the home opt-in returns the file.
 #[tokio::test]
-async fn a_classified_github_read_is_refused_by_name_and_a_plain_read_is_unchanged() {
+async fn a_classified_github_read_is_refused_by_name_and_a_plain_read_follows_the_policy() {
     for allow in [false, true] {
         let (provider, github) = (provider().await, github().await);
         let workspace = Workspace::new();
@@ -296,6 +341,7 @@ async fn a_classified_github_read_is_refused_by_name_and_a_plain_read_is_unchang
             let refused = &out["results"][0];
             assert_eq!(refused["status"], "error", "{file}: {out}");
             assert_eq!(refused["data"]["errorCode"], "pathPolicyDenied", "{out}");
+            assert_refusal_routes(&refused["data"], file, allow);
             assert_ne!(out["results"][1]["status"], "error", "{file}: {out}");
             assert!(
                 out["results"][1]["data"].get("selection").is_some(),
@@ -319,14 +365,24 @@ async fn a_classified_github_read_is_refused_by_name_and_a_plain_read_is_unchang
             json!({"owner":"octo","repo":"demo","path":".env"}),
         )
         .await;
-        assert_eq!(plain.status(), "success", "{}", plain.data());
-        assert!(
-            plain.data()["content"]
-                .as_str()
-                .is_some_and(|content| content.contains(MARKER)),
-            "a direct read returns the file to its caller: {}",
-            plain.data()
-        );
+        if allow {
+            assert_eq!(plain.status(), "success", "{}", plain.data());
+            assert!(
+                plain.data()["content"]
+                    .as_str()
+                    .is_some_and(|content| content.contains(MARKER)),
+                "the opt-in returns the file to its caller: {}",
+                plain.data()
+            );
+        } else {
+            assert_eq!(plain.status(), "error", "{}", plain.data());
+            assert_eq!(
+                plain.data()["errorCode"],
+                "pathPolicyDenied",
+                "the path policy refuses a plain read by default: {}",
+                plain.data()
+            );
+        }
         assert_eq!(
             sent(&provider).await.len(),
             sent_before.len(),

@@ -40,7 +40,12 @@ impl<C: PoolClient> GenericPool<C> {
         Duration::from_millis(self.options.idle_timeout_ms)
     }
 
-    pub(super) async fn acquire<F, Fut>(&self, key: String, factory: F) -> SharedResult<C>
+    pub(super) async fn acquire<F, Fut>(
+        &self,
+        key: String,
+        family: String,
+        factory: F,
+    ) -> SharedResult<C>
     where
         F: FnOnce() -> Fut + Send,
         Fut: Future<Output = SharedResult<C>> + Send,
@@ -112,7 +117,7 @@ impl<C: PoolClient> GenericPool<C> {
                                 cancellation.track_client(client.clone());
                                 client.stop().await;
                                 cancellation.disarm();
-                                return self.finish_start(key, inflight, factory()).await;
+                                return self.finish_start(key, family, inflight, factory()).await;
                             }
                             Retirement::Superseded => {
                                 cancellation.disarm();
@@ -159,7 +164,9 @@ impl<C: PoolClient> GenericPool<C> {
                             Ok(Some(client))
                         }
                         Revalidated::Superseded => inflight.wait().await,
-                        Revalidated::Removed => self.finish_start(key, inflight, factory()).await,
+                        Revalidated::Removed => {
+                            self.finish_start(key, family, inflight, factory()).await
+                        }
                     };
                 }
 
@@ -183,9 +190,9 @@ impl<C: PoolClient> GenericPool<C> {
                 cancellation.track_client(client.clone());
                 client.stop().await;
                 cancellation.disarm();
-                self.finish_start(key, inflight, factory()).await
+                self.finish_start(key, family, inflight, factory()).await
             }
-            Action::Start(inflight) => self.finish_start(key, inflight, factory()).await,
+            Action::Start(inflight) => self.finish_start(key, family, inflight, factory()).await,
         }
     }
 
@@ -221,6 +228,7 @@ impl<C: PoolClient> GenericPool<C> {
     pub(super) async fn acquire_leased<F, Fut, L>(
         &self,
         key: String,
+        family: String,
         factory: F,
         lease: impl Fn(&C) -> L,
     ) -> SharedResult<(C, L)>
@@ -229,7 +237,7 @@ impl<C: PoolClient> GenericPool<C> {
         Fut: Future<Output = SharedResult<C>> + Send,
     {
         for attempt in 1..=LEASE_ATTEMPTS {
-            let Some(client) = self.acquire(key.clone(), &factory).await? else {
+            let Some(client) = self.acquire(key.clone(), family.clone(), &factory).await? else {
                 return Ok(None);
             };
             let state = self.state.lock().await;

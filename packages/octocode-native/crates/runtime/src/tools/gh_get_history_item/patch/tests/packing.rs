@@ -204,6 +204,52 @@ fn history_b_packed_walk_is_lossless_and_fills_its_windows() {
     }
 }
 
+/// A patch with no line end in reach is cut inside a line, yet never inside
+/// a redaction marker (indivisible evidence): a walk delivers every file
+/// once, and no window shows half a marker, whichever character its edge
+/// falls on.
+#[test]
+fn a_window_cut_inside_a_line_never_splits_a_redaction_marker() {
+    let marker = "[REDACTED-GITHUBTOKENS]";
+    let period = 40 + marker.chars().count();
+    for padding in 0..period {
+        let patch = format!(
+            "{}{}",
+            "a".repeat(padding),
+            format!("{}{marker}", "b".repeat(40)).repeat(2_000 / period * 8)
+        );
+        let files = vec![file("one-line.rs", &patch)];
+        let mut offset = 0usize;
+        let mut read = String::new();
+        for call in 0.. {
+            assert!(call < 100, "padding {padding}: cursor did not advance");
+            let page = shape_patch_page(files.clone(), &window(json!({"offset":offset})));
+            for row in &page.rows {
+                let text = row["patch"].as_str().unwrap_or("");
+                assert!(
+                    text.rfind("[REDACTED")
+                        .map(|open| text[open..].contains(']'))
+                        != Some(false),
+                    "padding {padding}: a window ends inside a marker: ...{}",
+                    &text[text.len().saturating_sub(30)..]
+                );
+                assert!(
+                    text.find(']')
+                        .is_none_or(|close| text.find('[').is_some_and(|open| open < close)),
+                    "padding {padding}: a window starts inside a marker: {}...",
+                    &text[..text.len().min(30)]
+                );
+                read.push_str(text);
+            }
+            match page.cursor {
+                Some(next) => offset = next,
+                None => break,
+            }
+        }
+        assert_eq!(read, patch, "padding {padding}: not delivered exactly once");
+    }
+}
+
 /// Old-side hunk spans merge where their padded windows touch, start at
 /// line 1, skip pure additions, and fit one read's range cap.
 #[test]

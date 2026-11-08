@@ -61,6 +61,23 @@ pub struct LocalFetchResult {
     /// `pagination.outOfRange`.
     pub out_of_range: bool,
     pub next: Option<NextCalls>,
+    /// `content` as a piece of the text its whole source was judged as
+    /// (`None`: a view or window the whole-source pass did not return).
+    /// Never serialized: the output gate reads it beside the row.
+    pub(crate) judged: Option<crate::security::JudgedLeaf>,
+}
+impl LocalFetchResult {
+    /// The judged leaves of this result's wire form ([`Serialize`]):
+    /// `content` when [`Self::judged`] holds it.
+    pub(crate) fn judged_leaves(&self) -> crate::security::JudgedLeaves {
+        let mut leaves = crate::security::JudgedLeaves::default();
+        if let Some(leaf) = &self.judged
+            && self.content.is_some()
+        {
+            leaves.mark("/content", leaf.clone());
+        }
+        leaves
+    }
 }
 impl LocalFetchResult {
     /// A result with `status` and every other field empty.
@@ -96,6 +113,7 @@ impl LocalFetchResult {
             terminal_limit: None,
             out_of_range: false,
             next: None,
+            judged: None,
         }
     }
 

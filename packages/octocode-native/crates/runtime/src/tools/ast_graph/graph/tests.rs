@@ -63,6 +63,62 @@ fn an_over_budget_scan_stops_early_and_names_narrower_scopes() {
     assert!(hints.contains("graphBuild {"), "{hints}");
 }
 
+/// A narrower ingest is a lead for the same scan: it carries the walk the
+/// refused build was given, or it would scan another scope.
+#[test]
+fn the_narrower_scope_hints_carry_the_builds_walk() {
+    use crate::tools::ast_graph::walk_scope::WalkScope;
+    use octocode_engine::types::IgnorePolicy;
+    let dir = crate::tools::test_support::Fixture::new();
+    for index in 0..6 {
+        dir.write(&format!("big/m{index}.ts"), "export const a = () => 1;\n");
+    }
+    dir.write("big/.hid/h.ts", "export const h = 1;\n");
+    dir.write("small/one.ts", "export const b = () => 2;\n");
+    let root = dir.0.as_path();
+    let hints = |walk| {
+        super::build_graph(
+            &super::GraphScan {
+                root: root.to_path_buf(),
+                walk,
+                limits: crate::tools::ast_graph::limits::Limits {
+                    table_items: 3,
+                    ..*crate::tools::ast_graph::limits::LIMITS
+                },
+                ..Default::default()
+            },
+            &crate::tools::test_support::workspace_policy(root),
+            &crate::security::ContentSecurity::new(),
+            &crate::execution::cancel::NeverCancel,
+        )
+        .expect_err("over budget")
+        .hints
+        .join("\n")
+    };
+    let hidden = WalkScope {
+        ignore: IgnorePolicy {
+            include_ignored: false,
+            include_hidden: true,
+        },
+        ..WalkScope::default()
+    };
+    let lines = |hints: &str| {
+        hints
+            .lines()
+            .filter(|line| line.starts_with("graphBuild {"))
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let (lifted, plain) = (hints(hidden), hints(WalkScope::default()));
+    assert!(!lines(&lifted).is_empty(), "{lifted}");
+    for line in lines(&lifted) {
+        assert!(line.contains(r#""includeHidden":true"#), "{line}");
+    }
+    for line in lines(&plain) {
+        assert!(!line.contains("include"), "{line}");
+    }
+}
+
 /// A scan whose kept files would pass the build's memory budget stops with
 /// `scopeTooBroad` as soon as the next file passes it, during extraction and
 /// before linking: the message names how far it got and both sizes, and the
@@ -244,4 +300,100 @@ fn every_admission_after_the_budget_passes_reports_the_first_refusal() {
     );
     let later = admission.admit(0, 2).expect_err("still past it");
     assert_eq!(later, first);
+}
+
+/// A declaration's stored `end_line` is the last line of its own source,
+/// however tall its header: Rust attributes and Python decorators above it
+/// do not move the end.
+#[test]
+fn a_declaration_header_does_not_move_its_stored_end_line() {
+    let dir = crate::tools::test_support::Fixture::new();
+    dir.write(
+        "a.rs",
+        "#[derive(Debug)]\n#[repr(C)]\npub struct Alpha {\n    x: u8,\n}\n\nfn plain() {\n}\n",
+    );
+    dir.write(
+        "b.py",
+        "@one\n@two\ndef run():\n    pass\n\ndef plain():\n    pass\n",
+    );
+    let built = fixture_graph(&dir.0, &[]);
+    let ends = |file: &str| -> Vec<(String, u32, u32)> {
+        built.facts[file]
+            .declarations
+            .iter()
+            .map(|d| (d.name.clone(), d.line, d.end_line))
+            .collect()
+    };
+    let rust = ends("a.rs");
+    assert!(rust.contains(&("Alpha".into(), 3, 5)), "{rust:?}");
+    assert!(rust.contains(&("plain".into(), 7, 8)), "{rust:?}");
+    let python = ends("b.py");
+    assert!(python.contains(&("run".into(), 3, 4)), "{python:?}");
+    assert!(python.contains(&("plain".into(), 6, 7)), "{python:?}");
+}
+
+/// A narrower ingest is a lead for the same scan: it keeps `exclude` and
+/// `parserGlobs`, their root-relative globs rebased onto the narrower root
+/// (a glob that cannot match under it is dropped, one that can is kept).
+#[test]
+fn the_narrower_scope_hints_carry_exclude_and_parser_globs() {
+    let dir = crate::tools::test_support::Fixture::new();
+    for index in 0..6 {
+        dir.write(&format!("big/m{index}.ts"), "export const a = () => 1;\n");
+    }
+    dir.write("small/one.ts", "export const b = () => 2;\n");
+    let root = dir.0.as_path();
+    let error = super::build_graph(
+        &super::GraphScan {
+            root: root.to_path_buf(),
+            exclude: vec!["*.gen.ts".into(), "/big/skip".into(), "/small/other".into()],
+            language_globs: std::collections::BTreeMap::from([(
+                "cpp".to_owned(),
+                vec!["big/inc/*.h".to_owned(), "small/*.h".to_owned()],
+            )]),
+            limits: crate::tools::ast_graph::limits::Limits {
+                table_items: 3,
+                ..*crate::tools::ast_graph::limits::LIMITS
+            },
+            ..Default::default()
+        },
+        &crate::tools::test_support::workspace_policy(root),
+        &crate::security::ContentSecurity::new(),
+        &crate::execution::cancel::NeverCancel,
+    )
+    .expect_err("over budget");
+    let row_of = |dir: &str| {
+        let hint = error
+            .hints
+            .iter()
+            .find(|hint| hint.contains(&format!("/{dir}\"")))
+            .unwrap_or_else(|| panic!("no hint for {dir}: {:?}", error.hints));
+        let start = hint.find('{').expect("a row");
+        serde_json::Deserializer::from_str(&hint[start..])
+            .into_iter::<serde_json::Value>()
+            .next()
+            .expect("row")
+            .expect("json")
+    };
+    let (big, small) = (row_of("big"), row_of("small"));
+    assert_eq!(
+        big["exclude"],
+        serde_json::json!(["*.gen.ts", "/skip"]),
+        "{big}"
+    );
+    assert_eq!(
+        big["parserGlobs"],
+        serde_json::json!({"cpp": ["/inc/*.h"]}),
+        "{big}"
+    );
+    assert_eq!(
+        small["exclude"],
+        serde_json::json!(["*.gen.ts", "/other"]),
+        "{small}"
+    );
+    assert_eq!(
+        small["parserGlobs"],
+        serde_json::json!({"cpp": ["/*.h"]}),
+        "{small}"
+    );
 }

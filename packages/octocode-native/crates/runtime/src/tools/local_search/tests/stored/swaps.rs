@@ -111,42 +111,76 @@ fn a_stored_page_checks_the_read_policy_of_the_files_it_shows() {
     }
 }
 
-/// A key file the stored redaction scanned, rewritten in place under its
-/// stored size and time after the page took the stored scan, restarts a
-/// page that does not even show it: the replay reads the key file again and
-/// binds it to the stored digest, as a fresh redaction does.
+/// A key file the first page's redaction scanned, rewritten in place under
+/// its stored size and time after a page took the stored scan, restarts the
+/// page that shows it: that page reads the key file again and binds it to
+/// the stored digest, as a fresh redaction does. A page that neither reads
+/// nor shows it is served from the stored scan unchanged.
 #[test]
-fn a_key_file_rewritten_under_its_stamp_restarts_a_replayed_page() {
+fn a_key_file_rewritten_under_its_stamp_restarts_the_page_that_shows_it() {
+    let pages = |root: &std::path::Path| {
+        let (policy, security) = policy_for(root);
+        let request = ls_query(
+            serde_json::json!({"path": root.to_string_lossy().into_owned(), "matchString": ["needle"]}),
+            None,
+        );
+        let snapshot = search_in(&request, &policy, &security, Some(6_000))
+            .expect("page 1")
+            .source_snapshot
+            .expect("snapshot");
+        let page = |n: u32| {
+            ls_query(
+                serde_json::json!({"snapshot": snapshot, "page": n}),
+                Some(&request),
+            )
+        };
+        let shows_key = (2..)
+            .map(page)
+            .take_while(|page| !page_paths(page, &policy, &security).is_empty())
+            .find(|page| {
+                page_paths(page, &policy, &security)
+                    .iter()
+                    .any(|path| path == "zkey.ts")
+            })
+            .expect("a later page shows the key file");
+        (policy, security, page(2), shows_key)
+    };
+    let rewrite = |root: &std::path::Path| {
+        let key = root.join("zkey.ts");
+        let text = fs::read_to_string(&key).expect("key fixture");
+        move || rewrite_keeping_stamp(&key, &text.replace("export const pem", "export const pex"))
+    };
     let root = tempfile::tempdir().expect("fixture directory");
     paged_fixture(root.path());
     settle();
-    let (policy, security) = policy_for(root.path());
-    let request = ls_query(
-        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": ["needle"]}),
-        None,
-    );
-    let snapshot = search_in(&request, &policy, &security, Some(6_000))
-        .expect("page 1")
-        .source_snapshot
-        .expect("snapshot");
-    let page_two = ls_query(
-        serde_json::json!({"snapshot": snapshot, "page": 2}),
-        Some(&request),
-    );
+    let (policy, security, page_two, _) = pages(root.path());
     assert!(
         !page_paths(&page_two, &policy, &security)
             .iter()
             .any(|path| path == "zkey.ts")
     );
-    let key = root.path().join("zkey.ts");
-    let text = fs::read_to_string(&key).expect("key fixture");
-    assert!(
-        manifest::get(&snapshot, &policy.identity())
-            .is_some_and(|stored| stored.redaction.is_some())
+    let before = search_in(&page_two, &policy, &security, Some(6_000)).expect("page 2");
+    let after = stored_page_after(
+        &page_two,
+        &policy,
+        &security,
+        Some(6_000),
+        rewrite(root.path()),
+    )
+    .expect("page 2 neither reads nor shows the key file");
+    assert_eq!(values(&before), values(&after));
+
+    let root = tempfile::tempdir().expect("fixture directory");
+    paged_fixture(root.path());
+    settle();
+    let (policy, security, _, shows_key) = pages(root.path());
+    let page = stored_page_after(
+        &shows_key,
+        &policy,
+        &security,
+        Some(6_000),
+        rewrite(root.path()),
     );
-    let page = stored_page_after(&page_two, &policy, &security, Some(6_000), || {
-        rewrite_keeping_stamp(&key, &text.replace("export const pem", "export const pex"));
-    });
     assert_eq!(
         page.expect_err("changed key file").code,
         ErrorCode::StaleSnapshot

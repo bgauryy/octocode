@@ -36,6 +36,9 @@ pub struct MemoryBudget {
     limit: fn() -> usize,
     resolved: OnceLock<usize>,
     used: AtomicUsize,
+    /// The part of `used` that live [`Reservation`]s hold: what no eviction
+    /// can free, so a grow fits only while this stays within the limit.
+    reserved: AtomicUsize,
     memos: Mutex<Vec<Weak<dyn Held>>>,
     sweeper: OnceLock<Sweeper>,
 }
@@ -70,6 +73,7 @@ impl MemoryBudget {
             limit,
             resolved: OnceLock::new(),
             used: AtomicUsize::new(0),
+            reserved: AtomicUsize::new(0),
             memos: Mutex::new(Vec::new()),
             sweeper: OnceLock::new(),
         }
@@ -111,6 +115,19 @@ impl MemoryBudget {
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
                 Some(used.saturating_sub(bytes))
             });
+    }
+
+    /// Hold `bytes` of transient work (a scan's result vector) against the
+    /// budget until the returned [`Reservation`] drops, evicting memo entries
+    /// oldest first to make room. `None` when the bytes cannot fit even with
+    /// every memo emptied: the caller stops its work instead of allocating
+    /// past the budget.
+    pub fn reserve(&self, bytes: usize) -> Option<Reservation<'_>> {
+        let mut held = Reservation {
+            budget: self,
+            bytes: 0,
+        };
+        held.grow(bytes).then_some(held)
     }
 
     /// Evict the least recently used entry across its memos until they fit.
@@ -213,5 +230,170 @@ impl MemoryBudget {
             .iter()
             .filter_map(Weak::upgrade)
             .collect()
+    }
+}
+
+/// Bytes of transient work held against a [`MemoryBudget`], returned when it
+/// drops. Memos give way to it; it never gives way to a memo.
+pub struct Reservation<'a> {
+    budget: &'a MemoryBudget,
+    bytes: usize,
+}
+
+impl std::fmt::Debug for Reservation<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Reservation")
+            .field("bytes", &self.bytes)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Reservation<'_> {
+    /// Hold `more` bytes further; `false` (holding nothing more) when they
+    /// cannot fit within the budget's limit even with every memo emptied.
+    pub fn grow(&mut self, more: usize) -> bool {
+        let limit = self.budget.limit();
+        // Checked and counted in one step, before any eviction: concurrent
+        // grows are admitted against each other's bytes, a grow that cannot
+        // fit evicts nothing, and one that can always fits once memos give way.
+        let admitted = self
+            .budget
+            .reserved
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |reserved| {
+                reserved.checked_add(more).filter(|total| *total <= limit)
+            })
+            .is_ok();
+        if !admitted {
+            return false;
+        }
+        self.budget.charge(more);
+        // Reservations alone fit the limit (checked above), so once the memos
+        // give way this grow fits. Bytes a concurrent insert charges after
+        // the reclaim are that insert's own to reclaim: never a reason to
+        // refuse a grow that fits.
+        self.budget.reclaim();
+        self.bytes += more;
+        true
+    }
+
+    /// Give back `bytes` of what it holds (at most all of it), for memory the
+    /// work no longer holds.
+    pub fn shrink(&mut self, bytes: usize) {
+        let bytes = bytes.min(self.bytes);
+        self.bytes -= bytes;
+        self.budget.release(bytes);
+        self.budget.reserved.fetch_sub(bytes, Ordering::AcqRel);
+    }
+
+    /// The bytes it holds now.
+    pub fn bytes(&self) -> usize {
+        self.bytes
+    }
+}
+
+impl Drop for Reservation<'_> {
+    fn drop(&mut self) {
+        self.shrink(self.bytes);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One read's last byte fits while another asks for more than can ever
+    /// fit: charging before checking let the refused ask's charge push the
+    /// fitting read past the limit, and both were refused.
+    #[test]
+    fn a_grow_that_fits_is_not_refused_by_a_concurrent_one_that_cannot() {
+        fn limit() -> usize {
+            2
+        }
+        for _ in 0..2000 {
+            let budget = MemoryBudget::new(limit);
+            let gate = std::sync::Barrier::new(2);
+            let ((fits, _fits), (oversized, _oversized)) = std::thread::scope(|scope| {
+                let fits = scope.spawn(|| {
+                    let mut held = budget.reserve(1).expect("fits");
+                    gate.wait();
+                    (held.grow(1), held)
+                });
+                let oversized = scope.spawn(|| {
+                    let mut held = budget.reserve(0).expect("empty");
+                    gate.wait();
+                    (held.grow(2), held)
+                });
+                (
+                    fits.join().expect("thread"),
+                    oversized.join().expect("thread"),
+                )
+            });
+            assert!(fits, "the last byte fits whatever the other asks");
+            assert!(!oversized, "2 more bytes cannot fit beside 1 held");
+            drop((_fits, _oversized));
+            assert_eq!(budget.used(), 0);
+        }
+    }
+
+    #[test]
+    fn a_grow_that_cannot_fit_evicts_nothing() {
+        use super::super::Memo;
+        fn limit() -> usize {
+            10
+        }
+        static BUDGET: MemoryBudget = MemoryBudget::new(limit);
+        let memo = Memo::<&str, u8>::new(&BUDGET);
+        memo.insert("kept", 1, 4, None);
+        let mut held = BUDGET.reserve(8).expect("evicts the memo to fit");
+        memo.insert("again", 1, 2, None);
+        assert!(!held.grow(3), "8 + 3 cannot fit whatever is evicted");
+        assert!(memo.get("again").is_some(), "a refusal evicts nothing");
+        assert!(held.grow(2));
+        assert!(memo.get("again").is_none(), "a grow that fits evicts");
+    }
+
+    /// Reservations alone fit the limit, so a grow is never refused for the
+    /// memo bytes a concurrent insert charged after this grow's reclaim: that
+    /// insert reclaims for itself.
+    #[test]
+    fn a_grow_is_not_refused_for_what_a_concurrent_insert_charged() {
+        use super::super::Memo;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        fn limit() -> usize {
+            100
+        }
+        static BUDGET: MemoryBudget = MemoryBudget::new(limit);
+        let memo = Memo::<u64, u8>::new(&BUDGET);
+        let done = AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let mut key = 0;
+                while !done.load(Ordering::Relaxed) {
+                    key = (key + 1) % 4;
+                    memo.insert(key, 1, 60, None);
+                }
+            });
+            for round in 0..50_000 {
+                let mut held = BUDGET.reserve(0).expect("empty");
+                let fits = held.grow(limit() / 2);
+                if !fits {
+                    done.store(true, Ordering::Relaxed);
+                }
+                assert!(fits, "round {round}: 50 of 100 bytes always fit alone");
+            }
+            done.store(true, Ordering::Relaxed);
+        });
+    }
+
+    #[test]
+    fn shrink_returns_bytes_to_the_budget() {
+        fn limit() -> usize {
+            10
+        }
+        let budget = MemoryBudget::new(limit);
+        let mut held = budget.reserve(10).expect("fits");
+        held.shrink(6);
+        assert_eq!((held.bytes(), budget.used()), (4, 4));
+        assert!(held.grow(6));
     }
 }

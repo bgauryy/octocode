@@ -111,8 +111,8 @@ fn a_packed_scan_unpacks_to_the_same_scan() {
     assert!(Packed::pack(&scan, packed.raw_len - 1, usize::MAX).is_none());
     assert!(Packed::pack(&scan, packed.raw_len, usize::MAX).is_some());
     // Past the packed bound nothing is packed either.
-    assert!(Packed::pack(&scan, usize::MAX, packed.weight() - 1).is_none());
-    assert!(Packed::pack(&scan, usize::MAX, packed.weight()).is_some());
+    assert!(Packed::pack(&scan, usize::MAX, packed.bytes.len() - 1).is_none());
+    assert!(Packed::pack(&scan, usize::MAX, packed.bytes.len()).is_some());
 }
 
 #[test]
@@ -162,7 +162,7 @@ fn compact_classes_store_an_oversized_scan_and_preserve_all_duplicate_relations(
     }
     assert!(Encoded::encode_checked(&scan, usize::MAX, &|| true).is_none());
     let encoded = Encoded::encode_checked(&scan, usize::MAX, &|| false).expect("encoded");
-    assert!(encoded.decode_checked(&|| true).is_none());
+    assert!(encoded.sourced_files(&|| true).is_none());
     assert!(encoded.deflate_checked(usize::MAX, &|| true).is_none());
     assert!(packed.unpack_checked(&|| true).is_none());
 }

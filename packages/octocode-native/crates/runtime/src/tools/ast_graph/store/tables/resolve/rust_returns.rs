@@ -1,8 +1,10 @@
-//! Rust receivers typed by the call whose value they are, as rust-analyzer
-//! types them: `T::open()?.m()` and `let x = c.f(); x.m()` see the declared
-//! return type of the function that call links to (the type `?` yields from
-//! a `Result`/`Option` when the value passes through `?`, or through an
-//! unlinked `.unwrap()`/`.expect(..)` on a declared std `Result`/`Option`).
+//! Rust and Go receivers typed by the call whose value they are, as
+//! rust-analyzer and gopls type them: `T::open()?.m()` and
+//! `let x = c.f(); x.m()` see the declared return type of the function that
+//! call links to (the type `?` yields from a `Result`/`Option` when the value
+//! passes through `?`, or through an unlinked `.unwrap()`/`.expect(..)` on a
+//! declared std `Result`/`Option`); Go's `s, err := pkg.Open(); s.m()` sees
+//! the first result, named from the caller's package.
 use super::linker::Linker;
 use super::*;
 use crate::tools::ast_graph::types::Call;
@@ -10,11 +12,47 @@ use octocode_engine::graph::GraphReceiverCall;
 
 /// A receiver type derived from another call's link, and that link's
 /// confidence: the member call it types is no surer.
-pub(super) type Received = Option<(String, Confidence)>;
+type Declared = Option<(String, Confidence)>;
 
-/// The derived receiver type of each of the file's calls, in call order;
-/// `None` where the call has a written receiver type, no receiver call, or
-/// the receiver call links to no single declared return type.
+/// How a call's receiver is typed beyond the type the extraction wrote.
+/// The extraction's `receiver_type` beside a `receiver_call` is only a
+/// constructor-name guess (`NewT()` is a `T`): the declaration of the call
+/// whose value the receiver is outranks it, and the name rule applies only
+/// when no declaration is found.
+#[derive(Clone)]
+pub(super) enum Received {
+    /// Nothing derived: the written type, a name guess, or none, stands.
+    Written,
+    /// The declared type of the call whose value the receiver is.
+    Derived(String, Confidence),
+    /// The receiver's call links to declarations that name no single type
+    /// (a type parameter, no result, candidates that disagree): any guess is
+    /// outranked and the receiver stays untyped.
+    Untyped,
+}
+
+impl Received {
+    /// The receiver type the call links with, given the `written` one.
+    pub(super) fn receiver_type<'a>(&'a self, written: Option<&'a str>) -> Option<&'a str> {
+        match self {
+            Self::Written => written,
+            Self::Derived(ty, _) => Some(ty),
+            Self::Untyped => None,
+        }
+    }
+
+    /// The confidence of a link made with this receiver: no surer than the
+    /// call it was derived from.
+    pub(super) fn confidence(&self, own: Confidence) -> Confidence {
+        match self {
+            Self::Derived(_, inner) => own.max(*inner),
+            _ => own,
+        }
+    }
+}
+
+/// How each of the file's calls has its receiver typed, in call order;
+/// [`Received::Written`] where the call has no receiver call.
 pub(super) fn received_types(
     linker: &Linker,
     unit: &FileLinks,
@@ -24,7 +62,7 @@ pub(super) fn received_types(
 ) -> Vec<Received> {
     let calls = &facts.calls;
     if calls.iter().all(|call| call.receiver_call.is_none()) {
-        return vec![None; calls.len()];
+        return vec![Received::Written; calls.len()];
     }
     let mut receiving = Receiving {
         linker,
@@ -55,8 +93,8 @@ struct Receiving<'a, 'r> {
     method: &'a dyn Fn(u32) -> bool,
     /// Call index by the bytes of its call expression.
     by_span: HashMap<(u32, u32), usize>,
-    /// Settled derivations; a call being derived reads as `Some(None)`, so
-    /// a malformed reference cycle ends unlinked.
+    /// Settled derivations; a call being derived reads as written, so a
+    /// malformed reference cycle ends unlinked.
     memo: Vec<Option<Received>>,
 }
 
@@ -65,27 +103,39 @@ impl Receiving<'_, '_> {
         if let Some(done) = &self.memo[index] {
             return done.clone();
         }
-        self.memo[index] = Some(None);
+        self.memo[index] = Some(Received::Written);
         let derived = self.derive(index);
         self.memo[index] = Some(derived.clone());
         derived
     }
 
     fn derive(&mut self, index: usize) -> Received {
-        let call = &self.calls[index];
-        let reference = call
-            .receiver_call
-            .filter(|_| call.receiver_type.is_none())?;
-        let inner = self.referenced(reference)?;
-        match self.linked(inner) {
+        let Some(reference) = self.calls[index].receiver_call else {
+            return Received::Written;
+        };
+        let Some(inner) = self.referenced(reference) else {
+            return Received::Written;
+        };
+        let derived = match self.linked(inner) {
+            // A declaration is found: it decides, or leaves the receiver untyped.
             Some((targets, confidence)) => {
-                self.declared(&targets, confidence, |(returned, tried)| {
-                    if reference.unwrap { tried } else { returned }
-                })
+                let declared = self
+                    .declared(&targets, confidence, |(returned, tried)| {
+                        if reference.unwrap { tried } else { returned }
+                    })
+                    .and_then(|(ty, confidence)| {
+                        Some((self.in_caller_scope(&targets, inner, ty)?, confidence))
+                    });
+                return declared.map_or(Received::Untyped, |(ty, confidence)| {
+                    Received::Derived(ty, confidence)
+                });
             }
             None if !reference.unwrap => self.unwrapped(inner),
             None => None,
-        }
+        };
+        derived.map_or(Received::Written, |(ty, confidence)| {
+            Received::Derived(ty, confidence)
+        })
     }
 
     /// The call whose expression spans `reference`.
@@ -100,10 +150,7 @@ impl Receiving<'_, '_> {
     fn linked(&mut self, index: usize) -> Option<(Vec<u32>, Confidence)> {
         let received = self.received(index);
         let call = &self.calls[index];
-        let receiver_type = call
-            .receiver_type
-            .as_deref()
-            .or(received.as_ref().map(|(ty, _)| ty.as_str()));
+        let receiver_type = received.receiver_type(call.receiver_type.as_deref());
         let (_, linked) = resolve_call(
             self.linker,
             self.unit,
@@ -113,10 +160,7 @@ impl Receiving<'_, '_> {
             self.method,
         );
         let (targets, _, confidence) = linked.ok()?;
-        Some((
-            targets,
-            received.map_or(confidence, |(_, inner)| confidence.max(inner)),
-        ))
+        Some((targets, received.confidence(confidence)))
     }
 
     /// The one type every target declares through `pick`; candidates that
@@ -126,7 +170,7 @@ impl Receiving<'_, '_> {
         targets: &[u32],
         confidence: Confidence,
         pick: impl Fn(ReturnTypes<'t>) -> Option<&'t str>,
-    ) -> Received
+    ) -> Declared
     where
         Self: 't,
     {
@@ -139,6 +183,48 @@ impl Receiving<'_, '_> {
             .then(|| (first.to_owned(), confidence))
     }
 
+    /// A declared return type, named as the caller's file names it. A Go
+    /// result type is written in the callee's package: bare `T` is the
+    /// callee's own, so it stays `T` for a caller in that package and is
+    /// `pkg.T` for a caller reaching the callee through the import `pkg`; a
+    /// type the callee qualifies itself (`other.T`) reads the callee's imports
+    /// and a method called across packages names no import of the caller, so
+    /// neither has a name here.
+    fn in_caller_scope(&self, targets: &[u32], inner: usize, ty: String) -> Option<String> {
+        if self.unit.language != "go" {
+            return Some(ty);
+        }
+        if ty.contains('.') {
+            return None;
+        }
+        let scope = &self.linker.scope;
+        let caller_file = self.unit.file_id;
+        let caller = scope.path(caller_file)?;
+        let in_package = |file: u32| {
+            scope.path(file).is_some_and(|path| {
+                crate::tools::ast_graph::paths::parent(path)
+                    == crate::tools::ast_graph::paths::parent(caller)
+            }) && match (scope.go_package(caller_file), scope.go_package(file)) {
+                (Some(caller), Some(callee)) => caller == callee,
+                _ => true,
+            }
+        };
+        let files = targets.iter().map(|id| self.linker.file_of(*id));
+        if files.clone().all(in_package) {
+            return Some(ty);
+        }
+        let (qualifier, _) = split_callee(&self.calls[inner].callee);
+        let imported = self.unit.bindings.modules.get(qualifier)?;
+        files
+            .clone()
+            .all(|file| {
+                scope
+                    .path(file)
+                    .is_some_and(|path| imported.contains(&path))
+            })
+            .then(|| format!("{qualifier}.{ty}"))
+    }
+
     /// The value an unlinked `.unwrap()`/`.expect(..)` at `index` yields: the
     /// `T` of its receiver's declared `Result<T, _>`/`Option<T>`, as `?`
     /// yields it. The receiver must be a call that links to declarations of
@@ -146,7 +232,7 @@ impl Receiving<'_, '_> {
     /// method of that name; otherwise the method name proves nothing. The
     /// declared return type outranks a constructor-name `receiver_type`
     /// guess (`T::new(..)` declared `-> Result<Self, E>`).
-    fn unwrapped(&mut self, index: usize) -> Received {
+    fn unwrapped(&mut self, index: usize) -> Declared {
         let calls = self.calls;
         let call = &calls[index];
         let (_, name) = split_callee(&call.callee);

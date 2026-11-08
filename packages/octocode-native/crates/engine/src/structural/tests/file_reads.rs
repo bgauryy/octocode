@@ -116,6 +116,44 @@ fn search_files_discloses_the_walk_errors_it_met() {
     assert_eq!(clean.status, "ok");
 }
 
+/// A candidate the anchor prefilter cannot read is unreadable, never a
+/// prefilter miss: its text was not checked, so absence there is unproven.
+#[cfg(unix)]
+#[test]
+fn search_files_counts_an_unreadable_anchored_candidate_as_unreadable() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = TmpDir::new();
+    fs::write(root.join("a.ts"), "other(x);\n").expect("miss");
+    let locked = root.join("locked.ts");
+    fs::write(&locked, "target(y);\n").expect("hidden hit");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("chmod");
+    // A privileged user reads it anyway: nothing to prove then.
+    let readable = fs::read(&locked).is_ok();
+
+    let result = search_files_detailed(files_options(&root));
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).expect("restore");
+    let result = result.expect("search files");
+    if readable {
+        return;
+    }
+    assert_eq!(
+        (result.skipped_unreadable, result.skipped_by_pre_filter),
+        (1, 1),
+        "{:?}",
+        result
+            .files
+            .iter()
+            .map(|file| (&file.path, &file.status))
+            .collect::<Vec<_>>()
+    );
+    let row = result
+        .files
+        .iter()
+        .find(|file| file.path.ends_with("locked.ts"))
+        .expect("locked row");
+    assert_eq!(row.status, "unreadable");
+}
+
 /// The anchor prefilter reads a candidate once: a hit's bytes feed the
 /// parse, and a file over the parse cap is streamed, never held. Each skip
 /// keeps the reason and text the separate prefilter and parse reads gave.

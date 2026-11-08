@@ -82,8 +82,8 @@ fn an_indivisible_fragment_flags_its_page_oversized() {
     .cloned()
     .expect("object");
     let pages = walk(&structured, 1_000);
-    let flagged: Vec<_> = pages.iter().map(|(_, p)| p.oversized).collect();
-    assert!(flagged.contains(&Some(true)), "{flagged:?}");
+    let widths: Vec<_> = pages.iter().map(|(_, p)| p.returned_chars).collect();
+    assert!(widths.iter().any(|&chars| chars > 1_000), "{widths:?}");
     let whole = pages
         .iter()
         .flat_map(|(page, _)| page["results"].as_array().cloned().unwrap_or_default())

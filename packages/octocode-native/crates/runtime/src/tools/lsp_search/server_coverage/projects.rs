@@ -80,26 +80,88 @@ pub(super) fn annotate_unanswered(
     if lsp_search_query::op(query) == Op::WorkspaceSymbol {
         return;
     }
-    let Some((name, files)) = lsp_search_query::symbol_name(query)
-        .filter(|name| !name.trim().is_empty())
-        .and_then(|name| Some((name, scope.text_only_files(name)?)))
-        .filter(|(_, files)| !files.is_empty())
+    let Some(name) = lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty())
     else {
         return;
     };
+    let files = scope.text_only_files(name).unwrap_or_default();
+    // Ignored files are judged as the visible ones are: only a file the server
+    // may not have loaded counts, so with the server's root known, one of another
+    // project.
+    let ignored = scope.ignored_only_files(name).map(|mut found| {
+        if let Some(root) = project {
+            let outside = other_projects(&found.files, root);
+            found.files.retain(|file| outside.values().any(|own| own.contains(file)));
+        }
+        found
+    });
+    let ignored = ignored.filter(|found| !found.files.is_empty() || found.unfinished);
     let Some(root) = project else {
-        let note = format!(
-            "The server lists no use of this name, but {} other file(s) spell it in code: its project may not cover them.",
-            files.len()
-        );
-        super::super::failure::flag_partial(row, query, UNANSWERED_REASON, Some(&note), scope);
+        if files.is_empty() && ignored.is_none() {
+            return;
+        }
+        let mut note = String::new();
+        if !files.is_empty() {
+            note = format!(
+                "The server lists no use of this name, but {} other file(s) spell it in code: its project may not cover them.",
+                files.len()
+            );
+        }
+        flag_with_ignored(row, query, scope, name, note, ignored.as_ref());
         return;
     };
     let others = dependent_projects(scope, &files, root);
-    if others.is_empty() {
+    if others.is_empty() && ignored.is_none() {
         return;
     }
-    flag_other_projects(row, query, scope, name, &others);
+    flag_other_projects(row, query, scope, name, &others, ignored.as_ref());
+}
+
+/// The ignored files' share of a coverage note: counted, with the rules that
+/// hide them, and a lead that reads them.
+fn flag_with_ignored(
+    row: &mut Value,
+    query: &LspSearchQuery,
+    scope: &Scope,
+    name: &str,
+    mut note: String,
+    ignored: Option<&super::super::scope::IgnoredSpelling>,
+) {
+    if let Some(found) = ignored {
+        if !note.is_empty() {
+            note.push(' ');
+        }
+        note.push_str(&ignored_clause(found));
+    }
+    super::super::failure::flag_partial(row, query, UNANSWERED_REASON, Some(&note), scope);
+    if let Some(found) = ignored
+        && let Some(lead) = super::super::failure::ignored_text_lead(
+            name,
+            scope,
+            &found.files,
+            found.unfinished,
+        )
+    {
+        crate::response::result::attach_related(row, lead);
+    }
+}
+
+/// Why files under ignore rules leave the answer open: the server's project
+/// does not cover them, and the text scans do not look there.
+fn ignored_clause(found: &super::super::scope::IgnoredSpelling) -> String {
+    let rules = match found.rules.as_slice() {
+        [] => "ignore rules".to_owned(),
+        rules => rules.join(", "),
+    };
+    let more = if found.unfinished {
+        " The scan for gitignored files did not finish, so more may exist."
+    } else {
+        ""
+    };
+    format!(
+        "{} gitignored file(s) ({rules}) spell this name in code, outside the project the server loaded; a localSearch with includeIgnored reads them.{more}",
+        found.files.len()
+    )
 }
 
 /// Partial for files of projects the server did not load: the warning names
@@ -113,6 +175,7 @@ fn flag_other_projects(
     scope: &Scope,
     name: &str,
     others: &std::collections::BTreeMap<std::path::PathBuf, Vec<String>>,
+    ignored: Option<&super::super::scope::IgnoredSpelling>,
 ) {
     let base = Path::new(&scope.root);
     let shown = |root: &Path| {
@@ -129,11 +192,15 @@ fn flag_other_projects(
         .map(|(root, files)| format!("{} ({})", shown(root), files.len()))
         .collect::<Vec<_>>()
         .join(", ");
-    let note = format!(
-        "{} file(s) the answer leaves out spell this name in code, in projects the server did not load: {listed}. Search each in related[]; anchor lspSearch at a use there to ask that project's server.",
-        others.values().map(Vec::len).sum::<usize>()
-    );
-    super::super::failure::flag_partial(row, query, UNANSWERED_REASON, Some(&note), scope);
+    let note = if others.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "{} file(s) the answer leaves out spell this name in code, in projects the server did not load: {listed}. Search each in related[]; anchor lspSearch at a use there to ask that project's server.",
+            others.values().map(Vec::len).sum::<usize>()
+        )
+    };
+    flag_with_ignored(row, query, scope, name, note, ignored);
     let roots = others
         .keys()
         .map(|root| root.to_string_lossy().into_owned())

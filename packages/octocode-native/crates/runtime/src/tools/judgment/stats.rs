@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 /// Classification usage aggregated over one tool call.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub(crate) struct ClassificationUsage {
     pub calls: u64,
     pub known_usage_calls: u64,
@@ -21,9 +21,28 @@ pub(crate) struct ClassificationUsage {
     pub long_context_input_tokens: u64,
     pub long_context_reported: u64,
     pub long_context_unreported: u64,
+    /// This usage describes a replayed page: its billing was the original
+    /// read's, and the notice says so.
+    #[serde(default)]
+    pub replay: bool,
 }
 
 impl ClassificationUsage {
+    /// What a replay of this page reports: the work it did not bill again
+    /// is zero, what describes the page stays (the models, the price of the
+    /// rest of the walk, the long-context retries it took).
+    pub(crate) fn replayed(&self) -> Self {
+        Self {
+            calls: 0,
+            known_usage_calls: 0,
+            unknown_usage_calls: 0,
+            input_tokens: 0,
+            output_tokens: 0,
+            replay: true,
+            ..self.clone()
+        }
+    }
+
     pub(crate) fn output(&self) -> octocode_contract_types::SelectionUsage {
         let count = |value| i64::try_from(value).unwrap_or(i64::MAX);
         octocode_contract_types::SelectionUsage {
@@ -74,24 +93,27 @@ impl ClassificationUsage {
         if self.long_context_retries == 0 {
             return None;
         }
-        let retried = octocode_engine::text::counted(
-            self.long_context_retries,
-            "evaluation",
-            "evaluations",
-        );
+        let retried =
+            octocode_engine::text::counted(self.long_context_retries, "evaluation", "evaluations");
         let tokens = self.long_context_input_tokens;
         let unknown = self.long_context_unreported;
+        // A replay billed nothing: the tokens are the original read's.
+        let origin = if self.replay {
+            " by the original read"
+        } else {
+            ""
+        };
         Some(if unknown == 0 {
             format!(
-                "{retried} refused in the default window retried in the long-context window (slower, less accurate): {tokens} input tokens billed. longContext:false refuses instead."
+                "{retried} refused in the default window retried in the long-context window (slower, less accurate): {tokens} input tokens billed{origin}. longContext:false refuses instead."
             )
         } else if self.long_context_reported == 0 {
             format!(
-                "{retried} refused in the default window retried in the long-context window (slower, less accurate): input tokens billed unknown (the provider reported no usage). longContext:false refuses instead."
+                "{retried} refused in the default window retried in the long-context window (slower, less accurate): input tokens billed unknown{origin} (the provider reported no usage). longContext:false refuses instead."
             )
         } else {
             format!(
-                "{retried} refused in the default window retried in the long-context window (slower, less accurate): at least {tokens} input tokens billed; {unknown} of them reported no usage. longContext:false refuses instead."
+                "{retried} refused in the default window retried in the long-context window (slower, less accurate): at least {tokens} input tokens billed{origin}; {unknown} of them reported no usage. longContext:false refuses instead."
             )
         })
     }

@@ -190,6 +190,19 @@ fn split_private_key_hidden(
     })
 }
 
+/// A leaf's detector `scan` of `content` (a failure fails closed to the
+/// placeholder), then the split-key guard of
+/// [`ContentSecurity::guard_native`] over the leaf as the detector left it.
+fn guard_leaf(
+    content: &str,
+    scan: octocode_engine::error::Result<Option<String>>,
+) -> Option<String> {
+    let redacted = scan.unwrap_or_else(|_| {
+        Some(octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned())
+    });
+    redact_split_private_key(redacted.as_deref().unwrap_or(content), None).or(redacted)
+}
+
 /// 1-based inclusive line ranges of `text` that a row cut from it cannot be
 /// judged alone: its key blocks, and the lines a whole-file scan redacts when it
 /// names a pattern whose context can lie outside any row. Nothing on those lines
@@ -281,13 +294,29 @@ impl ContentSecurity {
     /// says what language the text is in, so source code is not mistaken for
     /// configuration; every credential pattern still applies.
     pub(crate) fn sanitize_leaf(&self, content: &str, source_path: Option<&str>) -> Option<String> {
-        let redacted = octocode_engine::security::sanitizer::sanitize_leaf(content, source_path)
-            .unwrap_or_else(|_| {
-                Some(octocode_engine::security::SANITIZER_FAILURE_PLACEHOLDER.to_owned())
-            });
-        // The split-key guard of [`Self::guard_native`], over the leaf as
-        // the detector left it.
-        redact_split_private_key(redacted.as_deref().unwrap_or(content), None).or(redacted)
+        guard_leaf(
+            content,
+            octocode_engine::security::sanitizer::sanitize_leaf(content, source_path),
+        )
+    }
+
+    /// [`Self::sanitize_leaf`] of a leaf cut from text the whole-source pass
+    /// judged at `judged_path` ([`super::JudgedLeaves`]): the patterns that
+    /// pass did not apply, and the split-key guard.
+    pub(crate) fn sanitize_judged_leaf(
+        &self,
+        content: &str,
+        source_path: Option<&str>,
+        judged_path: &str,
+    ) -> Option<String> {
+        guard_leaf(
+            content,
+            octocode_engine::security::sanitizer::sanitize_judged_leaf(
+                content,
+                source_path,
+                judged_path,
+            ),
+        )
     }
 
     /// [`Self::sanitize_leaf`] of a leaf about to be kept: its text when any

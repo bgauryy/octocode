@@ -26,6 +26,58 @@ pub use config::LimiterKey;
 pub(crate) use config::{ExecutorConfig, GitHubResource, Group};
 pub use key_state::AuthAdmission;
 pub(crate) use key_state::{Admission, KeyState};
+pub(crate) use waits::ClientWaits;
+
+/// Admission of clone subprocesses (network `git`) under the shared
+/// host/token cooldown, circuit and `git` permits of one budget: the API
+/// transport's, so its cooldowns hold clones back too. The optional
+/// directory is the same persisted rate-limit state as HTTP. Waits land on
+/// the row the limiter was made for.
+#[derive(Clone)]
+pub struct GitLimiter {
+    budget: Arc<GitHubBudget>,
+    state_dir: Option<std::path::PathBuf>,
+    waits: Arc<ClientWaits>,
+}
+
+impl GitLimiter {
+    /// A limiter on `budget` whose waits no row discloses.
+    #[must_use]
+    pub fn new(budget: Arc<GitHubBudget>, state_dir: Option<std::path::PathBuf>) -> Self {
+        Self {
+            budget,
+            state_dir,
+            waits: Arc::default(),
+        }
+    }
+
+    /// This limiter, its waits recorded on `context`'s row.
+    #[must_use]
+    pub fn for_row(mut self, context: &crate::RequestContext) -> Self {
+        self.waits = Arc::clone(&context.waits);
+        self
+    }
+
+    /// Admit one clone subprocess for `key`, waiting at most `cap` for a
+    /// cooldown and never past `deadline` or a cancel.
+    pub fn acquire_blocking(
+        &self,
+        key: &LimiterKey,
+        cap: Duration,
+        deadline: Instant,
+        is_cancelled: &dyn Fn() -> bool,
+    ) -> Result<OwnedSemaphorePermit, ProviderError> {
+        self.budget
+            .key_state(key, self.state_dir.as_deref())
+            .acquire_git_blocking(
+                &self.budget.config,
+                cap,
+                deadline,
+                is_cancelled,
+                &self.waits,
+            )
+    }
+}
 
 use super::{ProviderError, ProviderErrorKind, RateLimit};
 use octocode_io::budget::BudgetStop;
@@ -63,19 +115,30 @@ pub(crate) fn ceil_secs(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis().div_ceil(1000)).unwrap_or(u64::MAX)
 }
 
+/// A permit of `semaphore`; a wait for one held by another request is
+/// recorded on `waits` as `kind`.
 async fn acquire(
     semaphore: &Arc<Semaphore>,
     deadline: Instant,
     cancellation: &Cancellation,
+    waits: &ClientWaits,
+    kind: octocode_contract_types::ClientWaitKind,
 ) -> Result<OwnedSemaphorePermit, ProviderError> {
-    let remaining = deadline.saturating_duration_since(Instant::now());
-    tokio::select! {
-        _ = cancellation.cancelled() => Err(BudgetStop::Cancelled.into()),
-        _ = tokio::time::sleep(remaining) => Err(BudgetStop::Deadline.into()),
-        permit = semaphore.clone().acquire_owned() => permit.map_err(|_| {
-            ProviderError::new(ProviderErrorKind::Cancelled, "GitHub concurrency limiter closed")
-        }),
+    if let Ok(permit) = semaphore.clone().try_acquire_owned() {
+        return Ok(permit);
     }
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    waits
+        .timed(kind, async {
+            tokio::select! {
+                _ = cancellation.cancelled() => Err(BudgetStop::Cancelled.into()),
+                _ = tokio::time::sleep(remaining) => Err(BudgetStop::Deadline.into()),
+                permit = semaphore.clone().acquire_owned() => permit.map_err(|_| {
+                    ProviderError::new(ProviderErrorKind::Cancelled, "GitHub concurrency limiter closed")
+                }),
+            }
+        })
+        .await
 }
 
 /// How a runtime paces its GitHub requests. `Octokit` is production;
@@ -139,33 +202,23 @@ impl GitHubBudget {
         cancellation: &Cancellation,
     ) -> Result<AuthAdmission, ProviderError> {
         let state = self.key_state(&LimiterKey::for_url(origin, None), None);
+        // A login has no row to disclose its waits on.
+        let waits = ClientWaits::default();
         state
-            .wait_unblocked("auth", &self.config, deadline, cancellation)
+            .wait_unblocked("auth", &self.config, deadline, cancellation, &waits)
             .await?;
         let admission = state
-            .admit(Some(Group::Auth), &self.config, deadline, cancellation)
+            .admit(
+                Some(Group::Auth),
+                &self.config,
+                deadline,
+                cancellation,
+                &waits,
+            )
             .await?;
         Ok(AuthAdmission {
             _admission: admission,
         })
-    }
-
-    /// Admit a clone subprocess under the shared host/token cooldown and circuit.
-    /// The optional directory uses the same persisted rate-limit state as HTTP.
-    pub fn acquire_git_blocking(
-        &self,
-        key: &LimiterKey,
-        state_dir: Option<&Path>,
-        cap: Duration,
-        deadline: Instant,
-        is_cancelled: &dyn Fn() -> bool,
-    ) -> Result<OwnedSemaphorePermit, ProviderError> {
-        self.key_state(key, state_dir).acquire_git_blocking(
-            &self.config,
-            cap,
-            deadline,
-            is_cancelled,
-        )
     }
 
     /// State for `key`; attaches (and loads) the on-disk mirror when a

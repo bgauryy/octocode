@@ -11,7 +11,9 @@ mod cargo_workspaces;
 mod detectors;
 mod evidence;
 mod evidence_coverage;
+mod extraction_faults;
 mod find_ranking;
+mod graph_views;
 mod impact;
 mod impact_since;
 mod incremental;
@@ -33,6 +35,7 @@ mod snapshots;
 mod source_correspondence;
 mod stale;
 mod stale_scope;
+mod test_roles;
 
 fn fixture() -> Fixture {
     let dir = Fixture::new();

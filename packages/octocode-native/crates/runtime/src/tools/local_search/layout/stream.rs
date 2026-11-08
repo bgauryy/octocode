@@ -14,7 +14,7 @@ pub(super) struct StreamCosts<'a> {
 }
 
 /// Rows one page shows: (file index, rank-order row range), in page order.
-pub(super) type PageRows = Vec<(usize, std::ops::Range<usize>)>;
+pub(in crate::tools::local_search) type PageRows = Vec<(usize, std::ops::Range<usize>)>;
 
 /// Default-layout pages, cut from one row stream: each file's first
 /// `per_file` ranked rows in file order, then every file's remaining rows.
@@ -69,13 +69,13 @@ pub(super) fn stream_pages(
         let file = &files[index];
         let (file_chars, pagination) = *entries_chars[index]
             .get_or_insert_with(|| ((costs.file)(file), pagination_chars(file)));
-        // A row-less file still takes its place as one entry.
-        let entries: Vec<Option<usize>> = if rows.is_empty() {
-            vec![None]
-        } else {
-            rows.map(Some).collect()
-        };
-        for row in entries {
+        // A row-less file still takes its place as one entry. The rows are
+        // walked, not collected: a file's range can be millions of rows.
+        let row_less = rows.is_empty();
+        for row in std::iter::once(None)
+            .take(usize::from(row_less))
+            .chain(rows.map(Some))
+        {
             let more_after = row.is_some_and(|row| row + 1 < file.matches.len());
             let name = row.map_or(RowName::None, |row| (costs.name)(index, row));
             let row_chars = row.map_or(0, |row| (costs.row)(&file.matches[row]));

@@ -129,7 +129,8 @@ async fn a_search_page_of_only_withheld_files_sends_nothing() {
     assert!(sent(&provider).await.is_empty());
     assert_eq!(contents_reads(&github).await, Vec::<String>::new());
 
-    // The disclosed route: the unfiltered search lists the row, as it always did.
+    // The disclosed route: the unfiltered search lists the row by path only,
+    // since the path policy withholds the file's text from a plain search too.
     let unfiltered = runtime
         .run(
             "unfiltered".into(),
@@ -141,7 +142,9 @@ async fn a_search_page_of_only_withheld_files_sends_nothing() {
         .structured_content;
     let listed = &unfiltered["results"][0]["data"];
     assert_eq!(listed["files"][0]["path"], ".env", "{unfiltered}");
-    assert!(listed.to_string().contains(MARKER), "{unfiltered}");
+    assert_eq!(listed["files"][0]["lineResolved"], false, "{unfiltered}");
+    assert!(!listed.to_string().contains(MARKER), "{unfiltered}");
+    assert_eq!(contents_reads(&github).await, Vec::<String>::new());
     assert!(sent(&provider).await.is_empty());
     runtime.close().await;
 }

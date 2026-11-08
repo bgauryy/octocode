@@ -40,7 +40,7 @@
 //        RG_BIN                          ripgrep binary (else rg on PATH, else Claude Code's embedded rg)
 import fs from 'node:fs';
 import path from 'node:path';
-import { RESULTS, ROOT } from './paths.mjs';
+import { MCP_ENTRY, RESULTS } from './paths.mjs';
 import { checks, startServer, writeResults } from './mcp-client.mjs';
 import { nativeBinaryStamp } from './native-binary.mjs';
 import { hash, median } from './util.mjs';
@@ -247,7 +247,7 @@ const { results: checkResults, failed } = summary();
 
 // Baselines: rolling only on an accepted run; the anchor only on an explicit flag.
 const build = () => {
-  const dist = path.join(ROOT, 'packages/octocode-mcp/dist/index.js');
+  const dist = MCP_ENTRY;
   return { mcpDist: fs.existsSync(dist) ? sha16(fs.readFileSync(dist, 'utf8')) : null, nativeBinary: nativeBinaryStamp() };
 };
 const writeBaseline = (name, role) => {

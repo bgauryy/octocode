@@ -11,9 +11,10 @@
 //! contents of its parameters and of a function's body; literal text; and every
 //! other kind of node, so calls and expressions keep all their parts.
 
+use std::cell::RefCell;
 use std::num::NonZeroU16;
 
-use tree_sitter::Node;
+use tree_sitter::{Language, Node};
 
 use crate::structural::language::Expando;
 use crate::structural::octo::matching::named_children;
@@ -29,10 +30,44 @@ const PARAMETER: &str = "parameter";
 /// and references around it.
 const DECLARATOR: &str = "declarator";
 
-fn has_field(node: Node<'_>, fields: &[&str]) -> bool {
+/// A language's field ids by field name, `None` where the grammar lacks it.
+type FieldIds = Vec<(Language, Vec<(&'static str, Option<u16>)>)>;
+
+thread_local! {
+    /// Field ids by language and field name: `child_by_field_name` scans the
+    /// language's whole field table on every call, and a match asks the same
+    /// few names at every node pair.
+    static FIELD_IDS: RefCell<FieldIds> =
+        const { RefCell::new(Vec::new()) };
+}
+
+/// `node`'s child in the field `name`, as [`Node::child_by_field_name`] reads
+/// it, through the cached field id.
+fn child_in_field<'tree>(node: Node<'tree>, name: &'static str) -> Option<Node<'tree>> {
+    let id = FIELD_IDS.with_borrow_mut(|languages| {
+        let language = node.language();
+        let at = match languages.iter().position(|(known, _)| *known == *language) {
+            Some(at) => at,
+            None => {
+                languages.push((language.clone(), Vec::new()));
+                languages.len() - 1
+            }
+        };
+        let names = &mut languages[at].1;
+        if let Some((_, id)) = names.iter().find(|(known, _)| *known == name) {
+            return *id;
+        }
+        let id = language.field_id_for_name(name).map(NonZeroU16::get);
+        names.push((name, id));
+        id
+    })?;
+    node.child_by_field_id(id)
+}
+
+fn has_field(node: Node<'_>, fields: &[&'static str]) -> bool {
     fields
         .iter()
-        .any(|field| node.child_by_field_name(field).is_some())
+        .any(|field| child_in_field(node, field).is_some())
 }
 
 /// Whether the grammar spells `node` as a declaration, by the fields this
@@ -43,23 +78,53 @@ pub(super) fn declares(node: Node<'_>) -> bool {
         return false;
     }
     has_field(node, &[PARAMETERS, PARAMETER])
+        || types_declarators(node)
+        || holds_typed_declarators(node)
         || (has_field(node, &["name"]) && has_field(node, &["body", "value", "type"]))
         || (has_field(node, &["pattern"]) && has_field(node, &["value"]))
         || (has_field(node, &["type"]) && has_field(node, &["body", DECLARATOR]))
         || (has_field(node, &[DECLARATOR]) && has_field(node, &["body"]))
 }
 
+/// Whether `node` binds a `type` to the declarators after it, each naming
+/// what it types in no field of `node` (C# `variable_declaration`: `int a =
+/// 1, b`). A declarator in a `declarator` field (a Java local) makes its
+/// node a declaration by itself, and a statement list ending in one (a Java
+/// block) holds it rather than declares through it.
+fn types_declarators(node: Node<'_>) -> bool {
+    let fielded = fields_of(node);
+    has_field(node, &["type"])
+        && named_children(node)
+            .iter()
+            .any(|part| has_field(*part, &["name"]) && field_of(&fielded, *part).is_none())
+}
+
+/// Whether `node` declares through the typed declarators it ends with,
+/// naming no part of its own: the statement or member around them, whose
+/// other parts (modifiers) a pattern may leave unsaid (C#
+/// `local_declaration_statement` and `field_declaration` around a
+/// `variable_declaration`).
+fn holds_typed_declarators(node: Node<'_>) -> bool {
+    fields_of(node).is_empty()
+        && named_children(node)
+            .last()
+            .is_some_and(|last| types_declarators(*last))
+}
+
 /// Whether `candidate_kind` is `pattern`'s kind with one more leading word, the
 /// grammar's own longer form of that declaration
 /// (`generator_function_declaration`, `abstract_class_declaration`).
 pub(super) fn is_longer_form(pattern: Node<'_>, candidate_kind: &str) -> bool {
-    let kind = pattern.kind();
+    adds_a_leading_word(pattern.kind(), candidate_kind) && declares(pattern)
+}
+
+/// Whether `longer` is `kind` with one more leading word.
+pub(super) fn adds_a_leading_word(kind: &str, longer: &str) -> bool {
     kind.contains('_')
-        && candidate_kind
+        && longer
             .strip_suffix(kind)
             .and_then(|word| word.strip_suffix('_'))
             .is_some_and(|word| !word.is_empty() && !word.contains('_'))
-        && declares(pattern)
 }
 
 /// The capture `part` wraps, and the node `candidate` wraps in its place, when
@@ -121,6 +186,10 @@ pub(super) struct Declaration {
     /// The pattern's declarator, when the pattern spells no literal type: a
     /// type it spells stays exact, so `void $F()` is not `void *f()`.
     declarator: Option<usize>,
+    /// The candidate is of another kind than the pattern, one the match
+    /// accepts as it (a longer form or an alternate): its own tokens spell
+    /// what its kind adds (`function*`).
+    other_kind: bool,
 }
 
 fn fields_of(node: Node<'_>) -> Vec<(usize, NonZeroU16)> {
@@ -161,7 +230,34 @@ fn sole_multi<'s>(list: Node<'_>, source: &'s str, expando: Expando) -> Option<S
     }
 }
 
-/// `body`, when its members are all declarations and at least one is spelled.
+/// Whether `node` takes parameters, itself or through the declarators it
+/// nests its name in (a C function's `function_declarator`): its body is
+/// then statements, never a type's members.
+fn takes_parameters(node: Node<'_>) -> bool {
+    std::iter::successors(Some(node), |node| child_in_field(*node, DECLARATOR))
+        .any(|node| has_field(node, &[PARAMETERS, PARAMETER]))
+}
+
+/// Whether `list` is the member list of a declaration that takes no
+/// parameters, held through wrappers that hold only it: Go's
+/// `field_declaration_list` in the `struct_type` a `type_spec` types. A
+/// list beside other parts (an `if`'s block) or in a function is not.
+fn is_held_member_list(list: Node<'_>) -> bool {
+    let mut node = list;
+    while let Some(parent) = node.parent() {
+        if declares(parent) {
+            return field_of(&fields_of(parent), node).is_some() && !takes_parameters(parent);
+        }
+        if named_children(parent).len() != 1 {
+            return false;
+        }
+        node = parent;
+    }
+    false
+}
+
+/// `body`, when its members are all declarations or named parts (an enum's
+/// variants) and at least one is spelled.
 fn lists_members(body: Node<'_>, source: &str, expando: Expando) -> bool {
     let mut spelled = false;
     for member in named_children(body) {
@@ -174,7 +270,7 @@ fn lists_members(body: Node<'_>, source: &str, expando: Expando) -> bool {
         ) {
             continue;
         }
-        if !declares(member) {
+        if !declares(member) && !has_field(member, &["name"]) {
             return false;
         }
         spelled = true;
@@ -183,21 +279,25 @@ fn lists_members(body: Node<'_>, source: &str, expando: Expando) -> bool {
 }
 
 impl Unsaid {
+    /// Out of line: [`super::CompiledPattern::match_node`] recurses, and its
+    /// frame must stay small on deep patterns.
+    #[inline(never)]
     pub(super) fn of(
         pattern: Node<'_>,
         candidate: Node<'_>,
         source: &str,
         expando: Expando,
     ) -> Self {
-        if !declares(pattern) {
+        // A pattern that spells no part that makes it a declaration (`impl X
+        // for $T`, no body) leaves the rest of a declaration unsaid too.
+        if !declares(pattern) && !declares(candidate) {
+            if lists_members(pattern, source, expando) && is_held_member_list(pattern) {
+                return Self::Members;
+            }
             return Self::Exact;
         }
-        let member_body = pattern
-            .child_by_field_name("body")
-            .filter(|body| {
-                !has_field(pattern, &[PARAMETERS, PARAMETER])
-                    && lists_members(*body, source, expando)
-            })
+        let member_body = child_in_field(pattern, "body")
+            .filter(|body| !takes_parameters(pattern) && lists_members(*body, source, expando))
             .map(|body| body.id());
         Self::Declaration(Declaration {
             parameter_fields: [PARAMETERS, PARAMETER]
@@ -206,12 +306,12 @@ impl Unsaid {
             candidate_fields: fields_of(candidate),
             candidate_has_parameters: has_field(candidate, &[PARAMETERS, PARAMETER]),
             member_body,
-            declarator: pattern
-                .child_by_field_name("type")
+            declarator: child_in_field(pattern, "type")
                 .is_none_or(|spelled| meta_from_node(spelled, source, expando).is_some())
-                .then(|| pattern.child_by_field_name(DECLARATOR))
+                .then(|| child_in_field(pattern, DECLARATOR))
                 .flatten()
                 .map(|node| node.id()),
+            other_kind: pattern.kind_id() != candidate.kind_id(),
         })
     }
 }
@@ -236,6 +336,20 @@ impl Declaration {
         field_of(&self.candidate_fields, node)
     }
 
+    /// Whether the candidate is of another kind the match accepts as the
+    /// pattern's (a longer form or an alternate).
+    pub(super) fn is_other_kind(&self) -> bool {
+        self.other_kind
+    }
+
+    /// Whether the candidate child `node` is in a parameter field: its lists
+    /// (Scala's `[T]` and `(x: T)`, curried lists) answer to the pattern's
+    /// parameter slot ([`ParameterSlot`]), not to the one-item rule.
+    pub(super) fn holds_parameters(&self, node: Node<'_>) -> bool {
+        field_of(&self.candidate_fields, node)
+            .is_some_and(|field| self.parameter_fields.contains(&Some(field)))
+    }
+
     pub(super) fn is_member_body(&self, node: Node<'_>) -> bool {
         self.member_body == Some(node.id())
     }
@@ -253,7 +367,7 @@ impl Declaration {
         }
         let mut node = candidate;
         while node.kind() != part.kind() {
-            node = node.child_by_field_name(DECLARATOR).or_else(|| {
+            node = child_in_field(node, DECLARATOR).or_else(|| {
                 let named = named_children(node);
                 match named.as_slice() {
                     [only] => Some(*only),

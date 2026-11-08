@@ -455,9 +455,10 @@ fn a_chain_of_candidate_pages_judges_every_group_once() {
     assert_eq!(seen, expected, "every kept hit once, none twice");
 }
 
-/// With no context field the classification context default applies, and the
-/// candidate page states it: replaying that page binds the same plan as
-/// the first call, whose context was implied.
+/// With no context field the contract default `contextLines: {before: 0,
+/// after: 0}` applies, and the candidate page omits it as well: replaying
+/// that page binds the same plan as the first call, whose context was
+/// implied.
 #[test]
 fn a_candidate_page_chains_under_the_default_classification_context() {
     let root = tempfile::tempdir().expect("fixture");

@@ -6,14 +6,32 @@ use octocode_engine::types::SearchContext;
 
 /// Order a file's rows for paging: by lexical hit rank, then distinct
 /// complete values before repeats, stable by line.
-pub(super) fn rank_file_rows(matches: &mut Vec<octocode_engine::types::TextSearchMatch>) {
-    matches.sort_by_key(|matched| std::cmp::Reverse(matched.rank.unwrap_or(1)));
+///
+/// The order is worked out on row indices and applied by swapping the rows
+/// where they are: a file's rows are the largest thing a scan holds, so
+/// ranking never makes a second copy of them (a result of millions of rows
+/// would take twice its memory to rank).
+pub(super) fn rank_file_rows(matches: &mut [octocode_engine::types::TextSearchMatch]) {
+    let mut order = (0..matches.len()).collect::<Vec<_>>();
+    order.sort_by_key(|&row| std::cmp::Reverse(matches[row].rank.unwrap_or(1)));
     let mut seen = std::collections::HashSet::new();
-    let (distinct, repeats): (Vec<_>, Vec<_>) = std::mem::take(matches)
+    let (mut ranked, repeats): (Vec<_>, Vec<_>) = order
         .into_iter()
-        .partition(|matched| seen.insert(matched.value_digest));
-    matches.extend(distinct);
-    matches.extend(repeats);
+        .partition(|&row| seen.insert(matches[row].value_digest));
+    ranked.extend(repeats);
+    // `ranked[at]` is the row that belongs at `at`: follow each cycle of
+    // that permutation once, marking a place done by pointing it at itself.
+    for start in 0..ranked.len() {
+        let mut at = start;
+        loop {
+            let from = std::mem::replace(&mut ranked[at], at);
+            if from == at || from == start {
+                break;
+            }
+            matches.swap(at, from);
+            at = from;
+        }
+    }
 }
 
 pub(super) fn project_match(matched: &octocode_engine::types::TextSearchMatch) -> SearchMatch {
@@ -101,10 +119,12 @@ impl WindowShape {
 
 /// The source lines a hit's row holds: `first..=last` of its context window,
 /// or its matched lines alone when its value is not a plain window (it is
-/// then shown as it is and numbers no line).
+/// then shown as it is and numbers no line). `line..=matched_last` are the
+/// lines the match covers (`line` itself for a one-line match).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct HitWindow {
     pub(super) line: u32,
+    pub(super) matched_last: u32,
     pub(super) first: u32,
     pub(super) last: u32,
 }
@@ -125,11 +145,13 @@ impl HitWindow {
         match shape.window(&matched.value, context) {
             Some((first, lines)) => Self {
                 line: matched.line,
+                matched_last: last_matched,
                 first,
                 last: first.saturating_add(saturating_u32(lines.len())) - 1,
             },
             None => Self {
                 line: matched.line,
+                matched_last: last_matched,
                 first: matched.line,
                 last: last_matched,
             },
@@ -149,26 +171,34 @@ impl HitWindow {
 /// owns is never shown twice across pages.
 /// The lines `[low, high]` of `window` its hit owns among the file's `hits`:
 /// a line only one window holds is that hit's; a line two windows hold
-/// belongs to the nearer hit, the earlier on a tie. Each line a window holds
-/// is owned by exactly one hit that holds it, so pages showing disjoint hits
+/// belongs to the nearer hit, the earlier on a tie. The lines a match
+/// covers are always its hit's, and distance is measured from them. Each
+/// line a window holds is owned by exactly one hit that holds it, so pages showing disjoint hits
 /// show disjoint lines, and none is left out.
 pub(super) fn owned_lines(window: HitWindow, hits: &[HitWindow]) -> (u32, u32) {
-    let HitWindow { line, first, last } = window;
+    let HitWindow {
+        line,
+        matched_last,
+        first,
+        last,
+    } = window;
     let (mut low, mut high) = (first, last);
     let at = hits.partition_point(|hit| hit.line < line);
     if let Some(previous) = at.checked_sub(1).and_then(|i| hits.get(i)) {
         // Lines past the previous window, or nearer this hit.
         let past = previous.last.saturating_add(1);
-        let nearer = previous.line + (line - previous.line) / 2 + 1;
+        let gap = line.saturating_sub(previous.matched_last);
+        let nearer = previous.matched_last + gap / 2 + 1;
         low = low.max(past.min(nearer));
     }
     if let Some(next) = hits[at..].iter().find(|hit| hit.line > line) {
         // Lines before the next window, or nearer this hit.
         let before = next.first.saturating_sub(1);
-        let nearer = line + (next.line - line) / 2;
+        let gap = next.line.saturating_sub(matched_last);
+        let nearer = matched_last + gap / 2;
         high = high.min(before.max(nearer));
     }
-    (low, high)
+    (low.min(line), high.max(matched_last))
 }
 
 pub(super) fn merge_context_windows(
@@ -210,6 +240,25 @@ pub(super) fn merge_context_windows(
             out.push(row);
             continue;
         };
+        // The lines this hit owns of its window ([`owned_lines`]).
+        let (start, lines) = {
+            let end = start.saturating_add(saturating_u32(lines.len())); // exclusive
+            let window = HitWindow {
+                line: row.line,
+                matched_last: row.match_lines.as_ref().map_or(row.line, |spanned| {
+                    spanned.last().copied().unwrap_or(row.line)
+                }),
+                first: start,
+                last: end - 1,
+            };
+            let (low, high) = owned_lines(window, hits);
+            let from = low.max(start);
+            let to = high.saturating_add(1).min(end).max(from);
+            (
+                from,
+                lines[(from - start) as usize..(to - start) as usize].to_vec(),
+            )
+        };
         // A match spanning several lines stands alone: its window is its
         // own, numbered, with every line it covers a matched line.
         if let Some(spanned) = row.match_lines.clone() {
@@ -223,21 +272,6 @@ pub(super) fn merge_context_windows(
             }));
             continue;
         }
-        let (start, lines) = {
-            let end = start.saturating_add(saturating_u32(lines.len())); // exclusive
-            let window = HitWindow {
-                line: row.line,
-                first: start,
-                last: end - 1,
-            };
-            let (low, high) = owned_lines(window, hits);
-            let from = low.max(start);
-            let to = high.saturating_add(1).min(end).max(from);
-            (
-                from,
-                lines[(from - start) as usize..(to - start) as usize].to_vec(),
-            )
-        };
         if let Some(block) = open.as_mut() {
             let end = block
                 .start

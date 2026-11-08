@@ -250,3 +250,63 @@ async fn a_cut_patch_line_never_shows_part_of_a_secret() {
         assert!(!shown.contains(&secret[8..28]), "gap {gap}: {out}");
     }
 }
+
+/// A dotenv file's patch row hides every credential value, short ones
+/// included, on context, removed and added lines: the raw patch is redacted
+/// with its file's path before the line-number gutter is added, so the
+/// dotenv rules read the lines they were written for.
+#[tokio::test]
+async fn dotenv_patch_rows_hide_credential_values_before_numbering() {
+    let server = MockServer::builder().start().await;
+    let patch = |n: u8| {
+        format!(
+            "@@ -24,4 +24,4 @@\n TLS_KEYSTORE_FILE=shepherdKeystore.p12\n TLS_KEYSTORE_PASS=CowSaysMoo{n}\n-DB_PASS=OldMoo{n}\n+DB_PASS=NewMoo{n}\n DB_HOST=db{n}"
+        )
+    };
+    let mut raw = commit_raw(HEAD, "dotenv patch");
+    raw["files"] = json!([
+        {"filename":".env","status":"modified","additions":1,"deletions":1,"patch":patch(1)},
+        {"filename":"config/prod.env","status":"modified","additions":1,"deletions":1,"patch":patch(2)}
+    ]);
+    mount_json(
+        &server,
+        format!("/api/v3/repos/o/r/commits/{HEAD}"),
+        200,
+        raw,
+    )
+    .await;
+    // The production scanner, not the anchor reads' passthrough double.
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let context = fixture_context(Duration::from_secs(10), 4 << 20);
+    let request = HistoryItemRequest::from_row(
+        json!({"operation":"commit","owner":"o","repo":"r","ref":HEAD,"sections":["patches"]}),
+    )
+    .expect("valid row");
+    let out = execute(
+        &provider,
+        &request,
+        &context,
+        &crate::security::ContentSecurity::new(),
+    )
+    .await
+    .expect("history item")
+    .data;
+    for file in [0, 1] {
+        let shown = out["files"][file]["patch"]
+            .as_str()
+            .unwrap_or_else(|| panic!("patch row {file}: {out}"));
+        for secret in ["CowSaysMoo", "OldMoo", "NewMoo"] {
+            assert!(!shown.contains(secret), "{secret} leaked: {shown}");
+        }
+        for kept in [
+            "25\t TLS_KEYSTORE_PASS=",
+            "26\t-DB_PASS=",
+            "26\t+DB_PASS=",
+            "DB_HOST=db",
+            "shepherdKeystore.p12",
+        ] {
+            assert!(shown.contains(kept), "{kept} lost: {shown}");
+        }
+        assert!(shown.contains("[REDACTED-"), "{shown}");
+    }
+}

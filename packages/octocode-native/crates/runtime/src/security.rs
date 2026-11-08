@@ -1,6 +1,7 @@
 mod content;
 pub(crate) mod cut;
 mod input;
+mod judged;
 mod limits;
 mod output;
 pub(crate) mod scan;
@@ -16,6 +17,7 @@ pub(crate) use content::{
     redact_private_key_blocks, snippet_may_hold_key_material,
 };
 pub(crate) use input::{CheckedQuery, InputPolicy};
+pub(crate) use judged::{JudgedLeaf, JudgedLeaves, JudgedSource};
 pub use limits::SourceLimits;
 pub use output::Sanitized;
 pub(crate) use walk::sanitize_json;

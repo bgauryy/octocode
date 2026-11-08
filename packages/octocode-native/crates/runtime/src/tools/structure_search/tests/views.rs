@@ -40,13 +40,13 @@ fn paths_preserves_names_and_kinds_without_reading_file_content() {
     expected.push("source link (symlink)");
     expected.sort_unstable();
     for operation in ["tree", "files"] {
-        let before = super::super::rows::line_count_reads();
+        let before = super::super::rows::line_count_reads(&root.0);
         let out = run(
             &root.0,
             json!({"operation": operation, "path": root.0, "view": "paths", "maxDepth": 1}),
         )
         .expect("paths");
-        assert_eq!(super::super::rows::line_count_reads(), before);
+        assert_eq!(super::super::rows::line_count_reads(&root.0), before);
         let mut actual = entries(&out);
         actual.sort_unstable();
         assert_eq!(actual, expected, "{operation}: {out}");
@@ -58,13 +58,14 @@ fn paths_line_sort_reads_for_ranking_but_emits_only_names() {
     let root = Fixture::new();
     root.write("a-short.rs", "one\n");
     root.write("z-long.rs", "one\ntwo\nthree\n");
-    let before = super::super::rows::line_count_reads();
+    let before = super::super::rows::line_count_reads(&root.0);
     let out = run(
         &root.0,
         json!({"operation": "files", "path": root.0, "view": "paths", "sort": {"by": "lineCount", "order": "desc"}}),
     )
     .expect("ranked paths");
-    assert_eq!(super::super::rows::line_count_reads(), before);
+    // The ranking reads each file once; emitting names reads none.
+    assert_eq!(super::super::rows::line_count_reads(&root.0) - before, 2);
     assert_eq!(entries(&out), ["z-long.rs", "a-short.rs"]);
 }
 
@@ -88,9 +89,9 @@ fn paths_pages_preserve_every_detailed_path_once_and_keep_the_view() {
         expected.sort();
         query["view"] = json!("paths");
         for budget in [1, 150] {
-            let before = super::super::rows::line_count_reads();
+            let before = super::super::rows::line_count_reads(&root.0);
             let pages = walk_pages_budget(&root.0, query.clone(), Some(budget));
-            assert_eq!(super::super::rows::line_count_reads(), before);
+            assert_eq!(super::super::rows::line_count_reads(&root.0), before);
             assert!(pages.len() > 1);
             let mut actual: Vec<_> = pages.iter().flat_map(paths).collect();
             actual.sort();

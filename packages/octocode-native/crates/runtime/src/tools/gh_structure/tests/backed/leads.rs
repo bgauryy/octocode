@@ -178,6 +178,11 @@ async fn a_materialize_of_a_walk_with_a_failed_subtree_is_not_complete() {
 async fn a_materialize_out_of_time_resumes_without_gaps_or_a_second_tree() {
     use crate::tools::gh_structure::materialize::{Snapshot, materialize_tree};
     use crate::tools::gh_structure::{EntryKind, TreeEntry};
+    // Reads run eight ahead: three waves of 24 files, the third past the call's
+    // three-quarters stop. The margins are seconds, so a loaded machine's
+    // scheduling delay cannot move a read past the deadline.
+    const READ: std::time::Duration = std::time::Duration::from_millis(1_200);
+    const CALL: std::time::Duration = std::time::Duration::from_secs(4);
     let server = MockServer::builder().start().await;
     let entries = (0..24)
         .map(|n| TreeEntry {
@@ -196,7 +201,7 @@ async fn a_materialize_out_of_time_resumes_without_gaps_or_a_second_tree() {
                     b"fn u(){}".to_vec(),
                     "application/vnd.github.raw; charset=utf-8",
                 )
-                .set_delay(std::time::Duration::from_millis(150)),
+                .set_delay(READ),
         )
         .mount(&server)
         .await;
@@ -213,10 +218,7 @@ async fn a_materialize_out_of_time_resumes_without_gaps_or_a_second_tree() {
     let mut calls = 0;
     let local = loop {
         calls += 1;
-        let context = octocode_github::RequestContext::with_timeout(
-            std::time::Duration::from_millis(500),
-            1024 * 1024,
-        );
+        let context = octocode_github::RequestContext::with_timeout(CALL, 1024 * 1024);
         let outcome = materialize_tree(&provider, &snapshot, &entries, offset, "", &context)
             .await
             .expect("page")
@@ -244,6 +246,58 @@ async fn a_materialize_out_of_time_resumes_without_gaps_or_a_second_tree() {
     }
     let reads = server.received_requests().await.unwrap().len();
     assert!(reads >= 24, "{reads}");
+}
+
+/// A first read that arrives past the call's three-quarters stop is still
+/// written: a call that wrote nothing would resume at the same entry forever.
+/// The read's delay sits between the stop and the deadline, so the order is
+/// the same on every machine.
+#[tokio::test]
+async fn a_first_read_past_the_stop_is_written_so_the_walk_progresses() {
+    use crate::tools::gh_structure::materialize::{Snapshot, materialize_tree};
+    use crate::tools::gh_structure::{EntryKind, TreeEntry};
+    const CALL: std::time::Duration = std::time::Duration::from_secs(4);
+    let server = MockServer::builder().start().await;
+    let entries = (0..2)
+        .map(|n| TreeEntry {
+            path: format!("f{n}.rs"),
+            kind: EntryKind::File,
+            size: Some(8),
+        })
+        .collect::<Vec<_>>();
+    for n in 0..2 {
+        wiremock::Mock::given(wiremock::matchers::path(format!(
+            "/api/v3/repos/a/b/contents/f{n}.rs"
+        )))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_raw(
+                    b"fn u(){}".to_vec(),
+                    "application/vnd.github.raw; charset=utf-8",
+                )
+                .set_delay(CALL.mul_f64(0.85)),
+        )
+        .mount(&server)
+        .await;
+    }
+    let provider = crate::tools::gh_shared::test_support::one_shot_provider(&server);
+    let home = crate::tools::test_support::Fixture::new();
+    let snapshot = Snapshot {
+        owner: "a",
+        repo: "b",
+        commit: SHA,
+        root: &home.0,
+    };
+    let context = octocode_github::RequestContext::with_timeout(CALL, 1024 * 1024);
+    let outcome = materialize_tree(&provider, &snapshot, &entries, 0, "", &context)
+        .await
+        .expect("page")
+        .expect("entries left");
+    assert!(
+        outcome.next_offset.is_none_or(|next| next > 0),
+        "the call wrote nothing and resumes where it began: {:?}",
+        outcome.next_offset
+    );
 }
 
 /// A listing leads to the read a caller makes next: the package's

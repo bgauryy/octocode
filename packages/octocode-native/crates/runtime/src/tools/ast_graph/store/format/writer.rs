@@ -226,7 +226,7 @@ impl<'t> Encoder<'t> {
         put(&mut nodes, tables.nodes.len() as u64);
         for node in &tables.nodes {
             nodes.push(node.kind as u8);
-            nodes.push(node.flags);
+            put(&mut nodes, u64::from(node.flags));
             put(&mut nodes, u64::from(self.sid(node.key)));
             put(&mut nodes, u64::from(self.sid(node.name)));
             put(&mut nodes, u64::from(self.sid(node.detail)));

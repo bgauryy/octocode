@@ -1,6 +1,6 @@
 //! Leads from an exact registry row to its source on GitHub.
 use crate::id::ToolId;
-use crate::providers::artifact::query::{artifact_search_query, artifact_type};
+use crate::providers::artifact::query::artifact_search_query;
 use crate::providers::artifact::{
     ArtifactError, ArtifactItem, RepositoryStatus, github_slug, page_out_of_range, release_ref_in,
 };
@@ -55,19 +55,42 @@ pub(super) fn source_warning(artifact: &ArtifactItem) -> Option<String> {
         .map_or_else(|| "its repository".to_owned(), |(o, r)| format!("{o}/{r}"));
     let reason = match (artifact.repository_status, artifact.missing_ref.as_deref()) {
         (Some(RepositoryStatus::Missing), _) => format!(
-            "GitHub has no repository {repository} (deleted, private, or never there), so no release ref or GitHub lead is given"
+            "GitHub has no repository {repository} (deleted, private, or never there), so no release ref or GitHub lead is given{}",
+            artifact.successor_repository.as_deref().map_or_else(
+                String::new,
+                |successor| format!(
+                    "; the registry's latest release names {successor}, which may be where the project moved"
+                )
+            )
         ),
         (Some(RepositoryStatus::Moved), _) => format!(
-            "GitHub redirects {repository} to another name (renamed or transferred), so the registry's link is stale; GitHub tools follow the redirect"
+            "GitHub redirects {repository} to {} (renamed or transferred), so the registry's link is stale; GitHub tools follow the redirect",
+            artifact
+                .successor_repository
+                .as_deref()
+                .unwrap_or("another name")
         ),
         (None, Some(reference)) => {
             format!("release commit {reference} is not in {repository} (unpushed or rewritten)")
         }
-        (None, None) if default_branch => "the registry names no release ref".to_owned(),
-        (None, None) if artifact.declared_ref => format!(
-            "no tag names this version; ref {} is the tag its metadata declares, unchecked against the release",
-            artifact.source_ref.as_deref().unwrap_or_default()
-        ),
+        (None, None) if default_branch => match artifact.tags_unlisted.as_deref() {
+            Some(cause) => format!(
+                "the registry names no release ref, and no tag of the shapes checked names this version; its tag list could not be read ({cause}), so a tag may still name it"
+            ),
+            None => "the registry names no release ref".to_owned(),
+        },
+        (None, None) if artifact.declared_ref => {
+            let reference = artifact.source_ref.as_deref().unwrap_or_default();
+            let absence = artifact.tags_unlisted.as_deref().map_or_else(
+                || "no tag names this version".to_owned(),
+                |cause| format!(
+                    "no tag of the shapes checked names this version, and its tag list could not be read ({cause})"
+                ),
+            );
+            format!(
+                "{absence}; ref {reference} is the tag its metadata declares, unchecked against the release"
+            )
+        }
         (None, None) => {
             let release = artifact.tag_differs.as_ref()?;
             let reference = artifact.source_ref.as_deref().unwrap_or_default();
@@ -208,7 +231,7 @@ pub(super) fn advisory_lead(artifact: &ArtifactItem) -> Option<Value> {
             ToolId::SecurityCheck,
             json!({
                 "operation": "package",
-                "ecosystem": artifact_type::as_str(artifact.artifact_type),
+                "ecosystem": crate::providers::artifact::query::artifact_type::osv_ecosystem(artifact.artifact_type).to_string(),
                 "packageName": artifact.package_name,
                 "version": version,
             }),
@@ -243,11 +266,16 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
     if error.code == ErrorCode::InvalidInput
         && let Some(limit) = page_out_of_range(query)
     {
-        let mut last = copied(query);
-        last.insert("page".into(), json!(super::last_reachable_page(query)));
         error.message = limit.warning;
-        let lead = Continuation::continued(ToolId::ArtifactSearch, Value::Object(last)).build();
-        error.calls = Some(Box::new(json!({ "repair": lead })));
+        if let Some(lead) = crate::response::paging::next_page_call(
+            ToolId::ArtifactSearch,
+            Value::Object(copied(query)),
+            "page",
+            super::last_reachable_page(query),
+            &[],
+        ) {
+            error.calls = Some(Box::new(json!({ "repair": lead })));
+        }
         return error;
     }
     let Some(name) = artifact_search_query::package_name(query) else {
@@ -326,3 +354,22 @@ pub(super) fn broaden_empty(data: &mut Value, query: &ArtifactSearchQuery) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod successor_tests {
+    use super::*;
+
+    #[test]
+    fn a_missing_repository_warning_names_the_successor_when_known() {
+        let mut artifact =
+            ArtifactItem::new(ArtifactType::Npm, "pkg".into(), "https://r/pkg".into());
+        artifact.version = Some("1.0.0".into());
+        artifact.repository = Some("git://github.com/old/pkg.git".into());
+        artifact.repository_status = Some(RepositoryStatus::Missing);
+        let plain = source_warning(&artifact).expect("warning");
+        assert!(!plain.contains("latest release"), "{plain}");
+        artifact.successor_repository = Some("new/pkg".into());
+        let named = source_warning(&artifact).expect("warning");
+        assert!(named.contains("latest release names new/pkg"), "{named}");
+    }
+}

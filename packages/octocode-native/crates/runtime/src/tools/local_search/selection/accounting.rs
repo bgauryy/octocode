@@ -137,12 +137,22 @@ impl Selected {
 /// The same classified search of the same scan replaying `token`, a
 /// selection plan; the page fields start over.
 fn replay(query: &LocalSearchQuery, snapshot: &str, token: &str) -> Result<Value, ToolError> {
-    let mut changes = serde_json::Map::new();
-    for field in crate::contracts::state_fields(ToolId::LocalSearch) {
-        changes.insert(field.clone(), Value::Null);
-    }
-    changes.insert("snapshot".into(), json!(snapshot));
-    changes.insert("selection".into(), json!(token));
-    let next = local_search_query::edited(query, &Value::Object(changes))?;
-    Ok(crate::response::result::Continuation::continued_query(next).build())
+    replay_call(crate::response::result::query_value(query), snapshot, token)
+}
+
+/// [`replay`] over the query row: a row that is no object has no
+/// continuation, which is the caller's error, never a dropped lead.
+pub(super) fn replay_call(query: Value, snapshot: &str, token: &str) -> Result<Value, ToolError> {
+    crate::response::paging::next_candidate_page_call(
+        ToolId::LocalSearch,
+        query,
+        token,
+        Some(snapshot),
+    )
+    .ok_or_else(|| {
+        ToolError::new(
+            octocode_contract_types::ErrorCode::ExecutionFailed,
+            "the continuation is no valid localSearch query: the query row is not an object",
+        )
+    })
 }

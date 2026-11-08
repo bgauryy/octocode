@@ -4,7 +4,7 @@ use octocode_io::cancellation::Cancellation;
 use std::collections::BTreeMap;
 
 fn fragments(data: Value, tool: ToolId, budget: usize) -> Vec<Value> {
-    let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], &[None], tool)
+    let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], tool)
         .plan(budget, &Cancellation::new())
         .expect("valid plan");
     assert!(plan.total_pages > 1, "fixture must exercise fragmentation");
@@ -247,7 +247,7 @@ fn undeclared_collections_remain_whole_and_oversized_is_terminal() {
         ToolId::GraphQuery,
     );
     assert_eq!(pagination.total_pages, 1);
-    assert_eq!(pagination.oversized, Some(true));
+    assert!(pagination.returned_chars > 500, "wider than the budget");
     assert!(!pagination.has_more);
     assert!(pagination.next_offset.is_none());
     assert_eq!(page["results"][0]["data"], data);

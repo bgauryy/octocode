@@ -34,7 +34,7 @@ fn subtypes_fall_back_to_a_labelled_heritage_scan_when_implementation_fails() {
             r#"  } else if (msg.method === 'textDocument/implementation') {
     send({ jsonrpc: '2.0', id: msg.id, error: { code: -32603, message: 'Debug Failure' } });"#,
         );
-    std::fs::write(&script, server).expect("fixture server");
+    crate::tools::lsp_search::tests::write_executable(&script, &server);
     let paths = crate::tools::test_support::workspace_policy(&root);
     let path = root.join("b.ts").to_string_lossy().into_owned();
     let uri = octocode_engine::lsp::uri::path_to_uri(&path).expect("uri");
@@ -63,6 +63,7 @@ fn subtypes_fall_back_to_a_labelled_heritage_scan_when_implementation_fails() {
             character: 17,
             language_id: Some("typescript"),
             budget: 16_000,
+            security: &crate::security::ContentSecurity::new(),
         }
         .run()
         .await
@@ -147,7 +148,7 @@ fn implementation_row(
                 "  }} else if (msg.method === 'textDocument/implementation') {{\n    send({{ jsonrpc: '2.0', id: msg.id, {reply} }});"
             ),
         );
-    std::fs::write(&script, server).expect("fixture server");
+    crate::tools::lsp_search::tests::write_executable(&script, &server);
     let paths = crate::tools::test_support::workspace_policy(&root);
     let path = root.join(file).to_string_lossy().into_owned();
     let uri = octocode_engine::lsp::uri::path_to_uri(&path).expect("uri");
@@ -176,6 +177,7 @@ fn implementation_row(
             character,
             language_id: Some("typescript"),
             budget: 16_000,
+            security: &crate::security::ContentSecurity::new(),
         }
         .run()
         .await;

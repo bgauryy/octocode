@@ -5,7 +5,7 @@
 //! (`local`, `import`, `namespace`, `unique-name`) and a confidence, so a
 //! consumer never mistakes a name match for proven symbol identity.
 use super::super::classify::{
-    ROLE_DECLARATION, ROLE_ENTRY, ROLE_NOT_AUTHORED, ROLE_TEST, ROLE_UNPARSED, file_roles,
+    ROLE_DECLARATION, ROLE_ENTRY, ROLE_NOT_AUTHORED, ROLE_TEST, ROLE_UNPARSED, Roles, file_roles,
 };
 use super::format::{
     Confidence, DeclarationRec, DiagRec, EdgeKind, EdgeRec, FLAG_EXPORTED, FLAG_LOCAL_USE,
@@ -26,8 +26,8 @@ mod projector;
 mod sources;
 mod stats;
 mod test_code;
+use crate::tools::ast_graph::languages::canonical_language;
 use names::*;
-pub(crate) use naming::canonical_language;
 use naming::*;
 use stats::*;
 
@@ -93,7 +93,7 @@ pub(crate) fn project(
 ) -> Result<Projection, crate::response::result::ToolError> {
     let sources = sources::Sources::capture(built, cancel)?;
     let built = &*built;
-    let mut projector = Projector::new(built, workspace, sources);
+    let mut projector = Projector::new(built, workspace, sources)?;
     let symbols = projector.symbols();
     let (externals, package_nodes) = projector.externals();
     projector.contains_edges();
@@ -192,11 +192,13 @@ struct Projector<'a> {
     unresolved: Vec<UnresolvedRec>,
     declarations: Vec<DeclarationRec>,
     file_nodes: BTreeMap<&'a str, u32>,
-    roles: HashMap<&'a str, u8>,
+    roles: HashMap<&'a str, Roles>,
     languages: HashMap<&'a str, String>,
     /// Files the scan found but did not parse (over the size bound): they
     /// stay in the graph, so imports of them resolve and `find` sees them.
     unparsed: BTreeSet<&'a str>,
+    /// The shared test-code rule over the scanned root, for file roles.
+    test_code: crate::tools::test_code::TestCodeIndex,
 }
 
 /// Unique qualified-name keys for `ordered` declarations of `file`.

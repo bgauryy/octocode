@@ -112,6 +112,12 @@ enum Open {
     NameEnded(OpenName),
     /// A private member's name was read: what does its value look like?
     PrivateValue,
+    /// Inside a comment before a member's value: a block one (`/* */`) ends
+    /// after `star` and `/`, a line one at its newline.
+    Comment {
+        block: bool,
+        star: bool,
+    },
 }
 
 /// Bytes of the source the walk has in hand: `bytes[0]` is byte `base` of the
@@ -290,6 +296,7 @@ impl Walk {
             Open::Name(name) => self.in_name(piece, at, name),
             Open::NameEnded(name) => self.name_ended(piece, at, name),
             Open::PrivateValue => self.private_value(piece, at),
+            Open::Comment { block, star } => self.in_comment(piece, at, block, star),
         }
     }
 
@@ -303,6 +310,7 @@ impl Walk {
                 Ok(at + 1)
             }
             b'"' | b'\\' => self.quote(piece, at),
+            b'/' | b'#' if self.expected.is_some() => self.comment(piece, at),
             b'{' | b'[' => {
                 self.open_frame(byte, piece.base + at);
                 Ok(at + 1)
@@ -365,6 +373,53 @@ impl Walk {
             }
             Ok(None) => Ok(after_colon),
         }
+    }
+
+    /// A comment (`//`, `/* */`, `#`) between a member's name and its value,
+    /// as JSONC, source code and YAML write one: read past, so the value keeps
+    /// the role its name gave it. Any other `/` ends the wait for the value.
+    fn comment(&mut self, piece: &Piece<'_>, at: usize) -> Step {
+        let block = match (piece.bytes[at], piece.bytes.get(at + 1)) {
+            (b'#', _) => false,
+            (_, Some(b'/')) => false,
+            (_, Some(b'*')) => true,
+            (_, None) if !piece.last => return Err(at),
+            _ => {
+                self.expected = None;
+                return Ok(at + 1);
+            }
+        };
+        let body = if piece.bytes[at] == b'#' {
+            at + 1
+        } else {
+            at + 2
+        };
+        self.in_comment(piece, body, block, false)
+    }
+
+    /// The rest of a comment from `at`; one that runs past the piece goes on
+    /// in the next.
+    fn in_comment(
+        &mut self,
+        piece: &Piece<'_>,
+        mut at: usize,
+        block: bool,
+        mut star: bool,
+    ) -> Step {
+        while let Some(&byte) = piece.bytes.get(at) {
+            if !block && byte == b'\n' {
+                return Ok(at);
+            }
+            at += 1;
+            if block && star && byte == b'/' {
+                return Ok(at);
+            }
+            star = byte == b'*';
+        }
+        if !piece.last {
+            self.open = Open::Comment { block, star };
+        }
+        Ok(at)
     }
 }
 

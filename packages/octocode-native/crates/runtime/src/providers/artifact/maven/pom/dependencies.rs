@@ -11,8 +11,10 @@ use super::{child_block, patterns, project_children};
 /// yet), applied after the whole parent chain.
 /// Managed, build-plugin, profile and reporting dependencies are not the
 /// project's requirements. A `${…}` the POM defines ([`pom_properties`]) is
-/// resolved; one it does not (a parent POM's property) stays as written and
-/// is returned beside the lists, so it is stated, never guessed.
+/// resolved, in the version and in the groupId and artifactId; one it does
+/// not (a parent POM's property) is returned beside the lists, so it is
+/// stated, never guessed: a version keeps it as written, and a dependency
+/// whose coordinate has one is left out of the lists.
 pub(super) fn runtime_dependencies(
     pom: &str,
     ancestors: &[String],
@@ -30,10 +32,15 @@ pub(super) fn runtime_dependencies(
         .captures_iter(block)
         .filter_map(|capture| {
             let entry = patterns::exclusions().replace_all(capture.get(1)?.as_str(), "");
-            let coordinate = format!(
-                "{}:{}",
-                tag(patterns::group_id(), &entry)?,
-                tag(patterns::artifact_id(), &entry)?
+            let mut missing = Vec::new();
+            let coordinate = resolve_properties(
+                &format!(
+                    "{}:{}",
+                    tag(patterns::group_id(), &entry)?,
+                    tag(patterns::artifact_id(), &entry)?
+                ),
+                &properties,
+                &mut missing,
             );
             let stated = tag(patterns::scope(), &entry);
             // A stated scope that is no runtime one leaves nothing to manage.
@@ -41,6 +48,19 @@ pub(super) fn runtime_dependencies(
                 .as_deref()
                 .is_some_and(|scope| !matches!(scope, "compile" | "runtime"))
             {
+                return None;
+            }
+            // A coordinate that keeps a `${…}` names no artifact: the
+            // property is stated in `unresolved`, the entry is not listed
+            // and has no management entry to look up or wait for (a BOM
+            // read for it would be wasted).
+            let named = missing.is_empty();
+            for name in missing {
+                if !unresolved.contains(&name) {
+                    unresolved.push(name);
+                }
+            }
+            if !named {
                 return None;
             }
             let managed = management_key(&entry, &properties).and_then(|key| managed.get(&key));
@@ -360,6 +380,51 @@ mod tests {
         assert_eq!(found.required, ["org.slf4j:slf4j-api", "org.osgi:core"]);
         assert_eq!(found.optional, ["com.lmax:disruptor"]);
         assert!(found.unresolved.is_empty(), "{:?}", found.unresolved);
+    }
+
+    /// A dependency that states no scope takes the parent's managed `test`
+    /// scope (mockito-core) and is no runtime dependency; an unmanaged-scope
+    /// sibling stays compile.
+    #[test]
+    fn a_parent_managed_test_scope_keeps_mockito_out_of_the_runtime_dependencies() {
+        let child = include_str!("fixtures/mockito-user.pom");
+        let parent = include_str!("fixtures/mockito-parent.pom");
+        let found = runtime_dependencies(child, &[parent.to_owned()], &[]);
+        assert_eq!(found.required, ["org.slf4j:slf4j-api"]);
+        assert!(found.optional.is_empty());
+        assert_eq!(found.unmanaged, 0);
+    }
+
+    /// netty-handler names `${project.groupId}:netty-common` and a
+    /// parent's `${tcnative.artifactId}`: both resolve to coordinates.
+    #[test]
+    fn placeholders_in_group_and_artifact_resolve_from_project_and_parents() {
+        let child = "<project><parent><groupId>io.netty</groupId><artifactId>netty-parent</artifactId><version>1</version></parent>\
+            <artifactId>netty-handler</artifactId><dependencies>\
+            <dependency><groupId>${project.groupId}</groupId><artifactId>netty-common</artifactId><version>${project.version}</version></dependency>\
+            <dependency><groupId>${tcnative.groupId}</groupId><artifactId>${tcnative.artifactId}</artifactId><optional>true</optional></dependency>\
+            </dependencies></project>";
+        let parent = "<project><properties><tcnative.groupId>io.netty</tcnative.groupId><tcnative.artifactId>netty-tcnative</tcnative.artifactId></properties></project>";
+        let found = runtime_dependencies(child, &[parent.to_owned()], &[]);
+        assert_eq!(found.required, ["io.netty:netty-common:1"]);
+        assert_eq!(found.optional, ["io.netty:netty-tcnative"]);
+        assert!(found.unresolved.is_empty(), "{:?}", found.unresolved);
+    }
+
+    /// A property no read POM defines is stated by name; the dependency is
+    /// not listed as a coordinate that contains it.
+    #[test]
+    fn an_undefined_placeholder_is_disclosed_and_never_listed_as_a_coordinate() {
+        let child = "<project><dependencies>\
+            <dependency><groupId>x</groupId><artifactId>${missing.artifactId}</artifactId></dependency>\
+            <dependency><groupId>x</groupId><artifactId>ok</artifactId></dependency>\
+            <dependency><groupId>x</groupId><artifactId>${test.only}</artifactId><scope>test</scope></dependency>\
+            </dependencies></project>";
+        let found = runtime_dependencies(child, &[], &[]);
+        assert_eq!(found.required, ["x:ok"]);
+        assert_eq!(found.unresolved, ["${missing.artifactId}"]);
+        // Only `x:ok` awaits a management entry: the dropped one needs no BOM read.
+        assert_eq!(found.unmanaged, 1);
     }
 
     /// Maven manages by groupId:artifactId:type:classifier (jar, none): a

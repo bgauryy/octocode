@@ -43,20 +43,22 @@ pub struct PullListRequest {
     pub per_page: usize,
 }
 impl GitHubTransport {
-    pub(crate) async fn list_commits(
-        &self,
-        r: &CommitListRequest,
-        context: &RequestContext,
-    ) -> Result<HistoryPage, ProviderError> {
-        self.list_commits_by_committer(r, None, context).await
-    }
-    /// `list_commits` plus GitHub's `committer` filter (login or email).
+    /// The commit list `r` names, with GitHub's `committer` filter (login or email).
     pub async fn list_commits_by_committer(
         &self,
         r: &CommitListRequest,
         committer: Option<&str>,
         context: &RequestContext,
     ) -> Result<HistoryPage, ProviderError> {
+        self.read_commit_list(self.commit_list_spec(r, committer)?, context)
+            .await
+    }
+    /// The commit list `r` asks for, as one request.
+    pub(crate) fn commit_list_spec(
+        &self,
+        r: &CommitListRequest,
+        committer: Option<&str>,
+    ) -> Result<RequestSpec, ProviderError> {
         let mut url = self
             .endpoint()
             .rest(&["repos", &r.owner, &r.repo, "commits"])?;
@@ -77,9 +79,16 @@ impl GitHubTransport {
                 }
             }
         }
-        let (items, has_more): (Vec<Value>, bool) = self
-            .read_json(RequestSpec::get(url), context, "commit list")
-            .await?;
+        Ok(RequestSpec::get(url))
+    }
+    /// Reads the commit list `spec` asks for.
+    pub(crate) async fn read_commit_list(
+        &self,
+        spec: RequestSpec,
+        context: &RequestContext,
+    ) -> Result<HistoryPage, ProviderError> {
+        let (items, has_more): (Vec<Value>, bool) =
+            self.read_json(spec, context, "commit list").await?;
         Ok(HistoryPage {
             total_count: 0,
             incomplete_results: false,

@@ -1,7 +1,9 @@
 use super::*;
 use serde_json::json;
 
+mod one_page;
 mod terminal;
+mod volatile;
 
 fn walk_tool(tool: &str, input: &Value, budget: usize) -> Vec<Value> {
     let mut options = ResponsePageOptions {
@@ -21,15 +23,18 @@ fn walk_tool(tool: &str, input: &Value, budget: usize) -> Vec<Value> {
         )
         .expect("page");
         let page = prepared.value;
+        let chars = page.to_string().encode_utf16().count();
+        // Exactly the pages a full measure finds over budget say so, at the
+        // top level, whether or not the page carries a block.
+        assert_eq!(
+            page.get("oversized") == Some(&json!(true)),
+            chars > budget,
+            "{chars} chars at {budget}: {page}"
+        );
+        assert_ne!(page.get("oversized"), Some(&json!(false)), "{page}");
         if let Some(pagination) = page.get("responsePagination") {
-            let chars = page.to_string().encode_utf16().count();
-            // Exactly the pages a full measure finds over budget say so.
-            assert_eq!(
-                pagination.get("oversized") == Some(&json!(true)),
-                chars > budget,
-                "{chars} chars at {budget}: {pagination}"
-            );
             for removed in [
+                "oversized",
                 "returnedChars",
                 "totalChars",
                 "scope",
@@ -162,6 +167,63 @@ fn immutable_replay_uses_one_plan_and_preserves_provider_facts_once() {
     }
     assert_eq!(ids, (0..30).collect::<Vec<_>>());
     assert_eq!(requests, 1);
+}
+
+/// B91: `clientWaits` differs on every execution of one request, like
+/// `rateLimit`: a re-executed page whose waits differ (or are absent) keeps
+/// the content snapshot and the page edges of the first run.
+#[test]
+fn client_waits_move_neither_the_snapshot_nor_the_page_edges() {
+    let run = |waits: Option<Value>| {
+        let mut data = json!({"files":(0..30).map(|i|json!({"id":i,"text":"w".repeat(50)})).collect::<Vec<_>>()});
+        if let Some(waits) = waits {
+            data["clientWaits"] = waits;
+        }
+        json!({"results":[{"index":0,"data":data}]})
+    };
+    let runs = [
+        run(Some(
+            json!([{"kind":"quotaPacing","ms":1307},{"kind":"spacing","ms":4}]),
+        )),
+        run(Some(json!([{"kind":"quotaPacing","ms":5}]))),
+        run(None),
+    ];
+    let first_page = |input: &Value| {
+        let prepared = prepare_saved(
+            &ResponseInput {
+                tool: crate::id::ToolId::GhSearchCode,
+                structured: Value::Null,
+                options: ResponsePageOptions {
+                    response_chars: Some(700),
+                    paging: true,
+                    ..Default::default()
+                },
+            },
+            input,
+            &SavedPages::default(),
+            &Cancellation::new(),
+        )
+        .expect("saved page");
+        prepared.value["results"][0]["data"]["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|item| item["id"].as_u64().expect("id"))
+            .collect::<Vec<_>>()
+    };
+    let snapshot = crate::response::pager::content_snapshot(&runs[0], 700);
+    let edges = first_page(&runs[0]);
+    for other in &runs[1..] {
+        assert_eq!(
+            crate::response::pager::content_snapshot(other, 700),
+            snapshot
+        );
+    }
+    assert_eq!(
+        first_page(&runs[1]),
+        edges,
+        "the first page ends where it did"
+    );
 }
 
 #[test]

@@ -157,7 +157,7 @@ pub(super) fn infer_grammar(
         // grammar to set: its empty result and disclosures are the answer.
         GrammarChoice::Absent
             if q.scan_offset() == 0
-                && scan.unparsed.count > 0
+                && scan.unparsed.files.count > 0
                 && scan.withheld.total() == 0
                 && super::gaps::skipped_walk(q, scope, paths, true, cancel).is_none() =>
         {

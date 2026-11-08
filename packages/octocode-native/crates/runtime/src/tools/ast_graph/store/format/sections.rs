@@ -39,7 +39,7 @@ pub(super) fn read_strings(
 
 pub(super) fn read_node(nodes: &mut Reader) -> Result<NodeRec, String> {
     let kind = NodeKind::from_u8(nodes.u8()?).ok_or("graph node kind is unknown")?;
-    let flags = nodes.u8()?;
+    let flags = Roles::try_from(nodes.var_u32()?).map_err(|_| "graph node flags are unknown")?;
     let key = nodes.var_u32()?;
     let name = nodes.var_u32()?;
     let detail = nodes.var_u32()?;

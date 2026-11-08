@@ -121,6 +121,25 @@ impl ProcessTable for LiveTable {
     }
 }
 
+/// The parent of `pid` from the kernel's process table, with no child
+/// process: `None` when the process is gone or this platform offers no read.
+#[cfg(unix)]
+pub fn parent_pid(pid: u32) -> Option<u32> {
+    #[cfg(target_os = "macos")]
+    {
+        bsd_record(pid).map(|(ppid, _)| ppid)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        super::proc_table::read_proc_stat(std::path::Path::new("/proc"), pid).map(|stat| stat.ppid)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = pid;
+        None
+    }
+}
+
 /// `(parent pid, start time in microseconds)` of `pid`, read from one
 /// `proc_bsdinfo` record; `None` when the process is gone.
 #[cfg(target_os = "macos")]

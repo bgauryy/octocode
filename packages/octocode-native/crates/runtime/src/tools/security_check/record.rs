@@ -1,7 +1,6 @@
 //! One OSV record as an advisory row.
-use super::osv::ecosystem;
+use super::ecosystem::{Ecosystem, osv_name};
 use crate::providers::artifact::ArtifactError;
-use octocode_contract_types::ArtifactType;
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
@@ -37,6 +36,10 @@ pub(super) struct SecurityAdvisory {
     pub withdrawn: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub also_affects: Vec<String>,
+    /// Aliases kept for the same package by another database that OSV does
+    /// not list at the version asked: the databases disagree.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub disputed_by: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub affected: Vec<Value>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -47,9 +50,10 @@ pub(super) struct SecurityAdvisory {
 pub(super) enum Selection<'a> {
     /// An advisory or commit named directly: every entry.
     All,
-    /// Entries about these packages of one ecosystem; others are named in
-    /// `alsoAffects`.
-    Named(ArtifactType, &'a [String]),
+    /// Entries about these packages of one ecosystem (of one release, when a
+    /// distribution release was asked); other packages are named in
+    /// `alsoAffects`, and the same package in another release is left out.
+    Named(Ecosystem, &'a [String], Option<&'a str>),
 }
 
 impl SecurityAdvisory {
@@ -86,6 +90,9 @@ impl SecurityAdvisory {
         }
         if let Some(withdrawn) = &self.withdrawn {
             row["withdrawn"] = json!(withdrawn);
+        }
+        if !self.disputed_by.is_empty() {
+            row["disputedBy"] = json!(self.disputed_by);
         }
         row["link"] = json!(self.link);
         row
@@ -144,11 +151,22 @@ pub(super) fn group_brief(group: &[&SecurityAdvisory]) -> Value {
     };
     add(
         "aliases",
-        twins.iter().map(|twin| twin.id.as_str()).collect(),
+        twins
+            .iter()
+            .map(|twin| twin.id.as_str())
+            .filter(|id| *id != first.id)
+            .collect(),
     );
     add(
         "cves",
         group.iter().flat_map(|record| record.cves()).collect(),
+    );
+    add(
+        "disputedBy",
+        group
+            .iter()
+            .flat_map(|record| record.disputed_by.iter().map(String::as_str))
+            .collect(),
     );
     add(
         "fixedIn",
@@ -157,6 +175,12 @@ pub(super) fn group_brief(group: &[&SecurityAdvisory]) -> Value {
             .flat_map(|record| record.fixed_in.iter().map(String::as_str))
             .collect(),
     );
+    // A withdrawal either record states is the advisory's.
+    if row.get("withdrawn").is_none()
+        && let Some(withdrawn) = twins.iter().find_map(|twin| twin.withdrawn.as_deref())
+    {
+        row["withdrawn"] = json!(withdrawn);
+    }
     if row.get("severity").is_none()
         && let Some(severity) = twins.iter().find_map(|twin| twin.severity.as_deref())
     {
@@ -198,9 +222,9 @@ fn record_url(id: &str) -> String {
 
 /// A package name as OSV compares it: PEP 503 on PyPI, case-insensitive on
 /// NuGet, case-insensitive with `-` equal to `_` on crates.io, exact elsewhere.
-pub(super) fn comparable(kind: ArtifactType, name: &str) -> String {
-    match kind {
-        ArtifactType::Pypi => {
+pub(super) fn comparable(ecosystem: Ecosystem, name: &str) -> String {
+    match ecosystem {
+        Ecosystem::PyPi => {
             let mut folded = String::with_capacity(name.len());
             for part in name.split(['-', '_', '.']).filter(|part| !part.is_empty()) {
                 if !folded.is_empty() {
@@ -210,33 +234,56 @@ pub(super) fn comparable(kind: ArtifactType, name: &str) -> String {
             }
             folded
         }
-        ArtifactType::Nuget => name.to_ascii_lowercase(),
-        ArtifactType::Crates => name.to_ascii_lowercase().replace('_', "-"),
-        ArtifactType::Npm
-        | ArtifactType::Maven
-        | ArtifactType::Go
-        | ArtifactType::Packagist
-        | ArtifactType::Rubygems => name.to_owned(),
+        Ecosystem::NuGet => name.to_ascii_lowercase(),
+        Ecosystem::CratesIo => name.to_ascii_lowercase().replace('_', "-"),
+        _ => name.to_owned(),
     }
 }
 
-fn is_own(entry: &Value, selection: &Selection<'_>) -> bool {
-    let Selection::Named(kind, names) = selection else {
-        return true;
+/// Where an `affected` entry belongs for the row's selection.
+enum Scope {
+    /// The row's own package (and release).
+    Own,
+    /// Another package: named in `alsoAffects`.
+    Other,
+    /// The row's package in a release that was not asked.
+    OtherRelease,
+}
+
+fn scope(entry: &Value, selection: &Selection<'_>) -> Scope {
+    let Selection::Named(ecosystem, names, release) = selection else {
+        return Scope::Own;
     };
     let package = entry.get("package");
-    let same_ecosystem = package
+    let stated_ecosystem = package
         .and_then(|package| package.get("ecosystem"))
+        .and_then(Value::as_str);
+    let same_ecosystem = stated_ecosystem
+        .is_some_and(|stated| stated.split(':').next() == Some(&ecosystem.to_string()));
+    let same_package = package
+        .and_then(|package| package.get("name"))
         .and_then(Value::as_str)
-        .is_some_and(|stated| stated.split(':').next() == Some(ecosystem(*kind)));
-    same_ecosystem
-        && package
-            .and_then(|package| package.get("name"))
-            .and_then(Value::as_str)
-            .is_some_and(|stated| {
-                let stated = comparable(*kind, stated);
-                names.iter().any(|name| comparable(*kind, name) == stated)
-            })
+        .is_some_and(|stated| {
+            let stated = comparable(*ecosystem, stated);
+            names
+                .iter()
+                .any(|name| comparable(*ecosystem, name) == stated)
+        });
+    match (same_ecosystem && same_package, release) {
+        (false, _) => Scope::Other,
+        (true, Some(release)) if stated_ecosystem != Some(&osv_name(*ecosystem, Some(release))) => {
+            Scope::OtherRelease
+        }
+        (true, _) => Scope::Own,
+    }
+}
+
+/// The `affected` entries of `record` that are the selection's own package.
+pub(super) fn own_entries<'a>(record: &'a Value, selection: &Selection<'_>) -> Vec<&'a Value> {
+    list(record.get("affected"))
+        .iter()
+        .filter(|entry| matches!(scope(entry, selection), Scope::Own))
+        .collect()
 }
 
 fn text(value: Option<&Value>) -> Option<String> {
@@ -274,9 +321,14 @@ pub(super) fn advisory(
     {
         return Err(format!("record {id} in schema version {version}"));
     }
-    let (own, other): (Vec<&Value>, Vec<&Value>) = list(fields.get("affected"))
-        .iter()
-        .partition(|entry| is_own(entry, selection));
+    let (mut own, mut other) = (Vec::<&Value>::new(), Vec::<&Value>::new());
+    for entry in list(fields.get("affected")) {
+        match scope(entry, selection) {
+            Scope::Own => own.push(entry),
+            Scope::Other => other.push(entry),
+            Scope::OtherRelease => {}
+        }
+    }
     let database = fields.get("database_specific");
     Ok(SecurityAdvisory {
         link: record_url(&id),
@@ -303,6 +355,7 @@ pub(super) fn advisory(
         fixed_in: fixed_in(&own),
         withdrawn: text(fields.get("withdrawn")),
         also_affects: also_affects(&other),
+        disputed_by: Vec::new(),
         affected: own.iter().map(|entry| affected_row(entry)).collect(),
         references: list(fields.get("references")).to_vec(),
         id,

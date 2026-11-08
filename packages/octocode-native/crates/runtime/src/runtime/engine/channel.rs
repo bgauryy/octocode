@@ -92,7 +92,7 @@ impl ChannelRun {
                 Refusal::IdentityChanged,
                 RefusalScope {
                     persistent: self.replays.0.persistent,
-                    mcp: self.mcp,
+                    tool: self.id,
                 },
             ))
         }
@@ -161,7 +161,7 @@ impl ChannelRun {
                 // from a re-execution that reproduced it.
                 saved: Some(crate::response::page_model::SavedResponse {
                     key: self.replays.1,
-                    expires_at: page_expiry(),
+                    expires_at: page_expiry(self.id.as_str()),
                     replayed: self.pinned.is_some(),
                 }),
                 ..self.options.clone()
@@ -253,24 +253,20 @@ impl ChannelRun {
                             .map_or(&[], Vec::as_slice),
                         &self.row_indices,
                     );
+                    // The cut measured the echoes just dropped: the flag
+                    // states the page delivered (before rejected rows join).
+                    crate::response::pager::unflag_fitting(
+                        output,
+                        self.options
+                            .response_chars
+                            .unwrap_or(self.output.auto_page_chars),
+                    );
                 });
             }
-            // Rejected rows ride page 1 outside the plan that measured it,
-            // so that page is measured again with them.
-            if !rejected_rows.is_empty() {
-                crate::runtime::row_indices::attach_rejected(outcome, rejected_rows);
-                outcome
-                    .structured_content
-                    .edit(|output| {
-                        crate::response::pager::measure_page(
-                            output,
-                            self.options
-                                .response_chars
-                                .or(Some(self.output.auto_page_chars)),
-                        )
-                    })
-                    .map_err(|_| ExecutionError::WorkerFailed)?;
-            }
+            // Rejected rows ride page 1 whole, outside the plan and the
+            // measure of that page: call metadata, like the volatile
+            // provider facts, never moves an edge or makes it `oversized`.
+            crate::runtime::row_indices::attach_rejected(outcome, rejected_rows);
         }
         Ok(Rows::Answered(finished))
     }
@@ -327,7 +323,14 @@ impl ChannelRun {
             Err(()) => false,
         };
         let (saved, retained) = if auth_retained {
-            self.replays.0.insert(cursor, seed, context.deadline)
+            self.replays
+                .0
+                .insert(
+                    self.id.as_str(),
+                    cursor,
+                    seed,
+                    crate::execution::cancel::deadline_of(context),
+                )
         } else {
             (Arc::new(seed), false)
         };

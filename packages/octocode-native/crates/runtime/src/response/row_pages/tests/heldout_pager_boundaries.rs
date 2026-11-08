@@ -17,13 +17,9 @@ fn exact_tail_boundary_includes_row_part_without_losing_closure_or_rows() {
     // Two adjacent results plus their exact closure serialize to 8,472 chars.
     // The old tail packing admitted them at 8,473, then added rowPart afterward.
     let budget = 8_473;
-    let plan = PreparedRows::new(
-        vec![json!({"index":0,"data":data})],
-        &[None],
-        ToolId::GraphQuery,
-    )
-    .plan(budget, &token)
-    .expect("valid plan");
+    let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], ToolId::GraphQuery)
+        .plan(budget, &token)
+        .expect("valid plan");
     assert!(plan.total_pages > 1);
     let mut seen = Vec::new();
     for page in 0..plan.total_pages {
@@ -60,13 +56,9 @@ fn first_only_oversized_context_does_not_enlarge_later_nested_pages() {
     assert_row_contract(ToolId::GraphQuery, &data);
     let token = Cancellation::new();
     let budget = 2_000;
-    let plan = PreparedRows::new(
-        vec![json!({"index":0,"data":data})],
-        &[None],
-        ToolId::GraphQuery,
-    )
-    .plan(budget, &token)
-    .expect("valid plan");
+    let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], ToolId::GraphQuery)
+        .plan(budget, &token)
+        .expect("valid plan");
     assert!(plan.total_pages > 2);
     let mut seen = Vec::new();
     let mut descriptions = 0;

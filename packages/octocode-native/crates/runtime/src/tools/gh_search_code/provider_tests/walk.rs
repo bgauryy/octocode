@@ -18,9 +18,15 @@ async fn walk(server: &MockServer, pages: usize) -> Vec<crate::response::result:
     .expect("query");
     let mut outs = Vec::new();
     for _ in 0..pages {
-        let out = execute(&provider, &query, &default_context(), &Passthrough)
-            .await
-            .expect("search");
+        let out = execute(
+            &provider,
+            &query,
+            &default_context(),
+            &Passthrough,
+            &crate::policy::discovery::is_sensitive_repository_file,
+        )
+        .await
+        .expect("search");
         if outs.len() + 1 < pages {
             query = next_page(&out);
         }
@@ -127,9 +133,15 @@ async fn a_multi_extension_walk_costs_one_search_per_extension_each_page() {
     let mut counted = 0;
     let mut pages = 0;
     loop {
-        let out = execute(&provider, &query, &default_context(), &Passthrough)
-            .await
-            .expect("page");
+        let out = execute(
+            &provider,
+            &query,
+            &default_context(),
+            &Passthrough,
+            &crate::policy::discovery::is_sensitive_repository_file,
+        )
+        .await
+        .expect("page");
         pages += 1;
         let requests = server.received_requests().await.unwrap_or_default().len();
         assert_eq!(

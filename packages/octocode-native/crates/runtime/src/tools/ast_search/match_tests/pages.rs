@@ -50,7 +50,7 @@ fn match_continuation_rejects_stale_snapshot() {
     // (the default), without any cursor.
     let restart = &crate::tools::test_support::checks::related_call(&page2, "astSearch", |_| true)
         ["input"]["queries"][0];
-    for cursor in ["page", "matchPage", "snapshot", "scanOffset"] {
+    for cursor in ["page", "snapshot", "scanOffset"] {
         assert!(restart.get(cursor).is_none(), "{cursor}: {page2}");
     }
     let fresh = run(&root.0, restart.clone()).expect("restart runs");
@@ -110,7 +110,7 @@ fn budgeted_match_pages_reach_every_span_once_and_report_unread_work() {
 }
 
 #[test]
-fn match_pages_are_file_collection_pages_not_partial_coverage() {
+fn a_file_split_across_match_pages_is_paging_not_partial_coverage() {
     let root = Fixture::new();
     root.write("a.rs", "fn f(){hit(1);hit(2);hit(3);}");
     let out = run(
@@ -119,10 +119,16 @@ fn match_pages_are_file_collection_pages_not_partial_coverage() {
     )
     .expect("match page");
     let file = &out["files"][0];
-    assert_eq!(file["pagination"]["hasMore"], true, "{out}");
+    assert_eq!(file["matches"].as_array().map(Vec::len), Some(2), "{out}");
+    assert!(file.get("pagination").is_none(), "no per-file pages: {out}");
+    assert_eq!(
+        out["pagination"],
+        json!({"unit":"matches","page":1,"totalPages":2,"totalItems":3,"hasMore":true}),
+        "{out}"
+    );
     assert!(
-        out["next"]["nextPage"].is_object() && file["pagination"].get("next").is_none(),
-        "the file's remaining matches are the row's own next page, offered once: {out}"
+        out["next"]["nextPage"].is_object(),
+        "the file's remaining matches are the row's next page: {out}"
     );
     assert!(
         out.get("isPartial").is_none(),

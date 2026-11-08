@@ -1,27 +1,52 @@
 //! What a failed read or listing names in its leads: the commit it resolved, its canonical name, a submodule's repository.
-use super::{GhFailure, RenameCheck, RepoPath, canonical_repo, tree_recovery};
-use octocode_github::{GitHubProvider, RequestContext};
+use super::{CanonicalScope, GhFailure, RenameCheck, RepoPath, canonical_scope, tree_recovery};
+use octocode_github::{
+    GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
+};
 use serde_json::json;
 
-/// The failed operation's resolved commit and current canonical repository.
-/// The caller carries the commit directly from the attempted read.
+/// The failed operation's resolved commit and current canonical repository,
+/// and its error as the repository's state explains it. The caller carries
+/// the commit directly from the attempted read.
 pub(crate) struct FailureScope {
     pub commit: Option<String>,
     pub canonical: Option<(String, String)>,
+    pub error: ProviderError,
 }
 
+/// The scope of a read or listing of `owner/repo` that failed with `error`.
+/// GitHub answers a missing repository, item, ref or path with the same
+/// bare 404: unless this request already saw the repository answer, one
+/// metadata read tells them apart, and a missing repository becomes the
+/// error (`RepositoryNotFound`), whose leads search for it. Any other
+/// failure reads metadata only after a rename redirect.
 pub(crate) async fn failure_scope(
     provider: &GitHubProvider,
     owner: &str,
     repo: &str,
     commit: Option<String>,
+    error: ProviderError,
     context: &RequestContext,
 ) -> FailureScope {
-    let canonical = canonical_repo(provider, owner, repo, context, RenameCheck::Redirected)
-        .await
-        .ok()
-        .flatten();
-    FailureScope { commit, canonical }
+    let bare_not_found = error.kind == ProviderErrorKind::NotFound && error.reason.is_none();
+    let check = if bare_not_found {
+        RenameCheck::Metadata
+    } else {
+        RenameCheck::Redirected
+    };
+    let (canonical, error) = match canonical_scope(provider, owner, repo, context, check).await {
+        Ok(CanonicalScope::Renamed(canonical)) => (Some(canonical), error),
+        Ok(CanonicalScope::Missing(_)) if bare_not_found => (
+            None,
+            error.with_reason(ProviderErrorReason::RepositoryNotFound),
+        ),
+        Ok(CanonicalScope::Missing(_) | CanonicalScope::Stands(_)) | Err(_) => (None, error),
+    };
+    FailureScope {
+        commit,
+        canonical,
+        error,
+    }
 }
 
 /// The failure of a request that named a submodule path (a read or a

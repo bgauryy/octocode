@@ -49,6 +49,9 @@ pub struct PatternDeclaration {
     /// for `function_signature_item`). A pattern of a smaller form matches
     /// none of them.
     pub fuller_kinds: Vec<String>,
+    /// The other kinds the pattern matches as this declaration: the bodied
+    /// form of a bodiless one, the member form of a local one.
+    pub alternate_kinds: Vec<String>,
 }
 
 /// Nodes a grammar names by a `name` field that refer to a declaration
@@ -69,6 +72,59 @@ pub(super) struct CompiledPattern {
     special: Option<SpecialPattern>,
     candidate_plan: CandidatePlan,
     selected_node: Option<(usize, usize, u16)>,
+    /// Where in `source` the terminator compilation appended to give the
+    /// pattern its context starts (`impl X for $T` parses only as
+    /// `impl X for $T;`): the caller did not write it, so no candidate
+    /// needs it.
+    unwritten_terminator: Option<usize>,
+    /// The pattern's nodes that also match other kinds ([`Alternate`]).
+    alternates: Vec<Alternate>,
+    /// The `;` the caller wrote after the root, outside it, when there is one.
+    written_terminator: Option<WrittenTerminator>,
+    /// Whether the grammar reads a token as the infix separator of a kind
+    /// in a pattern node's place ([`node_match`]'s leading separators), by
+    /// pattern node, kind and token: each answer costs a parse.
+    separators: std::sync::Mutex<std::collections::HashMap<(NodeKey, u16, u16), bool>>,
+}
+
+/// A pattern node by where it is in the compiled source and its kind.
+type NodeKey = (usize, usize, u16);
+
+fn node_key(node: Node<'_>) -> NodeKey {
+    (node.start_byte(), node.end_byte(), node.kind_id())
+}
+
+/// A pattern node the grammar reads as another kind for the same spelled
+/// parts, so it matches that kind too (and the grammar's longer forms of it,
+/// [`unsaid::adds_a_leading_word`]):
+///
+/// - the kind it reads as with a body in place of the terminator the caller
+///   did not write (`function_item` for `fn $F()`, whose node is a
+///   `function_signature_item`): the pattern spells neither;
+/// - the kind its text reads as in a class body (a Java or C# field for
+///   `int $A = $B`, a local variable): a declaration reads the same wherever
+///   the grammar declares it.
+struct Alternate {
+    node: NodeKey,
+    kinds: Vec<u16>,
+}
+
+/// A `;` the caller wrote after the pattern's root, outside it (in the
+/// statement or declaration the grammar wraps it in: `foo($X);`, C
+/// `struct $S;`). A pattern requires what the caller wrote, so it matches
+/// only a node that ends there too: one followed by a `;` in a wrapper of
+/// the same kind (any, when the pattern's wrapper is the file), whose last
+/// part is in the place the pattern's is (not a body after `struct S`). A
+/// statement the grammar ends without one (TypeScript's automatic `;`, a
+/// Rust block's tail expression) is not it; a pattern that writes no `;`
+/// matches both. A `;` inside the root (a Rust unit struct, a Java local)
+/// is one of its parts, required like any other. Where the grammar makes
+/// the `;` implicit (Go, Python), the tree holds none to require, so the
+/// written one asks for nothing more.
+struct WrittenTerminator {
+    root: NodeKey,
+    /// The wrapper's kind; `None` when it is the file.
+    parent: Option<u16>,
 }
 
 enum SpecialPattern {
@@ -93,6 +149,11 @@ impl CompiledPattern {
             node = node.parent()?;
         }
         Some(node)
+    }
+
+    /// The kind of node the pattern parsed as; `None` for a special pattern.
+    pub(super) fn root_kind(&self) -> Option<String> {
+        self.root().map(|root| root.kind().to_owned())
     }
 
     pub(super) fn language(&self) -> &Language {
@@ -135,8 +196,12 @@ impl CompiledPattern {
             fuller_kinds: if declared.child_by_field_name("body").is_some() {
                 Vec::new()
             } else {
-                self.fuller_kinds(declared.kind())
+                let mut fuller = self.fuller_kinds(declared.kind());
+                let matched = self.alternate_kinds(declared);
+                fuller.retain(|kind| !matched.contains(kind));
+                fuller
             },
+            alternate_kinds: self.alternate_kinds(declared),
         })
     }
 
@@ -167,6 +232,53 @@ impl CompiledPattern {
             }
         }
         kinds
+    }
+
+    /// Whether `candidate` is of a kind the grammar reads `pattern` as
+    /// elsewhere ([`Alternate`]).
+    fn is_alternate(&self, pattern: Node<'_>, candidate: Node<'_>) -> bool {
+        let key = node_key(pattern);
+        self.alternates.iter().any(|alternate| {
+            alternate.node == key && alternate.kinds.contains(&candidate.kind_id())
+        })
+    }
+
+    /// The kinds the grammar reads `node` (of this pattern) as elsewhere.
+    fn alternate_kinds(&self, node: Node<'_>) -> Vec<String> {
+        let key = node_key(node);
+        self.alternates
+            .iter()
+            .filter(|alternate| alternate.node == key)
+            .flat_map(|alternate| &alternate.kinds)
+            .filter_map(|id| self.language.node_kind_for_id(*id))
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// Whether matching this pattern binds and compares no capture: it has
+    /// no named metavariable (`$_`, an unnamed `$$$` and plain code bind
+    /// nothing), and is not a special pattern, which captures by its shape.
+    /// Its answer for a node then does not depend on the environment.
+    pub(super) fn binds_nothing(&self) -> bool {
+        if self.special.is_some() {
+            return false;
+        }
+        let Some(root) = self.tree.as_ref().map(Tree::root_node) else {
+            return true;
+        };
+        let mut pending = vec![root];
+        while let Some(node) = pending.pop() {
+            if matches!(
+                meta_from_node(node, &self.source, self.expando),
+                Some(
+                    super::metavars::MetaVar::Single(_) | super::metavars::MetaVar::Multi(Some(_))
+                )
+            ) {
+                return false;
+            }
+            pending.extend(node.children(&mut node.walk()));
+        }
+        true
     }
 
     pub(super) fn is_special(&self) -> bool {

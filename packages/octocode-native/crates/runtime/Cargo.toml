@@ -101,6 +101,8 @@ tokio-util = { workspace = true, optional = true }
 [build-dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+# Reads the path dependencies of the manifests the build identity hashes.
+toml = { workspace = true }
 
 [dev-dependencies]
 sha2 = { workspace = true }

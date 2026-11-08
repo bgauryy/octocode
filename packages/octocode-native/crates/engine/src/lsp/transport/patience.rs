@@ -8,15 +8,19 @@
 //!
 //! * its process tree used a meaningful amount of CPU since the last check
 //!   (the [`CpuClock`]), or
-//! * it has an open `$/progress` work-done token (including rust-analyzer's
-//!   "not quiescent" status).
+//! * it sent a new `$/progress` work-done notice (a `begin`, `report` or
+//!   `end`, or a rust-analyzer status change) since the last check. A token
+//!   left open with nothing new said is no progress.
 //!
 //! A server with neither is hung and times out at the base, exactly as before.
+//! A server that spins its CPU without answering still counts as progressing;
+//! without a caller deadline only a cancel ends that wait.
 //! A ceiling bounds even a server that never stops making progress: the
 //! caller's own deadline (less [`DEADLINE_RESERVE`]) when the request runs
 //! inside [`with_caller_deadline`], so a starved server may use all the time
-//! its caller still grants; otherwise (a background start or prewarm, which
-//! no caller waits on) `CEILING_FACTOR` times the base. The attempts that
+//! its caller still grants; none for a caller with no deadline, whose
+//! cancel ends the wait; otherwise (a background start or prewarm, which no
+//! caller waits on) `CEILING_FACTOR` times the base. The attempts that
 //! share one [`WaitBudget`] (a request and its retries) share that one
 //! ceiling.
 
@@ -44,13 +48,15 @@ const CPU_PROGRESS_DIVISOR: u32 = 100;
 pub(crate) const DEADLINE_RESERVE: Duration = Duration::from_secs(1);
 
 tokio::task_local! {
-    static CALLER_DEADLINE: Instant;
+    static CALLER_DEADLINE: Option<Instant>;
 }
 
 /// Runs `work` for a caller that gives up at `deadline`: every request wait
 /// it starts may extend, while its server progresses, up to that deadline
-/// less [`DEADLINE_RESERVE`], and never past it.
-pub async fn with_caller_deadline<F: Future>(deadline: Instant, work: F) -> F::Output {
+/// less [`DEADLINE_RESERVE`], and never past it. With no deadline a wait
+/// extends for as long as the server progresses; dropping `work` (the
+/// caller's cancel) ends it.
+pub async fn with_caller_deadline<F: Future>(deadline: Option<Instant>, work: F) -> F::Output {
     CALLER_DEADLINE.scope(deadline, work).await
 }
 
@@ -61,23 +67,32 @@ pub async fn with_caller_deadline<F: Future>(deadline: Instant, work: F) -> F::O
 pub(crate) struct WaitBudget {
     pub(super) base: Duration,
     created: Instant,
-    ceiling: Instant,
+    /// `None`: a caller with no deadline; progress alone decides.
+    ceiling: Option<Instant>,
 }
 
 impl WaitBudget {
     /// A budget that starts now: `base_ms` per attempt, ending at the
-    /// caller's deadline less [`DEADLINE_RESERVE`], or without a caller at
-    /// `CEILING_FACTOR * base_ms` from now.
+    /// caller's deadline less [`DEADLINE_RESERVE`], never for a caller with
+    /// no deadline, or without a caller at `CEILING_FACTOR * base_ms` from
+    /// now.
     pub(crate) fn new(base_ms: u32) -> Self {
         let base = Duration::from_millis(u64::from(base_ms));
         let created = Instant::now();
-        let ceiling = CALLER_DEADLINE
-            .try_with(|deadline| deadline.checked_sub(DEADLINE_RESERVE).unwrap_or(created))
-            .unwrap_or(created + base * CEILING_FACTOR);
+        let ceiling = match CALLER_DEADLINE.try_with(|deadline| *deadline) {
+            Ok(Some(deadline)) => Some(
+                deadline
+                    .checked_sub(DEADLINE_RESERVE)
+                    .unwrap_or(created)
+                    .max(created),
+            ),
+            Ok(None) => None,
+            Err(_) => Some(created + base * CEILING_FACTOR),
+        };
         Self {
             base,
             created,
-            ceiling: ceiling.max(created),
+            ceiling,
         }
     }
 
@@ -90,19 +105,25 @@ impl WaitBudget {
         Self {
             base,
             created,
-            ceiling: created + base,
+            ceiling: Some(created + base),
         }
+    }
+
+    /// `at`, or the ceiling when that comes first.
+    fn capped(&self, at: Instant) -> Instant {
+        self.ceiling.map_or(at, |ceiling| at.min(ceiling))
     }
 
     /// Where a wait that takes the base and no extension ends: `base` from
     /// when the budget started, or its ceiling if that comes first.
     pub(crate) fn first_cut(&self) -> Instant {
-        (self.created + self.base).min(self.ceiling)
+        self.capped(self.created + self.base)
     }
 
     /// `true` once no further attempt can be granted any time.
     pub(crate) fn is_spent(&self) -> bool {
-        Instant::now() >= self.ceiling
+        self.ceiling
+            .is_some_and(|ceiling| Instant::now() >= ceiling)
     }
 }
 
@@ -142,8 +163,7 @@ impl ServerActivity {
         F: Future + Unpin,
     {
         let step = budget.base / STEP_DIVISOR;
-        let ceiling = budget.ceiling;
-        let mut deadline = (started + budget.base).min(ceiling);
+        let mut deadline = budget.capped(started + budget.base);
         // The baseline sample is taken one step before the base deadline, so
         // the first decision needs no extra wait: a hung server is still cut
         // at exactly the base, and a request that ends sooner is never
@@ -153,20 +173,26 @@ impl ServerActivity {
                 Ok(output) => return Ok(output),
                 Err(_) => self.cpu_time(),
             };
+        // Progress is what changed over the step: new CPU time or a new
+        // work-done notice. A token left open with nothing new said (leaked)
+        // is not progress, so it cannot hold a request without a ceiling.
+        let mut last_reports = self.progress.reports();
         loop {
             if let Ok(output) = timeout_at(deadline, &mut response).await {
                 return Ok(output);
             }
-            if deadline >= ceiling {
+            if budget.ceiling.is_some_and(|ceiling| deadline >= ceiling) {
                 return Err(deadline - budget.created);
             }
             let cpu = self.cpu_time();
-            let progressed = cpu_progressed(last_cpu, cpu, step) || self.progress.has_active();
+            let reports = self.progress.reports();
+            let progressed = cpu_progressed(last_cpu, cpu, step) || reports != last_reports;
             if !progressed {
                 return Err(deadline - budget.created);
             }
             last_cpu = cpu.or(last_cpu);
-            deadline = (deadline + step).min(ceiling);
+            last_reports = reports;
+            deadline = budget.capped(deadline + step);
         }
     }
 

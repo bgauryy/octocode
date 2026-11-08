@@ -103,6 +103,7 @@ fn traversal_windows_preserve_order_evidence_cycles_and_absolute_pagination() {
         kind: None,
         include_seeds: true,
         reexports: false,
+        lists: WalkRows::Nodes,
         window: 0..usize::MAX,
     };
     let expected = walk(&graph, &[0], &how, &crate::execution::cancel::NeverCancel).unwrap();
@@ -154,6 +155,7 @@ fn filtered_traversal_does_not_hide_matches_after_many_nonmatching_nodes() {
             kind: Some(NodeKind::Package),
             include_seeds: false,
             reexports: false,
+            lists: WalkRows::Nodes,
             window: 0..50,
         },
         &crate::execution::cancel::NeverCancel,

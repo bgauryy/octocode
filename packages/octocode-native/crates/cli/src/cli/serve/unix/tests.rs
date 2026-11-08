@@ -145,7 +145,7 @@ impl Fixture {
             env: &env,
             identity,
         };
-        exchange_reply(&mut stream, &request, REPLY_DEADLINE).await
+        exchange_reply(&mut stream, &request, reply_deadline()).await
     }
 
     /// The call as an in-process CLI in `cwd` prints it.

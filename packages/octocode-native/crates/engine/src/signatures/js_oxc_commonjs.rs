@@ -44,6 +44,15 @@ pub(super) fn may_contain_loader(tokens: &[oxc_parser::Token], source: &str) -> 
     })
 }
 
+/// The load sites of a module: every load with the module-scope names it
+/// binds, and the index of each proven load (a trusted loader and a literal
+/// specifier) by the span of its call.
+#[derive(Default)]
+pub(super) struct CommonJsLoads {
+    pub(super) loads: Vec<GraphFactCommonJs>,
+    pub(super) proven: HashMap<Span, usize>,
+}
+
 /// Every load site of `program`, with the module-scope names each one binds.
 /// `declarations` is the file's outline, which names each binding's variable.
 pub(super) fn collect_common_js_loads(
@@ -51,13 +60,16 @@ pub(super) fn collect_common_js_loads(
     program: &Program,
     li: &SpanPositions,
     declarations: &[GraphFactDeclaration],
-) -> Vec<GraphFactCommonJs> {
+) -> CommonJsLoads {
     let factories = create_require_factories(program);
     let writes = collect_writes(semantic);
     let loaders = collect_loader_constants(semantic, &factories, &writes);
     let (mut loads, admitted) = collect_load_sites(semantic, li, &writes, &loaders);
-    bindings::attach(semantic, program, li, declarations, &admitted, &mut loads);
-    loads
+    bindings::attach(semantic, li, declarations, &admitted, &mut loads);
+    CommonJsLoads {
+        loads,
+        proven: admitted,
+    }
 }
 
 /// What the module writes: unbound global names, bound symbols, and

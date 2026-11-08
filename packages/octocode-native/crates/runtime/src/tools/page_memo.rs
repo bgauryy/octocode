@@ -229,6 +229,44 @@ pub(crate) fn repository_markers(root: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// A budget of `$bytes` of its own, for a test that must fill one: tests run
+/// in parallel, so each owns its budget instead of sharing the process one.
+#[cfg(test)]
+macro_rules! test_budget {
+    ($bytes:expr) => {{
+        fn limit() -> usize {
+            $bytes
+        }
+        static BUDGET: octocode_io::memo::MemoryBudget =
+            octocode_io::memo::MemoryBudget::new(limit);
+        &BUDGET
+    }};
+}
+#[cfg(test)]
+pub(crate) use test_budget;
+
+/// A new budget of `bytes` on each call, for a test that searches for the
+/// least budget some work fits in ([`test_budget!`] fixes its bytes at
+/// compile time). A budget reads its limit once, on first use, so each one is
+/// built and read under one lock.
+#[cfg(test)]
+pub(crate) fn sized_test_budget(bytes: usize) -> &'static octocode_io::memo::MemoryBudget {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static LIMIT: AtomicUsize = AtomicUsize::new(0);
+    static BUILDING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    fn limit() -> usize {
+        LIMIT.load(Ordering::SeqCst)
+    }
+    let _building = BUILDING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    LIMIT.store(bytes, Ordering::SeqCst);
+    let budget: &'static octocode_io::memo::MemoryBudget =
+        Box::leak(Box::new(octocode_io::memo::MemoryBudget::new(limit)));
+    assert_eq!(budget.limit(), bytes);
+    budget
+}
+
 #[cfg(test)]
 mod budget_tests;
 

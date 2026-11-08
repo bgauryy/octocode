@@ -105,6 +105,41 @@ impl KeyState {
             .map(Duration::from_secs)
     }
 
+    /// The listing route found for `owner` on this key, by this process or,
+    /// through the mirror, an earlier one.
+    pub(crate) fn owner_route(&self, owner: &str) -> Option<String> {
+        self.facts()
+            .owner_routes
+            .get(&owner.to_ascii_lowercase())
+            .cloned()
+    }
+
+    /// Remember `owner`'s listing route, mirrored so the next process skips
+    /// the organization probe too.
+    pub(crate) fn learn_owner_route(self: &Arc<Self>, owner: &str, route: &str) {
+        let known = self
+            .facts()
+            .owner_routes
+            .insert(owner.to_ascii_lowercase(), route.to_owned());
+        if known.as_deref() != Some(route) {
+            self.persist();
+        }
+    }
+
+    /// An owner that no longer answers its route (renamed, converted): gone
+    /// from memory and from the mirror, unless a newer route replaced it there.
+    pub(crate) fn forget_owner_route(self: &Arc<Self>, owner: &str) {
+        let owner = owner.to_ascii_lowercase();
+        let Some(stale) = self.facts().owner_routes.remove(&owner) else {
+            return;
+        };
+        self.persist_detached(move |view| {
+            if view.owner_routes.get(&owner) == Some(&stale) {
+                view.owner_routes.remove(&owner);
+            }
+        });
+    }
+
     /// Mark a resource exhausted until `reset` (epoch seconds).
     pub(crate) fn exhaust(self: &Arc<Self>, resource: &str, reset: u64) {
         self.facts().buckets.insert(
@@ -127,15 +162,49 @@ impl KeyState {
     }
 
     /// Blocking `git` admission for clone subprocesses: honors the key's
-    /// secondary cooldown / circuit, then takes a `git` group permit.
+    /// secondary cooldown / circuit, then takes a `git` group permit. The
+    /// time spent is recorded on `waits` once, by cause, however the wait
+    /// ends: a cooldown as `secondaryLimit`, the permit queue as `spacing`.
     pub(crate) fn acquire_git_blocking(
         &self,
         config: &ExecutorConfig,
         cap: Duration,
         deadline: Instant,
         is_cancelled: &dyn Fn() -> bool,
+        waits: &crate::budget::ClientWaits,
+    ) -> Result<OwnedSemaphorePermit, ProviderError> {
+        use octocode_contract_types::ClientWaitKind;
+        let mut cooled = Duration::ZERO;
+        let mut queued = Duration::ZERO;
+        let ended = self.git_admission(
+            config,
+            cap,
+            deadline,
+            is_cancelled,
+            &mut cooled,
+            &mut queued,
+        );
+        waits.record(ClientWaitKind::SecondaryLimit, cooled);
+        waits.record(ClientWaitKind::Spacing, queued);
+        ended
+    }
+
+    /// [`Self::acquire_git_blocking`]'s loop, adding each sleep to its cause.
+    fn git_admission(
+        &self,
+        config: &ExecutorConfig,
+        cap: Duration,
+        deadline: Instant,
+        is_cancelled: &dyn Fn() -> bool,
+        cooled: &mut Duration,
+        queued: &mut Duration,
     ) -> Result<OwnedSemaphorePermit, ProviderError> {
         const TICK: Duration = Duration::from_millis(25);
+        let sleep = |pause: Duration, cause: &mut Duration| {
+            let started = Instant::now();
+            std::thread::sleep(pause);
+            *cause += started.elapsed();
+        };
         self.refresh_from_disk();
         loop {
             if is_cancelled() {
@@ -155,13 +224,13 @@ impl KeyState {
                 if block.circuit.is_some() || wait > cap || Instant::now() + wait >= deadline {
                     return Err(block.error(now));
                 }
-                std::thread::sleep(wait.min(TICK));
+                sleep(wait.min(TICK), cooled);
                 continue;
             }
             if let Ok(permit) = self.git.clone().try_acquire_owned() {
                 return Ok(permit);
             }
-            std::thread::sleep(TICK);
+            sleep(TICK, queued);
         }
     }
 }

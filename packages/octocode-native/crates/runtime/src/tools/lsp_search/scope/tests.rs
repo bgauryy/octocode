@@ -21,6 +21,18 @@ fn write(path: &Path, text: &str) {
     std::fs::write(path, text).expect("write");
 }
 
+/// Dates `path` an hour ahead of the settle clock: no settle check on any
+/// clock reading of this process proves it unchanged, however slow the
+/// machine, so a test that needs an unsettled file never races the window.
+pub(super) fn date_ahead(path: &Path) {
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .expect("open")
+        .set_modified(octocode_engine::stamp::settle_clock() + std::time::Duration::from_secs(3600))
+        .expect("future mtime");
+}
+
 fn resolve(file: &Path, server_root: &Path, policy_root: &Path, id: &str) -> Scope {
     Scope::resolve(
         &file.to_string_lossy(),
@@ -391,5 +403,60 @@ fn the_fingerprint_walks_ignored_files_only_under_the_server_root() {
             .expect("again")
             .0,
         first
+    );
+}
+
+/// The projects beside a root are the parent's other children that hold a
+/// project marker themselves: not the root, not a marker-less directory, not a
+/// hidden one, not a file.
+#[test]
+fn sibling_projects_are_the_parents_other_marked_directories() {
+    let (dir, root) = fixture();
+    let parent = root.join("work");
+    for (name, marker) in [
+        ("a", "go.mod"),
+        ("b", "go.mod"),
+        ("plain", "notes.txt"),
+        (".hid", "go.mod"),
+    ] {
+        write(&parent.join(name).join(marker), "x\n");
+    }
+    write(&parent.join("file.txt"), "x\n");
+    let policy = crate::tools::test_support::workspace_policy(&root);
+    let found = super::paths::sibling_projects(&parent.join("a"), &policy, &[], &|| false);
+    let canonical = parent.canonicalize().expect("parent");
+    assert_eq!(found, [canonical.join("b").to_string_lossy().into_owned()]);
+    drop(dir);
+}
+
+/// A sibling the anchor's language server could not use (no file of its family)
+/// is no project beside the root that may use the name.
+#[test]
+fn siblings_hold_files_of_the_anchors_language() {
+    let (_dir, root) = fixture();
+    let parent = root.join("work");
+    write(&parent.join("a/go.mod"), "x\n");
+    write(&parent.join("a/a.go"), "package a\n");
+    write(&parent.join("b/go.mod"), "x\n");
+    write(&parent.join("b/deep/b.go"), "package b\n");
+    write(&parent.join("web/package.json"), "{}\n");
+    write(&parent.join("web/index.ts"), "export {};\n");
+    let scope = resolve(&parent.join("a/a.go"), &parent.join("a"), &root, "go");
+    assert!(scope.unbounded, "no project boundary above the anchor");
+    let canonical = parent.canonicalize().expect("parent");
+    assert!(
+        scope.siblings().is_empty(),
+        "resolving the scope does not walk the siblings"
+    );
+    let stopped = resolve(&parent.join("a/a.go"), &parent.join("a"), &root, "go");
+    stopped.resolve_siblings(&|| true);
+    assert!(
+        stopped.siblings().is_empty(),
+        "a walk the request stopped is not kept"
+    );
+    scope.resolve_siblings(&|| false);
+    assert_eq!(
+        scope.siblings(),
+        [canonical.join("b").to_string_lossy().into_owned()]
     );
 }

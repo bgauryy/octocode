@@ -8,6 +8,7 @@ mod history_a;
 mod history_a_commits;
 mod issue_comments;
 mod issue_reads;
+mod patch_page_redaction;
 mod pr_repeat_window;
 mod pull_requests;
 mod search;

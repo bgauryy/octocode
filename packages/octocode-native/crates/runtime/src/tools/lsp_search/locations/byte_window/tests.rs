@@ -31,7 +31,7 @@ fn a_seven_megabyte_line_seals() {
         .collect::<String>();
     assert!(line.len() > 7_000_000, "{}", line.len());
     std::fs::write(&path, format!("{line}\n")).expect("file");
-    let sealed = super::seal(&path).expect("seals");
+    let sealed = super::seal(&path, &crate::security::ContentSecurity::new()).expect("seals");
     assert_eq!(sealed.view.len(), line.len() + 1);
 }
 

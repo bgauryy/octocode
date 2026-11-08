@@ -11,7 +11,6 @@ use std::sync::{
 };
 use tokio::process::Child;
 use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
 use tokio::time::Duration;
 
 mod absence;
@@ -80,7 +79,7 @@ struct NativeLspClientInner {
     // concurrent `request`/`notify` (its writer + pending map are each
     // `Arc<Mutex<..>>`), so cloned handles are safe to use in parallel.
     connection: Mutex<Option<Arc<JsonRpcConnection>>>,
-    stderr_task: Mutex<Option<JoinHandle<()>>>,
+    stderr_task: Mutex<Option<stderr::StderrDrain>>,
     stderr_lines: Arc<StdMutex<VecDeque<String>>>,
     capabilities: StdMutex<Option<Value>>,
     server_info: StdMutex<Option<Value>>,
@@ -304,8 +303,8 @@ impl NativeLspClient {
 impl Drop for NativeLspClientInner {
     fn drop(&mut self) {
         self.connection.get_mut().take();
-        if let Some(task) = self.stderr_task.get_mut().take() {
-            task.abort();
+        if let Some(drain) = self.stderr_task.get_mut().take() {
+            drain.abort();
         }
         if let Some(mut child) = self.child.get_mut().take() {
             // Signal the child to die, then opportunistically reap it so a killed

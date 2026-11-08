@@ -46,18 +46,15 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
     let original = json!({"operation":"sections","resources":resources,"questions":questions,
         "next":{"nextPage":{"kind":"continue","tool":"clasify","input":{"cursor":"cursor1.saved-assessment"}}}});
     assert_row_contract(ToolId::Clasify, &original);
-    let plan = PreparedRows::new(
-        vec![json!({"index":0,"data":original})],
-        &[None],
-        ToolId::Clasify,
-    )
-    .plan(1_800, &Cancellation::new())
-    .expect("valid plan");
+    let plan = PreparedRows::new(vec![json!({"index":0,"data":original})], ToolId::Clasify)
+        .plan(1_800, &Cancellation::new())
+        .expect("valid plan");
     assert!(
         plan.total_pages > 1,
         "fixture must exercise nested pagination"
     );
     let mut seen = BTreeMap::new();
+    let mut contexts = BTreeMap::new();
     let (mut definitions, mut next_calls) = (0, 0);
     for page in 0..plan.total_pages {
         for row in plan
@@ -84,11 +81,18 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
                         .iter()
                         .find(|item| item["id"] == id)
                         .expect("original section");
-                    for field in ["kind", "target", "context"] {
+                    // `id` and `kind` place the section; `target` has no
+                    // valid empty form (its `bytes` are a pair), so it
+                    // repeats whole; `context` is evidence: once, then `[]`.
+                    for field in ["kind", "target"] {
                         assert_eq!(
                             section[field], expected_section[field],
                             "{key}/{id}/{field}"
                         );
+                    }
+                    if section["context"] != json!([]) {
+                        assert_eq!(section["context"], expected_section["context"]);
+                        *contexts.entry((key.clone(), id.to_owned())).or_insert(0) += 1;
                     }
                     for (question, answer) in section["answers"].as_object().expect("answers") {
                         assert!(
@@ -105,6 +109,8 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
         }
     }
     assert_eq!(seen, expected);
+    assert_eq!(contexts.len(), 6, "every section's context arrives");
+    assert!(contexts.values().all(|count| *count == 1), "{contexts:?}");
     assert_eq!(definitions, 1);
     assert_eq!(next_calls, 1);
 }

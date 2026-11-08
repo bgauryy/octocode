@@ -48,29 +48,30 @@ pub(super) fn execute_ordinary_queries(
     let _rows = (0..computing)
         .map(|_| octocode_engine::cpu::host().enter())
         .collect::<Vec<_>>();
-    run_batch(
-        width,
-        queries,
-        |query| dispatcher.execute(tool, query, context),
-        |rows| dispatcher.finalize_batch(tool, rows, context),
-    )
+    // The rows' shared GitHub reads are warmed beside them: a row waits for
+    // the warm-up only where it reads what it warms.
+    let warm = dispatcher.plan_warm(tool, queries);
+    std::thread::scope(|scope| {
+        if let Some(warm) = &warm {
+            scope.spawn(octocode_io::notice::carried(|| {
+                dispatcher.run_warm(warm, context);
+            }));
+        }
+        run_batch(width, queries, |query| {
+            dispatcher.execute(tool, query, context, warm.as_ref())
+        })
+    })
 }
 
-/// Runs every query of a batch, `width` at once, then `finalize` once over
-/// all the rows' results in query order, before the response stage shapes
-/// them: the GH-G1 seam where a tool family fills fields it deferred across
-/// rows. A failed row fails the batch before `finalize` runs.
+/// Runs every query of a batch, `width` at once; the rows come back in query
+/// order, and a failed row fails the batch.
 fn run_batch<Q: Sync, R: Send>(
     width: usize,
     queries: &[Q],
     execute: impl Fn(&Q) -> Result<R, ExecutionError> + Sync,
-    finalize: impl FnOnce(&mut [R]) -> Result<(), ExecutionError>,
 ) -> Result<Vec<R>, ExecutionError> {
-    let mut rows = if width <= 1 {
-        queries
-            .iter()
-            .map(&execute)
-            .collect::<Result<Vec<_>, _>>()?
+    if width <= 1 {
+        queries.iter().map(&execute).collect()
     } else {
         let execute = &execute;
         std::thread::scope(|scope| {
@@ -81,12 +82,10 @@ fn run_batch<Q: Sync, R: Send>(
             tasks
                 .into_iter()
                 .map(|task| task.join().map_err(|_| ExecutionError::WorkerFailed)?)
-                .collect::<Result<Vec<_>, _>>()
-        })?
-    };
-    finalize(&mut rows)?;
-    Ok(rows)
+                .collect()
+        })
+    }
 }
 
 #[cfg(test)]
-mod finalize_tests;
+mod order_tests;

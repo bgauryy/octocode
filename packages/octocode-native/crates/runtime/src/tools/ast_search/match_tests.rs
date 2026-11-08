@@ -10,4 +10,5 @@ mod grammars;
 mod key_blocks;
 mod pages;
 mod rows;
+mod stream;
 mod values;

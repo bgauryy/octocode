@@ -26,6 +26,7 @@ mod public;
 mod request;
 
 pub(super) use bfs::Walk;
+pub(super) use compact::call_items_payload;
 pub(super) use importer_recovery::ImporterRecovery;
 pub(super) use nodes::NodeKeys;
 pub(super) use outcome::{mark_partial_expansion, mark_truncation};
@@ -35,7 +36,7 @@ pub(super) use request::{HierarchyRequest, hierarchy};
 pub(super) use {
     bfs::walk_hierarchy,
     caller_names::{ClassFacts, split_module_callers},
-    compact::{call_items_payload, compact_calls},
+    compact::compact_calls,
     nodes::{builtin_name, is_builtin_lib_declaration},
     outcome::expansion_outcome,
     request::class_uses_warning,
@@ -72,7 +73,7 @@ impl Expansion {
         }
     }
 
-    fn is_call(self) -> bool {
+    pub(super) fn is_call(self) -> bool {
         matches!(self, Self::IncomingCalls | Self::OutgoingCalls)
     }
 }

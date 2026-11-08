@@ -37,6 +37,32 @@ fn line_and_byte_pages_redact_cross_boundary_secrets_and_reconstruct_exactly() {
     }
 }
 
+/// Every page of an untouched whole read, the first and each replayed one,
+/// is a slice of the sealed source and carries the judged mark; a view a
+/// transform rewrote is no slice of it, so none of its pages does.
+#[test]
+fn every_page_of_a_whole_read_is_marked_and_a_rewritten_view_is_not() {
+    let source = format!("{}// a note\n{}", filler(60), filler(60)).replace("const", "    const");
+    for (fields, view) in [
+        (json!({}), None),
+        (json!({"view":"compact"}), Some(ReadView::Compact)),
+    ] {
+        let mut q = query(fields);
+        let mut pages = 0;
+        loop {
+            let result = fetch_window(&source, &q, 500);
+            assert_eq!(result.view, view, "{result:?}");
+            assert_eq!(result.judged.is_some(), view.is_none(), "page {pages}");
+            pages += 1;
+            let Some(next) = result.next.and_then(|next| next.continue_window) else {
+                break;
+            };
+            q = next.query;
+        }
+        assert!(pages > 1, "{view:?}");
+    }
+}
+
 #[test]
 fn ranged_secret_value_is_redacted_and_retains_original_line_coordinates() {
     let source = format!(

@@ -76,10 +76,10 @@ impl NativeLspClient {
             .await?
             .spawn()
             .map_err(|err| Error::new(format!("Failed to start language server: {err}")))?;
-        let memory_cap_guard = match crate::process::Job::attach_async(&child, memory_cap) {
+        let mut memory_cap_guard = match crate::process::Job::attach_async(&child, memory_cap) {
             Ok(guard) => guard,
             Err(error) => {
-                cleanup_failed_start(&mut child, None).await;
+                cleanup_failed_start(&mut child, None, None).await;
                 return Err(error);
             }
         };
@@ -88,18 +88,18 @@ impl NativeLspClient {
             .take()
             .map(|stderr| spawn_stderr_reader(stderr, Arc::clone(&self.inner.stderr_lines)));
         let Some(stdout) = child.stdout.take() else {
-            cleanup_failed_start(&mut child, stderr_task).await;
+            cleanup_failed_start(&mut child, Some(&mut memory_cap_guard), stderr_task).await;
             return Err(Error::new("Language server stdout pipe missing"));
         };
         let Some(stdin) = child.stdin.take() else {
-            cleanup_failed_start(&mut child, stderr_task).await;
+            cleanup_failed_start(&mut child, Some(&mut memory_cap_guard), stderr_task).await;
             return Err(Error::new("Language server stdin pipe missing"));
         };
 
         let root_uri = match path_to_uri(&self.inner.config.workspace_root) {
             Ok(uri) => uri,
             Err(error) => {
-                cleanup_failed_start(&mut child, stderr_task).await;
+                cleanup_failed_start(&mut child, Some(&mut memory_cap_guard), stderr_task).await;
                 return Err(error);
             }
         };
@@ -135,8 +135,8 @@ impl NativeLspClient {
         let initialize_result = match initialize(&connection, &self.inner.config).await {
             Ok(value) => value,
             Err(error) => {
-                cleanup_failed_start(&mut child, stderr_task).await;
-                return Err(error);
+                cleanup_failed_start(&mut child, Some(&mut memory_cap_guard), stderr_task).await;
+                return Err(self.with_server_stderr(error));
             }
         };
         // Positions are UTF-16 throughout the tool contract. A server that
@@ -145,7 +145,7 @@ impl NativeLspClient {
         if let Some(encoding) = negotiated_encoding.as_deref()
             && encoding != "utf-16"
         {
-            cleanup_failed_start(&mut child, stderr_task).await;
+            cleanup_failed_start(&mut child, Some(&mut memory_cap_guard), stderr_task).await;
             return Err(Error::new(format!(
                 "Unsupported language server positionEncoding '{encoding}': \
                          octocode advertises utf-16; semantic positions cannot be resolved safely"
@@ -153,8 +153,8 @@ impl NativeLspClient {
         }
         self.record_server(&initialize_result);
         if let Err(error) = connection.notify("initialized", json!({})).await {
-            cleanup_failed_start(&mut child, stderr_task).await;
-            return Err(error);
+            cleanup_failed_start(&mut child, Some(&mut memory_cap_guard), stderr_task).await;
+            return Err(self.with_server_stderr(error));
         }
 
         *self.inner.connection.lock().await = Some(connection);
@@ -178,6 +178,25 @@ impl NativeLspClient {
         *child_guard = Some(child);
         self.record_wait(super::waits::WaitKind::Starting, began);
         Ok(())
+    }
+
+    /// `error` of a failed start, with what the server wrote to stderr before
+    /// it failed (the ring's recent lines): a server that dies at launch says
+    /// why there, and the closed connection alone does not.
+    fn with_server_stderr(&self, mut error: Error) -> Error {
+        let lines = self
+            .inner
+            .stderr_lines
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        if !lines.is_empty() {
+            error.reason.push_str("; server stderr: ");
+            error.reason.push_str(&lines.join(" | "));
+        }
+        error
     }
 
     /// Keep what the server's `initialize` answer says about it: its
@@ -249,8 +268,8 @@ impl NativeLspClient {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             *guard = None;
         }
-        if let Some(task) = self.inner.stderr_task.lock().await.take() {
-            task.abort();
+        if let Some(drain) = self.inner.stderr_task.lock().await.take() {
+            drain.abort();
         }
         self.reset_session_state();
         Ok(())
@@ -322,6 +341,12 @@ async fn initialize(
         .await
 }
 
+/// Every `SymbolKind` the protocol defines (1 File to 26 TypeParameter): a
+/// server without this set answers with the 1.0 kinds only.
+fn symbol_kinds() -> Value {
+    json!({ "valueSet": (1..=26).collect::<Vec<u32>>() })
+}
+
 pub(super) fn initialize_params(config: &LspLanguageServerConfig) -> Result<Value> {
     let root_uri = path_to_uri(&config.workspace_root)?;
     let mut params = json!({
@@ -353,7 +378,7 @@ pub(super) fn initialize_params(config: &LspLanguageServerConfig) -> Result<Valu
                 "hover": { "dynamicRegistration": false, "contentFormat": ["markdown", "plaintext"] },
                 "typeDefinition": { "dynamicRegistration": false, "linkSupport": true },
                 "implementation": { "dynamicRegistration": false, "linkSupport": true },
-                "documentSymbol": { "dynamicRegistration": false, "hierarchicalDocumentSymbolSupport": true },
+                "documentSymbol": { "dynamicRegistration": false, "hierarchicalDocumentSymbolSupport": true, "symbolKind": symbol_kinds() },
                 "callHierarchy": { "dynamicRegistration": false },
                 // LSP 3.17: type hierarchy — navigate supertypes (base classes/interfaces)
                 // and subtypes (subclasses/implementors) without opening every file.
@@ -372,7 +397,7 @@ pub(super) fn initialize_params(config: &LspLanguageServerConfig) -> Result<Valu
             "workspace": {
                 "configuration": true,
                 "workspaceFolders": true,
-                "symbol": { "dynamicRegistration": false },
+                "symbol": { "dynamicRegistration": false, "symbolKind": symbol_kinds() },
                 // A server that registers gets file events for the scope's
                 // files at each request (`client/watched.rs`), so a file no
                 // request opened still reaches its index.

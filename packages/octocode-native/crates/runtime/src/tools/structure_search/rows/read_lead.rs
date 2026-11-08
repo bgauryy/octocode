@@ -11,7 +11,8 @@ use serde_json::Value;
 /// ([`read_rank`](crate::tools::root_read::read_rank), the ranking
 /// ghStructure shares; any outline-able file ranks last), first among equal
 /// ranks in listing order: of the small, hand-written files, else of the
-/// files of at most [`READ_LEAD_FALLBACK_MAX_BYTES`]. Source and docs are
+/// hand-written files of at most [`READ_LEAD_FALLBACK_MAX_BYTES`], else any
+/// file of that size. Source and docs are
 /// outlined (`view:"symbols"`).
 pub(crate) fn read_lead(rows: &[Row], root: &std::path::Path) -> Option<Value> {
     let mut ranked = rows
@@ -46,6 +47,12 @@ pub(crate) fn read_lead(rows: &[Row], root: &std::path::Path) -> Option<Value> {
     let row = ranked
         .iter()
         .find(|(_, row)| !generated_or_fixture(&row.path) && size(row) <= READ_LEAD_MAX_BYTES)
+        .or_else(|| {
+            ranked.iter().find(|(_, row)| {
+                !generated_or_fixture(&row.path) && size(row) <= READ_LEAD_FALLBACK_MAX_BYTES
+            })
+        })
+        // Nothing hand-written fits: a generated file still beats no lead.
         .or_else(|| {
             ranked
                 .iter()

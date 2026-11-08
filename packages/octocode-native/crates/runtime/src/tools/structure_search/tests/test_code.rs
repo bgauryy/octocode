@@ -218,3 +218,47 @@ fn a_parent_that_cannot_be_read_leaves_the_listing_partial() {
     assert_eq!(out["isPartial"], true, "{out}");
     assert!(out.to_string().contains("testCode verdict"), "{out}");
 }
+
+/// A directory spelled as test code that a production module root mounts is
+/// walked, not pruned: its files stay listed under `exclude`, and a `tests/`
+/// directory (no module root) still is pruned.
+#[test]
+fn exclude_walks_a_spelled_test_directory_that_production_mounts() {
+    let root = Fixture::new();
+    root.write("src/lib.rs", "pub mod spec;\npub mod specs_sibling;\n");
+    root.write("src/spec/mod.rs", "pub mod rules;\n");
+    root.write("src/spec/rules.rs", "pub fn rule() {}\n");
+    root.write("src/specs_sibling.rs", "pub fn run() {}\n");
+    root.write("tests/it.rs", "fn it() {}\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"files","path":".","testCode":"exclude"}),
+    )
+    .expect("listing");
+    let listed = names(&out);
+    for production in ["src/spec/mod.rs", "src/spec/rules.rs"] {
+        assert!(
+            listed.iter().any(|name| name.ends_with(production)),
+            "{production}: {out}"
+        );
+    }
+    assert!(!listed.iter().any(|name| name.ends_with("it.rs")), "{out}");
+    let dirs = run(
+        &root.0,
+        json!({"operation":"files","path":".","entryType":"directory","testCode":"exclude"}),
+    )
+    .expect("directory listing");
+    let listed = names(&dirs);
+    assert!(
+        listed
+            .iter()
+            .any(|name| name.trim_end_matches('/').ends_with("src/spec")),
+        "{dirs}"
+    );
+    assert!(
+        !listed
+            .iter()
+            .any(|name| name.trim_end_matches('/').ends_with("tests")),
+        "{dirs}"
+    );
+}

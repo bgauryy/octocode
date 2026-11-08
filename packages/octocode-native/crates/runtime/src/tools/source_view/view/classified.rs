@@ -264,10 +264,11 @@ pub(super) fn attach_unfiltered(
     if calls.continue_window.is_none()
         && let Some(token) = chosen.next_candidates()
     {
-        let mut page = q.clone();
-        local_fetch_query::set_progress(&mut page, None);
-        local_fetch_query::set_selection(&mut page, Some(token))
-            .map_err(|error| error.to_string())?;
+        let page = crate::response::result::with_changes(
+            crate::response::result::query_value(q),
+            &crate::response::paging::candidate_page_changes(ToolId::LocalFetch, token, None),
+        );
+        let page = serde_json::from_value(page).map_err(|error| error.to_string())?;
         calls.next_candidate_page = Some(FetchCall::continued(page));
     }
     Ok(())

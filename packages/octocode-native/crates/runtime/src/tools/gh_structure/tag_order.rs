@@ -1,31 +1,54 @@
-//! The order a refs page lists tags in: newest version first.
+//! The order a refs page lists tags in: grouped by tag prefix, newest
+//! version first within each group.
 //!
 //! A tag's version is the first dotted number run in its name that starts
 //! the name, follows a `v`, or follows a separator (`v1.2.3`, `15.2.0`,
-//! `ignore-0.4.33`, `pkg@2.0.0`, `rmcp-v0.8.5`). Versions compare by their
-//! numbers (a missing component is 0), then a release ranks above its
-//! pre-releases (`1.0.0` above `1.0.0-rc.2` above `1.0.0-rc.1`), as semver
-//! orders them. A dotted version (`1.145.1`) is a release: it leads every
-//! lone number (`v14`) and every date stamp (`translation/20172701.01`). Tags without a version come last. Ties
-//! (one version under several package prefixes, or no version) keep
-//! reverse-lexicographic name order, GitHub's own, so the order is total
-//! and stable.
+//! `ignore-0.4.33`, `pkg@2.0.0`, `rmcp-v0.8.5`); its prefix is the name
+//! before that run, without the `v` (`""`, `ignore-`, `pkg@`, `rmcp-`).
+//! Tags of one prefix are listed together, so a package's releases never
+//! interleave by number with another's (`termcolor-1.4.1` stays with its
+//! own, apart from `13.0.0`). Groups go by their newest version, then
+//! reverse-lexicographic prefix; tags without a version are the last group.
+//!
+//! Within a group, versions compare by their numbers (a missing component
+//! is 0), then a release ranks above its pre-releases (`1.0.0` above
+//! `1.0.0-rc.2` above `1.0.0-rc.1`), as semver orders them. A dotted version
+//! (`1.145.1`) is a release: it leads every lone number (`v14`) and every
+//! date stamp (`translation/20172701.01`). Ties keep reverse-lexicographic
+//! name order, GitHub's own, so the order is total and stable.
 use std::cmp::Ordering;
+use std::collections::BTreeMap;
 
-/// Sort `names` newest version first ([module docs](self)).
+/// Sort `names` by prefix group, newest version first within it
+/// ([module docs](self)).
 pub(super) fn newest_first(names: &mut [String]) {
     // Parse each name once, not at every comparison of the sort.
     let listed = names.to_vec();
-    let mut keyed = listed
+    let parsed = listed
         .iter()
-        .map(|name| (TagVersion::of(name), name))
+        .map(|name| (name, TagVersion::of(name)))
         .collect::<Vec<_>>();
-    keyed.sort_by(|(left_version, left), (right_version, right)| {
-        right_version
-            .cmp(left_version)
-            .then_with(|| right.cmp(left))
-    });
-    for (slot, (_, name)) in names.iter_mut().zip(keyed) {
+    let mut newest: BTreeMap<Option<&str>, &TagVersion<'_>> = BTreeMap::new();
+    for (_, version) in &parsed {
+        let best = newest.entry(version.prefix()).or_insert(version);
+        if version > *best {
+            *best = version;
+        }
+    }
+    let mut keyed = parsed
+        .iter()
+        .map(|(name, version)| (newest[&version.prefix()], version, *name))
+        .collect::<Vec<_>>();
+    keyed.sort_by(
+        |(left_best, left_version, left), (right_best, right_version, right)| {
+            right_best
+                .cmp(left_best)
+                .then_with(|| right_version.prefix().cmp(&left_version.prefix()))
+                .then_with(|| right_version.cmp(left_version))
+                .then_with(|| right.cmp(left))
+        },
+    );
+    for (slot, (_, _, name)) in names.iter_mut().zip(keyed) {
         slot.clone_from(name);
     }
 }
@@ -33,9 +56,22 @@ pub(super) fn newest_first(names: &mut [String]) {
 /// A tag name's version: `None` sorts below every version, and a lone
 /// number below every dotted one.
 #[derive(Debug, PartialEq, Eq)]
-struct TagVersion<'a>(Option<(Vec<u64>, Option<&'a str>)>);
+struct TagVersion<'a>(Option<Versioned<'a>>);
+
+/// A version found in a name: its prefix, numbers and pre-release suffix.
+#[derive(Debug, PartialEq, Eq)]
+struct Versioned<'a> {
+    prefix: &'a str,
+    numbers: Vec<u64>,
+    pre: Option<&'a str>,
+}
 
 impl<'a> TagVersion<'a> {
+    /// The name before the version (without its `v`); `None` for no version.
+    fn prefix(&self) -> Option<&'a str> {
+        self.0.as_ref().map(|version| version.prefix)
+    }
+
     fn of(name: &'a str) -> Self {
         let bytes = name.as_bytes();
         let start = (0..bytes.len()).find(|&at| {
@@ -65,7 +101,16 @@ impl<'a> TagVersion<'a> {
         // trailing separator are not.
         let suffix = rest[end..].trim_start_matches(['-', '.', '_']);
         let pre = (!suffix.is_empty() && !rest[end..].starts_with('+')).then_some(suffix);
-        Self(Some((numbers, pre)))
+        let before = &name[..start];
+        let prefix = before
+            .strip_suffix(['v', 'V'])
+            .filter(|rest| !rest.ends_with(|c: char| c.is_ascii_alphanumeric()))
+            .unwrap_or(before);
+        Self(Some(Versioned {
+            prefix,
+            numbers,
+            pre,
+        }))
     }
 }
 
@@ -75,7 +120,9 @@ impl Ord for TagVersion<'_> {
             (None, None) => Ordering::Equal,
             (None, Some(_)) => Ordering::Less,
             (Some(_), None) => Ordering::Greater,
-            (Some((left, left_pre)), Some((right, right_pre))) => {
+            (Some(left), Some(right)) => {
+                let (left, left_pre) = (&left.numbers, &left.pre);
+                let (right, right_pre) = (&right.numbers, &right.pre);
                 if is_release(left) != is_release(right) {
                     return is_release(left).cmp(&is_release(right));
                 }
@@ -117,7 +164,7 @@ fn pre_release(left: &str, right: &str) -> Ordering {
         text.split(['.', '-'])
             .map(|id| {
                 let digits = id.trim_start_matches(|c: char| !c.is_ascii_digit());
-                let word = &id[..id.len() - digits.len()];
+                let word = id.strip_suffix(digits).unwrap_or(id);
                 (word.to_owned(), digits.parse::<u64>().ok())
             })
             .collect::<Vec<_>>()
@@ -129,11 +176,13 @@ fn pre_release(left: &str, right: &str) -> Ordering {
 mod tests {
     use super::*;
 
-    /// ripgrep's tags: its own releases, its crates' releases, a
-    /// pre-release and an unversioned tag, newest version first.
+    /// ripgrep's tags: the invariant is that each prefix's tags are one
+    /// contiguous run, in descending version order, and that unversioned
+    /// tags come last: `termcolor-1.4.1` never lands between `13.0.0` and
+    /// `0.10.0` by its number.
     #[test]
-    fn tags_list_newest_version_first() {
-        let mut names = [
+    fn each_prefix_is_one_run_in_version_order() {
+        let tags = [
             "wincolor-0.1.6",
             "termcolor-1.4.1",
             "nightly",
@@ -147,29 +196,32 @@ mod tests {
             "13.0.0",
             "0.10.0",
             "rmcp-v0.8.5",
+            "rmcp-v0.9.0",
+            "termcolor-1.4.0",
             "v14.1.1",
-        ]
-        .map(str::to_owned);
-        newest_first(&mut names);
-        assert_eq!(
-            names,
-            [
-                "15.2.0",
-                "15.1.0",
-                "15.0.0",
-                "15.0.0-rc.10",
-                "15.0.0-rc.1",
-                "v14.1.1",
-                "13.0.0",
-                "termcolor-1.4.1",
-                "0.10.0",
-                "rmcp-v0.8.5",
-                "ignore-0.4.33",
-                "grep-0.3.2",
-                "wincolor-0.1.6",
-                "nightly",
-            ]
-        );
+        ];
+        let listed = sorted(&tags);
+        assert_eq!(listed.len(), tags.len());
+        let mut runs: Vec<(Option<String>, Vec<&String>)> = Vec::new();
+        for name in &listed {
+            let prefix = TagVersion::of(name).prefix().map(str::to_owned);
+            match runs.last_mut() {
+                Some((last, run)) if *last == prefix => run.push(name),
+                _ => runs.push((prefix, vec![name])),
+            }
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for (prefix, run) in &runs {
+            assert!(seen.insert(prefix), "{prefix:?} is split: {listed:?}");
+            for pair in run.windows(2) {
+                assert!(
+                    TagVersion::of(pair[0]) >= TagVersion::of(pair[1]),
+                    "{pair:?} out of order in {listed:?}"
+                );
+            }
+        }
+        assert_eq!(runs.last().and_then(|(prefix, _)| prefix.as_deref()), None);
+        assert_eq!(runs.len(), 6 + 1);
     }
 
     /// One version under several prefixes keeps GitHub's
@@ -191,28 +243,26 @@ mod tests {
     }
 
     /// A dated or lone-number tag (`translation/20190712`, `v14`) is not a
-    /// release: dotted versions lead, descending, whatever number the others
-    /// start with.
+    /// release: within a group dotted versions lead, descending, whatever
+    /// number the others start with.
     #[test]
     fn dotted_versions_lead_over_dates_and_lone_numbers() {
+        let listed = sorted(&["v14", "1.145.0", "1.145.1", "v2", "latest"]);
+        assert_eq!(listed, ["1.145.1", "1.145.0", "v14", "v2", "latest"]);
+        // A date stamp in its own prefix group stays one run.
+        let listed = sorted(&[
+            "translation/20190712",
+            "1.145.0",
+            "translation/20172701.01",
+            "v14",
+        ]);
         assert_eq!(
-            sorted(&[
-                "translation/20190712",
-                "translation/20172701.01",
-                "master-with-conflict-190418",
-                "v14",
-                "1.145.0",
-                "1.145.1",
-                "latest",
-            ]),
+            listed,
             [
-                "1.145.1",
                 "1.145.0",
-                "translation/20190712",
-                "translation/20172701.01",
-                "master-with-conflict-190418",
                 "v14",
-                "latest",
+                "translation/20190712",
+                "translation/20172701.01"
             ]
         );
     }

@@ -41,9 +41,15 @@ async fn the_ref_commit_resolves_while_the_search_runs() {
         serde_json::from_value(json!({"owner":"a","repo":"b","ref":"dev","keywords":["wrap_app"]}))
             .expect("query");
     let context = default_context();
-    let out = execute(&provider, &query, &context, &Passthrough)
-        .await
-        .expect("search");
+    let out = execute(
+        &provider,
+        &query,
+        &context,
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("search");
     assert_eq!(out.data["files"][0]["commitSha"], SHA, "{}", out.data);
     // The page's core-quota cost: one contents read (an `extras:["stats"]` field).
     assert_eq!(out.data["contentReads"], 1, "{}", out.data);
@@ -109,9 +115,15 @@ async fn default_branch_lines_are_read_at_the_indexed_commit() {
     let query: GhSearchCodeQuery =
         serde_json::from_value(json!({"owner":"a","repo":"b","keywords":["wrap_app"]}))
             .expect("query");
-    let out = execute(&provider, &query, &default_context(), &Passthrough)
-        .await
-        .expect("search");
+    let out = execute(
+        &provider,
+        &query,
+        &default_context(),
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("search");
     let data = &out.data;
     for file in data["files"].as_array().expect("files") {
         assert_eq!(file["commitSha"], SHA, "{file}");
@@ -159,9 +171,15 @@ async fn searches_without_line_reads_resolve_no_commit() {
         json!({"owner":"a","repo":"b","keywords":["app"],"fields":["path"]}),
     ] {
         let query: GhSearchCodeQuery = serde_json::from_value(row).expect("query");
-        execute(&provider, &query, &context, &Passthrough)
-            .await
-            .expect("search");
+        execute(
+            &provider,
+            &query,
+            &context,
+            &Passthrough,
+            &crate::policy::discovery::is_sensitive_repository_file,
+        )
+        .await
+        .expect("search");
     }
     let requests = server.received_requests().await.expect("requests");
     assert!(
@@ -211,15 +229,27 @@ async fn path_only_rows_name_their_indexed_commit() {
         )
         .expect("query")
     };
-    let shared = execute(&provider, &search("app"), &context, &Passthrough)
-        .await
-        .expect("search");
+    let shared = execute(
+        &provider,
+        &search("app"),
+        &context,
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("search");
     for file in shared.data["files"].as_array().expect("files") {
         assert_eq!(file["commitSha"], SHA, "{file}");
     }
-    let mixed = execute(&provider, &search("lib"), &context, &Passthrough)
-        .await
-        .expect("search");
+    let mixed = execute(
+        &provider,
+        &search("lib"),
+        &context,
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("search");
     assert!(mixed.data.get("commitSha").is_none(), "{}", mixed.data);
     let commits = mixed.data["files"]
         .as_array()

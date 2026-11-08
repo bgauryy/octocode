@@ -41,12 +41,15 @@ pub(super) fn run_page(
     }
     let limit = options.limit.unwrap_or_else(default_limit);
     let total = page.total;
-    let rows = page
+    let mut rows = page
         .rows
         .into_iter()
         .skip(offset.saturating_sub(page.start))
         .take(limit)
         .collect::<Vec<_>>();
+    for row in &mut rows {
+        verify_symbol(graph, row);
+    }
     let shown = rows.len();
     let mut out = Map::new();
     out.insert("graph".into(), graph.summary());
@@ -61,6 +64,24 @@ pub(super) fn run_page(
     };
     settle(&mut output, options, total);
     output
+}
+
+/// A listed symbol row's `verify`: the lspSearch call that confirms it at
+/// its declaration, since graph rows are syntax candidates. A row that
+/// already states its verify steps (an issue) keeps them.
+fn verify_symbol(graph: &Graph, row: &mut Value) {
+    if row["kind"] != "symbol" || row.get("verify").is_some() {
+        return;
+    }
+    // A provenance row names its file only in its key.
+    let file = row["id"].as_str().and_then(|key| graph.file_key(key));
+    let (Some(file), Some(name), Some(line)) = (file, row["name"].as_str(), row["line"].as_u64())
+    else {
+        return;
+    };
+    if let Some(lead) = graph.lsp_lead(file, name, line) {
+        row["verify"] = json!([lead]);
+    }
 }
 
 /// States the page of a list answer's `rows`: its `pagination`, and the

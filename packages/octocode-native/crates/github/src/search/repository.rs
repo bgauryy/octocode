@@ -42,38 +42,26 @@ impl GitHubTransport {
             Ok(RequestSpec::get(url))
         };
         // The route this request (or the continuation it resumes) found
-        // stands for every later page: no second organization probe.
-        let known = context
+        // stands for every later page; one this key found earlier stands for
+        // a later request: no second organization probe for either.
+        let key = self.key_state(context.resolved_credential());
+        let in_request = context
             .owner_route(owner)
             .and_then(|route| OwnerSource::named(&route));
-        let response = match known {
-            Some(source) => self.execute(fetch(source)?, context).await?,
-            None => match self
-                .execute(fetch(OwnerSource::Organization)?, context)
-                .await
-            {
-                Ok(response) => {
-                    context.record_owner_route(owner, OwnerSource::Organization.name());
-                    response
+        let remembered = key
+            .owner_route(owner)
+            .and_then(|route| OwnerSource::named(&route));
+        let response = match in_request.or(remembered) {
+            Some(source) => match self.execute(fetch(source)?, context).await {
+                // A route learned by an earlier request may have moved on
+                // (a rename, an owner converted): ask again once.
+                Err(error) if error.status == Some(404) && in_request.is_none() => {
+                    key.forget_owner_route(owner);
+                    self.probe_owner_route(owner, &fetch, &key, context).await?
                 }
-                Err(error) if error.status == Some(404) => {
-                    let viewer = self.viewer_login(context).await;
-                    // A transient viewer failure decides nothing to remember.
-                    let definitive = !matches!(viewer, Viewer::Unknown);
-                    let source = match viewer {
-                        Viewer::Login(login) if login.eq_ignore_ascii_case(owner) => {
-                            OwnerSource::Viewer
-                        }
-                        Viewer::Login(_) | Viewer::NoUser | Viewer::Unknown => OwnerSource::User,
-                    };
-                    let response = self.execute(fetch(source)?, context).await?;
-                    if definitive {
-                        context.record_owner_route(owner, source.name());
-                    }
-                    response
-                }
-                Err(error) => return Err(error),
+                other => other?,
             },
+            None => self.probe_owner_route(owner, &fetch, &key, context).await?,
         };
         let has_more = response.next.is_some();
         Ok((
@@ -123,6 +111,47 @@ impl GitHubTransport {
             context.record_full_name(owner, repo, full_name);
         }
         Ok(metadata)
+    }
+
+    /// Find and remember how `owner`'s repositories are listed: as an
+    /// organization, else as a user (the token's own login lists privately).
+    async fn probe_owner_route(
+        &self,
+        owner: &str,
+        fetch: &impl Fn(OwnerSource) -> Result<RequestSpec, ProviderError>,
+        key: &std::sync::Arc<crate::budget::KeyState>,
+        context: &RequestContext,
+    ) -> Result<crate::ResponsePage, ProviderError> {
+        let remember = |source: OwnerSource| {
+            context.record_owner_route(owner, source.name());
+            key.learn_owner_route(owner, source.name());
+        };
+        match self
+            .execute(fetch(OwnerSource::Organization)?, context)
+            .await
+        {
+            Ok(response) => {
+                remember(OwnerSource::Organization);
+                Ok(response)
+            }
+            Err(error) if error.status == Some(404) => {
+                let viewer = self.viewer_login(context).await;
+                // A transient viewer failure decides nothing to remember.
+                let definitive = !matches!(viewer, Viewer::Unknown);
+                let source = match viewer {
+                    Viewer::Login(login) if login.eq_ignore_ascii_case(owner) => {
+                        OwnerSource::Viewer
+                    }
+                    Viewer::Login(_) | Viewer::NoUser | Viewer::Unknown => OwnerSource::User,
+                };
+                let response = self.execute(fetch(source)?, context).await?;
+                if definitive {
+                    remember(source);
+                }
+                Ok(response)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// The request token's user. Without a token, or for a

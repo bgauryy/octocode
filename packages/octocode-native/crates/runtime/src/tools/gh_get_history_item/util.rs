@@ -1,5 +1,6 @@
 //! JSON-value helpers shared across history-item shaping: typed accessors,
 //! the shallow merge, and the provider comment mapper.
+use crate::response::cut::{clean_cut, is_clean_cut};
 use crate::response::result::remove_nulls;
 use crate::tools::gh_shared::dates::utc_date;
 use serde_json::{Value, json};
@@ -109,6 +110,33 @@ pub(super) fn merge(mut left: Value, right: Value) -> Value {
         l.extend(r.clone());
     }
     left
+}
+
+/// Where a window of `view` that starts at character `from` and would end
+/// at character `to` really ends: the shared [`clean_cut`] (never inside a
+/// redaction marker or a CRLF pair), or, when that falls on or before the
+/// window's start (the marker starts the window), the first clean cut past
+/// `to`, so the marker stays whole and a walk advances.
+pub(in crate::tools::gh_get_history_item) fn clean_char_cut(
+    view: &str,
+    from: usize,
+    to: usize,
+) -> usize {
+    let byte_of = |chars: usize| {
+        view.char_indices()
+            .nth(chars)
+            .map_or(view.len(), |(at, _)| at)
+    };
+    let mut at = clean_cut(view, byte_of(to));
+    if at <= byte_of(from) {
+        at = byte_of(to);
+        while !is_clean_cut(view, at) {
+            at += 1;
+        }
+    }
+    view.char_indices()
+        .take_while(|(byte, _)| *byte < at)
+        .count()
 }
 
 #[cfg(test)]

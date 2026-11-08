@@ -17,13 +17,17 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 mod access;
 mod release_tags;
+mod repository_read;
 mod rows;
 mod tools;
+mod warm;
 
 pub(super) use access::ResponseAccess;
 pub(crate) use release_tags::ReleaseTagCheck;
+pub(crate) use repository_read::RepositoryReader;
 use rows::advise_login_for_anonymous_quota;
 pub(super) use rows::provider_error;
+pub(crate) use warm::BatchWarm;
 
 /// Auth failure of a token the host supplied with the request: the remote
 /// caller has no local `octocode auth login` to run.
@@ -33,6 +37,8 @@ pub(super) struct QueryExecution<'a> {
     pub context: &'a ExecutionContext,
     pub handle: &'a tokio::runtime::Handle,
     pub access: &'a ResponseAccess,
+    /// The batch's warm-up, when its rows share one.
+    pub warm: Option<&'a BatchWarm>,
 }
 
 pub(super) struct GitHubServices {
@@ -130,12 +136,18 @@ impl GitHubServices {
             context,
             handle,
             access,
+            warm,
         } = execution;
         let Some(github_tool) = tool.github() else {
             return Err(ExecutionError::WorkerFailed);
         };
         context.check()?;
-        let request_context = self.request_context(context, handle, access);
+        let request_context =
+            self.request_context(context, handle, access)
+                .map(|request| match warm {
+                    Some(warm) => request.with_last_commits(warm.memo.clone()),
+                    None => request,
+                });
         context.check()?;
         let mut result = handle.block_on(self.execute_resolved(
             github_tool,
@@ -151,12 +163,20 @@ impl GitHubServices {
             if let Some(observed) = request.reused_since() {
                 crate::providers::saved_answers::disclose_reuse(&mut result.data, observed);
             }
+            // The row's own waits before its sends, by kind: latency the
+            // provider did not cause. A row that waited for nothing says nothing.
+            let waits = request.client_waits();
+            if let Some(data) = result.data.as_object_mut()
+                && !waits.is_empty()
+            {
+                data.insert("clientWaits".into(), json!(waits));
+            }
         }
         if result.failure == Some(FailureKind::Authentication) {
             if context.github_credential.is_some() {
                 // The host supplied this token: the host re-authenticates
                 // its caller. Ambient credential state stays untouched.
-                result.data["hints"] = json!([REQUEST_TOKEN_AUTH_HINT]);
+                crate::response::result::set_hints(&mut result.data, [REQUEST_TOKEN_AUTH_HINT]);
             } else {
                 // GitHub rejected the credential: the next row selects again without it.
                 self.reject_credential(access.selection(), request_context.as_ref().ok());
@@ -191,8 +211,10 @@ impl GitHubServices {
 
     fn request_budget(&self, context: &ExecutionContext) -> RequestBudget {
         let mut budget = RequestBudget::with_timeout(self.timeout, PROVIDER_BODY_BYTES);
-        budget.deadline = context.deadline.min(budget.deadline);
-        budget.wait_until = context.deadline;
+        if let Some(deadline) = context.deadline {
+            budget.deadline = deadline.min(budget.deadline);
+        }
+        budget.wait_until = crate::execution::cancel::deadline_of(context);
         budget.cancellation = context.cancellation.clone();
         budget
     }
@@ -240,6 +262,20 @@ impl GitHubServices {
         .await;
         access.observe(host, &result);
         result
+    }
+
+    /// securityCheck's repository read for one row, through this transport:
+    /// the same credential and budget as the release-tag checks.
+    pub(crate) fn repository_reader<'a>(
+        &'a self,
+        context: &'a ExecutionContext,
+        access: &'a ResponseAccess,
+    ) -> RepositoryReader<'a> {
+        RepositoryReader {
+            services: self,
+            context,
+            access,
+        }
     }
 
     /// artifactSearch's upstream release-tag checks for one row, through

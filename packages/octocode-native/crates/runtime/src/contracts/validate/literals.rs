@@ -15,11 +15,66 @@ pub(super) fn enum_message(received: Option<&Value>, literals: &[Value]) -> Stri
         .join(", ");
     let meant = received
         .and_then(Value::as_str)
-        .and_then(|sent| super::repair::closest(sent, literals.iter().filter_map(Value::as_str)))
-        .map(|meant| format!("use \"{meant}\"; "))
+        .map(|sent| meant(sent, literals))
+        .filter(|meant| !meant.is_empty())
+        .map(|meant| format!("use {}; ", quoted_choice(&meant)))
         .unwrap_or_default();
     let sent = received.map_or_else(String::new, |value| format!(" {value}"));
     format!("Value{sent} is outside the allowed enum; {meant}allowed: {allowed}")
+}
+
+/// `"a"`, `"a" or "b"`, `"a", "b" or "c"`.
+fn quoted_choice(names: &[String]) -> String {
+    let quoted = names
+        .iter()
+        .map(|name| format!("\"{name}\""))
+        .collect::<Vec<_>>();
+    match quoted.split_last() {
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
+        None => String::new(),
+    }
+}
+
+/// The literals `sent` means. For the ecosystem enum, first the contract's purl
+/// type of that name (`cargo`, `golang`, `deb`, `rpm`): its ecosystems, all of
+/// them when the type spans several distributions. Else the nearest spelling,
+/// else the one literal it is the start of (`crates` for `crates.io`).
+fn meant(sent: &str, literals: &[Value]) -> Vec<String> {
+    let names = || literals.iter().filter_map(Value::as_str);
+    if let Some(named) = purl_ecosystems(sent, literals) {
+        return named;
+    }
+    if let Some(near) = super::repair::closest(sent, names()) {
+        return vec![near.to_owned()];
+    }
+    let folded = |text: &str| text.to_ascii_lowercase();
+    let sent = folded(sent);
+    let mut starting = names().filter(|name| folded(name).starts_with(&sent));
+    if let (Some(only), None) = (starting.next(), starting.next())
+        && sent.len() >= 3
+    {
+        return vec![only.to_owned()];
+    }
+    Vec::new()
+}
+
+/// The ecosystems the contract's purl type `sent` names, when `literals` is the
+/// ecosystem enum and holds every one of them.
+fn purl_ecosystems(sent: &str, literals: &[Value]) -> Option<Vec<String>> {
+    let names = || literals.iter().filter_map(Value::as_str);
+    let contract = crate::contracts::security::security_contract().ok()?;
+    let is_ecosystems = contract
+        .ecosystems
+        .distros
+        .iter()
+        .all(|distro| names().any(|name| name == distro));
+    let named = contract
+        .ecosystems
+        .purl_types
+        .get(&sent.to_ascii_lowercase())?;
+    (is_ecosystems && named.iter().all(|one| names().any(|name| name == one)))
+        .then(|| named.clone())
 }
 
 /// JSON Schema compares numeric values, independently of JSON integer/float spelling.

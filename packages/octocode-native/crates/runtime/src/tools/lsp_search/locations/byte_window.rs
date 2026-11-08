@@ -53,7 +53,10 @@ struct Sealed {
 /// The text localFetch cuts its pages from for a whole in-memory read
 /// ([`crate::tools::source_view::prepare::sealed_view`]), beside the decoded
 /// text the server's positions count.
-fn seal(path: &std::path::Path) -> Result<Sealed, Unsealed> {
+fn seal(
+    path: &std::path::Path,
+    security: &crate::security::ContentSecurity,
+) -> Result<Sealed, Unsealed> {
     use crate::response::paging::PartialReason;
     let bytes =
         octocode_engine::text::read_source(path, super::super::source::MAX_LSP_DIDOPEN_BYTES)
@@ -69,14 +72,12 @@ fn seal(path: &std::path::Path) -> Result<Sealed, Unsealed> {
             })?
             .bytes;
     let snapshot = octocode_engine::digest::sha256(&bytes);
-    let view = crate::tools::source_view::prepare::sealed_view(
-        &bytes,
-        path,
-        &crate::security::ContentSecurity::new(),
-    )
-    .map_err(|(_, message)| Unsealed::new(PartialReason::SecuritySelectedViewSizeLimit, message))?
-    .text
-    .into_owned();
+    let view = crate::tools::source_view::prepare::sealed_view(&bytes, path, security)
+        .map_err(|(_, message)| {
+            Unsealed::new(PartialReason::SecuritySelectedViewSizeLimit, message)
+        })?
+        .text
+        .into_owned();
     Ok(Sealed {
         raw: octocode_engine::text::decode(&bytes).text.into_owned(),
         view,
@@ -85,11 +86,14 @@ fn seal(path: &std::path::Path) -> Result<Sealed, Unsealed> {
 }
 
 /// Window every entry whose declaration lines (as many as a row shows)
-/// outgrow `budget`; entry `i`'s calls are at index `i`.
+/// outgrow `budget`; entry `i`'s calls are at index `i`. The redacted view
+/// is the request's own: `security` is the scanner every other read of it
+/// uses.
 pub(super) async fn window_long_declarations(
     entries: &mut [Value],
     budget: usize,
     sources: &SourceCache<'_>,
+    security: &crate::security::ContentSecurity,
 ) -> Vec<Option<Windowed>> {
     let mut sealed = HashMap::<String, Result<Arc<Sealed>, Unsealed>>::new();
     let mut windows = Vec::with_capacity(entries.len());
@@ -106,12 +110,15 @@ pub(super) async fn window_long_declarations(
                 )
             };
             let source = match sources.policy().validate_read(&target.path) {
-                Ok(validated) => tokio::task::spawn_blocking(move || seal(&validated.canonical))
-                    .await
-                    .unwrap_or_else(|error| {
-                        Err(unread(format!("the source read task failed: {error}")))
-                    })
-                    .map(Arc::new),
+                Ok(validated) => {
+                    let security = security.clone();
+                    tokio::task::spawn_blocking(move || seal(&validated.canonical, &security))
+                        .await
+                        .unwrap_or_else(|error| {
+                            Err(unread(format!("the source read task failed: {error}")))
+                        })
+                        .map(Arc::new)
+                }
                 Err(error) => Err(unread(format!(
                     "the read policy refused the declaration's source: {error}"
                 ))),

@@ -97,22 +97,31 @@ pub fn pattern_declaration(pattern: &str, ext: &str) -> Option<PatternDeclaratio
     octo::pattern_declaration(&AgLanguage::new(entry), pattern)
 }
 
+/// The kind of node a structural `pattern` parses as in the grammar of
+/// `ext`; `None` when it does not compile or is a special pattern.
+pub fn pattern_kind(pattern: &str, ext: &str) -> Option<String> {
+    let entry = languages::find_entry(ext)?;
+    octo::pattern_kind(&AgLanguage::new(entry), pattern)
+}
+
 /// Grammars whose paths qualify with `::`: there a longer path before a
 /// pattern's leftmost segment is a namespace qualification, not a member
 /// receiver as `.` can be. Every other grammar qualifies with `.`.
 const QUALIFIED_PATH_GRAMMARS: [&str; 3] = ["Rust", "C++", "CUDA"];
 
-/// The longer spelling of a structural `pattern` in the grammar of `ext`,
-/// which matches the sites the pattern as written leaves out:
+/// The longer spellings of a structural `pattern` in the grammar of `ext`,
+/// which match the sites the pattern as written leaves out: its literal
+/// names with a fresh capture and a separator before them, where
 ///
-/// - a `::` path (or a call on one) whose leftmost segment is a literal
-///   name, with a fresh capture and `::` before that segment (a grammar
-///   with `::` paths only);
-/// - a call on a bare name, with a fresh capture and the grammar's
-///   separator (`::` or `.`) before the name: the calls that qualify it.
+/// - a name starts a path (the leftmost segment of a `::` path, or a bare
+///   name inside the pattern, such as an `impl`'s trait), with `::` (a
+///   grammar with `::` paths only);
+/// - a bare name is called, with the grammar's separator (`::` or `.`):
+///   the calls that qualify it;
+/// - a type name in a type position (an annotation), with `.` (a grammar
+///   with `.` paths): the types a namespace or module qualifies.
 ///
-/// `None` for any other pattern, a grammar that spells no such call, or a
-/// pattern that does not compile.
+/// `None` for a pattern without such a name, or one that does not compile.
 pub fn pattern_qualifier(pattern: &str, ext: &str) -> Option<QualifiedPattern> {
     let entry = languages::find_entry(ext)?;
     let separator = if QUALIFIED_PATH_GRAMMARS.contains(&entry.name) {

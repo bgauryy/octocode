@@ -98,6 +98,7 @@ impl<'a> Job<'a> {
             JOB_VERSION,
             cache::namespace(scan, root, registry)?,
             &scan.exclude,
+            scan.walk.disclosure(),
             &scan.cargo,
             super::super::super::ANALYSIS_VERSION,
         ))

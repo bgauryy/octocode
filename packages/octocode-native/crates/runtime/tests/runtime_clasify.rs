@@ -15,6 +15,7 @@ mod pages;
 mod readiness;
 mod sanitization;
 mod sources;
+mod stubbed_rows;
 
 /// Answers every question by its own type, as the provider does: Noul 0.9,
 /// Choice the first label, Score 1.5 over its levels with an echoed legend.

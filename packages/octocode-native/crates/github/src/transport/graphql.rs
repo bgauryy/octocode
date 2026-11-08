@@ -119,8 +119,11 @@ impl GitHubTransport {
         // inside `execute_counted` and the semantic retries below share it.
         let mut attempt: u8 = 0;
         loop {
-            let Obtained { page, from_origin } = self
-                .execute_counted(spec.clone(), context, &mut attempt)
+            // GraphQL is never redirected along a repository rename.
+            let Obtained {
+                page, from_origin, ..
+            } = self
+                .execute_counted(spec.clone(), context, &mut attempt, &mut Vec::new())
                 .await?;
             let parsed: GraphQlPage = serde_json::from_slice(&page.body).map_err(|_| {
                 context.journal.forget(&spec);
@@ -180,13 +183,18 @@ impl GitHubTransport {
                 // Octokit plugin-retry treats this GraphQL failure as a 500.
                 if attempt + 1 < self.retry.max_attempts {
                     let delay = self.retry.backoff().next_delay(u32::from(attempt));
-                    if pause(
-                        delay,
-                        context.budget.effective_deadline(),
-                        &context.budget.cancellation,
-                    )
-                    .await
-                    .is_ok()
+                    if context
+                        .waits
+                        .timed(
+                            octocode_contract_types::ClientWaitKind::RetryAfter,
+                            pause(
+                                delay,
+                                context.budget.effective_deadline(),
+                                &context.budget.cancellation,
+                            ),
+                        )
+                        .await
+                        .is_ok()
                     {
                         attempt += 1;
                         continue;

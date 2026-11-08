@@ -46,18 +46,24 @@ fn shared_client(endpoint: &Url) -> Result<reqwest::Client, ClassificationError>
     // discovery for it; remote providers still honor the user's proxy setup.
     let bypass_proxy = octocode_github::is_loopback(endpoint);
     CLIENTS.get(bypass_proxy, || {
-        let policy = octocode_io::http::ClientPolicy {
-            connect_timeout: Some(CONNECT_TIMEOUT),
-            user_agent: Some(concat!("octocode-native/", env!("CARGO_PKG_VERSION"))),
-            proxy: if bypass_proxy {
-                octocode_io::http::Proxy::Direct
-            } else {
-                octocode_io::http::Proxy::System
-            },
-            ..octocode_io::http::ClientPolicy::default()
-        };
-        octocode_io::http::client(&policy).map_err(|_| transport_error())
+        octocode_io::http::client(&provider_policy(bypass_proxy)).map_err(|_| transport_error())
     })
+}
+
+/// The client policy of a classification provider: as a request may have no
+/// deadline, ended only by a provider that stops sending
+/// ([`octocode_io::http::ClientPolicy::without_deadline`]).
+fn provider_policy(bypass_proxy: bool) -> octocode_io::http::ClientPolicy {
+    octocode_io::http::ClientPolicy {
+        connect_timeout: Some(CONNECT_TIMEOUT),
+        user_agent: Some(concat!("octocode-native/", env!("CARGO_PKG_VERSION"))),
+        proxy: if bypass_proxy {
+            octocode_io::http::Proxy::Direct
+        } else {
+            octocode_io::http::Proxy::System
+        },
+        ..octocode_io::http::ClientPolicy::without_deadline()
+    }
 }
 
 /// Error returned by the classification transport layer. `code` is a stable

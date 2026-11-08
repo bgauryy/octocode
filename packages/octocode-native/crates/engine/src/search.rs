@@ -6,6 +6,7 @@ pub(crate) mod relevance;
 pub use relevance::is_declaration_keyword;
 pub mod repository;
 pub mod rust_ranges;
+pub mod span_sink;
 pub mod text_parser;
 pub mod text_pattern;
 pub mod text_search;

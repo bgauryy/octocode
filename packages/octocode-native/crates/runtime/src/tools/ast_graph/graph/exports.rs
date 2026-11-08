@@ -115,6 +115,7 @@ impl FileLink<'_, '_> {
             self_template: c.self_template,
             macros: c.macros,
             receiver_call: c.receiver_call,
+            receiver_declared: c.receiver_declared,
         });
     }
 
@@ -196,6 +197,7 @@ impl FileLink<'_, '_> {
                     scope_id: None,
                 },
                 declaration_id: binding.declaration_id,
+                scope: binding.scope,
             });
         }
     }

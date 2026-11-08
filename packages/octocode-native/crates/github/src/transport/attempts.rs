@@ -8,6 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use octocode_contract_types::ClientWaitKind;
 use octocode_io::budget::pause;
 
 use super::response::{authorize, parse_next, read_bounded, read_error_body};
@@ -41,6 +42,10 @@ pub(super) struct Attempts<'a> {
     group: Option<Group>,
     spec: RequestSpec,
     redirects: u8,
+    /// The rename routes this request's redirects followed, as (old
+    /// repository URL, its `/repositories/{id}` URL): the call's own, never
+    /// another call's on the same context.
+    followed: &'a mut Vec<(url::Url, url::Url)>,
     /// The operation's physical attempts so far (0-based index of the
     /// next send's predecessor), shared with any outer semantic retry.
     attempt: &'a mut u8,
@@ -53,6 +58,7 @@ impl<'a> Attempts<'a> {
         context: &'a RequestContext,
         failed: &'a mut Option<CircuitCause>,
         attempt: &'a mut u8,
+        followed: &'a mut Vec<(url::Url, url::Url)>,
     ) -> Self {
         let state = transport.key_state(context.resolved_credential());
         let config = transport.budget.config();
@@ -74,6 +80,7 @@ impl<'a> Attempts<'a> {
             group,
             spec,
             redirects: 0,
+            followed,
             attempt,
         }
     }
@@ -104,7 +111,11 @@ impl<'a> Attempts<'a> {
                 continue;
             }
             if status.is_success() {
-                let next = parse_next(&headers, &self.transport.endpoint)?;
+                let next = if self.spec.is_first_page_only() {
+                    None
+                } else {
+                    parse_next(&headers)?
+                };
                 let body = read_bounded(response, self.context).await?;
                 drop(admission);
                 self.state.record_success();
@@ -151,6 +162,7 @@ impl<'a> Attempts<'a> {
                 self.config,
                 wait_deadline,
                 &self.context.budget.cancellation,
+                &self.context.waits,
             )
             .await?;
         let admission = self
@@ -160,6 +172,7 @@ impl<'a> Attempts<'a> {
                 self.config,
                 wait_deadline,
                 &self.context.budget.cancellation,
+                &self.context.waits,
             )
             .await?;
         self.context.budget.credit_wait(queued.elapsed());
@@ -193,12 +206,17 @@ impl<'a> Attempts<'a> {
         let retry = &self.transport.retry;
         if *self.attempt + 1 < retry.max_attempts {
             let delay = retry.backoff().next_delay(u32::from(*self.attempt));
-            pause(
-                delay,
-                self.context.budget.effective_deadline(),
-                &self.context.budget.cancellation,
-            )
-            .await?;
+            self.context
+                .waits
+                .timed(
+                    ClientWaitKind::RetryAfter,
+                    pause(
+                        delay,
+                        self.context.budget.effective_deadline(),
+                        &self.context.budget.cancellation,
+                    ),
+                )
+                .await?;
             *self.attempt += 1;
             return Ok(());
         }
@@ -230,6 +248,10 @@ impl<'a> Attempts<'a> {
         {
             self.redirects += 1;
             self.context.record_rename(&self.spec.url, &location);
+            if let Some((old, new)) = super::route::rename_route(&self.spec.url, &location) {
+                self.context.record_route(old.clone(), new.clone());
+                self.followed.push((old, new));
+            }
             self.spec.url = location;
             return Ok(());
         }
@@ -267,12 +289,19 @@ impl<'a> Attempts<'a> {
         {
             return Err(error);
         }
-        pause(
-            backoff.sleep,
-            budget.effective_deadline(),
-            &budget.cancellation,
-        )
-        .await?;
+        // The delay before a retry: the `retry-after` GitHub sent, else the
+        // backoff. A rate limit sleeps none here; its admission waits.
+        self.context
+            .waits
+            .timed(
+                ClientWaitKind::RetryAfter,
+                pause(
+                    backoff.sleep,
+                    budget.effective_deadline(),
+                    &budget.cancellation,
+                ),
+            )
+            .await?;
         *self.attempt += 1;
         Ok(())
     }

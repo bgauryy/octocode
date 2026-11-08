@@ -15,6 +15,7 @@ Then run the rows you need, for example `clone rust tokio-rs/tokio facc6fc`. If 
 | typescript | microsoft/TypeScript | 4f5ddae2 | TypeScript (+ Go in the TS 7 port) |
 | tsx | excalidraw/excalidraw | f3d99c4 | TSX |
 | javascript | lodash/lodash | 2b5e6f7 | JavaScript |
+| nextjs | vercel/next.js | d155ba9e | JavaScript CommonJS (`scripts`) |
 | python | django/django | 4fab678 | Python |
 | go | prometheus/prometheus | ea95480 | Go |
 | rust | tokio-rs/tokio | facc6fc | Rust |

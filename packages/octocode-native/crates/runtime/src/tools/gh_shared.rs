@@ -28,7 +28,7 @@ pub(crate) use failed_read::{failure_scope, submodule_failure};
 pub use failure::GhFailure;
 pub(crate) use failure::{
     owner_listing, owner_not_found_message, provider_hint, provider_message, ref_recovery,
-    repository_not_found, repository_not_found_message, repository_recovery,
+    repository_failure, repository_not_found, repository_not_found_message, repository_recovery,
     repository_search_hint, search_failure, validation_message, with_ref_recovery,
 };
 #[cfg(test)]
@@ -41,8 +41,8 @@ pub(crate) use paths::{
     tree_recovery,
 };
 pub(crate) use rename::{
-    RenameCheck, Rerun, Rescope, canonical_query, canonical_repo, renamed_warning, rerun_renamed,
-    rescope_on_rename, search_may_be_renamed, with_repo,
+    CanonicalScope, RenameCheck, Rerun, Rescope, canonical_query, canonical_repo, canonical_scope,
+    renamed_warning, rerun_renamed, rescope_on_rename, search_may_be_renamed, with_repo,
 };
 pub(crate) use search::{
     SearchCompleteness, SearchWindow, add_next, apply_partial, path_check, reject_boolean_keywords,

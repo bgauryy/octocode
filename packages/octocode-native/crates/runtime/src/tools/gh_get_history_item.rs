@@ -94,6 +94,9 @@ pub struct HistoryItemRequest {
     /// File text at the pull request's head that widens `matchString` hunks
     /// past GitHub's diff context (read once per file and call).
     head_sources: Option<std::sync::Arc<patch::hunks::HeadSources>>,
+    /// The runtime's path policy, which decides the head files a widening may
+    /// read ([`Self::withholds_file`]); `None`: the default policy.
+    pub paths: Option<std::sync::Arc<crate::policy::path::PathPolicy>>,
     /// `query` as a wire row, serialized once: every continuation starts
     /// from it ([`pr_menu::base_public_query`]).
     public: Value,
@@ -112,7 +115,17 @@ impl HistoryItemRequest {
             query,
             auto_page_chars: None,
             head_sources: None,
+            paths: None,
         })
+    }
+    /// Whether the path policy withholds the text of the repository file
+    /// `path` from this row ([`crate::policy::path::PathPolicy::withholds_repository_file`]),
+    /// under the default policy when the runtime set none.
+    pub(crate) fn withholds_file(&self, path: &str) -> bool {
+        match &self.paths {
+            Some(paths) => paths.withholds_repository_file(path),
+            None => crate::policy::discovery::is_sensitive_repository_file(path),
+        }
     }
     /// The sections the row reads.
     pub(crate) fn sections(&self) -> Sections {
@@ -140,6 +153,7 @@ impl HistoryItemRequest {
         let mut pinned = Self::from_row(row).map_err(|error| validation(&error.to_string()))?;
         pinned.auto_page_chars = self.auto_page_chars;
         pinned.head_sources = self.head_sources.clone();
+        pinned.paths = self.paths.clone();
         Ok(pinned)
     }
 }
@@ -195,8 +209,17 @@ pub async fn execute(
                 // bare 404, and an unresolvable comparison ref with "No commit
                 // found for SHA" even for a tag or branch: name what was asked
                 // for, as refs.
-                ProviderErrorKind::NotFound => {
-                    error.message = not_found_message(query, error.reason).into_boxed_str();
+                ProviderErrorKind::NotFound if bare_not_found(&error, query) => {
+                    let proved = context.repository_resolves(
+                        gh_get_history_item_query::owner(query),
+                        gh_get_history_item_query::repo(query),
+                    ) || context
+                        .read_full_name(
+                            gh_get_history_item_query::owner(query),
+                            gh_get_history_item_query::repo(query),
+                        )
+                        .is_some();
+                    error.message = not_found_message(query, error.reason, proved).into_boxed_str();
                     if matches!(
                         gh_get_history_item_query::operation(query),
                         ItemOperation::Compare
@@ -268,9 +291,32 @@ pub(crate) async fn run(
     }
 }
 
+/// The clause a not-found item message ends with while the repository
+/// itself is unproven: a bare GitHub 404 cannot say which part is missing.
+pub(crate) const OR_REPOSITORY: &str = "or the repository is missing or private to this token";
+
+/// Whether `error` is the bare 404 of an item read, which
+/// [`not_found_message`] words: not a commit's missing ref or a number that
+/// names the other kind of item, whose messages already say what is missing.
+fn bare_not_found(error: &ProviderError, query: &HistoryItemRequest) -> bool {
+    error.kind == ProviderErrorKind::NotFound
+        && !matches!(
+            error.reason,
+            Some(ProviderErrorReason::PullRequestIsIssue | ProviderErrorReason::IssueIsPullRequest)
+        )
+        && !(error.reason == Some(ProviderErrorReason::RefNotFound)
+            && gh_get_history_item_query::operation(query) == ItemOperation::Commit)
+}
+
 /// The message of a not-found item read: the repository, number, or refs
 /// the query named (a bare GitHub 404 cannot tell which part is missing).
-fn not_found_message(query: &HistoryItemRequest, reason: Option<ProviderErrorReason>) -> String {
+/// `repository_proved`: GitHub answered a read of the repository, so only
+/// the item can be missing and the [`OR_REPOSITORY`] clause is left out.
+fn not_found_message(
+    query: &HistoryItemRequest,
+    reason: Option<ProviderErrorReason>,
+    repository_proved: bool,
+) -> String {
     let (owner, repo) = (
         gh_get_history_item_query::owner(query),
         gh_get_history_item_query::repo(query),
@@ -280,25 +326,29 @@ fn not_found_message(query: &HistoryItemRequest, reason: Option<ProviderErrorRea
             "Repository {owner}/{repo} not found, or private and not accessible to this token"
         );
     }
-    let or_repository = "or the repository is missing or private to this token";
-    match gh_get_history_item_query::operation(query) {
+    let item = match gh_get_history_item_query::operation(query) {
         ItemOperation::PullRequest => format!(
-            "Pull request #{} not found in {owner}/{repo}, {or_repository}",
+            "Pull request #{} not found in {owner}/{repo}",
             gh_get_history_item_query::number(query).unwrap_or_default()
         ),
         ItemOperation::Issue => format!(
-            "Issue #{} not found in {owner}/{repo}, {or_repository}",
+            "Issue #{} not found in {owner}/{repo}",
             gh_get_history_item_query::number(query).unwrap_or_default()
         ),
         ItemOperation::Commit => format!(
-            "Commit \"{}\" not found in {owner}/{repo}, {or_repository}",
+            "Commit \"{}\" not found in {owner}/{repo}",
             gh_get_history_item_query::reference(query).unwrap_or_default()
         ),
         ItemOperation::Compare => format!(
-            "Cannot compare {}...{} in {owner}/{repo}: a ref (branch, tag, or SHA) was not found, {or_repository}",
+            "Cannot compare {}...{} in {owner}/{repo}: a ref (branch, tag, or SHA) was not found",
             gh_get_history_item_query::base(query).unwrap_or_default(),
             gh_get_history_item_query::head(query).unwrap_or_default()
         ),
+    };
+    if repository_proved {
+        item
+    } else {
+        format!("{item}, {OR_REPOSITORY}")
     }
 }
 

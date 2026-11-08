@@ -30,7 +30,14 @@ async fn a_page_past_the_window_repairs_to_the_last_real_page() {
     )
     .expect("query");
     let context = default_context();
-    let Err(failure) = super::super::run(&provider, &query, Ok(&context), &Passthrough).await
+    let Err(failure) = super::super::run(
+        &provider,
+        &query,
+        Ok(&context),
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
     else {
         panic!("a page past the window is a failure");
     };
@@ -53,21 +60,40 @@ async fn the_code_search_window_ends_at_its_last_whole_page() {
         .expect("query")
     };
     let context = default_context();
-    let first = execute(&provider, &at(1), &context, &Passthrough)
-        .await
-        .expect("first page");
+    let first = execute(
+        &provider,
+        &at(1),
+        &context,
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("first page");
     assert_eq!(
         first.data["pagination"]["totalItems"], 1000,
         "{}",
         first.data
     );
     assert_eq!(first.data["pagination"]["totalPages"], 20, "{}", first.data);
-    let last = execute(&provider, &at(20), &context, &Passthrough)
-        .await
-        .expect("last page");
+    let last = execute(
+        &provider,
+        &at(20),
+        &context,
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("last page");
     assert!(last.data["next"]["nextPage"].is_null(), "{}", last.data);
     assert_eq!(last.data["terminalLimit"], true, "{}", last.data);
-    let Err(failure) = super::super::run(&provider, &at(21), Ok(&context), &Passthrough).await
+    let Err(failure) = super::super::run(
+        &provider,
+        &at(21),
+        Ok(&context),
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
     else {
         panic!("a page past the window is a failure");
     };
@@ -93,10 +119,23 @@ async fn a_multi_extension_window_is_each_searchs_own() {
         .expect("query")
     };
     let context = default_context();
-    execute(&provider, &at(58), &context, &Passthrough)
-        .await
-        .expect("the last page");
-    let Err(failure) = super::super::run(&provider, &at(59), Ok(&context), &Passthrough).await
+    execute(
+        &provider,
+        &at(58),
+        &context,
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("the last page");
+    let Err(failure) = super::super::run(
+        &provider,
+        &at(59),
+        Ok(&context),
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
     else {
         panic!("a page past the window is a failure");
     };
@@ -137,9 +176,15 @@ async fn a_match_count_pick_counts_every_file_without_lines() {
     }))
     .expect("query");
     let context = default_context();
-    let out = execute(&provider, &query, &context, &Passthrough)
-        .await
-        .expect("search");
+    let out = execute(
+        &provider,
+        &query,
+        &context,
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("search");
     let files = &out.data["files"];
     assert_eq!(files[0]["path"], "src/busy.rs", "{}", out.data);
     assert_eq!(files[0]["matchCount"], 8, "{}", out.data);
@@ -235,9 +280,15 @@ async fn a_multi_extension_walk_skips_exhausted_searches_and_fills_its_pages() {
             "extensions":["ts","rs"],"page":page
         }))
         .expect("query");
-        let out = execute(&provider, &query, &default_context(), &Passthrough)
-            .await
-            .expect("page");
+        let out = execute(
+            &provider,
+            &query,
+            &default_context(),
+            &Passthrough,
+            &crate::policy::discovery::is_sensitive_repository_file,
+        )
+        .await
+        .expect("page");
         assert_eq!(out.data["pagination"]["totalPages"], 3, "{}", out.data);
         let paths = paths_of(&out);
         sizes.push(paths.len());

@@ -154,6 +154,35 @@ fn an_exported_import_binding_forwards_to_its_declaration() {
     assert_eq!(caller_edges(root, "app/helper.ts#helper"), []);
 }
 
+/// A CommonJS barrel `module.exports = require('./impl')` forwards every
+/// export of the implementation: callers through it, by destructured name or
+/// by namespace, resolve to the declaration, never to a same-named decoy.
+#[test]
+fn a_whole_export_of_a_require_forwards_to_the_implementation() {
+    let temp = fixture(&[
+        (
+            "lib/impl.js",
+            "exports.work = function work() {};\nexports.other = function other() {};\n",
+        ),
+        ("lib/index.js", "module.exports = require('./impl');\n"),
+        (
+            "app/use.js",
+            "const { work } = require('../lib');\nconst lib = require('../lib');\nfunction run() { work(); lib.other(); }\n",
+        ),
+        ("app/decoy.js", "exports.work = function work() {};\n"),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(
+        caller_edges(root, "lib/impl.js#work"),
+        [edge("app/use.js#run", "import", "high")]
+    );
+    assert_eq!(
+        caller_edges(root, "lib/impl.js#other"),
+        [edge("app/use.js#run", "namespace", "high")]
+    );
+    assert_eq!(caller_edges(root, "app/decoy.js#work"), []);
+}
+
 /// A variable holding a module is no call target, yet its name stays
 /// occupied: it never leaves a same-named declaration elsewhere unique.
 #[test]
@@ -193,6 +222,160 @@ fn a_react_wrapped_default_export_links_its_component() {
         caller_edges(root, "src/Checkbox.tsx#Checkbox"),
         [edge("src/Panel.tsx#Panel", "renders:import", "high")]
     );
+}
+
+const UTIL: &str =
+    "function k(s) { return s; }\nfunction j(s) { return s; }\nmodule.exports = { k, j };\n";
+
+/// A `require` inside a function binds its name for that scope only: calls
+/// inside it link at medium confidence (a lazy load runs only when the scope
+/// does), and a same-named call elsewhere stays unlinked.
+#[test]
+fn a_function_scope_require_links_calls_in_its_scope_only() {
+    let temp = fixture(&[
+        ("lib/util.js", UTIL),
+        (
+            "a.js",
+            "function f(x) { const m = require('./lib/util'); return m.k(x); }\nfunction g(x) { const { j } = require('./lib/util'); return j(x); }\nfunction h(x) { return m.k(x) + j(x); }\nmodule.exports = { f, g, h };\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(
+        caller_edges(root, "lib/util.js#k"),
+        [edge("a.js#f", "namespace", "medium")]
+    );
+    assert_eq!(
+        caller_edges(root, "lib/util.js#j"),
+        [edge("a.js#g", "import", "medium")]
+    );
+}
+
+/// A scope binding reaches only calls inside the scope node: a module-level
+/// callback's `require` does not bind the module's own calls, and a name
+/// declared again in a nested scope proves nothing.
+#[test]
+fn a_scope_require_binds_nothing_outside_its_scope_or_under_a_shadow() {
+    let temp = fixture(&[
+        ("lib/util.js", UTIL),
+        (
+            "a.js",
+            "run(() => { const m = require('./lib/util'); m.j(1); });\nm.k(2);\nfunction f(o) { const m = require('./lib/util'); function inner() { const m = o; return m.k(3); } return m.k(4) + inner(); }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(
+        caller_edges(root, "lib/util.js#j"),
+        [edge("a.js", "namespace", "medium")]
+    );
+    assert_eq!(caller_edges(root, "lib/util.js#k"), []);
+}
+
+/// An inline load binds its own receiver only: a call nested in its
+/// arguments is governed by its own receiver, so a dynamic `require(p).k`
+/// there links nothing and a literal one links to its own module.
+#[test]
+fn an_inline_require_binds_its_own_receiver_not_nested_calls() {
+    let temp = fixture(&[
+        ("lib/a.js", UTIL),
+        (
+            "lib/b.js",
+            "function k(s) { return s; }\nmodule.exports = { k };\n",
+        ),
+        (
+            "dyn.js",
+            "function f(p) { return require('./lib/a').k(require(p).j(22)); }\nmodule.exports = { f };\n",
+        ),
+        (
+            "lit.js",
+            "function g() { return require('./lib/a').j(require('./lib/b').k()); }\nmodule.exports = { g };\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(
+        caller_edges(root, "lib/a.js#k"),
+        [edge("dyn.js#f", "namespace", "medium")]
+    );
+    assert_eq!(
+        caller_edges(root, "lib/a.js#j"),
+        [edge("lit.js#g", "namespace", "medium")]
+    );
+    assert_eq!(
+        caller_edges(root, "lib/b.js#k"),
+        [edge("lit.js#g", "namespace", "medium")]
+    );
+}
+
+/// `require('./m').k()` calls the module's export `k` where it is written.
+#[test]
+fn an_inline_require_member_call_links_to_the_export() {
+    let temp = fixture(&[
+        ("lib/util.js", UTIL),
+        (
+            "a.js",
+            "function f(x) { return require('./lib/util').k(x); }\nconst v = require('./lib/util').j(1);\nfunction g(x) { return require('./lib/util').inner(x); }\nmodule.exports = { f, g, v };\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(
+        caller_edges(root, "lib/util.js#k"),
+        [edge("a.js#f", "namespace", "medium")]
+    );
+    assert_eq!(
+        caller_edges(root, "lib/util.js#j"),
+        [edge("a.js#v", "namespace", "medium")]
+    );
+}
+
+/// A specifier built at runtime is disclosed as `non-literal-specifier`,
+/// whatever scope loads it, and binds no calls.
+#[test]
+fn a_dynamic_specifier_is_disclosed_and_binds_nothing() {
+    let temp = fixture(&[
+        ("lib/util.js", UTIL),
+        (
+            "a.js",
+            "function f(p) {\n  const m = require(p);\n  return m.k(1) + require('./lib/' + p).j(2);\n}\nmodule.exports = f;\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(caller_edges(root, "lib/util.js#k"), []);
+    assert_eq!(caller_edges(root, "lib/util.js#j"), []);
+    let out = ask(root, "diagnostics", Some("unsupported-linking"));
+    let lines = out["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|row| {
+            row["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("(non-literal-specifier)"))
+        })
+        .count();
+    assert_eq!(lines, 2, "{out}");
+}
+
+/// Node gives an ESM importer each name a CommonJS module assigns as
+/// `exports.k`: a named import of that key reaches its declaration.
+#[test]
+fn an_esm_named_import_of_a_commonjs_key_reaches_its_declaration() {
+    let temp = fixture(&[
+        (
+            "lib/a.js",
+            "exports.pad = function (s) { return s; };\nfunction trim(s) { return s; }\nmodule.exports.trim = trim;\n",
+        ),
+        (
+            "b.mjs",
+            "import { pad, trim } from './lib/a.js';\nexport function run(x) { pad(x); trim(x); }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    for target in ["lib/a.js#pad", "lib/a.js#trim"] {
+        assert_eq!(
+            caller_edges(root, target),
+            [edge("b.mjs#run", "import", "high")],
+            "{target}"
+        );
+    }
 }
 
 /// CommonJS modules commonly define exports in place: a function, arrow or

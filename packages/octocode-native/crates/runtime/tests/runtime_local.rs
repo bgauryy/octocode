@@ -2,6 +2,7 @@ mod classified_pages;
 mod local_fetch;
 mod local_search;
 mod lsp_ast;
+mod match_key_walks;
 mod paths;
 mod real_limits;
 mod sandbox;

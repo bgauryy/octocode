@@ -70,20 +70,43 @@ pub(in super::super) fn flag_partial(
         // Partial only with an executable recovery.
         Some(name) => {
             crate::response::paging::mark_partial(row, reason, &warnings);
-            if let Some(lead) =
-                text_search_lead(name, &scope.root, &scope.include, lead_files.as_deref())
-            {
+            let leads = text_leads(name, scope, lead_files.as_deref());
+            if !leads.is_empty() {
                 // One text check per row: this one names the files left.
                 if let Some(related) = row.get_mut("related").and_then(Value::as_array_mut) {
                     related.retain(|call| call["tool"] != "localSearch");
                 }
-                crate::response::result::attach_related(row, lead.build());
+                for lead in leads {
+                    crate::response::result::attach_related(row, lead.build());
+                }
             }
         }
         // A position anchor has no name to search for: coverage reason and
         // warning only.
         None => crate::response::paging::push_warnings(row, warnings),
     }
+}
+
+/// The text check a flagged row leads to. Over an unbounded scope the root was
+/// the scan's own, so the check searches the projects beside it, five per call
+/// (every one reachable); otherwise it names `files`, or searches the root.
+fn text_leads(
+    name: &str,
+    scope: &super::super::scope::Scope,
+    files: Option<&[String]>,
+) -> Vec<crate::response::result::Continuation> {
+    if scope.unbounded && !scope.siblings().is_empty() {
+        // Each sibling is a directory: the family's globs keep the search to
+        // the files the anchor's language spells the name in.
+        return scope
+            .siblings()
+            .chunks(LISTED_TEXT_FILES)
+            .filter_map(|chunk| listed_search_lead(name, chunk, &scope.include))
+            .collect();
+    }
+    text_search_lead(name, &scope.root, &scope.include, files)
+        .into_iter()
+        .collect()
 }
 
 /// Flag a `references` or `callers` row whose server left out code sites
@@ -257,6 +280,28 @@ pub(super) fn text_search_row(name: &str, path: &str) -> Option<Value> {
     ))
 }
 
+/// One lead of a search row per path, each limited to the `include` globs.
+fn listed_search_lead(
+    name: &str,
+    paths: &[String],
+    include: &[String],
+) -> Option<crate::response::result::Continuation> {
+    let rows = paths
+        .iter()
+        .map(|path| {
+            let search = LocalSearchQueryContent {
+                include: include.to_vec(),
+                ..text_search_query(name, path)?
+            };
+            Some(crate::response::result::query_row(&search, &[]))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some(crate::response::result::Continuation::related_input(
+        ToolId::LocalSearch,
+        json!({ "queries": rows }),
+    ))
+}
+
 /// The one lexical lead every lspSearch row builds: one row per listed file
 /// when there are a few, otherwise `root` with the language family's globs.
 /// Paths are the caller's (workspace-relative as the response names them).
@@ -271,14 +316,7 @@ pub(in super::super) fn text_search_lead(
     files: Option<&[String]>,
 ) -> Option<crate::response::result::Continuation> {
     if let Some(files) = files.filter(|files| (1..=LISTED_TEXT_FILES).contains(&files.len())) {
-        let rows = files
-            .iter()
-            .map(|file| text_search_row(name, file))
-            .collect::<Option<Vec<_>>>()?;
-        return Some(crate::response::result::Continuation::related_input(
-            ToolId::LocalSearch,
-            json!({ "queries": rows }),
-        ));
+        return listed_search_lead(name, files, &[]);
     }
     let search = LocalSearchQueryContent {
         include: include.to_vec(),

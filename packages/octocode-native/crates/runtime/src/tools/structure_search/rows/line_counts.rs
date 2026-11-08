@@ -192,7 +192,7 @@ fn line_count(
 ) -> Result<Option<Lines>, ToolError> {
     use std::io::Read;
     #[cfg(test)]
-    LINE_COUNT_READS.with(|reads| reads.set(reads.get() + 1));
+    record_line_count_read(path);
     cancel.check().map_err(ToolError::cancelled)?;
     // Revalidate immediately before reading: discovery authorization is not
     // permission to follow a changed link or open a special file: a link to
@@ -250,14 +250,33 @@ fn line_count(
     }
 }
 
+/// Every file a line count read, by canonical path, so a test counts the
+/// reads under its own fixture whichever thread ran them: a count runs on
+/// worker threads or inline on the caller ([`crate::tools::workers`]), as
+/// the process CPU share of the moment decides.
 #[cfg(test)]
-thread_local! {
-    static LINE_COUNT_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
+static LINE_COUNT_READS: std::sync::Mutex<Vec<std::path::PathBuf>> =
+    std::sync::Mutex::new(Vec::new());
 
 #[cfg(test)]
-pub(crate) fn line_count_reads() -> usize {
-    LINE_COUNT_READS.with(std::cell::Cell::get)
+fn record_line_count_read(path: &std::path::Path) {
+    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    LINE_COUNT_READS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(path);
+}
+
+/// The line-count reads so far of files under `root`.
+#[cfg(test)]
+pub(crate) fn line_count_reads(root: &std::path::Path) -> usize {
+    let root = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    LINE_COUNT_READS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .filter(|path| path.starts_with(&root))
+        .count()
 }
 
 #[cfg(test)]

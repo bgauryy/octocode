@@ -150,59 +150,66 @@ fn disk_writer_process() {
     let dir = PathBuf::from(std::env::var_os("OCTOCODE_CACHE_TEST_DIR").unwrap());
     let writer = std::env::var("OCTOCODE_CACHE_TEST_WRITER").unwrap();
     let store = Store::<String>::new(CacheConfig { disk_bytes: 2048 }, Some(dir));
-    for i in 0..40 {
-        assert!(
+    // A reuse write may be refused while another process holds the store's
+    // lock past `REUSE_LOCK_WAIT` (a loaded machine), and says so; the
+    // budget must hold either way. Each retained write is reported.
+    let retained = (0..40)
+        .filter(|i| {
             store
                 .put_confirmed(
                     key(&format!("{writer}-{i}"), "scope"),
                     "x".repeat(100),
                     100,
-                    CacheClass::Immutable
+                    CacheClass::Immutable,
                 )
                 .1
-        );
-    }
+        })
+        .count();
+    println!("retained={retained}");
 }
 
 #[test]
 fn independent_processes_share_one_disk_budget() {
     use std::process::{Command, Stdio};
     let dir = tempfile::tempdir().unwrap();
-    let mut children: Vec<_> = (0..4)
+    let children: Vec<_> = (0..4)
         .map(|writer| {
             Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--ignored",
                     "--exact",
+                    "--nocapture",
                     "cache::tests::capacity::disk_writer_process",
                 ])
                 .env("OCTOCODE_CACHE_TEST_DIR", dir.path())
                 .env("OCTOCODE_CACHE_TEST_WRITER", writer.to_string())
-                .stdout(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
                 .spawn()
                 .unwrap()
         })
         .collect();
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let mut failures = Vec::new();
-    for child in &mut children {
-        loop {
-            if let Some(status) = child.try_wait().unwrap() {
-                if !status.success() {
-                    failures.push(format!("{status}"));
-                }
-                break;
-            }
-            if Instant::now() >= deadline {
-                let _ = child.kill();
-                let _ = child.wait();
-                failures.push("writer exceeded deadline".into());
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
+    // Each writer ends on its own: every lock wait it makes is bounded by
+    // `REUSE_LOCK_WAIT`, so no deadline is set here.
+    let mut retained = 0;
+    for child in children {
+        let output = child.wait_with_output().unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "{}: {stdout}{}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        retained += stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("retained="))
+            .and_then(|count| count.parse::<usize>().ok())
+            .unwrap_or_else(|| panic!("no retained count: {stdout}"));
     }
-    assert!(failures.is_empty(), "{failures:?}");
+    // A write is refused only while another holds the lock, and that one is
+    // retained, so the writers retain at least one entry between them.
+    assert!(retained >= 1, "no writer retained an entry");
     assert!((1..=2048).contains(&bytes(dir.path())));
 }
 

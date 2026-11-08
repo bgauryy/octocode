@@ -11,22 +11,17 @@ pub(super) fn git_permit(
     repository_url: &str,
     token: Option<&str>,
 ) -> Result<tokio::sync::OwnedSemaphorePermit, CloneError> {
-    use octocode_github::{GitHubBudget, LimiterKey};
+    use octocode_github::LimiterKey;
     let Ok(url) = url::Url::parse(repository_url) else {
         return Err(CloneError::new(
             ErrorCode::InvalidInput,
             "Repository URL could not be parsed",
         ));
     };
-    let budget = GitHubBudget::global();
-    let state_dir = context
-        .config
-        .persistent
-        .then(|| context.config.home.join("tmp").join("ratelimit"));
-    budget
-        .acquire_git_blocking(
+    context
+        .git_limiter
+        .acquire_blocking(
             &LimiterKey::for_url(&url, token),
-            state_dir.as_deref(),
             GIT_COOLDOWN_CAP,
             context.deadline,
             &|| context.cancellation.check().is_err(),

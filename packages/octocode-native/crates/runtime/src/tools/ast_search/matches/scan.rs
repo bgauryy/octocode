@@ -12,7 +12,6 @@ use crate::policy::prune;
 use crate::response::result::ToolError;
 use crate::tools::ast_rule::has_extension_in;
 use crate::tools::test_code::Scoped;
-use octocode_contract_types::ErrorCode;
 use octocode_engine::structural::{
     FileMatches, StructuralDetailedMatch, StructuralDiagnostic, StructuralSearchFilesOptions,
 };
@@ -34,21 +33,14 @@ pub(super) fn scan_file(
         octocode_engine::text::analysis::AnalysisOperation::StructuralSearch,
     )?;
     let Some(bytes) = super::super::source::read_parse_source(canonical)? else {
-        let mut error = ToolError::new(
-            ErrorCode::FileTooLarge,
-            "Source exceeds the byte limit of a whole read.",
-        );
-        if let Some(lead) = q
-            .pattern_text()
-            .as_deref()
-            .and_then(super::super::source::pattern_literal)
-            .and_then(|literal| {
-                super::super::source::text_search(&canonical.to_string_lossy(), literal)
-            })
-        {
-            error.calls = Some(Box::new(serde_json::json!({ "findText": lead })));
-        }
-        return Err(error);
+        let pattern = q.pattern_text();
+        return Err(super::super::source::too_large_error(
+            canonical,
+            &canonical.to_string_lossy(),
+            pattern
+                .as_deref()
+                .and_then(super::super::source::pattern_literal),
+        ));
     };
     // Parse the file as the directory scan does: admitted by the one text
     // rule, raw. Output strings are redacted by the response stage.

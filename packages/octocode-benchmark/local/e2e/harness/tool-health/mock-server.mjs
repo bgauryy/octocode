@@ -26,6 +26,18 @@ const RATE_LIMIT_RESOURCES = {
 /** The rate-limit resource a (normalized) path draws from. */
 const resourceOf = p => (p === '/search/code' ? 'code_search' : p.startsWith('/search/') ? 'search' : /^\/(?:api\/)?graphql$/.test(p) ? 'graphql' : 'core');
 
+/** A git smart-HTTP path: `<owner>/<repo>.git`, below it too. */
+export const GIT_PATH = /^\/[^/]+\/[^/]+\.git(?:\/|$)/;
+
+/** The credential a request carries: a token or bearer, or git's Basic password; null without one. */
+const credentialOf = req => {
+  const [scheme, value] = (req.headers.authorization ?? '').split(/\s+/, 2);
+  if (/^(?:token|bearer)$/i.test(scheme) && value) return value;
+  if (!/^basic$/i.test(scheme) || !value) return null;
+  const pair = Buffer.from(value, 'base64').toString('utf8');
+  return pair.includes(':') ? pair.slice(pair.indexOf(':') + 1) : null;
+};
+
 /**
  * Quota per credential and resource, as GitHub meters it: a request counts in
  * the window it opens, and its answer reports the quota left and the window's
@@ -71,7 +83,7 @@ export async function startMock({ fixtureDir, tmpDir, token, configureModel, cla
   const unhandledFrom = [];
   const miss = (req, what) => {
     unhandled.push(what);
-    unhandledFrom.push({ request: what, token: /^(?:token|bearer)\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? null });
+    unhandledFrom.push({ request: what, token: credentialOf(req) });
   };
   // A shared credential over a whole matrix run must not wait out a quota window it only reports.
   const meter = unmetered ? () => ({}) : rateLimiter();
@@ -81,8 +93,8 @@ export async function startMock({ fixtureDir, tmpDir, token, configureModel, cla
   const handle = async (req, res, raw) => {
     const url = new URL(req.url, base);
     requests.push(`${req.method} ${url.pathname}${url.search}`);
-    requestsFrom.push({ request: requests.at(-1), token: /^(?:token|bearer)\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? null });
-    if (git.root && /^\/[^/]+\/[^/]+\.git(\/|$)/.test(url.pathname)) { serveGit({ req, url, raw }, res, git); return; }
+    requestsFrom.push({ request: requests.at(-1), token: credentialOf(req) });
+    if (git.root && GIT_PATH.test(url.pathname)) { serveGit({ req, url, raw }, res, git); return; }
     const p = (decodeURIComponent(url.pathname).replace(/\/+$/, '') || '/').replace(/^\/api\/v3(?=\/|$)/, '') || '/';
     const send = sender(res, meter(resourceOf(p), requestsFrom.at(-1).token));
     try {

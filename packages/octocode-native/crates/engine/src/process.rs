@@ -23,6 +23,8 @@ mod teardown;
 
 #[cfg(any(test, unix))]
 pub(crate) use identity::Process;
+#[cfg(unix)]
+pub use identity::parent_pid;
 pub use job::Job;
 #[cfg(any(target_os = "macos", target_os = "linux", windows))]
 pub(crate) use metrics::TreeCpuClock;

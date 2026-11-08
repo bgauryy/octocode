@@ -8,7 +8,7 @@ async fn blocked_start_does_not_block_another_key_and_cancelled_waiter_keeps_own
     let owner = tokio::spawn({
         let pool = Arc::clone(&pool);
         async move {
-            pool.acquire("a".into(), || async {
+            pool.acquire("a".into(), "a".into(), || async {
                 entered.send(()).unwrap();
                 wait.await.unwrap();
                 Ok(Some(FakeClient::new(1)))
@@ -20,7 +20,7 @@ async fn blocked_start_does_not_block_another_key_and_cancelled_waiter_keeps_own
     let waiter = tokio::spawn({
         let pool = Arc::clone(&pool);
         async move {
-            pool.acquire("a".into(), || async {
+            pool.acquire("a".into(), "a".into(), || async {
                 panic!("the existing start must be shared")
             })
             .await
@@ -28,7 +28,9 @@ async fn blocked_start_does_not_block_another_key_and_cancelled_waiter_keeps_own
     });
     tokio::task::yield_now().await;
     let independent = pool
-        .acquire("b".into(), || async { Ok(Some(FakeClient::new(2))) })
+        .acquire("b".into(), "b".into(), || async {
+            Ok(Some(FakeClient::new(2)))
+        })
         .await
         .unwrap()
         .unwrap();
@@ -39,7 +41,7 @@ async fn blocked_start_does_not_block_another_key_and_cancelled_waiter_keeps_own
     release.send(()).unwrap();
     assert_eq!(owner.await.unwrap().unwrap().unwrap().id, 1);
     let reused = pool
-        .acquire("a".into(), || async {
+        .acquire("a".into(), "a".into(), || async {
             panic!("must reuse the surviving owner")
         })
         .await
@@ -59,7 +61,7 @@ async fn concurrent_starts_are_deduplicated() {
         let starts = Arc::clone(&starts);
         let gate = Arc::clone(&gate);
         tokio::spawn(async move {
-            pool.acquire("k".into(), || async move {
+            pool.acquire("k".into(), "k".into(), || async move {
                 starts.fetch_add(1, Ordering::SeqCst);
                 if let Some(receiver) = gate.lock().await.take() {
                     let _ = receiver.await;
@@ -73,8 +75,10 @@ async fn concurrent_starts_are_deduplicated() {
     let second = {
         let pool = Arc::clone(&pool);
         tokio::spawn(async move {
-            pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
-                .await
+            pool.acquire("k".into(), "k".into(), || async {
+                Ok(Some(FakeClient::new(2)))
+            })
+            .await
         })
     };
     let _ = send.send(());
@@ -99,7 +103,9 @@ async fn concurrent_starts_are_deduplicated() {
 async fn entry_removed_during_validate_restarts_instead_of_hanging() {
     let pool = Arc::new(pool(4, 60_000));
     let client = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(1)))
+        })
         .await
         .expect("install")
         .expect("client");
@@ -108,8 +114,10 @@ async fn entry_removed_during_validate_restarts_instead_of_hanging() {
     let validating = {
         let pool = Arc::clone(&pool);
         tokio::spawn(async move {
-            pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
-                .await
+            pool.acquire("k".into(), "k".into(), || async {
+                Ok(Some(FakeClient::new(2)))
+            })
+            .await
         })
     };
     tokio::time::timeout(Duration::from_secs(1), async {
@@ -135,7 +143,9 @@ async fn entry_removed_during_validate_restarts_instead_of_hanging() {
     assert_eq!(restarted.id, 2);
     let later = tokio::time::timeout(
         Duration::from_secs(1),
-        pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(3))) }),
+        pool.acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(3)))
+        }),
     )
     .await
     .expect("later acquires must not hang")
@@ -175,7 +185,7 @@ async fn concurrent_health_checks_are_deduplicated_and_dead_clients_retry() {
     let pool = Arc::new(pool(4, 60_000));
     let old = FakeClient::new(1);
     let installed = pool
-        .acquire("k".into(), || async { Ok(Some(old.clone())) })
+        .acquire("k".into(), "k".into(), || async { Ok(Some(old.clone())) })
         .await
         .expect("install")
         .expect("client");
@@ -185,7 +195,7 @@ async fn concurrent_health_checks_are_deduplicated_and_dead_clients_retry() {
         let pool = Arc::clone(&pool);
         let starts = Arc::clone(&starts);
         tokio::spawn(async move {
-            pool.acquire("k".into(), || async move {
+            pool.acquire("k".into(), "k".into(), || async move {
                 starts.fetch_add(1, Ordering::SeqCst);
                 Ok(Some(FakeClient::new(2)))
             })
@@ -195,8 +205,10 @@ async fn concurrent_health_checks_are_deduplicated_and_dead_clients_retry() {
     let second = {
         let pool = Arc::clone(&pool);
         tokio::spawn(async move {
-            pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(3))) })
-                .await
+            pool.acquire("k".into(), "k".into(), || async {
+                Ok(Some(FakeClient::new(3)))
+            })
+            .await
         })
     };
     let a = first
@@ -226,14 +238,14 @@ async fn repeated_start_failures_back_off_exponentially_and_reset_on_success() {
     };
 
     let first = pool
-        .acquire("k".into(), failing(Arc::clone(&starts)))
+        .acquire("k".into(), "k".into(), failing(Arc::clone(&starts)))
         .await
         .expect_err("first failure");
     assert_eq!(starts.load(Ordering::SeqCst), 1);
 
     // Inside the 250ms window: fail fast with the same error, no start.
     let fast = pool
-        .acquire("k".into(), failing(Arc::clone(&starts)))
+        .acquire("k".into(), "k".into(), failing(Arc::clone(&starts)))
         .await
         .expect_err("backing off");
     assert!(Arc::ptr_eq(&first, &fast));
@@ -241,7 +253,7 @@ async fn repeated_start_failures_back_off_exponentially_and_reset_on_success() {
 
     tokio::time::advance(Duration::from_millis(251)).await;
     let _ = pool
-        .acquire("k".into(), failing(Arc::clone(&starts)))
+        .acquire("k".into(), "k".into(), failing(Arc::clone(&starts)))
         .await
         .expect_err("second failure");
     assert_eq!(starts.load(Ordering::SeqCst), 2);
@@ -249,14 +261,16 @@ async fn repeated_start_failures_back_off_exponentially_and_reset_on_success() {
     // Second failure doubles the window to 500ms.
     tokio::time::advance(Duration::from_millis(300)).await;
     let _ = pool
-        .acquire("k".into(), failing(Arc::clone(&starts)))
+        .acquire("k".into(), "k".into(), failing(Arc::clone(&starts)))
         .await
         .expect_err("still backing off");
     assert_eq!(starts.load(Ordering::SeqCst), 2);
 
     tokio::time::advance(Duration::from_millis(201)).await;
     let client = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(1)))
+        })
         .await
         .expect("recovered")
         .expect("client");
@@ -265,13 +279,13 @@ async fn repeated_start_failures_back_off_exponentially_and_reset_on_success() {
     // Success resets the backoff: the next failure waits only 250ms.
     assert!(pool.clear("k").await);
     let _ = pool
-        .acquire("k".into(), failing(Arc::clone(&starts)))
+        .acquire("k".into(), "k".into(), failing(Arc::clone(&starts)))
         .await
         .expect_err("failure after reset");
     assert_eq!(starts.load(Ordering::SeqCst), 3);
     tokio::time::advance(Duration::from_millis(251)).await;
     let _ = pool
-        .acquire("k".into(), failing(Arc::clone(&starts)))
+        .acquire("k".into(), "k".into(), failing(Arc::clone(&starts)))
         .await
         .expect_err("retried after base window");
     assert_eq!(starts.load(Ordering::SeqCst), 4);
@@ -290,7 +304,7 @@ fn restart_backoff_is_exponential_and_capped() {
 async fn start_errors_keep_their_status_through_the_pool() {
     let pool = pool(4, 60_000);
     let error = pool
-        .acquire("k".into(), || async {
+        .acquire("k".into(), "k".into(), || async {
             Err(shared_error("bad server config"))
         })
         .await

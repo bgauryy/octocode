@@ -222,6 +222,34 @@ fn a_chain_of_candidate_pages_judges_every_chunk_once() {
     );
 }
 
+/// A candidate page replays the read of the source version its query pins:
+/// the page keeps that snapshot and drops only private progress.
+#[test]
+fn a_candidate_page_keeps_the_snapshot_its_query_pins() {
+    let words = ["keep", "drop", "maybe", "keep", "drop", "keep"];
+    let text = word_lines(&words);
+    let query = json!({"path":"source.txt",
+        "classification":{"predicates":["Is it kept?"]}});
+    let first = budgeted_read(&text, &query, 3);
+    let pinned = first
+        .source_sha256
+        .clone()
+        .expect("captured source identity");
+    let mut pinned_query = query.clone();
+    pinned_query["snapshot"] = json!(pinned);
+    let result = budgeted_read(&text, &pinned_query, 3);
+    assert_eq!(result.error_code, None, "{result:?}");
+    let page = result
+        .next
+        .expect("leads")
+        .next_candidate_page
+        .expect("a page past the budget");
+    assert_eq!(
+        local_fetch_query::snapshot(&page.query),
+        Some(pinned.as_str())
+    );
+}
+
 /// Unknown chunks past one row's `ranges` are not dropped:
 /// `unfilteredUnknown` reads the first ranges and `unfilteredUnknown2`,
 /// … read the rest.

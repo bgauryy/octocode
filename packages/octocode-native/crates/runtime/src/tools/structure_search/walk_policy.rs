@@ -160,7 +160,7 @@ impl<'a> WalkLeft<'a> {
             self.pruned
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push((position, relative.to_string_lossy().replace('\\', "/")));
+                .push((position, octocode_engine::text::slash_path(relative)));
         }
         pruned
     }

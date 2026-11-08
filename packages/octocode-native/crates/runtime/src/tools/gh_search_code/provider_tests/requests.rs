@@ -26,8 +26,20 @@ async fn identical_concurrent_searches_send_independent_requests() {
     .expect("query");
     let context = default_context();
     let (first, second) = futures_util::future::join(
-        execute(&provider, &query, &context, &Passthrough),
-        execute(&provider, &query, &context, &Passthrough),
+        execute(
+            &provider,
+            &query,
+            &context,
+            &Passthrough,
+            &crate::policy::discovery::is_sensitive_repository_file,
+        ),
+        execute(
+            &provider,
+            &query,
+            &context,
+            &Passthrough,
+            &crate::policy::discovery::is_sensitive_repository_file,
+        ),
     )
     .await;
     assert_eq!(

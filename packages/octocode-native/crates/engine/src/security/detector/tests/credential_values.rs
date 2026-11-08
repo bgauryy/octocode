@@ -2,9 +2,15 @@
 
 use super::*;
 
+mod code_forms;
+mod config_entries;
 mod dotenv_files;
+mod dotenv_shapes;
 mod locators;
 mod phrases;
+mod properties_files;
+mod readable_code;
+mod short_literals;
 
 /// A hex value is no proof of a git object id: tokens of that shape (classic
 /// GitHub PATs, CircleCI, Sentry) under a credential-named key stay redacted,
@@ -120,7 +126,6 @@ fn credential_assignments_skip_references_and_plain_keys() {
         "  - key: node-role.kubernetes.io/control-plane\n",
         "  secretName: my-ingress-tls-secret\n",
         "const tokenType = \"Bearer\";\n",
-        "  password: short\n",
     ] {
         assert_eq!(detect(content, None).sanitized, content);
     }
@@ -143,6 +148,11 @@ fn credential_assignments_keep_code_statement_references() {
             Some("a.ts"),
         ),
         ("api_key = default_api_key;\n", None),
+        // Minified code: more statements follow on the line.
+        ("x.password=t.password;username=u\n", Some("dist/app.js")),
+        ("x.password=t.password;username=u\n", Some("README.md")),
+        ("x.password=t.password;username=u\n", None),
+        ("cfg.apiToken=opts.apiToken;cfg.retries=3\n", Some("a.ts")),
     ] {
         let result = detect(content, path);
         assert_eq!(result.sanitized, content, "{path:?}");
@@ -159,13 +169,22 @@ fn credential_assignments_keep_code_statement_references() {
         ),
         ("PASSWORD=correct.horse.battery.staple\n".to_owned(), None),
         ("API_TOKEN=abcdefghijklmnopqrst;\n".to_owned(), Some(".env")),
+        ("DB_PASSWORD=Xk9vQ2;pQ2=zz7Lm4\n".to_owned(), Some(".env")),
+        (
+            "db.password=Xk9vQ2;pQ2=zz7Lm4\n".to_owned(),
+            Some("app.properties"),
+        ),
     ] {
         let result = detect(&content, path);
+        // A settings file's own rule runs first and takes its credentials.
+        let rule =
+            if path.is_some_and(|path| path.ends_with(".properties") || path.ends_with(".ini")) {
+                "propertiesFileCredential"
+            } else {
+                "dotenvSecretAssignment"
+            };
         assert!(
-            result
-                .secrets_detected
-                .iter()
-                .any(|name| name == "dotenvSecretAssignment"),
+            result.secrets_detected.iter().any(|name| name == rule),
             "not redacted: {content:?} -> {:?}",
             result.sanitized
         );
@@ -214,6 +233,56 @@ fn credential_assignments_keep_identifier_values() {
         // This case proves redaction, not precedence between overlapping rules.
         assert!(!result.secrets_detected.is_empty(), "{content:?}");
     }
+}
+
+/// A dotted path of names under a `key`, `token` or `credential` name names a
+/// key, a member or a message (`matchKeys` rows, `secretKeyRef.key`, i18n
+/// keys), in a file and in a structured response; a person's chosen secret
+/// with dots, and token shapes, stay redacted.
+#[test]
+fn key_paths_under_an_opaque_credential_name_are_names() {
+    let paths = [
+        "environment.TAVILY_API_KEY",
+        "environment.GH_TOKEN.description",
+        "settings.api_token.label",
+        "servers[0].auth.refreshToken",
+    ];
+    let mut wrong = Vec::new();
+    for path in paths {
+        for content in [
+            format!("{{\"key\": \"{path}\"}}\n"),
+            format!("const tokenKey = \"{path}\";\n"),
+        ] {
+            if detect(&content, Some("a/b.json")).sanitized != content {
+                wrong.push(format!("redacted: {content}"));
+            }
+        }
+        let mut row = serde_json::json!([{ "line": 47, "key": path }]);
+        let before = row.clone();
+        crate::security::sanitizer::sanitize_structure(&mut row).expect("scan");
+        if row != before {
+            wrong.push(format!("structured: {row}"));
+        }
+    }
+    for (content, secret) in [
+        (
+            "{\"password\": \"correct.horse.battery\"}\n",
+            "correct.horse.battery",
+        ),
+        (
+            "{\"key\": \"Xq7Lm2.Pz9Kd4Wr8.Tn3\"}\n",
+            "Xq7Lm2.Pz9Kd4Wr8.Tn3",
+        ),
+        (
+            "{\"apiKey\": \"qzxvbnmtr.wkplmnbvc\"}\n",
+            "qzxvbnmtr.wkplmnbvc",
+        ),
+    ] {
+        if detect(content, Some("a/b.json")).sanitized.contains(secret) {
+            wrong.push(format!("leaked: {content}"));
+        }
+    }
+    assert_eq!(wrong, Vec::<String>::new());
 }
 
 #[test]
@@ -351,6 +420,88 @@ fn credential_assignments_keep_digests_keyed_by_file_paths() {
         let result = detect(&content, None);
         assert!(!result.sanitized.contains(secret), "leaked: {content:?}");
     }
+}
+
+/// A password in URL userinfo (an empty or short user too) and the
+/// `Password=`/`Pwd=` field of a connection string are redacted in every file
+/// class, under any key; the rest of the URL and the other fields stay.
+#[test]
+fn userinfo_and_connection_string_passwords_are_redacted_in_every_file() {
+    for (path, line) in [
+        (
+            ".env",
+            "REDIS_URL=redis://:Moo16@h:6379\nAMQP_URL=amqp://u:Moo17@h/vh\nCONN_STRING=Server=db;User=sa;Password=Hunter2x\nCONN_STRING2=Server=db;Uid=sa;Pwd=ab12\nCONN3=Server=db;User=sa;Password=x\nCONN4=Pwd=ab12;Server=db\n",
+        ),
+        (
+            "src/db.ts",
+            "const a = \"redis://:Moo16@h:6379\";\nconst b = \"amqp://u:Moo17@h/vh\";\nconst c = \"Server=db;User=sa;Password=Hunter2x\";\nconst d = \"Server=db;Uid=sa;Pwd=ab12\";\nconst e = \"Server=db;User=sa;Password=x\";\n",
+        ),
+        (
+            "config/db.json",
+            "{\"a\": \"redis://:Moo16@h:6379\",\n\"b\": \"amqp://u:Moo17@h/vh\",\n\"c\": \"Server=db;User=sa;Password=Hunter2x\",\n\"d\": \"Server=db;Uid=sa;Pwd=ab12\",\n\"e\": \"Server=db;User=sa;Password=x\"}\n",
+        ),
+    ] {
+        let result = detect(line, Some(path));
+        for secret in ["Moo16", "Moo17", "Hunter2x", "ab12", "Password=x"] {
+            assert!(
+                !result.sanitized.contains(secret),
+                "{path}: {secret} leaked: {}",
+                result.sanitized
+            );
+        }
+        for kept in [
+            "redis://:",
+            "@h:6379",
+            "amqp://u:",
+            "@h/vh",
+            "Server=db;User=sa;Password=",
+            "Server=db;Uid=sa;Pwd=",
+        ] {
+            assert!(
+                result.sanitized.contains(kept),
+                "{path}: {kept} lost: {}",
+                result.sanitized
+            );
+        }
+        assert_eq!(result.sanitized.lines().count(), line.lines().count());
+    }
+}
+
+/// A connection-string field name opens a line or a value, or follows `;`, a
+/// quote or whitespace. Minified code assigning a `pwd` or `password` variable after
+/// `,`, `(` or `.` stays readable; real connection strings still lose the
+/// password, at a line start, quoted, or after other fields.
+#[test]
+fn connection_string_fields_open_after_a_separator() {
+    let readable = [
+        ",pwd=formatCwdForFooter(x),branch=y;\n",
+        "t=1,password=t.password;username=u\n",
+        "{e.password=t.password;username=u}\n",
+        "branch&&(pwd=`${pwd} x`);branch=z;\n",
+    ];
+    let redacted = [
+        "Server=x;User Id=u;Password=Pw0rd9q;\n",
+        "Data Source=db;Pwd=Pw0rd9q;\n",
+        "Password=Pw0rd9q;Server=x\n",
+        "const c = \"Server=x;User Id=u;Password=Pw0rd9q\";\n",
+        "conn: 'Data Source=db; Pwd=Pw0rd9q'\n",
+    ];
+    let mut wrong = Vec::new();
+    for path in [Some("src/app.js"), Some("Web.config"), None] {
+        for content in readable {
+            let result = detect(content, path);
+            if result.sanitized != content {
+                wrong.push(format!("{path:?} redacted: {}", result.sanitized));
+            }
+        }
+        for content in redacted {
+            let result = detect(content, path);
+            if result.sanitized.contains("Pw0rd9q") {
+                wrong.push(format!("{path:?} leaked: {}", result.sanitized));
+            }
+        }
+    }
+    assert_eq!(wrong, Vec::<String>::new());
 }
 
 /// A URL with credentials loses only its password: scheme, user, host, port

@@ -3,7 +3,7 @@
 //! so it stays in this process (nothing on disk), a later runtime resumes by
 //! re-executing the pinned page, and the pages rebuild every row once.
 
-use super::{MARKER, RAW_FILE, SHA, files_holding, github};
+use super::{MARKER, RAW_FILE, SHA, files_holding, github, opted_in};
 use crate::support::{Workspace, github_api};
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path_regex};
@@ -56,11 +56,17 @@ async fn a_credential_file_paged_by_the_response_pager_leaves_no_copy_and_walks_
         .with_priority(1)
         .mount(&github)
         .await;
-    let settings = github_api(&github);
+    // The control under the default settings keeps its saved pages on disk;
+    // the credential file is read under the opt-in, which keeps them in
+    // memory, so its cursors end with the runtime (a walk across runtimes is
+    // refused: `direct.rs`). The control also walks with a new runtime per
+    // page, resuming from its saved pages on disk.
+    let (kept, held) = (github_api(&github).to_vec(), opted_in(&github));
     let mut walks = Vec::new();
-    for (file, restart_each_page) in [("notes.txt", false), (".env", false), (".env", true)] {
+    for (file, restart_each_page) in [("notes.txt", false), ("notes.txt", true), (".env", false)] {
+        let settings = if file == ".env" { &held } else { &kept };
         let workspace = Workspace::new();
-        let mut runtime = workspace.runtime(&settings);
+        let mut runtime = workspace.runtime(settings);
         let mut input = batch(file);
         let mut pages = Vec::new();
         loop {
@@ -90,7 +96,7 @@ async fn a_credential_file_paged_by_the_response_pager_leaves_no_copy_and_walks_
             input = next;
             if restart_each_page {
                 runtime.close().await;
-                runtime = workspace.runtime(&settings);
+                runtime = workspace.runtime(settings);
             }
         }
         runtime.close().await;
@@ -115,8 +121,11 @@ async fn a_credential_file_paged_by_the_response_pager_leaves_no_copy_and_walks_
         }
         walks.push(join(&pages));
     }
-    assert_eq!(walks[1], walks[0], "a held walk reads what a kept one does");
-    assert_eq!(walks[2], walks[0], "a walk across runtimes reads it all");
+    assert_eq!(
+        walks[1], walks[0],
+        "a walk across runtimes reads what one runtime does"
+    );
+    assert_eq!(walks[2], walks[0], "a held walk reads what a kept one does");
     let lines = body.lines().collect::<Vec<_>>();
     let third = LINES / READS;
     for (read, content) in walks[0].iter().enumerate() {

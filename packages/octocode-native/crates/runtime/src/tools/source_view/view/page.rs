@@ -68,9 +68,8 @@ pub(super) fn cut_page<'a>(
             Some(selected) => SourceLines::of_selected_gutter(&view.text, selected),
         })
         .flatten();
-    // A line page takes up to the row's whole share; the reader then cuts it
-    // to fit exactly ([`fitted_lines`]). A line longer than the byte budget
-    // reads in byte pages.
+    // A line page takes up to the row's whole share (`fill`); a line longer
+    // than the byte budget (`line`) reads in byte pages.
     let budget = super::super::pagination::LineBudget {
         fill: facts
             .window
@@ -224,6 +223,17 @@ pub(super) fn page_result(
     let mut result = LocalFetchResult {
         path: local_fetch_query::path(q).to_owned(),
         source_sha256: Some(source.sha256.clone()),
+        judged: judged_page(
+            &pg.text,
+            Sealed {
+                asked,
+                source,
+                view,
+                classified: selection_outcome.is_some(),
+            },
+            source_path,
+            facts,
+        ),
         content: Some(pg.text),
         view: view.mode,
         view_fallback: view.fallback.clone(),
@@ -252,7 +262,7 @@ pub(super) fn page_result(
             || ext.match_limited)
             .then_some(true),
         partial_reasons: if ext.match_limited {
-            vec![PartialReason::RegexMatchLimit]
+            vec![PartialReason::ScanBudget]
         } else {
             Vec::new()
         },
@@ -274,16 +284,63 @@ pub(super) fn page_result(
     }
     // A classified view that kept no chunk: an empty read whose unfiltered
     // lead is its recovery (zero kept is not absence).
-    if chars == 0
-        && result
-            .selection
-            .as_ref()
-            .is_some_and(|receipt| receipt.total_items > 0)
-        && selection_outcome.is_some_and(|chosen| chosen.outcome.selected.is_empty())
-    {
+    if chars == 0 && kept_no_chunk(result.selection.as_ref(), selection_outcome) {
         result.status = ReadStatus::Empty;
     }
     result
+}
+
+/// A classified walk over candidates whose page kept none of them.
+fn kept_no_chunk(
+    receipt: Option<&octocode_contract_types::Selection>,
+    chosen: Option<&super::super::selection::Chosen>,
+) -> bool {
+    receipt.is_some_and(|receipt| receipt.total_items > 0)
+        && chosen.is_some_and(|chosen| chosen.outcome.selected.is_empty())
+}
+
+/// Where a page's text was cut from, to find the text the whole-source pass
+/// sealed.
+struct Sealed<'a> {
+    asked: &'a LocalFetchQuery,
+    source: &'a Source<'a>,
+    view: &'a View,
+    classified: bool,
+}
+
+impl Sealed<'_> {
+    /// The whole-source pass's output this page is a slice of. A whole read
+    /// moved it into its view (`view.rs`, `select_view`), where it stays
+    /// as long as no transform (compact, outline) or classifier rewrote the
+    /// view; a replayed page cuts from that same kept view. Any other read
+    /// keeps it in its source. A rewritten whole view has neither: its text
+    /// is empty, so no page of it is marked.
+    fn text(&self) -> &str {
+        let untouched_whole = super::super::extraction::selects_whole(self.asked)
+            && self.view.mode.is_none()
+            && !self.classified;
+        if untouched_whole {
+            &self.view.text
+        } else {
+            &self.source.text
+        }
+    }
+}
+
+/// The page's judged-leaf mark: only for text the whole-source pass of this
+/// request (or the read it replays) sealed, and only when the page is a
+/// slice of it ([`crate::security::JudgedSource::leaf`]); a window of a
+/// sealed large source arrives judged elsewhere.
+fn judged_page(
+    page: &str,
+    sealed: Sealed<'_>,
+    source_path: &std::path::Path,
+    facts: &SourceFacts,
+) -> Option<crate::security::JudgedLeaf> {
+    if facts.byte_origin.is_some() {
+        return None;
+    }
+    crate::security::JudgedSource::new(sealed.text(), source_path).leaf(page)
 }
 
 /// The hint of a read whose minified view removed every selected line.

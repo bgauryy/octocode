@@ -47,10 +47,11 @@ pub(super) fn paused(
 /// Names the narrower scopes to ingest on a budget the scan could not bound.
 pub(super) fn too_broad<'a>(
     root: &Path,
+    scope: &super::super::super::build_scope::BuildScope,
     files: impl Iterator<Item = &'a str>,
     mut output: GraphOutput,
 ) -> GraphOutput {
-    super::super::super::graph::scope::hint_narrower_scopes(&mut output.value, root, files);
+    super::super::super::graph::scope::hint_narrower_scopes(&mut output.value, root, scope, files);
     output
 }
 
@@ -80,6 +81,7 @@ pub(super) fn publish_snapshot(
         Err(error) => {
             return too_broad(
                 &job.built.root,
+                &super::super::super::build_scope::BuildScope::of_options(job.options),
                 job.files.iter().map(String::as_str),
                 GraphOutput::error(error.code, error.message),
             );
@@ -105,6 +107,7 @@ pub(super) fn publish_snapshot(
         bytes,
         digest: &digest,
         exclude: &job.options.exclude,
+        walk: job.options.walk,
         language_globs: &job.options.language_globs,
         inputs: job.inputs,
         input_proof: job.input_proof,

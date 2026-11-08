@@ -242,6 +242,39 @@ fn concurrent_refreshers_post_the_single_use_refresh_token_once() {
     runtime.block_on(server.verify());
 }
 
+/// The refresh lock's directories under a fresh Octocode home are created
+/// owner-only, like the rest of the home's private state.
+#[cfg(unix)]
+#[tokio::test]
+async fn the_refresh_lock_directories_are_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let server = MockServer::builder().start().await;
+    forbid_posts(&server).await;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("home");
+    let load = |_: &str| -> Result<Option<StoredCredentials>, ProviderError> { Ok(None) };
+    let save =
+        |_: &StoredCredentials, _: &StoredCredentials| -> Result<(), ProviderError> { Ok(()) };
+    let store = RefreshStore {
+        load: &load,
+        store: &save,
+        lock_path: home.join("tmp/locks/oauth-refresh-example.test.lock"),
+    };
+    let result = refresh_locked(&endpoints(&server), "cid", RefreshMode::IfExpired, &store)
+        .await
+        .expect("lock taken");
+    assert!(result.is_none());
+    for created in [home.clone(), home.join("tmp"), home.join("tmp/locks")] {
+        let mode = std::fs::metadata(&created)
+            .expect("dir")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o700, "{} is {mode:o}", created.display());
+    }
+    server.verify().await;
+}
+
 #[tokio::test]
 async fn forced_refresh_reuses_a_rotation_made_while_waiting() {
     let server = MockServer::builder().start().await;

@@ -196,6 +196,9 @@ pub(super) struct Operation<'a, 'p> {
     pub(super) language_id: Option<&'a str>,
     /// Characters a page of rows may spend (see `page_windows::page_budget`).
     pub(super) budget: usize,
+    /// The request's content scanner: the one every other read of a source
+    /// goes through.
+    pub(super) security: &'a crate::security::ContentSecurity,
 }
 
 impl<'a> Operation<'a, '_> {

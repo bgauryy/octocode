@@ -2,7 +2,7 @@
 //! rows it shows.
 use crate::response::result::remove_nulls;
 use crate::tools::gh_get_history_item::inventory::{file_metadata, missing_patch_reason};
-use crate::tools::gh_get_history_item::util::str_at;
+use crate::tools::gh_get_history_item::util::{clean_char_cut, str_at};
 use serde_json::{Value, json};
 
 /// One window over a file page's patch stream.
@@ -52,7 +52,7 @@ impl PatchStream<'_> {
                         // A pure rename changes no content: its diff is empty.
                         None => row["patch"] = json!(""),
                         Some(reason) => {
-                            row["isPartial"] = json!(true);
+                            crate::response::paging::set_partial(&mut row, true);
                             row["terminalLimit"] = json!(true);
                             row["patchUnavailable"] = json!(reason);
                         }
@@ -145,7 +145,8 @@ const PACK_SHARE: (usize, usize) = (3, 4);
 /// window (it would never fit, so it starts at once) or that end fills less
 /// than [`PACK_SHARE`] of the window (the window packs on into the next
 /// file). A cut inside a file ends after the last line end the window
-/// holds; a packed window whose next file has no line end in reach keeps
+/// holds, or with none in reach at the shared clean cut (never inside a
+/// redaction marker); a packed window whose next file has no line end in reach keeps
 /// the file boundary.
 pub(super) fn window_end(
     views: &[Option<String>],
@@ -195,6 +196,10 @@ pub(super) fn window_end(
         (Some(at), _) => at,
         // Packing found no line end past the boundary: end on the file.
         (None, Some(at)) if !next_overflows(at) => at,
-        (None, _) => stream_end,
+        // A cut inside a line is the shared cut's: never inside a marker.
+        (None, _) => {
+            let view = views[cut].as_deref().unwrap_or_default();
+            starts[cut] + clean_char_cut(view, from, to)
+        }
     }
 }

@@ -103,6 +103,7 @@ async fn huge_line_window(extra: serde_json::Value, anchor: &str) {
             "displayRange": {"startLine": 1, "endLine": 1, "startCharacter": column + 1}
         })],
         budget,
+        &crate::security::ContentSecurity::new(),
     )
     .await;
     // The page cost of a location: its public row with its path
@@ -183,6 +184,7 @@ async fn a_window_on_a_later_line_is_numbered_from_that_line() {
             "displayRange": {"startLine": 3, "endLine": 3, "startCharacter": column + 1}
         })],
         20_000,
+        &crate::security::ContentSecurity::new(),
     )
     .await;
     let rows = location_rows(&row);
@@ -226,6 +228,7 @@ async fn a_long_declaration_shows_its_first_lines_and_reads_the_rest() {
             "displayRange": {"startLine": 1, "endLine": lines}
         })],
         20_000,
+        &crate::security::ContentSecurity::new(),
     )
     .await;
     let rows = location_rows(&row);

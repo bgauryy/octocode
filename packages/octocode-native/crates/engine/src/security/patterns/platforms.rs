@@ -39,17 +39,17 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "dockerHubToken",
         file_context: None,
-        regex: r###"\bdckr_pat_[a-zA-Z0-9_]{36}\b"###,
+        regex: r###"dckr_pat_[a-zA-Z0-9_]{36}"###,
     },
     SecretPattern {
         name: "pypiApiToken",
         file_context: None,
-        regex: r###"\bpypi-[a-zA-Z0-9_-]{84}\b"###,
+        regex: r###"pypi-[a-zA-Z0-9_-]{84}"###,
     },
     SecretPattern {
         name: "figmaToken",
         file_context: None,
-        regex: r###"\bfigd_[a-zA-Z0-9_-]{43}\b"###,
+        regex: r###"figd_[a-zA-Z0-9_-]{43}"###,
     },
     SecretPattern {
         name: "renderToken",
@@ -64,7 +64,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "typeformToken",
         file_context: None,
-        regex: r###"\btfp_[a-zA-Z0-9_-]{43}\b"###,
+        regex: r###"tfp_[a-zA-Z0-9_-]{43}"###,
     },
     SecretPattern {
         name: "intercomAccessToken",
@@ -74,17 +74,17 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "digitalOceanToken",
         file_context: None,
-        regex: r###"\bdop_v1_[a-f0-9]{64}\b"###,
+        regex: r###"dop_v1_[a-f0-9]{64}"###,
     },
     SecretPattern {
         name: "digitalOceanOAuthToken",
         file_context: None,
-        regex: r###"\bdoo_v1_[a-f0-9]{64}\b"###,
+        regex: r###"doo_v1_[a-f0-9]{64}"###,
     },
     SecretPattern {
         name: "digitalOceanRefreshToken",
         file_context: None,
-        regex: r###"\bdor_v1_[a-f0-9]{64}\b"###,
+        regex: r###"dor_v1_[a-f0-9]{64}"###,
     },
     SecretPattern {
         name: "cloudflareApiKey",
@@ -99,27 +99,27 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "cloudflareOriginCaKey",
         file_context: None,
-        regex: r###"\bv1\.0-[a-f0-9]{24}-[a-f0-9]{146}\b"###,
+        regex: r###"v1\.0-[a-f0-9]{24}-[a-f0-9]{146}"###,
     },
     SecretPattern {
         name: "flyioAccessToken",
         file_context: None,
-        regex: r###"\bfo1_[\w-]{43}\b"###,
+        regex: r###"fo1_[\w-]{43}"###,
     },
     SecretPattern {
         name: "flyioMachineToken",
         file_context: None,
-        regex: r###"\bfm[12][ar]?_[a-zA-Z0-9+/]{100,}={0,3}\b"###,
+        regex: r###"fm[12][ar]?_[a-zA-Z0-9+/]{100,}={0,3}"###,
     },
     SecretPattern {
         name: "dopplerApiToken",
         file_context: None,
-        regex: r###"(?i)\bdp\.pt\.[a-z0-9]{43}\b"###,
+        regex: r###"(?i)dp\.pt\.[a-z0-9]{43}"###,
     },
     SecretPattern {
         name: "dynatraceApiToken",
         file_context: None,
-        regex: r###"(?i)\bdt0c01\.[a-z0-9]{24}\.[a-z0-9]{64}\b"###,
+        regex: r###"(?i)dt0c01\.[a-z0-9]{24}\.[a-z0-9]{64}"###,
     },
     SecretPattern {
         name: "netlifyAccessToken",
@@ -129,7 +129,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "scalingoApiToken",
         file_context: None,
-        regex: r###"\btk-us-[\w-]{48}\b"###,
+        regex: r###"tk-us-[\w-]{48}"###,
     },
     SecretPattern {
         name: "infracostApiToken",
@@ -149,7 +149,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "herokuApiKeyV2",
         file_context: None,
-        regex: r###"\bHRKU-AA[0-9a-zA-Z_-]{58}\b"###,
+        regex: r###"HRKU-AA[0-9a-zA-Z_-]{58}"###,
     },
     SecretPattern {
         name: "microsoftTeamsWebhook",
@@ -164,12 +164,12 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "openshiftUserToken",
         file_context: None,
-        regex: r###"\bsha256~[\w-]{43}\b"###,
+        regex: r###"sha256~[\w-]{43}"###,
     },
     SecretPattern {
         name: "denoDeployToken",
         file_context: None,
-        regex: r###"\bddp_[a-zA-Z0-9]{40}\b"###,
+        regex: r###"ddp_[a-zA-Z0-9]{40}"###,
     },
     SecretPattern {
         name: "resendApiKey",
@@ -199,6 +199,6 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "cloudflareApiTokenPrefixed",
         file_context: None,
-        regex: r###"\bcf(?:k|ut|at)_[a-zA-Z0-9]{40}[a-fA-F0-9]{8}\b"###,
+        regex: r###"cf(?:k|ut|at)_[a-zA-Z0-9]{40}[a-fA-F0-9]{8}"###,
     },
 ];

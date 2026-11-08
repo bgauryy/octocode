@@ -37,6 +37,17 @@ impl GitHubProvider {
         {
             return Ok(reference.to_ascii_lowercase());
         }
+        // A batch that warmed this ref answers it; one that did not resolve
+        // it leaves the request to ask.
+        if let Some(memo) = context.last_commits() {
+            let resolved = memo.resolved_ref(owner, repo, reference).await;
+            // The row waited on the warm-up whether or not it answered.
+            memo.adopt_waits(context);
+            if let Some(resolved) = resolved {
+                memo.adopt_observed(context);
+                return resolved;
+            }
+        }
         let reference = reference.unwrap_or("HEAD");
         self.transport
             .commit_sha(owner, repo, reference, context)

@@ -250,6 +250,7 @@ impl<'a> Projector<'a> {
         let empty_bases = BaseIndex::default();
         let rust_macros = self.rust_macro_names();
         let return_types = self.return_types(symbols);
+        let no_declared = DeclaredTypes::default();
         let linker = Linker {
             resolver,
             nodes: &self.nodes,
@@ -262,6 +263,7 @@ impl<'a> Projector<'a> {
             recovered: &recovered,
             rust_macros: &rust_macros,
             return_types: &return_types,
+            declared: &no_declared,
         };
         let mut calls = CallStats::default();
         for file in self.built.facts.keys() {
@@ -299,8 +301,24 @@ impl<'a> Projector<'a> {
             units.push((unit, facts));
         }
         let bases = base_index(&linked, unresolved_bases, scala_bases);
+        let declared = DeclaredTypes {
+            types: units
+                .iter()
+                .flat_map(|(unit, facts)| {
+                    facts.declared_types.iter().filter_map(|declared| {
+                        let node = unit
+                            .index
+                            .decl_nodes
+                            .get(declared.declaration_id.as_str())?;
+                        Some((*node, &declared.ty))
+                    })
+                })
+                .collect(),
+            units: units.iter().map(|(unit, _)| (unit.file_id, unit)).collect(),
+        };
         let linker = Linker {
             bases: &bases,
+            declared: &declared,
             ..linker
         };
         let mut call_output = CallOutput::default();

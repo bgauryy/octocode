@@ -97,6 +97,18 @@ process.stdin.on('data', (d) => {
 });
 "#;
 
+/// Write an executable fixture (a stand-in language server) that a test then
+/// starts. The bytes go to a temporary file that is closed and renamed into
+/// place, so no write descriptor is open on the file when it is executed: a
+/// concurrent fork that inherited one would make the start fail with
+/// `ETXTBSY` ("Text file busy"). Windows runs a script through node (its
+/// shebang names node) and needs no mode.
+#[cfg(any(unix, windows))]
+fn write_executable(path: &std::path::Path, contents: impl AsRef<[u8]>) {
+    octocode_io::atomic::write_atomic_mode(path, contents.as_ref(), 0o700, false)
+        .expect("write an executable fixture");
+}
+
 #[cfg(any(unix, windows))]
 fn node_available() -> bool {
     std::process::Command::new("node")
@@ -117,13 +129,7 @@ fn configurable_server(
     std::fs::create_dir_all(&root).unwrap();
     let root = root.canonicalize().unwrap();
     let script = root.join("fake-lsp.js");
-    std::fs::write(&script, CONFIGURABLE_SERVER).unwrap();
-    // Windows runs the script through node (its shebang names node) and needs no mode.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    write_executable(&script, CONFIGURABLE_SERVER);
     let config = LspLanguageServerConfig {
         command: script.to_string_lossy().into_owned(),
         args: Some(Vec::new()),

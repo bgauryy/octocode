@@ -172,7 +172,8 @@ struct Walker<'a> {
     keys: NodeKeys<'a>,
     walk: HierarchyWalk,
     seen: HashSet<String>,
-    edge_index: HashMap<(String, String), usize>,
+    /// Each edge by its (parent, node) keys; a level-1 edge by its node alone.
+    edge_index: HashMap<(Option<String>, String), usize>,
     resumed: HashSet<String>,
     depth: u32,
     /// Canonical files whose level-1 results importer roots leave out.
@@ -279,7 +280,10 @@ impl<'a> Walker<'a> {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        let pair = (parent_key.to_owned(), node_key.clone());
+        // Every level-1 parent is a root, and roots are one symbol (the
+        // declaration and the definition, or importer call sites): a caller
+        // two roots answer is one level-1 edge holding both answers' sites.
+        let pair = ((level > 1).then(|| parent_key.to_owned()), node_key.clone());
         if let Some(&index) = self.edge_index.get(&pair) {
             let edge = &mut self.walk.edges[index];
             for site in sites {

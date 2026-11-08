@@ -92,6 +92,32 @@ fn leased(dir: &Path) -> bool {
         .is_some_and(|idle| idle < crate::cache::CONTINUATION_IDLE)
 }
 
+/// Removes snapshot `id` unless a reader holds its lease, deciding at the
+/// removal itself: the directory is first claimed by an atomic rename, and the
+/// lease is read again on the claimed directory. A renewal that landed before
+/// the claim keeps the snapshot (the claim is undone); one that comes after
+/// finds it gone, as after any removal. A snapshot another prune already
+/// took is not this call's to report. `between` runs after the first idle
+/// verdict and before the claim.
+fn remove_unless_leased(home: &Path, id: &str, between: &dyn Fn(&Path)) -> bool {
+    let dir = home.join(id);
+    if leased(&dir) {
+        return false;
+    }
+    between(&dir);
+    let claimed = home.join(format!(".tmp-removing-{id}"));
+    if std::fs::rename(&dir, &claimed).is_err() {
+        return false;
+    }
+    if leased(&claimed) {
+        // A reader renewed first: give the snapshot back. If that fails the
+        // claimed copy is left for the stale temp sweep, never half-removed.
+        let _ = std::fs::rename(&claimed, &dir);
+        return false;
+    }
+    std::fs::remove_dir_all(&claimed).is_ok()
+}
+
 /// The newest snapshot of `root` when `id` is an ID this build allocates for
 /// that scope ([`next_snapshot_id`]) and no longer resolves: the snapshot
 /// that replaced it.
@@ -173,13 +199,27 @@ pub(crate) fn list_snapshots(home: &Path) -> Vec<String> {
     ids
 }
 
-/// Removes older snapshots of `root` beyond `keep` that no reader used within
-/// [`crate::cache::CONTINUATION_IDLE`] (a rebuild never ends a walk in progress), snapshots of any root
-/// in an older format (no query of this build can read them; a newer
-/// format belongs to a newer build and stays), and abandoned temp dirs.
+/// Removes, among snapshots no reader used within
+/// [`crate::cache::CONTINUATION_IDLE`] (a rebuild never ends a walk in
+/// progress, whichever build reads it), older snapshots of `root` beyond
+/// `keep` and snapshots of any root in an older format (no query of this
+/// build can read them; a newer format belongs to a newer build and stays),
+/// plus abandoned temp dirs.
 /// Snapshots are grouped by the root they scanned, never by their scope
 /// name: two roots that share a name keep their own snapshots.
 pub(super) fn prune(home: &Path, root: &Path, keep: usize) -> Vec<String> {
+    prune_with(home, root, keep, &|_| {})
+}
+
+/// [`prune`] that runs `between` on a snapshot's directory after it is
+/// judged idle and before it is removed: the moment a reader's renewal races
+/// the removal.
+pub(super) fn prune_with(
+    home: &Path,
+    root: &Path,
+    keep: usize,
+    between: &dyn Fn(&Path),
+) -> Vec<String> {
     let mut removed = Vec::new();
     let root = root.to_string_lossy();
     let mut same_scope = Vec::new();
@@ -198,12 +238,11 @@ pub(super) fn prune(home: &Path, root: &Path, keep: usize) -> Vec<String> {
         }
     }
     let excess = same_scope.len().saturating_sub(keep.max(1));
-    let idle = same_scope
+    let expired = outdated
         .into_iter()
-        .take(excess)
-        .filter(|id| !leased(&home.join(id)));
-    for id in outdated.into_iter().chain(idle) {
-        if std::fs::remove_dir_all(home.join(&id)).is_ok() {
+        .chain(same_scope.into_iter().take(excess));
+    for id in expired {
+        if remove_unless_leased(home, &id, between) {
             removed.push(id);
         }
     }

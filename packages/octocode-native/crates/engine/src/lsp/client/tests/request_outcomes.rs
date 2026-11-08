@@ -148,7 +148,7 @@ async fn retrying_requests_keep_one_caller_deadline() {
     });
     let started = Instant::now();
     let result = crate::lsp::with_caller_deadline(
-        started + Duration::from_millis(2_000),
+        Some(started + Duration::from_millis(2_000)),
         client.workspace_symbol("retry".into()),
     )
     .await;

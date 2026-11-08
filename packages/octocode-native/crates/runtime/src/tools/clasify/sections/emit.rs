@@ -125,7 +125,7 @@ pub(super) fn emit(
         output["model"] = json!(model);
     }
     if let Some(notice) = usage.long_context_notice() {
-        output["hints"] = json!([notice]);
+        crate::response::result::add_hints(&mut output, [notice]);
     }
     output
 }
@@ -155,7 +155,7 @@ pub(super) fn attach_hit_reads(output: &mut Value) {
         } else {
             format!("read{}", index + 1)
         };
-        output["next"][name] = read;
+        crate::response::result::set_next(output, &name, read);
     }
 }
 

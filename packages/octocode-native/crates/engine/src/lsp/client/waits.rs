@@ -34,14 +34,28 @@ impl Waits {
         self.log.push_back((kind, began, ended));
     }
 
-    /// The time of `kind` that passed after `since`.
+    /// The time of `kind` that passed after `since`: the union of the logged
+    /// intervals, so waits that overlapped (concurrent calls on one load) count
+    /// once.
     fn since(&self, kind: WaitKind, since: Instant) -> Option<Duration> {
-        self.log
+        let mut spans = self
+            .log
             .iter()
             .filter(|(logged, _, _)| *logged == kind)
-            .map(|(_, began, ended)| ended.saturating_duration_since((*began).max(since)))
-            .filter(|waited| !waited.is_zero())
-            .reduce(|total, waited| total + waited)
+            .map(|(_, began, ended)| ((*began).max(since), *ended))
+            .filter(|(began, ended)| ended > began)
+            .collect::<Vec<_>>();
+        spans.sort();
+        let mut total = Duration::ZERO;
+        let mut reached: Option<Instant> = None;
+        for (began, ended) in spans {
+            let from = reached.map_or(began, |reached| began.max(reached));
+            if ended > from {
+                total += ended - from;
+            }
+            reached = Some(reached.map_or(ended, |reached| reached.max(ended)));
+        }
+        (!total.is_zero()).then_some(total)
     }
 }
 

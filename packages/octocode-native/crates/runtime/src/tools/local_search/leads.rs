@@ -12,12 +12,8 @@ use crate::policy::path::PathPolicy;
 use crate::policy::prune::DefaultsFlag;
 use crate::response::result::{Continuation, ToolError};
 use crate::tools::empty_walk::Cause;
-use crate::tools::leads::files_listing::files_listing;
 use crate::tools::leads::skipped::under;
-use octocode_contract_types::{
-    DefaultExcludes, LocalSearchQuery, SkippedPathCause, SkippedPaths, StructureSearchQuery,
-    StructureSearchQueryFiles,
-};
+use octocode_contract_types::{LocalSearchQuery, SkippedPathCause, SkippedPaths};
 use octocode_engine::types::TextSearchOptions;
 use serde_json::{Value, json};
 
@@ -193,6 +189,20 @@ impl Found<'_> {
     }
 }
 
+/// The same search from the workspace root, from page 1, when `root` (the
+/// searched file or directory) lies inside the workspace below its root;
+/// `None` at the root itself or outside the workspace.
+pub(super) fn workspace_root_lead(
+    query: &LocalSearchQuery,
+    paths: &PathPolicy,
+    root: &std::path::Path,
+) -> Result<Option<Value>, ToolError> {
+    match paths.workspace_relative(root) {
+        Some(relative) if relative != "." => restart_lead(query, json!({"path": "."})).map(Some),
+        _ => Ok(None),
+    }
+}
+
 /// The same search without its `maxDepth`, from page 1.
 fn unlimited_depth_lead(query: &LocalSearchQuery) -> Result<Value, ToolError> {
     restart_lead(query, json!({"maxDepth": null}))
@@ -246,13 +256,13 @@ pub(super) fn scope_listing(query: &LocalSearchQuery, keep_globs: bool) -> Optio
             .cloned()
             .collect::<Vec<_>>()
     };
-    let listing = StructureSearchQueryFiles {
-        include: matchable(local_search_query::include(query)),
-        exclude: matchable(local_search_query::exclude(query)),
-        include_ignored: (local_search_query::include_ignored(query) == Some(true)).then_some(true),
-        default_excludes: (!local_search_query::default_excludes(query).defaults())
-            .then_some(DefaultExcludes(false)),
-        ..files_listing(local_search_query::path(query))?
-    };
-    Some(Continuation::related_query(StructureSearchQuery::from(listing)).build())
+    crate::tools::leads::files_listing::scope_listing(
+        local_search_query::path(query),
+        (
+            matchable(local_search_query::include(query)),
+            matchable(local_search_query::exclude(query)),
+        ),
+        local_search_query::include_ignored(query) == Some(true),
+        !local_search_query::default_excludes(query).defaults(),
+    )
 }

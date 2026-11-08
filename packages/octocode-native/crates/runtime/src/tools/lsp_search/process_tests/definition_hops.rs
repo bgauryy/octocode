@@ -49,7 +49,6 @@ process.stdin.on('data', (d) => {
 /// The definition of `symbol` on one-based `line` of `file`: the documents
 /// the server was sent (`didOpen` and requests) and the files listed.
 fn definition_of(file: &str, symbol: &str, line: u32) -> (Vec<String>, Vec<String>) {
-    use std::os::unix::fs::PermissionsExt;
     let dir = Fixture::new();
     let outer = dir.0.canonicalize().expect("canonical fixture");
     let root = outer.join("ws");
@@ -60,8 +59,7 @@ fn definition_of(file: &str, symbol: &str, line: u32) -> (Vec<String>, Vec<Strin
     let source = HOP_SERVER
         .replace("__ROOT__", &literal(&root))
         .replace("__LOG__", &literal(&log));
-    std::fs::write(&script, source).expect("script");
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    crate::tools::lsp_search::tests::write_executable(&script, source.as_bytes());
     for (name, text) in [
         ("a.ts", "export function x() {}\n"),
         ("b.ts", "import { x as y } from './a';\ny();\n"),

@@ -42,7 +42,8 @@ pub(crate) fn render_page(
     // (`scanOffset`), so it is offered once the window's last page is reached.
     let expand_scan =
         crate::tools::ast_search::scan_window::expand_scan(truncated, set.scan_resume);
-    let mut out = json!({"operation":"symbols","filesScanned":set.files_scanned,"filesSkipped":skipped,"diagnostics":outline_diagnostics(set),"isPartial":incomplete||set.recovered});
+    let mut out = json!({"operation":"symbols","filesScanned":set.files_scanned,"filesSkipped":skipped,"diagnostics":outline_diagnostics(set)});
+    crate::response::paging::set_partial(&mut out, incomplete || set.recovered);
     if let Some(excluded) = set.test_code_excluded.stated() {
         out["testCodeExcluded"] = json!(excluded);
     }
@@ -126,7 +127,7 @@ pub(crate) fn render_page(
     attach_symbol_leads(q, set, &mut out, cut.more, expand_scan);
     if set.declarations.is_empty() && !incomplete {
         out["status"] = json!("empty");
-        out["hints"] = json!([empty_hint(q, set.files_scanned)]);
+        crate::response::result::add_hints(&mut out, [empty_hint(q, set.files_scanned)]);
     }
     super::super::evidence::attach_page(&mut out, &set.source_descriptors, cancel)?;
     Ok(out)

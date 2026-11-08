@@ -120,6 +120,15 @@ fn unknown_field_message(
         };
     }
     if let Some(requires) = sibling_requirement(issue) {
+        // Beside the field a request holds alone (`cursor`): a resumed call
+        // is that field and nothing else.
+        if let [_] = issue.path.as_slice()
+            && let Some(alone) = whole_request_field(tool_name).filter(|alone| alone != field)
+        {
+            return format!(
+                "'{field}' is not allowed beside {alone}: send {{\"{alone}\":\"…\"}} alone, as next.input gives it; '{field}' requires {requires}, in a new request."
+            );
+        }
         return format!(
             "'{field}' is not allowed in this form of {query}; it requires {requires}."
         );
@@ -146,10 +155,20 @@ fn unknown_field_message(
             .filter(|name| issue.path.len() != 3 || published(name))
             .collect::<Vec<_>>()
     };
+    // A field the object already carries is never the one meant instead.
+    let sent = issue
+        .schema
+        .as_ref()
+        .and_then(|schema| schema["sentFields"].as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
     let candidates = known
         .iter()
         .copied()
-        .chain(row_fields.iter().map(String::as_str));
+        .chain(row_fields.iter().map(String::as_str))
+        .filter(|name| !sent.contains(name));
     // A known guess with more than one reading names its field (a guess with
     // one reading never gets here: it was read as that field).
     if issue.path.len() == 3
@@ -201,6 +220,24 @@ fn owning_row_field<'a>(tool_name: &str, row_fields: &'a [String], field: &str) 
             crate::contracts::schema_facts::property_names(schema, defs).contains(field)
         })
     })
+}
+
+/// The field `tool_name`'s request envelope holds alone in one of its forms
+/// (`cursor`), when exactly one form is a single field.
+fn whole_request_field(tool_name: &str) -> Option<String> {
+    let tool = crate::id::ToolId::from_name(tool_name)?;
+    let input = &crate::contracts::tool_contract(tool).ok()?["inputSchema"];
+    let mut alone = input["anyOf"].as_array()?.iter().filter_map(|form| {
+        let form = crate::contracts::resolve_ref(form, &input["$defs"]);
+        let properties = form["properties"].as_object()?;
+        let mut names = properties.keys();
+        match (names.next(), names.next()) {
+            (Some(name), None) => Some(name.clone()),
+            _ => None,
+        }
+    });
+    let field = alone.next()?;
+    alone.next().is_none().then_some(field)
 }
 
 /// For an unknown field directly in a query row (`queries.N.field`) that

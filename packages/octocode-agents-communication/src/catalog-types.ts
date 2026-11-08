@@ -1,9 +1,9 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { compile } from 'json-schema-to-typescript';
 import { root } from './entry-points.ts';
 import { recordVariants, type RecordTypeEntry } from './runtime/record-variants.ts';
-import { isReply } from './script-support.ts';
+import { isReply, writeFileIfChanged } from './script-support.ts';
 
 /** The generated declarations: command input, command result and record payload types, compiled from assets/catalog.json. */
 export const catalogTypesFile = join(root, 'src/runtime/catalog-types.generated.ts');
@@ -72,7 +72,7 @@ export type RecordType = keyof RecordData;
 /** Writes the declarations; with \`check\`, fails when the committed file differs instead. */
 export async function emitCatalogTypes(check = false): Promise<void> {
   const text = await renderCatalogTypes();
-  if (!check) return writeFileSync(catalogTypesFile, text);
+  if (!check) return writeFileIfChanged(catalogTypesFile, text);
   let current = '';
   try { current = readFileSync(catalogTypesFile, 'utf8'); } catch { /* a missing file is stale */ }
   if (current !== text) throw Error('src/runtime/catalog-types.generated.ts is stale: run `yarn types` and commit the result');

@@ -132,6 +132,11 @@ pub(in crate::cli) async fn stop_all_and_wait() -> Result<(), String> {
         .map_err(|error| error.to_string())?
 }
 
+/// The in-flight count a draining server announces (`{"draining":N}`).
+pub(super) fn draining(line: &str) -> Option<u64> {
+    serde_json::from_str::<serde_json::Value>(line).ok()?["draining"].as_u64()
+}
+
 /// [`stop_all_and_wait`] for this user's socket directory under `temp`.
 pub(super) fn stop_and_wait_in(temp: &Path) -> Result<(), String> {
     use std::io::{BufRead, Read, Write};
@@ -142,7 +147,7 @@ pub(super) fn stop_and_wait_in(temp: &Path) -> Result<(), String> {
     private_dir(&dir, uid).ok_or_else(|| "warm server directory is not private".to_owned())?;
     let servers = live_servers(&dir, None);
     for (_, mut stream) in servers {
-        let timeout = Some(super::client::REPLY_DEADLINE);
+        let timeout = super::client::reply_deadline();
         stream
             .set_read_timeout(timeout)
             .map_err(|error| error.to_string())?;
@@ -152,11 +157,22 @@ pub(super) fn stop_and_wait_in(temp: &Path) -> Result<(), String> {
         stream
             .write_all(b"{\"stop\":true,\"drain\":true}\n")
             .map_err(|error| error.to_string())?;
+        let mut reader = std::io::BufReader::new(stream).take(256);
         let mut line = String::new();
-        std::io::BufReader::new(stream)
-            .take(128)
+        reader
             .read_line(&mut line)
             .map_err(|error| error.to_string())?;
+        if let Some(in_flight) = draining(&line) {
+            if in_flight > 0 {
+                eprintln!(
+                    "Waiting for {in_flight} call(s) in flight on a warm server to finish before clearing the cache; Ctrl-C stops waiting."
+                );
+            }
+            line.clear();
+            reader
+                .read_line(&mut line)
+                .map_err(|error| error.to_string())?;
+        }
         if line.trim() != "{\"stopped\":true}" {
             return Err("A warm server stopped without confirming that its calls drained; rerun cache clear after it exits.".into());
         }

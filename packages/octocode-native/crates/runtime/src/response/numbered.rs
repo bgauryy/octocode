@@ -1,7 +1,7 @@
 //! Numbered source content (docs/TOOL_DATA_CONTRACT.md).
 //!
-//! Hosts show agents the `structuredContent` JSON, so a read's `content`
-//! carries its own source line numbers there, `cat -n`-like:
+//! Agents read a read's `content` as the response gives it, so it carries
+//! its own source line numbers, `cat -n`-like:
 //! `<line>\t<text>` per line, no padding. Line-omission markers between
 //! non-adjacent windows are separated by one `--` line.
 //! Only views whose lines map one-to-one onto original source lines are

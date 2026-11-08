@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "notes": [
+    "Typed-question regression cases for clasify (B18 items 5 and 7). Source: .octocode/octocode-dev/release-check-2026-11-05/eval/prod/clasify.md.",
+    "Each case needs a paid provider run (OCTOCODE_CLASSIFICATION_API set). Run: node packages/octocode-benchmark/local/e2e/fixtures/clasify/run-regressions.mjs (skips unbilled without a key). `expect` is the truth label, `observed` the last paid result with its date; `status` is the last run's outcome.",
+    "Fixtures sit beside this file; {{FIXTURES}} = packages/octocode-benchmark/local/e2e/fixtures/clasify."
+  ],
+  "cases": [
+    {
+      "id": "F1-numeric-threshold",
+      "status": "fail",
+      "needsPaidRun": true,
+      "known": "model miss: a confident no beside a near-miss row; the description now routes a threshold over many records to an extreme-value score or a script",
+      "source": {"tool": "localFetch", "path": "{{FIXTURES}}/orders.json"},
+      "calls": [
+        {"type": "noul", "instructions": "Is there a refunded order with amount over 100?", "expect": {"label": "yes", "noul": ">0.5"}, "observed": "0.45 (2026-11-08, 1 run, wrong, unsure); earlier 0.02-0.04 (2026-11-06, 3 runs, 2 rephrasings)"},
+        {"type": "score", "instructions": "What is the largest amount among refunded orders?", "criteria": ["under 100", "100 to 600", "over 600"], "expect": {"label": "over 600", "truth": "720"}, "observed": "over 600, score 1.99, P 1.0 (2026-11-08, right)"}
+      ],
+      "truth": "refunded orders: o011 amount 720, o037 amount 90, o052 amount 35; 720 exceeds 100"
+    },
+    {
+      "id": "C5-lock-held-on-early-return",
+      "status": "pass",
+      "needsPaidRun": true,
+      "known": "model-quality case: Go early return leaks a held lock; the noul form scored 0.07 and 0.17 (truth yes); the advised choice form scored all_release 0.57 vs early_leaks 0.43",
+      "source": {"tool": "localFetch", "path": "{{FIXTURES}}/lock.go"},
+      "calls": [
+        {"type": "choice", "instructions": "Does every return path of Get release the mutex?", "criteria": {"all_release": "every return path releases it", "early_leaks": "an early return does not", "unknown": "cannot tell"}, "expect": {"label": "early_leaks"}, "observed": "early_leaks 1.0 (2026-11-08, right); earlier all_release 0.57 vs early_leaks 0.43 (2026-11-06, wrong, unsure)"}
+      ],
+      "truth": "the `!ok` return at lock.go:15 skips c.mu.Unlock()"
+    }
+  ]
+}

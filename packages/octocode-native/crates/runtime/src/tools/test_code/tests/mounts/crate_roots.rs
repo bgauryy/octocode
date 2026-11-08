@@ -64,17 +64,61 @@ fn a_cfg_attr_path_under_test_mounts_that_file_only() {
     root.write("Cargo.toml", MANIFEST);
     root.write(
         "src/lib.rs",
-        "#[cfg_attr(test, path = \"real.rs\")]\npub mod plain;\n#[cfg_attr(unix, path = \"unixy.rs\")]\npub mod other;\n#[cfg_attr(all(test, unix), allow(dead_code), path = \"both.rs\")]\npub mod both;\n",
+        "#[cfg_attr(test, path = \"real.rs\")]\npub mod plain;\n#[cfg_attr(unix, path = \"unixy.rs\")]\npub mod other;\n#[cfg_attr(all(test, unix), allow(dead_code), path = \"both_x.rs\")]\npub mod both;\n",
     );
     let real = root.write("src/real.rs", "pub fn t() {}\n");
     let plain = root.write("src/plain.rs", "pub fn p() {}\n");
     let unixy = root.write("src/unixy.rs", "pub fn p() {}\n");
-    let both = root.write("src/both.rs", "pub fn t() {}\n");
+    let both = root.write("src/both_x.rs", "pub fn t() {}\n");
     let index = index(&root);
     assert!(index.test_path(&real));
     assert!(index.test_path(&both));
     assert!(!index.test_path(&plain));
     assert!(!index.test_path(&unixy));
+}
+
+/// `rustc --emit=dep-info` with `--test` reads `a.rs`, `b.rs` and `unix_plain.rs`'s
+/// default-named twin only there: a `cfg_attr` that gives a `path` only outside
+/// test leaves the module its own name under test (oracle matrix, rustc 1.99.1).
+#[test]
+fn a_cfg_attr_path_outside_test_leaves_the_default_file_to_test() {
+    let root = Fixture::new();
+    root.write("Cargo.toml", MANIFEST);
+    root.write(
+        "src/lib.rs",
+        "#[cfg_attr(not(test), path = \"plain_only.rs\")]\npub mod a;\n#[cfg_attr(all(not(test), unix), path = \"unix_plain.rs\")]\npub mod b;\n#[cfg_attr(unix, path = \"unixy.rs\")]\npub mod d;\n",
+    );
+    let a = root.write("src/a.rs", "pub fn t() {}\n");
+    let plain_only = root.write("src/plain_only.rs", "pub fn p() {}\n");
+    let b = root.write("src/b.rs", "pub fn t() {}\n");
+    let unix_plain = root.write("src/unix_plain.rs", "pub fn p() {}\n");
+    let d = root.write("src/d.rs", "pub fn p() {}\n");
+    let unixy = root.write("src/unixy.rs", "pub fn p() {}\n");
+    let index = index(&root);
+    assert!(index.test_path(&a));
+    // Host-dependent (`unix`): no host-free proof, so production.
+    assert!(!index.test_path(&b));
+    assert!(!index.test_path(&plain_only));
+    assert!(!index.test_path(&unix_plain));
+    assert!(!index.test_path(&d));
+    assert!(!index.test_path(&unixy));
+}
+
+/// The first `#[path]` wins in both builds (rustc oracle): a plain `#[path]`
+/// beside `cfg_attr(not(test), path)` leaves no file test-only.
+#[test]
+fn a_plain_path_beside_a_cfg_attr_path_outside_test_is_production() {
+    let root = Fixture::new();
+    root.write("Cargo.toml", MANIFEST);
+    root.write(
+        "src/lib.rs",
+        "#[path = \"own.rs\"]\n#[cfg_attr(not(test), path = \"plain.rs\")]\npub mod m;\n",
+    );
+    let own = root.write("src/own.rs", "pub fn p() {}\n");
+    let m = root.write("src/m.rs", "pub fn p() {}\n");
+    let index = index(&root);
+    assert!(!index.test_path(&own));
+    assert!(!index.test_path(&m));
 }
 
 /// The same form in a parent past the parse limit.
@@ -110,7 +154,7 @@ fn a_binary_in_src_bin_is_a_crate_root_for_its_modules() {
     let always = root.write("src/bin/always.rs", "pub fn p() {}\n");
     let index = index(&root);
     assert!(index.test_path(&gated));
-    assert!(index.mounted_by_name(&gated));
+    assert_eq!(index.placement_by_name(&gated), Placement::Test);
     assert!(!index.test_path(&always));
 }
 

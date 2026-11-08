@@ -39,7 +39,7 @@ pub fn stamp_stats() -> usize {
 }
 
 /// `path`'s [`cache_stamp`]; with `settled_before`, only when it was last
-/// written at least [`SourceStamp::SETTLE`] before then.
+/// written at least [`SourceStamp::settle_for`] before then.
 fn stamp_of(path: &Path, link: Link, settled_before: Option<SystemTime>) -> Option<SourceStamp> {
     #[cfg(any(test, feature = "test-hooks"))]
     STAMP_STATS.with(|stats| stats.set(stats.get() + 1));
@@ -108,7 +108,7 @@ impl Proof {
     }
 
     /// The stamps of `paths`, all of which exist; `None` when one is gone, or,
-    /// with `settled_before`, was written within [`SourceStamp::SETTLE`] before
+    /// with `settled_before`, was written within [`SourceStamp::settle_for`] before
     /// it (a write could race the reads the proof is taken for).
     #[must_use]
     pub fn capture(
@@ -177,14 +177,11 @@ impl Proof {
     /// Nothing stamped was written within the settle window before `started`.
     #[must_use]
     pub fn settled_before(&self, started: SystemTime) -> bool {
-        let Some(settled_ns) = started
-            .checked_sub(SourceStamp::SETTLE)
-            .and_then(epoch_nanos)
-        else {
+        let Some(started_ns) = epoch_nanos(started) else {
             return false;
         };
         self.0.iter().all(|(_, seen)| match seen {
-            Seen::Stamp(_, Some(stamp)) => stamp.modified_ns.max(stamp.changed_ns) <= settled_ns,
+            Seen::Stamp(_, Some(stamp)) => stamp.settled_by(started_ns),
             Seen::Stamp(_, None) | Seen::Presence(_) => true,
         })
     }

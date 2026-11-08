@@ -9,7 +9,7 @@ fn line_counts_only_read_the_selected_page() {
     for name in ["a.rs", "b.rs", "c.rs"] {
         std::fs::write(root.0.join(name), "one\ntwo\n").expect("source");
     }
-    let before = super::super::rows::line_count_reads();
+    let before = super::super::rows::line_count_reads(&root.0);
     let first = run_budget(
         &root.0,
         json!({"operation":"files","path":root.0,"sort":{"by":"name","order":"asc"},"limit":4}),
@@ -17,7 +17,7 @@ fn line_counts_only_read_the_selected_page() {
     )
     .expect("listing");
     assert_eq!(listed(&first).len(), 1);
-    assert_eq!(super::super::rows::line_count_reads() - before, 1);
+    assert_eq!(super::super::rows::line_count_reads(&root.0) - before, 1);
 }
 
 #[test]

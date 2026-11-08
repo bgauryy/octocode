@@ -6,12 +6,14 @@ mod cut;
 mod handles;
 mod telemetry;
 mod window;
-pub(crate) use cut::measure_page;
+pub use cut::budgeted_chars;
+pub(crate) use cut::unflag_fitting;
 use cut::{cut_rows, pagination_block_chars};
 use octocode_io::cancellation::Cancellation;
 use serde_json::{Map, Value};
 use std::sync::OnceLock;
 use telemetry::take_volatile_fields;
+pub(super) use telemetry::volatile_chars;
 use window::{build_continuation, page_cursor};
 
 use super::page_model::{ResponsePageOptions, ResponsePagination};
@@ -104,7 +106,8 @@ fn row_source(
     cancelled: &Cancellation,
 ) -> Result<RowSource, ResponseError> {
     // Row pages re-attach per-call provider facts to the row they came
-    // from; the snapshot and page plan never see them.
+    // from after the cut; the snapshot, page plan and page measure never
+    // see them.
     let volatile = take_volatile_fields(&mut structured);
     let envelope = fingerprint(&mut structured).ok_or(ResponseError::Unserializable)?;
     RowSource::new(

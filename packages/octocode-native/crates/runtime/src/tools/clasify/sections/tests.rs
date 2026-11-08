@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 fn test_context(timeout: Duration) -> ExecutionContext {
     ExecutionContext {
         cancellation: octocode_io::cancellation::Cancellation::new(),
-        deadline: Instant::now() + timeout,
+        deadline: Some(Instant::now() + timeout),
         response_window: None,
         github_credential: None,
     }

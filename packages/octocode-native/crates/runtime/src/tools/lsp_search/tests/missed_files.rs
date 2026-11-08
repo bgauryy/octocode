@@ -87,7 +87,6 @@ fn references_with(
     sibling_files: &[(&str, &str)],
     empty: bool,
 ) -> Value {
-    use std::os::unix::fs::PermissionsExt;
     let dir = crate::tools::test_support::Fixture::new();
     let root = dir.0.canonicalize().expect("canonical root");
     std::fs::create_dir_all(root.join(".git")).expect("repository");
@@ -96,8 +95,7 @@ fn references_with(
         BEHAVIOUR,
         &format!("const elsewhere = {elsewhere}; const empty = {empty};"),
     );
-    std::fs::write(&script, server).expect("script");
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    crate::tools::lsp_search::tests::write_executable(&script, server.as_bytes());
     let anchor = root.join(format!("a.{extension}"));
     std::fs::write(&anchor, "function helper() {}\nhelper();\n").expect("anchor");
     for (name, content) in anchor_files {
@@ -175,6 +173,35 @@ fn an_answer_listing_uses_is_partial_while_another_project_may_hold_one() {
             json!(["serverUnanswered"]),
             "{language}: {row}"
         );
+        assert_ne!(
+            row.pointer("/coverage/state"),
+            Some(&json!("complete")),
+            "{language}: {row}"
+        );
+    }
+}
+
+/// A sibling project under an ignored path is one the server never loaded, as
+/// much as a visible one: the row never reads complete while an ignored file
+/// spells the name, and it says what the ignore rules hid.
+#[test]
+fn a_sibling_project_under_an_ignored_path_is_not_complete() {
+    if !crate::tools::test_support::require_node() {
+        return;
+    }
+    for (language, extension) in CHECKED {
+        let (name, content) = project_file(extension);
+        let row = references_with(
+            language,
+            extension,
+            false,
+            true,
+            &[(".gitignore", "b/\n")],
+            &[(name, content)],
+            false,
+        );
+        assert_eq!(row["matchCount"], 2, "{language}: {row}");
+        assert_eq!(row["isPartial"], true, "{language}: {row}");
         assert_ne!(
             row.pointer("/coverage/state"),
             Some(&json!("complete")),
@@ -291,6 +318,36 @@ fn a_dependent_project_is_named_with_its_count_and_a_search_of_it() {
         });
         assert!(searched, "{language}: {row}");
     }
+}
+
+/// A package that `include!`s build-script output makes a file that spells the
+/// name a possible missed use of a type the server never saw. Two `fn helper`
+/// of different types are not that: the definition check finds the other file's
+/// spelling names its own symbol, so the row is complete with build scripts off.
+#[test]
+fn another_symbol_of_the_name_is_not_blamed_on_build_scripts() {
+    if !crate::tools::test_support::require_node() {
+        return;
+    }
+    let package = [
+        ("Cargo.toml", "[package]\nname = \"a\"\n"),
+        ("build.rs", "fn main() {}\n"),
+        (
+            "generated.rs",
+            "include!(concat!(env!(\"OUT_DIR\"), \"/out.rs\"));\n",
+        ),
+    ];
+    let own = references_with("rust", "rs", true, false, &package, &[], false);
+    assert_eq!(own["matchCount"], 2, "{own}");
+    assert_ne!(own["isPartial"], true, "{own}");
+    // A spelling the server cannot place stays a possible missed use.
+    let unplaced = references_with("rust", "rs", false, false, &package, &[], false);
+    assert!(
+        unplaced["partialReasons"]
+            .as_array()
+            .is_some_and(|reasons| reasons.contains(&json!("buildScriptsOff"))),
+        "{unplaced}"
+    );
 }
 
 /// A Rust server that has not taken in an edit, or not loaded the files, answers

@@ -162,9 +162,12 @@ pub(super) fn scoped_fragment_read(
             Some((_, super::lines::FileHits::Missing)) => return None,
             // At a ref, an unmatched or unread top file has no fragment read:
             // its fragment is default-branch text.
-            Some((_, super::lines::FileHits::Unmatched | super::lines::FileHits::Unavailable))
-                if resolution.reference.is_some() =>
-            {
+            Some((
+                _,
+                super::lines::FileHits::Unmatched
+                | super::lines::FileHits::Unavailable
+                | super::lines::FileHits::Oversized,
+            )) if resolution.reference.is_some() => {
                 return None;
             }
             // An owner-wide row without an indexed commit reads the

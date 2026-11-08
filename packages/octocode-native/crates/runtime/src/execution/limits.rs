@@ -30,6 +30,9 @@ pub struct RuntimeLimits {
     /// Client-side GitHub request spacing: octokit's in production; tests
     /// that do not exercise throttling run unpaced.
     pub github_pacing: octocode_github::GitHubPacing,
+    /// OSV's API base, securityCheck's source of known vulnerabilities: the
+    /// public API in production; tests point it at a mock server.
+    pub osv_api: &'static str,
 }
 
 /// One page of classification or one `sections` batch.
@@ -53,6 +56,7 @@ impl RuntimeLimits {
         classification_concurrency: 10,
         selection: SelectionLimits { max_chars: 131_072 },
         github_pacing: octocode_github::GitHubPacing::Octokit,
+        osv_api: "https://api.osv.dev/v1",
     };
 }
 

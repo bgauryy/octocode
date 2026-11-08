@@ -15,7 +15,9 @@ use octocode_github::{
     GitHubEndpoint, GitHubProvider, ProviderError, RequestContext, ResolvedCredential,
 };
 use pin::pin;
+#[cfg(test)]
 use plan::execute_clone;
+use plan::{execute_prepared, prepare_clone};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -107,6 +109,8 @@ impl CloneConfig {
 pub struct CloneContext<'a> {
     pub config: &'a CloneConfig,
     pub endpoint: &'a GitHubEndpoint,
+    /// Network git admission: the API transport's budget, waits on the row.
+    pub git_limiter: octocode_github::GitLimiter,
     pub credential: Option<&'a ResolvedCredential>,
     pub cancellation: &'a dyn CancellationCheck,
     pub deadline: Instant,
@@ -254,7 +258,16 @@ pub async fn run(
     let provider = &provider;
     let request = request.map_err(CloneFailure::Provider)?;
     validate_query(query).map_err(CloneFailure::Clone)?;
-    let pin = pin(provider, query, request).await?;
+    // Git and the clones root need no commit: they are set up while the API
+    // answers the pin (the request is sent when `pin` is first polled, so it
+    // is in flight while the blocking setup runs). The pin's failure comes
+    // first, as it did when the setup waited for it.
+    let (pin, prepared) = futures_util::future::join(pin(provider, query, request), async {
+        prepare_clone(context)
+    })
+    .await;
+    let pin = pin?;
+    prepared.map_err(CloneFailure::from)?;
     let decode = |error: octocode_contract_types::error::ConversionError| {
         CloneFailure::Clone(CloneError::new(ErrorCode::InvalidInput, error.to_string()))
     };
@@ -264,7 +277,7 @@ pub async fn run(
         ref_: Some(pin.commit.parse().map_err(decode)?),
         ..query.clone()
     };
-    let mut result = execute_clone(&pinned, context).map_err(CloneFailure::from)?;
+    let mut result = execute_prepared(&pinned, context).map_err(CloneFailure::from)?;
     result.location.resolved_ref = pin.label;
     if pin.renamed {
         result

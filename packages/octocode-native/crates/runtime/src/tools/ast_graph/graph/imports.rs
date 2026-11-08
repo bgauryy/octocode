@@ -118,7 +118,7 @@ impl FileLink<'_, '_> {
                 name: d.name,
                 kind: d.kind,
                 line: d.line,
-                end_line: d.line + d.range.end.line.saturating_sub(d.range.start.line),
+                end_line: d.range.end.line + 1,
                 exported: d.exported,
                 exported_as: d.exported_as,
                 parent: d.parent,

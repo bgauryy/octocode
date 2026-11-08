@@ -298,7 +298,6 @@ pub(super) fn attach_provider_context(
     if let Some(lsp) = lsp {
         lsp.insert("serverAvailable".into(), json!(true));
         settle_provider(lsp, lsp_search_query::operation(query));
-        settle_source(lsp, anchored);
     }
     if anchored {
         let mut ordered = serde_json::Map::new();
@@ -318,9 +317,9 @@ pub(super) fn attach_provider_context(
 /// The anchor receipt a row shows: what the request did not say, the line a
 /// symbol moved to off its `line`. A symbol found on its `line`
 /// (only its column is new) restates the request: no receipt.
-/// A server answer is `source:"lsp"`, implied on anchored rows and stated
-/// on the others. A degraded source another stage set (a native scan that
-/// stood in for the server) is kept: it is what the row's evidence rests on.
+/// A server answer carries no `source` (`lsp.level` names the engine); a
+/// degraded source another stage set (a native scan that stood in for the
+/// server) is kept: it is what the row's evidence rests on.
 /// The row's provider is the capability that answered: a fallback names its
 /// own (`implementationProvider` for `subtypes`); every other row names the
 /// operation's.
@@ -330,21 +329,6 @@ pub(super) fn settle_provider(lsp: &mut serde_json::Map<String, Value>, operatio
     }
     if let Some(provider) = provider_for_operation(operation) {
         lsp.insert("provider".into(), json!(provider));
-    }
-}
-
-fn settle_source(lsp: &mut serde_json::Map<String, Value>, anchored: bool) {
-    if lsp
-        .get("source")
-        .and_then(Value::as_str)
-        .is_some_and(|source| source != "lsp")
-    {
-        return;
-    }
-    if anchored {
-        lsp.remove("source");
-    } else {
-        lsp.insert("source".into(), json!("lsp"));
     }
 }
 
@@ -388,6 +372,3 @@ pub(super) fn drop_same_uri(value: &mut Value, canonical_uri: &str) {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

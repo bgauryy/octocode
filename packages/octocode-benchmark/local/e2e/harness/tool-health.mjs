@@ -41,9 +41,11 @@ import { ADVANCED } from './tool-health/advanced.mjs';
 import { createDriver } from './tool-health/driver.mjs';
 import { transportPagesProblem } from './tool-health/compare.mjs';
 import { runTool } from './tool-health/run-tool.mjs';
-import { startSurfaces } from './tool-health/surfaces.mjs';
+import { startSurfaces, unattributed } from './tool-health/surfaces.mjs';
 import { formatCheckSummary, summarizeChecks } from './tool-health/check-summary.mjs';
 import { createInputCoverage, primaryInputChecks } from './tool-health/input-coverage.mjs';
+import { snapshotBuild } from './build-snapshot.mjs';
+snapshotBuild();
 
 const started = performance.now();
 const FIXTURE = path.join(FIXTURES, 'tool-health');
@@ -123,6 +125,9 @@ try {
   });
   await Promise.all(workers);
   report.tools = contractTools.filter(t => results.has(t)).map(t => results.get(t));
+  // Checks count provider work by credential; a request without one would pass them unseen.
+  report.attribution = { unattributed: unattributed(surfaces.ctx) };
+  if (report.attribution.unattributed.length) { console.log(`FAIL attribution.complete — ${report.attribution.unattributed.length} provider request(s) carry no call's credential, first: ${report.attribution.unattributed.slice(0, 3).join('; ')}`); exitCode = 1; }
 } catch (error) {
   console.log(`FAIL harness — ${error.stack ?? error}`);
   exitCode = 1;

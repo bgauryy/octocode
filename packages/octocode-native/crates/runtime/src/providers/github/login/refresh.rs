@@ -58,11 +58,13 @@ async fn acquire_refresh_lock(
         )
     };
     // Creating the directory and opening the file touch the disk, so they run
-    // off the async executor.
+    // off the async executor. The lock lives under an Octocode home (the
+    // resolved one, or `~/.octocode` for a platform credential): its new
+    // directories are private like the rest of the home.
     let lock_path = path.to_path_buf();
     let mut file = tokio::task::spawn_blocking(move || {
         if let Some(parent) = lock_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            octocode_io::atomic::create_private_dir_all(parent)?;
         }
         octocode_io::lock::open_lock_file(&lock_path)
     })

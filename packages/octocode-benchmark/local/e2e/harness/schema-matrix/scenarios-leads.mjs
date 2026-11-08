@@ -77,23 +77,28 @@ const STRUCTURE = [
 const searchAnswer = body => request => (request.p === '/search/repositories' ? { body } : null);
 const MISSING_VERSION = { operation: 'resolve', ecosystem: 'npm', packageName: 'tiny-health', version: '9.9.9', registryUrl: '$MOCK' };
 
+const failureText = report => report.failures.map(failure => failure.detail).join('; ');
+const sameIdentity = query => query.operation === 'resolve' && query.ecosystem === MISSING_VERSION.ecosystem && query.packageName === MISSING_VERSION.packageName;
+
+/** The nearest-version read a missing version offers, or why it is wrong. */
+function nearestVersionLead(data) {
+  if (data?.next?.repair) return { problem: 'a different version must be an optional related read' };
+  const lead = data?.related?.find(call => call.tool === 'artifactSearch');
+  if (lead?.kind !== 'related' || !lead.input?.queries?.length) return { problem: 'nearest-version related read missing' };
+  const changed = lead.input.queries.some(query => !sameIdentity(query) || !query.version || query.version === MISSING_VERSION.version);
+  return changed ? { problem: 'nearest-version read changed package identity or repeated the missing version' } : { lead };
+}
+
 async function readNearestVersions({ walk }) {
   const first = await walk('artifactSearch', { queries: [MISSING_VERSION] });
-  if (first.failures.length) return first.failures.map(failure => failure.detail).join('; ');
-  const data = first.pages[0]?.json?.results?.[0]?.data;
-  if (data?.next?.repair) return 'a different version must be an optional related read';
-  const lead = data?.related?.find(call => call.tool === 'artifactSearch');
-  if (lead?.kind !== 'related' || !lead.input?.queries?.length) return 'nearest-version related read missing';
-  const queries = lead.input.queries;
-  if (queries.some(query => query.operation !== 'resolve' || query.ecosystem !== MISSING_VERSION.ecosystem
-    || query.packageName !== MISSING_VERSION.packageName || !query.version || query.version === MISSING_VERSION.version)) {
-    return 'nearest-version read changed package identity or repeated the missing version';
-  }
+  if (first.failures.length) return failureText(first);
+  const { problem, lead } = nearestVersionLead(first.pages[0]?.json?.results?.[0]?.data);
+  if (problem) return problem;
   const read = await walk(lead.tool, lead.input);
-  if (read.failures.length) return read.failures.map(failure => failure.detail).join('; ');
+  if (read.failures.length) return failureText(read);
   const versions = new Set(read.pages.flatMap(page => page.json?.results ?? [])
     .flatMap(row => row.data?.artifacts ?? []).map(artifact => artifact.version));
-  return queries.every(query => versions.has(query.version)) ? null : 'related read did not resolve every offered version';
+  return lead.input.queries.every(query => versions.has(query.version)) ? null : 'related read did not resolve every offered version';
 }
 
 const PROVIDER_SHAPES = [

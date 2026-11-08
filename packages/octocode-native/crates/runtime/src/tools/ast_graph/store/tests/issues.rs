@@ -380,3 +380,65 @@ fn by_detector_reconciles_with_the_listed_total_through_the_filter() {
     );
     assert!(!notes(&all).contains("byDetector"), "{}", all.value);
 }
+
+/// The `graphBuild` call a note's text offers: the JSON row after the tool name.
+fn offered_build(text: &str) -> Value {
+    let start = text.find("graphBuild ").expect("a graphBuild lead") + "graphBuild ".len();
+    serde_json::Deserializer::from_str(&text[start..])
+        .into_iter::<Value>()
+        .next()
+        .expect("a row")
+        .expect("json")
+}
+
+/// The wider build the missing-manifest note offers rebuilds the snapshot's
+/// scope above its root: the walk, `exclude` and `parserGlobs` it was built
+/// with come along, their root-relative globs rebased onto the new root.
+#[test]
+fn the_manifest_above_lead_carries_the_snapshots_whole_scope() {
+    use crate::tools::ast_graph::walk_scope::WalkScope;
+    use octocode_engine::types::IgnorePolicy;
+    let dir = fixture();
+    dir.write("package.json", "{\"name\":\"repo\"}");
+    let built = ingest(
+        &IngestOptions {
+            path: dir.0.join("app"),
+            workspace: Some(dir.0.to_path_buf()),
+            exclude: vec!["*.gen.ts".into(), "/src/skip".into()],
+            walk: WalkScope {
+                ignore: IgnorePolicy {
+                    include_ignored: false,
+                    include_hidden: true,
+                },
+                ..WalkScope::default()
+            },
+            language_globs: BTreeMap::from([("cpp".to_owned(), vec!["inc/*.h".to_owned()])]),
+            ..Default::default()
+        },
+        &workspace_policy(dir.0.as_path()),
+        &ContentSecurity::new(),
+        &NeverCancel,
+        None,
+    );
+    assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+    let issues = ask(dir.0.as_path(), "issues", None, |_| {});
+    let note = issues.value["summary"]["notes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|note| note["skipped"].as_str())
+        .find(|text| text.contains("holds package.json"))
+        .unwrap_or_else(|| panic!("no missing-manifest note: {}", issues.value));
+    assert_eq!(
+        offered_build(note),
+        json!({
+            "path": ".",
+            "exclude": ["*.gen.ts", "/app/src/skip"],
+            "parserGlobs": {"cpp": ["/app/inc/*.h"]},
+            "includeHidden": true,
+            "includeIgnored": false,
+            "defaultExcludes": true,
+        }),
+        "{note}"
+    );
+}

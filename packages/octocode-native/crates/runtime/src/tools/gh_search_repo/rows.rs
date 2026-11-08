@@ -83,7 +83,7 @@ pub(super) fn repository_row(
     if item.fork {
         row["fork"] = json!(true);
     }
-    if let Some(visibility) = not_public(&item.visibility, item.private) {
+    if let Some(visibility) = not_public(&item.visibility, item.private.unwrap_or(false)) {
         row["visibility"] = json!(visibility);
     }
     if !topics.is_empty() {

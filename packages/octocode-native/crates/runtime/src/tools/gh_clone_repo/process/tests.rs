@@ -379,3 +379,49 @@ fn scrub_redacts_the_bare_basic_credential() {
         crate::tools::test_support::checks::assert_absent(&serde_json::json!(scrubbed), secret);
     }
 }
+
+/// A pid that no process owns: a child that has exited and been reaped.
+#[cfg(unix)]
+fn dead_pid() -> u32 {
+    let mut child = Command::new("true").spawn().expect("spawn");
+    let pid = child.id();
+    child.wait().expect("wait");
+    pid
+}
+
+/// The next git run removes the helper directories killed runs left, and
+/// only those: a directory owned by a live process, one not named like this
+/// tool's, and a symlink all stay.
+#[cfg(unix)]
+#[test]
+fn the_next_run_sweeps_askpass_directories_of_dead_runs_only() {
+    let home = crate::tools::test_support::Fixture::new();
+    let nonce = "0123456789abcdef0123456789abcdef";
+    let stale = home.0.join(format!("askpass-{}-{nonce}", dead_pid()));
+    let live = home
+        .0
+        .join(format!("askpass-{}-{nonce}", std::process::id()));
+    let mut sleeper = Command::new("sleep").arg("30").spawn().expect("sleep");
+    let other_live = home.0.join(format!("askpass-{}-{nonce}", sleeper.id()));
+    let unrelated = home.0.join("askpass-notes");
+    let target = home.0.join("elsewhere");
+    let link = home
+        .0
+        .join(format!("askpass-{}-{nonce}", dead_pid() + 1_000_000));
+    for dir in [&stale, &live, &other_live, &unrelated, &target] {
+        std::fs::create_dir(dir).expect("dir");
+    }
+    std::fs::write(stale.join("askpass"), "#!/bin/sh\n").expect("file");
+    std::os::unix::fs::symlink(&target, &link).expect("symlink");
+
+    let helper = AskPass::create(&home.0, "ghp_secretToken123", "https://github.com/o/r.git")
+        .expect("helper");
+    let created = helper.script.parent().expect("dir").to_path_buf();
+    sleeper.kill().expect("kill");
+    sleeper.wait().expect("wait");
+
+    assert!(!stale.exists(), "a dead run's directory is removed");
+    assert!(live.exists() && other_live.exists(), "live runs stay");
+    assert!(unrelated.exists() && target.exists() && link.exists());
+    assert!(created.exists(), "the new helper stays until dropped");
+}

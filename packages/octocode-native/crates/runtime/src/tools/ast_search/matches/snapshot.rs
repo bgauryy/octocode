@@ -73,24 +73,29 @@ pub(super) fn interrupted_rescan(q: MatchQuery<'_>, scan: &Scan) -> Option<ToolE
     Some(error)
 }
 
-/// The match-row shape a snapshot was cut under; bumped by every row rename.
-pub(super) const MATCH_ROWS_VERSION: u32 = 5;
-
 /// Fingerprint over the query shape, ordered result set and scanned source bytes.
-/// Continuation cursors (page>1 or matchPage>1) that
+/// Continuation cursors (page>1) that
 /// carry a stale snapshot are rejected with `staleSnapshot`. Fields the
 /// continuation normalizes to a default are digested by their effective
-/// value so a fresh page matches.
-pub(super) fn match_snapshot(q: MatchQuery<'_>, scope: &Scope, scan: &Scan) -> String {
+/// value so a fresh page matches. `build` is the identity of the build that
+/// shapes the rows and cuts the pages (production passes
+/// [`crate::build_identity::BUILD_IDENTITY`]); it is an input, so the digest is
+/// a pure function of what it binds.
+pub(super) fn match_snapshot_under(
+    build: &str,
+    q: MatchQuery<'_>,
+    scope: &Scope,
+    scan: &Scan,
+) -> String {
     let ordered = scan
         .files
         .iter()
         .map(|f| (f.path.clone(), f.matches.len()))
         .collect::<Vec<_>>();
     let bound = json!([
-        // Row shape version (v4: `matchCount`, object rows, 1-based columns); an older cursor
-        // restarts instead of mixing shapes across pages.
-        MATCH_ROWS_VERSION,
+        // The build that shaped the rows and cut the pages: a cursor of another
+        // build restarts instead of mixing shapes across pages.
+        build,
         scan_fields(q, scope),
         q.scan_offset(),
         &scan.source_digest,

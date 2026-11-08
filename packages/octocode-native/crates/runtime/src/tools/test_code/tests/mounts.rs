@@ -12,7 +12,7 @@ mod texts;
 /// and parsed.
 struct EveryParentParsed<'a> {
     index: &'a TestCodeIndex,
-    mounted: RefCell<HashMap<PathBuf, bool>>,
+    mounted: RefCell<HashMap<PathBuf, Option<bool>>>,
     targets: RefCell<HashMap<PathBuf, Arc<Targets>>>,
 }
 
@@ -33,30 +33,39 @@ impl<'a> EveryParentParsed<'a> {
     }
 
     fn test_path(&self, path: &Path) -> bool {
-        self.index.by_spelling(path) || self.mounted_under_test(path)
+        self.placement(path)
+            .unwrap_or_else(|| self.index.by_spelling(path))
     }
 
-    fn mounted_under_test(&self, path: &Path) -> bool {
+    /// Whether the mounts place the file in test code (`Some(true)`) or in
+    /// production code; `None` when no parent is found to mount it.
+    fn placement(&self, path: &Path) -> Option<bool> {
         if !TestCodeIndex::may_hold_test_code(path) || module_name(path).is_none() {
-            return false;
+            return None;
         }
         if let Some(under_test) = self.index.crate_target(path) {
-            return under_test;
+            return Some(under_test);
         }
         if let Some(known) = self.mounted.borrow().get(path) {
             return *known;
         }
-        self.mounted.borrow_mut().insert(path.to_path_buf(), false);
+        self.mounted.borrow_mut().insert(path.to_path_buf(), None);
         let target = octocode_engine::text::lexical(path);
-        let mounted = self.parents_of(path).iter().any(|parent| {
+        let mut placed = None;
+        for parent in self.parents_of(path).iter() {
             let targets = self.targets(parent);
-            targets.gated.contains(&target)
+            if targets.gated.contains(&target)
                 || (targets.any.contains(&target) && self.test_path(parent))
-        });
-        self.mounted
-            .borrow_mut()
-            .insert(path.to_path_buf(), mounted);
-        mounted
+            {
+                placed = Some(true);
+                break;
+            }
+            if targets.any.contains(&target) {
+                placed = Some(false);
+            }
+        }
+        self.mounted.borrow_mut().insert(path.to_path_buf(), placed);
+        placed
     }
 
     fn targets(&self, parent: &Path) -> Arc<Targets> {
@@ -115,7 +124,7 @@ impl<'a> EveryParentParsed<'a> {
     }
 }
 
-fn rust_files(root: &Path) -> Vec<PathBuf> {
+pub(super) fn rust_files(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     let mut dirs = vec![root.to_path_buf()];
     while let Some(dir) = dirs.pop() {
@@ -146,9 +155,13 @@ fn assert_same_mounts(root: &Path) {
             file.display(),
             std::fs::read_to_string(root.join("src/lib.rs")).unwrap_or_default()
         );
-        assert!(
-            verdict || !unread.test_path_unread(&file),
-            "left unread as test code, though it is not: {}",
+        // Left unread as test code only when the by-name verdict and the full
+        // one both say test.
+        let by_name = unread.placed_as_test(&file, unread.placement_by_name(&file));
+        assert_eq!(
+            unread.test_path_unread(&file),
+            by_name && verdict,
+            "by name {by_name}, in full {verdict}: {}",
             file.display()
         );
     }

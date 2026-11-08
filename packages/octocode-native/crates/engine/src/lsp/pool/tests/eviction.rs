@@ -6,7 +6,7 @@ async fn idle_servers_are_evicted_oldest_first_when_resident_memory_exceeds_the_
     let mut clients = Vec::new();
     for id in 1..=3 {
         let client = pool
-            .acquire(id.to_string(), || async move {
+            .acquire(id.to_string(), id.to_string(), || async move {
                 Ok(Some(FakeClient::new(id).resident(600)))
             })
             .await
@@ -26,7 +26,7 @@ async fn idle_servers_are_evicted_oldest_first_when_resident_memory_exceeds_the_
 async fn a_busy_server_is_never_evicted_for_memory() {
     let pool = pool_with_memory_budget(1_000);
     let busy = pool
-        .acquire("1".into(), || async {
+        .acquire("1".into(), "1".into(), || async {
             Ok(Some(FakeClient::new(1).resident(900)))
         })
         .await
@@ -34,7 +34,7 @@ async fn a_busy_server_is_never_evicted_for_memory() {
         .expect("client");
     busy.busy.store(true, Ordering::SeqCst);
     let _ = pool
-        .acquire("2".into(), || async {
+        .acquire("2".into(), "2".into(), || async {
             Ok(Some(FakeClient::new(2).resident(900)))
         })
         .await
@@ -53,7 +53,7 @@ async fn an_unbounded_memory_budget_evicts_nothing() {
     let pool = pool_with_memory_budget(0);
     for id in 1..=3 {
         let _ = pool
-            .acquire(id.to_string(), || async move {
+            .acquire(id.to_string(), id.to_string(), || async move {
                 Ok(Some(FakeClient::new(id).resident(u64::MAX / 8)))
             })
             .await
@@ -68,7 +68,9 @@ async fn an_unbounded_memory_budget_evicts_nothing() {
 async fn overflow_eviction_during_validate_restarts_instead_of_hanging() {
     let pool = Arc::new(pool(1, 60_000));
     let client = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(1)))
+        })
         .await
         .expect("install")
         .expect("client");
@@ -77,8 +79,10 @@ async fn overflow_eviction_during_validate_restarts_instead_of_hanging() {
     let validating = {
         let pool = Arc::clone(&pool);
         tokio::spawn(async move {
-            pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
-                .await
+            pool.acquire("k".into(), "k".into(), || async {
+                Ok(Some(FakeClient::new(2)))
+            })
+            .await
         })
     };
     tokio::time::timeout(Duration::from_secs(1), async {
@@ -89,7 +93,9 @@ async fn overflow_eviction_during_validate_restarts_instead_of_hanging() {
     .await
     .expect("validate must reach resume");
     let _other = pool
-        .acquire("other".into(), || async { Ok(Some(FakeClient::new(9))) })
+        .acquire("other".into(), "other".into(), || async {
+            Ok(Some(FakeClient::new(9)))
+        })
         .await
         .expect("other")
         .expect("client");
@@ -108,21 +114,29 @@ async fn overflow_eviction_during_validate_restarts_instead_of_hanging() {
 async fn successful_use_drives_lru_eviction() {
     let pool = pool(2, 60_000);
     let one = pool
-        .acquire("1".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .acquire("1".into(), "1".into(), || async {
+            Ok(Some(FakeClient::new(1)))
+        })
         .await
         .expect("one")
         .expect("client");
     let two = pool
-        .acquire("2".into(), || async { Ok(Some(FakeClient::new(2))) })
+        .acquire("2".into(), "2".into(), || async {
+            Ok(Some(FakeClient::new(2)))
+        })
         .await
         .expect("two")
         .expect("client");
     let _ = pool
-        .acquire("1".into(), || async { Ok(Some(FakeClient::new(9))) })
+        .acquire("1".into(), "1".into(), || async {
+            Ok(Some(FakeClient::new(9)))
+        })
         .await
         .expect("touch");
     let _ = pool
-        .acquire("3".into(), || async { Ok(Some(FakeClient::new(3))) })
+        .acquire("3".into(), "3".into(), || async {
+            Ok(Some(FakeClient::new(3)))
+        })
         .await
         .expect("three");
     assert_eq!(one.stops.load(Ordering::SeqCst), 0);
@@ -133,13 +147,17 @@ async fn successful_use_drives_lru_eviction() {
 async fn lru_eviction_never_stops_a_busy_client_and_evicts_it_once_idle() {
     let pool = pool(1, 60_000);
     let busy = pool
-        .acquire("busy".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .acquire("busy".into(), "busy".into(), || async {
+            Ok(Some(FakeClient::new(1)))
+        })
         .await
         .expect("busy")
         .expect("client");
     busy.busy.store(true, Ordering::SeqCst);
     let fresh = pool
-        .acquire("fresh".into(), || async { Ok(Some(FakeClient::new(2))) })
+        .acquire("fresh".into(), "fresh".into(), || async {
+            Ok(Some(FakeClient::new(2)))
+        })
         .await
         .expect("fresh")
         .expect("client");
@@ -152,7 +170,9 @@ async fn lru_eviction_never_stops_a_busy_client_and_evicts_it_once_idle() {
 
     busy.busy.store(false, Ordering::SeqCst);
     let _ = pool
-        .acquire("fresh".into(), || async { Ok(Some(FakeClient::new(3))) })
+        .acquire("fresh".into(), "fresh".into(), || async {
+            Ok(Some(FakeClient::new(3)))
+        })
         .await
         .expect("touch");
     assert_eq!(
@@ -168,18 +188,24 @@ async fn lru_eviction_never_stops_a_busy_client_and_evicts_it_once_idle() {
 async fn eviction_skips_busy_oldest_and_takes_next_idle() {
     let pool = pool(2, 60_000);
     let oldest = pool
-        .acquire("1".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .acquire("1".into(), "1".into(), || async {
+            Ok(Some(FakeClient::new(1)))
+        })
         .await
         .expect("one")
         .expect("client");
     oldest.busy.store(true, Ordering::SeqCst);
     let second = pool
-        .acquire("2".into(), || async { Ok(Some(FakeClient::new(2))) })
+        .acquire("2".into(), "2".into(), || async {
+            Ok(Some(FakeClient::new(2)))
+        })
         .await
         .expect("two")
         .expect("client");
     let _ = pool
-        .acquire("3".into(), || async { Ok(Some(FakeClient::new(3))) })
+        .acquire("3".into(), "3".into(), || async {
+            Ok(Some(FakeClient::new(3)))
+        })
         .await
         .expect("three");
     assert_eq!(oldest.stops.load(Ordering::SeqCst), 0);

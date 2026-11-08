@@ -4,7 +4,7 @@ use super::super::types::{
     ExtractionError, LineRange, NextCalls, RegexSpans, line_read, local_fetch_query,
 };
 use super::search_lead::match_limit_lead;
-use super::spans::{MAX_REGEX_MATCHES, hit_lines, match_spans};
+use super::spans::{hit_lines, match_spans, span_budget};
 use super::{Extraction, LineOffsets, first_unseen, follow_up, merge_ranges, windows_text};
 use octocode_contract_types::{ErrorCode, LocalFetchQuery};
 
@@ -100,12 +100,19 @@ pub(super) fn match_extract(
     let RegexSpans {
         mut spans,
         truncated,
+        held: _spans_held,
     } = match_spans(q, content, patterns)?;
     let regions = ranged_spans(q, lines, &mut spans)?;
     let hits = hit_lines(lines, &spans);
     // The last line the capped scan reached: matches after it went unseen.
     let limit_line = truncated.then(|| hits.last().copied()).flatten();
     if hits.is_empty() {
+        let mut next = NextCalls::default();
+        let mut warnings = vec![];
+        if truncated {
+            warnings.push(match_limit_warning(None));
+            next.text_search = match_limit_lead(q, patterns);
+        }
         return Ok(Extraction {
             text: String::new(),
             source_lines: Some(vec![]),
@@ -114,10 +121,10 @@ pub(super) fn match_extract(
             match_ranges: vec![],
             matched_lines: vec![],
             count: Some(0),
-            warnings: vec![],
-            next: NextCalls::default(),
+            warnings,
+            next,
             blocks: vec![],
-            match_limited: false,
+            match_limited: truncated,
         });
     }
     let mut warnings = vec![];
@@ -146,9 +153,7 @@ pub(super) fn match_extract(
     };
     let (text, selected) = windows_text(content, lines, &ranges);
     if let Some(line) = limit_line {
-        warnings.push(format!(
-            "Regex match limit: the scan stopped after {MAX_REGEX_MATCHES} matches at line {line}; matches after it are not selected; narrow the regex to select them."
-        ));
+        warnings.push(match_limit_warning(Some(line)));
         next.text_search = match_limit_lead(q, patterns);
     }
     Ok(Extraction {
@@ -164,4 +169,17 @@ pub(super) fn match_extract(
         blocks,
         match_limited: limit_line.is_some(),
     })
+}
+
+/// The warning of a scan the memory budget stopped, after the last match it
+/// held on `line` (none: before the first).
+fn match_limit_warning(line: Option<usize>) -> String {
+    let at = line.map_or_else(
+        || "before its first match".to_owned(),
+        |line| format!("at line {line}"),
+    );
+    format!(
+        "Regex match limit: the scan stopped {at} because the process memory budget ({} bytes) has no room for more match spans; matches after it are not selected; narrow the regex to select them.",
+        span_budget().limit()
+    )
 }

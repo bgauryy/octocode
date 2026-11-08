@@ -118,7 +118,7 @@ pub(super) fn drop_empty_declared_siblings(
     source: &Value,
     pointer: &str,
     routes: &CollectionRoutes,
-    required: &BTreeSet<String>,
+    required: &dyn Fn(&str) -> bool,
 ) {
     let siblings = collections(row, routes, false)
         .into_iter()
@@ -149,11 +149,10 @@ pub(super) fn drop_empty_declared_siblings(
         if !source.pointer(container).is_some_and(Value::is_array) {
             continue;
         }
-        let key = crate::json_pointer::unescape(key);
-        if !required.contains(&key)
+        if !required(&sibling)
             && let Some(object) = row.pointer_mut(parent).and_then(Value::as_object_mut)
         {
-            object.remove(&key);
+            object.remove(&crate::json_pointer::unescape(key));
         }
     }
 }

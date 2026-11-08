@@ -13,13 +13,15 @@
 //! for the parse is read by a scan that reports the same facts
 //! ([`rust_scan`]); one that cannot be read at all is named by
 //! [`TestCodeIndex::unread`]. A walk's verdict on a file it has yet to read
-//! ([`TestCodeIndex::test_path_unread`]) leaves out `#[path]` mounts, whose cost
-//! only a file with hits or a listed one repays.
+//! ([`TestCodeIndex::test_path_unread`]) asks module roots first; only a file
+//! that verdict would leave out is confirmed against the `#[path]` mounts of
+//! its crate, so a file production mounts is never left out unread.
 use crate::policy::path::PathPolicy;
 use octocode_contract_types::TestCode;
-use octocode_engine::stamp::{Link, Proof, exists};
+use octocode_engine::stamp::{Link, Proof, cache_stamp};
 use octocode_engine::text::{ReadError, Source};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::fs::Metadata;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -27,6 +29,7 @@ use std::time::SystemTime;
 pub(crate) use octocode_engine::types::WHOLE_FILE;
 
 mod crate_targets;
+mod module_heads;
 mod mount_targets;
 mod once_each;
 mod path_declarers;
@@ -35,7 +38,7 @@ mod rust_source;
 mod scoped;
 
 use crate_targets::CrateTargets;
-use mount_targets::{Mount, Parent};
+use mount_targets::{Mount, Parent, Placement};
 use once_each::OnceEach;
 use rust_source::{may_be_test_whole, whole_or};
 pub(crate) use scoped::{Scoped, text_scope};
@@ -67,11 +70,15 @@ pub(crate) struct TestCodeIndex {
     paths: PathPolicy,
     /// Canonical file → its test-only line spans ([`WHOLE_FILE`] for a test file).
     spans: Mutex<HashMap<PathBuf, Arc<Vec<[u32; 2]>>>>,
-    /// Canonical Rust file → mounted only under test.
-    mounted: OnceEach<bool>,
+    /// Canonical Rust file → where its mounts place it.
+    mounted: OnceEach<Placement>,
     /// The same, by what a directory's module roots mount
     /// ([`Self::test_path_unread`]).
-    named: OnceEach<bool>,
+    named: OnceEach<Placement>,
+    /// The same two, when a verdict also looks for the mounts that place a
+    /// file in production ([`Placement::Production`] for any file).
+    placed: OnceEach<Placement>,
+    placed_named: OnceEach<Placement>,
     /// Canonical Rust file → what it can mount.
     parents: OnceEach<Arc<Parent>>,
     /// Directory → the module roots in it or above it that may mount a file
@@ -90,14 +97,29 @@ pub(crate) struct TestCodeIndex {
     /// Rust files a directory's scan read that never spell `cfg`: they hold no
     /// test item, so no verdict reads them again.
     never_cfg: Mutex<HashSet<PathBuf>>,
+    /// Rust file → its text, read from disk once a request whoever asks first:
+    /// the directory scan for `#[path]`, a parent's mounts or a file's spans.
+    texts: OnceEach<Option<Arc<str>>>,
     /// Canonical Rust file → what its parse says, for spans and mounts alike.
     parsed: OnceEach<Arc<Parsed>>,
+    /// Path → what one stat of it found (`None`: nothing there), taken once
+    /// per request and shared by every verdict and the proof ([`Self::probe`]).
+    probes: OnceEach<Option<Arc<Metadata>>>,
+    /// Stats [`Self::probe`] made, by path.
+    #[cfg(test)]
+    stats: Mutex<HashMap<PathBuf, usize>>,
     /// Every path a verdict read or found absent ([`Self::proof`]).
     read: Mutex<BTreeSet<PathBuf>>,
     /// Every Rust file a verdict needed and could not read ([`Self::unread`]).
     unread: Mutex<BTreeSet<PathBuf>>,
     #[cfg(test)]
     parents_parsed: std::sync::atomic::AtomicUsize,
+    /// Parent texts scanned for the modules they name.
+    #[cfg(test)]
+    heads_scanned: Arc<std::sync::atomic::AtomicUsize>,
+    /// Canonical file → times this index read it from disk.
+    #[cfg(test)]
+    disk_reads: Mutex<HashMap<PathBuf, usize>>,
 }
 
 /// What the verdicts ask of a Rust file's parse.
@@ -114,6 +136,8 @@ impl TestCodeIndex {
             spans: Mutex::new(HashMap::new()),
             mounted: OnceEach::new(),
             named: OnceEach::new(),
+            placed: OnceEach::new(),
+            placed_named: OnceEach::new(),
             parents: OnceEach::new(),
             candidates: OnceEach::new(),
             declarers: OnceEach::new(),
@@ -122,11 +146,19 @@ impl TestCodeIndex {
             crate_dirs: OnceEach::new(),
             crate_targets: OnceEach::new(),
             never_cfg: Mutex::default(),
+            texts: OnceEach::new(),
             parsed: OnceEach::new(),
+            probes: OnceEach::new(),
+            #[cfg(test)]
+            stats: Mutex::default(),
             read: Mutex::default(),
             unread: Mutex::default(),
             #[cfg(test)]
             parents_parsed: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
+            heads_scanned: Arc::default(),
+            #[cfg(test)]
+            disk_reads: Mutex::default(),
         }
     }
 
@@ -135,12 +167,35 @@ impl TestCodeIndex {
     /// absent. `None` when one was written within the settle window before
     /// `started`, so it could race the read.
     pub(crate) fn proof(&self, started: SystemTime) -> Option<Proof> {
-        let (present, absent): (Vec<_>, Vec<_>) =
-            self.watched().into_iter().partition(|path| exists(path));
-        Some(
-            Proof::capture(present, Link::Follow, Some(started))?
-                .with_presence(absent.into_iter().map(|path| (path, false)).collect()),
-        )
+        let mut stamps = Vec::new();
+        let mut absent = Vec::new();
+        for path in self.watched() {
+            match self.probe(&path) {
+                Some(meta) => stamps.push((path, cache_stamp(&meta)?)),
+                None => absent.push((path, false)),
+            }
+        }
+        let proof = Proof::default()
+            .with_taken(Link::Follow, stamps)
+            .with_presence(absent);
+        proof.settled_before(started).then_some(proof)
+    }
+
+    /// What `path` is, by the one stat of it this request makes: every
+    /// verdict and the proof read the same answer.
+    fn probe(&self, path: &Path) -> Option<Arc<Metadata>> {
+        self.probes.of(path, || {
+            #[cfg(test)]
+            {
+                *lock(&self.stats).entry(path.to_path_buf()).or_default() += 1;
+            }
+            std::fs::metadata(path).ok().map(Arc::new)
+        })
+    }
+
+    /// Whether `path` is a file, from [`Self::probe`].
+    fn is_file(&self, path: &Path) -> bool {
+        self.probe(path).is_some_and(|meta| meta.is_file())
     }
 
     /// Every path a verdict so far read or found absent.
@@ -159,15 +214,29 @@ impl TestCodeIndex {
     /// reading it: by its path, or by a parent that mounts it only under
     /// test.
     pub(crate) fn test_path(&self, path: &Path) -> bool {
-        self.by_spelling(path) || self.mounted_under_test(path)
+        self.placed_as_test(path, self.placement(path))
     }
 
-    /// [`Self::test_path`] at what a walk can pay for a file with no hits: its
-    /// path, or a mount by a module root. Finding a `#[path]` mount reads every
-    /// Rust file of the directories above, which only a file whose verdict
-    /// shows needs: one this misses is read, then left out by its hits.
+    /// [`Self::test_path`] at what a walk can pay for a file with no hits.
+    /// A module root's mount places the file as a verdict by name does, and
+    /// a file it finds nowhere is production unless spelled as test code. Only
+    /// a file left out by that verdict is confirmed by the full one, which
+    /// reads the files above for a `#[path]` mount that places it in
+    /// production: so no file is left out unread that production mounts, and
+    /// files kept are read anyway.
     pub(crate) fn test_path_unread(&self, path: &Path) -> bool {
-        self.by_spelling(path) || self.mounted_by_name(path)
+        self.placed_as_test(path, self.placement_by_name(path)) && self.test_path(path)
+    }
+
+    /// Whether a file `placement` puts on the test side: where its mounts
+    /// place it decides (a production root mounting `tests.rs` makes it
+    /// production), its spelling only when nothing places it.
+    fn placed_as_test(&self, path: &Path, placement: Placement) -> bool {
+        match placement {
+            Placement::Test => true,
+            Placement::Production => false,
+            Placement::Unplaced => self.by_spelling(path),
+        }
     }
 
     /// Whether `path` is test code by its spelling relative to the
@@ -190,10 +259,30 @@ impl TestCodeIndex {
         path.extension().is_some_and(|extension| extension == "rs")
     }
 
-    /// Whether the directory `path` is test code by its path: everything
-    /// under it is.
+    /// Whether the directory `path` is test code whole: spelled as such and
+    /// holding nothing a plain build compiles. A directory spelled as test
+    /// code that its module root (`mod.rs`, or the sibling `<dir>.rs`) places
+    /// in production is walked, and its files get their own verdicts.
     pub(crate) fn test_dir(&self, path: &Path) -> bool {
         octocode_engine::text::test_paths::is_test_path(&format!("{}/", self.relative(path)))
+            && !self.root_in_production(path)
+    }
+
+    /// Whether a module root of the directory `dir` is placed in production,
+    /// by what the module roots above mount (the other files of the crate are
+    /// not read): one lookup per directory, however many files it holds.
+    fn root_in_production(&self, dir: &Path) -> bool {
+        let sibling = dir.file_name().and_then(|name| {
+            dir.parent()
+                .map(|parent| parent.join(format!("{}.rs", name.to_string_lossy())))
+        });
+        [Some(dir.join("mod.rs")), sibling]
+            .into_iter()
+            .flatten()
+            .any(|root| {
+                lock(&self.read).insert(root.clone());
+                self.is_file(&root) && self.placement_by_name(&root) == Placement::Production
+            })
     }
 
     /// Whether the file `path` is test code whole: by its path, its mount,
@@ -241,12 +330,14 @@ impl TestCodeIndex {
     }
 
     /// The text of a readable file under the policy.
-    fn source(&self, path: &Path) -> Option<String> {
-        lock(&self.read).insert(path.to_path_buf());
-        let validated = self.paths.validate_read(path).ok()?;
-        lock(&self.read).insert(validated.canonical.clone());
-        let bytes = self.bounded(&validated.canonical, octocode_engine::text::read_source)?;
-        String::from_utf8(bytes).ok()
+    fn source(&self, path: &Path) -> Option<Arc<str>> {
+        self.texts.of(path, || {
+            lock(&self.read).insert(path.to_path_buf());
+            let validated = self.paths.validate_read(path).ok()?;
+            lock(&self.read).insert(validated.canonical.clone());
+            let bytes = self.bounded(&validated.canonical, octocode_engine::text::read_source)?;
+            String::from_utf8(bytes).ok().map(Arc::from)
+        })
     }
 
     /// The bytes of the file at `canonical`, as much as the process may hold.
@@ -257,6 +348,12 @@ impl TestCodeIndex {
         canonical: &Path,
         read: fn(&Path, u64) -> Result<Source, ReadError>,
     ) -> Option<Vec<u8>> {
+        #[cfg(test)]
+        {
+            *lock(&self.disk_reads)
+                .entry(canonical.to_path_buf())
+                .or_default() += 1;
+        }
         let limit = u64::try_from(octocode_engine::memory::MEMORY.limit()).unwrap_or(u64::MAX);
         match read(canonical, limit) {
             Ok(source) => Some(source.bytes),
@@ -294,6 +391,7 @@ impl TestCodeIndex {
             Some(document) => rust_scan::Scanned {
                 test_lines: document.test_lines.clone(),
                 modules: document.modules.clone(),
+                malformed: false,
             },
             None => rust_scan::scan(content),
         };
@@ -316,12 +414,49 @@ impl TestCodeIndex {
     }
 }
 
+impl TestCodeIndex {
+    /// What `content`, the text of the parent `path`, says of the modules it
+    /// mounts: the parse when a span read already made it, else the linear
+    /// scan ([`rust_scan`]), which reports the same modules and test spans
+    /// without the declarations parse. A walk asks every parent of every file
+    /// it lists, so a parent's full parse (signatures, graph) would cost more
+    /// than the one request that reads its files.
+    fn mount_facts(&self, path: &Path, content: &str) -> Arc<Parsed> {
+        self.parsed.known(path).unwrap_or_else(|| {
+            let crate_root = self.crate_target(path).is_some();
+            let facts = rust_scan::scan(content);
+            if facts.malformed {
+                return self.parsed(path, content);
+            }
+            Arc::new(Parsed {
+                modules: mount_targets::file_modules(path, &facts.modules, crate_root),
+                test_lines: facts.test_lines,
+            })
+        })
+    }
+}
+
 #[cfg(test)]
 impl TestCodeIndex {
+    /// Parent texts this index scanned for the modules they name.
+    fn heads_scanned(&self) -> usize {
+        self.heads_scanned
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Parents this index parsed for their mounts.
     fn parents_parsed(&self) -> usize {
         self.parents_parsed
             .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// The files this index read from disk more than once.
+    fn read_twice(&self) -> Vec<PathBuf> {
+        lock(&self.disk_reads)
+            .iter()
+            .filter(|(_, times)| **times > 1)
+            .map(|(path, _)| path.clone())
+            .collect()
     }
 }
 

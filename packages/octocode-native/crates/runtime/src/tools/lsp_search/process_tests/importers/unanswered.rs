@@ -55,7 +55,6 @@ process.stdin.on('data', (d) => {
 /// `references` of `Helper` in `a.go`, with `b.go` calling a `Helper` and the
 /// server answering `definition` there with `definitions`.
 fn row_with(definitions: &str, b_go: &str) -> serde_json::Value {
-    use std::os::unix::fs::PermissionsExt;
     let dir = Fixture::new();
     let outer = dir.0.canonicalize().expect("real");
     let root = outer.join("ws");
@@ -67,8 +66,7 @@ fn row_with(definitions: &str, b_go: &str) -> serde_json::Value {
             &serde_json::to_string(&root.to_string_lossy()).expect("root"),
         )
         .replace("__DEFINITIONS__", definitions);
-    std::fs::write(&script, source).expect("script");
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("mode");
+    crate::tools::lsp_search::tests::write_executable(&script, source.as_bytes());
     std::fs::write(root.join("go.mod"), "module m\n").expect("module");
     std::fs::write(root.join("a.go"), "func Helper() {}\n").expect("anchor");
     std::fs::write(root.join("b.go"), b_go).expect("other");

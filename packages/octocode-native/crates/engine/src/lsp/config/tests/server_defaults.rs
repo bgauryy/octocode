@@ -104,6 +104,17 @@ fn server_defaults_touch_only_rust_analyzer_and_are_idempotent() {
     assert_eq!(options.pointer("/procMacro/enable"), Some(&json!(false)));
 }
 
+/// jdtls lists only types in `workspace/symbol` unless it is asked for source
+/// method declarations: a method then reads as absent.
+#[test]
+fn jdtls_workspace_symbols_include_methods() {
+    assert_eq!(
+        crate::lsp::config::defaults::jdtls_headless_options()
+            .pointer("/settings/java/symbols/includeSourceMethodDeclarations"),
+        Some(&json!(true))
+    );
+}
+
 /// clangd, jdtls, and Metals start headless and read-only by
 /// default, on the built-in route and through `apply_server_default_options`;
 /// user args and options still win.

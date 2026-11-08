@@ -24,6 +24,8 @@ pub(super) struct Tokens<'t> {
     bytes: &'t [u8],
     at: usize,
     line: u32,
+    /// A comment or literal ran to the end of the text unclosed.
+    pub(super) unterminated: bool,
 }
 
 fn is_word_byte(byte: u8) -> bool {
@@ -37,6 +39,7 @@ impl<'t> Tokens<'t> {
             bytes: text.as_bytes(),
             at: 0,
             line: 1,
+            unterminated: false,
         }
     }
 
@@ -120,6 +123,7 @@ impl<'t> Tokens<'t> {
             let Some(next) = memchr::memchr2(b'*', b'/', &self.bytes[at.min(self.bytes.len())..])
             else {
                 at = self.bytes.len();
+                self.unterminated = true;
                 break;
             };
             at += next;
@@ -184,6 +188,7 @@ impl<'t> Tokens<'t> {
             }
             at += 2;
         }
+        self.unterminated = true;
         self.advance_to(self.bytes.len());
     }
 
@@ -191,9 +196,9 @@ impl<'t> Tokens<'t> {
     fn raw_string(&mut self, hashes: usize) {
         let body = self.at + hashes + 1;
         let close = format!("\"{}", "#".repeat(hashes));
-        let end = self.text[body..]
-            .find(&close)
-            .map_or(self.bytes.len(), |at| body + at + close.len());
+        let found = self.text[body..].find(&close);
+        self.unterminated |= found.is_none();
+        let end = found.map_or(self.bytes.len(), |at| body + at + close.len());
         self.advance_to(end);
     }
 

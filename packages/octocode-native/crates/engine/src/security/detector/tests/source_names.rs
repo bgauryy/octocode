@@ -130,6 +130,24 @@ const DOCUMENTS: [&str; 6] = [
     "d: QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo==\nkty: EC\n",
 ];
 
+/// A comment between a member's name and its value, cut anywhere, keeps the
+/// value's role as the whole text does.
+#[test]
+fn a_comment_before_a_value_reads_the_same_in_any_pieces() {
+    let value = "QUJD".repeat(10);
+    for text in [
+        format!("{{\"kind\": /* a*b **/ \"Secret\", \"data\": // c\n{{\"p\": \"{value}\"}}}}"),
+        format!("{{\"data\":\n# c\n\n{{\"p\": \"{value}\"}}, \"kind\": \"Secret\"}}"),
+    ] {
+        let whole = objects::walk(&text);
+        assert!(!whole.secret_values.is_empty(), "{text}");
+        for size in 1..=text.len() {
+            let parts = walk_in_pieces(&text, size).expect("a short text");
+            assert_eq!(parts.secret_values, whole.secret_values, "{text} by {size}");
+        }
+    }
+}
+
 /// However a source is cut into pieces, a walk finds what one over all of it does.
 #[test]
 fn a_walk_finds_the_same_in_any_pieces() {

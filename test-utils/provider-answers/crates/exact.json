@@ -7,7 +7,7 @@
   "packageName": "cfg-if",
   "version": "1.0.0"
  },
- "recordedAt": "2026-11-05",
+ "recordedAt": "2026-11-08",
  "unread": [
   "crate.created_at",
   "crate.default_version",
@@ -40,6 +40,58 @@
   {
    "request": {
     "method": "GET",
+    "url": "https://crates.io/api/v1/crates/cfg-if?include=",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:5d65ac12f90bdd439d5e9977f54a9c81dc5b244c9a7216673442dd2c79f242ae",
+   "body": {
+    "crate": {
+     "id": "cfg-if",
+     "name": "cfg-if",
+     "updated_at": "2026-10-13T06:49:22.204875Z",
+     "versions": null,
+     "keywords": null,
+     "categories": null,
+     "badges": [],
+     "created_at": "2015-07-08T01:11:24.485040Z",
+     "downloads": 1721952599,
+     "recent_downloads": null,
+     "default_version": "1.0.5",
+     "num_versions": 17,
+     "yanked": false,
+     "max_version": "0.0.0",
+     "newest_version": "0.0.0",
+     "max_stable_version": null,
+     "description": "A macro to ergonomically define an item depending on a large number of #[cfg]\nparameters. Structured like an if-else chain, the first matching branch is the\nitem that gets emitted.\n",
+     "homepage": null,
+     "documentation": null,
+     "repository": "https://github.com/rust-lang/cfg-if",
+     "links": {
+      "version_downloads": "/api/v1/crates/cfg-if/downloads",
+      "versions": "/api/v1/crates/cfg-if/versions",
+      "owners": "/api/v1/crates/cfg-if/owners",
+      "owner_team": "/api/v1/crates/cfg-if/owner_team",
+      "owner_user": "/api/v1/crates/cfg-if/owner_user",
+      "reverse_dependencies": "/api/v1/crates/cfg-if/reverse_dependencies"
+     },
+     "exact_match": false,
+     "trustpub_only": true
+    },
+    "versions": null,
+    "keywords": null,
+    "categories": null
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
     "url": "https://crates.io/api/v1/crates/cfg-if/1.0.0",
     "accept": "application/json"
    },
@@ -50,7 +102,7 @@
      "application/json"
     ]
    ],
-   "digest": "sha256:ab21c94b76a8711f28cd4f0acad132cfc9272c7c5326d057cef590174e9463c2",
+   "digest": "sha256:4e5b34b2a174bd30405b7066ed1fe95c4eb0643e8a57fc828201a08587b9f996",
    "body": {
     "version": {
      "id": 290855,
@@ -60,7 +112,7 @@
      "readme_path": "/api/v1/crates/cfg-if/1.0.0/readme",
      "updated_at": "2020-10-06T18:44:12.678620Z",
      "created_at": "2020-10-06T18:44:12.678620Z",
-     "downloads": 665959163,
+     "downloads": 667277727,
      "features": {
       "rustc-dep-of-std": [
        "core",
@@ -123,58 +175,6 @@
       "total_comment_lines": 16
      }
     }
-   }
-  },
-  {
-   "request": {
-    "method": "GET",
-    "url": "https://crates.io/api/v1/crates/cfg-if?include=",
-    "accept": "application/json"
-   },
-   "status": 200,
-   "headers": [
-    [
-     "content-type",
-     "application/json"
-    ]
-   ],
-   "digest": "sha256:464152d9f9211ebbab000a9a437d68ee4e478f522c3b174b7203ecca5eb1f796",
-   "body": {
-    "crate": {
-     "id": "cfg-if",
-     "name": "cfg-if",
-     "updated_at": "2026-10-13T06:49:22.204875Z",
-     "versions": null,
-     "keywords": null,
-     "categories": null,
-     "badges": [],
-     "created_at": "2015-07-08T01:11:24.485040Z",
-     "downloads": 1705115564,
-     "recent_downloads": null,
-     "default_version": "1.0.5",
-     "num_versions": 17,
-     "yanked": false,
-     "max_version": "0.0.0",
-     "newest_version": "0.0.0",
-     "max_stable_version": null,
-     "description": "A macro to ergonomically define an item depending on a large number of #[cfg]\nparameters. Structured like an if-else chain, the first matching branch is the\nitem that gets emitted.\n",
-     "homepage": null,
-     "documentation": null,
-     "repository": "https://github.com/rust-lang/cfg-if",
-     "links": {
-      "version_downloads": "/api/v1/crates/cfg-if/downloads",
-      "versions": "/api/v1/crates/cfg-if/versions",
-      "owners": "/api/v1/crates/cfg-if/owners",
-      "owner_team": "/api/v1/crates/cfg-if/owner_team",
-      "owner_user": "/api/v1/crates/cfg-if/owner_user",
-      "reverse_dependencies": "/api/v1/crates/cfg-if/reverse_dependencies"
-     },
-     "exact_match": false,
-     "trustpub_only": true
-    },
-    "versions": null,
-    "keywords": null,
-    "categories": null
    }
   },
   {

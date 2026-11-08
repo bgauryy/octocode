@@ -7,18 +7,23 @@ use crate::tools::gh_get_history_item::inventory::file_page_size;
 use crate::tools::gh_get_history_item::patch::hunks::{
     HeadSources, head_text_needed, match_context,
 };
+use crate::tools::gh_get_history_item::source::Source;
 use crate::tools::gh_get_history_item::text::needle;
 use crate::tools::gh_get_history_item::util::str_at;
 use crate::tools::gh_get_history_item::window::Loaded;
 use crate::tools::gh_shared::text::file_text;
-use octocode_github::{ContentRequest, GitHubProvider, GitHubTransport, RequestContext};
+use octocode_github::{ContentRequest, GitHubProvider, RequestContext};
 use serde_json::Value;
 
 /// The head text of every file on this page whose `matchString` hit runs
 /// need more context than its hunks hold, read at `headSha`. The request
-/// budget paces concurrent reads. `None` when no file needs it.
+/// budget paces concurrent reads. `None` when no file needs it. A file the
+/// path policy withholds is not read: it counts as unread, so its clipped runs
+/// are flagged, and its patch alone stays (redacted). Each text read is
+/// redacted with its own path, like the patch it widens, so no view numbers an
+/// unredacted line; a text the scanner refuses counts as unread too.
 pub(super) async fn head_sources(
-    transport: &GitHubTransport,
+    source: &Source<'_>,
     query: &HistoryItemRequest,
     context: &RequestContext,
     raw: &Value,
@@ -55,10 +60,13 @@ pub(super) async fn head_sources(
     // The same file reader every GitHub tool uses, including the blob
     // fallback, shares this transport's connections and admission policy.
     let provider = GitHubProvider {
-        transport: transport.clone(),
+        transport: (**source).clone(),
     };
     let provider = &provider;
     let reads = paths.iter().map(|path| async move {
+        if query.withholds_file(path) {
+            return (path.clone(), None);
+        }
         let request = ContentRequest {
             owner: gh_get_history_item_query::owner(query).to_owned(),
             repo: gh_get_history_item_query::repo(query).to_owned(),
@@ -70,9 +78,9 @@ pub(super) async fn head_sources(
             .await
             .ok()
             .and_then(|read| {
-                file_text(&read.bytes)
-                    .ok()
-                    .map(|text| text.lines().map(str::to_owned).collect())
+                let mut text = file_text(&read.bytes).ok()?.into_owned();
+                source.redact(&mut text, path).ok()?;
+                Some(text.lines().map(str::to_owned).collect())
             });
         (path.clone(), text)
     });

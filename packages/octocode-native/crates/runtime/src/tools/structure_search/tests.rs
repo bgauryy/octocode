@@ -12,6 +12,7 @@ use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 
 mod budget;
+mod classified_pages;
 mod costs;
 mod files;
 mod filter_freshness;

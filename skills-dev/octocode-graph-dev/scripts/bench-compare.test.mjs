@@ -26,6 +26,16 @@ test('a precision drop or a new ingest failure is a regression; a recall drop is
   assert.equal(by.rust.invalid, true);
 });
 
+test('an unchanged tree that stops being reused is a regression, and the reuse time is tabulated', () => {
+  const reused = (reuse) => ({ ...row('go', 1, 1), incremental: { ms: 40, exit: 0, reused: reuse } });
+  const [stayed, lost] = [compare([reused(true)], [reused(true)])[0], compare([reused(true)], [reused(false)])[0]];
+  assert.deepEqual(stayed.notes, []);
+  assert.equal(stayed.regression, false);
+  assert.deepEqual(lost.notes, ['unchanged tree no longer reused']);
+  assert.equal(lost.regression, true);
+  assert.match(markdown([stayed]), /\| Reuse ms \|[\s\S]*\| 40 \|/);
+});
+
 test('a row missing from the second run is named, and newly missed files are listed', () => {
   const rows = compare([row('c', 1, 1), row('java', 0.95, 1)], [row('java', 0.9, 1, { missed: ['a/B.java'] })]);
   assert.deepEqual(rows.find((r) => r.lang === 'c').notes, ['not run']);

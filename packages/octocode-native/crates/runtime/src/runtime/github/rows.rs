@@ -61,7 +61,7 @@ pub(super) fn advise_login_for_anonymous_quota(data: &mut Value, anonymous: bool
         && crate::id::error_code_of(data) == Some(ErrorCode::RateLimited)
         && data.pointer("/rateLimit/remaining") == Some(&json!(0))
     {
-        data["hints"] = json!([ANONYMOUS_RATE_LIMIT_HINT]);
+        crate::response::result::add_hints(data, [ANONYMOUS_RATE_LIMIT_HINT]);
     }
 }
 

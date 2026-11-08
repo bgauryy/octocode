@@ -38,6 +38,7 @@
 //! blocks, and read `SRCE` and the `SRCO` blocks they need only when they render
 //! a declaration or origin; each origin is validated when it is read. Readers
 //! reject unknown versions.
+use super::super::classify::Roles;
 use std::collections::HashMap;
 
 pub(crate) mod arguments;
@@ -91,7 +92,8 @@ pub(crate) const MAGIC: &[u8; 8] = b"OCGRAPH\0";
 /// v18: occurrence evidence (`WITN`, `UNRS`, the `STRE` blocks) and the
 /// `SRCO` blocks are stored deflated (their raw length, then the deflated
 /// body), authenticated as stored.
-pub(crate) const FORMAT_VERSION: u32 = 18;
+/// v19: a node's flags are a varint (file roles outgrew a byte: `support`).
+pub(crate) const FORMAT_VERSION: u32 = 19;
 /// Packed edge byte bit: the edge's evidence is test code.
 const EDGE_TEST: u8 = 0x80;
 const HEADER_LEN: usize = 8 + 4 + 4 + 32;
@@ -221,18 +223,19 @@ impl Confidence {
     }
 }
 
-pub(crate) const FLAG_EXPORTED: u8 = 1;
+pub(crate) const FLAG_EXPORTED: Roles = 1;
 /// Symbol is test code: in a test file, a Rust test module, or a pytest
 /// `test_*` function / `Test*` class.
-pub(crate) const FLAG_TEST: u8 = 1 << 1;
+pub(crate) const FLAG_TEST: Roles = 1 << 1;
 /// Symbol is referenced inside its own file (a value reference, not only its
 /// declaration): an unused export of it is "could be un-exported", not dead.
-pub(crate) const FLAG_LOCAL_USE: u8 = 1 << 2;
+pub(crate) const FLAG_LOCAL_USE: Roles = 1 << 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct NodeRec {
     pub kind: NodeKind,
-    pub flags: u8,
+    /// File roles ([`super::super::classify::ROLES`]) or symbol `FLAG_*` bits.
+    pub flags: Roles,
     /// Stable, human-typable id (`src/a.ts`, `src/a.ts#Foo.bar`, `pkg:react`).
     pub key: u32,
     pub name: u32,

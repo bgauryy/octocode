@@ -9,50 +9,32 @@ use super::document::Form;
 use super::every_value::every_value_spans;
 use super::source_names::{Named, SecretSpan, SecretSpans, SourceNames, SourceWalk};
 use super::{
-    DetectResult, KEEPS_NON_CREDENTIAL_VALUES, PATTERNS, Scope, applicable_patterns,
-    assigns_a_credential, pattern_regex_for,
+    DetectResult, Judge, PATTERNS, Scope, applicable_patterns, pattern_regex_for, secret_groups,
 };
 use std::ops::Range;
 
 /// The spans of one pattern in `text`: a `secret` group's when it names one, else
-/// its whole match, past what `redacts` turns away.
-fn pattern_spans(idx: usize, text: &str, out: &mut Vec<(Range<usize>, usize)>) {
-    pattern_matches(idx, text, false, |_, secret| out.push((secret, idx)));
+/// its whole match, past what the pattern's value test turns away.
+fn pattern_spans(idx: usize, text: &str, scope: Scope<'_>, out: &mut Vec<(Range<usize>, usize)>) {
+    pattern_matches(idx, text, scope, false, |_, secret| out.push((secret, idx)));
 }
 
-/// Canonical capture and value exclusions, shared by text and structured data.
+/// Canonical capture and value exclusions, shared by text and structured data:
+/// [`accepted_secrets`], the judgment the in-memory pass makes too.
 /// Context-only callers need a named secret group, not a standalone token.
 pub(super) fn pattern_matches(
     idx: usize,
     text: &str,
+    scope: Scope<'_>,
     contextual_only: bool,
-    mut found_secret: impl FnMut(Range<usize>, Range<usize>),
+    found_secret: impl FnMut(Range<usize>, Range<usize>),
 ) {
     let regex = pattern_regex_for(idx, text);
-    let groups = regex
-        .capture_names()
-        .enumerate()
-        .filter_map(|(at, name)| name.filter(|name| name.starts_with("secret")).map(|_| at))
-        .collect::<Vec<_>>();
-    if contextual_only && groups.is_empty() {
+    if contextual_only && secret_groups(regex).is_empty() {
         return;
     }
-    let keeps_values = KEEPS_NON_CREDENTIAL_VALUES[idx];
-    let (mut line_start, mut searched_to) = (0, 0);
-    for found in regex.captures_iter(text) {
-        let Some(whole) = found.get(0) else {
-            continue;
-        };
-        let secret = groups.iter().find_map(|&at| found.get(at)).unwrap_or(whole);
-        if let Some(at) = text[searched_to..whole.start()].rfind('\n') {
-            line_start = searched_to + at + 1;
-        }
-        searched_to = whole.start();
-        if !keeps_values || assigns_a_credential(&text[line_start..secret.start()], secret.as_str())
-        {
-            found_secret(whole.range(), secret.range());
-        }
-    }
+    let judge = Judge::of(idx, scope, text, None);
+    judge.secrets(regex, text, found_secret);
 }
 
 /// The document walks of `text`, as `named` says it needs. Past `budget`, every
@@ -73,7 +55,7 @@ pub(super) fn secret_spans(text: &str, scope: Scope<'_>) -> Vec<(Range<usize>, u
     let mut spans = Vec::new();
     for idx in candidates.iter() {
         if Form::of(idx).is_none() {
-            pattern_spans(idx, text, &mut spans);
+            pattern_spans(idx, text, scope, &mut spans);
         }
     }
     let mut names = SourceNames::for_path("");
@@ -126,11 +108,7 @@ pub(super) fn with_spans_hidden(
         out.push_str(&text[from..range.start]);
         let shown_from = out.len();
         out.push_str(super::replacement_for(*idx));
-        let breaks = text[range.clone()]
-            .bytes()
-            .filter(|byte| *byte == b'\n')
-            .count();
-        out.extend(std::iter::repeat_n('\n', breaks));
+        out.push_str(&super::kept_line_breaks(&text[range.clone()]));
         replaced.push((range.clone(), out.len() - shown_from));
         from = range.end;
         let name = PATTERNS[*idx].name;

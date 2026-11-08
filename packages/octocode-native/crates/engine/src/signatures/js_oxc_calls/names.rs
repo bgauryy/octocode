@@ -39,6 +39,7 @@ pub(super) fn push_call(
         self_template: None,
         macros: Vec::new(),
         receiver_call: None,
+        receiver_declared: None,
     });
 }
 
@@ -170,7 +171,7 @@ pub(in crate::signatures) fn ts_type_name(name: &TSTypeName) -> Option<String> {
 /// keeps its path (`this.app.scene`), and argument lists, indexes and values
 /// without a name are elided to their brackets (`get()`, `list[]`, `()`), as
 /// the tree-sitter lanes elide them.
-fn receiver_label(expr: &Expression) -> String {
+pub(in crate::signatures) fn receiver_label(expr: &Expression) -> String {
     match expr {
         Expression::Identifier(identifier) => identifier.name.as_str().to_string(),
         Expression::ThisExpression(_) => "this".to_string(),

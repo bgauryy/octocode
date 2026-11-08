@@ -210,21 +210,19 @@ impl ReusedSince {
     }
 }
 
-/// Say on a row that its evidence includes an answer observed at `observed_ms`
-/// that its origin was not asked about again: a saved answer is never presented
-/// as current. A hint, not a warning: the evidence is complete for that moment.
+/// State on a row, as `observedAt` (ISO time), that its evidence includes an
+/// answer observed at `observed_ms` that its origin was not asked about again:
+/// a saved answer is never presented as current. Per-call metadata beside
+/// `rateLimit` and `clientWaits`: whether a run reused, and when, differs
+/// between executions of one request, so the pager keeps it out of every
+/// snapshot and page measure by its name.
 pub(crate) fn disclose_reuse(data: &mut Value, observed_ms: u64) {
     let seconds = i64::try_from(observed_ms / 1000).unwrap_or(i64::MAX);
-    let hint = json!(format!(
-        "Answer observed {}: its origin was not asked again, so later changes are not shown.",
-        crate::civil_date::iso8601_secs(seconds)
-    ));
-    let Some(object) = data.as_object_mut() else {
-        return;
-    };
-    match object.entry("hints").or_insert_with(|| json!([])) {
-        Value::Array(hints) => hints.push(hint),
-        other => *other = json!([hint]),
+    if let Some(object) = data.as_object_mut() {
+        object.insert(
+            "observedAt".into(),
+            json!(crate::civil_date::iso8601_secs(seconds)),
+        );
     }
 }
 
@@ -280,7 +278,7 @@ fn gate_verdict(security: &ContentSecurity, answer: &ProviderAnswer) -> bool {
     if holds_credential_file(&answer.request, &body) || !decode_contents(&mut body) {
         return false;
     }
-    let exposed = json!({
+    let mut exposed = json!({
         "path": requested_path(&answer.request),
         "request": answer.request,
         "headers": answer.headers,
@@ -288,12 +286,13 @@ fn gate_verdict(security: &ContentSecurity, answer: &ProviderAnswer) -> bool {
         "body": body,
         "fileText": file_text,
     });
-    let mut judged = exposed.clone();
-    sanitize_json(&mut judged, &mut |text, path| {
+    // The walk reports whether it changed anything, so the value is judged in
+    // place: no second copy of the answer to build and compare.
+    let changed = sanitize_json(&mut exposed, &mut |text, path| {
         Ok::<_, std::convert::Infallible>(security.sanitize_stored_leaf(text, path))
     })
     .unwrap_or_else(|never| match never {});
-    judged == exposed
+    !changed
 }
 
 /// Whether `answer` holds a credential-named file's text, which may hold a

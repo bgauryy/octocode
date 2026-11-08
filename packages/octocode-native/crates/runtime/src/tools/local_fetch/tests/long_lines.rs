@@ -215,7 +215,7 @@ fn a_capture_reads_a_selection_within_its_budget_in_one_page() {
     let budget = 300_000;
     let caller = crate::execution::ExecutionContext {
         cancellation: octocode_io::cancellation::Cancellation::new(),
-        deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
+        deadline: Some(std::time::Instant::now() + std::time::Duration::from_secs(60)),
         response_window: Some(131_072),
         github_credential: None,
     };

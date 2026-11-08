@@ -188,6 +188,65 @@ pub struct GraphFactCall {
     /// constructor-name guess.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receiver_call: Option<GraphReceiverCall>,
+    /// A JS/TS member call whose receiver the file types only through a
+    /// declared type another declaration owns (`x.f.m()` with `x: T`, where
+    /// `T` is a class, interface or alias that types `f`; a parameter typed
+    /// by the alias annotating its function): that type and the steps to the
+    /// receiver, for the linker to follow across files. Absent when
+    /// `receiver_type` already names the receiver's type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receiver_declared: Option<GraphDeclaredType>,
+}
+
+/// A TS type as a declaration or annotation writes it, kept for the linker
+/// to follow across files. Only declared types: no inference, and a type
+/// that mentions a type parameter of its declaration is not one of these.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum GraphDeclaredType {
+    /// The type `name` names in the scope of the file that writes it (`T`,
+    /// `ns.T`), then each step: `T["k"]` is `T` then member `k`.
+    Named {
+        name: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        steps: Vec<GraphTypeStep>,
+    },
+    /// An object type: a type literal `{ k: T }`, an interface or a class's
+    /// declared fields.
+    Object { members: Vec<GraphTypeMember> },
+    /// A function type `(a: A, b: B) => R`: each parameter's declared type.
+    Function {
+        parameters: Vec<Option<GraphDeclaredType>>,
+    },
+}
+
+/// One step from a type to a part of it.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(tag = "kind", content = "at", rename_all = "camelCase")]
+pub enum GraphTypeStep {
+    /// The declared type of member `k`.
+    Member(String),
+    /// The declared type of the function type's parameter at this index.
+    Parameter(u32),
+}
+
+/// A member of a [`GraphDeclaredType::Object`]; `ty` is `None` when the
+/// member is declared without one of the types above, so it shadows nothing.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphTypeMember {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ty: Option<GraphDeclaredType>,
+}
+
+/// The declared type of one class, interface or type alias of the file, by
+/// its declaration id.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphFactDeclaredType {
+    pub declaration_id: String,
+    pub ty: GraphDeclaredType,
 }
 
 /// The call whose value a member call's receiver is: the bytes of that call
@@ -226,6 +285,10 @@ pub struct GraphFactRustModule {
     /// The file `#[cfg_attr(test, path = "...")]` mounts it from, under test only.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub test_path: Option<String>,
+    /// The file `#[cfg_attr(not(test), path = "...")]` mounts it from: a build
+    /// under test mounts the module's own name instead.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plain_path: Option<String>,
     pub unsupported: bool,
 }
 
@@ -252,7 +315,9 @@ pub const COMMONJS_WHOLE_EXPORT: &str = "module.exports";
 
 /// One proven `require` binding: `const local = require(x)` (`imported` is
 /// `None`: the whole `module.exports`), `const local = require(x).imported`
-/// or `const { imported: local } = require(x)`.
+/// or `const { imported: local } = require(x)`. An inline
+/// `require(x).k()` binds the receiver as the call is spelled
+/// (`require()`) over that one call.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct GraphFactCommonJsBinding {
@@ -260,8 +325,14 @@ pub struct GraphFactCommonJsBinding {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub imported: Option<String>,
     /// The declaration the outline emits for `local`: a variable that holds
-    /// the module, never a call target of its own.
-    pub declaration_id: String,
+    /// the module, never a call target of its own. `None` when the outline
+    /// lists no declaration for it (a function-local variable, an inline load).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub declaration_id: Option<String>,
+    /// The source extent of the scope that holds the binding: only call sites
+    /// inside it read `local` as the module. `None`: the whole file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<crate::text::analysis::ObservedSpan>,
 }
 
 /// The `import_kind`/`export_kind` of a binding whose module load a parse
@@ -310,6 +381,10 @@ pub struct GraphFactsDocument {
     /// graph facts, and no package import reaches it.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub build_excluded: bool,
+    /// The declared types of the file's JS/TS classes, interfaces and type
+    /// aliases (see [`GraphFactCall::receiver_declared`]).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub declared_types: Vec<GraphFactDeclaredType>,
 }
 
 impl GraphFactsDocument {

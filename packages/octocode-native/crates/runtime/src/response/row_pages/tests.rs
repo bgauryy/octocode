@@ -8,6 +8,7 @@ mod declared_graph;
 mod nested_continuation;
 mod part_metadata;
 mod recursive_symbols;
+mod required_text;
 mod scope;
 mod selection;
 mod source_inputs;

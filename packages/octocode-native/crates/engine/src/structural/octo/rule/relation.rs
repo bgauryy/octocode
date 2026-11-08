@@ -11,7 +11,20 @@ use crate::structural::language::AgLanguage;
 use crate::structural::octo::error::CompileError;
 use crate::structural::octo::matching::{CaptureEnv, ExecutionError, ancestors_from_root};
 
-use super::{CompiledRule, Document, RawRule, RawStopBy, StopKind};
+use super::{CompiledRule, Document, RawRule, RawStopBy, RelationMemo, StopKind};
+
+#[cfg(test)]
+thread_local! {
+    /// Ancestors an `inside` relation read in this thread (a deep-stack run
+    /// adds its own): the work its answers cost, so a test asserts how it
+    /// grows with depth instead of timing it.
+    pub(in crate::structural::octo) static ANCESTOR_STEPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+fn note_ancestor_steps(_steps: usize) {
+    #[cfg(test)]
+    ANCESTOR_STEPS.with(|total| total.set(total.get() + _steps));
+}
 
 #[derive(Clone, Copy)]
 pub(super) enum Direction {
@@ -26,6 +39,10 @@ pub(super) struct Relation {
     rule: CompiledRule,
     field: Option<NonZeroU16>,
     stop: Stop,
+    /// Whether its answer for a node is the same whoever asks, so a file's
+    /// walk keeps it ([`RelationMemo`]): it looks through every level of a
+    /// direction, and neither its rule nor its stop reads a capture.
+    keeps_answers: bool,
 }
 
 enum Stop {
@@ -65,12 +82,131 @@ impl Relation {
                 Stop::Rule(Box::new(CompiledRule::compile_checked(lang, rule)?))
             }
         };
+        let rule = CompiledRule::compile_checked(lang, raw)?;
+        let keeps_answers = matches!(direction, Direction::Descendant | Direction::Ancestor)
+            && field.is_none()
+            && matches!(stop, Stop::End)
+            && rule.is_capture_free();
         Ok(Self {
             direction,
-            rule: CompiledRule::compile_checked(lang, raw)?,
+            rule,
             field,
             stop,
+            keeps_answers,
         })
+    }
+
+    pub(super) fn is_capture_free(&self) -> bool {
+        self.rule.is_capture_free()
+            && match &self.stop {
+                Stop::Rule(rule) => rule.is_capture_free(),
+                Stop::Neighbor | Stop::End => true,
+            }
+    }
+
+    /// The file's memo when this relation keeps its answers in it.
+    fn memo<'d>(&self, document: &Document<'d, '_>) -> Option<&'d RelationMemo> {
+        document
+            .memo
+            .filter(|memo| self.keeps_answers && memo.covers(document.root))
+    }
+
+    fn key(&self) -> usize {
+        std::ptr::from_ref(self) as usize
+    }
+
+    /// `has` through every level, from the answers the file's walk holds: a
+    /// descendant already known to hold (or not) ends (or skips) the walk
+    /// there, and what this walk learns is kept for every node it passed.
+    fn has_below<'t>(
+        &self,
+        candidate: Node<'t>,
+        document: &Document<'_, 't>,
+        memo: &RelationMemo,
+        captures: &mut CaptureEnv,
+    ) -> Result<bool, ExecutionError> {
+        if let Some(known) = memo.get(self.key(), candidate) {
+            return Ok(known);
+        }
+        // The chain from the candidate to the node being visited, and every
+        // node the walk went below.
+        let mut chain: Vec<Node<'t>> = Vec::new();
+        let mut descended: Vec<Node<'t>> = Vec::new();
+        let mut holding: Vec<Node<'t>> = Vec::new();
+        let found = walk_descendants_at(candidate, None, |node, depth| {
+            ExecutionError::check(document.deadline)?;
+            while chain.len() >= depth {
+                chain.pop();
+            }
+            if self.rule.matches(node, None, document, captures)? {
+                holding.extend_from_slice(&chain);
+                return Ok(Visit::Found);
+            }
+            match memo.get(self.key(), node) {
+                Some(true) => {
+                    holding.extend_from_slice(&chain);
+                    holding.push(node);
+                    Ok(Visit::Found)
+                }
+                Some(false) => Ok(Visit::Skip),
+                None => {
+                    chain.push(node);
+                    descended.push(node);
+                    Ok(Visit::Descend)
+                }
+            }
+        })?;
+        memo.set(self.key(), candidate, found);
+        let (nodes, holds) = if found {
+            (holding, true)
+        } else {
+            (descended, false)
+        };
+        for node in nodes {
+            memo.set(self.key(), node, holds);
+        }
+        Ok(found)
+    }
+
+    /// `inside` through every level, from the answers the file's walk holds:
+    /// an ancestor already known settles every node below it on the chain.
+    fn inside_above<'t>(
+        &self,
+        candidate: Node<'t>,
+        chain: &[Node<'t>],
+        document: &Document<'_, 't>,
+        memo: &RelationMemo,
+        captures: &mut CaptureEnv,
+    ) -> Result<bool, ExecutionError> {
+        if let Some(known) = memo.get(self.key(), candidate) {
+            return Ok(known);
+        }
+        // The nodes below `settled` on the chain, and the candidate, share
+        // the answer found at or above it.
+        let mut settled = chain.len();
+        let mut answer = false;
+        for index in (0..chain.len()).rev() {
+            ExecutionError::check(document.deadline)?;
+            note_ancestor_steps(1);
+            let node = chain[index];
+            if self
+                .rule
+                .matches(node, Some(&chain[..index]), document, captures)?
+            {
+                answer = true;
+                break;
+            }
+            if let Some(known) = memo.get(self.key(), node) {
+                answer = known;
+                break;
+            }
+            settled = index;
+        }
+        memo.set(self.key(), candidate, answer);
+        for node in &chain[settled..] {
+            memo.set(self.key(), *node, answer);
+        }
+        Ok(answer)
     }
 
     fn stops<'t>(
@@ -100,6 +236,9 @@ impl Relation {
     ) -> Result<bool, ExecutionError> {
         match self.direction {
             Direction::Descendant => {
+                if let Some(memo) = self.memo(document) {
+                    return self.has_below(candidate, document, memo, captures);
+                }
                 return walk_descendants(candidate, self.field, |node| {
                     ExecutionError::check(document.deadline)?;
                     Ok(if self.rule.matches(node, None, document, captures)? {
@@ -117,9 +256,13 @@ impl Relation {
                     Some(chain) => chain,
                     None => {
                         owned = ancestors_from_root(document.root, candidate, document.deadline)?;
+                        note_ancestor_steps(owned.len());
                         owned.as_slice()
                     }
                 };
+                if let Some(memo) = self.memo(document) {
+                    return self.inside_above(candidate, chain, document, memo, captures);
+                }
                 let mut branch = candidate;
                 for index in (0..chain.len()).rev() {
                     ExecutionError::check(document.deadline)?;
@@ -207,6 +350,16 @@ fn walk_descendants<'t>(
     field: Option<NonZeroU16>,
     mut visit: impl FnMut(Node<'t>) -> Result<Visit, ExecutionError>,
 ) -> Result<bool, ExecutionError> {
+    walk_descendants_at(candidate, field, |node, _| visit(node))
+}
+
+/// [`walk_descendants`], also telling `visit` how many levels below the
+/// candidate the node is (its children are at 1).
+fn walk_descendants_at<'t>(
+    candidate: Node<'t>,
+    field: Option<NonZeroU16>,
+    mut visit: impl FnMut(Node<'t>, usize) -> Result<Visit, ExecutionError>,
+) -> Result<bool, ExecutionError> {
     // The cursor's depth counts from `candidate` (depth 0), so the walk never
     // leaves its subtree.
     let mut cursor = candidate.walk();
@@ -214,7 +367,7 @@ fn walk_descendants<'t>(
         return Ok(false);
     }
     loop {
-        match visit(cursor.node())? {
+        match visit(cursor.node(), cursor.depth() as usize)? {
             Visit::Found => return Ok(true),
             Visit::Descend if goto_first_admitted_child(&mut cursor, field) => continue,
             Visit::Descend | Visit::Skip => {}

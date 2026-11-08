@@ -53,9 +53,7 @@ fn strings(value: &Value, at: &mut Vec<String>, out: &mut Vec<(String, usize)>) 
             }
         }
         // An executable call is indivisible: it runs only whole.
-        Value::Object(map)
-            if map.contains_key("tool")
-                && (map.contains_key("input") || map.contains_key("query")) => {}
+        Value::Object(map) if crate::contracts::output_fields::executable_call(map) => {}
         Value::Object(map) => {
             for (key, item) in map {
                 at.push(crate::json_pointer::escape(key));
@@ -69,13 +67,17 @@ fn strings(value: &Value, at: &mut Vec<String>, out: &mut Vec<(String, usize)>) 
 
 /// Narrow `value` to the path `pointer` names: each array on the way keeps
 /// only the element on the way, and each object only that step, its scalars
-/// and the `required` page context, its lists emptied (nothing repeats). Returns the pointer in the narrowed value
+/// and the members `context` requires, its lists in the form a later part
+/// keeps ([`PageContextFields::keep_later`]: emptied where the schema admits
+/// it, so nothing repeats). Returns the pointer in the narrowed value
 /// and the innermost element it continues (array pointer in `value`'s
 /// indexes, element index), the `rowPart.continues` a later part carries.
+///
+/// [`PageContextFields::keep_later`]: crate::contracts::output_fields::PageContextFields::keep_later
 fn narrow(
     value: &mut Value,
     pointer: &str,
-    required: &std::collections::BTreeSet<String>,
+    context: &crate::contracts::output_fields::PageContextFields,
 ) -> (String, Option<(String, usize)>) {
     let mut node = value;
     let (mut local, mut joined, mut marker) = (String::new(), String::new(), None);
@@ -100,14 +102,17 @@ fn narrow(
                 let key = crate::json_pointer::unescape(segment);
                 map.retain(|name, item| {
                     *name == key
-                        || required.contains(name)
                         || !(item.is_array() || item.is_object())
+                        || context
+                            .requires(&format!("{joined}/{}", crate::json_pointer::escape(name)))
                 });
-                // A required list off the path stays, emptied: its items
-                // were delivered by the parts that hold them.
+                // A required list off the path stays, emptied where the
+                // schema admits it: its items were delivered by the parts
+                // that hold them.
                 for (name, item) in map.iter_mut() {
                     if *name != key && item.is_array() {
-                        *item = Value::Array(Vec::new());
+                        let member = format!("{joined}/{}", crate::json_pointer::escape(name));
+                        context.keep_later(&member, item);
                     }
                 }
                 match map.get_mut(&key) {
@@ -140,9 +145,13 @@ impl FragmentArena {
         strings(&row, &mut Vec::new(), &mut found);
         // Only a string longer than a whole page is windowed, and only free
         // text: a value the output schema bounds (enum, const, format,
-        // pattern, length) or does not reach is meaningful only whole.
+        // pattern, length) or does not reach is meaningful only whole, and
+        // one every part repeats (an identity, next or disclosure field, or
+        // inside one) would arrive on each part again.
         found.retain(|(pointer, len)| {
-            *len > room && crate::contracts::output_fields::free_text_at(self.tool, pointer)
+            *len > room
+                && crate::contracts::output_fields::free_text_at(self.tool, pointer)
+                && !self.page_context.repeats_whole(pointer)
         });
         // Largest first; document order among equals keeps the plan stable.
         found.sort_by_key(|entry| std::cmp::Reverse(entry.1));
@@ -180,7 +189,7 @@ impl FragmentArena {
                 self.page_context,
                 self.collection_routes,
             );
-            let (local, marker) = narrow(&mut context, pointer, &self.page_context.required);
+            let (local, marker) = narrow(&mut context, pointer, self.page_context);
             later.push(context);
             locals.push(local);
             markers.push(marker);

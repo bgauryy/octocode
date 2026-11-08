@@ -57,13 +57,34 @@ fn patterns<'a>(workspace: &'a toml::Table, key: &str) -> impl Iterator<Item = &
         .filter_map(toml::Value::as_str)
 }
 
+/// Whether `candidate` is a directory the members entry `pattern` names
+/// below `root`. The pattern's leading glob-free parts are a directory, and
+/// only the rest is a glob, matched against the candidate's path below that
+/// directory: the root never enters the glob, so no spelling of it (a
+/// Windows separator, bytes that are not UTF-8, glob characters) changes
+/// what matches.
 fn matches(root: &Path, pattern: &str, candidate: &Path) -> bool {
-    let literal_root = PathBuf::from(globset::escape(&root.to_string_lossy()));
-    globset::GlobBuilder::new(&lexical(&literal_root.join(pattern)).to_string_lossy())
+    let mut parts = pattern
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .peekable();
+    let mut base = root.to_path_buf();
+    while let Some(part) = parts.next_if(|part| !part.contains(crate::search::glob::GLOB_META)) {
+        base.push(part);
+    }
+    let rest = parts.collect::<Vec<_>>().join("/");
+    let Ok(below) = candidate.strip_prefix(lexical(&base)) else {
+        return false;
+    };
+    // A literal pattern names its base; a glob part names what lies below it.
+    if rest.is_empty() || below.as_os_str().is_empty() {
+        return rest.is_empty() && below.as_os_str().is_empty();
+    }
+    globset::GlobBuilder::new(&rest)
         .literal_separator(true)
         .backslash_escape(false)
         .build()
-        .is_ok_and(|glob| glob.compile_matcher().is_match(candidate))
+        .is_ok_and(|glob| glob.compile_matcher().is_match(below))
 }
 
 fn contains_package(
@@ -242,6 +263,45 @@ mod tests {
             )
             .expect("LSP root"),
         )
+    }
+
+    /// A members glob reads only the pattern: the root never enters it, so
+    /// no root spelling (a separator the glob dialect reads otherwise, bytes
+    /// that are not UTF-8, glob characters) changes what it matches.
+    #[cfg(unix)]
+    #[test]
+    fn a_members_glob_matches_below_any_root_spelling() {
+        use std::os::unix::ffi::OsStrExt;
+        for root in [
+            PathBuf::from(std::ffi::OsStr::from_bytes(b"/w\xff/root")),
+            PathBuf::from("/w[x]/{a,b} \\c"),
+        ] {
+            assert!(
+                matches(&root, "crates/*", &root.join("crates/member")),
+                "{root:?}"
+            );
+            assert!(
+                matches(&root, "crates/**", &root.join("crates/a/b")),
+                "{root:?}"
+            );
+            let outside = lexical(&root.join("../elsewhere/m"));
+            assert!(matches(&root, "../elsewhere/m", &outside), "{root:?}");
+            assert!(
+                !matches(&root, "crates/*", &root.join("crates/a/b")),
+                "{root:?}"
+            );
+            assert!(
+                !matches(&root, "crates/*", &root.join("vendor/member")),
+                "{root:?}"
+            );
+            // A glob names directories below its base, never the base.
+            for glob in ["crates/*", "crates/**"] {
+                assert!(
+                    !matches(&root, glob, &root.join("crates")),
+                    "{root:?} {glob}"
+                );
+            }
+        }
     }
 
     #[test]

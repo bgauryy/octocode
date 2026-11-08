@@ -93,8 +93,9 @@ pub(in super::super) fn record_blocks(
 /// Reads past one record and returns the id its block directory keys it by.
 fn record_key(tag: &[u8; 4], r: &mut Reader<'_>, index: usize) -> Result<u32, String> {
     if tag == b"NODE" {
-        r.take(2)?;
-        for _ in 0..7 {
+        // The kind byte, then flags and the seven columns as varints.
+        r.take(1)?;
+        for _ in 0..8 {
             r.var()?;
         }
         return u32::try_from(index).map_err(|_| "encoder node id overflows".into());

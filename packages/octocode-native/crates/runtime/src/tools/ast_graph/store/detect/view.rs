@@ -48,6 +48,10 @@ impl<'a> View<'a> {
             if (src.flags | dst.flags) & (ROLE_NOT_AUTHORED | ROLE_DECLARATION) != 0 {
                 continue;
             }
+            // Neither is support code (examples, benchmarks, stories).
+            if src.flags & ROLE_SUPPORT != 0 {
+                continue;
+            }
             // Type-only and deferred (dynamic, on-call) imports are no
             // evidence of a structural violation.
             if matches!(load(t.str(edge.detail)), Load::TypeOnly | Load::Deferred) {
@@ -108,7 +112,7 @@ impl<'a> View<'a> {
     pub(super) fn is_entry(&self, file: u32) -> bool {
         self.entries.contains_key(&file)
     }
-    pub(super) fn flags(&self, file: u32) -> u8 {
+    pub(super) fn flags(&self, file: u32) -> Roles {
         self.t.nodes[file as usize].flags
     }
     pub(super) fn language(&self, file: u32) -> &'a str {
@@ -133,7 +137,7 @@ impl<'a> View<'a> {
         self.component.get(&file).map_or("", |(_, _, meta)| *meta)
     }
     pub(super) fn production(&self, file: u32) -> bool {
-        self.authored(file) && self.flags(file) & (ROLE_TEST | ROLE_CONFIG) == 0
+        self.authored(file) && self.flags(file) & ROLE_NOT_PRODUCTION == 0
     }
     pub(super) fn impact(&self, file: u32) -> f64 {
         self.rank_percentile

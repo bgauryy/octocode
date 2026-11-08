@@ -6,7 +6,9 @@ use super::{EntryKind, folded, is_sensitive_path, sensitive_directory};
 /// with how many directories it matched, how many credential files, how
 /// many `.git` pointer files, how many symlinks it did not follow, and how
 /// many other denied entries (outside the allowed roots). Names come from
-/// the policy lists, never the walked paths.
+/// the policy lists, never the walked paths; the one path kept is the
+/// directory that directly holds withheld entries ([`Self::holders`]), never
+/// an entry's own name.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Withheld {
     pub dirs: std::collections::BTreeMap<&'static str, usize>,
@@ -14,6 +16,28 @@ pub struct Withheld {
     pub(crate) git_files: usize,
     pub symlinks: usize,
     pub other: usize,
+    holders: std::collections::BTreeMap<(WithheldKind, String), usize>,
+}
+
+/// Which count a withheld entry is in, and the reason it is disclosed with.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum WithheldKind {
+    CredentialFile,
+    GitFile,
+    Symlink,
+    Other,
+}
+
+impl WithheldKind {
+    /// The rule that withheld it, as `skippedPaths` names it.
+    pub fn reason(self) -> &'static str {
+        match self {
+            Self::CredentialFile => "credential file",
+            Self::GitFile => "`.git` file (a submodule or worktree pointer)",
+            Self::Symlink => "symlink not followed",
+            Self::Other => "outside the allowed roots or unresolvable",
+        }
+    }
 }
 
 impl Withheld {
@@ -22,22 +46,44 @@ impl Withheld {
     pub fn record(&mut self, path: &Path) {
         let kind = EntryKind::stat(path);
         let is_dir = kind == EntryKind::Dir;
-        if !is_sensitive_path(path, kind) {
+        let named = if !is_sensitive_path(path, kind) {
             if path.is_symlink() {
                 self.symlinks += 1;
+                WithheldKind::Symlink
             } else {
                 self.other += 1;
+                WithheldKind::Other
             }
-            return;
-        }
-        let aliases = octocode_engine::text::slash_path(path);
-        let own = folded(aliases.rsplit('/').next().unwrap_or_default());
-        let own = own.as_ref();
-        match sensitive_directory(&aliases) {
-            Some(".git") if !is_dir && own == ".git" => self.git_files += 1,
-            Some(dir) if is_dir || own != dir => *self.dirs.entry(dir).or_default() += 1,
-            _ => self.files += 1,
-        }
+        } else {
+            let aliases = octocode_engine::text::slash_path(path);
+            let own = folded(aliases.rsplit('/').next().unwrap_or_default());
+            let own = own.as_ref();
+            match sensitive_directory(&aliases) {
+                Some(".git") if !is_dir && own == ".git" => {
+                    self.git_files += 1;
+                    WithheldKind::GitFile
+                }
+                Some(dir) if is_dir || own != dir => {
+                    *self.dirs.entry(dir).or_default() += 1;
+                    return;
+                }
+                _ => {
+                    self.files += 1;
+                    WithheldKind::CredentialFile
+                }
+            }
+        };
+        let holder = path.parent().unwrap_or(path).to_string_lossy().into_owned();
+        *self.holders.entry((named, holder)).or_default() += 1;
+    }
+
+    /// The directories that directly hold withheld entries that are no policy
+    /// directory: each with the kind and how many it holds. The held entries
+    /// are never named.
+    pub fn holders(&self) -> impl Iterator<Item = (WithheldKind, &str, usize)> {
+        self.holders
+            .iter()
+            .map(|((kind, holder), count)| (*kind, holder.as_str(), *count))
     }
 
     pub fn total(&self) -> usize {

@@ -49,12 +49,12 @@ fn schema_lists_clasify_and_classification_only_with_a_key() {
         serde_json::from_slice::<serde_json::Value>(&output.stdout).expect("JSON")
     };
     let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
-    let scout = presentation["tools"]
+    let scout = presentation["instructions"]["blocks"]
         .as_array()
-        .expect("tools")
+        .expect("blocks")
         .iter()
-        .find(|tool| tool["name"] == "clasify")
-        .and_then(|tool| tool["instructions"].as_str())
+        .find(|block| block["tool"] == "clasify")
+        .and_then(|block| block["text"].as_str())
         .expect("clasify block");
     let contract_tools = octocode_native::id::ToolId::ALL.len();
     for (key, listed) in [

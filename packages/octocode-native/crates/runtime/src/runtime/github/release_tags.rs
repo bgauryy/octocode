@@ -18,12 +18,13 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
         repo: &'a str,
         tag: &'a str,
     ) -> crate::providers::artifact::TagCommitFuture<'a> {
+        use crate::providers::artifact::CheckFailure;
         Box::pin(async move {
             let request = self
                 .services
                 .resolve_request(self.context, self.access)
                 .await
-                .ok()?;
+                .map_err(|_| CheckFailure::Request)?;
             // A tag ref, not `commits/{tag}`: a branch of the same name is
             // no release tag.
             self.services
@@ -31,7 +32,28 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
                 .transport
                 .tag_commit(owner, repo, tag, &request)
                 .await
-                .ok()
+                .map_err(|error| CheckFailure::Provider(error.kind))
+        })
+    }
+
+    fn tag_names<'a>(
+        &'a self,
+        owner: &'a str,
+        repo: &'a str,
+    ) -> crate::providers::artifact::TagNamesFuture<'a> {
+        use crate::providers::artifact::CheckFailure;
+        Box::pin(async move {
+            let request = self
+                .services
+                .resolve_request(self.context, self.access)
+                .await
+                .map_err(|_| CheckFailure::Request)?;
+            self.services
+                .provider
+                .transport
+                .repository_tag_names(owner, repo, &request)
+                .await
+                .map_err(|error| CheckFailure::Provider(error.kind))
         })
     }
 
@@ -41,13 +63,13 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
         repo: &'a str,
         commit: &'a str,
     ) -> crate::providers::artifact::CommitFuture<'a> {
-        use crate::providers::artifact::CommitCheck;
+        use crate::providers::artifact::{CheckFailure, CommitCheck};
         Box::pin(async move {
             let request = self
                 .services
                 .resolve_request(self.context, self.access)
                 .await
-                .ok()?;
+                .map_err(|_| CheckFailure::Request)?;
             match self
                 .services
                 .provider
@@ -56,16 +78,30 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
                 .await
             {
                 Ok(_) if request.followed_rename(owner, repo) => {
-                    Some(CommitCheck::FoundAfterRedirect)
+                    // The redirect names the repository's id, not its new
+                    // name: the repository's metadata names it. A read that
+                    // fails leaves the target unnamed, not the check failed.
+                    let to = crate::tools::gh_shared::canonical_repo(
+                        &self.services.provider,
+                        owner,
+                        repo,
+                        &request,
+                        crate::tools::gh_shared::RenameCheck::Redirected,
+                    )
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|(owner, repo)| format!("{owner}/{repo}"));
+                    Ok(CommitCheck::FoundAfterRedirect { to })
                 }
-                Ok(_) => Some(CommitCheck::Found),
+                Ok(_) => Ok(CommitCheck::Found),
                 Err(error) if error.reason == Some(ProviderErrorReason::RefNotFound) => {
-                    Some(CommitCheck::Missing)
+                    Ok(CommitCheck::Missing)
                 }
                 Err(error) if error.reason == Some(ProviderErrorReason::RepositoryNotFound) => {
-                    Some(CommitCheck::RepositoryMissing)
+                    Ok(CommitCheck::RepositoryMissing)
                 }
-                Err(_) => None,
+                Err(error) => Err(CheckFailure::Provider(error.kind)),
             }
         })
     }

@@ -7,6 +7,10 @@ use url::Url;
 
 use super::attempts::Attempts;
 use super::evidence::{answer_of, page_of, request_key};
+use super::route::{
+    Missing, RENAME_ROUTE_WINDOW, commit_read, repository_id_prefix, repository_prefix,
+    route_answer, route_key, route_target, routed,
+};
 use super::{
     GitHubTransport, HttpMethod, RequestContext, RequestSpec, ResponsePage, Reuse, SavedAnswer,
     worth_keeping,
@@ -39,6 +43,9 @@ pub(crate) const PULL_REQUEST_REUSE_WINDOW: Duration = Duration::from_secs(60);
 pub(super) struct Obtained {
     pub(super) page: ResponsePage,
     pub(super) from_origin: bool,
+    /// GitHub answered this request now: its page, or a `304` confirming a
+    /// saved one. A replay or a saved answer served in its place is not.
+    pub(super) asked: bool,
 }
 
 /// A saved answer found for a request, and how to put it back.
@@ -85,15 +92,256 @@ impl GitHubTransport {
         spec: RequestSpec,
         context: &RequestContext,
     ) -> Result<ResponsePage, ProviderError> {
-        let Obtained { page, from_origin } =
-            self.execute_counted(spec.clone(), context, &mut 0).await?;
-        if matches!(spec.method, HttpMethod::Get) {
-            if from_origin {
-                self.keep(&spec, &page, context);
+        let mut followed = Vec::new();
+        let mut route = self.route(&spec, context);
+        let mut sent = route
+            .as_ref()
+            .map_or_else(|| spec.clone(), |(routed, _, _)| routed.clone());
+        let replayed = route.is_some() && self.answers_unasked(&sent, context);
+        let mut result = self
+            .execute_counted(sent.clone(), context, &mut 0, &mut followed)
+            .await;
+        // A kept route that leads nowhere is forgotten with its rename, and
+        // the request asks under the name it was given, as it did before the
+        // route was kept. A path missing under a route that still leads to
+        // its repository is that repository's answer.
+        if !replayed
+            && result
+                .as_ref()
+                .is_err_and(|error| error.kind == ProviderErrorKind::NotFound)
+            && let Some((_, key, _)) = &route
+            && self
+                .route_is_stale(&spec, &sent, context, &mut followed)
+                .await
+        {
+            if let (Some(store), Some(scope)) = (&self.answers, self.answer_scope(context)) {
+                store.forget(&scope, key);
             }
-            self.learn_pull_request_lifetime(&spec, &page, context);
+            context.forget_rename(&spec.url);
+            route = None;
+            sent = spec;
+            result = self
+                .execute_counted(sent.clone(), context, &mut 0, &mut followed)
+                .await;
         }
+        if result
+            .as_ref()
+            .is_err_and(|error| error.kind == ProviderErrorKind::NotFound)
+            && context.awaits_repository(&request_key(&sent))
+        {
+            self.prove_repository(&sent.url, context, &mut followed)
+                .await;
+        }
+        self.keep_routes(&followed, context);
+        let Obtained {
+            mut page,
+            from_origin,
+            asked,
+        } = result?;
+        // A redirect GitHub answered now: its repository answered under its id.
+        if asked {
+            for (_, new) in &followed {
+                context.record_answered(new);
+            }
+        }
+        self.keep_proved_missing(context);
+        if let Some((_, _, Some(observed_ms))) = &route {
+            context.record_reused(*observed_ms);
+        }
+        if matches!(sent.method, HttpMethod::Get) {
+            if from_origin {
+                self.keep(&sent, &page, context);
+                // A rename just followed: the answer is its target's own,
+                // which a routed repeat asks for directly.
+                let target = followed.iter().find_map(|(old, new)| {
+                    let (prefix, _) = repository_prefix(&sent.url)?;
+                    if prefix == *old {
+                        routed(&sent.url, new)
+                    } else {
+                        None
+                    }
+                });
+                if page.redirected
+                    && let Some(url) = target
+                {
+                    let mut direct = sent.clone();
+                    direct.url = url;
+                    page.redirected = false;
+                    self.keep(&direct, &page, context);
+                    page.redirected = true;
+                }
+            }
+            self.learn_pull_request_lifetime(&sent, &page, context);
+        }
+        page.redirected |= route.is_some();
         Ok(page)
+    }
+
+    /// `spec` sent along the rename route kept for its repository, with the
+    /// route's store key and, when the route is reused within its window, when
+    /// it was observed; the rename is recorded as if GitHub redirected it.
+    fn route(
+        &self,
+        spec: &RequestSpec,
+        context: &RequestContext,
+    ) -> Option<(RequestSpec, String, Option<u64>)> {
+        if !matches!(spec.method, HttpMethod::Get) {
+            return None;
+        }
+        let store = self.answers.as_ref()?;
+        let (prefix, _) = repository_prefix(&spec.url)?;
+        let scope = self.answer_scope(context)?;
+        let key = route_key(&prefix);
+        let saved = store.load(&scope, &key)?;
+        let reuse = saved.reuse(false, Some(RENAME_ROUTE_WINDOW), now_ms());
+        if !matches!(reuse, Reuse::Fresh | Reuse::Window) {
+            return None;
+        }
+        let target = route_target(&saved)?;
+        let url = routed(&spec.url, &target)?;
+        if !self.endpoint.permits(&url) {
+            return None;
+        }
+        // A route GitHub stated earlier in this request is no reuse.
+        let reused = reuse == Reuse::Window && !context.minted_route(&prefix);
+        context.record_rename(&spec.url, &url);
+        context.record_route_taken(prefix, target);
+        let mut sent = spec.clone();
+        sent.url = url;
+        Some((sent, key, reused.then_some(saved.observed_ms)))
+    }
+
+    /// Whether the kept route `routed` took leads to no repository: the
+    /// routed read was the repository itself, or the repository the route
+    /// leads to is not found now.
+    async fn route_is_stale(
+        &self,
+        spec: &RequestSpec,
+        routed: &RequestSpec,
+        context: &RequestContext,
+        followed: &mut Vec<(Url, Url)>,
+    ) -> bool {
+        if repository_prefix(&spec.url).is_some_and(|(_, rest)| rest.is_empty()) {
+            return true;
+        }
+        let Some((repository, _)) = repository_id_prefix(&routed.url) else {
+            return false;
+        };
+        self.obtain_kept(RequestSpec::get(repository), context, followed, false)
+            .await
+            .is_err_and(|error| error.kind == ProviderErrorKind::NotFound)
+    }
+
+    /// A contents miss at `url` waits for its repository to answer, and the
+    /// repository's saved answer was replayed (inside the `max-age` GitHub
+    /// stated), which proves nothing now: ask GitHub to confirm it, whatever
+    /// that lifetime. Its `304` is free of the rate limit. With no saved
+    /// answer to confirm, nothing is sent.
+    async fn prove_repository(
+        &self,
+        url: &Url,
+        context: &RequestContext,
+        followed: &mut Vec<(Url, Url)>,
+    ) {
+        let Some((repository, _)) = repository_prefix(url).or_else(|| repository_id_prefix(url))
+        else {
+            return;
+        };
+        let spec = RequestSpec::get(repository);
+        if self
+            .saved(&spec, context)
+            .is_some_and(|saved| saved.saved.revalidation().is_some())
+        {
+            // The answer or failure matters only as proof, recorded inside.
+            let _ = self.obtain_kept(spec, context, followed, true).await;
+        }
+    }
+
+    /// `spec`'s answer, kept when the origin sent it; `revalidate` asks the
+    /// origin to confirm a saved answer whatever lifetime it stated.
+    async fn obtain_kept(
+        &self,
+        spec: RequestSpec,
+        context: &RequestContext,
+        followed: &mut Vec<(Url, Url)>,
+        revalidate: bool,
+    ) -> Result<Obtained, ProviderError> {
+        let result = self
+            .obtain(spec.clone(), context, &mut 0, followed, revalidate)
+            .await;
+        if let Ok(obtained) = &result
+            && obtained.from_origin
+        {
+            self.keep(&spec, &obtained.page, context);
+        }
+        result
+    }
+
+    /// Keeps the rename routes this call followed for later requests.
+    fn keep_routes(&self, followed: &[(Url, Url)], context: &RequestContext) {
+        if let (Some(store), Some(scope)) = (&self.answers, self.answer_scope(context)) {
+            for (old, new) in followed {
+                store.save(&scope, &route_key(old), route_answer(old, new, now_ms()));
+            }
+        }
+    }
+
+    /// Holds a not-found answer for a path at a commit SHA until the commit
+    /// is proven: a miss the commit or repository may explain is not kept,
+    /// nor one for the object itself, which can be pushed later.
+    fn hold_missing(&self, spec: &RequestSpec, error: &ProviderError, context: &RequestContext) {
+        let Some(commit) = commit_read(&spec.url).filter(|read| read.path) else {
+            return;
+        };
+        if error.kind != ProviderErrorKind::NotFound
+            || error.status != Some(404)
+            || error.reason.is_some()
+            || !matches!(spec.method, HttpMethod::Get)
+            || self.answers.is_none()
+        {
+            return;
+        }
+        let Some(scope) = self.answer_scope(context) else {
+            return;
+        };
+        // Under the name asked, and under each other name of the repository
+        // this request saw, as a success followed through a rename is kept.
+        let mut requests = vec![request_key(spec)];
+        for alias in context.aliases(&commit.repository) {
+            if let Some(url) = Url::parse(&alias)
+                .ok()
+                .and_then(|alias| routed(&spec.url, &alias))
+            {
+                let mut other = spec.clone();
+                other.url = url;
+                let key = request_key(&other);
+                if !requests.contains(&key) {
+                    requests.push(key);
+                }
+            }
+        }
+        context.hold_missing(Missing::new(
+            &spec.url,
+            commit,
+            scope,
+            requests,
+            error.clone(),
+            now_ms(),
+        ));
+    }
+
+    /// Keeps the held not-found answers whose commit has been proven.
+    fn keep_proved_missing(&self, context: &RequestContext) {
+        let Some(store) = &self.answers else {
+            return;
+        };
+        for missing in context.take_proved_missing() {
+            for request in &missing.requests {
+                let mut saved = missing.saved.clone();
+                saved.answer.request.clone_from(request);
+                store.save(&missing.scope, request, saved);
+            }
+        }
     }
 
     /// [`Self::execute`] drawing on `attempt`, the physical-attempt count of
@@ -104,20 +352,48 @@ impl GitHubTransport {
         spec: RequestSpec,
         context: &RequestContext,
         attempt: &mut u8,
+        followed: &mut Vec<(Url, Url)>,
+    ) -> Result<Obtained, ProviderError> {
+        self.obtain(spec, context, attempt, followed, false).await
+    }
+
+    /// [`Self::execute_counted`]; `revalidate` asks the origin to confirm a
+    /// saved answer it would otherwise replay unasked.
+    async fn obtain(
+        &self,
+        spec: RequestSpec,
+        context: &RequestContext,
+        attempt: &mut u8,
+        followed: &mut Vec<(Url, Url)>,
+        revalidate: bool,
     ) -> Result<Obtained, ProviderError> {
         // A resumed continuation's evidence answers what it recorded.
         if let Some(answer) = context.journal.replay(&spec) {
             return answer.map(|page| Obtained {
                 page,
                 from_origin: false,
+                asked: false,
             });
         }
-        let saved = self.saved(&spec, context);
+        let mut saved = self.saved(&spec, context);
+        if revalidate
+            && let Some(saved) = &mut saved
+            && matches!(saved.reuse, Reuse::Pinned | Reuse::Fresh | Reuse::Window)
+            && let Some((name, value)) = saved.saved.revalidation()
+        {
+            saved.reuse = Reuse::Ask(name, value);
+        }
         let mut sent = spec.clone();
         if let Some(saved) = &saved {
             match &saved.reuse {
                 Reuse::Pinned | Reuse::Fresh | Reuse::Window => {
                     context.check()?;
+                    // What GitHub said before vouches for nothing now: not
+                    // for the repository, nor for a commit.
+                    if let Some(error) = &saved.saved.answer.not_found {
+                        context.journal.record(&spec, &Err(error.clone()));
+                        return Err(error.clone());
+                    }
                     let page = page_of(&saved.saved.answer);
                     context.journal.record_page(&spec, &page);
                     if saved.reuse == Reuse::Window {
@@ -126,6 +402,7 @@ impl GitHubTransport {
                     return Ok(Obtained {
                         page,
                         from_origin: false,
+                        asked: false,
                     });
                 }
                 Reuse::Ask(name, value) => {
@@ -137,13 +414,26 @@ impl GitHubTransport {
             }
         }
         let mut failed = None;
-        let result = self.run_attempts(sent, context, &mut failed, attempt).await;
+        let result = self
+            .run_attempts(sent, context, &mut failed, attempt, followed)
+            .await;
         let result = self.settle(result, saved, context);
         let page = result
             .as_ref()
             .map(|obtained| obtained.page.clone())
             .map_err(Clone::clone);
         context.journal.record(&spec, &page);
+        match &result {
+            Ok(obtained) if obtained.asked => {
+                context.record_proven(&spec.url);
+                if !obtained.page.redirected {
+                    context.record_answered(&spec.url);
+                }
+            }
+            Ok(_) => {}
+            Err(error) => self.hold_missing(&spec, error, context),
+        }
+        self.keep_proved_missing(context);
         if let (Err(error), Some(cause)) = (&result, failed)
             && error.kind != ProviderErrorKind::Cancelled
         {
@@ -179,11 +469,13 @@ impl GitHubTransport {
                 Ok(Obtained {
                     page: answer,
                     from_origin: false,
+                    asked: true,
                 })
             }
             (Ok(page), _) => Ok(Obtained {
                 page,
                 from_origin: true,
+                asked: true,
             }),
             // GitHub refused to answer now: the last answer it gave, disclosed
             // by the time it was observed, beats no answer.
@@ -192,6 +484,7 @@ impl GitHubTransport {
                 Ok(Obtained {
                     page: page_of(&saved.saved.answer),
                     from_origin: false,
+                    asked: false,
                 })
             }
             (Err(error), Some(saved)) => {
@@ -335,6 +628,7 @@ impl GitHubTransport {
         context: &RequestContext,
         failed: &mut Option<CircuitCause>,
         attempt: &mut u8,
+        followed: &mut Vec<(Url, Url)>,
     ) -> Result<ResponsePage, ProviderError> {
         if !self.endpoint.permits(&spec.url) {
             return Err(ProviderError::new(
@@ -342,7 +636,7 @@ impl GitHubTransport {
                 "request URL is outside the configured GitHub API origin",
             ));
         }
-        Attempts::new(self, spec, context, failed, attempt)
+        Attempts::new(self, spec, context, failed, attempt, followed)
             .run()
             .await
     }

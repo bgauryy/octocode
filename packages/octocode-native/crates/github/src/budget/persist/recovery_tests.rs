@@ -14,6 +14,7 @@ async fn admit_code_search(
             budget.config(),
             Instant::now() + Duration::from_secs(10),
             &Cancellation::new(),
+            &crate::budget::ClientWaits::default(),
         )
         .await
 }

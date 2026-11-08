@@ -126,6 +126,56 @@ fn one_credential_list_covers_read_and_search() {
     }
 }
 
+/// A disclosure of withheld entries names the directory that holds them, from
+/// the walk root, and never an entry itself (B143).
+#[test]
+fn a_directory_holding_withheld_files_is_not_disclosed_as_the_file() {
+    use super::withheld::WithheldKind;
+    use crate::tools::leads::skipped::unlifted;
+    let root = tempfile::tempdir().expect("root");
+    let deploy = root.path().join("deploy");
+    std::fs::create_dir_all(&deploy).expect("dirs");
+    let (env, key) = (deploy.join(".env"), root.path().join("id_rsa"));
+    std::fs::write(&env, "A=1\n").expect("credential file");
+    std::fs::write(&key, "k\n").expect("credential file");
+    let mut withheld = Withheld::default();
+    withheld.record(&env);
+    withheld.record(&key);
+    let walked = root.path().to_string_lossy().into_owned();
+    let entries = unlifted(&walked, &withheld, Default::default());
+    // One entry per (reason, directory), shown from the walk root; the root
+    // itself only for what sits directly in it.
+    let holders = |path: &str| {
+        entries
+            .iter()
+            .filter(|entry| entry.path == path)
+            .collect::<Vec<_>>()
+    };
+    for (directory, held) in [("deploy", ".env"), (walked.as_str(), "id_rsa")] {
+        let at = holders(directory);
+        assert_eq!(at.len(), 1, "{entries:?}");
+        assert_eq!(at[0].count, 1);
+        assert_eq!(
+            at[0].reason.as_deref(),
+            Some(WithheldKind::CredentialFile.reason())
+        );
+        assert!(
+            entries.iter().all(|entry| !entry.path.ends_with(held)),
+            "a withheld file is never named: {entries:?}"
+        );
+    }
+    assert_eq!(
+        entries.iter().map(|entry| entry.count).sum::<usize>(),
+        withheld.total()
+    );
+    // Two directories holding one file each stay two entries.
+    let shown = crate::tools::leads::skipped::skipped_paths(entries, false, false)
+        .expect("skipped paths")
+        .expect("some skipped")
+        .entries;
+    assert_eq!(shown.len(), 2, "{shown:?}");
+}
+
 /// The notice names what it withheld: a `.git` pointer file is not
 /// a credential file, and a symlink the walk did not follow is not one
 /// outside the allowed roots.

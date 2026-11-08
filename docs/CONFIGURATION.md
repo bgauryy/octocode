@@ -109,7 +109,7 @@ The CLI has 16 tools, `securityCheck` among them, plus `clasify` with a classifi
 | Tools | In MCP | Needs when called |
 |---|---|---|
 | Six GitHub search and read tools, `artifactSearch` | On | GitHub access where the endpoint requires it |
-| `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `lspSearch` | On; `local.enabled: false` hides them | Authorized paths; `lspSearch` also needs a language server |
+| `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `lspSearch` | On; `local.enabled: false` hides them | Authorized paths; `lspSearch` answers from an editor bridge or a language server, else from syntax or text ([levels](OCTOCODE_TOOLS.md#lspsearch)) |
 | `graphBuild`, `graphQuery` | `local.beta: true` | Authorized paths |
 | `clasify` | A classification key | A working key |
 | `ghCloneRepo` | `tools.enableClone: true` | Git, repository access, persistent storage |

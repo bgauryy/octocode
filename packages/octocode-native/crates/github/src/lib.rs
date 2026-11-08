@@ -26,6 +26,7 @@ mod partition;
 mod query_syntax;
 mod refs;
 mod search;
+mod security;
 mod transport;
 mod tree;
 
@@ -33,7 +34,8 @@ mod tree;
 /// (branches, tags, comments, reviews, commits, changed files).
 pub const MAX_PER_PAGE: usize = 100;
 
-pub use budget::{AuthAdmission, GitHubBudget, GitHubPacing, LimiterKey};
+pub use budget::{AuthAdmission, GitHubBudget, GitHubPacing, GitLimiter, LimiterKey};
+pub use commit_dates::{LastCommitMemo, LastCommitWant, SettleOnDrop};
 pub use content::{
     ContentRequest, ContentResponse, GitHubProvider, Submodule, decode_content, is_full_sha,
 };
@@ -53,6 +55,10 @@ pub use search::{
     CodeSearchItem, CodeSearchPage, CodeSearchRequest, RepositoryMetadata, RepositorySearchItem,
     RepositorySearchPage, RepositorySearchRequest, SEARCH_RESULT_CAP, TextMatch, TreeEntry,
     TreeRequest, TreeResponse,
+};
+pub use security::{
+    AdvisoryCvss, AdvisoryPackage, AdvisoryPage, AdvisoryVulnerability, CommitRead, RefHolder,
+    RefHolders, RepositoryAdvisory, tags_pointing_at,
 };
 pub use transport::{
     AnswerBody, GitHubTransport, GraphQlError, GraphQlPage, HTTP_USER_AGENT, HttpMethod,

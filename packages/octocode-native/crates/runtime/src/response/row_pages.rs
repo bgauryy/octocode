@@ -21,7 +21,7 @@ use plan::{PageBudget, PreparedRows, RowPlan};
 use serde_json::json;
 use serde_json::{Map, Value};
 use shares::{PartShare, keep_row_next, row_next_chars, row_part_chars};
-use skeleton::{continues_chars, enclosing_element, lean_later_context, volatile_reserve};
+use skeleton::{continues_chars, enclosing_element, lean_later_context};
 use slicer::{Open, Slicer};
 
 use super::page_model::{ResponsePageOptions, ResponsePagination};
@@ -68,7 +68,7 @@ pub(super) fn paginate_rows(
         &cancelled,
     )
     .expect("valid source")
-    .page(options, &|_| 0, &cancelled)
+    .page(options, &cancelled)
     .expect("valid page")
 }
 
@@ -98,9 +98,9 @@ pub(super) struct RowSource {
     /// The envelope without its rows.
     skeleton: Map<String, Value>,
     plan: RowPlan,
-    /// Each row's per-call provider facts, regained by its first part.
+    /// Each row's per-call provider facts, regained by its first part after
+    /// the cut: no page edge or page measure depends on them.
     volatile: Vec<Option<Map<String, Value>>>,
-    budget: usize,
     snapshot: String,
     /// The call that reads on past the last page: the rows' walks, stated
     /// as the envelope's one continuation ([`crate::response::continuations::hoist`]).
@@ -140,11 +140,10 @@ impl RowSource {
             returned_chars: total,
             snapshot: snapshot.clone(),
             next_offset: more_pages.then_some(total),
-            oversized: None,
             next: onward.clone().filter(|_| !more_pages),
         };
         // Room for the pagination block.
-        let prepared = PreparedRows::new(rows, &volatile, tool);
+        let prepared = PreparedRows::new(rows, tool);
         let row_budget = |reserve: usize| budget.saturating_sub(overhead + reserve).max(1);
         let finished = block(&template(false));
         let widest = block(&template(true));
@@ -166,7 +165,6 @@ impl RowSource {
             skeleton: structured,
             plan,
             volatile,
-            budget,
             snapshot,
             onward,
         })
@@ -177,7 +175,6 @@ impl RowSource {
     pub(super) fn page(
         &self,
         options: &ResponsePageOptions,
-        block: &dyn Fn(&ResponsePagination) -> usize,
         cancelled: &Cancellation,
     ) -> Result<(Map<String, Value>, ResponsePagination), super::pager::ResponseError> {
         let Self { plan, .. } = self;
@@ -190,21 +187,20 @@ impl RowSource {
         let selected = plan.build_page(requested, &self.volatile, cancelled)?;
         structured.insert(ROWS_KEY.into(), Value::Array(selected));
         let more_pages = requested + 1 < plan.total_pages;
-        let char_length = octocode_engine::json_size::utf16_units(&structured).unwrap_or(0);
-        let mut pagination = ResponsePagination {
+        let char_length = octocode_engine::json_size::utf16_units(&structured).unwrap_or(0)
+            - super::pager::volatile_chars(&structured);
+        // A page wider than the budget (one fragment could not be divided
+        // further) is measured and stated where it is served
+        // ([`super::pager::budgeted_chars`]'s rule).
+        let pagination = ResponsePagination {
             #[cfg(test)]
             total_pages: plan.total_pages,
             has_more: more_pages || self.onward.is_some(),
             returned_chars: char_length,
             snapshot: self.snapshot.clone(),
             next_offset: more_pages.then_some(requested + 1),
-            oversized: None,
             next: self.onward.clone().filter(|_| !more_pages),
         };
-        // Oversized: the page with its own block still passes the budget, because
-        // one fragment could not be divided further.
-        pagination.oversized =
-            (pagination.returned_chars + block(&pagination) > self.budget).then_some(true);
         Ok((structured, pagination))
     }
 }

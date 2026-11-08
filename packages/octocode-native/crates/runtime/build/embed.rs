@@ -2,7 +2,7 @@
 //! spans, and the `tool_contract.rs` include of the exact bytes read.
 
 use super::tool_gen::{render_listing_roles, render_query_limits, render_tool_ids};
-use super::{config_path, integer, invalid, string};
+use super::{config_path, inputs, integer, invalid, string};
 use serde_json::Value;
 use std::env;
 use std::error::Error;
@@ -135,13 +135,7 @@ pub(super) fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let dir = fs::canonicalize(config_path(&manifest_dir, "contract"))?;
     let file = |name: &str| dir.join(name);
-    for name in [
-        "tool-contract.json",
-        "contract-fixtures.json",
-        "provenance.json",
-        "tool_types.rs",
-        "cli-presentation.json",
-    ] {
+    for name in inputs::CONTRACT_FILES {
         println!("cargo:rerun-if-changed={}", file(name).display());
     }
     // Re-serialize compactly: the source is pretty-printed, and every artifact

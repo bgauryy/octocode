@@ -245,3 +245,69 @@ async fn registry_failures_share_githubs_codes_and_retry_lead() {
     );
     runtime.close().await;
 }
+
+/// A registry link GitHub redirects (the repository was renamed or
+/// transferred) names the repository GitHub redirects it to: the redirect
+/// target is the successor, read from GitHub, not left as "another name".
+#[tokio::test]
+async fn a_redirected_repository_names_the_repository_github_redirects_to() {
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/left-pad/1.3.0"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "name": "left-pad",
+            "version": "1.3.0",
+            "repository": {"type": "git", "url": "https://github.com/a/b"}
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/HEAD"))
+        .respond_with(ResponseTemplate::new(301).insert_header(
+            "location",
+            format!("{}/api/v3/repositories/1/commits/HEAD", server.uri()),
+        ))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repositories/1/commits/HEAD"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"default_branch": "main", "full_name": "c/d"})),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/git/matching-refs/tags"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let mut env = support::github_api(&server).to_vec();
+    env.push(("OCTOCODE_ALLOW_PRIVATE_REGISTRY", "true".to_string()));
+    let runtime = workspace.runtime(&env);
+    let outcome = call(
+        &runtime,
+        "artifactSearch",
+        json!({
+            "operation": "resolve", "ecosystem": "npm",
+            "packageName": "left-pad", "version": "1.3.0",
+            "registryUrl": server.uri()
+        }),
+    )
+    .await
+    .expect("artifactSearch");
+    let data = row_data(&outcome);
+    let warnings = data["warnings"].to_string();
+    assert!(
+        warnings.contains("GitHub redirects a/b to c/d"),
+        "the warning names the redirect target: {data}"
+    );
+    runtime.close().await;
+}

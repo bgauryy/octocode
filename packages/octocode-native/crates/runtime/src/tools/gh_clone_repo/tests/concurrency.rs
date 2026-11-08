@@ -26,6 +26,7 @@ fn concurrent_requests_replace_serially_and_validation_fails_closed() {
                 &CloneContext {
                     config: &config,
                     endpoint: &endpoint,
+                    git_limiter: super::test_git_limiter(&config),
                     credential: None,
                     cancellation: &NeverCancel,
                     deadline: Instant::now() + Duration::from_secs(30),

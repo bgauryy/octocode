@@ -113,8 +113,11 @@ async fn cancellation_interrupts_an_inflight_response() {
     assert_eq!(error.kind, ProviderErrorKind::Cancelled);
 }
 
+/// A next link to another origin (a proxy forwarding GitHub's own) is the
+/// fact that more rows exist: the page is read and keeps it, a read of the
+/// first page alone does not parse it, and following it is refused.
 #[tokio::test]
-async fn rejects_cross_origin_pagination() {
+async fn a_cross_origin_next_link_is_kept_as_more_rows_and_never_followed() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .respond_with(
@@ -126,13 +129,20 @@ async fn rejects_cross_origin_pagination() {
         .await;
     let endpoint = mock_endpoint(&server);
     let transport = anonymous_transport(&endpoint);
-    let error = transport
-        .execute(
-            RequestSpec::get(endpoint.rest(&["items"]).expect("route")),
-            &RequestContext::with_timeout(Duration::from_secs(2), 16),
-        )
+    let spec = || RequestSpec::get(endpoint.rest(&["items"]).expect("route"));
+    let context = || RequestContext::with_timeout(Duration::from_secs(2), 16);
+    let first = transport
+        .execute(spec().reading_first_page_only(), &context())
         .await
-        .expect_err("origin");
+        .expect("first page");
+    assert!(first.next.is_none());
+    let page = transport.execute(spec(), &context()).await.expect("page");
+    let next = page.next.expect("more rows exist");
+    assert_eq!(next.host_str(), Some("evil.example"));
+    let error = transport
+        .execute(RequestSpec::get(next), &context())
+        .await
+        .expect_err("another origin is never asked");
     assert_eq!(error.kind, ProviderErrorKind::RedirectDenied);
 }
 

@@ -3,11 +3,11 @@
 //! name cannot reach one. While OSV is the only source, a source that fails
 //! makes the row an error, so nothing about it can read as clean.
 use super::Net;
+use super::ecosystem::Ecosystem;
 use super::osv;
 use super::record::SecurityAdvisory;
 use crate::config::ResolvedConfig;
 use crate::providers::artifact::ArtifactError;
-use octocode_contract_types::ArtifactType;
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -15,12 +15,17 @@ use serde_json::{Value, json};
 /// row carrying `resume` continues a walk the registry confirmed earlier.
 #[derive(Clone)]
 pub(super) struct Confirmed {
-    pub kind: ArtifactType,
+    pub ecosystem: Ecosystem,
     pub name: String,
     /// Absent: the registry does not list the requested version, so a source
     /// hears the name alone.
     pub version: Option<String>,
     pub resume: Option<String>,
+    /// A distribution release (`12`, `22.04:LTS`): OSV is asked `<ecosystem>:<release>`.
+    pub release: Option<String>,
+    /// A Go package path inside `name` (the module): OSV keys Go by module, so
+    /// the records are narrowed to this import path afterwards.
+    pub import: Option<String>,
 }
 
 /// What a source may be asked about.
@@ -38,6 +43,9 @@ pub(super) enum Target {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum Source {
     Osv,
+    /// A repository's own advisories: read by the rows that name a repository
+    /// (`commit` with `repo`, `repository`), never through [`ask_all`].
+    GitHub,
 }
 
 impl Source {
@@ -47,26 +55,54 @@ impl Source {
     pub(super) const fn name(self) -> &'static str {
         match self {
             Self::Osv => "osv",
+            Self::GitHub => "github",
         }
     }
 
     const fn covers(self, target: &Target) -> bool {
         match (self, target) {
             (Self::Osv, Target::Package(_) | Target::Advisory(_) | Target::Commit { .. }) => true,
+            (Self::GitHub, _) => false,
         }
     }
 
     const fn available(self, _config: &ResolvedConfig) -> bool {
         match self {
-            Self::Osv => true,
+            Self::Osv | Self::GitHub => true,
         }
     }
 
     async fn ask(self, target: &Target, net: &Net<'_>) -> Result<SourceResult, ArtifactError> {
         match self {
             Self::Osv => osv::ask(target, net).await,
+            Self::GitHub => Err(ArtifactError::new(
+                octocode_contract_types::ErrorCode::ProviderError,
+                "GitHub advisories are read with a repository, not asked by target",
+            )),
         }
     }
+}
+
+/// Whether a source lists the package in its release, whatever the version:
+/// what tells a release with no advisory at a version from a release the source
+/// does not name, since both answer a version query with nothing.
+pub(super) async fn names_release(
+    confirmed: &Confirmed,
+    net: &Net<'_>,
+) -> Result<bool, ArtifactError> {
+    let target = Target::Package(confirmed.clone());
+    for source in Source::ALL {
+        if source.covers(&target) && source.available(net.config) {
+            let named = match source {
+                Source::Osv => osv::names_release(confirmed, net).await?,
+                Source::GitHub => false,
+            };
+            if named {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
 /// Every available source that covers `target`, in order.
@@ -107,7 +143,16 @@ pub(super) struct Resume {
 pub(super) struct SourceResult {
     pub source: Source,
     pub advisories: Vec<SecurityAdvisory>,
+    /// Records of the queried module that state import paths, none of them the
+    /// package asked about: read, but not this package's.
+    pub module_only: Vec<SecurityAdvisory>,
     pub resume: Option<Resume>,
+    /// OSV cannot order this ecosystem's versions: the version was compared
+    /// here against each record's ranges.
+    pub compared_here: bool,
+    /// Ids of advisories kept because their ranges (or the version) could not be
+    /// compared, so they neither match nor clear the version.
+    pub unmatched: Vec<String>,
 }
 
 impl SourceResult {
@@ -115,7 +160,10 @@ impl SourceResult {
         Self {
             source,
             advisories: Vec::new(),
+            module_only: Vec::new(),
             resume: None,
+            compared_here: false,
+            unmatched: Vec::new(),
         }
     }
 
@@ -172,6 +220,21 @@ pub(super) fn into_row(mut data: Value, results: &[SourceResult], view: View) ->
                 .collect(),
             View::Whole => serde_json::to_value(&advisories).unwrap_or_else(|_| json!([])),
         };
+    }
+    let apart = results
+        .iter()
+        .flat_map(|result| &result.module_only)
+        .collect::<Vec<_>>();
+    if !apart.is_empty() {
+        // Read, listed by id, and not this package's: the record names other
+        // packages of the module (`ecosystem_specific.imports`), not this one.
+        data["moduleOnly"] = json!({
+            "note": "Advisories of the same module whose records list other packages and not this one; they are not counted above.",
+            "advisories": super::record::advisory_groups(&apart)
+                .iter()
+                .map(|group| super::record::group_brief(group))
+                .collect::<Vec<_>>(),
+        });
     }
     if all_none_known(results) {
         data["status"] = json!("empty");

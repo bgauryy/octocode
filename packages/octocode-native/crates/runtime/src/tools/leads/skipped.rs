@@ -62,34 +62,39 @@ pub(crate) fn skipped_cause(cause: Cause) -> SkippedPathCause {
     }
 }
 
-/// What the path policy withheld from a walk of `root`, one entry per
-/// reason at the walked scope: the withheld names stay withheld.
+/// What the path policy withheld from a walk of `root`: each policy
+/// directory name with its count at the walked scope, and every other
+/// withheld entry as the directory that holds it (never its own name), with
+/// the rule that withheld it and how many it holds there.
 fn withheld(root: &str, withheld: &crate::policy::discovery::Withheld) -> Vec<SkippedEntry> {
-    let at = |count: usize, reason: String| SkippedEntry {
+    let dirs = withheld.dirs.iter().map(|(name, count)| SkippedEntry {
         path: root.to_owned(),
         cause: SkippedPathCause::Withheld,
-        reason: Some(reason),
-        count,
-    };
-    let dirs = withheld.dirs.iter().map(|(name, count)| {
-        at(
-            *count,
-            format!("security-policy dir {}/", name.trim_end_matches('/')),
-        )
+        reason: Some(format!(
+            "security-policy dir {}/",
+            name.trim_end_matches('/')
+        )),
+        count: *count,
     });
-    let rest = [
-        (withheld.files, "credential file"),
-        (
-            withheld.git_files,
-            "`.git` file (a submodule or worktree pointer)",
-        ),
-        (withheld.symlinks, "symlink not followed"),
-        (withheld.other, "outside the allowed roots or unresolvable"),
-    ]
-    .into_iter()
-    .filter(|(count, _)| *count > 0)
-    .map(|(count, reason)| at(count, reason.to_owned()));
-    dirs.chain(rest).collect()
+    let entries = withheld
+        .holders()
+        .map(|(kind, holder, count)| SkippedEntry {
+            path: held_in(root, holder),
+            cause: SkippedPathCause::Withheld,
+            reason: Some(kind.reason().to_owned()),
+            count,
+        });
+    dirs.chain(entries).collect()
+}
+
+/// The directory `holder` as the walk shows its paths: from `root`, with `/`
+/// separators; the walk root itself when the files sit directly in it.
+fn held_in(root: &str, holder: &str) -> String {
+    match std::path::Path::new(holder).strip_prefix(root) {
+        Ok(inside) if inside.as_os_str().is_empty() => root.to_owned(),
+        Ok(inside) => octocode_engine::text::slash_path(inside),
+        Err(_) => octocode_engine::text::slash_path(std::path::Path::new(holder)),
+    }
 }
 
 /// What no flag lifts from a walk of `root`: what the path policy withheld
@@ -163,7 +168,8 @@ pub(crate) fn skipped_paths(
     Ok(grouped(entries, every_path, incomplete))
 }
 
-/// `entries` first seen first, one per cause and rule: its first path with
+/// `entries` first seen first, one per cause and rule (per directory for
+/// withheld files): its first path with
 /// `count` when more sit behind it, or with `every_path`
 /// each path on its own. `sampled` when entries were
 /// collapsed or the walk did not finish (`incomplete`). A result stored with
@@ -175,10 +181,13 @@ pub(crate) fn grouped(
 ) -> Option<SkippedPaths> {
     let mut groups: Vec<SkippedPath> = Vec::new();
     for entry in entries {
-        match groups
-            .iter_mut()
-            .find(|group| group.cause == entry.cause && group.reason == entry.reason)
-        {
+        match groups.iter_mut().find(|group| {
+            group.cause == entry.cause
+                    && group.reason == entry.reason
+                    // A withheld entry is the directory holding the files: two
+                    // directories are two entries, whatever they hold.
+                    && (entry.cause != SkippedPathCause::Withheld || group.path == entry.path)
+        }) {
             Some(group) if !every_path || group.path == entry.path => {
                 group.count = Some(group.count.unwrap_or(1) + entry.count.unwrap_or(1));
             }
@@ -288,7 +297,7 @@ pub(crate) fn lead(tool: ToolId, query: &impl serde::Serialize, causes: &[Cause]
 /// complete.
 pub(crate) fn attach(out: &mut Value, disclosure: &Disclosure, lead: Value) {
     out["calls"]["includeSkipped"] = lead;
-    super::push_hint(out, disclosure.text.clone());
+    crate::response::result::add_hints(out, [disclosure.text.clone()]);
 }
 
 #[cfg(test)]

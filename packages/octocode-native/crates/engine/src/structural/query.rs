@@ -290,6 +290,9 @@ fn rule_anchors(rule: &super::octo::RawRule, anchor_use: AnchorUse) -> Option<Ve
     {
         required.push(vec![anchor.to_owned()]);
     }
+    if let Some(anchor) = rule.regex.as_deref().and_then(literal_regex) {
+        required.push(vec![anchor.to_owned()]);
+    }
     for child in rule
         .all
         .iter()
@@ -310,6 +313,16 @@ fn rule_anchors(rule: &super::octo::RawRule, anchor_use: AnchorUse) -> Option<Ve
         required.push(branches.into_iter().flatten().collect());
     }
     required.into_iter().min_by_key(Vec::len)
+}
+
+/// The text a rule `regex` that spells only a literal requires, bare or
+/// between `^` and `$`: the node it tests holds that text with the same case
+/// (`Regex::new` sets no flag), so the file holding the node does too. `None`
+/// for any regex syntax beyond those two anchors.
+fn literal_regex(regex: &str) -> Option<&str> {
+    let regex = regex.strip_prefix('^').unwrap_or(regex);
+    let literal = regex.strip_suffix('$').unwrap_or(regex);
+    (!literal.is_empty() && regex::escape(literal) == literal).then_some(literal)
 }
 
 #[cfg(test)]

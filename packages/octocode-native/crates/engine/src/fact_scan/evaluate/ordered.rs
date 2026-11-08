@@ -7,6 +7,7 @@ use rayon::prelude::*;
 
 use super::super::ScanHold;
 use super::outcome::GraphFactsScanOutcome;
+use crate::contain::{Contained, Phase, catch, within};
 
 /// `evaluate` of `entries` in parallel, each started only after every entry
 /// before it, until `held` says the files finished already pass what the scan may
@@ -65,29 +66,46 @@ pub(super) fn in_walk_order<E: Sync, R: Send, X: Send>(
 pub(super) type Weighed<T> = (usize, Option<GraphFactsScanOutcome<T>>);
 
 /// [`in_walk_order`] of a chunk of a scan holding `held` bytes of `limit`: each
-/// file's result with what it adds to them.
+/// file's result with what it adds to them. A panic in a file's own steps
+/// (its read, decode, keep, extraction, mapping or weight) is that file's
+/// result, `panicked` names it and the step it ran: the other files go on.
 pub(super) fn weighed_chunk<E: Sync, T: Send, X: Send>(
     chunk: &[E],
     (held, limit): (usize, usize),
     hold: Option<&ScanHold<'_, T>>,
     evaluate: impl Fn(&E) -> Result<Option<GraphFactsScanOutcome<T>>, X> + Sync,
+    panicked: impl Fn(&E, &Contained) -> GraphFactsScanOutcome<T> + Sync,
 ) -> Result<Vec<Weighed<T>>, X> {
     let finished = AtomicUsize::new(held);
     in_walk_order(
         chunk,
         &|| finished.load(Ordering::Relaxed) > limit,
         |entry| {
-            let outcome = evaluate(entry)?;
-            let weight = match (hold, &outcome) {
-                (Some(hold), Some(GraphFactsScanOutcome::Entry(_, Some(value)))) => {
-                    (hold.weigh)(value)
-                }
-                _ => 0,
-            };
-            finished.fetch_add(weight, Ordering::Relaxed);
-            Ok((weight, outcome))
+            let weighed = catch(Phase::Extract, || -> Result<Weighed<T>, X> {
+                let outcome = evaluate(entry)?;
+                let weight = match (hold, &outcome) {
+                    (Some(hold), Some(GraphFactsScanOutcome::Entry(_, Some(value)))) => {
+                        within(Phase::Weigh, || (hold.weigh)(value))
+                    }
+                    _ => 0,
+                };
+                Ok((weight, outcome))
+            })
+            .unwrap_or_else(|panic| Ok((0, Some(panicked(entry, &panic)))))?;
+            finished.fetch_add(weighed.0, Ordering::Relaxed);
+            Ok(weighed)
         },
     )
+}
+
+/// Tells the watcher of [`watch_stop`] its work is over when dropped, also
+/// when the work unwinds, so the scope never waits on it.
+struct Done<'a>(&'a AtomicBool);
+
+impl Drop for Done<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
 }
 
 /// Run `work` while a scoped watcher raises `stopped` once `stop` reports the
@@ -108,9 +126,8 @@ pub(super) fn watch_stop<R>(
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
         });
-        let result = work();
-        done.store(true, Ordering::Relaxed);
-        result
+        let _done = Done(&done);
+        work()
     })
 }
 
@@ -169,5 +186,19 @@ mod tests {
             if *entry >= 3 { Err(*entry) } else { Ok(*entry) }
         });
         assert_eq!(results, Err(3));
+    }
+
+    /// A panic in the work ends the watcher too: the panic comes back to the
+    /// caller instead of the scope waiting forever for a watcher told nothing.
+    #[test]
+    fn a_panicking_work_still_ends_the_watcher() {
+        let stopped = std::sync::Arc::new(AtomicBool::new(false));
+        let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            watch_stop(&|| false, &stopped, &|| -> () {
+                std::panic::resume_unwind(Box::new("work unwound"))
+            });
+        }));
+        assert!(unwound.is_err());
+        assert!(!stopped.load(Ordering::Relaxed));
     }
 }

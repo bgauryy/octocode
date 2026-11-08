@@ -79,6 +79,45 @@ fn repeated_leads_run_rustup_once() {
     }
 }
 
+/// A first call that stops while rustup has not answered resolves the route
+/// without the toolchain's component: that route is the caller's, not the
+/// next call's (the rustup answer itself is kept only once rustup answered).
+#[test]
+fn a_route_resolved_without_rustup_answering_is_not_kept() {
+    let machine = machine();
+    let route = || {
+        with_view(machine.view.clone(), || {
+            default_server_for_file(
+                "src/lib.rs",
+                &machine.workspace.to_string_lossy(),
+                &LspDiscoveryOptions::default(),
+            )
+        })
+    };
+    machine.rustup.hold();
+    settle_written_so_far();
+    let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let started = machine.rustup.run_log();
+    let raise = std::sync::Arc::clone(&stop);
+    let watcher = std::thread::spawn(move || {
+        while !std::fs::read_to_string(&started).is_ok_and(|log| !log.is_empty()) {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        raise.store(true, std::sync::atomic::Ordering::Relaxed);
+    });
+    let degraded = crate::deep_stack::while_stoppable(&stop, route);
+    watcher.join().expect("watcher");
+    assert!(degraded.is_some(), "the stopped call still gets a route");
+    assert_eq!(machine.rustup.runs(), 1);
+
+    machine.rustup.release();
+    settle_written_so_far();
+    assert!(route().is_some());
+    assert_eq!(machine.rustup.runs(), 2, "the next call asks rustup itself");
+    assert!(route().is_some());
+    assert_eq!(machine.rustup.runs(), 2, "an answered route is kept");
+}
+
 /// A workspace's own answer: another directory may select another toolchain.
 #[test]
 fn another_workspace_asks_rustup_itself() {

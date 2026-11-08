@@ -160,7 +160,9 @@ fn narrow_scope(query: &impl Listing) -> Option<Value> {
     let path = query.path().parse().ok()?;
     Some(
         Continuation::related_query(StructureSearchQuery::Tree(StructureSearchQueryTree {
+            classification: None,
             default_excludes: None,
+            selection: None,
             entry_type: None,
             exclude: Vec::new(),
             extensions: Vec::new(),

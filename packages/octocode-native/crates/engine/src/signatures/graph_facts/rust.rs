@@ -15,6 +15,8 @@ pub(super) struct RustAttributes {
     pub(super) path: Option<String>,
     /// The `path` a `cfg_attr` whose predicate requires test gives.
     pub(super) test_path: Option<String>,
+    /// The `path` a `cfg_attr` whose predicate is false under test gives.
+    pub(super) plain_path: Option<String>,
     pub(super) unsupported: bool,
     pub(super) cfg_test: bool,
     /// The start byte of the first attribute of the run that begins its
@@ -51,59 +53,77 @@ impl RustContext {
     }
 }
 
-/// Fold an attribute run (nearest attribute first) the same way the item's
-/// preceding siblings were read: the farthest `#[path]` wins, a repeated
-/// `#[path]` or any non-lint attribute is unsupported.
-fn fold_rust_attributes<'t>(
-    nearest_first: impl Iterator<Item = Node<'t>>,
-    content: &str,
-) -> RustAttributes {
-    let mut folded = RustAttributes::default();
-    for attribute in nearest_first {
-        let text = node_text(attribute, content).unwrap_or_default();
-        let inner = text
-            .trim()
-            .strip_prefix("#[")
-            .and_then(|text| text.strip_suffix(']'))
-            .unwrap_or_default()
-            .trim();
-        let name = inner.split(['(', '=']).next().unwrap_or_default().trim();
-        match name {
-            "path" => {
-                if let Some(value) = path_literal(inner) {
-                    if folded.path.is_some() {
-                        folded.unsupported = true;
-                    }
-                    folded.path = Some(value.to_owned());
-                } else {
+#[cfg(test)]
+thread_local! {
+    /// Attributes folded on this thread, for the work-bound test.
+    static FOLDED_ATTRIBUTES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Attributes folded on this thread so far: each should fold once.
+#[cfg(test)]
+pub(in crate::signatures) fn folded_attributes() -> usize {
+    FOLDED_ATTRIBUTES.with(std::cell::Cell::get)
+}
+
+/// Fold one more attribute into the run read so far, in source order: the
+/// farthest (first written) `#[path]` wins, a repeated `#[path]` or any
+/// non-lint attribute is unsupported. Each attribute is folded once as the
+/// run grows, so a run of any length costs linear work.
+fn fold_rust_attribute(folded: &mut RustAttributes, attribute: Node<'_>, content: &str) {
+    #[cfg(test)]
+    FOLDED_ATTRIBUTES.with(|count| count.set(count.get() + 1));
+    let text = node_text(attribute, content).unwrap_or_default();
+    let inner = text
+        .trim()
+        .strip_prefix("#[")
+        .and_then(|text| text.strip_suffix(']'))
+        .unwrap_or_default()
+        .trim();
+    let name = inner.split(['(', '=']).next().unwrap_or_default().trim();
+    match name {
+        "path" => {
+            if let Some(value) = path_literal(inner) {
+                if folded.path.is_some() {
                     folded.unsupported = true;
+                } else {
+                    folded.path = Some(value.to_owned());
                 }
-            }
-            // `cfg` gates whether a module compiles, not which file it maps
-            // to: the edge is conditional, not unknown.
-            "cfg" => folded.cfg_test |= super::rust_cfg::cfg_requires_test(inner),
-            "allow"
-            | "warn"
-            | "deny"
-            | "forbid"
-            | "expect"
-            | "doc"
-            | "deprecated"
-            | "no_implicit_prelude"
-            | "macro_use"
-            | "test" => {}
-            // A conditional attribute that rewrites the path does change it.
-            "cfg_attr" if !inner.contains("path") => {}
-            "cfg_attr" => {
-                folded.test_path = super::rust_cfg::cfg_attr_under_test(inner, "path")
-                    .and_then(path_literal)
-                    .map(str::to_owned);
+            } else {
                 folded.unsupported = true;
             }
-            _ => folded.unsupported = true,
         }
+        // `cfg` gates whether a module compiles, not which file it maps
+        // to: the edge is conditional, not unknown.
+        "cfg" => folded.cfg_test |= super::rust_cfg::cfg_requires_test(inner),
+        "allow"
+        | "warn"
+        | "deny"
+        | "forbid"
+        | "expect"
+        | "doc"
+        | "deprecated"
+        | "no_implicit_prelude"
+        | "macro_use"
+        | "test" => {}
+        // A conditional attribute that rewrites the path does change it.
+        "cfg_attr" if !inner.contains("path") => {}
+        // Each arm names the file for one build: an arm that names none
+        // for a build leaves the file another arm gave it.
+        "cfg_attr" => {
+            if let Some(path) =
+                super::rust_cfg::cfg_attr_under_test(inner, "path").and_then(path_literal)
+            {
+                folded.test_path.get_or_insert_with(|| path.to_owned());
+            }
+            if let Some(path) =
+                super::rust_cfg::cfg_attr_outside_test(inner, "path").and_then(path_literal)
+            {
+                folded.plain_path.get_or_insert_with(|| path.to_owned());
+            }
+            folded.unsupported = true;
+        }
+        _ => folded.unsupported = true,
     }
-    folded
 }
 
 /// The file a `path = "x.rs"` attribute body names, when it is a plain literal.
@@ -127,26 +147,11 @@ pub(super) fn rust_child_contexts(
     content: &str,
     inherited: &RustContext,
 ) -> Vec<RustContext> {
-    let mut run_start: Option<usize> = None;
+    // The run's attributes folded so far; each attribute folds once.
+    let mut run: Option<RustAttributes> = None;
     let mut contexts = Vec::with_capacity(children.len());
-    for (index, child) in children.iter().enumerate() {
-        let attributes = match run_start {
-            Some(start) => {
-                let run = || {
-                    children[start..index]
-                        .iter()
-                        .copied()
-                        .filter(|item| item.kind() == "attribute_item")
-                };
-                RustAttributes {
-                    line_start: run()
-                        .map(|attribute| attribute.start_byte())
-                        .find(|&at| begins_line(content, at)),
-                    ..fold_rust_attributes(run().rev(), content)
-                }
-            }
-            None => RustAttributes::default(),
-        };
+    for child in children {
+        let attributes = run.clone().unwrap_or_default();
         contexts.push(RustContext {
             unsupported: inherited.unsupported || attributes.unsupported,
             block_local: inherited.block_local,
@@ -155,10 +160,14 @@ pub(super) fn rust_child_contexts(
         });
         match child.kind() {
             "attribute_item" => {
-                run_start.get_or_insert(index);
+                let folded = run.get_or_insert_with(RustAttributes::default);
+                if folded.line_start.is_none() && begins_line(content, child.start_byte()) {
+                    folded.line_start = Some(child.start_byte());
+                }
+                fold_rust_attribute(folded, *child, content);
             }
             "line_comment" | "block_comment" => {}
-            _ => run_start = None,
+            _ => run = None,
         }
     }
     contexts

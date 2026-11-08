@@ -65,7 +65,11 @@ fn missing_file_leads_to_files_by_stem() {
     let listing = &next["findFile"]["input"]["queries"][0];
     assert_eq!(listing["operation"], "files", "{next}");
     assert_eq!(listing["path"], ".", "{next}");
-    assert_eq!(listing["include"], serde_json::json!(["blok.*"]), "{next}");
+    assert_eq!(
+        listing["include"],
+        serde_json::json!(["**/blok.*"]),
+        "{next}"
+    );
     // The lead runs and lists the moved file.
     let (paths, security) = crate::tools::test_support::simple_policy(&t.0);
     let listed = crate::tools::structure_search::execute_structure(
@@ -105,7 +109,7 @@ fn missing_file_lead_never_widens_to_names_containing_the_stem() {
     let result = fetch(&req, &workspace_policy(&t.0));
     let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
     let listing = &next["findFile"]["input"]["queries"][0];
-    assert_eq!(listing["include"], serde_json::json!(["x.*"]), "{next}");
+    assert_eq!(listing["include"], serde_json::json!(["**/x.*"]), "{next}");
 }
 
 /// The row names the file it read: `.` and `..` segments of the requested

@@ -41,9 +41,7 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
         && let Some(call) = assets_call(row, source)
     {
         crate::response::result::attach_related(failure, call);
-        let mut hints = vec![json!(IMAGE_SOURCE_HINT)];
-        hints.extend(failure["hints"].as_array().into_iter().flatten().cloned());
-        failure["hints"] = json!(hints);
+        crate::response::result::prepend_hints(failure, [IMAGE_SOURCE_HINT]);
     }
     let read = captured
         .map(|capture| capture.read.clone())
@@ -68,23 +66,14 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
     } else {
         "failed"
     });
-    let mut tips = vec![json!(hint)];
+    let mut tips = vec![hint];
     if row.assets.is_some() {
-        tips.push(json!(notice("imageInspection")));
+        tips.push(notice("imageInspection"));
         if crate::id::error_code_of(failure) == Some(ErrorCode::ClassificationStateTooLarge) {
-            tips.push(json!(IMAGE_WINDOW_HINT));
+            tips.push(IMAGE_WINDOW_HINT);
         }
     }
-    if let Some(existing) = failure["hints"].as_array() {
-        tips.extend(
-            existing
-                .iter()
-                .filter(|item| !tips.contains(item))
-                .cloned()
-                .collect::<Vec<_>>(),
-        );
-    }
-    failure["hints"] = json!(tips);
+    crate::response::result::prepend_hints(failure, tips);
 }
 
 /// The same questions over `source` as a ready `sections` call: where each

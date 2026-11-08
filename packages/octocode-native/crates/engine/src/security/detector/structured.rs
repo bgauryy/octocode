@@ -44,19 +44,25 @@ pub(in crate::security) fn matches(value: &Value) -> crate::error::Result<Vec<Op
                     }
                 }
             }
-            None => long_text::pattern_matches(idx, &text, true, |whole, secret| {
-                let at = tokens.partition_point(|token| token.end <= secret.start);
-                if let Some(token) = tokens.get(at)
-                    && secret.start == token.start
-                    && whole.start < token.start.saturating_sub(1)
-                {
-                    // The assignment starts outside the string: its JSON key
-                    // supplies the context. A match within a source-code string
-                    // must instead be judged by that leaf's source-file rules.
-                    hidden.resize(tokens.len(), None);
-                    hidden[at].get_or_insert(idx);
-                }
-            }),
+            None => long_text::pattern_matches(
+                idx,
+                &text,
+                Scope::Stored(None),
+                true,
+                |whole, secret| {
+                    let at = tokens.partition_point(|token| token.end <= secret.start);
+                    if let Some(token) = tokens.get(at)
+                        && secret.start == token.start
+                        && whole.start < token.start.saturating_sub(1)
+                    {
+                        // The assignment starts outside the string: its JSON key
+                        // supplies the context. A match within a source-code string
+                        // must instead be judged by that leaf's source-file rules.
+                        hidden.resize(tokens.len(), None);
+                        hidden[at].get_or_insert(idx);
+                    }
+                },
+            ),
         }
     }
     Ok(hidden)

@@ -44,13 +44,9 @@ fn deeply_nested_symbols_page_every_alias_and_preserve_required_identity() {
     }
     let data = json!({"symbols":[symbol]});
     assert_row_contract(ToolId::AstSearch, &data);
-    let plan = PreparedRows::new(
-        vec![json!({"index":0,"data":data})],
-        &[None],
-        ToolId::AstSearch,
-    )
-    .plan(700, &Cancellation::new())
-    .expect("valid plan");
+    let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], ToolId::AstSearch)
+        .plan(700, &Cancellation::new())
+        .expect("valid plan");
     assert!(
         plan.total_pages > 2,
         "deep aliases must be independently pageable"

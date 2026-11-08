@@ -2,8 +2,7 @@
 use super::*;
 
 /// Only the git steps that reach the remote run with the credential: the
-/// local `remote add` and `config` steps take no askpass helper and no
-/// network permit.
+/// local `remote add` step takes no askpass helper and no network permit.
 #[test]
 fn only_network_git_steps_carry_the_credential() {
     let fixture = Fixture::shared();
@@ -32,17 +31,12 @@ fn only_network_git_steps_carry_the_credential() {
             .unwrap_or_else(|| panic!("{label} not run: {seen:?}"))
             .clone()
     };
-    for local in [
-        "configure commit remote",
-        "configure sparse promisor",
-        "configure sparse filter",
-    ] {
-        assert!(
-            step(local).contains("authorization_url: None"),
-            "{}",
-            step(local)
-        );
-    }
+    let local = "configure commit remote";
+    assert!(
+        step(local).contains("authorization_url: None"),
+        "{}",
+        step(local)
+    );
     for network in ["fetch requested commit", "set sparse commit paths"] {
         assert!(
             step(network).contains("authorization_url: Some"),

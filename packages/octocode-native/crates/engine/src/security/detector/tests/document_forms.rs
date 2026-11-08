@@ -56,6 +56,30 @@ fn a_secret_in_json_is_hidden_past_any_nesting() {
     }
 }
 
+/// JSONC and source code put comments and blank lines anywhere, also between a
+/// member's name and its value: `data` and `kind` still say what their values
+/// are, in a file and in the pathless net.
+#[test]
+fn a_comment_between_a_name_and_its_value_keeps_its_role() {
+    for gap in [
+        "\n// db creds\n",
+        " /* c */ ",
+        "\n\n# c\n",
+        " // c\n\n/* a\n b */\n",
+    ] {
+        for text in [
+            format!("{{\n\"data\":{gap}{{\"blob\": \"{VALUE}\"}},\n\"kind\": \"Secret\"\n}}\n"),
+            format!(
+                "{{\n\"kind\":{gap}\"Secret\",\n\"stringData\":{gap}{{\"blob\": \"{VALUE}\"}}\n}}\n"
+            ),
+        ] {
+            for path in [Some("conf/secret.jsonc"), Some("src/fixture.rs"), None] {
+                hides(&text, path, &[VALUE], &["Secret"]);
+            }
+        }
+    }
+}
+
 #[test]
 fn every_values_member_of_a_secret_is_hidden() {
     for text in [
@@ -376,4 +400,29 @@ fn every_named_object_holds_a_literal() {
         names.feed(text.as_bytes());
         assert!(names.finish().objects, "{text}");
     }
+}
+
+/// A Kubernetes Secret block scalar with CRLF line ends: past the in-memory
+/// limit the text hides what the in-memory pass hides and ends its lines the
+/// same way, each hidden line keeping the `\r\n` it had, and a second pass
+/// changes nothing.
+#[test]
+fn secret_block_scalars_keep_their_line_ends_on_the_long_path() {
+    let content = "kind: Secret\r\nstringData:\r\n  config: |\r\n    lineOneFake\r\n    lineTwoFake\r\nnext: 1\r\n";
+    let scope = Scope::File("app.yaml");
+    let in_memory = detect_in(content, scope);
+    let long = redact_within(content, scope, 1).expect("a secret is hidden");
+    for piece in ["lineOneFake", "lineTwoFake"] {
+        assert!(!long.sanitized.contains(piece), "{:?}", long.sanitized);
+    }
+    assert_eq!(long.sanitized, in_memory.sanitized);
+    assert_eq!(
+        long.sanitized.matches("\r\n").count(),
+        long.sanitized.matches('\n').count()
+    );
+    assert_eq!(
+        long.sanitized.matches('\n').count(),
+        content.matches('\n').count()
+    );
+    assert!(redact_within(&long.sanitized, scope, 1).is_none());
 }

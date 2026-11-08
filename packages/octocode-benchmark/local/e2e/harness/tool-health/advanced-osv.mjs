@@ -7,9 +7,11 @@ const coordinate = kind => ({ maven: 'org.proof:proof', go: 'example.test/proof'
 const exact = kind => (kind === 'go' ? 'v1.0.0' : '1.0.0');
 const COMMIT = '6879efc2c1596d11a6a6ad296f80063b558d5e0f';
 const data = result => result.json?.results?.[0]?.data ?? {};
-const row = (kind, fields = {}) => ({ operation: 'package', ecosystem: kind, packageName: coordinate(kind), version: exact(kind), ...fields });
+const row = (kind, fields = {}) => ({ operation: 'package', ecosystem: OSV_NAMES[kind], packageName: coordinate(kind), version: exact(kind), ...fields });
 // OSV's real record (test-utils/provider-answers), its identity and fix moved to the proof package.
-const REAL = recordedJson('osv/advisory-ghsa', '/v1/vulns/');
+// Its `modified` stamp stays behind: the proxy stamps each new content itself, since
+// the engine keeps a record under (id, modified) for good.
+const { modified: _stamp, ...REAL } = recordedJson('osv/advisory-ghsa', '/v1/vulns/');
 // Records that share an alias (a CVE) are one advisory, so a record of its own id has no alias.
 const vuln = (id, name = 'proof', ecosystem = 'npm', aliases = []) => ({ ...REAL, id, aliases, affected: [{ ...REAL.affected[0], package: { name, ecosystem }, ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { fixed: '1.2.3' }] }] }] });
 const json = value => JSON.stringify(value);
@@ -63,7 +65,7 @@ async function gate(ctx, surface, record) {
   const range = await asked(ctx, surface, row('crates', { version: '^1.0' }));
   record('osv.rangeResolved', surface, range.bodies[0]?.version === '1.2.3' && range.row.version === '1.2.3', json(range));
   const repository = await asked(ctx, surface, { operation: 'url', url: 'https://github.com/acme/private' });
-  record('osv.repositoryRefused', surface, repository.row.errorCode === 'invalidInput' && repository.bodies.length === 0 && /is a repository/.test(repository.row.error), json(repository));
+  record('osv.repositoryUrlStaysWithGithub', surface, repository.row.cautions?.[0]?.rule === 'repositoryMissing' && repository.bodies.length === 0, json(repository));
   const unknownHost = await asked(ctx, surface, { operation: 'url', url: 'https://example.com/x' });
   record('osv.unknownHost', surface, /nothing was sent/.test(unknownHost.row.error ?? '') && unknownHost.bodies.length === 0, json(unknownHost));
 }
@@ -74,7 +76,11 @@ async function paging(ctx, surface, record) {
   record('osv.tokenOnlyPages', surface, json(ids(tokenOnly.row.advisories)) === json(['GHSA-3', 'GHSA-4']) && tokenOnly.bodies.slice(0, 4).map(body => body.page_token ?? '').join() === ',t1,t2,t3' && tokenOnly.status !== 'empty', json(tokenOnly));
   // A later page fails: what was read stays, and the cursor reaches the rest.
   ctx.registry.osvBodies.length = 0;
-  ctx.registry.osvAnswers.push({ body: { vulns: [vuln('GHSA-5')], next_page_token: 't1' } }, { status: 503, body: {}, headers: { 'retry-after': '60' } });
+  // `~` is outside the cursor's base64url alphabet, so no cursor can hold
+  // this token by chance: its absence from the resume call proves the cursor
+  // keeps it server-side. Short, so the output gate never reads it as a secret.
+  const token = 'p~1';
+  ctx.registry.osvAnswers.push({ body: { vulns: [vuln('GHSA-5')], next_page_token: token } }, { status: 503, body: {}, headers: { 'retry-after': '60' } });
   const stopped = data(await check(ctx, surface, ctx.q(row('pypi'))));
   const resume = stopped.next?.nextPage;
   ctx.registry.osvAnswers.length = 0;
@@ -82,7 +88,7 @@ async function paging(ctx, surface, record) {
   const rest = resume ? data(await check(ctx, surface, resume.input)) : {};
   const lastBody = ctx.registry.osvBodies.at(-1);
   ctx.registry.osvAnswers.length = 0;
-  record('osv.resumesThroughCursor', surface, stopped.isPartial === true && !('advisories' in stopped) && json(ids(rest.advisories)) === json(['GHSA-5', 'GHSA-6']) && lastBody?.page_token === 't1' && !json(resume ?? {}).includes('t1'), json({ stopped, rest, lastBody }));
+  record('osv.resumesThroughCursor', surface, stopped.isPartial === true && !('advisories' in stopped) && json(ids(rest.advisories)) === json(['GHSA-5', 'GHSA-6']) && lastBody?.page_token === token && json(Object.keys(resume?.input ?? {})) === json(['cursor']) && !json(resume ?? {}).includes(token), json({ stopped, rest, lastBody }));
   // A tiny response window rebuilds every record once.
   const many = Array.from({ length: 12 }, (_, i) => vuln(`GHSA-M${i}`));
   ctx.registry.osvAnswers.push({ body: { vulns: many } });
@@ -146,8 +152,9 @@ export async function advancedSecurityCheck(ctx) {
   const checks = [];
   const record = (label, surface, pass, detail) => checks.push([`advanced.${label}.${surface}`, pass, detail]);
   for (const surface of ctx.surfaces) {
+    // A github.com repository URL is read by GitHub as a repository, never as a package.
     const repository = data(await check(ctx, surface, ctx.q({ operation: 'url', url: 'https://github.com/acme/private' })));
-    record('refuses.repositoryUrl', surface, repository.errorCode === 'invalidInput' && /nothing was sent/.test(repository.error), json(repository));
+    record('routes.repositoryUrl', surface, repository.cautions?.[0]?.rule === 'repositoryMissing' && !repository.errorCode, json(repository));
     const short = await check(ctx, surface, ctx.q({ operation: 'commit', commit: '6879efc' }));
     record('refuses.shortCommit', surface, json(short.json).includes('invalidInput'), json(short.json));
     const token = await check(ctx, surface, ctx.q({ operation: 'advisory', id: 'GHSA-happy', resume: 'osv-token' }));

@@ -194,7 +194,10 @@ fn judge_units(
                 ));
                 // One request's time starts when it runs; the call's
                 // deadline bounds them all.
-                let budget = evaluator.budget(context.deadline, context.cancellation.clone());
+                let budget = evaluator.budget(
+                    crate::execution::cancel::deadline_of(context),
+                    context.cancellation.clone(),
+                );
                 let result = evaluator
                     .evaluate_questions(
                         EvaluationInput {

@@ -277,15 +277,40 @@ fn an_exported_declaration_is_the_declaration_inside_its_export() {
     assert_eq!(pattern_declaration("export { $A }", "ts"), None);
 }
 
-/// A declaration pattern that spells no body parses as the grammar's
-/// smaller form of the declaration (a signature), which matches none of
-/// the definitions: the declaration names the fuller kinds it leaves out.
+/// A declaration pattern that spells a `;` in place of the body parses as
+/// the grammar's smaller form of the declaration (a signature), which
+/// matches none of the definitions: the declaration names the fuller kinds
+/// it leaves out. One that spells neither matches both
+/// (`tests/terminators.rs`).
 #[test]
 fn a_bodiless_pattern_names_the_fuller_declaration_kinds() {
-    let signature = pattern_declaration("fn $N($$$A)", "rs").expect("signature");
+    let signature = pattern_declaration("fn $N($$$A);", "rs").expect("signature");
     assert_eq!(signature.kind, "function_signature_item");
     assert_eq!(signature.fuller_kinds, ["function_item"]);
     let definition = pattern_declaration("fn $N($$$A) { $$$ }", "rs").expect("definition");
     assert_eq!(definition.kind, "function_item");
     assert!(definition.fuller_kinds.is_empty(), "{definition:?}");
+}
+
+/// B88: a terminator the compiler appends to give a fragment its context
+/// (`impl X for $T` parses only as `impl X for $T;`) is not one the caller
+/// wrote, so it is not required: the pattern leaves out what it does not
+/// spell, the body included, and matches every implementation of the trait.
+/// A terminator the caller wrote stays required (`struct $S;` is a unit
+/// struct), and a statement that ends in one still matches.
+#[test]
+fn an_appended_terminator_is_not_required_of_the_candidate() {
+    let src = "trait ToolOutput {}\nstruct A;\nimpl ToolOutput for A {\n    fn f(&self) {}\n}\nimpl ToolOutput for B {}\nimpl Other for C {}\nstruct D { a: u8 }\nfn g() { let x = 1; }\n";
+    let lines = |pattern: &str| {
+        run_pattern(src, "rs", pattern)
+            .iter()
+            .map(|found| found.start_line)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(lines("impl ToolOutput for $T"), [3, 6]);
+    assert_eq!(lines("impl ToolOutput for $T { $$$ }"), [3, 6]);
+    // `{}` spells an empty body, which the pattern then requires.
+    assert_eq!(lines("impl ToolOutput for $T {}"), [6]);
+    assert_eq!(lines("struct $S;"), [2]);
+    assert_eq!(lines("let $X = $Y"), [9]);
 }

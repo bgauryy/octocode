@@ -169,7 +169,11 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
                 let call = Continuation::continued_query(query);
                 match index {
                     0 => insert_next(&mut row["next"], LspSearchChannel::ContinueWalk, call),
-                    _ => row["next"][format!("continueWalk{}", index + 1)] = call.build(),
+                    _ => crate::response::result::set_next(
+                        row,
+                        &format!("continueWalk{}", index + 1),
+                        call.build(),
+                    ),
                 }
             }
             // The walk goes on past this page: its pages never say it ended,

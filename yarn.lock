@@ -818,10 +818,10 @@ __metadata:
 
 "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::locator=octocode-monorepo%40workspace%3A.":
   version: 21.2.0
-  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=585244&locator=octocode-monorepo%40workspace%3A."
+  resolution: "@octocodeai/octocode-core@file:///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core#///Users/bgaryy/code/octocode-mcp-host/packages/octocode-core::hash=41b96c&locator=octocode-monorepo%40workspace%3A."
   dependencies:
     zod: "npm:^4.6.2"
-  checksum: 10c0/21af5bcd51caa59cc5500e848df19f863f811106f80e40cbd1dcd24baefbeb9d9a579afcb0d21ba3708072390fae169f20609efbdedeb7aacd66395b511a74ce
+  checksum: 10c0/0e4e62287bd80ba392bd5fd6c45364893a9f523a2505ce31e05e05732762bf0082e1119121c24df2cd5c9f7315c48fd5d09d74ebb9c44a63a0e2d5ccd065f810
   languageName: node
   linkType: hard
 
@@ -2499,6 +2499,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "octocode-mcp-vscode@workspace:packages/octocode-vscode"
   dependencies:
+    "@octocodeai/config": "workspace:*"
     "@types/node": "npm:^24.19.2"
     "@types/vscode": "npm:1.107.0"
     "@vitest/coverage-v8": "npm:^5.0.4"

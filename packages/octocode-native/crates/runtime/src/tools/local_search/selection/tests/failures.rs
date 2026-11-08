@@ -84,3 +84,12 @@ fn a_refused_credential_fails_the_row_with_its_typed_error() {
     let lead = &error.calls.as_ref().expect("evidence stays reachable")["unfiltered"];
     assert!(lead["input"]["queries"][0].get("classification").is_none());
 }
+
+/// A replay of a query row that is no object is the caller's error: the
+/// lead is never dropped as if the search had none.
+#[test]
+fn a_replay_of_a_non_object_query_is_an_error_not_a_dropped_lead() {
+    let error = accounting::replay_call(json!("not a row"), "snap", "token")
+        .expect_err("no continuation exists for a non-object row");
+    assert_eq!(error.code, ErrorCode::ExecutionFailed, "{}", error.message);
+}

@@ -226,9 +226,7 @@ const CODE_EXTENSIONS: &[&str] = &[
     ".jl",
 ];
 
-fn basename(path: &str) -> &str {
-    path.rsplit(['/', '\\']).next().unwrap_or("")
-}
+use octocode_engine::text::basename;
 /// Whether `name`'s extension is one of `values` (each with its dot), in
 /// any case. A bare dotfile (`.env`) is a name with no extension.
 fn extension_is(name: &str, values: &[&str]) -> bool {
@@ -311,16 +309,28 @@ mod tests {
     #[test]
     fn preserves_precedence_and_cross_platform_paths() {
         assert_eq!(
-            classify_file_type(r"C:\\repo\\Cargo.lock"),
-            Some(FileType::Lock)
-        );
-        assert_eq!(
             classify_file_type("src/vite.config.js"),
             Some(FileType::Config)
         );
         assert_eq!(classify_file_type("README.md"), Some(FileType::Doc));
         assert_eq!(classify_file_type("install.sh"), Some(FileType::Code));
         assert_eq!(classify_file_type("asset.bin"), None);
+    }
+    #[cfg(windows)]
+    #[test]
+    fn a_backslash_separates_windows_components() {
+        assert_eq!(
+            classify_file_type(r"C:\repo\Cargo.lock"),
+            Some(FileType::Lock)
+        );
+    }
+    /// On Unix `\` is a file-name byte: `f\Cargo.lock` is not `Cargo.lock`.
+    #[cfg(unix)]
+    #[test]
+    fn a_backslash_in_a_unix_file_name_is_part_of_the_name() {
+        assert_eq!(classify_file_type(r"f\Cargo.lock"), Some(FileType::Lock));
+        assert_eq!(classify_file_type(r"f\README.md"), Some(FileType::Doc));
+        assert_eq!(classify_file_type(r"f\README"), None);
     }
     #[test]
     fn covers_variadic_config_and_docs() {

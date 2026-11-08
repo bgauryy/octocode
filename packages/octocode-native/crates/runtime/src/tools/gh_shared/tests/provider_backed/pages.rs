@@ -13,10 +13,16 @@ pub(super) async fn page_data(server: &MockServer, tool: &str, row: Value) -> Va
     match tool {
         "ghSearchCode" => {
             let query = serde_json::from_value(row).expect("ghSearchCode query");
-            gh_search_code::execute(&one_shot_provider(server), &query, &context, &Passthrough)
-                .await
-                .expect("ghSearchCode page")
-                .data
+            gh_search_code::execute(
+                &one_shot_provider(server),
+                &query,
+                &context,
+                &Passthrough,
+                &crate::policy::discovery::is_sensitive_repository_file,
+            )
+            .await
+            .expect("ghSearchCode page")
+            .data
         }
         "ghSearchRepo" => {
             let query = serde_json::from_value(row).expect("ghSearchRepo query");

@@ -42,7 +42,7 @@ function refusalProblem(root, refusal, cls) {
 }
 
 /** A refusal can prove only the input fields its own policy actually judged. */
-const valuesProved = (spec, testCase, refusal) => (refusal && spec.refusalValues ? spec.refusalValues(testCase) : testCase.values);
+const valuesProved = (spec, testCase, refusal) => (testCase.refusal ? testCase.values : refusal && spec.refusalValues ? spec.refusalValues(testCase) : testCase.values);
 
 /** One surface's judgment of a row: refusal, admission, evidence, order. */
 async function judge(spec, worker, { testCase, surface, walked, expected, refusal }) {
@@ -70,7 +70,8 @@ export async function runRow(worker, spec, testCase, ledger) {
   const failures = [];
   const fail = failure => failures.push({ id: testCase.id, tool: testCase.tool, input: testCase.input, ...failure });
   const input = spec.resolve ? spec.resolve(worker.context, testCase.input) : testCase.input;
-  const refusal = spec.refusal?.(worker.context, testCase);
+  // A planned refusal (a row the schema's own checks reject), else the spec's policy for the row.
+  const refusal = testCase.refusal ?? spec.refusal?.(worker.context, testCase);
   const expected = refusal ? null : spec.truth?.(worker.context, testCase);
   const evidence = {};
   const observations = {};

@@ -2,7 +2,8 @@
 // followed from results. Tiny display budgets exercise transport pagination.
 import fs from 'node:fs';
 import path from 'node:path';
-import { declarations, lspLocations, structureFiles, sourceView, unchangedContext } from '../responses.mjs';
+import { declarations, lspLocations, structureFiles, sourceView } from '../responses.mjs';
+import { laterPartContext } from '../page-context.mjs';
 import { canon } from './calls.mjs';
 import { historyFileRows } from './history-evidence.mjs';
 
@@ -27,7 +28,7 @@ function codeSearchRows(data, json, context = new Map()) {
     const { matches, lines, ...metadata } = file;
     const key = canon([row?.index ?? 0, file.owner, file.repo, file.path]);
     const original = context.get(key);
-    const repeated = continued && index === 0 && unchangedContext(metadata, original);
+    const repeated = continued && index === 0 && laterPartContext('ghSearchCode', ['data', 'files', String(index)], { row: metadata, original });
     const revision = file.commitSha ?? (repeated ? original.commitSha : undefined);
     const evidenceKey = canon([row?.index ?? 0, file.owner, file.repo, file.path, revision]);
     const own = repeated ? [] : [`file:${key}:${canon(metadata)}`];
@@ -184,9 +185,9 @@ export const CASES = {
     budgetMs: REMOTE,
     happy: { query: { operation: 'advisory', id: 'GHSA-happy' }, fields: ['advisories'], rows: data => (data.advisories ?? []).map(item => item.id), min: 1, check: data => data.advisories?.[0]?.link?.endsWith('/GHSA-happy') ? null : 'each advisory links its record' },
     page: { na: 'advisories page through the OSV states in advanced-osv.mjs' },
-    empty: { query: { operation: 'package', ecosystem: 'pypi', packageName: 'proof', version: '1.0.0' } },
+    empty: { query: { operation: 'package', ecosystem: 'PyPI', packageName: 'proof', version: '1.0.0' } },
     invalid: { query: { operation: 'package', ecosystem: 'npm' } },
-    explore: [{ label: 'url', query: { operation: 'url', url: 'pkg:pypi/proof@1.0.0' }, class: 'empty' }, { label: 'commit', query: { operation: 'commit', commit: '6879efc2c1596d11a6a6ad296f80063b558d5e0f' }, class: 'empty' }],
+    explore: [{ label: 'url', query: { operation: 'url', url: 'pkg:pypi/proof@1.0.0' }, class: 'empty' }, { label: 'commit', query: { operation: 'commit', commit: '6879efc2c1596d11a6a6ad296f80063b558d5e0f' }, class: 'empty' }, { label: 'repository', query: { operation: 'repository', repo: `${repo.owner}/${repo.repo}` } }],
   },
   ghCloneRepo: {
     budgetMs: 20000, needs: 'clone',

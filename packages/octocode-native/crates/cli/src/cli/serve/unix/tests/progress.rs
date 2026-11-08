@@ -42,7 +42,7 @@ async fn progress_frames_reach_the_client_while_the_call_runs_and_before_its_rep
     let asking = exchange(
         &mut client,
         &request,
-        REPLY_DEADLINE,
+        reply_deadline(),
         std::future::pending(),
         std::future::pending::<()>(),
         || {},

@@ -199,7 +199,14 @@ fn row_counts_are_checked_before_redaction() {
         ..*LIMITS
     };
     let redacted = redactions();
-    let Err(out) = project_graph(&mut built, &paths, &security, &NeverCancel, &limits) else {
+    let Err(out) = project_graph(
+        &mut built,
+        &crate::tools::ast_graph::store::IngestOptions::default(),
+        &paths,
+        &security,
+        &NeverCancel,
+        &limits,
+    ) else {
         panic!("three witnesses pass a two-row bound");
     };
     assert_eq!(out.value["errorCode"], json!(ErrorCode::ScopeTooBroad));
@@ -208,7 +215,14 @@ fn row_counts_are_checked_before_redaction() {
     assert_eq!(redactions(), redacted, "refused before redaction");
     // Projection moves a build's captured sources: project a fresh build.
     let mut built = build(dir, &paths, &security);
-    let Ok(_) = project_graph(&mut built, &paths, &security, &NeverCancel, &LIMITS) else {
+    let Ok(_) = project_graph(
+        &mut built,
+        &crate::tools::ast_graph::store::IngestOptions::default(),
+        &paths,
+        &security,
+        &NeverCancel,
+        &LIMITS,
+    ) else {
         panic!("the default bounds hold it");
     };
     assert_eq!(redactions(), redacted + 1);
@@ -252,8 +266,14 @@ fn the_build_tally_is_a_lower_bound_of_the_projection() {
         let dir = dir.0.as_path();
         let (paths, security) = (workspace_policy(dir), ContentSecurity::new());
         let mut built = build(dir, &paths, &security);
-        let Ok(projection) = project_graph(&mut built, &paths, &security, &NeverCancel, &LIMITS)
-        else {
+        let Ok(projection) = project_graph(
+            &mut built,
+            &crate::tools::ast_graph::store::IngestOptions::default(),
+            &paths,
+            &security,
+            &NeverCancel,
+            &LIMITS,
+        ) else {
             panic!("projection");
         };
         let tables = &projection.tables;
@@ -279,7 +299,14 @@ fn projection_releases_the_linked_facts_before_redaction() {
     let (paths, security) = (workspace_policy(dir), ContentSecurity::new());
     let mut built = build(dir, &paths, &security);
     assert!(!built.facts["a.ts"].calls.is_empty());
-    let Ok(projection) = project_graph(&mut built, &paths, &security, &NeverCancel, &LIMITS) else {
+    let Ok(projection) = project_graph(
+        &mut built,
+        &crate::tools::ast_graph::store::IngestOptions::default(),
+        &paths,
+        &security,
+        &NeverCancel,
+        &LIMITS,
+    ) else {
         panic!("projection");
     };
     let facts = &built.facts["a.ts"];
@@ -308,7 +335,7 @@ fn redaction_judges_each_string_whatever_the_batch_holds() {
         strings: strings.iter().map(|text| (*text).to_owned()).collect(),
         ..Default::default()
     };
-    super::super::ingest::redact_secrets(&mut tables, &ContentSecurity::new());
+    super::super::ingest::redact_secrets(&mut tables, &ContentSecurity::new()).expect("redacted");
     assert!(
         !tables.strings[0].contains("QUJDREVGR0hJ"),
         "{:?}",

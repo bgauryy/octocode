@@ -332,3 +332,19 @@ async fn gate_bounds_in_flight_requests_across_concurrent_calls() {
     assert_eq!(peak.load(Ordering::SeqCst), 3);
     assert_eq!(in_flight.load(Ordering::SeqCst), 0);
 }
+
+/// CLS-3: after a 402 the hint does not say to rerun at once: it states
+/// that the process repeats the refusal, and the wait it names is the memo
+/// the gate keeps ([`QUOTA_MEMO`], about a minute).
+#[test]
+fn the_quota_hint_names_the_wait_the_gate_enforces() {
+    let error = crate::providers::classification::transport::errors::quota_exhausted();
+    let hint = error.hints.join(" ");
+    assert!(hint.contains("repeats the refusal"), "{hint}");
+    assert!(hint.contains("minute"), "{hint}");
+    assert!(
+        crate::providers::classification::gate::QUOTA_MEMO.as_secs() / 60 == 1,
+        "the hint says a minute; the memo is {:?}",
+        crate::providers::classification::gate::QUOTA_MEMO
+    );
+}

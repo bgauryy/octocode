@@ -26,6 +26,20 @@ pub(super) fn cfg_attr_under_test<'t>(inner: &'t str, name: &str) -> Option<&'t 
     })
 }
 
+/// The attribute named `name` a `cfg_attr(predicate, ...)` applies, as written,
+/// when its predicate is false under test: a build with `--test` leaves the item
+/// without it.
+pub(super) fn cfg_attr_outside_test<'t>(inner: &'t str, name: &str) -> Option<&'t str> {
+    let args = call_args(inner, "cfg_attr")?;
+    let (predicate, attributes) = args.split_first()?;
+    excludes_test(predicate).then_some(())?;
+    attributes.iter().copied().find(|attribute| {
+        attribute
+            .strip_prefix(name)
+            .is_some_and(|rest| rest.trim_start().starts_with('='))
+    })
+}
+
 /// Whether the named `children` of a node include an inner `#![cfg(test)]`.
 pub(super) fn inner_cfg_requires_test_among(children: &[Node<'_>], content: &str) -> bool {
     children.iter().any(|&child| {
@@ -49,6 +63,14 @@ fn requires_test(predicate: &str) -> bool {
         return !args.is_empty() && args.iter().all(|arg| requires_test(arg));
     }
     false
+}
+
+/// Whether `predicate` is decided by `test` alone and is false under it: plain
+/// `not(test)`. Any other cfg beside it (`all(not(test), unix)`) also depends
+/// on the host, so on some host the path applies in no build.
+fn excludes_test(predicate: &str) -> bool {
+    call_args(predicate.trim(), "not")
+        .is_some_and(|args| matches!(args.as_slice(), [one] if one.trim() == "test"))
 }
 
 /// The top-level, comma-separated arguments of `name(…)`, or `None` when

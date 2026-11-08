@@ -135,6 +135,23 @@ pub(super) fn mark_continuations(array: &str, at: usize, index: usize, out: &mut
     }
 }
 
+/// Mark fragment `at`, a later part that starts inside element `index` of
+/// `array`, as continuing that element, unless it already names a continued
+/// element of its own.
+pub(super) fn mark_continued_element(array: &str, index: usize, at: usize, out: &mut [Planned]) {
+    let (fragment, size) = &mut out[at];
+    if fragment.kind.marker_mut().is_some() {
+        return;
+    }
+    let inner = std::mem::replace(&mut fragment.kind, FragmentKind::Whole(0));
+    fragment.kind = FragmentKind::Continues {
+        inner: Box::new(inner),
+        array: array.to_owned(),
+        index,
+    };
+    *size += continues_chars(array, index);
+}
+
 pub(super) struct Skeleton {
     pub(super) value: Value,
     pub(super) chars: usize,

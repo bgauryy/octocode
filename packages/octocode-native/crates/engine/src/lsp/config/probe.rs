@@ -2,7 +2,9 @@ use super::invocation::{
     current_node_command, is_node_executable, is_rust_analyzer_command,
     resolve_known_server_command, typescript_cli_from_command,
 };
-use crate::lsp::commands::{has_path_separator, is_executable_path, is_rejected_shell};
+use crate::lsp::commands::{
+    has_path_separator, is_executable_path, is_rejected_shell, which_on_path,
+};
 use crate::lsp::types::LspLanguageServerConfig;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -153,7 +155,7 @@ pub fn is_command_available(command: &str) -> Result<bool, String> {
     if Path::new(&command).is_absolute() {
         return Ok(is_executable_path(Path::new(&command)));
     }
-    which::which(&command)
+    which_on_path(&command)
         .map(|path| is_executable_path(&path))
         .or_else(|err| match err {
             which::Error::CannotFindBinaryPath => Ok(false),
@@ -192,12 +194,14 @@ pub fn server_command_resolves(config: &LspLanguageServerConfig) -> bool {
         // A rustup proxy resolves on PATH even when the toolchain rustup
         // selects has no such component; running it would install or fail.
         // rustup decides, not this code: available only when it names the binary.
-        return super::invocation::rustup::selected_component(
-            &view,
-            &program,
-            Path::new(&config.workspace_root),
-        )
-        .is_some();
+        return matches!(
+            super::invocation::rustup::selected_component(
+                &view,
+                &program,
+                Path::new(&config.workspace_root),
+            ),
+            Ok(Some(_))
+        );
     }
     true
 }

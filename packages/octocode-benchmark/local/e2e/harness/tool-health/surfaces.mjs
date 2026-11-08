@@ -12,7 +12,7 @@ import { spawnCli, startServer } from '../mcp-client.mjs';
 import { contract } from '../contract.mjs';
 import { statusClass } from './driver.mjs';
 import { addBulkPullRequest } from './mock-model.mjs';
-import { startMock } from './mock-server.mjs';
+import { GIT_PATH, startMock } from './mock-server.mjs';
 import { startRegistryProxy } from './mock-registry-proxy.mjs';
 import { configureMockLsp, stopTestBrokers } from './mock-lsp-config.mjs';
 
@@ -60,6 +60,21 @@ export function hermeticEnv(home, mockUrl, live, tmp) {
   };
 }
 
+/**
+ * Provider requests no call's credential claims, which every count by credential
+ * would miss: any request in the registry proxy's root world, and any mock request
+ * without a credential except git's first smart-HTTP request, the 401 challenge
+ * that asks for one. Empty when attribution is complete.
+ */
+export function unattributed({ mock, registry }) {
+  const challenge = request => GIT_PATH.test(request.split(' ')[1] ?? '');
+  return [
+    ...registry.requests.map(request => `registry ${request}`),
+    ...registry.denied.map(target => `registry denied ${target}`),
+    ...mock.requestsFrom.filter(entry => entry.token === null && !challenge(entry.request)).map(entry => `mock ${entry.request}`),
+  ];
+}
+
 /** A CLI run as a response record; exit 1 with every row empty/outOfRange is an answer, not an error. */
 function cliRecord({ status, stdout, stderr, ms }) {
   let raw;
@@ -93,7 +108,29 @@ export async function startSurfaces(fixture, { unmetered = false } = {}) {
   try { registry = await startRegistryProxy(tmp); }
   catch (error) { await mock.close(); fs.rmSync(tmp, { recursive: true, force: true }); throw error; }
   const env = { ...hermeticEnv(home, mock.url, live, tmp), ...(!live && configureMockLsp(home)), HTTPS_PROXY: registry.proxyUrl, https_proxy: registry.proxyUrl, SSL_CERT_FILE: registry.caFile, SSL_CERT_DIR: '' };
-  const envFor = (tool, surface) => ({ ...env, GITHUB_TOKEN: tokenFor(tool, surface), OCTOCODE_CLASSIFICATION_API: tokenFor(tool, surface) });
+  // Every provider request a call makes carries its credential: GitHub and the
+  // classifier as a token, the mock's npm registry through a user npmrc, the
+  // registry proxy in its URL. So a check counts only its own calls' requests,
+  // and a tool's registry world (`registryFor`) is its own while others run.
+  const owners = new Map();
+  const worlds = new Map();
+  const npmrcDir = path.join(tmp, 'npmrc');
+  fs.mkdirSync(npmrcDir);
+  const npmrcFor = credential => {
+    const file = path.join(npmrcDir, credential);
+    if (!fs.existsSync(file)) fs.writeFileSync(file, `//${new URL(mock.url).host}/:_authToken=${credential}\n`);
+    return file;
+  };
+  const registryFor = owner => {
+    if (!worlds.has(owner)) worlds.set(owner, registry.scope(credential => owners.get(credential) === owner));
+    return worlds.get(owner);
+  };
+  const envFor = (tool, surface, owner = tool) => {
+    const credential = tokenFor(tool, surface);
+    owners.set(credential, owner);
+    const proxy = registry.proxyUrlFor(credential);
+    return { ...env, GITHUB_TOKEN: credential, OCTOCODE_CLASSIFICATION_API: credential, NPM_CONFIG_USERCONFIG: npmrcFor(credential), HTTPS_PROXY: proxy, https_proxy: proxy };
+  };
   const scenario = new AsyncLocalStorage();
   let scenarioIndex = 0;
   /** The CLI, asynchronously so tools run in parallel. */
@@ -101,6 +138,7 @@ export async function startSurfaces(fixture, { unmetered = false } = {}) {
   return {
     ctx: { mock, registry, fixture, tmp },
     envFor,
+    registryFor,
     workspace: name => {
       const cwd = path.join(tmp, `workspace-${name}`);
       fs.cpSync(fixture, cwd, { recursive: true });
@@ -115,7 +153,7 @@ export async function startSurfaces(fixture, { unmetered = false } = {}) {
     // A scenario owns a fresh credential (its own GitHub quota and classification
     // provider account); the callback receives it to observe that account.
     scenario: async ({ tool, surface, cwd = fixture, name, env: overrides }, callback) => {
-      const scopedEnv = { ...envFor(`${tool}-${name}-${++scenarioIndex}`, surface), ...overrides };
+      const scopedEnv = { ...envFor(`${tool}-${name}-${++scenarioIndex}`, surface, tool), ...overrides };
       return mock.withGitCredential(scopedEnv.GITHUB_TOKEN, async () => {
         const server = surface === 'mcp' ? await startServer({ cwd, env: scopedEnv, replaceEnv: true, timeoutMs: 60_000 }) : null;
         try { return await scenario.run({ surface, env: scopedEnv, server }, callback, { token: scopedEnv.GITHUB_TOKEN }); }

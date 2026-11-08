@@ -63,8 +63,11 @@ pub(crate) struct Import {
 pub(crate) struct CommonJsBinding {
     /// `imported_name` is the property bound, else `module.exports`.
     pub import: Import,
-    /// The variable declaration's occurrence id.
-    pub declaration_id: String,
+    /// The variable declaration's occurrence id, when the outline lists it.
+    pub declaration_id: Option<String>,
+    /// The extent a function- or block-scope binding holds over; `None`:
+    /// the whole file.
+    pub scope: Option<octocode_engine::text::analysis::ObservedSpan>,
 }
 #[derive(Clone, Debug)]
 pub(crate) struct Reexport {
@@ -99,6 +102,9 @@ pub(crate) struct Call {
     /// The call whose value an untyped Rust receiver is (see
     /// `GraphFactCall::receiver_call`).
     pub receiver_call: Option<octocode_engine::graph::GraphReceiverCall>,
+    /// The declared type a TS receiver reaches across files (see
+    /// `GraphFactCall::receiver_declared`).
+    pub receiver_declared: Option<octocode_engine::graph::GraphDeclaredType>,
 }
 /// A declaration's base type (`class A extends Base`, `impl Display for A`),
 /// as written at the declaration site.
@@ -174,6 +180,9 @@ pub(crate) struct FileFacts {
     /// A Go file's package clause. A `_test.go` file whose clause is its
     /// directory's package is that package; one in `<pkg>_test` is not.
     pub go_package: Option<String>,
+    /// The declared types of the file's TS classes, interfaces and type
+    /// aliases, by declaration id.
+    pub declared_types: Vec<octocode_engine::graph::GraphFactDeclaredType>,
 }
 
 impl FileFacts {

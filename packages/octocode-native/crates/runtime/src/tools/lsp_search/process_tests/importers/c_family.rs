@@ -134,7 +134,6 @@ struct Walk<'a> {
 }
 
 fn walk_of(walk: &Walk<'_>) -> Vec<serde_json::Value> {
-    use std::os::unix::fs::PermissionsExt;
     let Walk {
         name,
         args,
@@ -156,15 +155,11 @@ fn walk_of(walk: &Walk<'_>) -> Vec<serde_json::Value> {
     let root = outer.join("ws");
     std::fs::create_dir_all(root.join(".git")).expect("root");
     let script = outer.join(name);
-    std::fs::write(
-        &script,
-        CLANGD_LIKE.replace(
-            "__ROOT__",
-            &serde_json::to_string(&root.to_string_lossy()).expect("root"),
-        ),
-    )
-    .expect("script");
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("mode");
+    let server = CLANGD_LIKE.replace(
+        "__ROOT__",
+        &serde_json::to_string(&root.to_string_lossy()).expect("root"),
+    );
+    crate::tools::lsp_search::tests::write_executable(&script, server.as_bytes());
     if !extra.iter().any(|(name, _)| *name == NO_DATABASE) {
         std::fs::write(root.join("compile_commands.json"), "[]").expect("database");
     }
@@ -184,6 +179,9 @@ fn walk_of(walk: &Walk<'_>) -> Vec<serde_json::Value> {
         .to_string(),
     )
     .expect("config");
+    // The repository as it stood before the first page: only a later write
+    // is a change.
+    octocode_engine::stamp::settle_written_so_far();
     let execution = crate::tools::lsp_search::LspExecutionConfig {
         octocode_home: Some(root.clone()),
         ..crate::tools::lsp_search::LspExecutionConfig::default()

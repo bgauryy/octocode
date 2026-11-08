@@ -362,3 +362,81 @@ async fn a_range_decodes_only_the_current_version_view_of_the_packument() {
         "each call reads its packument and manifest"
     );
 }
+
+/// A release whose repository GitHub no longer has names where the registry's
+/// latest release says the project lives, when that is another repository.
+#[tokio::test]
+async fn a_missing_repository_names_the_successor_the_latest_release_declares() {
+    use crate::providers::artifact::{RepositoryStatus, release_ref::CommitCheck};
+    let mut latest = manifest("4.6.5", false);
+    latest["repository"] = json!({"type": "git", "url": "git://github.com/zod-next/zod.git"});
+    let http = routes(vec![("/zod/latest", JSON, latest)]);
+    let tags = KnownTags::new(Vec::new()).with_repository(CommitCheck::RepositoryMissing);
+    let budget = test_budget();
+    let client = RegistryClient {
+        tags: Some(&tags),
+        ..RegistryClient::new(&http, &budget)
+    };
+    let query = artifact_query(
+        json!({"operation":"resolve","ecosystem": "npm", "packageName": "zod", "version": "3.25.76"}),
+        None,
+    );
+    let registry = test_registry("https://registry.npmjs.org/");
+    let page = super::npm(&query, &Default::default(), &registry, &client, false)
+        .await
+        .expect("lookup");
+    let item = &page.artifacts[0];
+    assert_eq!(item.repository_status, Some(RepositoryStatus::Missing));
+    assert_eq!(item.successor_repository.as_deref(), Some("zod-next/zod"));
+    // The latest release naming the same repository is no successor.
+    let same = routes(vec![("/zod/latest", JSON, manifest("4.6.5", false))]);
+    let client = RegistryClient {
+        tags: Some(&tags),
+        ..RegistryClient::new(&same, &budget)
+    };
+    let page = super::npm(&query, &Default::default(), &registry, &client, false)
+        .await
+        .expect("lookup");
+    assert_eq!(page.artifacts[0].successor_repository, None);
+}
+
+/// A release that records no `gitHead` is pinned by its release tag, and
+/// with no tag the repository check of `HEAD` finds it gone: that path
+/// names the latest release's repository too, as the `gitHead` path does.
+#[tokio::test]
+async fn a_missing_repository_found_by_the_release_tag_path_names_the_successor() {
+    use crate::providers::artifact::{RepositoryStatus, release_ref::CommitCheck};
+    let mut release = manifest("3.25.76", false);
+    release
+        .as_object_mut()
+        .expect("manifest object")
+        .remove("gitHead");
+    let mut latest = manifest("4.6.5", false);
+    latest["repository"] = json!({"type": "git", "url": "git://github.com/zod-next/zod.git"});
+    let http = routes(vec![
+        ("/zod/3.25.76", JSON, release),
+        ("/zod/latest", JSON, latest),
+    ]);
+    let tags = KnownTags::new(Vec::new()).with_repository(CommitCheck::RepositoryMissing);
+    let budget = test_budget();
+    let client = RegistryClient {
+        tags: Some(&tags),
+        ..RegistryClient::new(&http, &budget)
+    };
+    let query = artifact_query(
+        json!({"operation":"resolve","ecosystem": "npm", "packageName": "zod", "version": "3.25.76"}),
+        None,
+    );
+    let registry = test_registry("https://registry.npmjs.org/");
+    let page = super::npm(&query, &Default::default(), &registry, &client, false)
+        .await
+        .expect("lookup");
+    let item = &page.artifacts[0];
+    assert!(
+        tags.seen().iter().any(|seen| seen == "colinhacks/zod@HEAD"),
+        "the release-tag path checked the repository: {:?}",
+        tags.seen()
+    );
+    assert_eq!(item.repository_status, Some(RepositoryStatus::Missing));
+    assert_eq!(item.successor_repository.as_deref(), Some("zod-next/zod"));
+}

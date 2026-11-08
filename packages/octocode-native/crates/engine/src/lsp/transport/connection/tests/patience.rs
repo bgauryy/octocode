@@ -183,12 +183,22 @@ async fn attempts_sharing_a_budget_share_its_ceiling() {
     );
 }
 
-/// An open `$/progress` token (rust-analyzer's "loading") is progress even
-/// where no CPU clock exists; closing it ends the extension.
+/// `$/progress` reports on an open token (rust-analyzer's "loading") are
+/// progress even where no CPU clock exists; once they stop, so does the
+/// extension.
 #[tokio::test(start_paused = true)]
 async fn active_work_done_progress_extends_the_timeout() {
     let progress = ProgressTracker::new();
     progress.on_begin("indexing".to_owned()).await;
+    let reporting = {
+        let progress = Arc::clone(&progress);
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                progress.on_report();
+            }
+        })
+    };
     let (connection, server) = connect_watched(None, Arc::clone(&progress));
     let _server = answer_after(server, Duration::from_millis(1_800));
     let result = connection
@@ -197,12 +207,41 @@ async fn active_work_done_progress_extends_the_timeout() {
         .expect("indexing server is waited for");
     assert_eq!(result, json!("late"));
 
+    reporting.abort();
     progress.on_end("indexing").await;
     let started = Instant::now();
     connection
         .request("textDocument/references", Value::Null, BASE_MS)
         .await
         .expect_err("no progress left");
+    assert_eq!(started.elapsed(), Duration::from_millis(1_000));
+}
+
+/// B75 F3: a token the server opened and never reports on again (leaked) is
+/// no progress: with a flat CPU clock and no caller deadline, the request
+/// still fails at the base instead of waiting on it forever.
+#[tokio::test(start_paused = true)]
+async fn a_leaked_token_with_no_new_reports_times_out_at_the_base() {
+    let progress = ProgressTracker::new();
+    progress.on_begin("leaked".to_owned()).await;
+    let (connection, _server) = connect_watched(
+        Some(cpu_clock(|_| Duration::from_secs(5))),
+        Arc::clone(&progress),
+    );
+    let started = Instant::now();
+    // The outer bound only turns a wait the leaked token holds open into a
+    // failure of this test instead of an endless one.
+    let error = tokio::time::timeout(
+        Duration::from_secs(60),
+        with_caller_deadline(
+            None,
+            connection.request("textDocument/references", Value::Null, BASE_MS),
+        ),
+    )
+    .await
+    .expect("the request ends on its own")
+    .expect_err("a leaked token is not progress");
+    assert_eq!(error.kind(), &ErrorKind::Timeout);
     assert_eq!(started.elapsed(), Duration::from_millis(1_000));
 }
 
@@ -228,13 +267,50 @@ async fn a_progressing_server_is_waited_for_until_the_callers_deadline() {
     let _server = answer_after(server, Duration::from_millis(7_000));
     let started = Instant::now();
     let result = with_caller_deadline(
-        started + Duration::from_secs(10),
+        Some(started + Duration::from_secs(10)),
         connection.request("textDocument/references", Value::Null, BASE_MS),
     )
     .await
     .expect("the caller still had time and the server progressed");
     assert_eq!(result, json!("late"));
     assert!(started.elapsed() >= Duration::from_millis(7_000));
+}
+
+/// B75: a caller with no deadline sets no ceiling. A starved server that
+/// keeps progressing is waited for past the ceiling a caller-less wait keeps
+/// and past the old 300 s request budget; only its answer (or the caller's
+/// cancel, which drops the wait) ends it.
+#[tokio::test(start_paused = true)]
+async fn a_caller_without_a_deadline_waits_while_the_server_progresses() {
+    let (connection, server) =
+        connect_watched(Some(cpu_clock(Duration::from_secs)), ProgressTracker::new());
+    let _server = answer_after(server, Duration::from_secs(400));
+    let started = Instant::now();
+    let result = with_caller_deadline(
+        None,
+        connection.request("textDocument/references", Value::Null, BASE_MS),
+    )
+    .await
+    .expect("no deadline, and the server progressed");
+    assert_eq!(result, json!("late"));
+    assert!(started.elapsed() >= Duration::from_secs(400));
+}
+
+/// A caller with no deadline lends time only to a server that shows
+/// progress: a hung one still fails at the base.
+#[tokio::test(start_paused = true)]
+async fn a_hung_server_times_out_at_the_base_under_a_caller_without_a_deadline() {
+    let (connection, _server) =
+        connect_watched(Some(cpu_clock(|_| Duration::ZERO)), ProgressTracker::new());
+    let started = Instant::now();
+    let error = with_caller_deadline(
+        None,
+        connection.request("textDocument/references", Value::Null, BASE_MS),
+    )
+    .await
+    .expect_err("a hung server times out");
+    assert_eq!(error.kind(), &ErrorKind::Timeout);
+    assert_eq!(started.elapsed(), Duration::from_millis(1_000));
 }
 
 /// A server that never stops progressing ends at the caller's deadline less
@@ -246,7 +322,7 @@ async fn a_request_never_waits_past_its_callers_deadline() {
     let started = Instant::now();
     let caller_deadline = started + Duration::from_secs(6);
     let error = with_caller_deadline(
-        caller_deadline,
+        Some(caller_deadline),
         connection.request("textDocument/references", Value::Null, BASE_MS),
     )
     .await
@@ -265,7 +341,7 @@ async fn a_hung_server_still_times_out_at_the_base_under_a_callers_deadline() {
     );
     let started = Instant::now();
     with_caller_deadline(
-        started + Duration::from_secs(60),
+        Some(started + Duration::from_secs(60)),
         connection.request("textDocument/references", Value::Null, BASE_MS),
     )
     .await
@@ -280,7 +356,7 @@ async fn a_callers_deadline_inside_the_base_cuts_the_wait() {
     let started = Instant::now();
     let caller_deadline = started + Duration::from_millis(1_500);
     with_caller_deadline(
-        caller_deadline,
+        Some(caller_deadline),
         connection.request("textDocument/references", Value::Null, 5 * BASE_MS),
     )
     .await

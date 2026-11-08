@@ -41,6 +41,7 @@ export const securityCheck = {
     if (row.operation === 'advisory') return { id: 'GHSA-happy' };
     if (row.operation === 'commit') return { commit: '6879efc2c1596d11a6a6ad296f80063b558d5e0f' };
     if (row.operation === 'url') return { url: 'pkg:pypi/proof@1.0.0' };
+    if (row.operation === 'repository') return { repo: 'octo/demo' };
     return OSV_ROW.package(row.ecosystem ?? 'npm');
   },
   judge: (worker, { testCase, pages }) => {

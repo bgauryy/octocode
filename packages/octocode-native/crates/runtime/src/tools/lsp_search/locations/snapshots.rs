@@ -158,8 +158,7 @@ pub(super) fn document_symbols_payload(
         "symbols": document_symbol_rows(&page, &symbols),
         "lsp": {
             "serverAvailable": true,
-            "provider": "documentSymbolProvider",
-            "source": "lsp"
+            "provider": "documentSymbolProvider"
         },
         "pagination": pagination
     });

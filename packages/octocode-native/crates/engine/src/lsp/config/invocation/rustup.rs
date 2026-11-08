@@ -10,6 +10,7 @@
 //! is kept per proxy, workspace and environment with the stamps of everything
 //! rustup reads to give it ([`inputs_of`]), and asked again as soon as one differs.
 use crate::lsp::commands::is_executable_path;
+use crate::lsp::config::kept::{Kept, follow_path_search, kept};
 use crate::lsp::config::probe::{ProbeError, probe_command_stdout};
 use crate::stamp::{Proof, settle_clock};
 use octocode_io::memo::Memo;
@@ -73,37 +74,43 @@ pub(in crate::lsp::config) fn is_rustup_proxy(program: &Path) -> bool {
 }
 
 /// The toolchain build of `command` that the rustup proxy on `PATH` would run
-/// in `workspace_root`; `None` when `command` is not a rustup proxy there or
-/// the selected toolchain does not ship it.
+/// in `workspace_root`; `Ok(None)` when `command` is not a rustup proxy there
+/// or the selected toolchain does not ship it, the probe error when rustup
+/// gave no answer ([`selected_component`]).
 pub(in crate::lsp::config) fn toolchain_component(
     view: &RustupView,
     workspace_root: &Path,
     command: &str,
-) -> Option<PathBuf> {
-    let proxy = which::which_in(command, view.path_var.as_ref(), workspace_root).ok()?;
+) -> Result<Option<PathBuf>, ProbeError> {
+    let Ok(proxy) = which::which_in(command, view.path_var.as_ref(), workspace_root) else {
+        return Ok(None);
+    };
     selected_component(view, &proxy, workspace_root)
 }
 
 /// The binary the rustup `proxy` (`~/.cargo/bin/rust-analyzer -> rustup`)
-/// would run for `workspace_root`, as `rustup which` reports it; `None` when
-/// `proxy` is not a rustup proxy or the selected toolchain lacks the binary
-/// or is not installed. A kept answer whose inputs ([`inputs_of`]) still hold is served
-/// without a process.
+/// would run for `workspace_root`, as `rustup which` reports it; `Ok(None)`
+/// when `proxy` is not a rustup proxy or the selected toolchain lacks the
+/// binary or is not installed. A kept answer whose inputs ([`inputs_of`]) still
+/// hold is served without a process.
 ///
 /// rustup runs in the workspace root, where it reads overrides and toolchain
 /// files, with `RUSTUP_AUTO_INSTALL=0`: rustup 1.29 otherwise installs a
 /// missing toolchain (a download) to answer. It runs until it answers or its
-/// caller stops ([`probe_command_stdout`]); an unanswered question returns
-/// `None` and is not kept, so the next call asks again. Blocking.
+/// caller stops ([`probe_command_stdout`]); an unanswered question is the
+/// probe's error and is not kept, so the next call asks again, and so does
+/// whatever kept an answer built on it (the route). Blocking.
 pub(in crate::lsp::config) fn selected_component(
     view: &RustupView,
     proxy: &Path,
     workspace_root: &Path,
-) -> Option<PathBuf> {
+) -> Result<Option<PathBuf>, ProbeError> {
     if !is_rustup_proxy(proxy) {
-        return None;
+        return Ok(None);
     }
-    let rustup = rustup_binary(proxy)?;
+    let Some(rustup) = rustup_binary(proxy) else {
+        return Ok(None);
+    };
     let key = Question {
         proxy: proxy.to_path_buf(),
         workspace: workspace_root.to_path_buf(),
@@ -112,17 +119,14 @@ pub(in crate::lsp::config) fn selected_component(
     };
     if let Some(kept) = ANSWERS.get(&key).filter(|kept| kept.value.inputs.holds()) {
         ANSWERS.touch(&key, crate::memory::IDLE);
-        return kept.value.binary.clone();
+        return Ok(kept.value.binary.clone());
     }
     let started = settle_clock();
     // Read before rustup runs: a change while it runs reads as a change.
     let inputs = inputs_of(view, proxy, &rustup, workspace_root);
-    let binary = ask_rustup(&rustup, proxy, workspace_root)
-        .ok()?
-        .filter(|binary| {
-            view.toolchain.is_some()
-                || naming_toolchain_file(workspace_root, Some(binary)).is_none()
-        });
+    let binary = ask_rustup(&rustup, proxy, workspace_root)?.filter(|binary| {
+        view.toolchain.is_some() || naming_toolchain_file(workspace_root, Some(binary)).is_none()
+    });
     if let Some(mut inputs) = inputs {
         if let Some(binary) = &binary {
             inputs.follow(binary.clone());
@@ -137,7 +141,7 @@ pub(in crate::lsp::config) fn selected_component(
             );
         }
     }
-    binary
+    Ok(binary)
 }
 
 /// rustup's answer: `Ok(Some)` the binary it names, `Ok(None)` that the
@@ -192,12 +196,25 @@ const TOOLCHAIN_FILES: [&str; 2] = ["rust-toolchain", "rust-toolchain.toml"];
 /// workspace cannot be resolved: what rustup reads cannot be named, so nothing
 /// proves an answer later.
 fn inputs_of(view: &RustupView, proxy: &Path, rustup: &Path, workspace: &Path) -> Option<Proof> {
-    let home = view.home.as_ref()?;
-    let toolchains = home.join("toolchains");
-    let workspace = std::fs::canonicalize(workspace).ok()?;
     let mut inputs = Proof::default();
     inputs.link(proxy.to_path_buf());
     inputs.follow(rustup.to_path_buf());
+    follow_selection(&mut inputs, view, workspace)?;
+    Some(inputs)
+}
+
+/// Stamp what selects a toolchain and its binaries for `workspace`: rustup's
+/// settings, the set of toolchains and each one's binaries, and a toolchain
+/// file in the workspace or any directory above it. `None` when rustup's home
+/// is unknown or the workspace cannot be resolved.
+pub(in crate::lsp::config) fn follow_selection(
+    inputs: &mut Proof,
+    view: &RustupView,
+    workspace: &Path,
+) -> Option<()> {
+    let home = view.home.as_ref()?;
+    let toolchains = home.join("toolchains");
+    let workspace = std::fs::canonicalize(workspace).ok()?;
     inputs.follow(home.join("settings.toml"));
     for toolchain in std::fs::read_dir(&toolchains)
         .into_iter()
@@ -207,12 +224,17 @@ fn inputs_of(view: &RustupView, proxy: &Path, rustup: &Path, workspace: &Path) -
         inputs.follow(toolchain.path().join("bin"));
     }
     inputs.follow(toolchains);
+    follow_toolchain_files(inputs, &workspace);
+    Some(())
+}
+
+/// Stamp each toolchain file rustup would read in `workspace` or above it.
+fn follow_toolchain_files(inputs: &mut Proof, workspace: &Path) {
     for dir in workspace.ancestors() {
         for name in TOOLCHAIN_FILES {
             inputs.follow(dir.join(name));
         }
     }
-    Some(inputs)
 }
 
 /// Answers kept this process, against the one process budget, each until
@@ -265,7 +287,9 @@ fn naming_toolchain_file(workspace: &Path, binary: Option<&Path>) -> Option<Path
 
 /// The toolchain file whose `path` the rustup proxy `command` would run in
 /// `workspace_root` ([`naming_toolchain_file`]); `None` when `command` is no
-/// rustup proxy there, or `RUSTUP_TOOLCHAIN` selects ahead of the file.
+/// rustup proxy there, or `RUSTUP_TOOLCHAIN` selects ahead of the file. Kept
+/// while each `PATH` directory (where the proxy is found and linked) and each
+/// toolchain file of the workspace and above it is unchanged.
 pub(in crate::lsp::config) fn repository_toolchain(
     view: &RustupView,
     workspace_root: &Path,
@@ -274,11 +298,54 @@ pub(in crate::lsp::config) fn repository_toolchain(
     if view.toolchain.is_some() {
         return None;
     }
-    let proxy = which::which_in(command, view.path_var.as_ref(), workspace_root).ok()?;
-    is_rustup_proxy(&proxy)
-        .then(|| naming_toolchain_file(workspace_root, None))
-        .flatten()
+    let question = NamingQuestion {
+        workspace: workspace_root.to_path_buf(),
+        command: command.to_owned(),
+        path_var: view.path_var.clone(),
+    };
+    let inputs = || {
+        let mut inputs = Proof::default();
+        follow_toolchain_files(&mut inputs, workspace_root);
+        Some(inputs)
+    };
+    let answer = || {
+        let proxy = which::which_in(command, view.path_var.as_ref(), workspace_root).ok();
+        let file = proxy
+            .as_deref()
+            .filter(|proxy| is_rustup_proxy(proxy))
+            .and_then(|_| naming_toolchain_file(workspace_root, None));
+        Naming { proxy, file }
+    };
+    let searched = |naming: &Naming| {
+        let mut inputs = Proof::default();
+        follow_path_search(
+            &mut inputs,
+            view.path_var.as_deref(),
+            &[command],
+            naming.proxy.as_deref(),
+        );
+        Some(inputs)
+    };
+    kept(&NAMING, question, inputs, answer, searched).file
 }
+
+/// A [`repository_toolchain`] answer: the proxy `which` found (how far its
+/// `PATH` search went) and the toolchain file that names a path.
+#[derive(Clone, Debug)]
+struct Naming {
+    proxy: Option<PathBuf>,
+    file: Option<PathBuf>,
+}
+
+/// What a [`repository_toolchain`] answer is an answer to.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+struct NamingQuestion {
+    workspace: PathBuf,
+    command: String,
+    path_var: Option<OsString>,
+}
+
+static NAMING: Memo<NamingQuestion, Kept<Naming>> = Memo::new(&crate::memory::MEMORY);
 
 /// The `path` a toolchain file names: `[toolchain] path` in TOML, or a legacy
 /// one-line file whose line is a path.

@@ -16,6 +16,7 @@ const metric = row => {
     ok: Boolean(row) && !ingest.error && ingest.exit === 0,
     recall: recall.recall ?? null, precision: recall.precision ?? null,
     link: ingest.callLinkRate ?? null, ms: ingest.ms ?? null,
+    reused: row?.incremental ? row.incremental.reused === true : null, reuseMs: row?.incremental?.ms ?? null,
     // Only complete lists can name newly missed files.
     missed: recall.missed ?? null, extra: recall.extra ?? null,
     workflows: workflowStatuses(row),
@@ -30,6 +31,7 @@ function metricNotes(beforeRow, afterRow, before, after) {
   else if (before.ok && !after.ok) notes.push('ingest failed');
   if (before.precision !== null && after.precision !== null && after.precision < before.precision) notes.push('precision down');
   if (before.recall !== null && after.recall !== null && after.recall < before.recall) notes.push('recall down');
+  if (before.reused === true && after.reused === false) notes.push('unchanged tree no longer reused');
   return notes;
 }
 
@@ -61,7 +63,7 @@ export function compare(before, after) {
       if (entries.length) notes.push(`${side} measurement invalid: ${entries.map(failure => failure.error || `${failure.tool ?? failure.operation} exit ${failure.exit}`).join('; ')}`);
     }
     const invalid = failures.before.length > 0 || failures.after.length > 0;
-    const regression = notes.includes('ingest failed') || notes.includes('precision down') || workflow.failed;
+    const regression = notes.includes('ingest failed') || notes.includes('precision down') || notes.includes('unchanged tree no longer reused') || workflow.failed;
     return { lang, before: b, after: a, notes, regression, invalid, ...(invalid ? { failures } : {}), newMissed: added(b.missed, a.missed), newExtra: added(b.extra, a.extra) };
   });
 }
@@ -70,9 +72,9 @@ const fmt = (b, a) => (b === a ? String(a ?? '-') : `${b ?? '-'} → ${a ?? '-'}
 
 export function markdown(rows) {
   const lines = [
-    '| Language | Recall | Precision | Link rate | Ingest ms | Notes |',
-    '|---|---|---|---|---|---|',
-    ...rows.map((r) => `| ${r.lang} | ${fmt(r.before.recall, r.after.recall)} | ${fmt(r.before.precision, r.after.precision)} | ${fmt(r.before.link, r.after.link)} | ${fmt(r.before.ms, r.after.ms)} | ${[...r.notes, ...r.newMissed.map((f) => `newly missed ${f}`), ...r.newExtra.map((f) => `new extra ${f}`)].join('; ')} |`),
+    '| Language | Recall | Precision | Link rate | Ingest ms | Reuse ms | Notes |',
+    '|---|---|---|---|---|---|---|',
+    ...rows.map((r) => `| ${r.lang} | ${fmt(r.before.recall, r.after.recall)} | ${fmt(r.before.precision, r.after.precision)} | ${fmt(r.before.link, r.after.link)} | ${fmt(r.before.ms, r.after.ms)} | ${fmt(r.before.reuseMs, r.after.reuseMs)} | ${[...r.notes, ...r.newMissed.map((f) => `newly missed ${f}`), ...r.newExtra.map((f) => `new extra ${f}`)].join('; ')} |`),
   ];
   return lines.join('\n');
 }

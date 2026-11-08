@@ -1,7 +1,7 @@
 //! What a directory scan's walk saw besides the files it parsed: the
 //! directories a continuation page re-checks, the files no grammar parses, and
 //! the per-extension census of the files it admitted.
-use super::super::types::{NamedFiles, Scope};
+use super::super::types::{Scope, Unparsed};
 use crate::policy::discovery::WalkAdmission;
 use crate::policy::path::PathPolicy;
 use crate::tools::ast_rule::has_extension_in;
@@ -18,7 +18,7 @@ pub(super) struct WalkLog<'a> {
     admission: &'a WalkAdmission<'a>,
     include_hidden: bool,
     grammars: BTreeSet<String>,
-    unparsed: Mutex<NamedFiles>,
+    unparsed: Mutex<Unparsed>,
     observed: Mutex<BTreeSet<PathBuf>>,
     census: Mutex<BTreeMap<String, usize>>,
     present: Mutex<BTreeMap<String, usize>>,
@@ -28,7 +28,7 @@ pub(super) struct WalkLog<'a> {
 
 /// What the walk saw, once it ended.
 pub(super) struct Logged {
-    pub(super) unparsed: NamedFiles,
+    pub(super) unparsed: Unparsed,
     pub(super) discovery_sources: Vec<PathBuf>,
     pub(super) census: BTreeMap<String, usize>,
     pub(super) present: Option<BTreeMap<String, usize>>,
@@ -47,7 +47,7 @@ impl<'a> WalkLog<'a> {
             admission,
             include_hidden,
             grammars: super::super::scope::structural_extensions(),
-            unparsed: Mutex::new(NamedFiles::default()),
+            unparsed: Mutex::new(Unparsed::default()),
             observed: Mutex::new(BTreeSet::new()),
             census: Mutex::new(BTreeMap::new()),
             present: Mutex::new(BTreeMap::new()),
@@ -90,11 +90,11 @@ impl<'a> WalkLog<'a> {
                 .insert(path.to_path_buf());
         }
         let unparsed_file = !super::parses(scope, path) && is_file;
-        // A file no grammar parses is disclosed, not silently dropped, when
-        // the scope is every grammar's files. Under `parser` the scope is
-        // that language's files: a file of any other kind (a grammar's own
-        // or none) was never in it, so it is not skipped evidence.
-        if unparsed_file && scope.language.is_none() && !has_extension_in(path, &self.grammars) {
+        // A file no grammar parses is disclosed, not silently dropped, with
+        // the type its name is of, if any: the page decides by the rule's
+        // language which of them leave absence unproven. A file of another
+        // grammar under `parser` is that grammar's, never this scope's.
+        if unparsed_file && !has_extension_in(path, &self.grammars) {
             // Named as a row path reads after the response stage: from
             // the workspace root, else absolute.
             self.unparsed
@@ -104,6 +104,7 @@ impl<'a> WalkLog<'a> {
                     self.paths
                         .workspace_relative(path)
                         .unwrap_or_else(|| path.to_string_lossy().into_owned()),
+                    known_type(path),
                 );
         }
         let admitted = !unparsed_file;
@@ -157,4 +158,42 @@ impl<'a> WalkLog<'a> {
             }),
         }
     }
+}
+
+/// The type `path`'s name is of in ripgrep's default type table (the one
+/// localSearch's `fileType` selects from), if any; of several
+/// (`CMakeLists.txt` is `cmake` and `txt`), the first by name, so the count
+/// is the same in every process. The table is the `ignore` crate's constant
+/// and its globs compile; a glob that did not would only leave its names of
+/// no known type, so they warn, never the reverse.
+fn known_type(path: &Path) -> Option<&'static str> {
+    static TYPES: std::sync::LazyLock<(Vec<String>, Vec<usize>, globset::GlobSet)> =
+        std::sync::LazyLock::new(|| {
+            let mut table = ignore::types::TypesBuilder::new();
+            table.add_defaults();
+            let (mut names, mut owners, mut set) = (vec![], vec![], globset::GlobSetBuilder::new());
+            // Sorted by name, so the lowest owner is the first name.
+            for (index, def) in table.definitions().into_iter().enumerate() {
+                for glob in def.globs() {
+                    if let Ok(glob) = globset::GlobBuilder::new(glob)
+                        .literal_separator(true)
+                        .build()
+                    {
+                        set.add(glob);
+                        owners.push(index);
+                    }
+                }
+                names.push(def.name().to_owned());
+            }
+            let set = set.build().unwrap_or_else(|_| globset::GlobSet::empty());
+            (names, owners, set)
+        });
+    let (names, owners, set) = &*TYPES;
+    let name = path.file_name()?;
+    let owner = set
+        .matches(name)
+        .into_iter()
+        .filter_map(|glob| owners.get(glob).copied())
+        .min()?;
+    names.get(owner).map(String::as_str)
 }

@@ -47,6 +47,9 @@ pub(super) enum Retirement {
 
 pub(super) struct Entry<C> {
     pub(super) client: C,
+    /// Sibling-family key: entries of one workspace and server binary share
+    /// it whatever their initialization options (see `canonical_lsp_family`).
+    pub(super) family: String,
     pub(super) id: u64,
     /// Renewed on every successful acquire; the entry's one idle timer
     /// re-sleeps until `last_used + idle_timeout` instead of spawning anew.
@@ -213,6 +216,32 @@ pub(super) fn evict_overflow<C: PoolClient>(
         }
     }
     evicted
+}
+
+/// Remove the idle siblings of `key` (entries of `family` under another key)
+/// from the pool. A busy sibling stays: the pool never stops a client that
+/// has a request or lease in flight. Returned clients must be stopped by the
+/// caller after the state lock is released.
+pub(super) fn retire_idle_siblings<C: PoolClient>(
+    state: &mut State<C>,
+    family: &str,
+    key: &str,
+) -> Vec<C> {
+    let State { entries, lru, .. } = state;
+    let siblings = entries
+        .iter()
+        .filter(|(candidate, entry)| {
+            candidate.as_str() != key && entry.family == family && !entry.client.busy()
+        })
+        .map(|(candidate, _)| candidate.clone())
+        .collect::<Vec<_>>();
+    siblings
+        .into_iter()
+        .filter_map(|sibling| {
+            remove_lru(lru, &sibling);
+            entries.remove(&sibling).map(|entry| entry.client)
+        })
+        .collect()
 }
 
 pub(super) fn remove_lru(lru: &mut VecDeque<String>, key: &str) {

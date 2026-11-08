@@ -23,9 +23,15 @@ async fn run_empty(row: serde_json::Value) -> crate::response::result::ToolData 
     let provider = one_shot_provider(&server);
     let query: GhSearchCodeQuery = serde_json::from_value(row).expect("query");
     let context = default_context();
-    execute(&provider, &query, &context, &Passthrough)
-        .await
-        .expect("empty search")
+    execute(
+        &provider,
+        &query,
+        &context,
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("empty search")
 }
 
 /// An empty repo-scoped search is unproven absence; its lead scopes the next
@@ -284,9 +290,15 @@ async fn an_empty_search_of_a_missing_repository_reads_it_once() {
     let query: GhSearchCodeQuery =
         serde_json::from_value(json!({"owner":"a","repo":"missing","keywords":["x"]}))
             .expect("query");
-    let error = execute(&provider, &query, &default_context(), &Passthrough)
-        .await
-        .expect_err("a missing repository");
+    let error = execute(
+        &provider,
+        &query,
+        &default_context(),
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect_err("a missing repository");
     assert_eq!(error.kind, octocode_github::ProviderErrorKind::NotFound);
     assert_eq!(
         error.reason,
@@ -318,9 +330,15 @@ async fn a_missing_repository_labels_its_name_search_and_lists_the_owner() {
         serde_json::from_value(json!({"owner":"a","repo":"missing","keywords":["x"]}))
             .expect("query");
     let context = default_context();
-    let failure = crate::tools::gh_search_code::run(&provider, &query, Ok(&context), &Passthrough)
-        .await
-        .expect_err("a missing repository");
+    let failure = crate::tools::gh_search_code::run(
+        &provider,
+        &query,
+        Ok(&context),
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect_err("a missing repository");
     let calls = failure.calls.as_deref().expect("recovery calls");
     assert_eq!(
         calls["findRepository"]["input"]["queries"][0],

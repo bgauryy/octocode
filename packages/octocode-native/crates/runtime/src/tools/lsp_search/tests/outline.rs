@@ -44,7 +44,7 @@ fn document_symbols_are_compact_outline_rows() {
     ]);
 
     let envelope = items_payload(&query, "documentSymbols", raw.clone(), TEST_BUDGET);
-    assert_eq!(envelope["lsp"]["source"], "lsp");
+    assert!(envelope["lsp"].get("source").is_none(), "{envelope}");
     assert!(envelope.get("summary").is_none(), "{envelope}");
     // Outline rows: members nest under their container, a multi-line
     // declaration states its range, and two symbols on one line carry
@@ -94,8 +94,15 @@ fn document_symbols_are_compact_outline_rows() {
     assert_eq!(read["tool"], "localFetch", "{envelope}");
     assert_eq!(
         read["input"]["queries"][0],
-        serde_json::json!({"path": "file:///repo/src/lib.rs", "ranges": [{"startLine":3,"endLine":9}], "view": "content"}),
+        serde_json::json!({"path": "file:///repo/src/lib.rs", "ranges": [{"startLine":3,"endLine":9}]}),
         "{envelope}"
+    );
+    assert_eq!(
+        crate::response::result::read_view(
+            crate::id::ToolId::LocalFetch,
+            &read["input"]["queries"][0]
+        ),
+        octocode_contract_types::ReadView::Content
     );
 }
 
@@ -247,7 +254,14 @@ fn long_declaration_content_is_capped_with_a_marker_naming_the_omitted_lines() {
     assert_eq!(rest["tool"], "localFetch");
     assert_eq!(
         rest["input"]["queries"][0],
-        serde_json::json!({"path": "/repo/a.ts", "ranges": [{"startLine":486,"endLine":625}], "view": "content"})
+        serde_json::json!({"path": "/repo/a.ts", "ranges": [{"startLine":486,"endLine":625}]})
+    );
+    assert_eq!(
+        crate::response::result::read_view(
+            crate::id::ToolId::LocalFetch,
+            &rest["input"]["queries"][0]
+        ),
+        octocode_contract_types::ReadView::Content
     );
     let short = "a\nb\nc";
     let mut small =

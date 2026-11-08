@@ -149,3 +149,46 @@ fn canonical_key_follows_workspace_symlinks() {
         "a symlinked root must share the pool entry"
     );
 }
+
+#[test]
+fn family_key_ignores_options_and_splits_on_workspace_binary_and_language() {
+    let root = std::env::current_dir().expect("cwd");
+    let first = LspLanguageServerConfig {
+        command: "server".into(),
+        args: Some(vec!["--stdio".into()]),
+        workspace_root: root.to_string_lossy().into_owned(),
+        language_id: Some("typescript".into()),
+        initialization_options: Some(serde_json::json!({"a": 1})),
+        env: None,
+        max_memory_mb: None,
+        source: Default::default(),
+    };
+    let family = |config: &LspLanguageServerConfig| canonical_lsp_family(config).expect("family");
+    let reconfigured = LspLanguageServerConfig {
+        args: Some(vec!["--socket".into()]),
+        initialization_options: Some(serde_json::json!({"a": 2})),
+        max_memory_mb: Some(512),
+        ..first.clone()
+    };
+    assert_eq!(family(&first), family(&reconfigured));
+    assert_ne!(
+        canonical_lsp_key(&first).expect("key"),
+        canonical_lsp_key(&reconfigured).expect("key")
+    );
+    for other in [
+        LspLanguageServerConfig {
+            command: "other".into(),
+            ..first.clone()
+        },
+        LspLanguageServerConfig {
+            workspace_root: root.join("elsewhere").to_string_lossy().into_owned(),
+            ..first.clone()
+        },
+        LspLanguageServerConfig {
+            language_id: Some("javascript".into()),
+            ..first.clone()
+        },
+    ] {
+        assert_ne!(family(&first), family(&other));
+    }
+}

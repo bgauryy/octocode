@@ -26,7 +26,7 @@ const PEER_STAMP_HORIZON_MS: u64 = 120_000;
 /// ahead under its own limits.
 fn warn_unshared(action: &str, path: &Path, error: &dyn std::fmt::Display) {
     octocode_io::notice::raise(
-        "github-budget-unshared",
+        octocode_io::notice::kind::GITHUB_BUDGET_UNSHARED,
         format!(
             "[octocode] warning: GitHub rate-limit state shared with other octocode processes cannot be used ({action} {}: {error}); this process paces its GitHub requests alone.",
             path.display()
@@ -123,6 +123,11 @@ impl KeyFacts {
             (Some(left), Some(right)) => Some(left.min(right)),
             (left, right) => left.or(right),
         };
+        // A route this view found stands; a peer's fills in the owners it
+        // has not listed. A stale one costs one 404 and a new probe.
+        for (owner, route) in other.owner_routes {
+            self.owner_routes.entry(owner).or_insert(route);
+        }
         let horizon = now_ms.saturating_add(PEER_STAMP_HORIZON_MS);
         for (group, stamp) in other.last_start_ms {
             if stamp > horizon {
@@ -134,10 +139,12 @@ impl KeyFacts {
     }
 
     /// Only facts that can block, pace or answer a future request are
-    /// persisted: exhausted buckets, the live quota of quota-paced groups, and
-    /// the lifetime GitHub states for a pull request.
+    /// persisted: exhausted buckets, the live quota of quota-paced groups, the
+    /// lifetime GitHub states for a pull request, and each owner's listing
+    /// route.
     pub(super) fn blocking_view(&self, now_ms: u64) -> Self {
         Self {
+            owner_routes: self.owner_routes.clone(),
             buckets: self
                 .buckets
                 .iter()
@@ -178,7 +185,7 @@ impl KeyState {
             return;
         }
         let path = dir.join(self.key.file_name());
-        if let Err(error) = std::fs::create_dir_all(dir) {
+        if let Err(error) = octocode_io::atomic::create_private_dir_all(dir) {
             warn_unshared("create the directory of", &path, &error);
             return;
         }
@@ -224,6 +231,7 @@ impl KeyState {
         self: &Arc<Self>,
         deadline: Instant,
         cancellation: &Cancellation,
+        waits: &crate::budget::ClientWaits,
         reserve: impl FnOnce(&mut KeyFacts) -> R,
     ) -> Result<R, ProviderError> {
         let path = self
@@ -235,7 +243,7 @@ impl KeyState {
         let Some(path) = path else {
             return Ok(reserve(&mut self.facts()));
         };
-        let lock = lock_file(&path, deadline, cancellation).await?;
+        let lock = lock_file(&path, deadline, cancellation, waits).await?;
         let (lock, path, on_disk) = off_worker(move || {
             let on_disk = read_state(&path);
             (lock, path, on_disk)
@@ -268,14 +276,23 @@ impl KeyState {
     /// two writes finishing out of order still leave the latest facts. Runtime
     /// shutdown waits for pending blocking writes, so none is lost at exit.
     pub(super) fn persist(self: &Arc<Self>) {
+        self.persist_detached(|_| {});
+    }
+
+    /// [`Self::persist`] with `adjust` applied to the merged view
+    /// ([`Self::persist_with`]).
+    pub(super) fn persist_detached(
+        self: &Arc<Self>,
+        adjust: impl FnOnce(&mut KeyFacts) + Send + 'static,
+    ) {
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => {
                 let state = Arc::clone(self);
                 drop(handle.spawn_blocking(octocode_io::notice::carried(move || {
-                    state.persist_with(|_| {});
+                    state.persist_with(adjust);
                 })));
             }
-            Err(_) => self.persist_with(|_| {}),
+            Err(_) => self.persist_with(adjust),
         }
     }
 

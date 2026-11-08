@@ -20,7 +20,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "googleOauthToken",
         file_context: None,
-        regex: r###"\bya29\.[a-zA-Z0-9_-]+\b"###,
+        regex: r###"ya29\.[a-zA-Z0-9_-]+\b"###,
     },
     SecretPattern {
         name: "googleOauthRefreshToken",
@@ -35,7 +35,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "onePasswordServiceAccountToken",
         file_context: None,
-        regex: r###"\bops_eyJ[a-zA-Z0-9+/]+={0,2}\b"###,
+        regex: r###"ops_eyJ[a-zA-Z0-9+/]+={0,2}"###,
     },
     SecretPattern {
         name: "jsonWebTokenEnhanced",
@@ -75,7 +75,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "awsAccessKeyId",
         file_context: None,
-        regex: r###"\b((?:AKIA|ABIA|ACCA|ASIA)[A-Z0-9]{16})\b"###,
+        regex: r###"((?:AKIA|ABIA|ACCA|ASIA)[A-Z0-9]{16})\b"###,
     },
     SecretPattern {
         name: "awsAccountId",
@@ -100,7 +100,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "awsMwsAuthToken",
         file_context: None,
-        regex: r###"\bamzn\.mws\.[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"###,
+        regex: r###"amzn\.mws\.[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"###,
     },
     SecretPattern {
         name: "awsS3BucketArn",
@@ -130,7 +130,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "googleApiKey",
         file_context: None,
-        regex: r###"\bAIza[a-zA-Z0-9_-]{30,}\b"###,
+        regex: r###"AIza[a-zA-Z0-9_-]{30,}\b"###,
     },
     SecretPattern {
         name: "googleOAuth2ClientId",
@@ -185,12 +185,12 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "supabaseServiceKey",
         file_context: None,
-        regex: r###"\bsbp_[a-f0-9]{40}\b"###,
+        regex: r###"sbp_[a-f0-9]{40}"###,
     },
     SecretPattern {
         name: "supabaseSecretKey",
         file_context: None,
-        regex: r###"\bsb_secret_[a-zA-Z0-9_-]{22}_[a-fA-F0-9]{8}\b"###,
+        regex: r###"sb_secret_[a-zA-Z0-9_-]{22}_[a-fA-F0-9]{8}"###,
     },
     SecretPattern {
         name: "planetScaleConnectionString",
@@ -200,6 +200,6 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "planetScaleToken",
         file_context: None,
-        regex: r###"\bpscale_tkn_[a-zA-Z0-9_-]{38,43}\b"###,
+        regex: r###"pscale_tkn_[a-zA-Z0-9_-]{38,43}"###,
     },
 ];

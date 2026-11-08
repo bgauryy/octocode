@@ -62,21 +62,14 @@ async fn check_server_environment() {
         let (_tmp, root, mut config) = configurable_server("lsp-env", &[], None);
         let report = root.join("observed-env.json");
         let wrapper = root.join("capture-env.js");
-        std::fs::write(
+        write_executable(
             &wrapper,
             r#"#!/usr/bin/env node
 const fs = require('fs');
 fs.writeFileSync(process.argv[3], JSON.stringify(process.env));
 require(process.argv[2]);
 "#,
-        )
-        .expect("capture fixture");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&wrapper, std::fs::Permissions::from_mode(0o755))
-                .expect("fixture executable");
-        }
+        );
         config.args = Some(vec![config.command, report.to_string_lossy().into_owned()]);
         config.command = wrapper.to_string_lossy().into_owned();
         let mut expected = TOOLCHAIN_ENV

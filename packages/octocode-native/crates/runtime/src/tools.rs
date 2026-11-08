@@ -86,7 +86,18 @@ pub(crate) fn pruned_walk_with(
     extra: impl IntoIterator<Item = String>,
     policy: octocode_engine::types::IgnorePolicy,
 ) -> ignore::WalkBuilder {
-    let prune = crate::policy::prune::OwnWalk::new(root, extra);
+    pruned_walk_under(root, true, extra, policy)
+}
+
+/// [`pruned_walk_with`] with the default prune lifted when `defaults` is
+/// false; the credential stores stay out.
+pub(crate) fn pruned_walk_under(
+    root: &std::path::Path,
+    defaults: bool,
+    extra: impl IntoIterator<Item = String>,
+    policy: octocode_engine::types::IgnorePolicy,
+) -> ignore::WalkBuilder {
+    let prune = crate::policy::prune::OwnWalk::with_defaults(root, defaults, extra);
     let mut walk = octocode_engine::search::walk::walk_builder(root, policy, None);
     walk.filter_entry(move |entry| {
         !prune.prunes(

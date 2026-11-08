@@ -1,42 +1,31 @@
 use super::collections::collection_paths;
 use crate::response::result::{HINTS_KEY, PAGES_KEY};
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
-/// Page-plan size reserved for a row's per-call facts. It depends only on
-/// their shape, so executions that differ in the values plan identical pages.
-pub(super) fn volatile_reserve(fields: &Map<String, Value>) -> usize {
-    fn shape(value: &Value) -> Value {
-        match value {
-            Value::Object(map) => Value::Object(
-                map.iter()
-                    .map(|(key, child)| (key.clone(), shape(child)))
-                    .collect(),
-            ),
-            Value::Array(items) => Value::Array(items.iter().map(shape).collect()),
-            _ => json!("x".repeat(40)),
-        }
-    }
-    let shaped: Map<String, Value> = fields
-        .iter()
-        .map(|(key, child)| (key.clone(), shape(child)))
-        .collect();
-    octocode_engine::json_size::utf16_units(&shaped).unwrap_or(0) - 1
-}
-
-/// The outermost array element a paged array at `pointer` lies in (reached
-/// through single-element arrays), as (array pointer, element index).
+/// The innermost array element a paged array at `pointer` lies in, as
+/// (array pointer, element index): the element `rowPart.continues` names on
+/// a later part. Every element on the path to it continues too, so a split
+/// that reaches through single-element arrays (a file's only call row and
+/// its call sites) names the deepest one, not just the outermost.
 pub(super) fn enclosing_element(value: &Value, pointer: &str) -> Option<(String, usize)> {
+    let (holder, _paged) = pointer.rsplit_once('/')?;
     let mut prefix = String::new();
     let mut node = value;
-    for segment in pointer.trim_start_matches('/').split('/') {
+    let mut innermost = None;
+    for segment in holder.split('/').skip(1) {
         let key = crate::json_pointer::unescape(segment);
-        if node.is_array() {
-            return key.parse().ok().map(|index| (prefix, index));
-        }
-        node = node.as_object()?.get(&key)?;
+        node = match node {
+            Value::Array(items) => {
+                let index = key.parse().ok()?;
+                innermost = Some((prefix.clone(), index));
+                items.get(index)?
+            }
+            Value::Object(members) => members.get(&key)?,
+            _ => return None,
+        };
         prefix = format!("{prefix}/{segment}");
     }
-    None
+    innermost
 }
 
 /// Serialized length a `rowPart.continues` marker adds.
@@ -51,10 +40,13 @@ pub(super) fn continues_chars(array: &str, index: usize) -> usize {
 /// their description again: on every object the paged `pointer` passes
 /// through, the row itself included, a member rides the first part only
 /// unless it is the pointer's next step, guidance, a core-declared
-/// page-context field (`pageContextFields`: identity, provenance and
-/// disclosures), or a holder of a declared collection (emptied beside the
-/// paged one, and dropped by the final materialization pass once the part
-/// is whole).
+/// page-context field at that row pointer (`pageContextFields`: identity,
+/// next and disclosure fields whole, required evidence emptied, see
+/// [`PageContextFields::keep_later`]), or a holder of a declared collection
+/// (emptied beside the paged one, and dropped by the final materialization
+/// pass once the part is whole).
+///
+/// [`PageContextFields::keep_later`]: crate::contracts::output_fields::PageContextFields::keep_later
 pub(super) fn lean_later_context(
     skeleton: &mut Value,
     pointer: &str,
@@ -76,13 +68,13 @@ pub(super) fn lean_later_context(
         };
         let key = crate::json_pointer::unescape(segment);
         if let Some(map) = current.as_object_mut() {
-            map.retain(|name, _| {
+            map.retain(|name, value| {
+                let member = format!("{at}/{}", crate::json_pointer::escape(name));
                 *name == key
                     || name == PAGES_KEY
                     || name == HINTS_KEY
-                    || context.required.contains(name)
-                    || context.optional.contains(name)
-                    || holds(&format!("{at}/{}", crate::json_pointer::escape(name)))
+                    || holds(&member)
+                    || context.keep_later(&member, value)
             });
         }
         node = match current {

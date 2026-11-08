@@ -65,7 +65,10 @@ pub(crate) fn receipt_kind(tool: ToolId) -> Option<(SelectionScope, SelectionUni
         ToolId::LocalSearch | ToolId::LocalFetch | ToolId::GhGetFileContent => {
             Some((SelectionScope::SelectedView, SelectionUnit::Chunks))
         }
-        ToolId::GhSearchCode => Some((SelectionScope::ProviderPage, SelectionUnit::Hits)),
+        ToolId::GhSearchCode
+        | ToolId::GhSearchHistory
+        | ToolId::GhGetHistoryItem
+        | ToolId::StructureSearch => Some((SelectionScope::ProviderPage, SelectionUnit::Hits)),
         _ => None,
     }
 }

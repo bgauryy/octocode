@@ -260,8 +260,11 @@ fn unknown_fields(
     speculative: bool,
 ) -> Vec<ValidationIssue> {
     let mut issues = Vec::new();
+    let sent_fields = object.keys().collect::<Vec<_>>();
     let known_fields = || {
         serde_json::json!({
+            // What the object already carries: a repair never suggests it.
+            "sentFields": sent_fields,
             "knownFields": properties.map(|known| known.iter()
                 .filter(|(_, property)| authored_property(root, property))
                 .map(|(name, _)| name).collect::<Vec<_>>()).unwrap_or_default()

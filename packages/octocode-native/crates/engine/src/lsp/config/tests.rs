@@ -30,6 +30,7 @@ mod invocation;
 mod probe;
 mod repository_code;
 mod resolution;
+mod route_memo;
 #[cfg(unix)]
 mod rustup_fixture;
 #[cfg(unix)]

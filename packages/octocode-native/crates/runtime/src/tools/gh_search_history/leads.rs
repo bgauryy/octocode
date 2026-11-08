@@ -163,6 +163,12 @@ pub(super) fn without_users(q: &GhSearchHistoryQuery) -> Option<Value> {
         "commenter",
         "reviewedBy",
         "reviewRequested",
+        "notAuthor",
+        "notAssignee",
+        "notMentions",
+        "notCommenter",
+        "notReviewedBy",
+        "notReviewRequested",
     ] {
         removed |= filters.remove(key).is_some();
     }
@@ -217,9 +223,9 @@ pub(super) fn broaden_search(q: &GhSearchHistoryQuery) -> Option<Value> {
 /// rows to search. `None` when the row does not validate.
 pub(super) fn count_listed(q: &HistorySearch) -> Option<Value> {
     let mut row = same_query(q);
-    let selection = &mut row["filters"]["createdAt"];
-    if selection.is_null() {
-        selection["include"] = json!([{ "from": "1970-01-01T00:00:00Z" }]);
+    let window = &mut row["filters"]["createdAt"];
+    if window.is_null() {
+        *window = json!({ "from": "1970-01-01T00:00:00Z" });
     }
     row["limit"] = json!(1);
     crate::contracts::validate(
@@ -255,13 +261,7 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value>
     match sort.as_deref() {
         Some("committer-date") => {
             let date = last(&["/commit/committer/date", "/commit/author/date"])?;
-            let selection = &mut row["filters"]["committedAt"];
-            let mut range = selection
-                .pointer("/include/0")
-                .cloned()
-                .unwrap_or_else(|| json!({}));
-            range["to"] = json!(date);
-            selection["include"] = json!([range]);
+            row["filters"]["committedAt"]["to"] = json!(date);
         }
         Some("created" | "updated") => {
             let (field, pointer) = if sort.as_deref() == Some("created") {
@@ -271,13 +271,7 @@ pub(super) fn narrow_capped(q: &HistorySearch, items: &[Value]) -> Option<Value>
             };
             let date = last(&[pointer])?;
             let bound = if newest_first { "to" } else { "from" };
-            let selection = &mut row["filters"][field];
-            let mut range = selection
-                .pointer("/include/0")
-                .cloned()
-                .unwrap_or_else(|| json!({}));
-            range[bound] = json!(date);
-            selection["include"] = json!([range]);
+            row["filters"][field][bound] = json!(date);
         }
         _ => {
             row["sort"] = json!({"by":"createdAt","order":"desc"});

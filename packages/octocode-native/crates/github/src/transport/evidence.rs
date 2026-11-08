@@ -139,7 +139,8 @@ impl ProviderEvidence {
     }
 }
 
-/// The identity of a request: method, URL, the media type it asked for, its body
+/// The identity of a request: method, URL, whether it reads the first page only,
+/// the media type it asked for, its body
 /// (a GraphQL query and its variables), and the file it reads when its URL names
 /// none. Only the last can hold a line break: a body is one line of JSON.
 pub(super) fn request_key(spec: &RequestSpec) -> String {
@@ -162,7 +163,14 @@ pub(super) fn request_key(spec: &RequestSpec) -> String {
         .as_deref()
         .map(|file| format!("\n{file}"))
         .unwrap_or_default();
-    format!("{method} {}\n{accept}\n{body}{file}", spec.url)
+    // A read that never follows `Link` keeps an answer with no next page:
+    // it must not answer a read that does.
+    let first_page = if spec.is_first_page_only() {
+        " first-page-only"
+    } else {
+        ""
+    };
+    format!("{method} {}{first_page}\n{accept}\n{body}{file}", spec.url)
 }
 
 /// The file a request reads when its URL names none, from its [`request_key`].
@@ -314,6 +322,13 @@ impl Journal {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(name, value);
+    }
+
+    pub(crate) fn remove_note(&self, name: &str) {
+        self.notes
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(name);
     }
 
     /// What this request observed so far: its text answers (a cookie is

@@ -3,9 +3,10 @@
 //! core-declared page-context field (`pageContextFields`) and holds no
 //! declared collection rides the row's first part only, and the parts still
 //! concatenate back to the unsplit row exactly.
-use super::nested_continuation::{continued_elements, merge, symbols_row};
+use super::nested_continuation::{
+    Join, continued_elements, declared_collections, merge, symbols_row,
+};
 use super::*;
-use crate::contracts::output_fields::page_context_fields;
 use crate::id::ToolId;
 use octocode_io::cancellation::Cancellation;
 
@@ -42,9 +43,45 @@ fn outline_row() -> Value {
     data
 }
 
+/// Whether a later part may carry the row member `name` of `data` (the
+/// unsplit row's `data`) unchanged, judged without the pager from core's
+/// `pageContextFields` and the output schema: an identity, next or
+/// disclosure field (`required` or `optional`) repeats whole; required
+/// evidence (`requiredEvidence`) repeats whole only when the schema admits
+/// no empty form of it there (a number, an enum, a bounded string, list or
+/// record), and otherwise arrives empty; optional evidence rides the first
+/// part only.
+pub(super) fn may_repeat(tool: ToolId, data: &Value, name: &str) -> bool {
+    let contract = crate::contracts::tool_contract(tool).expect("embedded contract");
+    let pointer = format!("/data/{}", crate::json_pointer::escape(name));
+    let listed = |kind: &str| {
+        contract["pageContextFields"][kind]
+            .as_array()
+            .is_some_and(|pointers| pointers.iter().any(|item| *item == pointer))
+    };
+    if listed("required") || listed("optional") {
+        return true;
+    }
+    if !listed("requiredEvidence") {
+        return false;
+    }
+    let valid = |data: &Value| {
+        let published = crate::tools::test_support::published(tool, data);
+        crate::contracts::validate_output(tool.as_str(), &published).is_ok()
+    };
+    let mut emptied = data.clone();
+    match &mut emptied[name] {
+        Value::String(text) => text.clear(),
+        Value::Array(items) => items.clear(),
+        Value::Object(members) => members.clear(),
+        _ => return true,
+    }
+    !valid(&emptied)
+}
+
 /// Walk `data` at `budget` and return its parts in order.
-fn parts(tool: ToolId, data: &Value, budget: usize) -> Vec<Value> {
-    let plan = PreparedRows::new(vec![json!({"index":0,"data":data.clone()})], &[None], tool)
+pub(super) fn parts(tool: ToolId, data: &Value, budget: usize) -> Vec<Value> {
+    let plan = PreparedRows::new(vec![json!({"index":0,"data":data.clone()})], tool)
         .plan(budget, &Cancellation::new())
         .expect("valid plan");
     (0..plan.total_pages)
@@ -62,9 +99,7 @@ fn later_parts_carry_page_context_and_describe_the_row_once() {
         (ToolId::LocalSearch, search_row()),
         (ToolId::AstSearch, outline_row()),
     ] {
-        let context = page_context_fields(tool);
-        let declared =
-            |name: &str| context.required.contains(name) || context.optional.contains(name);
+        let collections = declared_collections(tool, &data);
         let mut split = false;
         for budget in (60..=400).step_by(5) {
             let parts = parts(tool, &data, budget);
@@ -83,8 +118,11 @@ fn later_parts_carry_page_context_and_describe_the_row_once() {
                         joined,
                         part["data"].clone(),
                         "/data",
-                        &continued,
-                        part["rowPart"]["text"].as_str(),
+                        &Join {
+                            continued: &continued,
+                            text: part["rowPart"]["text"].as_str(),
+                            collections: &collections,
+                        },
                     ),
                 }
             }
@@ -101,7 +139,11 @@ fn later_parts_carry_page_context_and_describe_the_row_once() {
                     .iter()
                     .filter(|part| part["data"].get(name) == Some(value))
                     .count();
-                let expected = if declared(name) { parts.len() } else { 1 };
+                let expected = if may_repeat(tool, &data, name) {
+                    parts.len()
+                } else {
+                    1
+                };
                 assert_eq!(
                     carried,
                     expected,

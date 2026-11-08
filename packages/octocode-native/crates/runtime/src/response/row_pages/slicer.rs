@@ -1,4 +1,4 @@
-use super::arena::{Evidence, FragmentKind, Window};
+use super::arena::{Evidence, FragmentKind, Window, mark_continued_element};
 use super::evidence::DependencyError;
 use super::{Fragment, FragmentArena, Planned, continues_chars, mark_continuations};
 use serde_json::Value;
@@ -160,6 +160,7 @@ impl Slicer<'_> {
                 out.extend(trial);
                 mark_continuations(&self.pointer, at, index, out);
                 self.join_before(arena, at, start..index, pending + extra, out)?;
+                self.mark_enclosing(at, out);
             } else {
                 self.flush(start, index, chars, out);
                 let at = out.len();
@@ -172,6 +173,7 @@ impl Slicer<'_> {
                     out,
                 )?;
                 mark_continuations(&self.pointer, at, index, out);
+                self.mark_enclosing(at, out);
             }
         } else {
             self.close(arena, index, out);
@@ -185,6 +187,7 @@ impl Slicer<'_> {
                 out,
             )?;
             mark_continuations(&self.pointer, at, index, out);
+            self.mark_enclosing(at, out);
         }
         let last = out.len() - 1;
         self.open = Open::Tail {
@@ -194,6 +197,16 @@ impl Slicer<'_> {
         };
         self.open_evidence = out[last].0.evidence.clone();
         Ok(())
+    }
+
+    /// A later part of this split (fragment `at`) continues the element the
+    /// split lies in, as [`Self::flush`] marks a chunk.
+    fn mark_enclosing(&self, at: usize, out: &mut [Planned]) {
+        if at > self.first
+            && let Some((array, index)) = &self.enclosing
+        {
+            mark_continued_element(array, *index, at, out);
+        }
     }
 
     /// The window a single item plans in: the tail room only when it ends

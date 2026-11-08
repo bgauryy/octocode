@@ -2612,7 +2612,6 @@
           "path": ".",
           "page": 1,
           "operation": "match",
-          "matchPage": 1,
           "sort": {
             "by": "path",
             "order": "asc"
@@ -2646,7 +2645,6 @@
           "path": ".",
           "page": 1,
           "operation": "match",
-          "matchPage": 1,
           "sort": {
             "by": "path",
             "order": "asc"
@@ -2680,7 +2678,6 @@
           "path": ".",
           "page": 1,
           "operation": "match",
-          "matchPage": 1,
           "sort": {
             "by": "path",
             "order": "asc"
@@ -2714,7 +2711,6 @@
           "path": ".",
           "page": 1,
           "operation": "match",
-          "matchPage": 1,
           "sort": {
             "by": "path",
             "order": "asc"
@@ -4021,30 +4017,18 @@
             "state": "closed",
             "isMerged": false,
             "isDraft": false,
-            "labels": {
-              "include": [
-                "good first issue"
-              ],
-              "exclude": [
-                "bug"
-              ]
-            },
-            "headRef": {
-              "include": [
-                "feature"
-              ]
-            },
-            "review": {
-              "exclude": [
-                "approved"
-              ]
-            },
+            "labels": [
+              "good first issue"
+            ],
+            "notLabels": [
+              "bug"
+            ],
+            "headRef": "feature",
+            "notReview": [
+              "approved"
+            ],
             "createdAt": {
-              "include": [
-                {
-                  "from": "2026-01-01T00:00:00Z"
-                }
-              ]
+              "from": "2026-01-01T00:00:00Z"
             }
           }
         }
@@ -4061,32 +4045,20 @@
           "filters": {
             "state": "closed",
             "createdAt": {
-              "include": [
-                {
-                  "from": "2026-01-01T00:00:00Z"
-                }
-              ]
+              "from": "2026-01-01T00:00:00Z"
             },
-            "labels": {
-              "include": [
-                "good first issue"
-              ],
-              "exclude": [
-                "bug"
-              ]
-            },
-            "review": {
-              "exclude": [
-                "approved"
-              ]
-            },
+            "labels": [
+              "good first issue"
+            ],
+            "notLabels": [
+              "bug"
+            ],
+            "notReview": [
+              "approved"
+            ],
             "isMerged": false,
             "isDraft": false,
-            "headRef": {
-              "include": [
-                "feature"
-              ]
-            }
+            "headRef": "feature"
           }
         }
       ]
@@ -4103,16 +4075,10 @@
           "owner": "o",
           "repo": "r",
           "filters": {
-            "linked": {
-              "include": [
-                "pullRequest"
-              ]
-            },
-            "author": {
-              "exclude": [
-                "bot"
-              ]
-            }
+            "linked": "pullRequest",
+            "notAuthor": [
+              "bot"
+            ]
           }
         }
       ]
@@ -4126,16 +4092,10 @@
           "owner": "o",
           "repo": "r",
           "filters": {
-            "author": {
-              "exclude": [
-                "bot"
-              ]
-            },
-            "linked": {
-              "include": [
-                "pullRequest"
-              ]
-            }
+            "notAuthor": [
+              "bot"
+            ],
+            "linked": "pullRequest"
           }
         }
       ]
@@ -4157,11 +4117,7 @@
             "committedAt": {
               "from": "2026-01-01T00:00:00Z"
             },
-            "committer": {
-              "include": [
-                "a@b.c"
-              ]
-            }
+            "committer": "a@b.c"
           }
         }
       ]
@@ -4177,11 +4133,7 @@
           "path": "src",
           "ref": "main",
           "filters": {
-            "committer": {
-              "include": [
-                "a@b.c"
-              ]
-            },
+            "committer": "a@b.c",
             "committedAt": {
               "from": "2026-01-01T00:00:00Z"
             }
@@ -4205,16 +4157,8 @@
           ],
           "filters": {
             "committedAt": {
-              "include": [
-                {
-                  "from": "2026-01-01T00:00:00Z"
-                }
-              ],
-              "exclude": [
-                {
-                  "to": "2026-01-01T00:00:00Z"
-                }
-              ]
+              "from": "2026-01-01T00:00:00Z",
+              "to": "2026-02-01T00:00:00Z"
             }
           }
         }
@@ -4233,16 +4177,8 @@
           ],
           "filters": {
             "committedAt": {
-              "include": [
-                {
-                  "from": "2026-01-01T00:00:00Z"
-                }
-              ],
-              "exclude": [
-                {
-                  "to": "2026-01-01T00:00:00Z"
-                }
-              ]
+              "from": "2026-01-01T00:00:00Z",
+              "to": "2026-02-01T00:00:00Z"
             }
           }
         }
@@ -4321,7 +4257,54 @@
           "owner": "o",
           "repo": "r",
           "filters": {
-            "reviewedBy": {
+            "reviewedBy": "o"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.linked-both",
+    "diagnostics": true,
+    "tool": "ghSearchHistory",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "linked": "pullRequest",
+            "notLinked": "pullRequest"
+          }
+        }
+      ]
+    },
+    "issues": [
+      {
+        "path": [
+          "queries",
+          0,
+          "filters",
+          "notLinked"
+        ],
+        "message": "Set linked or notLinked, not both."
+      }
+    ]
+  },
+  {
+    "id": "history-search.wrapped-filter",
+    "tool": "ghSearchHistory",
+    "accepted": false,
+    "input": {
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "o",
+          "repo": "r",
+          "filters": {
+            "author": {
               "include": [
                 "o"
               ]
@@ -4556,7 +4539,6 @@
           "path": "src/cache.ts",
           "page": 1,
           "operation": "match",
-          "matchPage": 1,
           "sort": {
             "by": "path",
             "order": "asc"
@@ -4725,7 +4707,6 @@
           "path": "src/cache.ts",
           "page": 1,
           "operation": "match",
-          "matchPage": 1,
           "sort": {
             "by": "path",
             "order": "asc"
@@ -5179,7 +5160,6 @@
           "parser": "typescript",
           "page": 1,
           "operation": "match",
-          "matchPage": 1,
           "sort": {
             "by": "path",
             "order": "asc"

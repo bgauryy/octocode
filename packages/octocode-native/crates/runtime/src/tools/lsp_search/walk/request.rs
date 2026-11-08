@@ -209,7 +209,7 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
     let mut excluded = crate::tools::lsp_search::test_scope::ScopeLeft::default();
     if lsp_search_query::op(query) == Op::Callers {
         excluded = crate::tools::lsp_search::test_scope::retain_callers(query, paths, &mut items);
-        production_first(&mut items, &scope.root);
+        production_first(&mut items, paths);
     }
     let walks = walks
         .iter()
@@ -252,11 +252,12 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
     Ok((row, verified))
 }
 
-/// Order callers level by level, production files before test files
-/// (`is_test_path`, relative to the scope root), keeping the walk's order
-/// within each: every edge stays, and the first page leads with the
-/// callers that ship.
-fn production_first(items: &mut [Value], root: &str) {
+/// Order callers level by level, production before test code by the one
+/// test-code rule ([`crate::tools::test_code::TestCodeIndex`]: path, test-only
+/// mount, `#[cfg(test)]` item), keeping the walk's order within each: every
+/// edge stays, and the first page leads with the callers that ship.
+fn production_first(items: &mut [Value], paths: &PathPolicy) {
+    let index = crate::tools::test_code::TestCodeIndex::new(paths);
     items.sort_by_cached_key(|item| {
         let level = item.get("level").and_then(Value::as_u64).unwrap_or(1);
         let file = [
@@ -269,13 +270,14 @@ fn production_first(items: &mut [Value], root: &str) {
         .find_map(|pointer| item.pointer(pointer).and_then(Value::as_str))
         .map(uri_to_path)
         .unwrap_or_default();
-        let relative = std::path::Path::new(&file)
-            .strip_prefix(root)
-            .map_or(file.clone(), |path| path.to_string_lossy().into_owned());
-        (
-            level,
-            octocode_engine::text::test_paths::is_test_path(&relative),
-        )
+        let line = item
+            .pointer("/from/displayRange/startLine")
+            .or_else(|| item.pointer("/fromRanges/0/startLine"))
+            .and_then(Value::as_u64)
+            .map(octocode_engine::num::saturating_u32);
+        let file = std::path::Path::new(&file);
+        let test = index.test_file(file) || line.is_some_and(|line| index.is_test_line(file, line));
+        (level, test)
     });
 }
 
@@ -328,6 +330,12 @@ fn answer_files(anchor: &str, items: &[Value], importers: Option<&Importers>) ->
 mod tests {
     use super::production_first;
     use serde_json::json;
+    use std::path::Path;
+
+    fn ordered(items: &mut [serde_json::Value], root: &str) {
+        let paths = crate::tools::test_support::workspace_policy(Path::new(root));
+        production_first(items, &paths);
+    }
 
     /// Callers in test files follow the production callers of their level;
     /// every edge stays, in walk order within each group.
@@ -342,7 +350,7 @@ mod tests {
             json!({"to": {"path": "/r/src/d.ts"}, "callerPath": "/r/src/e.ts", "level": 1}),
             edge("/r/src/f.ts", 2),
         ];
-        production_first(&mut items, "/r");
+        ordered(&mut items, "/r");
         let order = items
             .iter()
             .map(|item| {
@@ -368,7 +376,48 @@ mod tests {
             edge("/t/tests/repo/b.test.ts", 1),
             edge("/t/tests/repo/a.ts", 1),
         ];
-        production_first(&mut nested, "/t/tests/repo");
+        ordered(&mut nested, "/t/tests/repo");
         assert_eq!(nested[0]["from"]["path"], "/t/tests/repo/a.ts");
+    }
+
+    /// The one test-code rule decides: a Rust file only a `#[cfg(test)] mod`
+    /// mounts, and a caller declared inside a `#[cfg(test)]` item, are test
+    /// code though no path says so.
+    #[test]
+    fn production_callers_lead_by_the_shared_test_code_rule() {
+        let dir = crate::tools::test_support::Fixture::new();
+        let root = dir.0.canonicalize().expect("root");
+        std::fs::create_dir_all(root.join("src")).expect("src");
+        std::fs::write(root.join("Cargo.toml"), "[package]\nname = \"p\"\n").expect("manifest");
+        std::fs::write(
+            root.join("src/lib.rs"),
+            "#[cfg(test)]\nmod helpers;\nmod prod;\npub fn a() {}\n#[cfg(test)]\nmod t {\n    fn caller() {}\n}\n",
+        )
+        .expect("lib");
+        std::fs::write(root.join("src/helpers.rs"), "fn h() { crate::a(); }\n").expect("helpers");
+        std::fs::write(root.join("src/prod.rs"), "fn p() { crate::a(); }\n").expect("prod");
+        let at = |file: &str, line: u64| {
+            json!({"from": {"path": root.join(file).to_string_lossy(),
+                "displayRange": {"startLine": line}}, "level": 1})
+        };
+        let mut items = vec![
+            at("src/helpers.rs", 1),
+            at("src/lib.rs", 7),
+            at("src/prod.rs", 1),
+        ];
+        ordered(&mut items, &root.to_string_lossy());
+        let files = items
+            .iter()
+            .map(|item| {
+                item["from"]["path"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(files, ["prod.rs", "helpers.rs", "lib.rs"]);
     }
 }

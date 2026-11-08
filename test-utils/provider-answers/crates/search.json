@@ -9,7 +9,7 @@
   ],
   "limit": 5
  },
- "recordedAt": "2026-11-05",
+ "recordedAt": "2026-11-08",
  "unread": [
   "crates[*].created_at",
   "crates[*].documentation",
@@ -35,7 +35,7 @@
      "application/json"
     ]
    ],
-   "digest": "sha256:573db0ef5c4f7181c73be3fd80bca8e31b28906bd679021cb0a9a3129fb408e0",
+   "digest": "sha256:fca9d4589220d98ef95095da62516aec78f5d5f68b074089587b0a0e910a6afe",
    "body": {
     "crates": [
      {
@@ -47,8 +47,8 @@
       "categories": null,
       "badges": [],
       "created_at": "2015-05-27T23:19:16.839117Z",
-      "downloads": 1659034290,
-      "recent_downloads": 351606901,
+      "downloads": 1672473283,
+      "recent_downloads": 357354083,
       "default_version": "0.8.11",
       "num_versions": 79,
       "yanked": false,

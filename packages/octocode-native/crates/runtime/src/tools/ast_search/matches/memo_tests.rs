@@ -45,17 +45,11 @@ fn continuation_pages_reuse_the_settled_scan_with_identical_output() {
         "a multi-page scan is stored: {first}"
     );
     let mut offering = first.clone();
-    let mut file_page_query = Value::Null;
-    for name in ["matchPage", "nextPage"] {
-        let query = if name == "matchPage" {
-            offering["next"]["nextPage"]["input"]["queries"][0].clone()
-        } else {
-            next_query(&offering, name)
-        };
+    let mut last_query = Value::Null;
+    for name in ["page 2", "page 3"] {
+        let query = next_query(&offering, "nextPage");
         assert!(query.is_object(), "{name}: {offering}");
-        if name == "nextPage" {
-            file_page_query = query.clone();
-        }
+        last_query = query.clone();
         let stored = run_row(&query, &paths, &security);
         SCANS.evict(&snapshot);
         let fresh = run_row(&query, &paths, &security);
@@ -70,7 +64,7 @@ fn continuation_pages_reuse_the_settled_scan_with_identical_output() {
     }
     // An edit drops the stored scan: the page restarts from page 1.
     std::fs::write(root.0.join("c.ts"), "console.log(9);\n").expect("edit");
-    let page = run_row(&file_page_query, &paths, &security);
+    let page = run_row(&last_query, &paths, &security);
     assert_eq!(page["errorCode"], "staleSnapshot", "{page}");
     assert!(!SCANS.holds(&snapshot));
 }

@@ -190,3 +190,161 @@ async fn a_path_without_history_has_no_date() {
         .expect("answered");
     assert_eq!(last, (None, None));
 }
+
+fn wants(count: usize) -> Vec<LastCommitWant> {
+    (0..count)
+        .map(|index| LastCommitWant {
+            owner: "a".into(),
+            repo: "b".into(),
+            sha: SHA.into(),
+            path: format!("f{index}"),
+        })
+        .collect()
+}
+
+/// Paths of one commit travel in requests of at most [`WARM_CHUNK`], each
+/// answered path is read from the memo with no request of its own, and an
+/// alias the answer lacks stays unanswered.
+#[tokio::test]
+async fn warm_chunks_by_a_hundred_and_a_missing_alias_is_left_unanswered() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(|request: &Request| {
+            let body: Value = serde_json::from_slice(&request.body).unwrap();
+            let mut object = serde_json::Map::new();
+            for name in body["variables"].as_object().unwrap().keys() {
+                // `h0` is never answered.
+                if let Some(index) = name.strip_prefix('p').filter(|index| *index != "0") {
+                    object.insert(
+                        format!("p{index}"),
+                        json!({"nodes":[{"committedDate":"2026-03-03T00:00:00Z"}]}),
+                    );
+                }
+            }
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"data":{"repository":{"object":object}}}))
+        })
+        .mount(&server)
+        .await;
+    let transport = transport(&server);
+    let memo = std::sync::Arc::new(LastCommitMemo::new());
+    let asked = wants(WARM_CHUNK + 1);
+    transport
+        .warm_last_commits(&asked, &memo, &context(true))
+        .await;
+    memo.refs_known();
+    memo.settle();
+    let posts = graphql_bodies(&server.received_requests().await.unwrap());
+    assert_eq!(posts.len(), 2);
+    let mut sizes = posts
+        .iter()
+        .map(|body| body["variables"].as_object().unwrap().len() - 3)
+        .collect::<Vec<_>>();
+    sizes.sort_unstable();
+    assert_eq!(sizes, [1, WARM_CHUNK]);
+    let with_memo = context(true).with_last_commits(memo.clone());
+    let last = transport
+        .path_last_commit("a", "b", SHA, "f1", &with_memo)
+        .await
+        .expect("memo");
+    assert_eq!(last.0.as_deref(), Some("2026-03-03T00:00:00Z"));
+    // Answered paths sent nothing more.
+    assert_eq!(
+        graphql_bodies(&server.received_requests().await.unwrap()).len(),
+        2
+    );
+}
+
+/// Without a credential nothing is asked, and the row asks by itself.
+#[tokio::test]
+async fn warm_asks_nothing_without_a_credential() {
+    let server = MockServer::builder().start().await;
+    let memo = LastCommitMemo::new();
+    transport(&server)
+        .warm_last_commits(&wants(2), &memo, &context(false))
+        .await;
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
+/// One path asks the single-path document: the request a lone read always
+/// sent, so its kept and recorded answers still serve it.
+#[tokio::test]
+async fn warm_of_one_path_sends_the_single_path_document() {
+    let server = answering(json!({"nodes":[{"committedDate":"2026-04-04T00:00:00Z"}]})).await;
+    let transport = transport(&server);
+    let memo = std::sync::Arc::new(LastCommitMemo::new());
+    transport
+        .warm_last_commits(&wants(1), &memo, &context(true))
+        .await;
+    memo.settle();
+    let posts = graphql_bodies(&server.received_requests().await.unwrap());
+    assert_eq!(posts.len(), 1);
+    assert_eq!(posts[0]["query"], LAST_COMMIT_DOCUMENT);
+    assert_eq!(
+        posts[0]["variables"],
+        json!({"owner":"a","name":"b","oid":SHA,"path":"f0"})
+    );
+    let with_memo = context(true).with_last_commits(memo);
+    let last = transport
+        .path_last_commit("a", "b", SHA, "f0", &with_memo)
+        .await
+        .expect("memo");
+    assert_eq!(last.0.as_deref(), Some("2026-04-04T00:00:00Z"));
+}
+
+/// A refused credential fails each warmed path as its own GraphQL request
+/// would have; no REST request that cannot succeed follows.
+#[tokio::test]
+async fn warm_refused_for_the_credential_fails_the_paths_without_rest() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(
+            ResponseTemplate::new(401).set_body_json(json!({"message":"Bad credentials"})),
+        )
+        .mount(&server)
+        .await;
+    let transport = transport(&server);
+    let memo = std::sync::Arc::new(LastCommitMemo::new());
+    transport
+        .warm_last_commits(&wants(2), &memo, &context(true))
+        .await;
+    memo.settle();
+    let with_memo = context(true).with_last_commits(memo);
+    let error = transport
+        .path_last_commit("a", "b", SHA, "f1", &with_memo)
+        .await
+        .expect_err("refused");
+    assert_eq!(error.kind, ProviderErrorKind::Authentication, "{error:?}");
+    assert!(
+        server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .all(|request| request.url.path() == "/api/graphql")
+    );
+}
+
+/// An error a warm-up recorded for a ref names the repository as the row that
+/// reads it spells it: another spelling resolves for itself.
+#[tokio::test]
+async fn a_recorded_ref_error_serves_only_the_spelling_it_named() {
+    let memo = LastCommitMemo::new();
+    let error = ProviderError::new(ProviderErrorKind::NotFound, "Repository A/B not found");
+    memo.record_ref("A", "B", None, Err(error));
+    memo.refs_known();
+    assert!(memo.resolved_ref("A", "B", None).await.is_some());
+    assert!(memo.resolved_ref("a", "b", None).await.is_none());
+}
+
+/// One rule for a refused GraphQL request: a refused credential fails the
+/// path (REST would be refused too); any other failure leaves it to REST.
+#[test]
+fn a_failed_graphql_request_fails_the_path_only_for_the_credential() {
+    let refused = ProviderError::new(ProviderErrorKind::Authentication, "Bad credentials");
+    assert!(matches!(Warmed::of_failure(refused), Warmed::Failed(_)));
+    let other = ProviderError::new(ProviderErrorKind::NotFound, "gone");
+    assert!(matches!(Warmed::of_failure(other), Warmed::Unanswered));
+}

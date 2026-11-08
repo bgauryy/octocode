@@ -23,6 +23,48 @@ fn compare(left: &[u64], right: &[u64]) -> Ordering {
         .unwrap_or(Ordering::Equal)
 }
 
+/// What moving from one version to another changes, compared as dotted numbers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Move {
+    /// The target is the same version (or older): nothing to move to.
+    None,
+    Patch,
+    Minor,
+    Major,
+    /// Either side is not a plain dotted version: never guessed.
+    Unknown,
+}
+
+impl Move {
+    /// The contract's `upgradeKind` value; `None` when there is no upgrade.
+    pub(super) fn kind(self) -> Option<&'static str> {
+        match self {
+            Self::None => None,
+            Self::Patch => Some("patch"),
+            Self::Minor => Some("minor"),
+            Self::Major => Some("major"),
+            Self::Unknown => Some("unknown"),
+        }
+    }
+}
+
+/// What moving from `current` to `latest` is: the first dotted component that
+/// differs names the kind, a third or later one being a patch.
+pub(super) fn movement(current: &str, latest: &str) -> Move {
+    let (Some(from), Some(to)) = (numeric(current), numeric(latest)) else {
+        return Move::Unknown;
+    };
+    if !compare(&to, &from).is_gt() {
+        return Move::None;
+    }
+    let at = |list: &[u64], index: usize| list.get(index).copied().unwrap_or(0);
+    match (0..2).find(|&index| at(&from, index) != at(&to, index)) {
+        Some(0) => Move::Major,
+        Some(_) => Move::Minor,
+        None => Move::Patch,
+    }
+}
+
 /// The version to try, or why there is none: for each advisory its lowest stated
 /// fix above `current`, and the highest of those. Written as `current` writes
 /// its own version, with or without the `v`.

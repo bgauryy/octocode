@@ -2,8 +2,9 @@
 //! releasing a reservation.
 use super::{Admission, KeyFacts, KeyState};
 use crate::budget::slots::{Queued, Reserved, ReservedSlot, SlotPlan, Subject};
-use crate::budget::{ExecutorConfig, Group, acquire, now_ms, waits};
+use crate::budget::{ClientWaits, ExecutorConfig, Group, acquire, now_ms, waits};
 use crate::{ProviderError, ProviderErrorKind};
+use octocode_contract_types::ClientWaitKind;
 use octocode_io::budget::pause_reporting;
 use octocode_io::cancellation::Cancellation;
 use std::{
@@ -22,6 +23,7 @@ impl KeyState {
         config: &ExecutorConfig,
         deadline: Instant,
         cancellation: &Cancellation,
+        client_waits: &ClientWaits,
     ) -> Result<(), ProviderError> {
         self.refresh_off_thread().await;
         for _ in 0..4 {
@@ -33,10 +35,14 @@ impl KeyState {
             if block.circuit.is_some() || Instant::now() + wait >= deadline {
                 return Err(block.error(now));
             }
-            pause_reporting(wait, deadline, cancellation, |left| {
-                waits::blocked(&block, left)
-            })
-            .await?;
+            client_waits
+                .timed(
+                    waits::block_kind(&block),
+                    pause_reporting(wait, deadline, cancellation, |left| {
+                        waits::blocked(&block, left)
+                    }),
+                )
+                .await?;
         }
         match self.blocked(resource, config) {
             None => Ok(()),
@@ -54,6 +60,7 @@ impl KeyState {
         config: &ExecutorConfig,
         deadline: Instant,
         cancellation: &Cancellation,
+        client_waits: &ClientWaits,
     ) -> Result<Admission, ProviderError> {
         let resource = match group {
             Some(Group::Auth) => "auth",
@@ -62,12 +69,19 @@ impl KeyState {
         };
         for _ in 0..4 {
             if let Some(admission) = self
-                .try_admit(group, resource, config, deadline, cancellation)
+                .try_admit(
+                    group,
+                    resource,
+                    config,
+                    deadline,
+                    cancellation,
+                    client_waits,
+                )
                 .await?
             {
                 return Ok(admission);
             }
-            self.wait_unblocked(resource, config, deadline, cancellation)
+            self.wait_unblocked(resource, config, deadline, cancellation, client_waits)
                 .await?;
         }
         match self.blocked(resource, config) {
@@ -88,15 +102,25 @@ impl KeyState {
         config: &ExecutorConfig,
         deadline: Instant,
         cancellation: &Cancellation,
+        client_waits: &ClientWaits,
     ) -> Result<Option<Admission>, ProviderError> {
         let (reservation, mut permits) = match group {
             Some(group) => {
-                self.reserve_group_slot(group, config, deadline, cancellation)
+                self.reserve_group_slot(group, config, deadline, cancellation, client_waits)
                     .await?
             }
             None => (None, Vec::with_capacity(1)),
         };
-        let global = acquire(&self.global, deadline, cancellation).await;
+        // Queued behind this key's other requests in flight: their starts
+        // space this one's.
+        let global = acquire(
+            &self.global,
+            deadline,
+            cancellation,
+            client_waits,
+            ClientWaitKind::Spacing,
+        )
+        .await;
         let global = match global {
             Ok(permit) => permit,
             Err(error) => {
@@ -131,7 +155,9 @@ impl KeyState {
         config: &ExecutorConfig,
         deadline: Instant,
         cancellation: &Cancellation,
+        client_waits: &ClientWaits,
     ) -> Result<(Option<Reserved>, Vec<OwnedSemaphorePermit>), ProviderError> {
+        let kind = waits::slot_kind(config, group);
         let mut permits = Vec::with_capacity(2);
         let plan = SlotPlan::new(group, config, 1, deadline);
         let persisted = matches!(group, Group::Search | Group::CodeSearch | Group::Graphql);
@@ -160,7 +186,7 @@ impl KeyState {
             }
         }
         if let Some(lane) = lane {
-            permits.push(acquire(&lane.permit, deadline, cancellation).await?);
+            permits.push(acquire(&lane.permit, deadline, cancellation, client_waits, kind).await?);
         }
         if !plan.takes_slot() {
             return Ok((None, permits));
@@ -183,7 +209,7 @@ impl KeyState {
         // every process's slots: reserving from each process's own view lets
         // two processes take the same slot.
         let (start, previous) = if persisted {
-            self.reserve_shared(deadline, cancellation, reserve)
+            self.reserve_shared(deadline, cancellation, client_waits, reserve)
                 .await??
         } else {
             reserve(&mut self.facts())?
@@ -192,13 +218,17 @@ impl KeyState {
             state: Arc::clone(self),
             slot: Some((group, start, previous, persisted)),
         };
-        if let Err(error) = pause_reporting(
-            Duration::from_millis(start.saturating_sub(now_ms())),
-            deadline,
-            cancellation,
-            |left| waits::paced(group, left),
-        )
-        .await
+        if let Err(error) = client_waits
+            .timed(
+                kind,
+                pause_reporting(
+                    Duration::from_millis(start.saturating_sub(now_ms())),
+                    deadline,
+                    cancellation,
+                    |left| waits::paced(group, left),
+                ),
+            )
+            .await
         {
             // Nothing was sent: hand back the reserved start so it does not
             // throttle later requests.

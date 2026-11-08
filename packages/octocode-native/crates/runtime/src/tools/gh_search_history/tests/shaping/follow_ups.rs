@@ -61,7 +61,7 @@ fn empty_searches_offer_a_broader_search() {
         let query: GhSearchHistoryQuery = serde_json::from_value(row).expect("query");
         super::leads::broaden_search(&query).map(|lead| lead["input"]["queries"][0].clone())
     };
-    let scoped: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["fix"],"page":2,"filters":{"author":{"include":["x"]}}}))
+    let scoped: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["fix"],"page":2,"filters":{"author":"x"}}))
     .expect("query");
     let scoped = super::leads::broaden_search(&scoped).expect("lead")["input"]["queries"].clone();
     // A variant keeps at least one keyword: dropping the only one would
@@ -72,7 +72,7 @@ fn empty_searches_offer_a_broader_search() {
     assert_eq!(scoped[0]["keywords"], json!(["fix"]), "{scoped}");
     // Every narrowing filter gets its own variant: a scoped keyword search
     // that is empty because of its date window is recoverable too.
-    let both: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["fix"],"filters":{"createdAt":{"include":[{"from":"2030-01-01T00:00:00Z"}]}}}))
+    let both: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["fix"],"filters":{"createdAt":{"from":"2030-01-01T00:00:00Z"}}}))
     .expect("query");
     let both = super::leads::broaden_search(&both).expect("lead")["input"]["queries"].clone();
     assert_eq!(both.as_array().map(Vec::len), Some(1), "{both}");
@@ -80,7 +80,7 @@ fn empty_searches_offer_a_broader_search() {
         both[0].get("filters").is_none() && both[0]["keywords"] == json!(["fix"]),
         "{both}"
     );
-    let qualifiers = broadened(json!({"operation":"issue","owner":"o","repo":"r","filters":{"labels":{"include":["bug"]}}}))
+    let qualifiers = broadened(json!({"operation":"issue","owner":"o","repo":"r","filters":{"labels":["bug"]}}))
     .expect("qualifiers dropped");
     assert!(qualifiers.get("filters").is_none(), "{qualifiers}");
     let window = broadened(json!({"operation":"commit","owner":"o","repo":"r","path":"src","filters":{"committedAt":{"from":"2026-09-24T00:00:00Z"}}}))
@@ -89,7 +89,7 @@ fn empty_searches_offer_a_broader_search() {
     assert_eq!(window["path"], "src", "{window}");
     for operation in ["pullRequest", "issue"] {
         let window = broadened(json!({"operation":operation,"owner":"o","repo":"r",
-            "filters":{"createdAt":{"include":[{"from":"2026-10-01T00:00:00Z","to":"2026-10-03T23:59:59Z"}]}}}))
+            "filters":{"createdAt":{"from":"2026-10-01T00:00:00Z","to":"2026-10-03T23:59:59Z"}}}))
         .expect("window dropped");
         assert!(window.get("filters").is_none(), "{operation}: {window}");
         assert!(window.get("filters").is_none(), "{operation}: {window}");

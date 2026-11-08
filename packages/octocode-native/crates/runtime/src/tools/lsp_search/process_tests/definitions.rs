@@ -31,7 +31,7 @@ fn nested_definition_failure_keeps_location_with_partial_provenance() {
       send({{jsonrpc:'2.0',id:msg.id,result:[]}});
     }}"#),
             );
-        std::fs::write(&script, server).expect("definition fixture server");
+        crate::tools::lsp_search::tests::write_executable(&script, &server);
         let paths = crate::tools::test_support::workspace_policy(&root);
         let path = root.join("a.ts").to_string_lossy().into_owned();
         let uri = octocode_engine::lsp::uri::path_to_uri(&path).expect("uri");
@@ -60,6 +60,7 @@ fn nested_definition_failure_keeps_location_with_partial_provenance() {
                 character: 6,
                 language_id: Some("typescript"),
                 budget: 16_000,
+                security: &crate::security::ContentSecurity::new(),
             }
             .run()
             .await
@@ -127,7 +128,7 @@ fn a_definition_outside_the_read_roots_is_reported_withheld() {
                 "  }} else if (msg.method === 'textDocument/definition') {{\n    send({{ jsonrpc: '2.0', id: msg.id, result: [{{ uri: '{target_uri}', range: {{ start: {{ line: 0, character: 13 }}, end: {{ line: 0, character: 14 }} }} }}] }});"
             ),
         );
-    std::fs::write(&script, server).expect("fixture server");
+    crate::tools::lsp_search::tests::write_executable(&script, &server);
     let paths = crate::tools::test_support::workspace_policy(&root);
     let path = root.join("a.ts").to_string_lossy().into_owned();
     let row = tokio::runtime::Runtime::new()
@@ -157,6 +158,7 @@ fn a_definition_outside_the_read_roots_is_reported_withheld() {
                 character: 6,
                 language_id: Some("typescript"),
                 budget: 16_000,
+                security: &crate::security::ContentSecurity::new(),
             }
             .run()
             .await;
@@ -194,7 +196,7 @@ fn logging_definition_server(script: &Path) {
     const early = graph.early[key];
     send({ jsonrpc: '2.0', id: msg.id, result: (early && asked === 1 ? [early] : graph.answers[key] || []).map(at) });"#,
         );
-    std::fs::write(script, server).expect("definition fixture server");
+    crate::tools::lsp_search::tests::write_executable(script, &server);
 }
 
 /// The definition chain from `file` at zero-based `(line, character)`
@@ -254,6 +256,7 @@ fn definition_chain(
             character,
             language_id: Some("typescript"),
             budget: 16_000,
+            security: &crate::security::ContentSecurity::new(),
         }
         .run()
         .await

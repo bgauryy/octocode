@@ -232,12 +232,18 @@ fn a_credential_in_an_error_never_leaves_any_tool() {
 /// (d) Evidence that holds a credential (a local file a tool reads, lists
 /// or searches) reaches both channels redacted: the output gate runs on
 /// every row a call shapes, before paging, so no page or channel holds it.
+/// A token glued to the word before it (minified text, `Bearerghp_…`) is
+/// hidden as one standing alone.
 #[tokio::test]
 async fn a_credential_in_evidence_is_redacted_on_both_channels() {
     let home = tempfile::tempdir().expect("home");
     let runtime = runtime(home.path(), &[]);
     let file = home.path().join("leak.txt");
-    std::fs::write(&file, format!("const token = \"{TOKEN}\";\n")).expect("fixture");
+    std::fs::write(
+        &file,
+        format!("const token = \"{TOKEN}\";\nauth: Bearer{TOKEN}\nmin:aaa{TOKEN}_7{TOKEN}\n"),
+    )
+    .expect("fixture");
     let path = file.to_string_lossy().into_owned();
     let calls = [
         ("localFetch", json!({"queries":[{"path": path}]})),

@@ -9,18 +9,33 @@ use super::js_paths::{BUNDLED_OUTPUT_DIRS, DECLARATION_EXTENSIONS, TYPE_STUB_EXT
 use std::io::Read;
 use std::path::Path;
 
+/// A node's role and flag bits ([`super::store::format::NodeRec::flags`]).
+pub(crate) type Roles = u16;
+
 /// Found but not parsed (over the per-file size bound): a file node with
 /// no symbols. File nodes only; bit 0 means `exported` on symbols.
-pub(crate) const ROLE_UNPARSED: u8 = 1;
-pub(crate) const ROLE_TEST: u8 = 1 << 1;
-pub(crate) const ROLE_GENERATED: u8 = 1 << 2;
-pub(crate) const ROLE_BUNDLED: u8 = 1 << 3;
-pub(crate) const ROLE_VENDORED: u8 = 1 << 4;
-pub(crate) const ROLE_DECLARATION: u8 = 1 << 5;
-pub(crate) const ROLE_CONFIG: u8 = 1 << 6;
-pub(crate) const ROLE_ENTRY: u8 = 1 << 7;
+pub(crate) const ROLE_UNPARSED: Roles = 1;
+/// A test file by the one shared test-code rule (the `testCode` filter's):
+/// where its mounts place it, else its path
+/// ([`octocode_engine::text::test_paths::is_test_path`]), or a Rust
+/// `#[cfg(test)]` mount.
+pub(crate) const ROLE_TEST: Roles = 1 << 1;
+pub(crate) const ROLE_GENERATED: Roles = 1 << 2;
+pub(crate) const ROLE_BUNDLED: Roles = 1 << 3;
+pub(crate) const ROLE_VENDORED: Roles = 1 << 4;
+pub(crate) const ROLE_DECLARATION: Roles = 1 << 5;
+pub(crate) const ROLE_CONFIG: Roles = 1 << 6;
+pub(crate) const ROLE_ENTRY: Roles = 1 << 7;
+/// Code that supports the project without being production or a test by
+/// the shared rule: examples, benchmarks, stories, test helpers and setup
+/// ([`octocode_engine::text::support_paths::is_support_path`]).
+pub(crate) const ROLE_SUPPORT: Roles = 1 << 8;
 
-pub(crate) const ROLES: &[(u8, &str)] = &[
+/// Roles of authored files that are not production code: detectors judge
+/// production only.
+pub(crate) const ROLE_NOT_PRODUCTION: Roles = ROLE_TEST | ROLE_SUPPORT | ROLE_CONFIG;
+
+pub(crate) const ROLES: &[(Roles, &str)] = &[
     (ROLE_UNPARSED, "unparsed"),
     (ROLE_TEST, "test"),
     (ROLE_GENERATED, "generated"),
@@ -29,10 +44,11 @@ pub(crate) const ROLES: &[(u8, &str)] = &[
     (ROLE_DECLARATION, "declaration"),
     (ROLE_CONFIG, "config"),
     (ROLE_ENTRY, "entry"),
+    (ROLE_SUPPORT, "support"),
 ];
 
 /// Roles that mark code nobody maintains by hand; detectors skip them.
-pub(crate) const ROLE_NOT_AUTHORED: u8 = ROLE_GENERATED | ROLE_BUNDLED | ROLE_VENDORED;
+pub(crate) const ROLE_NOT_AUTHORED: Roles = ROLE_GENERATED | ROLE_BUNDLED | ROLE_VENDORED;
 
 /// Directory names (lowercase) whose files are vendored third-party code.
 pub(crate) const VENDORED_DIRS: &[&str] = &[
@@ -51,7 +67,7 @@ const HEAD_BYTES: usize = 8 * 1024;
 const MINIFIED_LINE: usize = 1_000;
 const MINIFIED_AVERAGE_LINE: usize = 300;
 
-pub(crate) fn role_names(flags: u8) -> Vec<&'static str> {
+pub(crate) fn role_names(flags: Roles) -> Vec<&'static str> {
     ROLES
         .iter()
         .filter(|(bit, _)| flags & bit != 0)
@@ -59,31 +75,18 @@ pub(crate) fn role_names(flags: u8) -> Vec<&'static str> {
         .collect()
 }
 
-fn path_roles(path: &str) -> u8 {
+fn path_roles(path: &str, test: bool) -> Roles {
     let lower = path.to_ascii_lowercase();
     let segments = lower.split('/').collect::<Vec<_>>();
     let name = segments.last().copied().unwrap_or_default();
     let dirs = &segments[..segments.len().saturating_sub(1)];
     let mut roles = 0;
 
-    // Beyond tests proper, examples, benchmarks, stories, and test setup
-    // files are not production code either.
-    let support_dir = dirs.iter().any(|dir| {
-        matches!(
-            *dir,
-            "testing" | "examples" | "example" | "benches" | "benchmarks"
-        )
-    });
-    let support_name = [".bench.", ".stories."]
-        .iter()
-        .any(|marker| name.contains(marker))
-        || name.starts_with("setuptests.")
-        || name.starts_with("jest.setup")
-        || name.starts_with("vitest.setup")
-        || name.starts_with("test-setup.")
-        || name.starts_with("testsetup.");
-    if octocode_engine::text::test_paths::is_test_path(path) || support_dir || support_name {
+    if test {
         roles |= ROLE_TEST;
+    }
+    if octocode_engine::text::support_paths::is_support_path(path) {
+        roles |= ROLE_SUPPORT;
     }
 
     if dirs.iter().any(|dir| VENDORED_DIRS.contains(dir)) {
@@ -152,7 +155,7 @@ fn path_roles(path: &str) -> u8 {
     roles
 }
 
-fn content_roles(head: &str) -> u8 {
+fn content_roles(head: &str) -> Roles {
     let mut roles = 0;
     let top = head.get(..head.len().min(2048)).unwrap_or(head);
     let lower = top.to_ascii_lowercase();
@@ -190,8 +193,15 @@ fn content_roles(head: &str) -> u8 {
 
 /// Roles for `relative` under `root`, from its path and its first 8 KiB:
 /// the scanned source's [`SourceMarks::roles`], else a read of the file
-/// (one found but not parsed).
-pub(crate) fn file_roles(root: &Path, relative: &str, marks: Option<SourceMarks>) -> u8 {
+/// (one found but not parsed). `test` is the shared test-code verdict on the
+/// file's place ([`crate::tools::test_code::TestCodeIndex::test_path`]: its
+/// mounts, spelling only when nothing places it), not its spelling alone.
+pub(crate) fn file_roles(
+    root: &Path,
+    relative: &str,
+    marks: Option<SourceMarks>,
+    test: bool,
+) -> Roles {
     let content = marks.map_or_else(
         || {
             let mut buffer = Vec::with_capacity(HEAD_BYTES);
@@ -204,10 +214,10 @@ pub(crate) fn file_roles(root: &Path, relative: &str, marks: Option<SourceMarks>
         },
         |marks| marks.roles,
     );
-    path_roles(relative) | content
+    path_roles(relative, test) | content
 }
 
-fn head_roles(head: &[u8]) -> u8 {
+fn head_roles(head: &[u8]) -> Roles {
     content_roles(&String::from_utf8_lossy(
         &head[..head.len().min(HEAD_BYTES)],
     ))
@@ -219,7 +229,7 @@ fn head_roles(head: &[u8]) -> u8 {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct SourceMarks {
     /// [`file_roles`] from the first 8 KiB (generated, bundled).
-    pub roles: u8,
+    pub roles: Roles,
     /// The source starts with `#!`.
     pub shebang: bool,
     /// A Go file whose first 4 KiB say `package main` (its first clause),
@@ -252,6 +262,12 @@ impl SourceMarks {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use octocode_engine::text::test_paths::is_test_path;
+
+    /// `path_roles` with the spelling verdict, for paths no mount places.
+    fn path_roles(path: &str) -> Roles {
+        super::path_roles(path, is_test_path(path))
+    }
 
     #[test]
     fn paths_classify_tests_vendored_generated_and_declarations() {
@@ -267,6 +283,9 @@ mod tests {
         assert_eq!(path_roles("static/app.min.js"), ROLE_BUNDLED);
         assert_eq!(path_roles("dist/index.js"), ROLE_BUNDLED);
         assert_eq!(path_roles("vite.config.ts"), ROLE_CONFIG);
+        assert_eq!(path_roles("examples/basic.rs"), ROLE_SUPPORT);
+        assert_eq!(path_roles("benches/parse.rs"), ROLE_SUPPORT);
+        assert_eq!(path_roles("examples/tests/case.rs"), ROLE_TEST);
         assert_eq!(path_roles("src/server/router.ts"), 0);
     }
 

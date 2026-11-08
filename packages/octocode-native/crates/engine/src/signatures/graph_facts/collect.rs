@@ -297,6 +297,7 @@ fn push_call(
         self_template: None,
         macros: acc.macro_chain.clone().unwrap_or_default(),
         receiver_call: None,
+        receiver_declared: None,
     });
     acc.edges.push(GraphFactEdge {
         id: format!("{from}->{callee}:calls:{line}:{}", acc.edges.len()),

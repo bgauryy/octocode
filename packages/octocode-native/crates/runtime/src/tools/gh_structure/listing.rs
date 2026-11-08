@@ -304,7 +304,6 @@ pub(super) fn attach_continuations(
     // The rest of the listing itself: reading it writes nothing more.
     if has_more {
         let mut next_query = query_row(query, &[]);
-        next_query["page"] = json!(current + 1);
         if query.materialize == Some(true)
             && let Some(row) = next_query.as_object_mut()
         {
@@ -314,12 +313,26 @@ pub(super) fn attach_continuations(
             // without it, the next page would cut a shallower listing.
             row.insert("maxDepth".to_owned(), json!(scope.depth));
         }
-        value["calls"]["nextPage"] = continuation(next_query);
+        if let Some(call) = crate::response::paging::next_page_call(
+            ToolId::GhStructure,
+            next_query,
+            "page",
+            current + 1,
+            &[],
+        ) {
+            value["calls"]["nextPage"] = call;
+        }
     }
-    if retry_tree {
-        let mut retry = query_row(query, &[]);
-        retry["page"] = json!(current);
-        value["calls"]["retry"] = continuation(retry);
+    if retry_tree
+        && let Some(call) = crate::response::paging::next_page_call(
+            ToolId::GhStructure,
+            query_row(query, &[]),
+            "page",
+            current,
+            &[],
+        )
+    {
+        value["calls"]["retry"] = call;
     }
     Ok(())
 }

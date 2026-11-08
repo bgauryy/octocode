@@ -6,6 +6,7 @@ use crate::tools::local_search::sources::Expected;
 
 mod replay;
 
+pub(in crate::tools::local_search) use replay::check_key_scans;
 use replay::replay_redaction;
 
 /// Make paths relative to `output_root` and redact secrets in every value.

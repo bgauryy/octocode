@@ -10,11 +10,11 @@
  * a frozen (SIGSTOP) owner stays live however often it is probed; a connect probe would fill its accept backlog.
  * The probe holds no state between calls.
  */
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { lstatSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:net';
 import { basename, dirname, join } from 'node:path';
+import { processAlive, processStart } from './process-identity.ts';
 
 const CLAIM_ATTEMPTS = 10;
 const CLAIM_WAIT_MS = 25;
@@ -60,39 +60,6 @@ interface OwnerIdentity {
   ino: string | null;
 }
 
-/** What a probe learns about a running pid: whether it is dead-but-unreaped, and an opaque start-time token (null when unknown). */
-interface ProcessInfo {
-  zombie: boolean;
-  start: string | null;
-}
-
-/** Linux: /proc state and starttime ticks (no spawn); elsewhere one `ps` for stat and lstart. Null when nothing can be learned. */
-function inspectProcess(pid: number): ProcessInfo | null {
-  if (WINDOWS) return null;
-  if (process.platform === 'linux') {
-    try {
-      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
-      const fields = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
-      return { zombie: fields[0] === 'Z' || fields[0] === 'X', start: fields[19] ?? null };
-    } catch {
-      return null;
-    }
-  }
-  const result = spawnSync('ps', ['-o', 'stat=,lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, LC_ALL: 'C' } });
-  const [, stat = '', start = ''] = result.status === 0 ? (/^\s*(\S+)\s*(.*)$/s.exec(result.stdout.trim()) ?? []) : [];
-  return stat === '' ? null : { zombie: stat.startsWith('Z'), start: start.trim() || null };
-}
-
-function processExists(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    // EPERM: the process exists but belongs to another user.
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
 function readIdentity(sidecar: string): OwnerIdentity | null {
   try {
     const value = JSON.parse(readFileSync(sidecar, 'utf8'));
@@ -121,11 +88,7 @@ function ownerAlive(address: string, sidecar: string): boolean {
   if (!WINDOWS && ino === null) return false;
   const owner = readIdentity(sidecar);
   if (owner === null || owner.ino !== ino) return !WINDOWS && ino !== null && socketAge(address) < SOCKET_GRACE_MS;
-  if (!processExists(owner.pid)) return false;
-  // A zombie is dead: its socket file survives a SIGKILL, and `kill(pid, 0)` still succeeds until the parent reaps it.
-  const info = inspectProcess(owner.pid);
-  if (info === null) return true;
-  return !info.zombie && (owner.start === null || info.start === null || info.start === owner.start);
+  return processAlive(owner.pid, owner.start);
 }
 
 /** Whether an owner of this session is alive. Synchronous, so a SQLite function can call it. */
@@ -196,7 +159,7 @@ class OwnerLock implements AsyncDisposable {
   /** Records this process as the owner; throws when the sidecar cannot be written (the caller then closes `server`). */
   constructor(private readonly server: Server, readonly address: string, private readonly sidecar: string) {
     this.identity = inode(address);
-    writeIdentity(sidecar, { pid: process.pid, start: inspectProcess(process.pid)?.start ?? null, ino: this.identity });
+    writeIdentity(sidecar, { pid: process.pid, start: processStart(process.pid), ino: this.identity });
     server.unref();
     held.add(address);
     // A process.exit() skips server.close(); remove the socket so the next owner need not recover a stale one.

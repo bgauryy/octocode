@@ -111,6 +111,22 @@ fn python_standard_module_is_not_bound_to_another_tree() {
     assert_eq!(tally(root, ".").1, 1);
 }
 
+/// The standard library's private modules (`_socket`, `sre_parse`) are the
+/// library's too: the name list comes from the interpreter and typeshed, not
+/// from the public names someone remembered.
+#[test]
+fn python_private_standard_module_is_not_bound_to_another_tree() {
+    let temp = fixture(&[
+        ("svc/_socket/__init__.py", "def info():\n    return 1\n"),
+        (
+            "scripts/run.py",
+            "import _socket\ndef run():\n    _socket.info()\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(call_edges(root, "scripts/run.py#run"), []);
+}
+
 /// What the scan root's enclosing package holds beside the root is repository
 /// code outside the scope, and so is a module the directories above spell.
 #[test]

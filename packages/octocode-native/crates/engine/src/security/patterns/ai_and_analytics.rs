@@ -9,7 +9,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "openaiApiKeyLegacy",
         file_context: None,
-        regex: r###"\b(sk-[a-zA-Z0-9_-]+T3BlbkFJ[a-zA-Z0-9_-]+)\b"###,
+        regex: r###"(sk-[a-zA-Z0-9_-]+T3BlbkFJ[a-zA-Z0-9_-]+)\b"###,
     },
     SecretPattern {
         name: "openaiApiKeyClassic",
@@ -24,7 +24,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "openaiServiceAccountKey",
         file_context: None,
-        regex: r###"\bsk-svcacct-[a-zA-Z0-9_-]{20,}\b"###,
+        regex: r###"sk-svcacct-[a-zA-Z0-9_-]{20,}\b"###,
     },
     SecretPattern {
         name: "openaiAdminKey",
@@ -39,7 +39,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "groqApiKey",
         file_context: None,
-        regex: r###"\bgsk_[a-zA-Z0-9-_]{51,52}\b"###,
+        regex: r###"gsk_[a-zA-Z0-9-_]{51,52}"###,
     },
     SecretPattern {
         name: "cohereApiKey",
@@ -54,7 +54,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "perplexityApiKey",
         file_context: None,
-        regex: r###"\bpplx-[a-zA-Z0-9]{30,64}\b"###,
+        regex: r###"pplx-[a-zA-Z0-9]{30,64}"###,
     },
     SecretPattern {
         name: "replicateApiToken",
@@ -64,7 +64,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "anthropicApiKey",
         file_context: None,
-        regex: r###"\bsk-ant-(?:admin01|api03|sid01)-[\w-]{80,120}\b"###,
+        regex: r###"sk-ant-(?:admin01|api03|sid01)-[\w-]{80,120}"###,
     },
     SecretPattern {
         name: "mistralApiKey",
@@ -74,7 +74,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "tavilyApiKey",
         file_context: None,
-        regex: r###"\btvly-[a-zA-Z0-9]{30,}\b"###,
+        regex: r###"tvly-[a-zA-Z0-9]{30,}\b"###,
     },
     SecretPattern {
         name: "deepseekApiKey",
@@ -94,12 +94,12 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "xaiApiKey",
         file_context: None,
-        regex: r###"\bxai-[a-zA-Z0-9]{48,}\b"###,
+        regex: r###"xai-[a-zA-Z0-9]{48,}\b"###,
     },
     SecretPattern {
         name: "openRouterApiKey",
         file_context: None,
-        regex: r###"\bsk-or-v1-[a-zA-Z0-9]{64}\b"###,
+        regex: r###"sk-or-v1-[a-zA-Z0-9]{64}"###,
     },
     SecretPattern {
         name: "amazonBedrockApiKey",
@@ -134,7 +134,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "pineconeApiKeyPrefixed",
         file_context: None,
-        regex: r###"\bpcsk_[a-zA-Z0-9_]{50,}\b"###,
+        regex: r###"pcsk_[a-zA-Z0-9_]{50,}\b"###,
     },
     SecretPattern {
         name: "wandbApiKey",
@@ -149,7 +149,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "langchainApiKey",
         file_context: None,
-        regex: r###"\blsv2_[a-zA-Z0-9_]{20,}\b"###,
+        regex: r###"lsv2_[a-zA-Z0-9_]{20,}\b"###,
     },
     SecretPattern {
         name: "unstructuredApiKey",
@@ -159,7 +159,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "vercelToken",
         file_context: None,
-        regex: r###"\b(?:vcp|vci|vca|vcr|vck)_[a-zA-Z0-9]{24,}\b"###,
+        regex: r###"(?:vcp|vci|vca|vcr|vck)_[a-zA-Z0-9]{24,}\b"###,
     },
     SecretPattern {
         name: "posthogApiKey",
@@ -169,7 +169,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "posthogPersonalApiKey",
         file_context: None,
-        regex: r###"\bphx_[a-zA-Z0-9_-]{39}\b"###,
+        regex: r###"phx_[a-zA-Z0-9_-]{39}"###,
     },
     SecretPattern {
         name: "posthogFeatureFlagsSecureApiKey",
@@ -194,6 +194,6 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "honeycombApiKey",
         file_context: None,
-        regex: r###"\bhcaik_[a-zA-Z0-9_-]{32,64}\b"###,
+        regex: r###"hcaik_[a-zA-Z0-9_-]{32,64}"###,
     },
 ];

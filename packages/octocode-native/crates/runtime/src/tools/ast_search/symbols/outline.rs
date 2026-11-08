@@ -227,6 +227,7 @@ pub(super) fn outline_file(
             .and_then(|filter| filter.terms.first())
             .map(|term| term.as_str());
         return Ok(Err(crate::tools::ast_search::source::source_limit(
+            canonical,
             display_path,
             name,
         )));
@@ -342,10 +343,13 @@ fn no_extractor(canonical: &std::path::Path, display_path: &str, kind: &str) -> 
         "errorCode": ErrorCode::SymbolsUnsupported,
         "path": display_path,
         "error": format!("No declaration extractor supports {kind} files."),
-        "hints": [format!(
+    });
+    crate::response::result::add_hints(
+        &mut row,
+        [format!(
             "symbols does not outline {kind} files; the related[] localFetch request outlines this one, or search it with localSearch."
         )],
-    });
+    );
     if let Some(read) = super::super::output::unsupported_read(&path) {
         row["calls"]["read"] = read;
     }

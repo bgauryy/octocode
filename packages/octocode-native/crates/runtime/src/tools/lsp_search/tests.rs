@@ -91,3 +91,13 @@ fn requery(query: &LspSearchQuery, fields: serde_json::Value) -> LspSearchQuery 
 fn repo_policy() -> crate::policy::path::PathPolicy {
     crate::tools::test_support::workspace_policy(std::path::Path::new("/repo"))
 }
+
+/// Write an executable fixture (a stand-in language server) that a test then
+/// starts. The bytes go to a temporary file that is closed and renamed into
+/// place, so no write descriptor is open on the file when it is executed: a
+/// concurrent fork that inherited one would make the start fail with
+/// `ETXTBSY` ("Text file busy"). Every fixture executable is written here.
+pub(super) fn write_executable(path: &std::path::Path, contents: impl AsRef<[u8]>) {
+    octocode_io::atomic::write_atomic_mode(path, contents.as_ref(), 0o700, false)
+        .expect("write an executable fixture");
+}

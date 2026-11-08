@@ -21,9 +21,7 @@ pub(crate) fn require_restart(tool: ToolId, data: &mut Value, query: &Value) {
             fields.remove("related");
         }
     }
-    if data.is_object() {
-        data["next"]["restart"] = restart;
-    }
+    crate::response::result::set_next(data, "restart", restart);
 }
 
 #[cfg(test)]

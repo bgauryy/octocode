@@ -22,19 +22,18 @@ impl Frame {
     }
 
     /// A provider `box` (fractions of the canvas) as fractions of the
-    /// original image. `None` when the box lacks an edge.
+    /// original image. `None` when the box lacks an edge or, once clamped
+    /// into the image, has no area (it lay in the padding).
     pub(crate) fn source_box(&self, canvas_box: &Value) -> Option<Value> {
         let edge = |name: &str| canvas_box[name].as_f64();
         let vertical =
             |name| edge(name).map(|f| Self::source(f, self.canvas_height, self.top, self.height));
         let horizontal =
             |name| edge(name).map(|f| Self::source(f, self.canvas_width, self.left, self.width));
-        Some(json!({
-            "top": vertical("top")?,
-            "bottom": vertical("bottom")?,
-            "left": horizontal("left")?,
-            "right": horizontal("right")?,
-        }))
+        let (top, bottom) = (vertical("top")?, vertical("bottom")?);
+        let (left, right) = (horizontal("left")?, horizontal("right")?);
+        (bottom > top && right > left)
+            .then(|| json!({"top": top, "bottom": bottom, "left": left, "right": right}))
     }
 }
 
@@ -147,12 +146,33 @@ mod tests {
     }
 
     #[test]
-    fn a_box_inside_the_padding_clamps_and_an_incomplete_box_maps_to_nothing() {
+    fn a_box_reaching_into_the_image_clamps_to_its_visible_part() {
         let mapped = PADDED
-            .source_box(&json!({"top":0.0,"bottom":0.2,"left":0.9,"right":1.0}))
+            .source_box(&json!({"top":0.2,"bottom":0.46,"left":0.6,"right":1.0}))
             .unwrap();
-        close(&mapped, [0.0, 0.0, 1.0, 1.0]);
-        assert_eq!(PADDED.source_box(&json!({"top":0.1})), None);
+        close(&mapped, [0.0, 0.36, 0.733, 1.0]);
+    }
+
+    #[test]
+    fn a_box_without_area_on_the_original_or_an_incomplete_box_maps_to_nothing() {
+        // wholly in the padding (above, then right of the image), and a line
+        for canvas_box in [
+            json!({"top":0.0,"bottom":0.2,"left":0.9,"right":1.0}),
+            json!({"top":0.4,"bottom":0.5,"left":0.9,"right":1.0}),
+            json!({"top":0.4,"bottom":0.4,"left":0.5,"right":0.6}),
+            json!({"top":0.1}),
+        ] {
+            assert_eq!(PADDED.source_box(&canvas_box), None, "{canvas_box}");
+        }
+    }
+
+    #[test]
+    fn an_answer_whose_box_misses_the_original_keeps_no_source_box() {
+        let assets = assets(&["img"], &["img"]);
+        let mut answers =
+            vec![json!({"type":"box","box":{"top":0.0,"bottom":0.2,"left":0.9,"right":1.0}})];
+        assets.attach_source_boxes(&[json!("x")], &mut answers);
+        assert_eq!(answers[0].get("sourceBox"), None);
     }
 
     #[test]

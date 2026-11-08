@@ -22,6 +22,9 @@ pub(crate) struct Linker<'r> {
     /// A Rust function's declared return type and the type `?` yields from
     /// it, by declaration node.
     pub(crate) return_types: &'r HashMap<u32, ReturnTypes<'r>>,
+    /// TS declared types and every file's link context, for receivers a
+    /// declared type reaches across files.
+    pub(crate) declared: &'r super::es_declared::DeclaredTypes<'r>,
 }
 
 /// See [`Linker::return_types`].
@@ -269,6 +272,30 @@ impl Linker<'_> {
         targets.dedup();
         let confidence = confidence_for(&targets, Confidence::High);
         (!targets.is_empty()).then_some((targets, "namespace", confidence))
+    }
+
+    /// A call whose head a scope `require` binds resolves through it or not
+    /// at all: `name()` to the bound export, `m.name()` on a whole-module
+    /// binding to what the module exports. A lazy load runs only when its
+    /// scope does, so a link is at most medium.
+    pub(crate) fn scoped_require(
+        &self,
+        site: &Site,
+        binding: &super::exports::ScopedRequire,
+    ) -> Option<Linked> {
+        let target = binding.target?;
+        let (exported, via) = if site.qualifier.is_empty() {
+            (binding.imported, "import")
+        } else if site.qualifier == binding.local && binding.imported == COMMONJS_WHOLE_EXPORT {
+            (site.name, "namespace")
+        } else {
+            return None;
+        };
+        let mut targets = site.accepted(self.resolver.resolved(target, exported).targets);
+        targets.sort_unstable();
+        targets.dedup();
+        let confidence = confidence_for(&targets, Confidence::Medium);
+        (!targets.is_empty()).then_some((targets, via, confidence))
     }
 
     /// `m.fn()` through a whole-module `require` binding: only what the

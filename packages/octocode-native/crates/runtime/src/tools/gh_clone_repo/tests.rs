@@ -23,6 +23,7 @@ mod concurrency;
 mod deployment;
 mod git_process;
 mod home;
+mod latency;
 mod lifecycle;
 mod pinning;
 mod replacement;
@@ -274,6 +275,16 @@ fn fixture_git_command(directory: &Path, args: &[&str]) -> Command {
     command
 }
 
+/// Clone admission as the runtime builds it for a home of `config`.
+pub(super) fn test_git_limiter(config: &CloneConfig) -> octocode_github::GitLimiter {
+    octocode_github::GitLimiter::new(
+        octocode_github::GitHubBudget::global(),
+        config
+            .persistent
+            .then(|| config.home.join("tmp").join("ratelimit")),
+    )
+}
+
 fn setup<'a>(
     runner: &'a dyn GitRunner,
     config: &'a CloneConfig,
@@ -285,6 +296,7 @@ fn setup<'a>(
     CloneContext {
         config,
         endpoint,
+        git_limiter: test_git_limiter(config),
         credential,
         cancellation,
         deadline: Instant::now() + Duration::from_secs(30),

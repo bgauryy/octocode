@@ -19,13 +19,19 @@ async fn continuations_omit_default_view_fields() {
     .await;
     let provider = mock_provider(&server, RetryPolicy::default());
     let base = serde_json::json!({"owner":"a","repo":"b","path":"big.txt","ref":sha});
-    for view in ["content", "compact"] {
+    for (view, reads) in [
+        ("content", octocode_contract_types::ReadView::Content),
+        ("compact", octocode_contract_types::ReadView::Compact),
+    ] {
         let mut query = base.clone();
         query["view"] = json!(view);
         let result = read(&provider, query).await;
         let next = result.file.calls.expect("continuation");
         let page = &next["nextPage"]["input"]["queries"][0];
-        assert_eq!(page["view"], view);
+        assert_eq!(
+            crate::response::result::read_view(crate::id::ToolId::GhGetFileContent, page),
+            reads
+        );
         assert_eq!(page["ref"], sha);
         assert!(
             page["readProgress"]["offset"]
@@ -182,7 +188,11 @@ async fn a_minified_comment_range_leads_to_the_read_as_is() {
         "ghGetFileContent",
         "{data}"
     );
-    assert_eq!(row["view"], "content");
+    assert_eq!(
+        crate::response::result::read_view(crate::id::ToolId::GhGetFileContent, row),
+        octocode_contract_types::ReadView::Content,
+        "{data}"
+    );
     assert_eq!(
         row["ranges"],
         json!([{"startLine":1,"endLine":2}]),

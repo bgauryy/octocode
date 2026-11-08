@@ -16,6 +16,7 @@
 
 mod support;
 
+mod architecture_guards;
 mod auth_discovery;
 mod contract_field_effects;
 mod field_effect_coverage;
@@ -35,6 +36,7 @@ mod runtime_empty_error_rows;
 mod runtime_flow_edge_replay;
 mod runtime_generic_walk;
 mod runtime_gh_default_branch;
+mod runtime_gh_last_commit_batch;
 mod runtime_gh_structure;
 mod runtime_github;
 mod runtime_github_cache;
@@ -47,6 +49,7 @@ mod runtime_github_scope;
 mod runtime_github_throttle;
 mod runtime_input_guard;
 mod runtime_input_replay;
+mod runtime_judged_leaves;
 mod runtime_local;
 mod runtime_mcp_json_text;
 mod runtime_one_walk;
@@ -57,6 +60,8 @@ mod runtime_recorded_answers;
 mod runtime_repair_leads;
 mod runtime_request_credential;
 mod runtime_response_cursor;
+mod runtime_security_check_commit;
+mod runtime_security_check_repository;
 mod runtime_stream_page_walk;
 mod runtime_surface_arms;
 mod runtime_tool_flow_handoffs;

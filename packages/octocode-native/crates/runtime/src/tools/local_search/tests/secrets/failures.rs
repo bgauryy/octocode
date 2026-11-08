@@ -132,9 +132,11 @@ fn unreadable_paths_beside_readable_misses_make_the_result_partial() {
     assert_eq!(body["isPartial"], true, "{body}");
     assert_eq!(body["terminalLimit"], true, "{body}");
     assert_eq!(body["fileErrors"]["count"], 1, "{body}");
-    // The count is stated once, as a warning; no advice.
+    // The count is stated once, in `fileErrors`, and the gap by its partial
+    // reason; no second warning restates it, and no advice rides along.
+    assert_eq!(body["partialReasons"], serde_json::json!(["filesSkipped"]));
     assert!(
-        body["warnings"].to_string().contains("1 path unreadable"),
+        !body["warnings"].to_string().contains("unreadable"),
         "{body}"
     );
     crate::tools::test_support::checks::assert_absent(&body["hints"], "unreadable");

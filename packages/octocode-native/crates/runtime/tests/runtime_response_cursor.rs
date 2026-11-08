@@ -197,3 +197,53 @@ async fn an_identical_continuation_is_one_cursor() {
     );
     runtime.close().await;
 }
+
+/// A cursor call is the cursor alone: a page size beside it (the cursor
+/// keeps the one it was issued with) is refused like any other field, never
+/// silently ignored.
+#[tokio::test]
+async fn a_cursor_call_refuses_a_page_size_beside_it() {
+    let workspace = Workspace::new();
+    let file = workspace.write("captured.txt", source());
+    let runtime = workspace.runtime(&[]);
+    let first = runtime
+        .run(
+            "first".into(),
+            "localSearch".into(),
+            json!({"queries":[{"path":file,"matchString":["needle"]}],"responseChars":1200}),
+        )
+        .await
+        .expect("first page")
+        .structured_content
+        .into_value();
+    let next = first["responsePagination"]["next"]["input"].clone();
+    support::assert_cursor_only(&next);
+    for extra in [json!(5000), json!(1200)] {
+        let mut input = next.clone();
+        input["responseChars"] = extra;
+        let error = runtime
+            .run("resized".into(), "localSearch".into(), input)
+            .await
+            .expect_err("a cursor call carries only the cursor");
+        assert_eq!(
+            error.code,
+            octocode_contract_types::ErrorCode::InvalidInput,
+            "{error:?}"
+        );
+        let refusal = error
+            .payload
+            .as_ref()
+            .and_then(|payload| payload["error"].as_str())
+            .unwrap_or_default();
+        assert!(
+            refusal.contains("'responseChars' is not allowed beside cursor")
+                && refusal.contains("alone"),
+            "{error:?}"
+        );
+    }
+    runtime
+        .run("page".into(), "localSearch".into(), next)
+        .await
+        .expect("the cursor alone reads on");
+    runtime.close().await;
+}

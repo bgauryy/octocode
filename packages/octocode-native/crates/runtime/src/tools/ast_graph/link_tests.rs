@@ -27,6 +27,7 @@ mod rust_receivers;
 mod scala;
 mod scala_idioms;
 mod scala_scope;
+mod ts_declared_types;
 mod typescript;
 
 /// Ingests `root` (as its own workspace) and returns it.

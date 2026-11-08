@@ -69,7 +69,7 @@ fn every_grammar_declares_the_name_where_its_facts_do() {
         "a.rs",
         "pub struct S { pub origin: u8 }\npub fn origin() {}\nmod m {\n    pub fn origin() { origin(); }\n}\nimpl S {\n    fn origin(&self) {}\n}\n",
         "origin",
-        &[1, 3, 6],
+        &[0, 1, 3, 6],
     );
     same(
         "a.py",
@@ -81,7 +81,7 @@ fn every_grammar_declares_the_name_where_its_facts_do() {
         "a.go",
         "package p\nfunc origin() {}\ntype T struct{ origin int }\nconst (\n\torigin2 = 1\n)\nfunc use() { origin() }\n",
         "origin",
-        &[1],
+        &[1, 2],
     );
     same(
         "a.c",
@@ -93,7 +93,7 @@ fn every_grammar_declares_the_name_where_its_facts_do() {
         "A.java",
         "class A {\n    int origin() { return origin(); }\n    int origin;\n}\n",
         "origin",
-        &[1],
+        &[1, 2],
     );
 }
 

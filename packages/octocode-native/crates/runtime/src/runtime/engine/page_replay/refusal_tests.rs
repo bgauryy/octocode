@@ -16,17 +16,17 @@ const PERSISTENT: &[(&str, &str)] = &[("OCTOCODE_STORAGE_MODE", "persistent")];
 fn context() -> ExecutionContext {
     ExecutionContext {
         cancellation: Cancellation::new(),
-        deadline: Instant::now() + Duration::from_secs(30),
+        deadline: Some(Instant::now() + Duration::from_secs(30)),
         response_window: None,
         github_credential: None,
     }
 }
 
-/// A handle `runtime` retains for `tool`, issued on the `mcp` surface.
-fn issue(runtime: &ToolRuntime, tool: ToolId, mcp: bool) -> String {
+/// A handle `runtime` retains for `tool`.
+fn issue(runtime: &ToolRuntime, tool: ToolId) -> String {
     let mut pending = runtime
         .cursors
-        .pending(page_replay_key("", mcp, &[], &[], None), None);
+        .pending(page_replay_key("", &[], &[], None), None);
     let token = pending.insert(
         tool,
         json!({"queries":[{"path":"must-not-be-read"}]}),
@@ -135,24 +135,36 @@ async fn an_unknown_cursor_names_expiry_and_the_actual_storage_mode() {
 }
 
 #[tokio::test]
-async fn a_cursor_from_the_other_surface_names_the_issuing_surface() {
+async fn a_cursor_resumes_on_either_surface_under_the_same_credential() {
     let home = tempfile::tempdir().unwrap();
     let runtime = super::super::construction_tests::runtime(home.path(), PERSISTENT);
-    for (issued_on_mcp, channel, issuer) in [
-        (false, Channel::Mcp, "issued by the CLI"),
-        (true, Channel::Cli, "issued by an MCP server"),
-    ] {
-        let token = issue(&runtime, ToolId::LocalFetch, issued_on_mcp);
-        let message = refusal(
-            &runtime,
-            "localFetch",
-            &token,
-            channel,
-            ErrorCode::ResponseSnapshotExpired,
-        )
-        .await;
-        assert!(message.contains(issuer), "{message}");
-        assert!(!message.contains("memory"), "{message}");
+    for channel in [Channel::Mcp, Channel::Cli] {
+        let token = issue(&runtime, ToolId::LocalFetch);
+        // The handle is accepted: the resumed row then runs (and fails on its
+        // unreadable path), instead of the cursor being refused.
+        let result = runtime
+            .execute(
+                runtime
+                    .admit(format!("surface-{token}-{channel:?}"))
+                    .unwrap(),
+                "localFetch".into(),
+                json!({"cursor": token}),
+                channel,
+            )
+            .await;
+        if let Err(error) = result {
+            assert!(
+                !error.message.contains("resumes only on the surface"),
+                "{channel:?}: {}",
+                error.message
+            );
+            assert_ne!(
+                error.code,
+                ErrorCode::ResponseSnapshotExpired,
+                "{}",
+                error.message
+            );
+        }
     }
     runtime.close().await;
 }
@@ -161,7 +173,7 @@ async fn a_cursor_from_the_other_surface_names_the_issuing_surface() {
 async fn a_cursor_sent_to_another_tool_names_the_tool_mismatch() {
     let home = tempfile::tempdir().unwrap();
     let runtime = super::super::construction_tests::runtime(home.path(), PERSISTENT);
-    let token = issue(&runtime, ToolId::LocalSearch, false);
+    let token = issue(&runtime, ToolId::LocalSearch);
     let message = refusal(
         &runtime,
         "localFetch",

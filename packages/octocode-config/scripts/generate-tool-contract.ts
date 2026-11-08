@@ -4,6 +4,8 @@
 //   core Zod schemas ── buildEnforcementContractIr ──▶ contract/tool-contract.json
 //        │                                             (native embed: schemas, rules, defaults)
 //        ├── buildNativeParityFixtures ───────────────▶ contract/contract-fixtures.json
+//        ├── tool-contract/instruction-fixtures.ts ──▶ contract/instruction-fixtures.json
+//        │                                             (native test: composed instructions equal core's)
 //        ├── tool-contract/presentation.ts ───────────▶ contract/cli-presentation.json
 //        │                                             (native embed: `schema` and `<tool> --help`)
 //        └── tool-contract/bundle.ts ──▶ contract/tool-types.schema.json
@@ -24,6 +26,7 @@ import {
   type EnforcementContractIr,
 } from '@octocodeai/octocode-core/schema';
 import { buildToolTypesBundle } from './tool-contract/bundle.ts';
+import { instructionFixtures } from './tool-contract/instruction-fixtures.ts';
 import { readGenerated, writeGenerated } from './generated-files.ts';
 import { isEntryPoint } from './tool-contract/entry-point.ts';
 import { buildCliPresentation } from './tool-contract/presentation.ts';
@@ -69,7 +72,8 @@ export function generateToolContract(ir: EnforcementContractIr = buildEnforcemen
     files: new Map([
       [contractFile('tool-contract.json'), contractJson],
       [contractFile('contract-fixtures.json'), `${JSON.stringify(buildNativeParityFixtures(), null, 2)}\n`],
-      [contractFile('cli-presentation.json'), `${JSON.stringify(buildCliPresentation(ir))}\n`],
+      [contractFile('cli-presentation.json'), `${JSON.stringify(buildCliPresentation())}\n`],
+      [contractFile('instruction-fixtures.json'), `${JSON.stringify(instructionFixtures(), null, 2)}\n`],
       [contractFile('provenance.json'), `${JSON.stringify(provenance, null, 2)}\n`],
       [contractFile('tool-types.schema.json'), bundleJson],
     ]),

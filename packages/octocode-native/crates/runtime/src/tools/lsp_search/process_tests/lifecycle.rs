@@ -59,7 +59,7 @@ fn initial_indexing_returns_partial_then_retries_on_the_same_server() {
             "  } else if (msg.method === 'textDocument/hover') {\n    if (!indexingDone) process.exit(3);\n    fs.appendFileSync(pids, 'hover\\n');\n    send({ jsonrpc: '2.0', id: msg.id, result: { contents: 'ready' } });",
         );
     assert_ne!(server, FAKE_SERVER, "the indexing fixture is injected");
-    std::fs::write(&script, server).expect("indexing server");
+    crate::tools::lsp_search::tests::write_executable(&script, &server);
 
     let execution = execution_config(&root, &script, "shellscript");
     // The startup settle is the window in which the client reads the

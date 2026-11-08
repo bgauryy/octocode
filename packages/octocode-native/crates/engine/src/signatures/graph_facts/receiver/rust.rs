@@ -54,7 +54,7 @@ fn value_call(value: Node<'_>) -> Option<(Node<'_>, bool)> {
     Some((value, unwrap))
 }
 
-fn call_reference(call: Node<'_>, unwrap: bool) -> GraphReceiverCall {
+pub(super) fn call_reference(call: Node<'_>, unwrap: bool) -> GraphReceiverCall {
     let byte = |offset: usize| u32::try_from(offset).unwrap_or(u32::MAX);
     GraphReceiverCall {
         start_byte: byte(call.start_byte()),

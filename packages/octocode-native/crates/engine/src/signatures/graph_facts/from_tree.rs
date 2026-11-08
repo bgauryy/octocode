@@ -113,11 +113,7 @@ pub(super) fn facts_from_tree(
     let lines = content.lines().collect::<Vec<_>>();
     arguments::join_bindings(&mut acc);
     for declaration in &mut acc.declarations {
-        declaration.doc_line = crate::signatures::leading_doc_line(
-            &lines,
-            declaration.range.start.line as usize,
-            &ext,
-        );
+        declaration.doc_line = crate::signatures::declaration_doc_line(&lines, declaration, &ext);
     }
     let facts = GraphFactsDocument {
         declarations: acc.declarations,

@@ -6,6 +6,8 @@ use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::Path;
 
+mod channels;
+
 const STORAGE: [(&str, &str); 1] = [("OCTOCODE_STORAGE_MODE", "persistent")];
 
 fn persistent() -> Vec<(&'static str, String)> {
@@ -45,6 +47,13 @@ fn the_next_call(output: &Value) -> Option<Value> {
                 output.pointer("/responsePagination/hasMore"),
                 Some(&json!(true)),
                 "hasMore with no call: {output}"
+            );
+            // A block with nothing left ends a walk a cursor began; a fresh
+            // response never states a page 1 of 1.
+            assert!(
+                output.get("responsePagination").is_none()
+                    || output["responsePagination"]["replayed"] == true,
+                "a fresh page states an end: {output}"
             );
             assert!(walks.len() <= 1, "several row walks: {output}");
             assert!(

@@ -77,6 +77,9 @@ pub struct GraphOutput {
     /// The calls that continue this answer, by `next` channel; the tool
     /// adapter states each as an executable call.
     pub(crate) next: Vec<(Channel, Resume)>,
+    /// A build failed only because the tree changed while it ran: the same
+    /// request succeeds once the tree settles, so the adapter leads to it.
+    pub(crate) retry: bool,
     /// What the query read and verified: test evidence of how little it
     /// decoded, never in a response. Boxed so the test-only payload does not
     /// inflate every `Result<_, GraphOutput>` in test builds.
@@ -90,6 +93,7 @@ impl GraphOutput {
             value,
             class: ExitClass::Success,
             next: Vec::new(),
+            retry: false,
             #[cfg(test)]
             validation: Box::default(),
         }
@@ -99,8 +103,17 @@ impl GraphOutput {
             value,
             class: ExitClass::Empty,
             next: Vec::new(),
+            retry: false,
             #[cfg(test)]
             validation: Box::default(),
+        }
+    }
+    /// A build refused because a source or config it read changed while it
+    /// ran; the same request, once the tree stops changing, builds.
+    pub(crate) fn changed_during_build(message: impl Into<String>) -> Self {
+        Self {
+            retry: true,
+            ..Self::error(ErrorCode::ExecutionFailed, message)
         }
     }
     /// A failure with a declared `errorCodes` entry; its class decides the exit.
@@ -109,6 +122,7 @@ impl GraphOutput {
             value: json!({"error": message.into(), "errorCode": code}),
             class: ExitClass::of(code),
             next: Vec::new(),
+            retry: false,
             #[cfg(test)]
             validation: Box::default(),
         }
@@ -158,6 +172,8 @@ pub struct IngestOptions {
     /// unset ([`default_workspace`] of its working directory).
     pub workspace: Option<PathBuf>,
     pub exclude: Vec<String>,
+    /// The default prune, ignore files and dot entries the walk keeps or lifts.
+    pub walk: super::walk_scope::WalkScope,
     /// Snapshots of the same root to retain, newest first.
     pub keep: usize,
     /// Rebuild even when the latest snapshot of this scope is current.
@@ -175,6 +191,7 @@ impl IngestOptions {
             path,
             workspace: None,
             exclude: query.exclude.iter().map(ToString::to_string).collect(),
+            walk: super::walk_scope::WalkScope::of_query(query),
             keep: octocode_engine::num::saturating_usize(query.keep.get()),
             refresh: query.refresh,
             language_globs: query

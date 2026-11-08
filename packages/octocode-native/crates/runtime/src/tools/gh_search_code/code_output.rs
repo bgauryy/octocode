@@ -1,5 +1,5 @@
 use super::leads::{declaration_read, hits_read, line_read, scoped_fragment_read};
-use super::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem};
+use super::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem, Withholds};
 use crate::security::scan::ContentScan;
 use octocode_github::{CodeSearchItem, ProviderError};
 use serde_json::{Value, json};
@@ -23,6 +23,10 @@ pub(super) struct PageReads {
     pub(super) hits: Vec<Value>,
     /// Secret-shaped values the page's lines show as placeholders.
     pub(super) redacted: usize,
+    /// Rows the path policy withholds ([`withheld_row`]): path only.
+    pub(super) withheld: usize,
+    /// Rows whose blob is over [`super::lines::MAX_SCAN_BYTES`]: not scanned.
+    pub(super) oversized: usize,
 }
 
 /// Whether source lines must be read before projecting the returned fields.
@@ -38,15 +42,19 @@ fn reads_lines(query: &GhSearchCodeQuery) -> bool {
             || picks(query, "matchCount"))
 }
 
-/// Whether a classified page leaves this row's file unread: the egress
-/// withholds its name, so nothing of it may become candidate evidence, and the
-/// path is known before the read that would cache a copy.
-fn withheld_row(query: &GhSearchCodeQuery, row: &Value) -> bool {
-    (query.classification.is_some() || query.selection.is_some())
-        && row
-            .get("path")
-            .and_then(Value::as_str)
-            .is_some_and(crate::policy::discovery::is_sensitive_repository_file)
+/// Whether this row's file stays unread, its lines and fragments unshown:
+/// the path policy withholds it under the current settings (`withholds`), or,
+/// on a classified page, the egress withholds its name whatever the setting,
+/// so nothing of it may become candidate evidence. The path is known before
+/// the read that would fetch or cache a copy.
+fn withheld_row(query: &GhSearchCodeQuery, withholds: Withholds<'_>, row: &Value) -> bool {
+    row.get("path").and_then(Value::as_str).is_some_and(|path| {
+        if query.classification.is_some() || query.selection.is_some() {
+            crate::policy::discovery::is_sensitive_repository_file(path)
+        } else {
+            withholds(path)
+        }
+    })
 }
 
 /// A `fields` pick names `field`.
@@ -57,17 +65,34 @@ fn picks(query: &GhSearchCodeQuery, field: &str) -> bool {
 pub(super) fn shape_files(
     items: &mut [Value],
     query: &GhSearchCodeQuery,
+    withholds: Withholds<'_>,
     resolution: Option<Resolution>,
 ) -> PageReads {
     let mut hit_reads = Vec::new();
     let mut redacted = 0;
+    // A withheld row lists its path only, whether or not lines were resolved:
+    // no lines, no index fragment, no read lead.
+    let mut withheld = 0;
+    let mut oversized = 0;
+    for row in items.iter_mut() {
+        if withheld_row(query, withholds, row)
+            && let Some(row) = row.as_object_mut()
+        {
+            withheld += 1;
+            row.insert("lineResolved".into(), json!(false));
+        }
+    }
     // One read lead: the top resolved hit's lines; only without them, the
-    // index fragment (computed from the top row before it is reshaped).
-    let fragment = items.first().cloned();
+    // index fragment (computed from the top row before it is reshaped), never
+    // a withheld file's.
+    let fragment = items
+        .first()
+        .filter(|row| !withheld_row(query, withholds, row))
+        .cloned();
     let mut top = None;
     if let Some(resolution) = &resolution {
         for (row, (sha, hits)) in items.iter_mut().zip(&resolution.hits) {
-            let unread = withheld_row(query, row);
+            let unread = withheld_row(query, withholds, row);
             let Some(row) = row.as_object_mut() else {
                 continue;
             };
@@ -113,7 +138,8 @@ pub(super) fn shape_files(
                     // The path, or its hit, is not at the ref.
                     row.insert("atRef".into(), json!(false));
                 }
-                super::lines::FileHits::Unavailable => {
+                super::lines::FileHits::Unavailable | super::lines::FileHits::Oversized => {
+                    oversized += usize::from(matches!(hits, super::lines::FileHits::Oversized));
                     // Not read here (over the scan limit, binary, a failed
                     // read): lead to the keyword lines at the commit, on the
                     // default branch as at a ref. Without a commit there is
@@ -142,6 +168,8 @@ pub(super) fn shape_files(
         top,
         hits: hit_reads,
         redacted,
+        withheld,
+        oversized,
     }
 }
 

@@ -5,6 +5,106 @@ fn derive_rule_prefilter(rule: &Value) -> Prefilter {
     StructuralQuery::new(None, Some(rule)).unwrap().prefilter()
 }
 
+/// A `regex` that spells only a literal (bare, or between `^` and `$`) is
+/// text every node it tests must hold, so it selects files to parse; a
+/// regex with any syntax (flags, classes, alternation, escapes) does not.
+#[test]
+fn a_literal_regex_anchors_the_prefilter() {
+    let named =
+        json!({"kind": "function_item", "has": {"kind": "identifier", "regex": "^run_task$"}});
+    assert_eq!(
+        derive_rule_prefilter(&named),
+        Prefilter::Single("run_task".to_owned())
+    );
+    let spelled = json!({"kind": "function_item", "regex": "Config"});
+    assert_eq!(
+        derive_rule_prefilter(&spelled),
+        Prefilter::Single("Config".to_owned())
+    );
+    for regex in [
+        "(?i)config",
+        "Conf.g",
+        "^a|b$",
+        "Config\\b",
+        "[C]onfig",
+        "^$",
+        "",
+    ] {
+        let rule = json!({"kind": "function_item", "regex": regex});
+        assert_eq!(derive_rule_prefilter(&rule), Prefilter::None, "{regex}");
+    }
+}
+
+/// The anchor a literal regex gives loses no match: the anchored rule finds
+/// what the same regex wrapped in a group (which gives no anchor) finds, and
+/// every source with a match holds the anchor's bytes. Case variants,
+/// Unicode, CRLF and a literal that spans lines each keep their count.
+#[test]
+fn a_literal_regex_anchor_keeps_every_match() {
+    let named = |regex: &str| json!({"kind": "function_item", "has": {"kind": "identifier", "regex": regex}});
+    let spelled = |regex: &str| json!({"kind": "function_item", "regex": regex});
+    let crlf = "a: u8,\r\n       b";
+    let lf = "a: u8,\n       b";
+    let cases: [(Value, &str, usize); 14] = [
+        (named("^run_task$"), "fn run_task() {}\n", 1),
+        (named("^run_task$"), "fn RUN_TASK() {}\n", 0),
+        (named("^run_task$"), "fn Run_Task() {}\n", 0),
+        (
+            named("^run_task$"),
+            "fn run_tasks() {}\nfn x() { run_task(); }\n",
+            0,
+        ),
+        (named("^café$"), "fn café(x: u8) {}\nfn cafe() {}\n", 1),
+        (named("^café$"), "fn cafe() {}\n", 0),
+        (named("^café$"), "fn CAFÉ() {}\r\nfn café() {}\r\n", 1),
+        (spelled("naïve"), "fn f() { let s = \"naïve\"; }\n", 1),
+        (spelled("naïve"), "fn f() { let s = \"naive\"; }\n", 0),
+        (spelled(crlf), "fn run(a: u8,\r\n       b: u8) {}\r\n", 1),
+        (spelled(crlf), "fn run(a: u8,\n       b: u8) {}\n", 0),
+        (
+            spelled(lf),
+            "fn run(a: u8,\n       b: u8) {}\nfn z() {}\n",
+            1,
+        ),
+        (spelled(lf), "fn run(a: u8,\r\n       b: u8) {}\r\n", 0),
+        (
+            spelled(lf),
+            "fn run(a: u8,\n       b: u8) {}\nfn s(a: u8,\n       b: u16) {}\n",
+            2,
+        ),
+    ];
+    for (rule, source, expected) in cases {
+        let Prefilter::Single(anchor) = derive_rule_prefilter(&rule) else {
+            panic!("a literal regex anchors: {rule}");
+        };
+        let found = crate::structural::search(source, "rs", None, Some(&rule)).expect("search");
+        assert_eq!(found.len(), expected, "{rule} over {source:?}");
+        assert!(
+            found.is_empty() || source.contains(anchor.as_str()),
+            "{rule} over {source:?}: a match in a file the anchor skips"
+        );
+        let mut grouped = rule.clone();
+        let target = if grouped.get("has").is_some() {
+            &mut grouped["has"]["regex"]
+        } else {
+            &mut grouped["regex"]
+        };
+        *target = json!(format!("(?:{})", target.as_str().expect("regex")));
+        assert_eq!(
+            derive_rule_prefilter(&grouped),
+            Prefilter::None,
+            "{grouped}"
+        );
+        let unanchored =
+            crate::structural::search(source, "rs", None, Some(&grouped)).expect("search");
+        assert_eq!(
+            unanchored.len(),
+            found.len(),
+            "{grouped} over {source:?}: the anchored rule differs"
+        );
+    }
+}
+
 /// An all-upper-case macro cannot select files to parse, yet it still
 /// says where a match sits in a parsed file.
 #[test]

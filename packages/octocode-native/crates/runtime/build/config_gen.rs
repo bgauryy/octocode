@@ -4,7 +4,7 @@
 mod config_fields;
 mod config_render_metadata;
 mod config_render_types;
-use super::{config_path, invalid, object, rust_enum_variant, string};
+use super::{config_path, inputs, invalid, object, rust_enum_variant, string};
 use config_fields::{
     Field, default_literal, direct_children, enum_type_name, enum_values, field_type, fields,
     own_default, rust_field_type, rust_type_name, write_string_slice,
@@ -153,7 +153,7 @@ fn render(contract: &Value) -> Result<String, Box<dyn Error>> {
 
 pub(super) fn generate_config_contract() -> Result<(), Box<dyn Error>> {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
-    let contract_path = config_path(&manifest_dir, "config-contract.json");
+    let contract_path = config_path(&manifest_dir, inputs::CONFIG_CONTRACT);
     println!("cargo:rerun-if-changed={}", contract_path.display());
 
     // The contract is authored and JSON-Schema-validated (Ajv2020) by the

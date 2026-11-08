@@ -97,6 +97,7 @@ fn sealed(root: &Path, script: &Path, row: Value) -> Value {
             character: 6,
             language_id: Some("typescript"),
             budget: 16_000,
+            security: &crate::security::ContentSecurity::new(),
         }
         .run()
         .await
@@ -113,7 +114,7 @@ fn no_operation_shows_a_secret_the_server_returns() {
     }
     for (text, secret) in texts() {
         let (_dir, root, script) = fixture();
-        std::fs::write(&script, server(&text)).expect("server");
+        crate::tools::lsp_search::tests::write_executable(&script, server(&text));
         let path = root.join("a.ts").to_string_lossy().into_owned();
         let hover = sealed(
             &root,
@@ -165,7 +166,7 @@ fn a_failing_server_shows_neither_its_stderr_nor_a_secret_in_its_error() {
     send({{jsonrpc:'2.0',id:msg.id,error:{{code:-32603,message:'failed {token}',data:'{token}'}}}});"#
             ),
         );
-    std::fs::write(&script, server).expect("server");
+    crate::tools::lsp_search::tests::write_executable(&script, &server);
     let path = root.join("a.ts").to_string_lossy().into_owned();
     let query: LspSearchQuery =
         serde_json::from_value(json!({"operation":"hover","path":path,"symbolName":"a","line":1}))
@@ -192,6 +193,7 @@ fn a_failing_server_shows_neither_its_stderr_nor_a_secret_in_its_error() {
             character: 6,
             language_id: Some("typescript"),
             budget: 16_000,
+            security: &crate::security::ContentSecurity::new(),
         }
         .run()
         .await;
@@ -231,7 +233,7 @@ fn a_location_row_hides_the_source_lines_only_the_file_can_judge() {
     send({{jsonrpc:'2.0',id:msg.id,result:[{{uri:msg.params.textDocument.uri,range:{{start:{{line:{line},character:0}},end:{{line:{line},character:3}}}}}}]}});"#
                 ),
             );
-        std::fs::write(&script, server).expect("server");
+        crate::tools::lsp_search::tests::write_executable(&script, &server);
         let path = root.join("a.ts").to_string_lossy().into_owned();
         for row in [
             json!({"operation":"references","path":path,"symbolName":"before","line":1}),

@@ -18,11 +18,20 @@ pub(crate) struct LongWindow {
 
 impl LongWindow {
     pub(crate) fn start() -> Self {
+        Self::start_answering(refuse_then_answer)
+    }
+
+    /// As [`Self::start`], but the long-window answers carry no `usage`.
+    pub(crate) fn start_without_usage() -> Self {
+        Self::start_answering(refuse_then_answer_without_usage)
+    }
+
+    fn start_answering(respond: fn(&Request) -> ResponseTemplate) -> Self {
         let executor = tokio::runtime::Runtime::new().expect("runtime");
         let server = executor.block_on(MockServer::start());
         executor.block_on(
             Mock::given(method("POST"))
-                .respond_with(refuse_then_answer)
+                .respond_with(respond)
                 .mount(&server),
         );
         let selection = crate::tools::test_support::selection_fake::runtime(
@@ -66,6 +75,15 @@ const LONG: &str = "typesafe-danger-zone-long-context";
 /// Refuses as too large without the long-context header; with it, answers
 /// every question at its top level: `noul` yes, a score its last level.
 pub(crate) fn refuse_then_answer(request: &Request) -> ResponseTemplate {
+    answer(request, true)
+}
+
+/// [`refuse_then_answer`] whose answers report no token usage.
+pub(crate) fn refuse_then_answer_without_usage(request: &Request) -> ResponseTemplate {
+    answer(request, false)
+}
+
+fn answer(request: &Request, usage: bool) -> ResponseTemplate {
     if !request.headers.contains_key(LONG) {
         return ResponseTemplate::new(400)
             .set_body_json(json!({"detail":{"error_type":"max_tokens_exceeded"}}));
@@ -95,8 +113,9 @@ pub(crate) fn refuse_then_answer(request: &Request) -> ResponseTemplate {
             (id.clone(), answer)
         })
         .collect::<serde_json::Map<String, Value>>();
-    ResponseTemplate::new(200).set_body_json(json!({
-        "model":"jev-resolved","answers":answers,
-        "usage":{"input_tokens":BILLED,"output_tokens":2}
-    }))
+    let mut body = json!({"model":"jev-resolved","answers":answers});
+    if usage {
+        body["usage"] = json!({"input_tokens":BILLED,"output_tokens":2});
+    }
+    ResponseTemplate::new(200).set_body_json(body)
 }

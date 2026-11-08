@@ -131,15 +131,24 @@ fn rejected_rows_do_not_misalign_goal_queries() {
 }
 
 #[test]
-fn only_code_search_selects_at_the_response_boundary() {
+fn only_provider_page_tools_select_at_the_response_boundary() {
     // Local search/fetch and GitHub file reads rank before their own
     // source pagination; the engine calls `apply_sanitized_rows` only for
-    // a tool whose output says it ranks one provider page.
+    // a tool whose output says it ranks one provider page: code search, the
+    // history tools and structureSearch.
     let boundary = ToolId::ALL
         .into_iter()
         .filter(|tool| tool.selects_provider_page())
         .collect::<Vec<_>>();
-    assert_eq!(boundary, [ToolId::GhSearchCode]);
+    assert_eq!(
+        boundary,
+        [
+            ToolId::GhSearchCode,
+            ToolId::GhSearchHistory,
+            ToolId::GhGetHistoryItem,
+            ToolId::StructureSearch
+        ]
+    );
 }
 
 #[test]

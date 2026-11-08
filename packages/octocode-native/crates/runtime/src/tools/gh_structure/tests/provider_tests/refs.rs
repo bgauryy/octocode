@@ -127,8 +127,8 @@ async fn tags_list_newest_version_first_across_pages() {
             "15.1.0",
             "14.1.1",
             "13.0.0",
-            "termcolor-1.4.1",
             "0.10.0",
+            "termcolor-1.4.1",
             "ignore-0.4.33",
             "grep-0.3.2",
             "wincolor-0.1.6"

@@ -32,7 +32,12 @@ async function selections(ctx, surface, checks) {
 async function views(ctx, surface, checks) {
   const json = await scenario(ctx, 'localFetch', surface, { label: 'read.compact-json', query: { path: fixturePath('read/data.json'), view: 'compact' }, checks });
   const output = json.data.map(data => sourceView(data).text).join('');
-  checks.push([`read.compact-json.${surface}`, JSON.stringify(JSON.parse(output)) === JSON.stringify(JSON.parse(sourceText(ctx, 'read/data.json'))) && (json.data[0].view ?? 'compact') === 'compact', output]);
+  let parsed;
+  try { parsed = JSON.stringify(JSON.parse(output)); } catch { parsed = null; }
+  checks.push([`read.compact-json.${surface}`, parsed === JSON.stringify(JSON.parse(sourceText(ctx, 'read/data.json'))) && (json.data[0].view ?? 'compact') === 'compact', output || '(empty output)']);
+  // The default view stated explicitly: continuations omit it, so only a direct request covers it.
+  const explicit = await scenario(ctx, 'localFetch', surface, { label: 'read.content-explicit', query: { path: fixturePath('read/data.json'), view: 'content' }, checks });
+  checks.push([`read.content-explicit.${surface}`, explicit.data.length > 0 && explicit.data.every(data => (data.view ?? 'content') === 'content' && sourceView(data).text.length > 0), JSON.stringify(explicit.data)]);
   const range = await scenario(ctx, 'localFetch', surface, { label: 'read.compact-range', query: { path: model, view: 'compact', ranges: [{ startLine: 14, endLine: 16 }] }, checks });
   checks.push([`read.compact-selection.${surface}`, range.data.every(data => (data.view ?? 'compact') === 'compact') && range.data.map(data => sourceView(data).text).join('').includes('return a + b'), JSON.stringify(range.data)]);
   const symbols = await scenario(ctx, 'localFetch', surface, { label: 'read.symbols', query: { path: model, view: 'symbols' }, checks, responseChars: 500 });

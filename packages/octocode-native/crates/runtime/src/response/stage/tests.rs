@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 fn context() -> ExecutionContext {
     ExecutionContext {
         cancellation: Cancellation::new(),
-        deadline: Instant::now() + Duration::from_secs(30),
+        deadline: Some(Instant::now() + Duration::from_secs(30)),
         response_window: None,
         github_credential: None,
     }

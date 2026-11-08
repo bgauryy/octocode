@@ -3,7 +3,7 @@
 import { recordedJson } from './recorded-answers.mjs';
 
 export const REGISTRY_HOSTS = ['pypi.org', 'crates.io', 'central.sonatype.com', 'repo.maven.apache.org', 'repo1.maven.org', 'api.nuget.org', 'azuresearch-usnc.nuget.org', 'pkg.go.dev', 'proxy.golang.org', 'repo.packagist.org', 'packagist.org', 'rubygems.org', 'registry.npmjs.org', 'api.osv.dev'];
-// OSV's only route takes a POST; the proxy answers it from `osvAnswers`, never from a registry route.
+// OSV is asked by POST `/v1/querybatch` (ids) and GET `/v1/vulns/{id}` (records); the proxy answers both from `osvAnswers` and `osvRecords`, never from a registry route.
 export const OSV_HOST = 'api.osv.dev';
 const VERSION = '1.2.3', DATE = '2025-02-03T12:00:00Z';
 const versions = ['1.0.0', VERSION];

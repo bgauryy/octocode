@@ -3,7 +3,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { CLI, RESULTS, ROOT } from './paths.mjs';
+import { CLI, MCP_ENTRY, RESULTS, ROOT } from './paths.mjs';
 import { collect } from './responses.mjs';
 
 /** OCTOCODE_LIVE=1 opts into real-provider and OS process-tree integration suites. */
@@ -26,7 +26,7 @@ export function mcpPayload(response) {
 }
 
 /** Start the MCP server at `entry`; `env` is merged over process.env, or with `replaceEnv` is the whole environment. */
-export async function startServer({ env = {}, replaceEnv = false, cwd = ROOT, entry = path.join(ROOT, 'packages/octocode-mcp/dist/index.js'), timeoutMs = Number(process.env.OCTOCODE_TEST_CALL_TIMEOUT_MS ?? 240_000) } = {}) {
+export async function startServer({ env = {}, replaceEnv = false, cwd = ROOT, entry = MCP_ENTRY, timeoutMs = Number(process.env.OCTOCODE_TEST_CALL_TIMEOUT_MS ?? 240_000) } = {}) {
   const server = spawn(process.execPath, [entry], {
     cwd,
     env: replaceEnv ? env : { ...process.env, ...env },

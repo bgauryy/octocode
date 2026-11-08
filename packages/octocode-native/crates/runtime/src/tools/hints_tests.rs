@@ -17,7 +17,7 @@ mod scan;
 /// the row's message and leads already say it all.
 /// One `tool code: reason` per line.
 const OVERRIDES: &str = "\
-astSearch fileTooLarge: terminalLimit and the findText lead are the whole answer
+astSearch fileTooLarge: the row's own hint and lead name only readers that serve the file's length
 astSearch invalidPattern: names the pattern/rule shape and the syntaxTree check
 astSearch languageUnsupported: names when parser applies, beside the text fallbacks
 astSearch symbolsUnsupported: routes documents to localFetch view:symbols
@@ -29,7 +29,6 @@ localSearch fileAccessFailed: no file under the path was readable: broadening re
 localSearch invalidPattern: names the regexEngine:literal repair for literal text
 lspSearch anchorUnresolved: findSimilar/read leads and per-call notes say it all
 lspSearch capabilityUnavailable: names the advertised operations, or type hierarchy
-lspSearch fileTooLarge: LSP reads whole files: locate a bounded region instead
 lspSearch missingConfiguration: names the server's project files (clangd compile database)
 lspSearch requestFailed: names the retryable flag and the source fallback
 lspSearch serverCrashed: a crash restarts the server; a memory kill repeats
@@ -224,3 +223,50 @@ const REGISTRY_HEADER: &str = "# Every hint and notice template the runtime emit
 # shared), source file under src/, template ({…} are format! slots, \\n a\n\
 # newline). Checked by tools/hints_tests.rs; regenerate rows with\n\
 # OCTOCODE_WRITE_HINT_REGISTRY=1 and review each new owner.\n";
+
+const RAW_WRITES: &str = include_str!("hints_tests/raw_writes.tsv");
+
+#[test]
+fn hints_partial_and_continue_are_written_only_by_their_owners() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let found = scan::raw_writes(&root);
+    let registry = scan::raw_registry(RAW_WRITES);
+    if std::env::var_os("OCTOCODE_WRITE_HINT_REGISTRY").is_some() {
+        let mut out = String::from(RAW_WRITES_HEADER);
+        for write in &found {
+            let reason = registry.get(write).map_or(
+                "TODO: route through the owner or say why not",
+                String::as_str,
+            );
+            out.push_str(&format!("{}\t{}\t{reason}\n", write.file, write.field));
+        }
+        std::fs::write(root.join("tools/hints_tests/raw_writes.tsv"), out).expect("write");
+        return;
+    }
+    let unregistered = found
+        .iter()
+        .filter(|w| !registry.contains_key(w))
+        .collect::<Vec<_>>();
+    let stale = registry
+        .keys()
+        .filter(|w| !found.contains(w))
+        .collect::<Vec<_>>();
+    assert!(
+        unregistered.is_empty() && stale.is_empty(),
+        "hints, isPartial and \"kind\":\"continue\" are written by their owners in response/ \
+         (add_hints/prepend_hints/set_hints, mark_partial/terminal_limit, Continuation): route \
+         the write there, or register it in tools/hints_tests/raw_writes.tsv with its reason \
+         (OCTOCODE_WRITE_HINT_REGISTRY=1 lists the rows).\nunregistered: {unregistered:#?}\n\
+         stale: {stale:#?}"
+    );
+    for (write, reason) in &registry {
+        assert!(
+            !reason.trim().is_empty() && !reason.starts_with("TODO"),
+            "{write:?}: a registered raw write says why it is not routed"
+        );
+    }
+}
+
+const RAW_WRITES_HEADER: &str = "# Raw writes of hints, isPartial or \"kind\":\"continue\" outside\n\
+# response/, the owner (add_hints, mark_partial, Continuation): file, field,\n\
+# why it is not routed. Checked by tools/hints_tests.rs.\n";

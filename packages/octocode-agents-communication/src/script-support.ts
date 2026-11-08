@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
 
 /** A parsed JSON object whose fields are not yet checked. */
 export type Reply = Record<string, unknown>;
@@ -44,4 +45,12 @@ export function object(value: unknown, label: string): Reply {
 export function list(value: unknown, label: string): unknown[] {
   if (!Array.isArray(value)) throw new Error(`${label} must be an array, received ${JSON.stringify(value)}`);
   return value;
+}
+
+/** Writes a generated file only when its text changes, through a temporary file and a rename, so a reader never sees it half written. */
+export function writeFileIfChanged(path: string, text: string): void {
+  try { if (readFileSync(path, 'utf8') === text) return; } catch { /* a missing file is written */ }
+  const temp = `${path}.${process.pid}.tmp`;
+  writeFileSync(temp, text);
+  renameSync(temp, path);
 }

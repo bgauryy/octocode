@@ -1,10 +1,12 @@
 //! Finds every prose template the production source can emit as a hint or
 //! a notice: string literals (and `format!` templates) inside a hint or
-//! notice emission (`push_hint`, `push_notice`, `.hint(`, `hints.push(`,
+//! notice emission (`push_notice`, `add_hints`, `set_hints`, `prepend_hints`,
+//! `.hint(`, `hints.push(`, a `hints: vec![` or `.hints = vec![` list,
+//! a `let hints…` binding,
 //! `diagnostics.add(`, a `"hints"` key, `let hint = …`, a classification
 //! error's hint), a `*_HINT`/`*_TIP`/`*_NOTE`/`*_NOTICE` constant, or the
 //! body of a function named for a hint, tip, note, notice or disclosure.
-//! Test files and `#[cfg(test)]` modules are skipped. A literal without a
+//! Test files, `test_support` and `#[cfg(test)]` modules are skipped. A literal without a
 //! space (a key, a code, a lead name), or with fewer than two letters (a
 //! separator), is not prose.
 
@@ -20,10 +22,14 @@ pub(super) struct Template {
 
 /// An emission and the argument its prose starts at (`0`: the whole call).
 const EMITTERS: &[(&str, usize)] = &[
-    ("push_hint(", 1),
     ("push_notice(", 1),
     (".hint(", 0),
     ("hints.push(", 0),
+    ("hints: vec![", 0),
+    (".hints = vec![", 0),
+    ("add_hints(", 1),
+    ("set_hints(", 1),
+    ("prepend_hints(", 1),
     ("diagnostics.add(", 1),
     ("[\"hints\"] =", 0),
     ("\"hints\":", 0),
@@ -52,6 +58,7 @@ fn source_files(dir: &Path, out: &mut Vec<PathBuf>) {
             .and_then(|n| n.to_str())
             .unwrap_or_default();
         let test_name = name == "tests"
+            || name == "test_support"
             || name == "tests.rs"
             || name.ends_with("_tests")
             || name.ends_with("_tests.rs");
@@ -273,8 +280,7 @@ fn is_test_attribute(attribute: &str) -> bool {
         .split_once('(')
         .map_or(attribute, |(path, _)| path)
         .trim();
-    path.rsplit("::").next() == Some("test")
-        || attribute.replace(' ', "") == "cfg(test)"
+    path.rsplit("::").next() == Some("test") || attribute.replace(' ', "") == "cfg(test)"
 }
 
 /// Spans of `src` whose literals are hint or notice prose.
@@ -283,7 +289,7 @@ fn hint_spans(src: &str, skip: &[usize]) -> Vec<(usize, usize)> {
     for (emitter, argument) in EMITTERS {
         for (at, _) in src.match_indices(emitter) {
             let after = at + emitter.len();
-            if emitter.ends_with('(') {
+            if emitter.ends_with(['(', '[']) {
                 let close = matching_close(src, after - 1, skip);
                 let mut from = after;
                 for _ in 0..*argument {
@@ -362,6 +368,102 @@ pub(super) fn templates(src_root: &Path) -> BTreeSet<Template> {
         }
     }
     out
+}
+
+/// A wire field only its owner writes, and how a writer builds it raw.
+/// `response/` owns them all: `add_hints`/`prepend_hints`/`set_hints`
+/// (`hints`), `mark_partial`/`terminal_limit` (`isPartial`) and
+/// `Continuation` (`"kind":"continue"`).
+const OWNED_FIELDS: &[&str] = &["hints", "isPartial"];
+
+/// A raw write of an owned field outside the output owner.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct RawWrite {
+    pub(super) file: String,
+    pub(super) field: &'static str,
+}
+
+/// Whether the literal spanning `start..end` is written as a key: assigned
+/// (`row["k"] = …`), a map or `json!` key (`"k": …`), or inserted
+/// (`insert("k", …)`, `entry("k")`). A comparison or a read is not a write.
+fn is_written(src: &str, start: usize, end: usize) -> bool {
+    let after = src[end..].trim_start();
+    let before = src[..start].trim_end();
+    (after.starts_with(':') && !after.starts_with("::"))
+        || (after.starts_with("] =") && !after.starts_with("] =="))
+        || before.ends_with("insert(")
+        || before.ends_with("entry(")
+}
+
+/// Every raw write of `hints`, `isPartial` or `"kind":"continue"` in the
+/// production source under `src_root` outside `response/`.
+pub(super) fn raw_writes(src_root: &Path) -> BTreeSet<RawWrite> {
+    let mut files = Vec::new();
+    source_files(src_root, &mut files);
+    let mut out = BTreeSet::new();
+    for path in files {
+        let file = path
+            .strip_prefix(src_root)
+            .expect("under src")
+            .to_string_lossy()
+            .replace('\\', "/");
+        if file.starts_with("response/") {
+            continue;
+        }
+        let src = std::fs::read_to_string(&path).expect("read source");
+        let literals = literals(&src);
+        let skip = literal_spans(&src, &literals);
+        let tests = test_modules(&src, &skip);
+        for literal in &literals {
+            if tests
+                .iter()
+                .any(|(a, b)| literal.start >= *a && literal.start < *b)
+            {
+                continue;
+            }
+            let end = skip[literal.start];
+            if let Some(field) = OWNED_FIELDS.iter().find(|f| **f == literal.text)
+                && is_written(&src, literal.start, end)
+            {
+                out.insert(RawWrite {
+                    file: file.clone(),
+                    field,
+                });
+            }
+            if literal.text == "kind" && is_written(&src, literal.start, end) {
+                let value_end = expression_end(&src, end, &skip);
+                let builds_continue = literals
+                    .iter()
+                    .any(|l| l.text == "continue" && l.start >= end && l.start < value_end);
+                if builds_continue {
+                    out.insert(RawWrite {
+                        file: file.clone(),
+                        field: "kind:continue",
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The raw-write registry rows: `file<TAB>field<TAB>reason`.
+pub(super) fn raw_registry(text: &str) -> BTreeMap<RawWrite, String> {
+    text.lines()
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(|line| {
+            let mut cells = line.splitn(3, '\t');
+            let file = cells.next().expect("file").to_owned();
+            let field = cells.next().expect("field");
+            let reason = cells.next().expect("reason").to_owned();
+            let field = OWNED_FIELDS
+                .iter()
+                .chain(&["kind:continue"])
+                .find(|f| **f == field)
+                .unwrap_or_else(|| panic!("{field} is not an owned field"));
+            (RawWrite { file, field }, reason)
+        })
+        .collect()
 }
 
 /// The registry rows: `owner<TAB>file<TAB>template` (template escapes `\n`).

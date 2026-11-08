@@ -49,6 +49,36 @@ fn declaration_rows_nest_members_under_their_parent() {
     }
 }
 
+/// A member declared inside a sibling's span (a Python instance attribute
+/// assigned in `__init__`, a member of the class) does not end that
+/// sibling: what follows still nests under the row it names.
+#[test]
+fn a_member_inside_a_siblings_span_keeps_the_nesting_after_it() {
+    let flat = [
+        json!({"name":"Square","kind":"class","line":1,"endLine":13}),
+        json!({"name":"side","kind":"property","line":2,"parent":"Square"}),
+        json!({"name":"__init__","kind":"method","line":3,"endLine":11,"parent":"Square"}),
+        json!({"name":"n","kind":"property","line":4,"parent":"Square"}),
+        json!({"name":"inner","kind":"function","line":10,"endLine":11,"parent":"__init__"}),
+        json!({"name":"area","kind":"method","line":12,"endLine":13,"parent":"Square"}),
+    ];
+    let rows = declaration_rows(&flat);
+    assert_eq!(
+        json!(rows),
+        json!([
+            {"symbolName":"Square","kind":"class","line":1,"endLine":13,
+             "members":[
+                {"symbolName":"side","kind":"property","line":2},
+                {"symbolName":"__init__","kind":"method","line":3,"endLine":11,
+                 "members":[{"symbolName":"inner","kind":"function","line":10,"endLine":11}]},
+                {"symbolName":"n","kind":"property","line":4},
+                {"symbolName":"area","kind":"method","line":12,"endLine":13}
+             ]}
+        ])
+    );
+    assert_eq!(top_level_spans(&flat), [0..flat.len()]);
+}
+
 /// Canonical facts of flat internal rows, as [`flatten_members`]
 /// restores them: public key names, keys sorted.
 fn facts(rows: &[Value]) -> Vec<Value> {

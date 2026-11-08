@@ -137,15 +137,16 @@ async fn an_owner_listing_of_the_token_user_includes_private_repositories() {
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/orgs/{owner}/repos")))
             .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
-            // One probe per listing call, however many pages it reads.
-            .expect(if owner == "me" { 2 } else { 1 })
+            // One probe per owner for this credential, however many pages or
+            // listing calls follow.
+            .expect(1)
             .mount(&server)
             .await;
     }
     Mock::given(method("GET"))
         .and(path("/api/v3/user"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"login":"Me"})))
-        .expect(3)
+        .expect(2)
         .mount(&server)
         .await;
     let link = format!(
@@ -176,7 +177,7 @@ async fn an_owner_listing_of_the_token_user_includes_private_repositories() {
         .mount(&server)
         .await;
     let provider = one_shot_provider(&server);
-    // Each call is its own request: it resolves the route afresh.
+    // Each call is its own request, but the key remembers the route.
     let listing = |owner: &str| {
         serde_json::from_value::<GhSearchRepoQuery>(json!({"operation":"list","owner": owner}))
             .expect("query")
@@ -314,5 +315,53 @@ async fn archive_only_listing_names_the_non_archived_rows_it_filtered() {
         out.data["next"].get("includeArchived").is_none(),
         "{}",
         out.data
+    );
+}
+
+/// A route a key learned earlier that now answers 404 (the owner was renamed
+/// or converted) is asked again once, not trusted forever.
+#[tokio::test]
+async fn a_remembered_owner_route_that_stops_answering_is_probed_again() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/orgs/o/repos"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([repo_item("org", false)])))
+        .up_to_n_times(1)
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/orgs/o/repos"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/user"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"login":"me"})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/users/o/repos"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([repo_item("user", false)])))
+        .mount(&server)
+        .await;
+    let provider = one_shot_provider(&server);
+    let query: GhSearchRepoQuery =
+        serde_json::from_value(json!({"owner":"o","operation":"list"})).expect("query");
+    let first = execute(&provider, &query, &default_context())
+        .await
+        .expect("first");
+    assert_eq!(
+        first.data["repositories"][0]["repo"], "org",
+        "{}",
+        first.data
+    );
+    let second = execute(&provider, &query, &default_context())
+        .await
+        .expect("second");
+    assert_eq!(
+        second.data["repositories"][0]["repo"], "user",
+        "{}",
+        second.data
     );
 }

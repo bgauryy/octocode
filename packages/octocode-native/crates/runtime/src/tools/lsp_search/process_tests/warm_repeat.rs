@@ -70,7 +70,7 @@ fn repeated_references_ask_again_and_read_each_file_once() {
         "Node is required for the real LSP fixture"
     );
     let (_dir, root, script) = fixture();
-    std::fs::write(&script, REUSE_SERVER).expect("server");
+    crate::tools::lsp_search::tests::write_executable(&script, REUSE_SERVER);
     std::fs::write(root.join("a.ts"), "export function foo() {}\n").expect("a");
     std::fs::write(
         root.join("b.ts"),
@@ -145,6 +145,7 @@ fn repeated_references_ask_again_and_read_each_file_once() {
                         character: 16,
                         language_id: Some("typescript"),
                         budget: 16_000,
+                        security: &crate::security::ContentSecurity::new(),
                     }
                     .run()
                     .await

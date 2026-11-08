@@ -320,3 +320,232 @@ fn a_go_build_tag_file_stays_in_its_package() {
         ["plat/a.go", "plat/b.go"]
     );
 }
+
+const STORE_OPEN: (&str, &str) = (
+    "store/open.go",
+    "package store\n\nfunc Open(path string) (*Store, error) { return &Store{}, nil }\n\nfunc Fresh() Store { return Store{} }\n\nfunc Names() []string { return nil }\n\nfunc reopen() {\n\ts, _ := Open(\"x\")\n\ts.Get(\"k\")\n}\n\nfunc chained() { Fresh().Get(\"c\") }\n",
+);
+
+/// `s, err := f()` types `s` by the first result `f` declares, as gopls does,
+/// without `f` being named like a constructor: in the callee's package the
+/// result `Store` is the package's own, and across packages it is the
+/// import's (`store.Store`), never a same-named type of the caller's package.
+#[test]
+fn go_short_var_takes_the_first_result_type_of_the_call() {
+    let temp = fixture(&[
+        GO_MOD,
+        STORE,
+        STORE_HELPER,
+        STORE_OPEN,
+        (
+            "main.go",
+            "package main\n\nimport \"example.com/app/store\"\n\ntype Store struct{}\n\nfunc (s Store) Get(k string) int { return 9 }\n\nfunc run() {\n\ts, err := store.Open(\"p\")\n\t_ = err\n\ts.Get(\"k\")\n}\n\nfunc names() {\n\tn := store.Names()\n\tn.Len()\n}\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    let get = edge("store/store.go#Store.Get", "receiver-type", "high");
+    assert_eq!(
+        &call_edges(root, "store/open.go#reopen")[1..],
+        std::slice::from_ref(&get)
+    );
+    assert_eq!(
+        &call_edges(root, "store/open.go#chained")[1..],
+        std::slice::from_ref(&get)
+    );
+    assert_eq!(
+        call_edges(root, "main.go#run"),
+        [edge("store/open.go#Open", "namespace", "high"), get]
+    );
+    assert_eq!(
+        call_edges(root, "main.go#names"),
+        [edge("store/open.go#Names", "namespace", "high")]
+    );
+}
+
+const STORE_BINDS: (&str, &str) = (
+    "store/binds.go",
+    r#"package store
+
+func declared() {
+	var s, _ = Open("x")
+	s.Get("k")
+}
+
+func second() {
+	_, e := Open("x")
+	e.Get("k")
+}
+
+func shadowed() {
+	s, _ := Open("x")
+	if s != nil {
+		s := 1
+		s.Get("k")
+	}
+}
+
+func outer_after_shadow() {
+	s, _ := Open("x")
+	{
+		s := 1
+		_ = s
+	}
+	s.Get("k")
+}
+"#,
+);
+
+/// The `var` form types its first name by the first result, like `:=`; the
+/// later results (`_, e := f()`) are not the first, so `e` stays untyped; an
+/// inner `s := 1` shadows the outer `s`, which the inner call must not see,
+/// while the outer `s` is typed again once the block ends.
+#[test]
+fn go_var_and_later_results_and_shadowing_type_by_scope() {
+    let temp = fixture(&[GO_MOD, STORE, STORE_HELPER, STORE_OPEN, STORE_BINDS]);
+    let root = ingested(&temp);
+    let get = edge("store/store.go#Store.Get", "receiver-type", "high");
+    let calls = |caller: &str| call_edges(root, &format!("store/binds.go#{caller}"));
+    assert!(calls("declared").contains(&get), "{:?}", calls("declared"));
+    assert!(calls("outer_after_shadow").contains(&get));
+    for caller in ["second", "shadowed"] {
+        let edges = calls(caller);
+        assert!(
+            edges
+                .iter()
+                .all(|(callee, ..)| !callee.ends_with("Store.Get")),
+            "{caller}: {edges:?}"
+        );
+        assert!(!edges.is_empty(), "{caller} still calls Open");
+    }
+}
+
+const RESULTS: (&str, &str) = (
+    "results.go",
+    r#"package main
+
+type Reader interface {
+	Read() int
+}
+
+type Thing struct{}
+
+func (Thing) Read() int  { return 1 }
+func (Thing) Extra() int { return 2 }
+
+func NewThing() Reader { return Thing{} }
+
+func NewPlain() *Thing { return &Thing{} }
+
+type Widget struct{}
+
+func (Widget) Ping() int { return 3 }
+
+func via_interface() {
+	t := NewThing()
+	t.Extra()
+}
+
+func via_chain() {
+	NewThing().Extra()
+}
+
+func via_var() {
+	var t = NewThing()
+	t.Extra()
+}
+
+func plain() {
+	p := NewPlain()
+	p.Read()
+}
+
+func undeclared() {
+	w := NewWidget()
+	w.Ping()
+}
+"#,
+);
+
+/// A constructor-shaped name types its result only when no declaration says
+/// otherwise: `NewThing` declared to return the interface `Reader` yields a
+/// `Reader`, which has no `Extra`, in every form a result is bound or
+/// chained. The declared `*Thing` agrees with the name; a callee no file
+/// declares keeps the name's guess.
+#[test]
+fn go_declared_result_type_outranks_the_constructor_name() {
+    let temp = fixture(&[GO_MOD, RESULTS]);
+    let root = ingested(&temp);
+    let calls = |caller: &str| call_edges(root, &format!("results.go#{caller}"));
+    for caller in ["via_interface", "via_chain", "via_var"] {
+        let edges = calls(caller);
+        assert!(
+            edges
+                .iter()
+                .all(|(callee, ..)| !callee.ends_with("Thing.Extra")),
+            "{caller}: {edges:?}"
+        );
+        assert!(!edges.is_empty(), "{caller} still calls NewThing");
+    }
+    let plain = calls("plain");
+    assert!(
+        plain
+            .iter()
+            .any(|(callee, ..)| callee.ends_with("Thing.Read")),
+        "{plain:?}"
+    );
+    let undeclared = calls("undeclared");
+    assert!(
+        undeclared
+            .iter()
+            .any(|(callee, ..)| callee.ends_with("Widget.Ping")),
+        "{undeclared:?}"
+    );
+}
+
+const GENERICS: (&str, &str) = (
+    "generics.go",
+    r#"package main
+
+type Item struct{}
+
+func (Item) Ping() int { return 1 }
+
+type Other struct{}
+
+func First[Item any](xs []Item) Item { return xs[0] }
+
+type Box[Item any] struct{}
+
+func (b Box[Item]) Get() Item { var zero Item; return zero }
+
+func via_function() {
+	x := First([]Other{{}})
+	x.Ping()
+}
+
+func via_method() {
+	b := Box[Other]{}
+	y := b.Get()
+	y.Ping()
+}
+"#,
+);
+
+/// A result named by a type parameter is no named type: `Item` in
+/// `First[Item any]` is the caller's type argument, not the package's
+/// `Item`, so the call's result stays untyped.
+#[test]
+fn go_type_parameter_results_stay_unresolved() {
+    let temp = fixture(&[GO_MOD, GENERICS]);
+    let root = ingested(&temp);
+    for caller in ["via_function", "via_method"] {
+        let edges = call_edges(root, &format!("generics.go#{caller}"));
+        assert!(
+            edges
+                .iter()
+                .all(|(callee, ..)| !callee.ends_with("Item.Ping")),
+            "{caller}: {edges:?}"
+        );
+        assert!(!edges.is_empty(), "{caller} still calls its generic");
+    }
+}

@@ -3,6 +3,7 @@
 //! `regex` crate, `^`/`$` per line), so one pattern gets one verdict and one
 //! error reason in both tools. It is linear-time: no deadline, no worker, and
 //! the verdict never depends on the text's size.
+use super::span_sink::{CappedSpans, SpanSink};
 use regex::RegexBuilder;
 
 /// Why a Rust-regex range scan returned no ranges.
@@ -21,6 +22,23 @@ pub fn rust_find_ranges(
     input: &str,
     max_matches: usize,
 ) -> Result<Vec<(usize, usize)>, RustRangesError> {
+    rust_scan_ranges(
+        pattern,
+        case_insensitive,
+        input,
+        CappedSpans::new(max_matches),
+    )
+    .map(CappedSpans::into_spans)
+}
+
+/// Offer every match of `pattern` in `input` to `sink`, in order, until it
+/// stops the scan; the sink comes back with what it kept.
+pub fn rust_scan_ranges<S: SpanSink>(
+    pattern: &str,
+    case_insensitive: bool,
+    input: &str,
+    mut sink: S,
+) -> Result<S, RustRangesError> {
     let regex = RegexBuilder::new(pattern)
         .case_insensitive(case_insensitive)
         .multi_line(true)
@@ -28,12 +46,12 @@ pub fn rust_find_ranges(
         .crlf(true)
         .build()
         .map_err(|error| RustRangesError::InvalidPattern(parse_reason(&error.to_string())))?;
-    let ranges: Vec<(usize, usize)> = regex
-        .find_iter(input)
-        .take(max_matches)
-        .map(|found| (found.start(), found.end()))
-        .collect();
-    Ok(ranges)
+    for found in regex.find_iter(input) {
+        if !sink.accept((found.start(), found.end())) {
+            break;
+        }
+    }
+    Ok(sink)
 }
 
 /// The parser's own reason: the engine compiles the pattern inside a wrapper
@@ -82,6 +100,20 @@ mod tests {
         assert_eq!(rust_find_ranges("o", true, text, 2).unwrap().len(), 2);
         // The caller passes one past its limit to tell a capped scan apart.
         assert_eq!(rust_find_ranges("o", true, text, 0).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn a_scan_offers_matches_until_its_sink_stops_it() {
+        struct StopAfter(usize, Vec<(usize, usize)>);
+        impl SpanSink for StopAfter {
+            fn accept(&mut self, span: (usize, usize)) -> bool {
+                self.1.push(span);
+                self.1.len() < self.0
+            }
+        }
+        let sink = rust_scan_ranges("o", false, "o o o o", StopAfter(3, vec![])).unwrap();
+        assert_eq!(sink.1, vec![(0, 1), (2, 3), (4, 5)]);
+        assert!(rust_scan_ranges("(", false, "x", StopAfter(1, vec![])).is_err());
     }
 
     #[test]

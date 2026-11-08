@@ -1,6 +1,7 @@
 //! Generated public tool contracts and transport-neutral input preparation.
 
 pub(crate) mod generated;
+mod instructions;
 pub(crate) mod listing_roles;
 mod normalize;
 mod prepare;
@@ -10,9 +11,11 @@ pub(crate) use normalize::{meant_field, normalized_input};
 pub(crate) use private_state::state_fields;
 pub(crate) mod output_fields;
 mod schema_facts;
+pub(crate) mod security;
 #[cfg(test)]
 mod undeclared;
 mod validate;
+pub use instructions::compose_instructions;
 use octocode_contract_types::ErrorCode;
 pub(crate) use validate::levenshtein;
 

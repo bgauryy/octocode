@@ -45,10 +45,16 @@ async fn search(provider: &GitHubProvider, keyword: &str) -> serde_json::Value {
     let query: GhSearchCodeQuery =
         serde_json::from_value(json!({"owner":"a","repo":"b","keywords":[keyword]}))
             .expect("query");
-    execute(provider, &query, &default_context(), &Passthrough)
-        .await
-        .expect("search")
-        .data
+    execute(
+        provider,
+        &query,
+        &default_context(),
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("search")
+    .data
 }
 
 async fn content_requests(server: &MockServer) -> usize {

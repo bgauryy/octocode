@@ -4,6 +4,7 @@ use crate::tools::source_capture::SourceReader;
 use secrecy::SecretString;
 mod construct;
 mod runtime_state;
+mod warm_run;
 
 pub(super) fn runtime(home: &std::path::Path, env: &[(&str, &str)]) -> ToolRuntime {
     let mut vars: BTreeMap<String, String> = env

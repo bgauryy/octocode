@@ -62,7 +62,7 @@ fn refused(row: &Value) {
 }
 
 #[tokio::test]
-async fn exiting_memory_clasify_refuses_sources_before_capture_or_billing() {
+async fn exiting_memory_clasify_refuses_section_plans_before_capture_or_billing() {
     let server = provider().await;
     let workspace = Workspace::new();
     workspace.write("simple.rs", "pub fn restart() {}\n");
@@ -84,11 +84,10 @@ async fn exiting_memory_clasify_refuses_sources_before_capture_or_billing() {
     for source in sources {
         let rows = vec![
             json!({"operation":"sections","resources":{"source":source},"questions":questions()}),
-            json!({"operation":"evaluate","source":source,"questions":questions()}),
         ];
         let output = exiting_call(&runtime, rows).await;
         let rows = output["results"].as_array().unwrap();
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 1);
         rows.iter().for_each(refused);
     }
     assert!(
@@ -96,6 +95,78 @@ async fn exiting_memory_clasify_refuses_sources_before_capture_or_billing() {
         "neither source GETs nor provider POSTs"
     );
     runtime.close().await;
+}
+
+const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+/// A one-shot memory runtime keeps nothing for a later call, so an answered
+/// source evaluation offers no handle into this runtime: its read is a fresh
+/// call in `related[]` that the next CLI process (a new runtime) runs.
+#[tokio::test]
+async fn a_one_shot_memory_evaluation_offers_a_fresh_read_the_next_runtime_runs() {
+    use base64::Engine as _;
+    let server = provider().await;
+    wiremock::Mock::given(wiremock::matchers::method("GET"))
+        .and(wiremock::matchers::path(
+            "/api/v3/repos/octo/demo/contents/source.rs",
+        ))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+            "type":"file","encoding":"base64","sha":"blob",
+            "content":base64::engine::general_purpose::STANDARD.encode("pub fn restart_remote() {}\n")
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    workspace.write("restart.rs", "pub fn restart() {}\n");
+    let env = [
+        ("OCTOCODE_STORAGE_MODE", "memory".into()),
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+    ];
+    let cases = [
+        (source("restart.rs"), "pub fn restart() {}"),
+        (
+            json!({"tool":"ghGetFileContent","query":{"owner":"octo","repo":"demo","path":"source.rs","ref":SHA}}),
+            "pub fn restart_remote() {}",
+        ),
+    ];
+    for (source, text) in cases {
+        let first = clasify_runtime(&workspace, &server, &env);
+        let output = exiting_call(
+            &first,
+            vec![json!({"operation":"evaluate","source":source,"questions":questions()})],
+        )
+        .await;
+        first.close().await;
+        let data = &output["results"][0]["data"];
+        assert_eq!(data["answers"]["q"]["noul"], 0.9, "{output:#}");
+        assert!(data["next"].get("read").is_none(), "no dead handle: {data:#}");
+        assert!(!output.to_string().contains("\"cursor\""), "{output:#}");
+        let read = data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|call| call["tool"] == source["tool"])
+            .unwrap_or_else(|| panic!("a fresh read in related[]: {data:#}"));
+        assert_eq!(read["kind"], "related", "{read:#}");
+        let second = clasify_runtime(&workspace, &server, &env);
+        let admission = second
+            .admit("next-cli-call".into())
+            .unwrap()
+            .requiring_persistent_continuations();
+        let fetched = second
+            .execute(
+                admission,
+                read["tool"].as_str().unwrap().into(),
+                read["input"].clone(),
+                Channel::Cli,
+            )
+            .await
+            .expect("the fresh read runs in a new runtime")
+            .structured_content
+            .into_value();
+        assert!(fetched.to_string().contains(text), "{fetched:#}");
+        second.close().await;
+    }
 }
 
 #[tokio::test]
@@ -115,15 +186,16 @@ async fn exiting_memory_clasify_keeps_literal_siblings_and_long_lived_source_rea
     let sections = json!({"operation":"sections","resources":{"source":source("restart.rs")},"questions":questions()});
     let output = exiting_call(&runtime, vec![sections, literal, evaluation.clone()]).await;
     refused(&output["results"][0]);
-    refused(&output["results"][2]);
-    assert_eq!(
-        output["results"][1]["data"]["answers"]["q"]["noul"], 0.9,
-        "{output:#}"
-    );
+    for index in [1, 2] {
+        assert_eq!(
+            output["results"][index]["data"]["answers"]["q"]["noul"], 0.9,
+            "{output:#}"
+        );
+    }
     assert_eq!(
         provider_calls(&server).await,
-        1,
-        "only the literal sibling is judged"
+        2,
+        "the literal and the source evaluation are judged; the plan is not"
     );
 
     // Request lifetime, not channel naming or storage mode alone, owns retention.
@@ -160,7 +232,7 @@ async fn exiting_memory_clasify_keeps_literal_siblings_and_long_lived_source_rea
         assert!(read.to_string().contains("pub fn restart() {}"), "{read:#}");
         assert_eq!(
             provider_calls(&server).await,
-            index + 2,
+            index + 3,
             "following the exact read never bills again"
         );
     }

@@ -331,9 +331,10 @@ fn a_match_with_hits_and_nothing_skipped_has_no_skipped_notice() {
     assert!(super::test_rows::skipped_call(&out).is_none(), "{out}");
 }
 
-/// A pattern that spells no body is the grammar's signature form: it hits
-/// the body-less signatures and none of the definitions, which the hint
-/// says (with the fuller kind to ask for). Spelling the body is no miss.
+/// A pattern that spells a `;` in place of the body is the grammar's
+/// signature form: it hits the body-less signatures and none of the
+/// definitions, which the hint says (with the fuller kind to ask for).
+/// Spelling neither matches both (B88), and spelling the body is no miss.
 #[test]
 fn a_bodiless_pattern_hints_at_the_fuller_declaration() {
     let root = Fixture::new();
@@ -343,18 +344,61 @@ fn a_bodiless_pattern_hints_at_the_fuller_declaration() {
     );
     let signature = run(
         &root.0,
-        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"fn $N($$$A)"}}),
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"fn $N($$$A);"}}),
     );
     assert_eq!(signature["matchCount"], json!(1), "{signature}");
     let hints = signature["hints"].to_string();
     assert!(hints.contains("function_item"), "{hints}");
     assert!(hints.contains("function_signature_item"), "{hints}");
+    let unspelled = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"fn $N($$$A)"}}),
+    );
+    assert_eq!(unspelled["matchCount"], json!(2), "{unspelled}");
+    assert!(unspelled.get("hints").is_none(), "{unspelled}");
     let definition = run(
         &root.0,
         json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"fn $N($$$A) { $$$ }"}}),
     );
     assert!(definition["matchCount"].as_u64() >= Some(1), "{definition}");
     assert!(definition.get("hints").is_none(), "{definition}");
+}
+
+/// B118: a pattern that parses as a construct the scope holds none of (TS
+/// `$N: number` is a labeled statement, not a field) says what it parsed
+/// as, and offers the `{context, selector}` form.
+#[test]
+fn a_pattern_read_as_an_absent_construct_names_it_and_offers_a_context() {
+    let root = Fixture::new();
+    root.write("a.ts", "class P {\n  a: number;\n}\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"parser":"typescript","rule":{"pattern":"$N: number"}}),
+    );
+    assert_eq!(out["matchCount"], json!(0), "{out}");
+    let diagnostics = out["diagnostics"].to_string();
+    assert!(diagnostics.contains("labeled_statement"), "{out}");
+    assert!(diagnostics.contains("selector"), "{out}");
+}
+
+/// B108: a page with no row hints at the fuller declaration too, and its
+/// census counts the near misses of the fuller kind: a definition of the
+/// name a signature pattern spells.
+#[test]
+fn a_bodiless_pattern_with_no_hit_hints_and_counts_the_fuller_declaration() {
+    let root = Fixture::new();
+    root.write("a.rs", "fn foo(x: u8) { let _ = x; }\n");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"fn foo($$$A);"}}),
+    );
+    let hints = out["hints"].to_string();
+    assert!(hints.contains("function_item"), "{out}");
+    let diagnostics = out["diagnostics"].to_string();
+    assert!(
+        diagnostics.contains("1 function_signature_item or function_item node(s) named `foo`"),
+        "{out}"
+    );
 }
 
 /// A cut probe proves a prefix of the skipped paths at most, so the lead is

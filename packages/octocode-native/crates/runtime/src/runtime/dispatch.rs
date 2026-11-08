@@ -89,6 +89,7 @@ pub(super) fn execute_local(
             let data = serde_json::to_value(&result).map_err(|_| ExecutionError::WorkerFailed)?;
             let mut row = DomainResult::payload(data, status);
             row.source_digest = source_digest;
+            row.judged = result.judged_leaves();
             if missing && row.failure.is_some() {
                 row.failure = Some(FailureKind::NotFound);
             }
@@ -200,7 +201,7 @@ pub(super) fn offer_retry(tool: ToolId, query: &Value, data: &mut Value) {
         return;
     }
     let retry = crate::response::result::Continuation::continued(tool, query.clone()).build();
-    data["next"]["retry"] = retry;
+    crate::response::result::set_next(data, "retry", retry);
 }
 
 /// A registry or language-server failure row. `retryable` is the emitter's

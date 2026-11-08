@@ -49,16 +49,12 @@ const QUERY_COMMAND: &str = "octocode schema <tool> --view query [--select FIELD
 /// The CLI's own notes, after the shared instructions in the full catalog.
 const CLI_INSTRUCTIONS: &str = "<cli>Listed tools are available; execution checks credentials and prerequisites. MCP exposure: graph tools need OCTOCODE_BETA, clone needs OCTOCODE_ENABLE_CLONE. Fields: schema <name> --view query. A next.* page still exits 0.</cli>";
 
-/// Core's instructions (embedded through config) for the tools `available`
-/// says exist: the base, then each such tool's block. Served by MCP
-/// `initialize` and, with the CLI's own notes, by the full catalog.
+/// Core's instructions (embedded through config) composed for the tools
+/// `available` says exist: the routes whose tools are all there, then each such
+/// tool's block. Served by MCP `initialize` and, with the CLI's own notes, by
+/// the full catalog.
 pub(super) fn instructions(presentation: &Value, available: impl Fn(&str) -> bool) -> String {
-    let blocks = tools(presentation)
-        .filter(|tool| tool["name"].as_str().is_some_and(&available))
-        .filter_map(|tool| tool["instructions"].as_str());
-    std::iter::once(presentation["instructions"].as_str().unwrap_or_default())
-        .chain(blocks)
-        .collect()
+    octocode_native::contracts::compose_instructions(presentation, available)
 }
 
 /// Select a core-generated presentation using the runtime's resolved switch.

@@ -336,11 +336,19 @@ pub(super) fn shape_pr_files(
 
 /// One compact patch-row header: `path` plus the inventory's `M +3 -1`
 /// change `stat` (and `previousPath` for a rename), replacing the separate
-/// `filename`/`status`/`additions`/`deletions` fields.
+/// `filename`/`status`/`additions`/`deletions` fields. `path` names the
+/// file on every page of its patch; `stat` and `previousPath` are evidence
+/// the page that starts the patch carries once, so a later page of it
+/// (`patchPagination.offset` past 0) has `path` alone.
 pub(super) fn compact_file_header(row: &mut Value) {
     let Some(fields) = row.as_object_mut() else {
         return;
     };
+    let continued = fields
+        .get("patchPagination")
+        .and_then(|span| span.get("offset"))
+        .and_then(Value::as_u64)
+        .is_some_and(|offset| offset > 0);
     let count = |fields: &Map<String, Value>, key: &str| {
         fields.get(key).and_then(Value::as_u64).unwrap_or(0)
     };
@@ -360,10 +368,13 @@ pub(super) fn compact_file_header(row: &mut Value) {
         "path".into(),
         rest.get("filename").cloned().unwrap_or_default(),
     );
-    fields.insert("stat".into(), json!(stat));
+    if !continued {
+        fields.insert("stat".into(), json!(stat));
+    }
     for (key, value) in rest {
         match key.as_str() {
             "filename" | "status" | "additions" | "deletions" => {}
+            "previousFilename" if continued => {}
             "previousFilename" => {
                 fields.insert("previousPath".into(), value);
             }

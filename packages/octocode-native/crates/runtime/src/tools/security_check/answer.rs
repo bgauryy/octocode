@@ -13,18 +13,43 @@ pub(super) struct Facts<'a> {
     pub cves: Vec<String>,
     pub stopped: bool,
     pub version_evaluated: bool,
+    /// No version was given and no registry fixes one: OSV's records span every version.
+    pub all_versions: bool,
+    /// A release was asked and OSV answered nothing: a release without advisories and one OSV
+    /// does not name read alike.
+    pub release_unmatched: bool,
+    /// A source lists the package in the release asked, so nothing at the version is an answer.
+    pub release_named: bool,
+    /// A version of a distribution that matches per release was asked with no release, and
+    /// OSV answered nothing: its answer proves nothing about any release.
+    pub release_missing: bool,
     pub upgrade_to: Option<&'a str>,
     pub upgrade_note: Option<&'a str>,
     /// Runtime dependencies the target pins to one exact version.
     pub pinned_dependencies: usize,
+    /// No registry reads this ecosystem: the name and version went to OSV as given.
+    pub registry_unconfirmed: bool,
+    /// OSV cannot order this ecosystem's versions, so the version was compared here
+    /// against each record's ranges.
+    pub compared_here: bool,
+    /// Advisories whose ranges matched the version (all of `count` unless compared here).
+    pub matched: usize,
+    /// Ids of advisories listed but neither matching nor clearing the version.
+    pub unmatched: Vec<String>,
 }
 
 impl Facts<'_> {
     pub(super) fn of(results: &[SourceResult]) -> Self {
+        let unmatched: Vec<String> = results
+            .iter()
+            .flat_map(|result| result.unmatched.iter().cloned())
+            .collect();
         let mut cves: Vec<String> = Vec::new();
+        // CVEs of advisories that matched: an unmatched one is listed, not claimed.
         for cve in results
             .iter()
             .flat_map(|result| &result.advisories)
+            .filter(|row| !unmatched.contains(&row.id))
             .flat_map(super::record::SecurityAdvisory::cves)
         {
             if !cves.iter().any(|known| known == cve) {
@@ -35,12 +60,25 @@ impl Facts<'_> {
             .iter()
             .flat_map(|result| &result.advisories)
             .collect::<Vec<_>>();
+        let groups = super::record::advisory_groups(&records);
+        let matched = groups
+            .iter()
+            .filter(|group| group.iter().any(|row| !unmatched.contains(&row.id)))
+            .count();
         Self {
             // Advisories, not records: a GHSA record and its PYSEC twin are one.
-            count: super::record::advisory_groups(&records).len(),
+            count: groups.len(),
+            matched,
+            compared_here: results.iter().any(|result| result.compared_here),
+            registry_unconfirmed: false,
+            unmatched,
             cves,
             stopped: results.iter().any(|result| result.resume.is_some()),
             version_evaluated: true,
+            all_versions: false,
+            release_unmatched: false,
+            release_named: false,
+            release_missing: false,
             upgrade_to: None,
             upgrade_note: None,
             pinned_dependencies: 0,
@@ -57,7 +95,7 @@ fn counted(count: usize) -> String {
 
 /// A name, id or version as the sentence states it: no character a source could
 /// use to write prose into it. `answer` takes no free text from a source.
-fn typed(value: &str) -> String {
+pub(super) fn typed(value: &str) -> String {
     value
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || "@/._:+~-".contains(*c))
@@ -79,19 +117,67 @@ fn cve_clause(cves: &[String]) -> String {
     }
 }
 
+fn ids_clause(ids: &[String]) -> String {
+    ids.iter()
+        .map(|id| typed(id))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// What a package row discloses about how its version was matched and its name read.
+fn evaluation_clause(facts: &Facts<'_>) -> String {
+    let mut clause = String::new();
+    if facts.compared_here && !facts.stopped {
+        clause.push_str(" OSV cannot order this ecosystem's versions, so each record's ranges were compared with the version here.");
+        if !facts.unmatched.is_empty() && facts.matched > 0 {
+            clause.push_str(&format!(
+                " Listed unmatched, because their ranges could not be compared: {}.",
+                ids_clause(&facts.unmatched)
+            ));
+        }
+    }
+    if facts.registry_unconfirmed && facts.release_named {
+        clause.push_str(" Not registry-confirmed: no registry reads this ecosystem, so the version went to OSV as given; the name is one OSV lists in this release.");
+    } else if facts.registry_unconfirmed {
+        clause.push_str(" Not registry-confirmed: no registry reads this ecosystem, so the name and version went to OSV as given, and a misspelt name reads as none known.");
+    }
+    clause
+}
+
 const STOPPED: &str =
     "the source stopped before its last page, so this is not an answer yet: follow next.nextPage.";
 
 /// The lead fields, in reading order: `answer`, `affected`, `upgradeTo`, `upgradeNote`, `cves`.
 pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
-    let found = facts.count > 0;
+    let found = facts.matched > 0;
     let target = typed(target);
     let mut sentence = match (found, facts.stopped, facts.version_evaluated) {
         (_, true, _) => format!("{target}: {STOPPED}"),
-        (true, false, true) => format!("{target} is affected: {}.", counted(facts.count)),
+        (false, false, true) if facts.count > 0 && facts.compared_here => format!(
+            "{target}: not evaluated. OSV cannot order this ecosystem's versions and {} could not be compared with this version here, so none matches or clears it; listed: {}.",
+            counted(facts.count),
+            ids_clause(&facts.unmatched)
+        ),
+        (false, false, _) if facts.release_unmatched => format!(
+            "{target}: OSV has no record for this release. It answers alike for a release with no advisory and for one it does not name (forms: 12, 22.04:LTS, v3.18), so this is not none known."
+        ),
+        (false, false, _) if facts.release_missing => format!(
+            "{target}: not evaluated. This distribution matches versions per release and none was given, so OSV's empty answer is not none known: pass release (forms: 12, 22.04:LTS, v3.18)."
+        ),
+        (true, false, _) if facts.all_versions => format!(
+            "{target}: no version was given and no registry confirms this package, so OSV's {} span every version of it; none is a verdict on a version.",
+            counted(facts.count)
+        ),
+        (false, false, _) if facts.all_versions => {
+            format!("{target}: none known to OSV for any version.")
+        }
+        (true, false, true) => format!("{target} is affected: {}.", counted(facts.matched)),
         (true, false, false) => format!(
             "{target}: the requested version is not on the registry, so it was not evaluated. OSV has {} for this package at other versions.",
             counted(facts.count)
+        ),
+        (false, false, true) if facts.release_named => format!(
+            "{target}: none known to OSV at this version. OSV answered the version with nothing, and asked by name it lists this package in the release, so that empty answer is a real one."
         ),
         (false, false, true) => format!("{target}: none known to OSV."),
         (false, false, false) => format!(
@@ -99,6 +185,7 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
         ),
     };
     sentence.push_str(&cve_clause(&facts.cves));
+    sentence.push_str(&evaluation_clause(facts));
     if let Some(version) = facts.upgrade_to {
         sentence.push_str(&format!(
             " Upgrade to {} to clear every one listed.",
@@ -117,7 +204,13 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
         ));
     }
     let mut data = json!({ "answer": sentence });
-    if facts.version_evaluated && !facts.stopped {
+    if facts.version_evaluated
+        && (facts.matched > 0 || facts.count == 0 || !facts.compared_here)
+        && !facts.stopped
+        && !facts.all_versions
+        && !facts.release_unmatched
+        && !facts.release_missing
+    {
         data["affected"] = json!(found);
     }
     if let Some(version) = facts.upgrade_to {
@@ -166,8 +259,14 @@ pub(super) fn advisory_lead(row: &Value) -> Value {
                         .collect::<Vec<_>>();
                     let name = typed(entry["packageName"].as_str().unwrap_or_default());
                     (!name.is_empty()).then(|| {
+                        let versions = entry["versions"].as_array().map_or(0, Vec::len);
                         if !ranges.is_empty() {
-                            return format!("{name} {}", ranges.join(", "));
+                            // OSV lets `versions` add to the ranges, and osv.dev
+                            // also enumerates a range's versions there: state
+                            // the count, never that they are extra.
+                            let listed = listed_versions(versions)
+                                .map_or_else(String::new, |listed| format!(" ({listed})"));
+                            return format!("{name} {}{listed}", ranges.join(", "));
                         }
                         format!("{name} ({})", unranged(entry))
                     })
@@ -193,11 +292,20 @@ fn unranged(entry: &Value) -> String {
         .as_array()
         .is_some_and(|ranges| ranges.iter().any(|range| range["type"] == "GIT"));
     let versions = entry["versions"].as_array().map_or(0, Vec::len);
-    match (versions, git) {
-        (0, true) => "git commit ranges in the record".to_owned(),
-        (0, false) => "no ranges or versions in the record".to_owned(),
-        (1, _) => "1 version listed in the record".to_owned(),
-        (count, _) => format!("{count} versions listed in the record"),
+    match (listed_versions(versions), git) {
+        (Some(listed), _) => listed,
+        (None, true) => "git commit ranges in the record".to_owned(),
+        (None, false) => "no ranges or versions in the record".to_owned(),
+    }
+}
+
+/// The one wording for an entry's explicit `versions` list, ranged or not;
+/// `None` when it lists none.
+fn listed_versions(count: usize) -> Option<String> {
+    match count {
+        0 => None,
+        1 => Some("the record lists 1 affected version".to_owned()),
+        count => Some(format!("the record lists {count} affected versions")),
     }
 }
 

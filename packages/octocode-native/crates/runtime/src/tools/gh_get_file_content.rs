@@ -2,6 +2,8 @@ mod access;
 pub(crate) mod errors;
 mod leads;
 mod local_query;
+#[cfg(test)]
+pub(crate) use local_query::local_query;
 mod shape;
 mod timestamp;
 
@@ -15,7 +17,36 @@ use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::{GhFailure, locate_path, missing_path};
 use octocode_github::{ContentRequest, GitHubProvider, ProviderError, RequestContext};
 use shape::{Fetched, shape};
-use timestamp::file_timestamp;
+use timestamp::{Stamp, file_timestamp, unavailable_note};
+
+/// What a first-page read of one file will ask GitHub about: where the
+/// batch-wide last-commit warm-up starts.
+pub(crate) struct WarmTarget {
+    pub owner: String,
+    pub repo: String,
+    /// The path as the repository names it, the one the read asks by.
+    pub path: String,
+    pub reference: Option<String>,
+}
+
+/// The read `query` makes, when it makes the first-page last-commit request
+/// ([`execute`]): a valid first-page read of a path inside the repository.
+/// `None` for anything else (a path the policy withholds included), which the
+/// row handles itself.
+pub(crate) fn warm_target(query: &Value, withholds: impl Fn(&str) -> bool) -> Option<WarmTarget> {
+    let query: GhGetFileContentQuery = serde_json::from_value(query.clone()).ok()?;
+    if access::progress(&query).is_some_and(|progress| progress.offset != 0) {
+        return None;
+    }
+    let path = crate::tools::gh_shared::listing_path(access::path(&query)).ok()?;
+    // A withheld path is refused by the row before any request.
+    (!path.is_empty() && !withholds(&path)).then(|| WarmTarget {
+        owner: access::owner(&query).to_owned(),
+        repo: access::repo(&query).to_owned(),
+        path,
+        reference: access::reference(&query).map(str::to_owned),
+    })
+}
 
 /// One read's result. The wire row is flat: the read file's fields beside
 /// `owner`/`repo` (a query reads one path).
@@ -109,9 +140,11 @@ pub(crate) async fn run<S: ContentScan + Clone + Send + Sync + 'static>(
             missing_path(&error, Some(access::path(query)))
                 || error.reason == Some(octocode_github::ProviderErrorReason::PathIsDirectory)
         }),
+        error,
         request_context,
     )
     .await;
+    let error = scope.error;
     let asked = access::reference(query).map(str::to_owned);
     let pinned = scope.commit.and_then(|sha| {
         let mut pinned = query.clone();
@@ -222,7 +255,7 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
             if first_page {
                 file_timestamp(provider, query, &sha, request_context).await
             } else {
-                (None, None)
+                Ok((None, None))
             }
         }
     );
@@ -257,7 +290,7 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
     } else {
         // A ranked read judges its chunks: shaped on a blocking worker.
         let query = query.clone();
-        tokio::task::spawn_blocking(move || {
+        tokio::task::spawn_blocking(octocode_io::notice::carried(move || {
             shape(
                 &query,
                 acquired,
@@ -266,7 +299,7 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
                 &shaping.context,
                 Some(&shaping.selection),
             )
-        })
+        }))
         .await
         .map_err(|_| {
             ProviderError::new(
@@ -278,14 +311,19 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
     if first_page && result.file.content.error.is_none() {
         // A renamed repository answered the read by redirect; the stamp of
         // the old name is asked again under the canonical one.
-        let (last_modified, last_modified_by) = match stamp {
-            (None, None) if canonical.is_some() => {
+        let stamp: Stamp = match stamp {
+            Ok((None, None)) | Err(_) if canonical.is_some() => {
                 file_timestamp(provider, query, &sha, request_context).await
             }
             stamp => stamp,
         };
-        result.file.last_modified = last_modified;
-        result.file.last_modified_by = last_modified_by;
+        match stamp {
+            Ok((last_modified, last_modified_by)) => {
+                result.file.last_modified = last_modified;
+                result.file.last_modified_by = last_modified_by;
+            }
+            Err(error) => result.file.content.warnings.push(unavailable_note(&error)),
+        }
     }
     Ok(result)
 }

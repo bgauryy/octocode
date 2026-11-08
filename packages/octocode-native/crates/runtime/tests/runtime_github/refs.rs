@@ -211,6 +211,13 @@ async fn gh_file_read_of_a_renamed_repository_names_the_canonical_repository() {
         })))
         .mount(&server)
         .await;
+    // The kept rename route answers a commit list too: a 404 under a route
+    // would read as a stale route and drop the rename a concurrent read proved.
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repositories/1/commits"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
         .respond_with(

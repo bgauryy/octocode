@@ -15,7 +15,7 @@ use crate::types::{FileSystemQueryOptions, GraphFactsScanDiagnostic, GraphFactsS
 mod evaluate;
 use crate::signatures::languages::RegistryView;
 use crate::text::analysis::{AnalysisOperation, MapLimits};
-pub use evaluate::SOURCE_BUDGET_EXCEEDED;
+pub use evaluate::{PANICKED, SOURCE_BUDGET_EXCEEDED, panicked};
 #[cfg(test)]
 use evaluate::evaluate_walk;
 /// Largest source the graph-facts scan parses; a larger file stays an
@@ -343,7 +343,7 @@ pub fn scan_walked_graph_facts_within<T: Send>(
     stop: &Stop<'_>,
     hold: &ScanHold<'_, T>,
 ) -> Result<GraphFactsMappedScan<T>, GraphScanError> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    scan_contained(|| {
         evaluate::evaluate_walk_with_registry(
             options,
             walked,
@@ -355,11 +355,18 @@ pub fn scan_walked_graph_facts_within<T: Send>(
             RegistryView::installed(),
             MapLimits::default(),
         )
-    }))
-    .unwrap_or_else(|_| {
-        Err(GraphScanError::Failed(
-            "graph-facts scan failed on pathological input".to_owned(),
-        ))
+    })
+}
+
+/// A scan whose panic no file's own work contained (each file's is its
+/// named skip): the scan fails, naming where it panicked.
+fn scan_contained<T>(
+    scan: impl FnOnce() -> Result<GraphFactsMappedScan<T>, GraphScanError>,
+) -> Result<GraphFactsMappedScan<T>, GraphScanError> {
+    crate::contain::catch(crate::contain::Phase::Extract, scan).unwrap_or_else(|contained| {
+        Err(GraphScanError::Failed(format!(
+            "graph-facts scan failed: {contained}"
+        )))
     })
 }
 
@@ -373,7 +380,7 @@ pub fn scan_walked_graph_facts_with_registry<T: Send>(
     registry: RegistryView<'_>,
     map_limits: MapLimits,
 ) -> Result<GraphFactsMappedScan<T>, GraphScanError> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    scan_contained(|| {
         evaluate::evaluate_walk_with_registry(
             options,
             walked,
@@ -385,11 +392,6 @@ pub fn scan_walked_graph_facts_with_registry<T: Send>(
             registry,
             map_limits,
         )
-    }))
-    .unwrap_or_else(|_| {
-        Err(GraphScanError::Failed(
-            "graph-facts scan failed on pathological input".to_owned(),
-        ))
     })
 }
 

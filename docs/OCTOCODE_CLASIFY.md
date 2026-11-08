@@ -16,7 +16,7 @@ There are two ways in:
 
 | Entry point | What it does | Use it when |
 |---|---|---|
-| `classification` on `localSearch`, `localFetch`, `ghSearchCode` or `ghGetFileContent` | Filters the hits or lines a search or read found, before the agent sees them | A search returns too many hits and no term or path splits them |
+| `classification` on a search, read or listing tool ([which tools](OCTOCODE_TOOLS.md#context-selection)) | Filters the hits or lines a search or read found, before the agent sees them | A search returns too many hits and no term or path splits them |
 | The `clasify` tool | Answers typed questions about content, an unread source, images, or every section of many files | You need a named fact from a large unread source, or which parts of many files answer your questions |
 
 ## Quick start
@@ -113,7 +113,11 @@ sequenceDiagram
   history and no sibling answers, so each question must stand alone.
 - **No answer cache across requests.** Each fresh request is judged and billed again, so an
   edited file never gets an old answer. Saved result pages and `sections` continuations replay
-  with no new inference. Identical evaluations inside one request are sent once.
+  with no new inference. Identical evaluations inside one request are sent once. One exception:
+  a repeated `next.nextCandidatePage` cursor replays the page it judged, kept in memory only (not
+  on disk) while the runtime lives and is used; the replay's receipt shows `calls: 0` and keeps
+  the models and `remainingInputTokensEstimate`. An edited source refuses the cursor as stale.
+  Eviction, close, or a new process (a CLI call without the daemon) judges it again and bills it.
 - **Questions over one source share one provider request when they fit it;** otherwise each
   question is its own request carrying the whole source, and each is billed.
 - **Provider failures keep the evidence.** When capture succeeded, the read handle still works.
@@ -329,6 +333,7 @@ sequenceDiagram
 | Capture pool | RAM | One call | The sanitized text of each captured source |
 | Plan store | RAM, plus disk with persistent storage | 30 minutes after its last use | Section text, the cell matrix, rows in flight, every emitted batch |
 | Saved result pages | The page store | The same 30 minutes for `clasify` | Emitted pages and read handles, replayed with no inference |
+| Saved candidate pages | RAM only | Idle retention of continuations, lost on close or a new process | The page a `nextCandidatePage` cursor judged, replayed with no provider call |
 | Agent context | The main agent | The conversation | Answers, coverage and read handles only |
 
 - If a process stops while rows are in flight, the next continuation reports those cells as
@@ -349,7 +354,7 @@ Every GitHub source below is public and pinned, so these commands run as written
 octocode localSearch '{"queries":[{"path":"src","matchString":["cache"],"contextLines":{"before":3,"after":3},"classification":{"predicates":["Does this implement credential invalidation?"],"context":"Trace credential rotation through the cache."}}]}'
 ```
 
-The same `classification` object works on `localFetch`, `ghSearchCode` and `ghGetFileContent`.
+The same `classification` object works on every tool listed in [Context selection](OCTOCODE_TOOLS.md#context-selection).
 Predicates are independent questions; `context` tells Jev what the research is for.
 
 ### Ask about one unread file

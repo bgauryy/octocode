@@ -70,7 +70,6 @@ type Site = (String, u64, u64, bool);
 /// The requests the server logged answering `mode`'s references, and every
 /// site the row lists.
 fn references_under(mode: &str) -> (Vec<String>, Vec<Site>) {
-    use std::os::unix::fs::PermissionsExt;
     let dir = Fixture::new();
     let outer = dir.0.canonicalize().expect("canonical fixture");
     let root = outer.join("ws");
@@ -82,8 +81,7 @@ fn references_under(mode: &str) -> (Vec<String>, Vec<Site>) {
         .replace("__ROOT__", &literal(&root))
         .replace("__LOG__", &literal(&log))
         .replace("__MODE__", &serde_json::to_string(mode).expect("mode"));
-    std::fs::write(&script, source).expect("script");
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    crate::tools::lsp_search::tests::write_executable(&script, source.as_bytes());
     std::fs::write(root.join("a.ts"), "export function x() {}\n").expect("a.ts");
     std::fs::write(
         root.join("b.ts"),

@@ -36,7 +36,7 @@
 
 use super::js_oxc_receiver::ReceiverScopes;
 use super::js_oxc_shared::{SpanPositions, property_key_name};
-use crate::graph::{GraphFactCall, GraphPosition};
+use crate::graph::{GraphDeclaredType, GraphFactCall, GraphPosition};
 use oxc_ast::ast::*;
 use oxc_ast_visit::{VisitJs, walk_js};
 use oxc_semantic::ScopeFlags;
@@ -46,7 +46,7 @@ mod names;
 mod visitor;
 
 use names::push_call;
-pub(super) use names::{dotted_expression_name, ts_type_name, unwrap_expr};
+pub(super) use names::{dotted_expression_name, receiver_label, ts_type_name, unwrap_expr};
 use visitor::first_pattern_identifier;
 
 pub(super) fn collect_program_calls(
@@ -104,15 +104,17 @@ impl CallCollector<'_, '_> {
     }
 
     fn push(&mut self, callee: String, span: Span, kind: &'static str) {
-        self.push_with_receiver(callee, span, kind, None);
+        self.push_with_receiver(callee, span, kind, (None, None));
     }
 
+    /// Push a call whose receiver has the written type name or the declared
+    /// type with steps of [`ReceiverScopes::receiver`].
     fn push_with_receiver(
         &mut self,
         callee: String,
         span: Span,
         kind: &'static str,
-        receiver_type: Option<String>,
+        (receiver_type, receiver_declared): (Option<String>, Option<GraphDeclaredType>),
     ) {
         let owner = self.owner.as_deref().unwrap_or(MODULE_OWNER);
         push_call(
@@ -124,6 +126,9 @@ impl CallCollector<'_, '_> {
             receiver_type,
             self.calls,
         );
+        if let Some(call) = self.calls.last_mut() {
+            call.receiver_declared = receiver_declared;
+        }
     }
 
     fn scoped(&mut self, walk: impl FnOnce(&mut Self)) {

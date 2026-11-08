@@ -79,18 +79,31 @@ fn enclosing_rows(rows: &[Value]) -> Vec<Option<usize>> {
         }
         let parent = row.get("parent").and_then(Value::as_str);
         let parent_line = row.get("parentLine").and_then(Value::as_u64);
-        let found = parent.and_then(|parent| {
-            stack.iter().rposition(|&ancestor| {
-                let ancestor = &rows[ancestor];
-                name(ancestor).as_deref() == Some(parent)
-                    && parent_line
-                        .is_none_or(|expected| ancestor["line"].as_u64() == Some(expected))
-            })
-        });
-        match found {
+        let names = |candidate: usize| {
+            let candidate = &rows[candidate];
+            parent.is_some_and(|parent| name(candidate).as_deref() == Some(parent))
+                && parent_line.is_none_or(|expected| candidate["line"].as_u64() == Some(expected))
+        };
+        match stack.iter().rposition(|&ancestor| names(ancestor)) {
             Some(position) => {
                 stack.truncate(position + 1);
                 enclosing.push(Some(stack[position]));
+            }
+            // A member declared inside a sibling's span (a Python attribute
+            // that `__init__` assigns, a member of its class) took that
+            // sibling off the chain: the parent is still a row of this
+            // tree, so the chain is rebuilt from it.
+            None if !stack.is_empty()
+                && let Some(found) = (stack[0]..index).rev().find(|&row| names(row)) =>
+            {
+                stack.clear();
+                let mut ancestor = Some(found);
+                while let Some(row) = ancestor {
+                    stack.push(row);
+                    ancestor = enclosing[row];
+                }
+                stack.reverse();
+                enclosing.push(Some(found));
             }
             None => {
                 stack.clear();

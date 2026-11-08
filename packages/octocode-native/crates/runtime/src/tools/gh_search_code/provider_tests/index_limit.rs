@@ -25,9 +25,15 @@ async fn search(
         .await;
     let provider = one_shot_provider(&server);
     let query: GhSearchCodeQuery = serde_json::from_value(query).expect("query");
-    execute(&provider, &query, &default_context(), &Passthrough)
-        .await
-        .expect("search")
+    execute(
+        &provider,
+        &query,
+        &default_context(),
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("search")
 }
 
 /// The fact replaces the old free-text hint: a file-name search, a name

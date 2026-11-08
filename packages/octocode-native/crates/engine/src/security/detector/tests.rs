@@ -36,8 +36,22 @@ fn assert_no_pattern_matches(result: &DetectResult) {
             );
             continue;
         }
+        // A value-tested pattern matches values its test keeps (a reference,
+        // a redaction marker): what must not remain is one it would redact.
+        let value_test = super::credential_values::VALUE_TESTS[idx];
+        let left = if value_test == super::credential_values::ValueTest::Every {
+            pattern_regex(idx).is_match(&result.sanitized)
+        } else {
+            replace_secrets(
+                pattern_regex(idx),
+                &result.sanitized,
+                "",
+                |key, secret, _| value_test.redacts(key, secret),
+            )
+            .0 != result.sanitized
+        };
         assert!(
-            !pattern_regex(idx).is_match(&result.sanitized),
+            !left,
             "pattern `{name}` still matches sanitized output — post-condition violated"
         );
     }
@@ -109,9 +123,11 @@ fn b64(text: &str) -> String {
 }
 
 mod ascii_boundaries;
+mod comment_tails;
 mod credential_values;
 mod document_forms;
 mod every_pattern;
+mod glued_tags;
 mod key_armors;
 mod large_input;
 mod markerless;
@@ -121,3 +137,4 @@ mod regex_forms;
 mod sampling;
 mod scope;
 mod source_names;
+mod span_keys;

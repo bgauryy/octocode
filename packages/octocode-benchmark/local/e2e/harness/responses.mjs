@@ -2,9 +2,8 @@
 // row objects the suites assert on, and follow their continuations.
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isDeepStrictEqual } from 'node:util';
 import { ROOT } from './paths.mjs';
-import { contract } from './contract.mjs';
+import { laterPartContext } from './page-context.mjs';
 
 /** Typed continuation and related calls, preserving their exact input. */
 export function nextHints(value, pathLabel = '') {
@@ -161,47 +160,35 @@ export function lspLocations(entry, index = 0) {
   })));
 }
 
+function outlineContext(segments, row, original, continued) {
+  return continued && row.members?.length > 0 && row.occurrenceId === undefined
+    && laterPartContext('astSearch', segments, { row, original, skip: key => key === 'members' });
+}
+
 /**
  * astSearch / lspSearch outline rows as harness declarations: declaration
  * objects {symbolName, kind, line, endLine?, docStartLine?, exported?, shared?,
  * members?}. `name` = symbolName, `character` = column. `extra` (e.g. a
  * directory outline's file path) is merged in.
  */
-const outlineContract = contract.tools.find(tool => tool.name === 'astSearch');
-const outlineContextFields = new Set(Object.values(outlineContract.pageContextFields).flat());
-const outlineCollections = new Set(outlineContract.collectionPaths.map(pointer => pointer.split('/').at(-1)));
-function outlineContext(row, continued) {
-  // Later fragments keep ancestor coordinates and nested provenance objects;
-  // the occurrence itself retains its scalar identity on its first part only.
-  return continued && row.members?.length > 0 && row.occurrenceId === undefined
-    && Object.entries(row).every(([key, value]) => key === 'members'
-      || (!outlineCollections.has(key) && (outlineContextFields.has(key) || (value !== null && typeof value === 'object'))));
-}
-
-/** Repeated context may omit fields, but cannot add or change values or array entries. */
-export function unchangedContext(value, original) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return isDeepStrictEqual(value, original);
-  return original !== null && typeof original === 'object' && !Array.isArray(original)
-    && Object.entries(value).every(([key, child]) => Object.hasOwn(original, key) && unchangedContext(child, original[key]));
-}
-
 export function outlineRows(rows = [], extra = {}, parent = {}, state = {}) {
-  const { continued = false, context = new Map(), scope = 0 } = state;
+  const { continued = false, context = new Map(), scope = 0, pointer = ['data', 'symbols'] } = state;
   // Containers nest members under them (`members`, with fields every member
   // shares in the container's `shared`); flatten them in source order with
   // `parent`/`parentLine` restored.
-  return (rows ?? []).flatMap(row => {
+  return (rows ?? []).flatMap((row, at) => {
     if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error(`outline row is not a declaration object: ${JSON.stringify(row)}`);
     const { symbolName, column, members, shared, ...rest } = row;
     const decl = { ...extra, ...parent, ...rest, name: symbolName };
     if (column !== undefined) decl.character = column;
     const nested = (members ?? []).map(member => ({ ...shared, ...member }));
     const key = JSON.stringify([scope, extra.path, parent.parent, parent.parentLine, symbolName, row.kind, row.line]);
-    const own = outlineContext(row, continued) && unchangedContext(decl, context.get(key)) ? [] : [decl];
+    const segments = [...pointer, String(at)];
+    const own = outlineContext(segments, row, context.get(key), continued) ? [] : [decl];
     // Every declaration's first appearance is the context a later part's fragment of it repeats: a split nested
     // two levels deep (file > symbol > members) repeats the symbol, which carries no occurrenceId.
-    if (!context.has(key)) context.set(key, decl);
-    return [...own, ...outlineRows(nested, extra, { parent: symbolName, parentLine: row.line }, { continued, context, scope })];
+    if (!context.has(key)) context.set(key, row);
+    return [...own, ...outlineRows(nested, extra, { parent: symbolName, parentLine: row.line }, { continued, context, scope, pointer: [...segments, 'members'] })];
   });
 }
 
@@ -213,7 +200,10 @@ export function declarations(entry, index = 0, context = new Map()) {
   const continued = part?.part > 1 && Boolean(part.continues);
   const scope = entry.sc?.results?.[index]?.index ?? index;
   const state = { continued, context, scope };
-  return [...outlineRows(data.symbols, {}, {}, state), ...(data.files ?? []).flatMap(file => outlineRows(file.symbols, { path: file.path }, {}, state))];
+  return [
+    ...outlineRows(data.symbols, {}, {}, state),
+    ...(data.files ?? []).flatMap((file, at) => outlineRows(file.symbols, { path: file.path }, {}, { ...state, pointer: ['data', 'files', String(at), 'symbols'] })),
+  ];
 }
 
 /**

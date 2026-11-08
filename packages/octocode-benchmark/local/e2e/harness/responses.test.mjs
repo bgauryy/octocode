@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { declarations, joinTextParts, lspLocations, nextHints, rowData, sourceLines } from './responses.mjs';
+import { laterPartValue } from './page-context.mjs';
 
 test('string-window parts append at rowPart.text and every value reads exactly once', () => {
   const whole = { index: 0, data: { files: [{ path: 'a', matches: [{ line: 1, text: 'one' }, { line: 2, text: 'abcdefgh' }] }], content: 'xyz' }, status: 'success' };
@@ -72,8 +73,8 @@ test('source lines reject incomplete or unanchored evidence instead of dropping 
 test('outline continuation retains member evidence and omits only the repeated ancestor context', () => {
   const provenance = { sourceRange: { startByte: 0, endByte: 50 }, selectionByteRange: { startByte: 6, endByte: 12 }, parseAssessment: { status: 'parsed', scope: 'declaration' } };
   const member = { symbolName: 'run', kind: 'method', line: 2, occurrenceId: 'member', sourceDigest: 'digest', ...provenance };
-  const context = { symbolName: 'Worker', kind: 'class', line: 1, endLine: 3, sourceDigest: 'digest', ...provenance, members: [member] };
-  const full = { ...context, occurrenceId: 'parent', sourceDigest: 'digest', exported: true };
+  const context = { symbolName: 'Worker', kind: 'class', line: 1, sourceDigest: 'digest', ...provenance, members: [member] };
+  const full = { ...context, endLine: 3, occurrenceId: 'parent', sourceDigest: 'digest', exported: true };
   const seen = new Map();
   assert.deepEqual(declarations(outlinePage(full, false), 0, seen).map(row => row.occurrenceId), ['parent', 'member']);
   assert.deepEqual(declarations(outlinePage(context, true), 0, seen).map(row => row.occurrenceId), ['member']);
@@ -87,6 +88,55 @@ test('outline continuation retains member evidence and omits only the repeated a
   assert.equal(declarations(outlinePage({ ...context, newMetadata: { flag: true } }, true), 0, seen).length, 2, 'new nested metadata remains evidence');
   assert.deepEqual(declarations(outlinePage({ ...context, exported: true }, true), 0, seen).map(row => row.occurrenceId), ['member'], 'unchanged declared exported qualifier remains context');
   assert.equal(declarations(outlinePage({ ...context, docStartLine: 1 }, true), 0, seen).length, 2, 'non-context evidence is retained');
+});
+
+test('per-pointer page context: identity repeats whole, required evidence arrives once, parts join to the row', () => {
+  const evidence = { name: 'suite case', suite: 'suite', kind: 'test', framework: 'node', parameterized: false };
+  const first = { symbolName: 'Worker', kind: 'class', line: 1, endLine: 9, occurrenceId: 'parent', testIdentity: evidence, members: [{ symbolName: 'run', kind: 'method', line: 2, occurrenceId: 'a' }] };
+  const later = (overrides, members = [{ symbolName: 'stop', kind: 'method', line: 5, occurrenceId: 'b' }]) => (
+    { symbolName: 'Worker', kind: 'class', line: 1, testIdentity: evidence, ...overrides, members });
+  const ids = (symbol, continued, seen) => declarations(outlinePage(symbol, continued), 0, seen).map(row => row.occurrenceId);
+
+  // Joining: the first part's row plus the later part's members equals the single-page row's declarations.
+  const whole = { ...first, members: [...first.members, { symbolName: 'stop', kind: 'method', line: 5, occurrenceId: 'b' }] };
+  const joined = new Map();
+  assert.deepEqual([...ids(first, false, joined), ...ids(later({}), true, joined)], ids(whole, false, new Map()));
+
+  const rejected = (name, overrides) => {
+    const seen = new Map();
+    ids(first, false, seen);
+    assert.equal(ids(later(overrides), true, seen).length, 2, `${name} is evidence, not context`);
+  };
+  rejected('changed bounded evidence', { testIdentity: { ...evidence, name: 'other' } });
+  rejected('a changed identity', { symbolName: 'Other' });
+  rejected('a missing identity', { symbolName: undefined });
+  rejected('a changed optional identity field', { kind: 'interface' });
+  rejected('a changed required-evidence scalar', { line: 4 });
+  rejected('first-part-only evidence repeated', { endLine: 9 });
+});
+
+test('required evidence on a later part is empty, never a second delivery', () => {
+  const symbols = ['data', 'symbols'];
+  assert.equal(laterPartValue('astSearch', symbols, [], [{ symbolName: 'a' }]), true, 'a required list arrives as [] on a later part');
+  assert.equal(laterPartValue('astSearch', symbols, [{ symbolName: 'a' }], [{ symbolName: 'a' }]), false, 'a list repeated whole is a second delivery');
+  assert.equal(laterPartValue('astSearch', [...symbols, '0', 'symbolName'], 'a', 'a'), true, 'identity repeats whole');
+  assert.equal(laterPartValue('astSearch', [...symbols, '0', 'symbolName'], '', 'a'), false, 'emptied identity is not identity');
+  assert.equal(laterPartValue('astSearch', [...symbols, '0', 'line'], 2, 2), true, 'a required number cannot be empty: whole');
+  assert.equal(laterPartValue('astSearch', [...symbols, '0', 'line'], 3, 2), false);
+  const path = ['data', 'diagnostics', '0', 'files', '0', 'path'];
+  assert.equal(laterPartValue('astSearch', path, '', 'src/a.ts'), true, 'free-text required evidence arrives as ""');
+  assert.equal(laterPartValue('astSearch', path, 'src/a.ts', 'src/a.ts'), false, 'free text repeated whole is a second delivery');
+});
+
+test('required evidence the output schema forbids empty repeats whole and agrees', () => {
+  const section = ['data', 'resources', 'r', 'sections', '0'];
+  const bytes = [...section, 'target', 'bytes'];
+  assert.equal(laterPartValue('clasify', bytes, [0, 5], [0, 5]), true, 'a pair has no empty form: whole');
+  assert.equal(laterPartValue('clasify', bytes, [], [0, 5]), false, 'an emptied pair breaks the schema');
+  assert.equal(laterPartValue('clasify', bytes, [0, 6], [0, 5]), false, 'a repeated bound value must agree');
+  const context = [{ bytes: [0, 5], lines: { startLine: 1, endLine: 1 } }];
+  assert.equal(laterPartValue('clasify', [...section, 'context'], [], context), true, 'an unbounded list arrives as []');
+  assert.equal(laterPartValue('clasify', [...section, 'context'], context, context), false, 'an unbounded list repeated whole is a second delivery');
 });
 
 test('unchanged declared evidence collections never disappear as ancestor context', () => {

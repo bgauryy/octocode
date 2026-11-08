@@ -187,7 +187,7 @@ fn test_generated_and_vendored_paths_are_demoted_below_the_root() {
         "dist/index.js",
         "vendor/lib/a.go",
         "app.min.js",
-        "Tests\\Unit.cs",
+        "Tests/Unit.cs",
     ] {
         assert!(is_demoted_path(path), "{path}");
     }

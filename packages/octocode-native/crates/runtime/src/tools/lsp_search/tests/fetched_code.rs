@@ -9,7 +9,7 @@ use crate::tools::gh_clone_repo::storage::clones_root;
 use crate::tools::gh_structure::materialize::materialize_root;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 
 pub(super) struct World {
@@ -40,16 +40,11 @@ impl World {
         std::fs::create_dir_all(&home).expect("home");
         let marker = root.join("server-started");
         let server = root.join("recording-server");
-        std::fs::write(
-            &server,
-            format!(
-                "#!/bin/sh\necho started >> '{}'\nexit 1\n",
-                marker.display()
-            ),
-        )
-        .expect("server");
-        std::fs::set_permissions(&server, std::fs::Permissions::from_mode(0o755))
-            .expect("executable");
+        let script = format!(
+            "#!/bin/sh\necho started >> '{}'\nexit 1\n",
+            marker.display()
+        );
+        crate::tools::lsp_search::tests::write_executable(&server, script.as_bytes());
         std::fs::write(
             home.join("lsp-servers.json"),
             json!({"languageServers":{".rs":{"command":server,"args":[],"languageId":"rust"}}})

@@ -153,6 +153,9 @@ struct Manifest {
     exports: PatternTargets,
     /// `imports` keys (`#internal/*`).
     imports: PatternTargets,
+    /// The manifest has an `exports` field: Node lets the package's own
+    /// files import it by its name (self-reference).
+    self_reference: bool,
 }
 
 /// Configuration-derived resolution state for one graph build.
@@ -171,6 +174,9 @@ pub(crate) struct ResolveContext {
     packages: BTreeMap<String, Arc<Manifest>>,
     /// Package directory → manifest (for `#` imports of the importer).
     manifests: BTreeMap<String, Arc<Manifest>>,
+    /// Package directories a scanned workspace root lists: the workspace
+    /// links each into `node_modules`, so its own files reach it by name.
+    workspace_members: HashSet<String>,
     /// Package names local to the repository though not scanned: a sibling in
     /// an enclosing workspace, or a `workspace:`, `file:` or `link:` dependency.
     local_packages: HashSet<String>,
@@ -283,6 +289,7 @@ impl ResolveContext {
         }
         let (package, subpath) = split_package(spec)?;
         if let Some(manifest) = self.packages.get(package)
+            && self.named_from(manifest, package, importer)
             && let Some(found) = resolve_package(manifest, subpath, known)
         {
             return Some(found);
@@ -316,11 +323,29 @@ impl ResolveContext {
             return true;
         }
         split_package(spec).is_some_and(|(package, _)| {
-            self.packages.contains_key(package) || self.local_packages.contains(package)
+            self.packages
+                .get(package)
+                .is_some_and(|manifest| self.named_from(manifest, package, importer))
+                || self.local_packages.contains(package)
         }) || self
             .ts_config_for(importer)
             .and_then(|config| config.outer_base.as_ref())
             .is_some_and(|base| self.outer_base_holds(&base.dir, spec))
+    }
+
+    /// Whether `importer` reaches the package `name` (declared by `manifest`)
+    /// by that name, as Node resolves it. A file of another package does,
+    /// through `node_modules`. A file of the package itself does only through
+    /// self-reference, which needs `exports`, or through the link a workspace
+    /// makes for its member; otherwise its `node_modules` holds whatever copy
+    /// of the name is installed, which is not this source.
+    fn named_from(&self, manifest: &Manifest, name: &str, importer: &str) -> bool {
+        let own = self
+            .manifest_for(importer)
+            .is_some_and(|nearest| nearest.dir == manifest.dir);
+        !own || manifest.self_reference
+            || self.workspace_members.contains(&manifest.dir)
+            || self.local_packages.contains(name)
     }
 
     /// Whether `spec` spelled from the `baseUrl` `dir` outside the scan names a

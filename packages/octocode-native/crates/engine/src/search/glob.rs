@@ -17,6 +17,32 @@ use crate::error::{Error, ErrorKind};
 /// name: every reading of an `include` entry tests against this one set.
 pub const GLOB_META: [char; 4] = ['*', '?', '[', '{'];
 
+/// `text` (a file name or path) as a glob that matches only itself, in this
+/// dialect and in `globset`'s with or without backslash escapes: each
+/// character a glob reads (`* ? [ ] { }`, the escape `\`, and a space,
+/// which a gitignore line trims at its end) becomes a one-character class.
+/// `/` stays a separator. A leading `!` or `#` still reads as a gitignore
+/// negation or comment unless the caller anchors the glob (a `/` prefix, or
+/// [`name`] for a name at any depth).
+pub fn literal(text: &str) -> String {
+    let mut glob = String::with_capacity(text.len());
+    for c in text.chars() {
+        if matches!(c, '*' | '?' | '[' | ']' | '{' | '}' | '\\' | ' ') {
+            glob.extend(['[', c, ']']);
+        } else {
+            glob.push(c);
+        }
+    }
+    glob
+}
+
+/// `text` as a glob that matches an entry named exactly `text` at any depth:
+/// the [`literal`] glob below `**/`, so a leading `!` or `#` is part of the
+/// name, never a negation or a comment.
+pub fn name(text: &str) -> String {
+    format!("**/{}", literal(text))
+}
+
 /// Whether `pattern` is a bare word: no `/` and no [`GLOB_META`] character.
 /// An `include` entry that is one names a file or directory by a part of its
 /// name rather than a path or a glob.
@@ -204,6 +230,68 @@ impl IncludeScope {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A literal glob matches its own name and no other, as an anchored
+    /// include line and as a `globset` glob with or without escapes.
+    #[test]
+    fn a_literal_glob_matches_only_its_text() {
+        let root = Path::new("/r");
+        let names = [
+            "f\\g.ts",
+            "a[1]*.ts",
+            "x{y,z}?.ts",
+            "has space.ts",
+            "end.ts ",
+            "plain.ts",
+        ];
+        for name in names {
+            let line = format!("/{}", literal(name));
+            let set = set(root, std::iter::once(line.as_str()), "include")
+                .expect("compiles")
+                .expect("one glob");
+            for other in names {
+                assert_eq!(
+                    matches(&set, &root.join(other), false),
+                    other == name,
+                    "{line} against {other:?}"
+                );
+            }
+            for escape in [true, false] {
+                let glob = globset::GlobBuilder::new(&literal(name))
+                    .backslash_escape(escape)
+                    .build()
+                    .expect("compiles")
+                    .compile_matcher();
+                for other in names {
+                    assert_eq!(glob.is_match(other), other == name, "{name:?} {escape}");
+                }
+            }
+        }
+    }
+
+    /// A name glob matches that name at any depth and nothing else, even
+    /// when the name starts with what a gitignore line reads as syntax.
+    #[test]
+    fn a_name_glob_matches_its_name_at_any_depth() {
+        let root = Path::new("/r");
+        let names = ["!bang.ts", "#hash.ts", "bang.ts", "a[1].ts"];
+        for name_text in names {
+            let line = name(name_text);
+            let set = set(root, std::iter::once(line.as_str()), "include")
+                .expect("compiles")
+                .expect("one glob");
+            for other in names {
+                for dir in ["", "deep/er/"] {
+                    let path = root.join(format!("{dir}{other}"));
+                    assert_eq!(
+                        matches(&set, &path, false),
+                        other == name_text,
+                        "{line} {path:?}"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn a_bare_word_has_no_slash_and_no_glob_character() {

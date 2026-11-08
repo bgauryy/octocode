@@ -17,7 +17,14 @@ use wiremock::{
 pub(crate) async fn run_code(server: &MockServer, query: Value) -> Result<ToolData, ProviderError> {
     let provider = one_shot_provider(server);
     let query = serde_json::from_value(query).expect("canonical code query");
-    gh_search_code::execute(&provider, &query, &default_context(), &Passthrough).await
+    gh_search_code::execute(
+        &provider,
+        &query,
+        &default_context(),
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
 }
 
 pub(crate) async fn run_repo(server: &MockServer, query: Value) -> Result<ToolData, ProviderError> {

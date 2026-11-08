@@ -30,8 +30,10 @@ pub(crate) const SENSITIVE_DIRECTORY_NAMES: &[&str] = &[
 
 /// Credential-shaped file names no local tool reads, lists or searches,
 /// whatever its flags: the one list behind [`is_sensitive_path`] (read and
-/// tree) and the text search's path filter. `.env` and `.env.*` are matched
-/// by prefix beside it. Lowercase, as every name is compared [`folded`].
+/// tree) and the text search's path filter. The dotenv family (`.env`,
+/// `.env.*`, `.envrc`, `.flaskenv`, `*.env`) is the engine's one rule,
+/// [`octocode_engine::security::is_dotenv_name`], beside it. Lowercase, as
+/// every name is compared [`folded`].
 pub(crate) const CREDENTIAL_FILE_NAMES: &[&str] = &[
     ".npmrc",
     ".pypirc",
@@ -43,8 +45,6 @@ pub(crate) const CREDENTIAL_FILE_NAMES: &[&str] = &[
     ".boto",
     ".my.cnf",
     ".dockercfg",
-    ".envrc",
-    ".flaskenv",
     ".git-credentials",
     ".bash_history",
     ".zsh_history",
@@ -93,8 +93,8 @@ pub(crate) const CREDENTIAL_FILE_NAMES: &[&str] = &[
 ];
 
 /// Credential-shaped file extensions, shared like [`CREDENTIAL_FILE_NAMES`].
-/// `.env` covers `app.env`/`config.env`; a backup suffix (`id_rsa.old`) is
-/// matched by [`is_sensitive_path`] on the stem.
+/// A backup suffix (`id_rsa.old`) is matched by [`is_sensitive_path`] on the
+/// stem; `*.env` is the dotenv rule's.
 pub(crate) const CREDENTIAL_FILE_EXTENSIONS: &[&str] = &[
     ".key",
     ".pem",
@@ -111,7 +111,6 @@ pub(crate) const CREDENTIAL_FILE_EXTENSIONS: &[&str] = &[
     ".gpg",
     ".asc",
     ".ovpn",
-    ".env",
 ];
 
 /// Backup/copy suffixes that keep a credential file a credential file
@@ -237,8 +236,17 @@ pub(crate) fn is_sensitive_path(path: &Path, kind: EntryKind) -> bool {
 /// local one is, so a location named by a fragment (`.config/gh/`) matches at
 /// the repository root too, and read as GitHub reads it (`./.env`, `a/../.env`).
 pub(crate) fn is_sensitive_repository_file(path: &str) -> bool {
-    let inside = octocode_engine::text::lexical(Path::new(path));
-    is_sensitive_path(&Path::new("/").join(inside), EntryKind::File)
+    is_sensitive_path(&repository_path(path), EntryKind::File)
+}
+
+/// A repository's `path` rooted as a local path is, the form every
+/// repository-file rule judges. A `\` is read as a separator on every
+/// platform, failing closed: git allows it in a name, and a Windows checkout
+/// or materialize splits on it (`a\.ssh\config` lands as `a/.ssh/config`).
+/// A local Unix path keeps `\` as a name byte ([`octocode_engine::text::slash_path`]).
+pub(crate) fn repository_path(path: &str) -> PathBuf {
+    let separated = path.replace('\\', "/");
+    Path::new("/").join(octocode_engine::text::lexical(Path::new(&separated)))
 }
 
 /// `path` as a case-insensitive filesystem compares it ([`folded`]).
@@ -328,8 +336,7 @@ fn is_sensitive_file(path: &str) -> bool {
 }
 
 fn is_credential_name(name: &str) -> bool {
-    name == ".env"
-        || name.starts_with(".env.")
+    octocode_engine::security::is_dotenv_name(name)
         || CREDENTIAL_FILE_NAMES.contains(&name)
         || CREDENTIAL_FILE_EXTENSIONS
             .iter()

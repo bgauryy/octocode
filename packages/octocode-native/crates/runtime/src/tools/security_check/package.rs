@@ -3,7 +3,11 @@
 //! confirm, and a failure at either step reads as not checked, never as clean.
 use super::Net;
 use super::answer;
-use super::source::{Confirmed, SourceResult, Target, View, ask_all, into_row};
+use super::dispute;
+use super::ecosystem::{self, Ecosystem};
+use super::source::{Confirmed, SourceResult, Target, View, ask_all, into_row, names_release};
+use super::trust::{self, Registered, Trust};
+use super::update::{self, Latest};
 use super::upgrade;
 use crate::id::ToolId;
 use crate::providers::artifact::query::artifact_type;
@@ -12,14 +16,16 @@ use crate::providers::artifact::{
 };
 use crate::response::paging::{self, PartialReason};
 use crate::response::result::Continuation;
-use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
+use octocode_contract_types::{ArtifactSearchQuery, ErrorCode};
 use serde_json::{Map, Value, json};
 
 /// A package row's coordinates, wherever they came from.
 pub(super) struct Package<'a> {
-    pub kind: ArtifactType,
+    pub ecosystem: Ecosystem,
     pub name: &'a str,
     pub version: Option<&'a str>,
+    /// A distribution release; refused on any other ecosystem.
+    pub release: Option<&'a str>,
     /// The source's token: this row continues a walk the registry confirmed.
     pub resume: Option<&'a str>,
     /// `mainGoal` and `reasoning`, carried into the next page.
@@ -35,24 +41,153 @@ struct Notes {
     /// Runtime dependencies the confirmed version pins to one exact version:
     /// the advisories filed against them are not this package's.
     pinned: Vec<Pin>,
+    /// No registry reads this ecosystem: the name and version went to OSV as given.
+    unconfirmed: bool,
+    /// What the registry states of the confirmed version, for the trust read.
+    registered: Option<Registered>,
+    /// The confirmed version's release date and the registry's latest stable.
+    current_published_at: Option<String>,
+    latest: Option<Latest>,
+    /// The registry still to ask for its latest stable release: the confirmed
+    /// version was pinned, so it says nothing of the latest.
+    latest_lookup: Option<octocode_contract_types::ArtifactType>,
+    /// Why the latest release is unknown, when the registry read failed.
+    latest_unread: Option<Unread>,
+    /// The trust read, once made.
+    trust: Option<Trust>,
+    /// A source lists the package in the release asked, so a version with no
+    /// record there is a finding and not an unnamed release.
+    release_named: bool,
+}
+
+/// A registry read that failed once the version was confirmed: the row names
+/// the registry as a failed source and is partial, never silently complete.
+struct Unread {
+    code: ErrorCode,
+    why: String,
+}
+
+/// Adds the failed registry to `sources[]` and marks the row partial.
+fn registry_failed(data: &mut Value, unread: &Unread) {
+    let source = json!({
+        "source": "registry", "status": "failed",
+        "errorCode": unread.code, "why": unread.why,
+    });
+    match data["sources"].as_array_mut() {
+        Some(sources) => sources.push(source),
+        None => data["sources"] = json!([source]),
+    }
+    paging::mark_partial(
+        data,
+        PartialReason::SourceFailed,
+        std::slice::from_ref(&unread.why),
+    );
 }
 
 pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, ArtifactError> {
-    let (confirmed, notes) = match package.resume {
+    ecosystem::check_release(package.ecosystem, package.release)?;
+    let (confirmed, mut notes) = match package.resume {
         Some(token) => (
             Confirmed {
-                kind: package.kind,
+                ecosystem: package.ecosystem,
                 name: package.name.to_owned(),
                 version: package.version.map(str::to_owned),
                 resume: Some(token.to_owned()),
+                release: package.release.map(str::to_owned),
+                import: None,
             },
-            Notes::default(),
+            Notes {
+                unconfirmed: ecosystem::registry(package.ecosystem)?.is_none(),
+                ..Notes::default()
+            },
         ),
         None => confirm(package, net).await?,
     };
-    let results = ask_all(&Target::Package(confirmed.clone()), net).await?;
+    let resumed = package.resume.is_some();
+    // GitHub's read of the source repository and the registry's latest release
+    // do not depend on OSV's answer.
+    let registered = notes.registered.take();
+    let target = Target::Package(confirmed.clone());
+    let lookup = notes.latest_lookup.take();
+    let (results, trust, latest) = tokio::join!(
+        ask_all(&target, net),
+        async {
+            match registered {
+                Some(registered) => Some(trust::read(registered, &confirmed, net).await),
+                None => None,
+            }
+        },
+        async {
+            match lookup {
+                Some(kind) => Some(read_latest(package, kind, net).await),
+                None => None,
+            }
+        }
+    );
+    let results = results?;
+    notes.trust = trust;
+    if let Some((latest, unread)) = latest {
+        notes.latest = latest;
+        notes.latest_unread = unread;
+    }
+    // A failed by-name ask leaves the empty answer not covered, and says why.
+    let probe_failed = match release_named(&confirmed, &results, net).await {
+        Ok(named) => {
+            notes.release_named = named;
+            None
+        }
+        Err(error) => Some(error.message),
+    };
     let upgrade = upgrade_for(&confirmed, &results, net).await;
-    Ok(respond(package, &confirmed, notes, &results, &upgrade))
+    let mut results = results;
+    let disputes = dispute::mark(&confirmed, &mut results, net).await;
+    if let Some(trust) = &mut notes.trust {
+        let finished = results.iter().all(|result| result.resume.is_none());
+        trust.merge(&mut results, finished);
+    }
+    let needs_release = ecosystem::needs_release(package.ecosystem)?;
+    let mut data = respond(
+        package,
+        &confirmed,
+        notes,
+        &results,
+        &upgrade,
+        needs_release,
+    );
+    paging::push_warnings(&mut data, disputes);
+    if let Some(why) = probe_failed {
+        paging::push_warnings(
+            &mut data,
+            [format!(
+                "Asking OSV by name whether this release lists the package failed ({why}), so the empty answer at this version stays not covered."
+            )],
+        );
+    }
+    if resumed {
+        // The registry facts were read with the first page; this page only continues OSV's walk.
+        paging::push_warnings(
+            &mut data,
+            ["Trust, repository and update facts are on the first page of this walk; this page continues the advisory list only.".to_owned()],
+        );
+    }
+    Ok(data)
+}
+
+/// Whether the release asked is one a source names. Asked only when a version
+/// asked of a release came back with nothing, once, by name: any record of the
+/// package in that release makes the empty answer at the version a real one.
+async fn release_named(
+    confirmed: &Confirmed,
+    results: &[SourceResult],
+    net: &Net<'_>,
+) -> Result<bool, ArtifactError> {
+    let answered = results
+        .iter()
+        .any(|result| result.resume.is_some() || !result.advisories.is_empty());
+    if confirmed.release.is_none() || confirmed.version.is_none() || answered {
+        return Ok(false);
+    }
+    names_release(confirmed, net).await
 }
 
 /// What the sources say to upgrade to.
@@ -89,10 +224,12 @@ async fn upgrade_for(confirmed: &Confirmed, results: &[SourceResult], net: &Net<
     };
     loop {
         let probe = Target::Package(Confirmed {
-            kind: confirmed.kind,
+            ecosystem: confirmed.ecosystem,
             name: confirmed.name.clone(),
             version: Some(named.clone()),
             resume: None,
+            release: confirmed.release.clone(),
+            import: confirmed.import.clone(),
         });
         let answers = match ask_all(&probe, net).await {
             Ok(answers) if answers.iter().all(|result| result.resume.is_none()) => answers,
@@ -159,49 +296,41 @@ async fn confirm(
     net: &Net<'_>,
 ) -> Result<(Confirmed, Notes), ArtifactError> {
     let name = package.name;
-    let kind = package.kind;
-    let mut resolve = json!({
-        "operation": "resolve",
-        "ecosystem": artifact_type::as_str(kind),
-        "packageName": name,
-    });
-    if let Some(version) = package.version {
-        resolve["version"] = json!(version);
-    }
-    let resolve = crate::contracts::validate_query(ToolId::ArtifactSearch.as_str(), resolve)
-        .map_err(|error| {
-            ArtifactError::new(
-                ErrorCode::InvalidInput,
-                format!("{name} is not a {kind} package coordinate: {error}"),
-            )
-        })?;
-    let resolve = serde_json::from_value::<ArtifactSearchQuery>(resolve)
-        .map_err(|_| ArtifactError::new(ErrorCode::InvalidInput, "Invalid package query."))?;
-    let context = ArtifactProviderContext {
-        http: net.http,
-        budget: net.budget,
-        npm_registry: None,
-        allow_private_registry: false,
-        answers: net.answers,
-        reused: net.reused,
-        tags: None,
+    let Some(kind) = ecosystem::registry(package.ecosystem)? else {
+        // No registry reads this ecosystem: OSV hears the name as given.
+        return Ok((
+            Confirmed {
+                ecosystem: package.ecosystem,
+                name: name.to_owned(),
+                version: package.version.map(str::to_owned),
+                resume: None,
+                release: package.release.map(str::to_owned),
+                import: None,
+            },
+            Notes {
+                unconfirmed: true,
+                ..Notes::default()
+            },
+        ));
     };
-    let page = match execute_artifact(&resolve, &context).await {
+    let resolve = resolve_query(kind, name, package.version)?;
+    let page = match execute_artifact(&resolve, &context(net)).await {
         Ok(page) => page,
         // The package is public and this version is not: the source may hear
         // the name, never a version the registry does not list.
         Err(error) if error.code == ErrorCode::VersionNotFound => {
             return Ok((
                 Confirmed {
-                    kind,
+                    ecosystem: package.ecosystem,
                     name: name.to_owned(),
                     version: None,
                     resume: None,
+                    release: package.release.map(str::to_owned),
+                    import: None,
                 },
                 Notes {
                     absent: Some(error),
-                    prerelease_warning: None,
-                    pinned: Vec::new(),
+                    ..Notes::default()
                 },
             ));
         }
@@ -222,16 +351,29 @@ async fn confirm(
         )
         .with_status(404));
     };
+    // A pinned version asks the registry once more for the latest, in `run`,
+    // alongside the other reads; every other row already holds it.
+    let (latest, latest_lookup) = latest_of(artifact, package, kind);
     Ok((
         Confirmed {
-            kind,
+            ecosystem: package.ecosystem,
             name: source_name(artifact),
             version: artifact.version.clone(),
             resume: None,
+            release: package.release.map(str::to_owned),
+            import: go_import(artifact),
         },
         Notes {
             absent: None,
+            unconfirmed: false,
             pinned: exact_pins(artifact),
+            registered: Some(Registered::of(artifact)),
+            current_published_at: artifact.published_at.clone(),
+            latest,
+            latest_lookup,
+            latest_unread: None,
+            trust: None,
+            release_named: false,
             prerelease_warning: artifact.only_prerelease.then(|| {
                 format!(
                     "{name}: the registry lists no stable release, so this checks its newest prerelease."
@@ -241,6 +383,102 @@ async fn confirm(
     ))
 }
 
+/// The registry lookup of `name` at `version`, as the artifact tool validates it.
+fn resolve_query(
+    kind: octocode_contract_types::ArtifactType,
+    name: &str,
+    version: Option<&str>,
+) -> Result<ArtifactSearchQuery, ArtifactError> {
+    let mut resolve = json!({
+        "operation": "resolve",
+        "ecosystem": artifact_type::as_str(kind),
+        "packageName": name,
+    });
+    if let Some(version) = version {
+        resolve["version"] = json!(version);
+    }
+    let resolve = crate::contracts::validate_query(ToolId::ArtifactSearch.as_str(), resolve)
+        .map_err(|error| {
+            ArtifactError::new(
+                ErrorCode::InvalidInput,
+                format!("{name} is not a {kind} package coordinate: {error}"),
+            )
+        })?;
+    serde_json::from_value(resolve)
+        .map_err(|_| ArtifactError::new(ErrorCode::InvalidInput, "Invalid package query."))
+}
+
+/// The anonymous registry context: no authorization, no configured registry.
+fn context<'a>(net: &'a Net<'a>) -> ArtifactProviderContext<'a> {
+    ArtifactProviderContext {
+        http: net.http,
+        budget: net.budget,
+        npm_registry: None,
+        allow_private_registry: false,
+        answers: net.answers,
+        reused: net.reused,
+        tags: None,
+    }
+}
+
+/// The registry's latest stable release when the confirmed artifact already
+/// states it (no version asked), and the registry to ask when it does not. A
+/// registry with only prereleases has no latest.
+fn latest_of(
+    artifact: &ArtifactItem,
+    package: &Package<'_>,
+    kind: octocode_contract_types::ArtifactType,
+) -> (
+    Option<Latest>,
+    Option<octocode_contract_types::ArtifactType>,
+) {
+    if artifact.only_prerelease {
+        return (None, None);
+    }
+    if package.version.is_some() {
+        return (None, Some(kind));
+    }
+    let latest = artifact.version.clone().map(|version| Latest {
+        version,
+        published_at: artifact.published_at.clone(),
+    });
+    (latest, None)
+}
+
+/// One more unversioned lookup of the registry's latest stable release; a
+/// failed lookup says why it is unknown.
+async fn read_latest(
+    package: &Package<'_>,
+    kind: octocode_contract_types::ArtifactType,
+    net: &Net<'_>,
+) -> (Option<Latest>, Option<Unread>) {
+    let Ok(unversioned) = resolve_query(kind, package.name, None) else {
+        return (None, None);
+    };
+    match execute_artifact(&unversioned, &context(net)).await {
+        Ok(page) => (
+            page.artifacts.first().and_then(|item| {
+                item.version.clone().map(|version| Latest {
+                    version,
+                    published_at: item.published_at.clone(),
+                })
+            }),
+            None,
+        ),
+        Err(error) => (
+            None,
+            Some(Unread {
+                code: error.code,
+                why: format!(
+                    "{}: the latest release was not read, so whether it is outdated is unknown: {}",
+                    package.name,
+                    sentence(&error.message)
+                ),
+            }),
+        ),
+    }
+}
+
 /// The name a source keys this package under: the registry's own spelling, and
 /// for Go the module, since OSV keys Go by module, not by package path.
 fn source_name(artifact: &ArtifactItem) -> String {
@@ -248,6 +486,15 @@ fn source_name(artifact: &ArtifactItem) -> String {
         .module_path
         .clone()
         .unwrap_or_else(|| artifact.package_name.clone())
+}
+
+/// The package path of a Go package inside its module: the import path OSV's
+/// `ecosystem_specific.imports` lists. A module row has none.
+fn go_import(artifact: &ArtifactItem) -> Option<String> {
+    artifact
+        .module_path
+        .as_ref()
+        .map(|_| artifact.package_name.clone())
 }
 
 fn sentence(message: &str) -> String {
@@ -264,10 +511,10 @@ fn sentence(message: &str) -> String {
 fn package_row(package: &Package<'_>, name: &str, version: Option<&str>) -> Map<String, Value> {
     let mut row = package.brief.clone();
     row.insert("operation".into(), json!("package"));
-    row.insert(
-        "ecosystem".into(),
-        json!(artifact_type::as_str(package.kind)),
-    );
+    row.insert("ecosystem".into(), json!(package.ecosystem.to_string()));
+    if let Some(release) = package.release {
+        row.insert("release".into(), json!(release));
+    }
     row.insert("packageName".into(), json!(name));
     if let Some(version) = version {
         row.insert("version".into(), json!(version));
@@ -292,6 +539,18 @@ fn pinned_calls(data: &mut Value, package: &Package<'_>, pins: &[Pin]) {
     }
 }
 
+/// A row whose empty answer proves nothing: no `status:"empty"`, and each source
+/// says it did not cover this target, never `noneKnown`.
+fn not_evaluated(data: &mut Value, why: &str) {
+    if let Some(row) = data.as_object_mut() {
+        row.remove("status");
+    }
+    for source in data["sources"].as_array_mut().into_iter().flatten() {
+        source["status"] = json!("notCovered");
+        source["why"] = json!(why);
+    }
+}
+
 /// The answer first, the target's facts, the sources' row, and what continues it.
 fn respond(
     package: &Package<'_>,
@@ -299,6 +558,7 @@ fn respond(
     notes: Notes,
     results: &[SourceResult],
     upgrade: &Upgrade,
+    needs_release: bool,
 ) -> Value {
     let name = confirmed.name.as_str();
     let version = confirmed.version.as_deref();
@@ -307,17 +567,58 @@ fn respond(
     facts.upgrade_to = upgrade.to.as_deref();
     facts.upgrade_note = upgrade.note.as_deref();
     facts.version_evaluated = version.is_some();
+    facts.all_versions = notes.unconfirmed && version.is_none();
+    facts.release_named = notes.release_named;
+    facts.release_unmatched =
+        confirmed.release.is_some() && facts.count == 0 && !notes.release_named;
+    facts.release_missing =
+        needs_release && confirmed.release.is_none() && version.is_some() && facts.count == 0;
     facts.pinned_dependencies = notes.pinned.len();
+    facts.registry_unconfirmed = notes.unconfirmed;
     let mut data = answer::lead(&target, &facts);
     data["packageName"] = json!(name);
     match version {
         Some(version) => data["version"] = json!(version),
+        None if notes.unconfirmed => {}
         None => data["versionEvaluated"] = json!(false),
     }
+    if notes.unconfirmed {
+        data["registryConfirmed"] = json!(false);
+    }
     let mut data = into_row(data, results, View::Brief);
+    if !facts.stopped {
+        // Not none known: OSV answers a release it does not name (no record of the
+        // package in it, by name), and a version
+        // asked with no release, the same way as a release with no advisory.
+        if facts.release_unmatched {
+            not_evaluated(
+                &mut data,
+                "OSV answers a release it does not name like a release with no advisory.",
+            );
+        } else if facts.release_missing {
+            not_evaluated(
+                &mut data,
+                "This distribution matches versions per release and none was given.",
+            );
+        }
+    }
     answer::read_whole(&mut data, results, &package.brief);
     pinned_calls(&mut data, package, &notes.pinned);
     paging::push_warnings(&mut data, notes.prerelease_warning);
+    if let Some(unread) = &notes.latest_unread {
+        registry_failed(&mut data, unread);
+    }
+    if let (Some(latest), Some(version)) = (&notes.latest, version) {
+        update::apply(
+            &mut data,
+            version,
+            notes.current_published_at.as_deref(),
+            latest,
+        );
+    }
+    if let Some(trust) = &notes.trust {
+        trust.apply(&mut data);
+    }
     if let Some(absent) = notes.absent {
         // A version the registry does not list is a failed lookup, so the row
         // exits non-zero; it still lists what the sources know of the name.

@@ -18,7 +18,8 @@
 //!
 //! Generated, bundled, vendored, and declaration files are never subjects.
 use super::super::classify::{
-    ROLE_CONFIG, ROLE_DECLARATION, ROLE_NOT_AUTHORED, ROLE_TEST, ROLE_UNPARSED, role_names,
+    ROLE_DECLARATION, ROLE_NOT_AUTHORED, ROLE_NOT_PRODUCTION, ROLE_SUPPORT, ROLE_TEST,
+    ROLE_UNPARSED, Roles, role_names,
 };
 use super::format::{
     EdgeKind, FLAG_EXPORTED, FLAG_LOCAL_USE, FLAG_TEST, GraphTables, NONE, NodeKind,
@@ -89,7 +90,7 @@ const NAMED_IMPORT_LANGUAGES: &[&str] = &["typescript", "tsx", "javascript", "py
 /// Whether an export of `file` of declaration `kind` can be judged unused.
 /// Python has no export syntax, so only its functions and classes are API.
 fn exports_judged(file: &str, kind: &str) -> bool {
-    let language = super::tables::canonical_language(file, "");
+    let language = crate::tools::ast_graph::languages::canonical_language(file, "");
     NAMED_IMPORT_LANGUAGES.contains(&language.as_str())
         && (language != "python" || matches!(kind, "function" | "class"))
 }

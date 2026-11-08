@@ -58,3 +58,30 @@ pub(super) fn replay_redaction(
     }
     Ok(Some(redacted))
 }
+
+/// The key-block scans of a seekable page's files (`key_scans`, by index
+/// into `files`), read again under the read policy and bound to the stored
+/// digest as a fresh redaction reads them: a changed file restarts the
+/// snapshot. What the scans redacted is in the page's frames, so a read
+/// that fails redacts nothing afresh; the page's verification still reads
+/// and checks each file it shows.
+pub(in crate::tools::local_search) fn check_key_scans(
+    scope: &PageScope<'_, impl CancellationCheck>,
+    files: &[octocode_engine::types::TextSearchFile],
+    key_scans: &[usize],
+) -> Result<(), ToolError> {
+    for file in key_scans.iter().filter_map(|index| files.get(*index)) {
+        scope.cancel.check().map_err(ToolError::cancelled)?;
+        let source = scope.output_root.join(&file.path);
+        validate_matched(scope.paths, &source)?;
+        let Some(bytes) = read_key_scan_bytes(&source, scope.security.limits().key_scan) else {
+            continue;
+        };
+        if let Expected::Stored(stored) = (scope.expected_digest)(&source)
+            && stored != Some(octocode_engine::digest::sha256_digest(&bytes))
+        {
+            return Err(changed_since_scan(scope.query));
+        }
+    }
+    Ok(())
+}

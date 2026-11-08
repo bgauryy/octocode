@@ -82,6 +82,75 @@ fn own_walk(root: &std::path::Path) -> BTreeSet<String> {
         .collect()
 }
 
+/// Lifting every walk filter (`includeHidden`, `includeIgnored`,
+/// `defaultExcludes:false`) admits dot, ignored and default-pruned sources,
+/// never the credential stores: the path policy withholds `.ssh/`, `.aws/`,
+/// `.env` and `.env.*` files whatever the walk, and says so.
+#[test]
+fn a_lifted_walk_still_withholds_credential_stores() {
+    use crate::tools::ast_graph::walk_scope::WalkScope;
+    use octocode_engine::types::IgnorePolicy;
+    let root = crate::tools::test_support::Fixture::new();
+    for (path, source) in [
+        ("src/a.py", "def a():\n    pass\n"),
+        (".hid/h.py", "def h():\n    pass\n"),
+        ("ign.py", "def ign():\n    pass\n"),
+        ("node_modules/p/n.py", "def n():\n    pass\n"),
+        (".ssh/k.py", "def k():\n    pass\n"),
+        (".aws/c.py", "def c():\n    pass\n"),
+        (".env.py", "def env():\n    pass\n"),
+        (".env", "TOKEN=1\n"),
+        (".ignore", "ign.py\n"),
+    ] {
+        root.write(path, source);
+    }
+    let paths = crate::tools::test_support::workspace_policy(&root.0);
+    let built = |walk| {
+        super::super::build_graph(
+            &super::super::GraphScan {
+                root: root.0.to_path_buf(),
+                walk,
+                ..Default::default()
+            },
+            &paths,
+            &crate::security::ContentSecurity::new(),
+            &crate::execution::cancel::NeverCancel,
+        )
+        .expect("graph")
+    };
+    let files =
+        |graph: &super::super::BuiltGraph| graph.facts.keys().cloned().collect::<BTreeSet<_>>();
+    let owned = |paths: &[&str]| {
+        paths
+            .iter()
+            .map(|p| (*p).to_owned())
+            .collect::<BTreeSet<_>>()
+    };
+    let plain = built(WalkScope::default());
+    assert_eq!(files(&plain), owned(&["src/a.py"]));
+    let lifted = built(WalkScope {
+        default_excludes: false,
+        ignore: IgnorePolicy {
+            include_ignored: true,
+            include_hidden: true,
+        },
+    });
+    assert_eq!(
+        files(&lifted),
+        owned(&[".hid/h.py", "ign.py", "node_modules/p/n.py", "src/a.py"]),
+        "{:?}",
+        lifted.diagnostics
+    );
+    let notice = lifted
+        .diagnostics
+        .iter()
+        .find(|diag| diag.code.as_str() == "path-policy-withheld")
+        .expect("the withheld stores are a disclosed coverage gap");
+    for store in [".ssh/", ".aws/"] {
+        assert!(notice.message.contains(store), "{notice:?}");
+    }
+}
+
 #[test]
 fn a_git_tracked_build_dir_is_scanned_as_every_tool_walks_it() {
     for git in [true, false] {

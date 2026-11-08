@@ -88,6 +88,49 @@ pub(super) fn tree_names(
         .collect())
 }
 
+/// What a reusable checkout holds besides its verified commit.
+pub(super) struct Inspection {
+    /// The credential-named files in scope ([`withheld_files`]).
+    pub(super) listed: Vec<WithheldFile>,
+    /// Repository symlinks ([`symlinks`]).
+    pub(super) symlinks: Vec<String>,
+}
+
+/// The checkout at `directory` when it is exactly `expected_commit` and
+/// safe to reuse ([`safe_to_replace`]'s checks), with the facts a reuse
+/// reports; `None` when it differs. The five git reads (status, HEAD, local
+/// refs, credential-named files, symlinks) are independent, so they run
+/// together: a reuse costs the slowest read, not their sum. A failure is
+/// the first of them in that order; a checkout that differs is `None`
+/// whatever the reads after the check say.
+pub(super) fn inspect_checkout(
+    context: &CloneContext<'_>,
+    directory: &Path,
+    expected_commit: &str,
+    scope: Option<&[String]>,
+) -> Result<Option<Inspection>, CloneError> {
+    let _ = joined::<()>;
+    let (clean, head, refs, listed, symlinks) = (
+        status_is_clean(context, directory),
+        read_head(context, directory),
+        no_local_refs(context, directory),
+        withheld_files(context, directory, "HEAD", scope),
+        symlinks(context, directory),
+    );
+    if !(clean? && head?.eq_ignore_ascii_case(expected_commit) && refs?) {
+        return Ok(None);
+    }
+    Ok(Some(Inspection {
+        listed: listed?,
+        symlinks: symlinks?,
+    }))
+}
+
+/// A scoped thread's result; its panic is the caller's panic.
+fn joined<T>(result: std::thread::Result<T>) -> T {
+    result.unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+}
+
 /// Inspect ignored files as well: they do not change the verified revision,
 /// but replacing the checkout would still destroy them.
 pub(super) fn safe_to_replace(
@@ -95,6 +138,16 @@ pub(super) fn safe_to_replace(
     directory: &Path,
     expected_commit: &str,
 ) -> Result<bool, CloneError> {
+    if !status_is_clean(context, directory)?
+        || !read_head(context, directory)?.eq_ignore_ascii_case(expected_commit)
+    {
+        return Ok(false);
+    }
+    no_local_refs(context, directory)
+}
+
+/// No modified, untracked or ignored file in the work tree.
+fn status_is_clean(context: &CloneContext<'_>, directory: &Path) -> Result<bool, CloneError> {
     let output = run(
         context,
         vec![
@@ -110,11 +163,11 @@ pub(super) fn safe_to_replace(
         "check checkout cleanliness",
         None,
     )?;
-    if !output.stdout.split('\0').all(str::is_empty)
-        || !read_head(context, directory)?.eq_ignore_ascii_case(expected_commit)
-    {
-        return Ok(false);
-    }
+    Ok(output.stdout.split('\0').all(str::is_empty))
+}
+
+/// The checkout holds no local ref.
+fn no_local_refs(context: &CloneContext<'_>, directory: &Path) -> Result<bool, CloneError> {
     let refs = run(
         context,
         scoped(directory, &["for-each-ref", "--format=%(refname)"]),
@@ -267,7 +320,7 @@ pub(super) fn checkout(
         "initialize commit checkout",
         None,
     )?;
-    // `remote add` and `config` are local: no credential, no network permit.
+    // `remote add` is local: no credential, no network permit.
     run(
         context,
         scoped(target, &["remote", "add", "origin", repository_url]),
@@ -277,23 +330,10 @@ pub(super) fn checkout(
     )?;
     // Every checkout is a partial one: blobs arrive only when the checkout
     // needs them, so a credential-named file left out of it is never fetched.
-    run(
-        context,
-        scoped(target, &["config", "remote.origin.promisor", "true"]),
-        sparse_timeout(context),
-        "configure sparse promisor",
-        None,
-    )?;
-    run(
-        context,
-        scoped(
-            target,
-            &["config", "remote.origin.partialclonefilter", "blob:none"],
-        ),
-        sparse_timeout(context),
-        "configure sparse filter",
-        None,
-    )?;
+    // The fetch below carries `--filter`, and a filtered fetch registers the
+    // remote as a promisor with that filter itself
+    // (`remote.origin.promisor`, `remote.origin.partialclonefilter`), so no
+    // separate `config` step sets them.
     let depth = depth.to_string();
     let mut fetch = scoped(target, &["fetch", "--no-tags", "--depth", &depth]);
     fetch.extend([OsString::from("--filter"), OsString::from("blob:none")]);

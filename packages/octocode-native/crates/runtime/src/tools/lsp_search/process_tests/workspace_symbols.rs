@@ -37,6 +37,7 @@ async fn symbol_row(
         character: 0,
         language_id: Some("typescript"),
         budget: 16_000,
+        security: &crate::security::ContentSecurity::new(),
     }
     .run()
     .await
@@ -67,7 +68,7 @@ fn workspace_symbol_provider_coverage_is_unknown_without_losing_semantic_rows() 
       range:{start:{line:0,character:0},end:{line:0,character:8}},
       selectionRange:{start:{line:0,character:0},end:{line:0,character:8}}}]});"#,
         );
-    std::fs::write(&script, server).expect("fixture server");
+    crate::tools::lsp_search::tests::write_executable(&script, server.as_bytes());
     let paths = crate::tools::test_support::workspace_policy(&root);
     let path = root.join("a.ts").to_string_lossy().into_owned();
     tokio::runtime::Runtime::new().expect("rt").block_on(async {
@@ -144,7 +145,7 @@ fn directories_of_a_cargo_workspace_share_one_language_server() {
             "    fs.appendFileSync(__dirname + '/roots.txt', msg.params.rootUri + '\\n');\n    send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: { workspaceSymbolProvider: true, textDocumentSync: 1 } } });",
         );
     assert_ne!(server, FAKE_SERVER, "the root log is injected");
-    std::fs::write(&script, server).expect("fixture server");
+    crate::tools::lsp_search::tests::write_executable(&script, &server);
     std::fs::write(
         root.join("lsp-servers.json"),
         json!({"languageServers": {".rs": {
@@ -202,19 +203,26 @@ fn directories_of_a_cargo_workspace_share_one_language_server() {
     assert_eq!(roots.lines().collect::<Vec<_>>(), [expected.as_str()]);
 }
 
-/// tsgo answers `workspace/symbol` with at most 256 symbols; an answer of
-/// exactly that many says the server capped it, one short of it does not.
-/// Only the capped answer is partial (`workspaceSymbolCoverageUnknown`).
+/// A server that caps `workspace/symbol` (tsgo 256, gopls 100, rust-analyzer
+/// 128, clangd 100) says so when an answer has exactly that many symbols; one
+/// short of it does not. Only the capped answer is partial
+/// (`workspaceSymbolCoverageUnknown`), and tsgo's also routes `.ts` elsewhere.
 #[test]
 fn workspace_symbols_at_the_server_limit_say_capped() {
     assert!(
         node_available(),
         "Node is required for the real LSP fixture"
     );
-    let (_dir, root, script) = fixture();
-    // Named `tsgo`, so octocode treats it as tsgo; `Cap<n>` answers n rows.
-    let tsgo = root.join("tsgo");
-    let server = FAKE_SERVER
+    for (named, limit) in [
+        ("tsgo", 256),
+        ("gopls", 100),
+        ("rust-analyzer", 128),
+        ("clangd", 100),
+    ] {
+        let (_dir, root, _script) = fixture();
+        // Named for the server, so octocode takes its limit; `Cap<n>` answers n rows.
+        let tsgo = root.join(named);
+        let server = FAKE_SERVER
         .replace("hoverProvider: true", "workspaceSymbolProvider: true")
         .replace(
             "  } else if (msg.method === 'textDocument/hover') {\n    process.exit(3);",
@@ -225,40 +233,46 @@ fn workspace_symbols_at_the_server_limit_say_capped() {
       location: {uri, range: {start: {line, character: 0}, end: {line, character: 4}}}}));
     send({jsonrpc:'2.0', id:msg.id, result:symbols});"#,
         );
-    std::fs::write(&tsgo, server).expect("fixture server");
-    std::fs::set_permissions(
-        &tsgo,
-        std::fs::metadata(&script).expect("mode").permissions(),
-    )
-    .expect("chmod");
-    let paths = crate::tools::test_support::workspace_policy(&root);
-    let path = root.join("a.ts").to_string_lossy().into_owned();
-    tokio::runtime::Runtime::new().expect("rt").block_on(async {
-        let client = NativeLspClient::new(config(&root, &tsgo, None));
-        assert_eq!(client.workspace_symbol_limit(), Some(256));
-        client.start().await.expect("server starts");
-        for (name, capped) in [("Cap256", true), ("Cap255", false)] {
-            let wire = json!({"operation":"workspaceSymbol", "path":path, "symbolQuery":name});
-            let query: LspSearchQuery = serde_json::from_value(wire.clone()).expect("query");
-            let row = symbol_row(&client, (&root, &paths), &query, &path, false).await;
-            let reasons = if capped {
-                json!(["workspaceSymbolCoverageUnknown"])
-            } else {
-                Value::Null
-            };
-            assert_eq!(row["partialReasons"], reasons, "{name}");
-            let says_capped = row["warnings"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .any(|warning| {
-                    warning
-                        .as_str()
-                        .is_some_and(|text| text.contains("at most 256 workspace symbols"))
-                });
-            assert_eq!(says_capped, capped, "{name}: {row}");
-            assert_row_contract(ToolId::LspSearch, &row);
-        }
-        client.stop().await.expect("fixture server closed");
-    });
+        crate::tools::lsp_search::tests::write_executable(&tsgo, server.as_bytes());
+        let paths = crate::tools::test_support::workspace_policy(&root);
+        let path = root.join("a.ts").to_string_lossy().into_owned();
+        tokio::runtime::Runtime::new().expect("rt").block_on(async {
+            let client = NativeLspClient::new(config(&root, &tsgo, None));
+            assert_eq!(client.workspace_symbol_limit(), Some(limit));
+            client.start().await.expect("server starts");
+            for (name, capped) in [
+                (format!("Cap{limit}"), true),
+                (format!("Cap{}", limit - 1), false),
+            ] {
+                let wire = json!({"operation":"workspaceSymbol", "path":path, "symbolQuery":name});
+                let query: LspSearchQuery = serde_json::from_value(wire.clone()).expect("query");
+                let row = symbol_row(&client, (&root, &paths), &query, &path, false).await;
+                let reasons = if capped {
+                    json!(["workspaceSymbolCoverageUnknown"])
+                } else {
+                    Value::Null
+                };
+                assert_eq!(row["partialReasons"], reasons, "{name}");
+                let says_capped = row["warnings"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|warning| {
+                        warning.as_str().is_some_and(|text| {
+                            text.contains(&format!("at most {limit} workspace symbols"))
+                        })
+                    });
+                assert_eq!(says_capped, capped, "{name}: {row}");
+                // Only tsgo has another configured server to route to.
+                assert_eq!(
+                    row.to_string()
+                        .contains("route .ts to typescript-language-server"),
+                    capped && named == "tsgo",
+                    "{named} {name}: {row}"
+                );
+                assert_row_contract(ToolId::LspSearch, &row);
+            }
+            client.stop().await.expect("fixture server closed");
+        });
+    }
 }

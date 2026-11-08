@@ -132,35 +132,30 @@ pub(super) fn detect_boundaries(c: &mut Ctx) {
 
 pub(super) fn detect_unresolved(c: &mut Ctx) {
     let t = c.v.t;
-    let mut by_file = BTreeMap::<&str, Vec<Value>>::new();
+    let mut by_file = BTreeMap::<&str, Vec<(&str, u32)>>::new();
     for diag in &t.diagnostics {
         if t.str(diag.code) == DiagnosticCode::UnresolvedInternal.as_str() {
-            let mut site = json!({"message": t.str(diag.message)});
-            if diag.line != NONE {
-                site["line"] = json!(diag.line);
-            }
             let file = t.str(diag.file);
             // Fixtures and generated code carry deliberately broken imports.
             let production = t.by_key(file).is_none_or(|id| {
                 t.nodes[id as usize].flags
-                    & (ROLE_TEST | ROLE_CONFIG | ROLE_NOT_AUTHORED | ROLE_DECLARATION)
+                    & (ROLE_NOT_PRODUCTION | ROLE_NOT_AUTHORED | ROLE_DECLARATION)
                     == 0
             });
             if production {
-                by_file.entry(file).or_default().push(site);
+                by_file
+                    .entry(file)
+                    .or_default()
+                    .push((t.str(diag.message), diag.line));
             }
         }
     }
     // An import that climbs above the snapshot root is a scope gap, not a
     // broken import: its target may exist, unscanned.
-    let outside = |site: &Value| {
-        site["message"]
-            .as_str()
-            .is_some_and(|m| m.starts_with(OUTSIDE_ROOT))
-    };
+    let outside = |site: &(&str, u32)| site.0.starts_with(OUTSIDE_ROOT);
     let mut pending = Vec::new();
     for (file, sites) in by_file {
-        let (out, broken): (Vec<Value>, Vec<Value>) = sites.into_iter().partition(outside);
+        let (out, broken): (Vec<_>, Vec<_>) = sites.into_iter().partition(outside);
         if !broken.is_empty() {
             pending.push((file.to_owned(), broken, false));
         }
@@ -198,7 +193,7 @@ pub(super) fn detect_unresolved(c: &mut Ctx) {
                 },
                 confidence,
                 impact: 0.5,
-                evidence: json!({"count": sites.len(), "sites": sites, "outsideRoot": outside}),
+                evidence: json!({"count": sites.len(), "sites": grouped_sites(&sites), "outsideRoot": outside}),
                 controls,
                 verify: vec![step(
                     ToolId::GraphQuery,
@@ -207,4 +202,32 @@ pub(super) fn detect_unresolved(c: &mut Ctx) {
             },
         );
     }
+}
+
+/// The import sites of one file with equal messages merged, in first-seen
+/// order: each message once with every line it was reported at.
+fn grouped_sites(sites: &[(&str, u32)]) -> Vec<Value> {
+    let mut groups = Vec::<(&str, Vec<u32>)>::new();
+    for (message, line) in sites {
+        let at = groups
+            .iter()
+            .position(|(seen, _)| seen == message)
+            .unwrap_or_else(|| {
+                groups.push((message, Vec::new()));
+                groups.len() - 1
+            });
+        if *line != NONE {
+            groups[at].1.push(*line);
+        }
+    }
+    groups
+        .into_iter()
+        .map(|(message, lines)| {
+            if lines.is_empty() {
+                json!({"message": message})
+            } else {
+                json!({"message": message, "lines": lines})
+            }
+        })
+        .collect()
 }

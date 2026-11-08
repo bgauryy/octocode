@@ -105,7 +105,7 @@ fn selection_presentation_requires_provider_and_an_available_goal_tool() {
         (
             vec![
                 ("OCTOCODE_CLASSIFICATION_API", "fixture-key"),
-                ("TOOLS_TO_RUN", "ghSearchHistory"),
+                ("TOOLS_TO_RUN", "ghSearchRepo"),
             ],
             false,
         ),
@@ -159,7 +159,7 @@ async fn hidden_public_clasify_without_goal_surface_has_no_semantic_route() {
         home.path(),
         &[
             ("OCTOCODE_CLASSIFICATION_API", "fixture-key"),
-            ("TOOLS_TO_RUN", "ghSearchHistory"),
+            ("TOOLS_TO_RUN", "ghSearchRepo"),
         ],
     );
     assert_eq!(runtime.presentation()["selection"], false);

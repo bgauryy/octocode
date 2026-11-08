@@ -8,6 +8,7 @@
 //! (`responsePagination.next`), where `next.nextPage` sits.
 
 mod deep;
+mod stream;
 
 use crate::support::{Run as _, Workspace};
 use octocode_native::runtime::ToolRuntime;

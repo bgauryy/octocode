@@ -32,6 +32,8 @@ import { SPECS } from './schema-matrix/specs.mjs';
 import { runScenario } from './schema-matrix/scenarios.mjs';
 import { SCENARIOS } from './schema-matrix/scenario-list.mjs';
 import { withScenario } from './schema-matrix/scenario-scope.mjs';
+import { snapshotBuild } from './build-snapshot.mjs';
+snapshotBuild();
 
 const started = performance.now();
 const say = line => process.stdout.write(`${line}\n`);

@@ -115,12 +115,14 @@ fn yaml_mappings_scan_in_linear_time() {
     panic!("{measured:?}");
 }
 
-/// What the replacement took before it carried the line start forward.
+/// What the replacement took before it carried the line start forward: each
+/// match's line start searched back from it. The value's extent
+/// ([`continued_end`]) is the replacement's own, the same in both.
 fn replace_searching_back(
     regex: &regex::Regex,
     content: &str,
     replacement: &str,
-    redacts: impl Fn(&str, &str) -> bool,
+    redacts: impl Fn(&str, &str, &std::ops::Range<usize>) -> bool,
 ) -> String {
     let groups: Vec<usize> = regex
         .capture_names()
@@ -130,30 +132,35 @@ fn replace_searching_back(
                 .map(|_| index)
         })
         .collect();
-    regex
-        .replace_all(content, |captures: &regex::Captures<'_>| {
-            let whole = captures.get(0).expect("whole match");
-            let secret = groups
-                .iter()
-                .find_map(|&index| captures.get(index))
-                .unwrap_or(whole);
-            let line_start = content[..whole.start()].rfind('\n').map_or(0, |at| at + 1);
-            if !redacts(&content[line_start..secret.start()], secret.as_str()) {
-                return whole.as_str().to_owned();
-            }
-            let line_breaks = secret
-                .as_str()
-                .bytes()
-                .filter(|byte| *byte == b'\n')
-                .count();
-            let mut redacted = String::with_capacity(whole.len() + replacement.len());
-            redacted.push_str(&content[whole.start()..secret.start()]);
-            redacted.push_str(replacement);
-            redacted.extend(std::iter::repeat_n('\n', line_breaks));
-            redacted.push_str(&content[secret.end()..whole.end()]);
-            redacted
-        })
-        .into_owned()
+    let diff_lines = DiffLines::new(regex, content);
+    let (mut redacted, mut from) = (String::new(), 0);
+    for captures in regex.captures_iter(content) {
+        let whole = captures.get(0).expect("whole match");
+        let secret = groups
+            .iter()
+            .find_map(|&index| captures.get(index))
+            .unwrap_or(whole);
+        let line_start = content[..whole.start()]
+            .rfind(LINE_END_CHARS)
+            .map_or(0, |at| at + 1);
+        if secret.start() < from
+            || diff_lines.outside_hunk(diff_lines.prefixed(&captures), line_start)
+            || !redacts(
+                &content[line_start..secret.start()],
+                secret.as_str(),
+                &whole.range(),
+            )
+        {
+            continue;
+        }
+        let end = continued_end(content, secret.end());
+        redacted.push_str(&content[from..secret.start()]);
+        redacted.push_str(replacement);
+        redacted.push_str(&kept_line_breaks(&content[secret.start()..end]));
+        from = end;
+    }
+    redacted.push_str(&content[from..]);
+    redacted
 }
 
 /// Every pattern on text it matches, with secrets on the same line and on
@@ -162,11 +169,11 @@ fn replace_searching_back(
 fn carrying_the_line_start_forward_replaces_as_searching_back_does() {
     use super::sampling::{Lcg, sample};
     let mut rng = Lcg(0xfeed);
-    type KeyFilter<'a> = &'a dyn Fn(&str, &str) -> bool;
+    type KeyFilter<'a> = &'a dyn Fn(&str, &str, &std::ops::Range<usize>) -> bool;
     type Replacer<'a> = &'a dyn Fn(&regex::Regex, &str, KeyFilter<'_>) -> String;
     let keys_seen = |regex: &regex::Regex, text: &str, replace_with: Replacer<'_>| {
         let seen = std::cell::RefCell::new(Vec::new());
-        let out = replace_with(regex, text, &|key, secret| {
+        let out = replace_with(regex, text, &|key, secret, _| {
             seen.borrow_mut().push((key.to_owned(), secret.to_owned()));
             secret.len() % 2 == 0
         });

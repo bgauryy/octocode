@@ -35,7 +35,7 @@ fn type_hierarchy_falls_back_when_the_server_has_no_type_hierarchy() {
     const dir = msg.params.textDocument.uri.slice(0, msg.params.textDocument.uri.lastIndexOf('/') + 1);
     send({ jsonrpc: '2.0', id: msg.id, result: [{ uri: dir + 'b.ts', range: { start: { line: 0, character: 17 }, end: { line: 0, character: 21 } } }] });"#,
         );
-    std::fs::write(&script, server).expect("fixture server");
+    crate::tools::lsp_search::tests::write_executable(&script, &server);
     let paths = crate::tools::test_support::workspace_policy(&root);
     tokio::runtime::Runtime::new().expect("rt").block_on(async {
         let client = NativeLspClient::new(config(&root, &script, None));
@@ -67,6 +67,7 @@ fn type_hierarchy_falls_back_when_the_server_has_no_type_hierarchy() {
                 character,
                 language_id: Some("typescript"),
                 budget: 16_000,
+                security: &crate::security::ContentSecurity::new(),
             }
             .run()
             .await
@@ -123,7 +124,7 @@ fn empty_server_subtypes_fall_back_to_the_implementation_answer() {
     const dir = msg.params.textDocument.uri.slice(0, msg.params.textDocument.uri.lastIndexOf('/') + 1);
     send({ jsonrpc: '2.0', id: msg.id, result: [{ uri: dir + 'b.ts', range: { start: { line: 0, character: 17 }, end: { line: 0, character: 21 } } }] });"#,
         );
-    std::fs::write(&script, server).expect("fixture server");
+    crate::tools::lsp_search::tests::write_executable(&script, &server);
     let paths = crate::tools::test_support::workspace_policy(&root);
     let path = root.join("b.ts").to_string_lossy().into_owned();
     tokio::runtime::Runtime::new().expect("rt").block_on(async {
@@ -151,6 +152,7 @@ fn empty_server_subtypes_fall_back_to_the_implementation_answer() {
             character: 17,
             language_id: Some("typescript"),
             budget: 16_000,
+            security: &crate::security::ContentSecurity::new(),
         }
         .run()
         .await
@@ -210,7 +212,7 @@ fn rust_subtypes_anchor_a_trait_in_a_file_with_an_unexpanded_macro() {
     const dir = msg.params.textDocument.uri.slice(0, msg.params.textDocument.uri.lastIndexOf('/') + 1);
     send({ jsonrpc: '2.0', id: msg.id, result: [{ uri: dir + 'a.rs', range: { start: { line: 0, character: 10 }, end: { line: 0, character: 19 } } }] });"#,
         );
-    std::fs::write(&script, server).expect("fixture server");
+    crate::tools::lsp_search::tests::write_executable(&script, &server);
     let paths = crate::tools::test_support::workspace_policy(&root);
     let path = root.join("a.rs").to_string_lossy().into_owned();
     tokio::runtime::Runtime::new().expect("rt").block_on(async {
@@ -238,6 +240,7 @@ fn rust_subtypes_anchor_a_trait_in_a_file_with_an_unexpanded_macro() {
             character: 10,
             language_id: Some("rust"),
             budget: 16_000,
+            security: &crate::security::ContentSecurity::new(),
         }
         .run()
         .await

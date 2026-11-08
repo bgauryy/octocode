@@ -2,6 +2,7 @@
 use super::PathPolicy;
 use crate::policy::discovery::{
     EntryKind, folded_path, is_in_sensitive_directory, is_sensitive_path,
+    is_sensitive_repository_file, repository_path,
 };
 use std::path::Path;
 
@@ -28,6 +29,19 @@ impl PathPolicy {
             return is_sensitive_path(path, kind);
         }
         is_in_sensitive_directory(path)
+    }
+
+    /// Whether this policy withholds a file a GitHub repository names by
+    /// `path` from a read that returns its text: the local rule, with
+    /// credential file names lifted when the user allows them (the output gate
+    /// then keeps the read in memory only); a sensitive directory never opens.
+    /// Saved copies on disk (materialize, clone) withhold them whatever the
+    /// setting.
+    pub(crate) fn withholds_repository_file(&self, path: &str) -> bool {
+        if self.allow_credential_files {
+            return is_in_sensitive_directory(&repository_path(path));
+        }
+        is_sensitive_repository_file(path)
     }
 
     /// What `allow` never opens: Octocode's home; files directly in the user's

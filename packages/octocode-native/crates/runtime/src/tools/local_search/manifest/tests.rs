@@ -105,6 +105,39 @@ fn a_searched_digest_is_stored_without_reading_the_file() {
     assert!(get(snapshot, "policy").is_none());
 }
 
+/// Storing a scan reads each file's path and search digest, not its hits:
+/// a file the search hashed decodes none, so a scan of any size is stored
+/// without a second copy of its rows beside the one it was encoded from.
+#[test]
+fn storing_a_scan_decodes_no_hit_of_a_file_the_search_hashed() {
+    let dir = tempfile::tempdir().expect("fixture directory");
+    let path = dir.path().join("hashed.ts");
+    std::fs::write(&path, "// header\nconst k = 1;\n").expect("fixture");
+    let mut value = one_match(&path, 2, "const k = 1;");
+    let hit = value.files[0].matches[0].clone();
+    value.files[0].matches = vec![hit; 1000];
+    value.files[0].match_count = 1000;
+    value.files[0].source = Some(octocode_engine::types::SearchedSource {
+        size: 1,
+        modified: None,
+        digest: [9; 32],
+    });
+    let fresh = fresh(value);
+    let before = super::super::packed::decoded_hits_on_this_thread();
+    put("manifest-no-decode-test".into(), "policy".into(), fresh);
+    assert_eq!(
+        super::super::packed::decoded_hits_on_this_thread(),
+        before,
+        "storing decoded rows of a file whose digest the search made"
+    );
+    let stored = get("manifest-no-decode-test", "policy").expect("stored");
+    let StoredValue::Whole(value) = stored.value else {
+        panic!("a whole encoding is stored whole");
+    };
+    assert_eq!(value.files[0].matches.len(), 1000);
+    assert_eq!(stored.digests.get(&path), Some(&[9; 32]));
+}
+
 /// A re-read file larger than `max_file` is refused unread; one within it
 /// is hashed.
 #[test]

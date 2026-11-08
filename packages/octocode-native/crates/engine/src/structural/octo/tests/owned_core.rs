@@ -174,6 +174,7 @@ fn owned_core_stop_rule_depth_and_interruption_remain_explicit() {
     .unwrap();
     let line_index = crate::text::LineIndex::tree_sitter("first(); middle(); last();");
     let document = Document {
+        memo: None,
         line_index: &line_index,
         content: "first(); middle(); last();",
         root: tree.root_node(),

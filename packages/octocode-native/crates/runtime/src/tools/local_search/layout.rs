@@ -16,12 +16,13 @@ use crate::response::result::ToolError;
 pub(super) use costs::priced_on_this_thread;
 pub(super) use costs::{FilePrice, NamePricing};
 use costs::{PageCosts, RowName};
-pub(super) use entries::{file_pagination, row_chars};
+pub(super) use entries::{MAX_MORE_LINES, file_pagination, row_chars};
 use entries::{fits_whole, listed_file_chars};
 use octocode_contract_types::LocalSearchQuery;
 use octocode_engine::num::saturating_u32;
 use octocode_engine::types::SearchContext;
-use stream::{PageRows, StreamCosts, stream_pages};
+pub(super) use stream::PageRows;
+use stream::{StreamCosts, stream_pages};
 
 /// Whether a view lists paths (with counts) instead of match rows.
 pub(super) fn list_view(view: View) -> bool {
@@ -104,9 +105,9 @@ pub(super) struct Layout {
     pub(super) streamed: bool,
     /// Context windows of nearby rows merge into one block.
     pub(super) merge_context: Option<SearchContext>,
-    /// What each shown file's rendered path adds to its stored one: the
-    /// root's workspace-relative prefix (see [`PageCosts`]).
-    pub(super) prefix_chars: usize,
+    /// Every page of a streamed cut, when this call cut it (a fresh page
+    /// stores the scan by them, see [`super::page_view::encode_pages`]).
+    pub(super) pages: Option<std::sync::Arc<Vec<PageRows>>>,
 }
 
 impl Layout {
@@ -174,6 +175,7 @@ impl Layout {
             }
         }
         let streamed = streamed_layout(query);
+        let mut pages = None;
         let (shown, total_pages, files_per_page, total_items) = if streamed && list {
             Self::list_stream(query, &parsed.files, page_budget, &costs)
         } else if streamed {
@@ -185,6 +187,7 @@ impl Layout {
                 page_budget,
                 &mut costs,
                 (pricing, cuts),
+                &mut pages,
             )?
         } else {
             Self::grid(query, parsed.files.len(), matches_per)
@@ -210,8 +213,56 @@ impl Layout {
             },
             streamed,
             merge_context,
-            prefix_chars: costs.prefix_chars,
+            pages,
         })
+    }
+
+    /// The layout of the page `query` asks for of a seekable stored scan,
+    /// from the cut its first page stored (`index`): no row is ranked or
+    /// priced again. `shown` are the page's own rows (see
+    /// [`super::page_view::PageView`]).
+    pub(super) fn from_index(
+        query: &LocalSearchQuery,
+        index: &super::packed::PageIndex,
+        shown: PageRows,
+    ) -> Self {
+        let match_only = local_search_query::view(query) == View::MatchOnly;
+        let context = if match_only {
+            SearchContext::default()
+        } else {
+            local_search_query::context(query)
+        };
+        let (streamed, total_pages, files_per_page, total_items) = match &index.cut {
+            super::packed::Cut::Stream { pages } => (
+                true,
+                saturating_u32(pages.len()).max(1),
+                None,
+                index.total_rows,
+            ),
+            super::packed::Cut::Grid { page_size, .. } => (
+                false,
+                saturating_u32(crate::response::page_windows::count_pages(
+                    index.total_files as usize,
+                    octocode_engine::num::saturating_usize(*page_size),
+                )),
+                Some(*page_size),
+                index.total_files,
+            ),
+        };
+        Self {
+            list: false,
+            out_of_range: index.total_files > 0
+                && local_search_query::page(query).max(1) > total_pages,
+            shown,
+            total_pages,
+            files_per_page,
+            total_items,
+            matches_per: index.matches_per,
+            merge_context: (!match_only && !context.is_empty()).then_some(context),
+            context,
+            streamed,
+            pages: None,
+        }
     }
 
     /// Default layout: pages are cut from one row stream by the response
@@ -230,6 +281,7 @@ impl Layout {
         page_budget: usize,
         costs: &mut PageCosts,
         (pricing, cuts): (Option<&mut NamePricing<'_>>, Option<&StreamCuts>),
+        cut_pages: &mut Option<std::sync::Arc<Vec<PageRows>>>,
     ) -> Result<(PageRows, u32, Option<u32>, u32), ToolError> {
         // `through`: the cut stops after that page, every reserved name
         // costing nothing (see below).
@@ -291,6 +343,7 @@ impl Layout {
         let page = local_search_query::page(query).max(1) as usize;
         let shown = pages.get(page - 1).cloned().unwrap_or_default();
         let rows: usize = files.iter().map(|file| file.matches.len()).sum();
+        *cut_pages = Some(pages);
         Ok((shown, total_pages, None, saturating_u32(rows)))
     }
 

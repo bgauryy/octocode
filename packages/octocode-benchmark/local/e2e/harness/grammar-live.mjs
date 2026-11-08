@@ -34,6 +34,8 @@ import {
   semanticPagesComplete,
   settleSemanticQuery,
 } from './grammar-live-readiness.mjs';
+import { snapshotBuild } from './build-snapshot.mjs';
+snapshotBuild();
 
 if (process.env.OCTOCODE_LIVE !== '1')
   throw new Error('grammar-live requires OCTOCODE_LIVE=1');

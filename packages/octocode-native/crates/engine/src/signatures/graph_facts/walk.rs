@@ -1,7 +1,7 @@
 //! The node walk: main traversal and deadline polls.
 
 use super::collect::collect_node_facts;
-use super::positions::NodePositions;
+use super::positions::{NodePositions, leading_annotation_starts};
 use super::rust::{
     RustContext, collect_rust_paths, rust_child_contexts, rust_inner_unsupported_among,
 };
@@ -78,8 +78,9 @@ pub(super) fn visit_node(
     outer_declaration: Option<&(String, String)>,
 ) -> bool {
     enum Frame<'tree> {
-        /// A node, its carried Rust context, and its depth below the root.
-        Enter(Node<'tree>, RustContext, usize),
+        /// A node, its carried Rust context, its depth below the root, and the
+        /// start of the outer annotations written before it.
+        Enter(Node<'tree>, RustContext, usize, Option<usize>),
         ExitDeclaration,
         ExitModule,
     }
@@ -93,7 +94,7 @@ pub(super) fn visit_node(
     #[cfg(feature = "tree-sitter-scala")]
     let mut scala_terms = (!acc.declarations_only && super::scala::is_scala(&acc.ext))
         .then(receiver::ScalaTerms::default);
-    let mut frames = vec![Frame::Enter(root, RustContext::default(), 0)];
+    let mut frames = vec![Frame::Enter(root, RustContext::default(), 0, None)];
     let mut declarations: Vec<(String, String)> = outer_declaration.into_iter().cloned().collect();
     // Names of the enclosing `mod` items, outermost first.
     let mut module_scope: Vec<String> = outer_scope.to_vec();
@@ -108,8 +109,9 @@ pub(super) fn visit_node(
             return false;
         }
         let (node, mut context) = match frame {
-            Frame::Enter(node, context, depth) => {
+            Frame::Enter(node, context, depth, leading) => {
                 path.truncate(depth);
+                acc.leading_start = leading.map(|start| (node.id(), start));
                 note_name_token(acc, node, &path, rust);
                 (node, context)
             }
@@ -188,6 +190,8 @@ pub(super) fn visit_node(
             if rust {
                 let typed = call.receiver_type.is_some();
                 call.receiver_call = receivers.rust_receiver_call(node, &path, typed, content);
+            } else if acc.ext == "go" {
+                call.receiver_call = receivers.go_receiver_call(node, &path, content);
             }
         }
         #[cfg(feature = "tree-sitter-scala")]
@@ -216,27 +220,36 @@ pub(super) fn visit_node(
         // Preserve preorder and declaration lifetimes without using the call stack.
         retain_graph_children(acc, node, content, &mut children);
         let children_start = frames.len();
-        if rust {
-            let inherited = context.for_children(kind);
-            let contexts = rust_child_contexts(&children, content, &inherited);
-            frames.extend(
-                children
-                    .iter()
-                    .zip(contexts)
-                    .filter(|(child, _)| entered(acc, **child))
-                    .map(|(child, context)| Frame::Enter(*child, context, depth)),
-            );
-        } else {
-            frames.extend(
-                children
-                    .iter()
-                    .filter(|child| entered(acc, **child))
-                    .map(|child| Frame::Enter(*child, RustContext::default(), depth)),
-            );
-        }
+        let contexts = child_contexts(rust, &context, kind, &children, content);
+        frames.extend(
+            children
+                .iter()
+                .zip(contexts)
+                .zip(leading_annotation_starts(&children))
+                .filter(|((child, _), _)| entered(acc, **child))
+                .map(|((child, context), leading)| Frame::Enter(*child, context, depth, leading)),
+        );
         frames[children_start..].reverse();
     }
     std::time::Instant::now() < deadline
+}
+
+/// The carried context of each of `children`: a Rust file's attribute and
+/// test flags, one default for every other language.
+fn child_contexts(
+    rust: bool,
+    context: &RustContext,
+    kind: &str,
+    children: &[Node<'_>],
+    content: &str,
+) -> Vec<RustContext> {
+    if rust {
+        rust_child_contexts(children, content, &context.for_children(kind))
+    } else {
+        std::iter::repeat_with(RustContext::default)
+            .take(children.len())
+            .collect()
+    }
 }
 
 /// An outline and an enclosing-name lookup still read a disabled preprocessor

@@ -241,7 +241,10 @@ impl Authentication {
                     && error.kind == ProviderErrorKind::CredentialStoreUnavailable =>
             {
                 let notice = anonymous_notice(&host);
-                octocode_io::notice::raise(ANONYMOUS_NOTICE, notice.clone());
+                octocode_io::notice::raise(
+                    octocode_io::notice::kind::GITHUB_ANONYMOUS,
+                    notice.clone(),
+                );
                 Ok(None)
             }
             Some(error) => Err(error),
@@ -249,10 +252,6 @@ impl Authentication {
         }
     }
 }
-/// The kind of [`anonymous_notice`]: said on stderr once per process
-/// ([`octocode_io::notice`]).
-const ANONYMOUS_NOTICE: &str = "github-anonymous";
-
 fn anonymous_notice(host: &str) -> String {
     format!(
         "[octocode] warning: no GitHub credential for {host} and the secure credential store is unavailable; GitHub tools run unauthenticated (60 requests/hour). Set GITHUB_TOKEN or run octocode auth login for a higher limit."

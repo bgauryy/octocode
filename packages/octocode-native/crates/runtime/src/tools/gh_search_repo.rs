@@ -144,11 +144,11 @@ pub(crate) async fn execute(
     // The owner exists (the listing answered) and lists nothing, with no
     // archive filter to blame: say so instead of leaving a bare empty.
     if owner_has_no_repositories && let Some(owner) = access::owner(query) {
-        crate::tools::leads::push_hint(
+        crate::response::result::add_hints(
             &mut output.data,
-            format!(
+            [format!(
                 "`{owner}` exists but lists no repositories visible to this token; no filter hid any."
-            ),
+            )],
         );
     }
     Ok(output)

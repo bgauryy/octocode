@@ -32,8 +32,10 @@
 //!   time (`touch`) on each request it reads.
 //!   Windows has no server (every call runs in process), so no count or
 //!   expiry applies there.
-//! - A failed exchange falls back to an in-process call and says so; no
-//!   reply within `REPLY_DEADLINE` answers `timeout`, never a second run.
+//! - A failed exchange falls back to an in-process call and says so. The
+//!   client waits for the reply as long as the server's request budget
+//!   allows (`reply_deadline`; the CLI sets none); no reply within a budget
+//!   answers `timeout`, never a second run.
 //!   Ctrl-C half-closes the client's side, which cancels the call on the
 //!   server; the client drains, and a second Ctrl-C stops waiting.
 //!

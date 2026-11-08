@@ -2,7 +2,7 @@ use super::arena::Window;
 use super::evidence::DependencyError;
 use super::{
     FragmentArena, PartShare, Placed, delivered_collections, drop_delivered_elsewhere,
-    keep_row_next, row_next_chars, row_part_chars, volatile_reserve,
+    keep_row_next, row_next_chars, row_part_chars,
 };
 use octocode_io::cancellation::Cancellation;
 use serde_json::{Map, Value, json};
@@ -40,15 +40,13 @@ pub(super) struct PreparedRows {
     /// Each row's chars on a page: its comma and reserve added.
     sizes: Vec<usize>,
     tool: crate::id::ToolId,
-    volatile: Vec<Option<Map<String, Value>>>,
 }
 
 impl PreparedRows {
-    pub(super) fn new(
-        mut rows: Vec<Value>,
-        volatile: &[Option<Map<String, Value>>],
-        tool: crate::id::ToolId,
-    ) -> Self {
+    /// `rows` without their per-call provider facts: pages are planned on
+    /// evidence alone, and [`RowPlan::build_page`] attaches the facts after
+    /// the cut, so a run with them and one without cut the same pages.
+    pub(super) fn new(mut rows: Vec<Value>, tool: crate::id::ToolId) -> Self {
         let first_names = tool.first_fragment_fields();
         let before = rows
             .iter()
@@ -88,14 +86,8 @@ impl PreparedRows {
             .collect();
         let reserves = chars
             .iter()
-            .enumerate()
-            .map(|(index, chars)| {
-                before[index].saturating_sub(*chars)
-                    + volatile
-                        .get(index)
-                        .and_then(Option::as_ref)
-                        .map_or(0, volatile_reserve)
-            })
+            .zip(&before)
+            .map(|(chars, before)| before.saturating_sub(*chars))
             .collect::<Vec<_>>();
         let sizes = chars
             .iter()
@@ -108,7 +100,6 @@ impl PreparedRows {
             reserves,
             sizes,
             tool,
-            volatile: volatile.to_vec(),
         }
     }
 
@@ -150,7 +141,6 @@ impl PreparedRows {
             reserves,
             sizes,
             tool,
-            volatile,
         } = self;
         let mut arena = FragmentArena::new(tool);
         let page_context = arena.page_context;
@@ -166,16 +156,11 @@ impl PreparedRows {
             guidance.push(take_guidance(&mut row));
             let catalog = arena.take_catalog(&mut row, cancelled)?;
             delivered.push(delivered_collections(&row, &page_context.fixed_paths));
-            let mut extra = arena.dependencies(
+            let extra = arena.dependencies(
                 catalog,
                 &Value::Object(first_fields[position].clone()),
                 cancelled,
             )?;
-            if let Some(fields) = volatile.get(position).and_then(Option::as_ref) {
-                let added =
-                    arena.dependencies(catalog, &Value::Object(fields.clone()), cancelled)?;
-                arena.merge_evidence(&mut extra, &added, cancelled)?;
-            }
             let extra_chars = arena.evidence_chars(&extra)?;
             let head = head_limit(sizes[position], pages.room(), reserves[position]);
             let parts = plan_row(
@@ -224,7 +209,8 @@ impl PreparedRows {
 
 impl RowPlan {
     /// Build page `page`'s rows in row order, materializing only its
-    /// fragments; part one regains its row's per-call provider facts.
+    /// fragments; part one regains its row's per-call provider facts, which
+    /// no page edge counted.
     pub(super) fn build_page(
         &self,
         page: usize,
@@ -289,8 +275,8 @@ impl RowPlan {
 }
 
 /// Plan one row into its parts, each sized as it
-/// serializes on a page: its comma and `rowPart`, the per-call facts part one
-/// regains, less the continuations and hints the part does not carry
+/// serializes on a page: its comma and `rowPart`, the first-fragment fields
+/// part one regains, less the continuations and hints the part does not carry
 /// ([`PartShare`]).
 fn plan_row(
     arena: &mut FragmentArena,

@@ -122,12 +122,16 @@ pub(super) struct Extracted<'a> {
 }
 
 /// The scan options of a graph build of `root`: the one default prune (a
-/// git-tracked `build/` is scanned, as every local tool walks it); the
-/// credential stores are the path policy's.
+/// git-tracked `build/` is scanned, as every local tool walks it) unless
+/// `defaultExcludes:false`, the ignore policy `includeIgnored` and
+/// `includeHidden` name; the credential stores are the path policy's.
 fn scan_options(scan: &GraphScan, root: &Path) -> GraphFactsScanOptions {
     GraphFactsScanOptions {
         path: root.to_string_lossy().into_owned(),
-        default_exclude_dir: Some(crate::policy::prune::walk_names(true, &[])),
+        default_exclude_dir: Some(crate::policy::prune::walk_names(
+            scan.walk.default_excludes,
+            &[],
+        )),
         exclude: (!scan.exclude.is_empty()).then(|| scan.exclude.clone()),
         // No file cap (the snapshot bounds refuse a build that cannot
         // publish); a set `max_files` keeps the scan off the time budget.
@@ -136,27 +140,104 @@ fn scan_options(scan: &GraphScan, root: &Path) -> GraphFactsScanOptions {
         max_file_bytes: Some(octocode_engine::fact_scan::MAX_GRAPH_SOURCE_BYTES),
         language_globs: (!scan.language_globs.is_empty())
             .then(|| crate::tools::ast_rule::language_globs(&scan.language_globs)),
-        ignore: octocode_engine::types::IgnorePolicy::default(),
+        ignore: scan.walk.ignore,
     }
 }
 
-/// Name the files past the per-file budget among the scan's gaps, sorted
-/// with them.
-fn name_declined(
-    skipped: &mut Vec<octocode_engine::types::GraphFactsScanDiagnostic>,
-    declined: Vec<String>,
-) {
-    if declined.is_empty() {
-        return;
+/// Files the map leaves out, past the per-file budget or failing their
+/// secret scan (a filtered file to the scan), named as scan gaps.
+#[derive(Default)]
+struct Gaps(std::sync::Mutex<Vec<octocode_engine::types::GraphFactsScanDiagnostic>>);
+
+impl Gaps {
+    fn push(&self, gap: octocode_engine::types::GraphFactsScanDiagnostic) {
+        self.0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(gap);
     }
-    skipped.extend(declined.into_iter().map(|relative_path| {
-        octocode_engine::types::GraphFactsScanDiagnostic {
-            relative_path,
-            code: octocode_engine::fact_scan::SOURCE_BUDGET_EXCEEDED.to_owned(),
-            message: "file's source correspondence exceeds the per-file budget".to_owned(),
+}
+
+/// The skip of a file past the per-file budget.
+fn declined(relative_path: &str) -> octocode_engine::types::GraphFactsScanDiagnostic {
+    octocode_engine::types::GraphFactsScanDiagnostic {
+        relative_path: relative_path.to_owned(),
+        code: octocode_engine::fact_scan::SOURCE_BUDGET_EXCEEDED.to_owned(),
+        message: "file's source correspondence exceeds the per-file budget".to_owned(),
+    }
+}
+
+/// Name the files the map left out (past the per-file budget, or failing
+/// their secret scan) among the scan's gaps, sorted with them, and count
+/// every gap as a skipped file.
+fn name_gaps(
+    facts: &mut GraphFactsMappedScan<Kept>,
+    gaps: Vec<octocode_engine::types::GraphFactsScanDiagnostic>,
+) {
+    facts.skipped.extend(gaps);
+    facts
+        .skipped
+        .sort_unstable_by(|left, right| left.relative_path.cmp(&right.relative_path));
+    // One file can be named by two stages (the scan's and the capture's
+    // per-file budget): it is one skipped file.
+    let mut files = facts
+        .skipped
+        .iter()
+        .map(|skip| skip.relative_path.as_str())
+        .collect::<Vec<_>>();
+    files.dedup();
+    facts.files_skipped = octocode_engine::num::saturating_u32(files.len());
+}
+
+/// One scanned file's turn: capture its source, keep its facts (in memory or
+/// as the checkpoint's artifact) and charge the snapshot's admission.
+/// `None` when the file is a named gap (past the per-file budget, or failing
+/// its secret scan); the whole-snapshot budget still ends the scan.
+fn keep_file(
+    view: &octocode_engine::fact_scan::GraphFactsView<'_>,
+    cancel: &dyn CancellationCheck,
+    job: Option<&checkpoint::Job<'_>>,
+    admission: &super::scope::Admission<'_>,
+    gaps: &Gaps,
+) -> Result<Option<Kept>, ToolError> {
+    // A file past the per-file budget is the scan's named gap
+    // (`None`); the whole-snapshot budget still ends the scan.
+    let source = match capture::capture(view, cancel) {
+        Ok(source) => source,
+        Err(error) if error.code == ErrorCode::ScopeTooBroad => {
+            gaps.push(declined(view.relative_path));
+            return Ok(None);
         }
-    }));
-    skipped.sort_unstable_by(|left, right| left.relative_path.cmp(&right.relative_path));
+        Err(error) => return Err(error),
+    };
+    let source_bytes = source.bytes();
+    // The facts' encoded size: their artifact's, else their
+    // JSON's, which the artifact encodes.
+    let (kept, fact_bytes) = match job {
+        Some(job) => match job.keep(view, source)? {
+            Ok(kept) => kept,
+            Err(unscanned) => {
+                gaps.push(octocode_engine::fact_scan::panicked(
+                    view.relative_path.to_owned(),
+                    &unscanned,
+                ));
+                return Ok(None);
+            }
+        },
+        None => {
+            let marks = super::super::classify::SourceMarks::of(view.relative_path, view.content);
+            let fact_bytes = octocode_engine::json_size::bytes_or(view.facts, usize::MAX);
+            (
+                Kept::Memory(Box::new((view.to_entry(), marks, source))),
+                fact_bytes,
+            )
+        }
+    };
+    admission.admit(
+        view.facts.declarations.len(),
+        super::super::limits::build_charge(fact_bytes, view.facts.declarations.len(), source_bytes),
+    )?;
+    Ok(Some(kept))
 }
 
 pub(super) fn extract<'a>(
@@ -172,18 +253,7 @@ pub(super) fn extract<'a>(
     let request = turn.request();
     let cancel: &dyn CancellationCheck = turn;
     let options = scan_options(scan, root);
-    let admission_of_walk = || {
-        crate::policy::discovery::WalkAdmission::new(
-            paths.discovery_walk(),
-            root,
-            crate::policy::discovery::WalkRules {
-                defaults: true,
-                include: &[],
-                generated: false,
-                engine_prunes: true,
-            },
-        )
-    };
+    let admission_of_walk = || super::super::walk_scope::build_admission(paths, root);
     let discovery = admission_of_walk();
     let admit = |path: &Path, file_type| discovery.admit(path, file_type, |_| true);
     let capture_error = std::sync::Mutex::new(None);
@@ -222,9 +292,7 @@ pub(super) fn extract<'a>(
     )?;
     let parsing = crate::tools::ast_graph::progress::Parsing::new(walk.entries.len());
     let admission = super::scope::Admission::new(scan, root, &walk.entries);
-    // Files past the per-file budget: the map declines them (a filtered
-    // file to the scan), so they are named here as scan gaps.
-    let declined = std::sync::Mutex::new(Vec::<String>::new());
+    let gaps = Gaps::default();
     let reused_files = std::sync::atomic::AtomicUsize::new(0);
     let reuse = |context: &octocode_engine::fact_scan::GraphFactsReuseContext<'_>| {
         job.as_ref().and_then(|job| job.load(context))
@@ -244,49 +312,7 @@ pub(super) fn extract<'a>(
                 reused_files.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
             parsing.file_done();
-            let capture = || {
-                // A file past the per-file budget is the scan's named gap
-                // (`None`); the whole-snapshot budget still ends the scan.
-                let source = match capture::capture(view, cancel) {
-                    Ok(source) => source,
-                    Err(error) if error.code == ErrorCode::ScopeTooBroad => {
-                        declined
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .push(view.relative_path.to_owned());
-                        return Ok(None);
-                    }
-                    Err(error) => return Err(error),
-                };
-                let source_bytes = source.bytes();
-                // The facts' encoded size: their artifact's, else their
-                // JSON's, which the artifact encodes.
-                let (kept, fact_bytes) = match &job {
-                    Some(job) => job.keep(view, source)?,
-                    None => {
-                        let marks = super::super::classify::SourceMarks::of(
-                            view.relative_path,
-                            view.content,
-                        );
-                        let fact_bytes =
-                            octocode_engine::json_size::bytes_or(view.facts, usize::MAX);
-                        (
-                            Kept::Memory(Box::new((view.to_entry(), marks, source))),
-                            fact_bytes,
-                        )
-                    }
-                };
-                admission.admit(
-                    view.facts.declarations.len(),
-                    super::super::limits::build_charge(
-                        fact_bytes,
-                        view.facts.declarations.len(),
-                        source_bytes,
-                    ),
-                )?;
-                Ok(Some(kept))
-            };
-            match capture() {
+            match keep_file(view, cancel, job.as_ref(), &admission, &gaps) {
                 Ok(kept) => kept,
                 Err(error) => {
                     capture_error
@@ -308,11 +334,9 @@ pub(super) fn extract<'a>(
     }
     let mut facts = facts.map_err(scan_error)?;
     parsing.finish();
-    name_declined(
-        &mut facts.skipped,
-        declined
-            .into_inner()
-            .unwrap_or_else(PoisonError::into_inner),
+    name_gaps(
+        &mut facts,
+        gaps.0.into_inner().unwrap_or_else(PoisonError::into_inner),
     );
     let reused_files = reused_files.load(std::sync::atomic::Ordering::Relaxed);
     Ok(Extracted {

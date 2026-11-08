@@ -24,6 +24,15 @@ pub enum ExitClass {
 }
 
 impl ToolOutcome {
+    /// Whether the call is a tool error on a surface that has one flag (MCP
+    /// `isError`): every row failed. A batch where some row answered is not
+    /// an error there, though [`Self::exit_class`] still reports its failed
+    /// row. Both read the same `all_failed`, so no surface decides it alone.
+    #[must_use]
+    pub fn is_error(&self) -> bool {
+        self.all_failed
+    }
+
     #[must_use]
     pub fn exit_class(&self) -> ExitClass {
         let value = &self.structured_content;

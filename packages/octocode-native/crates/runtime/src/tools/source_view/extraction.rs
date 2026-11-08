@@ -34,7 +34,7 @@ mod canonical_tests;
 use matches::match_extract;
 pub(crate) use search_lead::{search_lead, text_search_query};
 #[cfg(test)]
-pub(crate) use spans::{MAX_REGEX_MATCHES, RUST_REGEX_RUNS, literal_ranges};
+pub(crate) use spans::{RUST_REGEX_RUNS, SpanBudgetOverride, literal_ranges};
 
 pub struct Extraction {
     pub text: String,

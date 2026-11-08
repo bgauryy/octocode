@@ -7,6 +7,7 @@ mod c_family;
 mod choice;
 mod classes;
 mod constructors;
+mod es_declared;
 mod es_members;
 mod exports;
 mod go;
@@ -18,6 +19,7 @@ mod rust_members;
 mod rust_returns;
 mod scala;
 mod scope;
+pub(super) use es_declared::DeclaredTypes;
 pub(super) use exports::{ExportResolver, FileBindings, confidence_for};
 pub(super) use inherited::{BaseIndex, base_index};
 pub(super) use linker::{Linker, ReturnTypes, Site};
@@ -147,10 +149,7 @@ pub(super) fn link_calls(
     let received = rust_returns::received_types(linker, unit, facts, callable, method);
     for (call, received) in facts.calls.iter().zip(received) {
         calls.sites += 1;
-        let receiver_type = call
-            .receiver_type
-            .as_deref()
-            .or(received.as_ref().map(|(ty, _)| ty.as_str()));
+        let receiver_type = received.receiver_type(call.receiver_type.as_deref());
         let (caller, resolved) = resolve_call(linker, unit, call, receiver_type, callable, method);
         let Ok((targets, resolution, confidence)) = resolved else {
             let reason = resolved.err().unwrap_or("other");
@@ -177,7 +176,7 @@ pub(super) fn link_calls(
         };
         // A receiver typed through another call's result is no surer than
         // that call's own link.
-        let confidence = received.map_or(confidence, |(_, inner)| confidence.max(inner));
+        let confidence = received.confidence(confidence);
         calls.linked += 1;
         calls
             .by_language
@@ -284,8 +283,23 @@ fn resolve_call(
                 } else if let Some(lang) = classes::ClassLang::of(unit.language) {
                     let constructed = call.binding == GraphCallBinding::ConstructedType;
                     linker.class_call(&site, lang, constructed)
+                } else if let Some(binding) = call
+                    .source_range
+                    .as_ref()
+                    .filter(|_| ecosystem(unit.language) == "npm")
+                    .and_then(|span| unit.bindings.scoped_require(qualifier, name, span))
+                {
+                    linker.scoped_require(&site, binding)
                 } else if call.binding == GraphCallBinding::ConstructedType {
                     constructors::local(&site).or_else(|| linker.link(&site))
+                } else if let Some(declared) = call
+                    .receiver_declared
+                    .as_ref()
+                    .filter(|_| receiver_type.is_none() && ecosystem(unit.language) == "npm")
+                {
+                    linker
+                        .declared_member(&site, declared)
+                        .or_else(|| linker.link(&site))
                 } else {
                     linker.link(&site)
                 }

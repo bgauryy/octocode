@@ -336,7 +336,7 @@ fn quotas_and_io_failures_do_not_commit_incomplete_artifacts() {
     job.state().memory_bytes = LIMITS.memory_only_bytes;
     assert!(matches!(
         job.keep(&view, source),
-        Ok((super::super::scan::Kept::Memory(_), _))
+        Ok(Ok((super::super::scan::Kept::Memory(_), _)))
     ));
     assert_eq!(job.progress().checkpointed_files, 0);
     assert!(!job.target("secret.ts").exists());

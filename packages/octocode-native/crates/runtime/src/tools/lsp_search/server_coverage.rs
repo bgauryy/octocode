@@ -100,8 +100,8 @@ pub(super) fn annotate(
     if octocode_engine::lsp::family::is_c_family(language_id) {
         annotate_c_family_text_only(row, query, scope);
     }
-    if scope.unbounded && lsp_search_query::op(query) != Op::WorkspaceSymbol && lists_no_use(row) {
-        super::failure::flag_partial(row, query, UNANSWERED_REASON, Some(UNBOUNDED_NOTE), scope);
+    if scope.unbounded && lsp_search_query::op(query) != Op::WorkspaceSymbol {
+        flag_unbounded(row, query, scope, stopped);
     }
     match language_id {
         // A workspace symbol is a declaration the server found: no use of it
@@ -170,8 +170,63 @@ pub(super) fn flag_server_health(
     flag_partial(row, query, HEALTH_REASON, Some(&note), scope);
 }
 
-/// Why an answer naming no use cannot speak for files beyond the server's root.
-const UNBOUNDED_NOTE: &str = "No .git or workspace file says where this project ends, so only the server's root was searched; a module beside it may use this name. Pass workspaceRoot with the folder that holds them.";
+/// Partial for a scope nothing bounds: no answer can speak for a module beside
+/// the server's root. The one statement of the advice is [`unbounded_note`]: the
+/// projects beside the root, named, and the widening that reaches them; the
+/// text lead ([`flag_partial`]) searches those projects, since the root itself
+/// was searched.
+fn flag_unbounded(
+    row: &mut Value,
+    query: &LspSearchQuery,
+    scope: &Scope,
+    stopped: &dyn Fn() -> bool,
+) {
+    scope.resolve_siblings(stopped);
+    flag_partial(
+        row,
+        query,
+        UNANSWERED_REASON,
+        Some(&unbounded_note(scope)),
+        scope,
+    );
+}
+
+/// Why no answer can speak for files beyond the server's root: a list of uses
+/// stops at the project the server loaded just as an empty one does. Names the
+/// projects beside the root, and says to widen `workspaceRoot` to their parent
+/// (the call's narrowing advice elsewhere does not apply: this scope is already
+/// the server's root).
+fn unbounded_note(scope: &Scope) -> String {
+    let base = "No .git or workspace file says where this project ends, so only the server's root was searched";
+    let Some(parent) = Path::new(&scope.root).parent() else {
+        return format!("{base}.");
+    };
+    if !scope.siblings_searched() {
+        return format!(
+            "{base}; the projects beside it were not looked for, as the request stopped first. Widen workspaceRoot to the folder that holds the repository to include them."
+        );
+    }
+    if scope.siblings().is_empty() {
+        return format!(
+            "{base}; no project beside it was found. If the repository holds more, widen workspaceRoot to the folder that holds it."
+        );
+    }
+    let names = scope
+        .siblings()
+        .iter()
+        .map(|sibling| {
+            Path::new(sibling).file_name().map_or_else(
+                || sibling.clone(),
+                |name| name.to_string_lossy().into_owned(),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "{base}; projects beside it may use this name: {names}. Widen (not narrow) workspaceRoot to {} to search them, or search them with the related text search.",
+        parent.display()
+    )
+}
 
 /// A file that spells the name in code and is not in the answer may hold another
 /// symbol or disabled code, or a use the index missed: a failed parse, a missing
@@ -243,14 +298,14 @@ const WORKSPACE_SYMBOL_NOTE: &str = "workspace/symbol has no completeness marker
 /// a partial flag: the row says it once and leads to the lexical search of
 /// `name` over `scope`, the check no page of this answer can make.
 /// `capped_at` is the server's own result limit when its answer reached it
-/// (only tsgo has one): a fact of this answer, so the row is partial and a
-/// warning says it outright.
+/// ([`octocode_engine::lsp::config::workspace_symbol_limit`]): a fact of this
+/// answer, so the row is partial and a warning says it outright.
 pub(super) fn workspace_symbols(
     row: &mut Value,
     name: &str,
     scope: &Scope,
     anchor: Option<&str>,
-    capped_at: Option<usize>,
+    capped_at: Option<(usize, &str)>,
 ) {
     if row.get("status").and_then(Value::as_str) == Some("error") {
         return;
@@ -261,9 +316,9 @@ pub(super) fn workspace_symbols(
     }
     // A server cap this answer reached is a fact of this answer: a warning.
     let mut warnings = Vec::new();
-    if let Some(limit) = capped_at {
+    if let Some((limit, advice)) = capped_at {
         warnings.push(format!(
-            "tsgo returns at most {limit} workspace symbols; this list is capped by the server: narrow symbolQuery, or route .ts to typescript-language-server in lsp-servers.json."
+            "The language server returns at most {limit} workspace symbols; this list is capped by the server: {advice}."
         ));
     }
     if !warnings.is_empty() {

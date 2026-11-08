@@ -67,7 +67,7 @@ fn rust_rows_keep_key_order_and_bytes() {
     expect(
         rows("a.rs", RUST, false),
         &[
-            r#"{"name":"Foo","kind":"struct","line":3,"docStartLine":1,"exported":true}"#,
+            r#"{"name":"Foo","kind":"struct","line":3,"startLine":2,"docStartLine":1,"exported":true}"#,
             r#"{"name":"std::fmt::Display for Foo","kind":"impl","line":4,"typeName":"Foo","endLine":6}"#,
             r#"{"name":"fmt","kind":"method","line":5,"parent":"std::fmt::Display for Foo"}"#,
             r#"{"name":"Foo","kind":"impl","line":7,"endLine":9}"#,
@@ -85,7 +85,7 @@ fn rust_rows_with_provenance_keep_key_order_and_bytes() {
     let rows = rows("a.rs", RUST, true);
     assert_eq!(
         masked(&rows[0]),
-        r#"{"name":"Foo","kind":"struct","line":3,"occurrenceId":"H","sourceRange":{"endByte":41,"startByte":26},"selectionByteRange":{"endByte":40,"startByte":37},"parseAssessment":{"status":"parsed","scope":"declaration","range":{"start":{"line":2,"character":0},"end":{"line":2,"character":15}}},"docStartLine":1,"exported":true,"sourceOrigin":{"analysisUnitId":"H","segments":[{"analysis":"included","branches":[{"kind":"copied","origin":{"rawRange":{"endByte":41,"startByte":26},"sourceId":"H"}}],"sourceRange":{"endByte":41,"startByte":26}}]},"sourceDigest":"H","selectionOrigin":{"analysisUnitId":"H","segments":[{"analysis":"included","branches":[{"kind":"copied","origin":{"rawRange":{"endByte":40,"startByte":37},"sourceId":"H"}}],"sourceRange":{"endByte":40,"startByte":37}}]}}"#
+        r#"{"name":"Foo","kind":"struct","line":3,"occurrenceId":"H","sourceRange":{"endByte":41,"startByte":9},"selectionByteRange":{"endByte":40,"startByte":37},"parseAssessment":{"status":"parsed","scope":"declaration","range":{"start":{"line":2,"character":0},"end":{"line":2,"character":15}}},"startLine":2,"docStartLine":1,"exported":true,"sourceOrigin":{"analysisUnitId":"H","segments":[{"analysis":"included","branches":[{"kind":"copied","origin":{"rawRange":{"endByte":41,"startByte":9},"sourceId":"H"}}],"sourceRange":{"endByte":41,"startByte":9}}]},"sourceDigest":"H","selectionOrigin":{"analysisUnitId":"H","segments":[{"analysis":"included","branches":[{"kind":"copied","origin":{"rawRange":{"endByte":40,"startByte":37},"sourceId":"H"}}],"sourceRange":{"endByte":40,"startByte":37}}]}}"#
     );
     let keys: Vec<Vec<String>> = rows.iter().map(|row| keys_of(row)).collect();
     let expected: &[&[&str]] = &[
@@ -97,6 +97,7 @@ fn rust_rows_with_provenance_keep_key_order_and_bytes() {
             "sourceRange",
             "selectionByteRange",
             "parseAssessment",
+            "startLine",
             "docStartLine",
             "exported",
             "sourceOrigin",

@@ -9,7 +9,7 @@ lto = "thin"          # cross-crate optimization with lower link cost; benchmark
 codegen-units = 1     # candidate for hot crates; benchmark against more units
 opt-level = 3         # "s"/"z" when size dominates (CLI, wasm, addons) — benchmark both
 strip = "symbols"
-# Keep the existing panic strategy; an addon abort terminates its Node host.
+# Keep the existing panic strategy. napi-rs only (not used in this repo): an addon abort terminates its Node host.
 ```
 - `catch_unwind` cannot catch an aborting panic. Cargo test harnesses require unwinding and ignore the profile's `panic` setting; ordinary abort builds still terminate the process. [Cargo profiles](https://doc.rust-lang.org/cargo/reference/profiles.html#panic).
 - `codegen-units = 1` serializes a crate's codegen. Keep it on hot-CPU crates; give IO/glue crates `[profile.release.package.<crate>] codegen-units = 16`. Find "hot" with `--timings` + a benchmark.

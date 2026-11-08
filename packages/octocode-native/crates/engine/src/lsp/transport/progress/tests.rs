@@ -179,3 +179,32 @@ async fn a_wait_owed_nothing_returns_at_once_without_confirming() {
     );
     assert_eq!(started.elapsed(), Duration::ZERO);
 }
+
+/// rust-analyzer's cache priming warms an index every query already works
+/// without, and it reports `quiescent:false` while it runs: with priming the
+/// only work left, the server can answer, so it is not "still loading". Any
+/// other work, or a bare `quiescent:false`, is.
+#[tokio::test(start_paused = true)]
+async fn cache_priming_alone_is_not_work_that_blocks_an_answer() {
+    let tracker = ProgressTracker::new();
+    tracker.on_server_status(false).await;
+    assert!(tracker.has_active(), "loading, no priming: busy");
+    tracker.on_begin(CACHE_PRIMING_TOKEN.to_owned()).await;
+    assert!(!tracker.has_active(), "only priming is open");
+    tracker
+        .on_begin("rustAnalyzer/Roots Scanned".to_owned())
+        .await;
+    assert!(tracker.has_active(), "a reload during priming is work");
+    tracker.on_end("rustAnalyzer/Roots Scanned").await;
+    assert!(!tracker.has_active());
+    tracker.on_end(CACHE_PRIMING_TOKEN).await;
+    assert!(
+        tracker.has_active(),
+        "status still not quiescent without priming"
+    );
+    tracker.on_server_status(true).await;
+    assert!(!tracker.has_active());
+    // Priming on a server that sends no status is no work either.
+    tracker.on_begin(CACHE_PRIMING_TOKEN.to_owned()).await;
+    assert!(!tracker.has_active());
+}

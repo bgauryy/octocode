@@ -57,9 +57,10 @@ fn a_capture_needs_settled_paths_when_asked() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file = dir.path().join("a.rs");
     std::fs::write(&file, "fn a() {}").expect("write");
-    let now = SystemTime::now();
-    assert!(Proof::capture([file.clone()], Link::Follow, Some(now)).is_none());
-    let later = now + SourceStamp::SETTLE + std::time::Duration::from_secs(1);
+    let stamp = SourceStamp::of(&std::fs::metadata(&file).expect("meta")).expect("stamp");
+    let written = std::time::UNIX_EPOCH + std::time::Duration::from_nanos(stamp.last_write_ns());
+    assert!(Proof::capture([file.clone()], Link::Follow, Some(written)).is_none());
+    let later = written + stamp.settle_for();
     assert!(Proof::capture([file], Link::Follow, Some(later)).is_some());
 }
 
@@ -97,12 +98,14 @@ fn settled_before_asks_only_what_was_stamped() {
     let mut proof = Proof::default();
     proof.follow(dir.path().join("absent"));
     proof.presence(file.clone());
-    let now = SystemTime::now();
-    assert!(proof.settled_before(now));
+    let stamp = SourceStamp::of(&std::fs::metadata(&file).expect("meta")).expect("stamp");
+    let written = std::time::UNIX_EPOCH + std::time::Duration::from_nanos(stamp.last_write_ns());
+    assert!(proof.settled_before(written));
     proof.follow(file);
-    assert!(!proof.settled_before(now));
-    let later = now + SourceStamp::SETTLE + std::time::Duration::from_secs(1);
-    assert!(proof.settled_before(later));
+    assert!(!proof.settled_before(written), "written at the instant");
+    let window = stamp.settle_for();
+    assert!(!proof.settled_before(written + window - std::time::Duration::from_nanos(1)));
+    assert!(proof.settled_before(written + window));
 }
 
 /// Stamps a walk took stand as captured ones, so they cost no stat, and a

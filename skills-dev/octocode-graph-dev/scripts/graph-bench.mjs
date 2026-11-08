@@ -22,6 +22,14 @@ export const CASES = [
   { lang: 'go', repo: 'go', dir: '.', probe: 'FromStrings', ext: 'go' },
   { lang: 'java', repo: 'java', dir: 'guava/src', probe: 'checkNotNull', ext: 'java' },
   { lang: 'javascript', repo: 'javascript', dir: '.', probe: 'isObject', ext: 'js', exclude: ['vendor/**'] },
+  // CommonJS row: the exported name with the most ripgrep caller files among modules that two or
+  // more files load by relative `require` (picked mechanically before measuring, 2026-11-07).
+  { lang: 'javascript-cjs', repo: 'nextjs', dir: 'scripts', probe: 'getGitHubToken', ext: 'js' },
+  // Lazy-require row: among exports called through a function-scope or inline relative `require`,
+  // the one with the most such call sites across 2+ files, over every pinned JS/TS clone (picked
+  // mechanically before measuring, 2026-11-07; nextjs had no candidate: its inline loads target a
+  // build output and its scope loads are fixtures without named exports).
+  { lang: 'javascript-lazy', repo: 'huge-ts', dir: 'scripts/chat-simulation', probe: 'startServer', ext: 'js,ts' },
   { lang: 'python', repo: 'python', dir: 'django', probe: 'force_str', ext: 'py' },
   { lang: 'rust', repo: 'rust', dir: 'tokio', probe: 'poll_proceed', ext: 'rs' },
   { lang: 'scala', repo: 'scala', dir: 'core', probe: 'tailRecM', ext: 'scala' },
@@ -219,6 +227,13 @@ export async function workflow(q, firstId) {
   return out;
 }
 
+// The agent's second build of an unchanged tree: graphBuild without `refresh` must hand back the
+// snapshot the refresh just made (its sources are unchanged) at a fraction of a rebuild's cost.
+export async function incrementalRow(call, root, snapshotId) {
+  const { res, j } = await call('graphBuild', { queries: [{ path: root }] });
+  return { ms: res.ms, exit: res.code, error: j.error ?? j.parseError, reused: j.id === snapshotId };
+}
+
 async function bench(c, opts) {
   const cwd = join(opts.repos, c.repo);
   const root = join(cwd, c.dir);
@@ -229,6 +244,7 @@ async function bench(c, opts) {
   const { res: ing, j: r } = await call('graphBuild', { queries: [{ path: root, refresh: true }] });
   row.ingest = ingestRow(ing, r);
   if (row.ingest.error || !r.id) return row;
+  row.incremental = await incrementalRow(call, root, r.id);
   const { q, pages } = withGraph(root, r.id);
   const stats = await q({ operation: 'stats' });
   row.stats = { ms: stats.res.ms, bytes: stats.res.out.length, exit: stats.res.code, keys: Object.keys(stats.j) };

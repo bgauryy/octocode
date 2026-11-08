@@ -41,6 +41,21 @@ pub enum Proxy {
     Direct,
 }
 
+/// The longest a client with no deadline of its own waits for its peer's next
+/// bytes ([`ClientPolicy::read_timeout`]), the first answer byte included.
+/// It ends a dead or silent socket, never flowing work: every read that
+/// arrives starts it again. It matches the request budget every surface had
+/// before requests lost their fixed deadline, so no exchange that completed
+/// then (a model thinking before its first byte) is cut by it now.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::disallowed_methods,
+        reason = "Stall bound between reads, reset by every read: ends a silent socket, never flowing work or a request"
+    )
+)]
+pub const READ_STALL: Duration = Duration::from_secs(300);
+
 /// What differs between Octocode's clients. Redirects are never followed and
 /// automatic retries are off in every client: callers that retry do it
 /// explicitly, with their own budget.
@@ -55,6 +70,19 @@ pub struct ClientPolicy {
     /// Connect `host` to these addresses instead of resolving it.
     pub resolve: Option<(String, Vec<SocketAddr>)>,
     pub user_agent: Option<&'static str>,
+}
+
+impl ClientPolicy {
+    /// The policy of a client whose requests have no deadline of their own
+    /// (no caller budget): a peer silent for [`READ_STALL`] ends one, a peer
+    /// still sending never does. Callers add what else differs.
+    #[must_use]
+    pub fn without_deadline() -> Self {
+        Self {
+            read_timeout: Some(READ_STALL),
+            ..Self::default()
+        }
+    }
 }
 
 /// Process variables the HTTP client reads: proxies and the trust store.
@@ -170,6 +198,101 @@ mod tests {
         });
         server.join().expect("server");
         assert_eq!(status.as_u16(), 307);
+    }
+
+    /// A peer that sends `head`, then `chunks` (each after `gap`), then goes
+    /// silent for `silence` before closing.
+    fn serve_slowly(
+        head: &'static str,
+        chunks: usize,
+        gap: Duration,
+        silence: Duration,
+    ) -> SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut buf = [0_u8; 1024];
+            let _ = stream.read(&mut buf);
+            let _ = stream.write_all(head.as_bytes());
+            for _ in 0..chunks {
+                std::thread::sleep(gap);
+                let _ = stream.write_all(b"x");
+                let _ = stream.flush();
+            }
+            std::thread::sleep(silence);
+        });
+        addr
+    }
+
+    /// The body as `client` reads it with a read stall bound of `stall`, and
+    /// how long the request took.
+    fn read_body(addr: SocketAddr, stall: Duration) -> (reqwest::Result<String>, Duration) {
+        runtime().block_on(async {
+            let policy = ClientPolicy {
+                read_timeout: Some(stall),
+                ..ClientPolicy::without_deadline()
+            };
+            let client = client(&policy).expect("client");
+            let started = Instant::now();
+            let body = async {
+                client
+                    .get(format!("http://{addr}/"))
+                    .send()
+                    .await?
+                    .text()
+                    .await
+            };
+            (body.await, started.elapsed())
+        })
+    }
+
+    /// B75: a client without a deadline ends a request only at its stall
+    /// bound, [`READ_STALL`] in production.
+    #[test]
+    fn a_client_without_a_deadline_bounds_only_its_read_stall() {
+        let policy = ClientPolicy::without_deadline();
+        assert_eq!(policy.read_timeout, Some(READ_STALL));
+        assert_eq!(policy.timeout, None, "no total deadline");
+    }
+
+    /// A peer that answers its headers and part of the body, then goes silent,
+    /// fails the read at the stall bound with a timeout.
+    #[test]
+    fn a_body_that_stops_mid_way_times_out_at_the_stall_bound() {
+        let stall = Duration::from_millis(300);
+        let addr = serve_slowly(
+            "HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\nabc",
+            0,
+            Duration::ZERO,
+            Duration::from_secs(5),
+        );
+        let (body, elapsed) = read_body(addr, stall);
+        let error = body.expect_err("a silent peer ends the read");
+        assert!(error.is_timeout(), "the stall is a timeout: {error}");
+        assert!(elapsed >= stall, "cut before the bound: {elapsed:?}");
+        assert!(
+            elapsed < Duration::from_secs(4),
+            "not cut at the bound: {elapsed:?}"
+        );
+    }
+
+    /// A body that keeps trickling, each chunk inside the stall bound, is read
+    /// whole however many multiples of the bound it takes.
+    #[test]
+    fn a_body_that_keeps_trickling_completes_past_many_stall_bounds() {
+        let stall = Duration::from_millis(400);
+        let chunks = 8;
+        let gap = Duration::from_millis(250);
+        let addr = serve_slowly(
+            "HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\n",
+            chunks,
+            gap,
+            Duration::ZERO,
+        );
+        let (body, elapsed) = read_body(addr, stall);
+        assert_eq!(body.expect("a flowing body completes"), "x".repeat(chunks));
+        assert!(elapsed > stall * 4, "outlasted several bounds: {elapsed:?}");
     }
 
     #[test]

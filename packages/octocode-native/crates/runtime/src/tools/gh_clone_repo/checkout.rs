@@ -1,6 +1,6 @@
 //! A fresh checkout: stage the commit, verify it, publish it as an output.
 use super::plan::{Checkout, Plan};
-use super::{CloneError, CloneResult, Sparse, control, git, policy_denied, recovery, storage};
+use super::{CloneError, CloneResult, Sparse, git, policy_denied, recovery, storage};
 use octocode_contract_types::ErrorCode;
 use std::path::Path;
 
@@ -19,19 +19,21 @@ pub(super) fn reuse_checkout(
         return Ok(None);
     }
     let context = plan.context;
-    context.git.assert_available(&control(context))?;
-    if !git::safe_to_replace(context, clone_dir, reference)? {
-        return Ok(None);
-    }
-    // A checkout made before credential-named files were withheld still
-    // holds them: it is not reusable, the caller replaces it.
-    let listed = git::withheld_files(
+    // The checks read one checkout and none depends on another: they run
+    // together. A checkout that is not exactly the commit is not reusable.
+    let Some(inspection) = git::inspect_checkout(
         context,
         clone_dir,
-        "HEAD",
+        reference,
         plan.sparse.as_ref().map(Sparse::paths),
-    )?;
-    // The blobs count too: an earlier full clone stored them unwritten.
+    )?
+    else {
+        return Ok(None);
+    };
+    let listed = inspection.listed;
+    // A checkout made before credential-named files were withheld still
+    // holds them: it is not reusable, the caller replaces it. The blobs
+    // count too: an earlier full clone stored them unwritten.
     if listed
         .iter()
         .any(|file| clone_dir.join(&file.path).exists())
@@ -43,7 +45,7 @@ pub(super) fn reuse_checkout(
     let checkout = Checkout {
         commit_sha: reference.to_ascii_lowercase(),
         size: storage::checked_out_size(clone_dir),
-        symlinks: git::symlinks(context, clone_dir)?,
+        symlinks: inspection.symlinks,
         withheld,
     };
     context
@@ -64,7 +66,6 @@ pub(super) fn fresh_clone(
     clone_dir: &Path,
 ) -> Result<CloneResult, CloneError> {
     let context = plan.context;
-    context.git.assert_available(&control(context))?;
     if clone_dir.exists() && !git::safe_to_replace(context, clone_dir, reference)? {
         return Err(dirty_checkout(clone_dir));
     }

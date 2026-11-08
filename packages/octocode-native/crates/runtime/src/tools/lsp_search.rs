@@ -43,9 +43,12 @@ mod failure;
 mod fallback_hierarchy;
 mod file_windows;
 mod heritage;
+mod ide;
 mod import_stop;
 mod importers;
 mod inferred_project;
+mod ladder;
+mod level;
 mod locations;
 mod ops;
 mod output;
@@ -62,13 +65,16 @@ mod scope;
 mod server_coverage;
 mod session;
 mod source;
+mod syntax;
 mod test_scope;
 mod unanswered;
 mod walk;
 mod words;
+mod worker_clock;
 
 pub use failure::LspFailure;
 use failure::{failure, partial_with_related_rerun, with_next};
+use ladder::run_page;
 pub(crate) use output::Output;
 use page::*;
 use paths::*;
@@ -152,6 +158,9 @@ pub struct LspExecutionConfig {
     /// `lsp.allowBuildScripts`: whether a `rustContext` may run the
     /// workspace's build scripts and proc macros (repository code).
     pub allow_build_scripts: bool,
+    /// The scanner that redacts the sources a response windows: the runtime's
+    /// one content policy.
+    pub security: crate::security::ContentSecurity,
     pub(crate) prewarm_state: std::sync::Arc<std::sync::Mutex<prewarm::WarmState>>,
 }
 
@@ -229,11 +238,12 @@ pub(super) async fn blocking_cancellable<T: Send + 'static>(
     let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let _stop_worker = StopOnDrop(std::sync::Arc::clone(&stop));
     // A deep-stack parse the work waits on stops with it.
-    let worker = tokio::task::spawn_blocking(move || {
+    let run = worker_clock::carried(move || {
         octocode_engine::deep_stack::while_stoppable(&stop, || {
             work(&|| stop.load(std::sync::atomic::Ordering::Relaxed))
         })
     });
+    let worker = tokio::task::spawn_blocking(run);
     Ok(cancellable(cancel, worker).await?.ok())
 }
 

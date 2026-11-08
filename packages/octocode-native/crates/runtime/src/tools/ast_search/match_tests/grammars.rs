@@ -38,6 +38,56 @@ fn a_pattern_that_does_not_apply_to_a_grammar_is_named_not_failed() {
     assert_eq!(out["inferredLanguage"], "python", "{out}");
 }
 
+/// Under a rule language, fixed by `parser` or inferred from the scan, a file
+/// no grammar parses whose name is of a known other type (ripgrep's default
+/// type table) is a quiet `skippedGrammars` count; only a file of unknown
+/// type, which could hold the language's source, says absence there is
+/// unproven. Without one language every grammar-less file is named.
+#[test]
+fn under_a_rule_language_only_files_of_unknown_type_warn() {
+    let root = Fixture::new();
+    root.write("src/lib.rs", "fn a() {}\n");
+    root.write("src/gen.rs.in", "fn b() {}\n");
+    root.write("Cargo.toml", "[package]\nname = \"x\"\n");
+    root.write("site.css", "a {}\n");
+    root.write("page.html", "<p></p>\n");
+    for parser in [None, Some("rust")] {
+        let mut query = json!({"operation":"match","path":root.0,"rule":{"kind":"function_item"}});
+        if let Some(parser) = parser {
+            query["parser"] = json!(parser);
+        } else {
+            assert_eq!(
+                run(&root.0, query.clone()).expect("match")["inferredLanguage"],
+                "rust"
+            );
+        }
+        let out = run(&root.0, query).expect("match");
+        assert_eq!(out["matchCount"], 1, "{parser:?}: {out}");
+        let notices = out["notices"].to_string();
+        assert!(notices.contains("1 file skipped"), "{parser:?}: {out}");
+        assert!(notices.contains("gen.rs.in"), "{parser:?}: {out}");
+        for typed in ["Cargo.toml", "site.css", "page.html"] {
+            assert!(!notices.contains(typed), "{parser:?} {typed}: {out}");
+        }
+        assert_eq!(
+            out["skippedGrammars"],
+            json!({"css":1,"html":1,"toml":1}),
+            "{parser:?}: {out}"
+        );
+    }
+    root.write("a.ts", "run(1);\n");
+    let mixed = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"rule":{"pattern":"$A"},"view":"files"}),
+    )
+    .expect("several grammars");
+    assert!(mixed.get("inferredLanguage").is_none(), "{mixed}");
+    assert!(
+        mixed["notices"].to_string().contains("4 files skipped"),
+        "{mixed}"
+    );
+}
+
 /// A query that compiles in no grammar of the scope is still an error, and a
 /// scope whose every grammar compiles it has nothing to disclose.
 #[test]

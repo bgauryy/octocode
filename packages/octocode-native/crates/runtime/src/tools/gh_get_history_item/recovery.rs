@@ -6,8 +6,8 @@ use crate::id::ToolId;
 use crate::response::result::Continuation;
 use crate::response::result::wire_query;
 use crate::tools::gh_shared::{
-    DefaultBranchRetry, GhFailure, RenameCheck, canonical_repo, default_branch_retry,
-    renamed_warning, unresolved_refs, with_repo,
+    DefaultBranchRetry, GhFailure, default_branch_retry, failure_scope, renamed_warning,
+    repository_failure, repository_not_found, unresolved_refs, with_repo,
 };
 use octocode_contract_types::{GhGetHistoryItemQuery, GhSearchHistoryQuery};
 use octocode_github::{
@@ -18,21 +18,42 @@ use serde_json::{Map, Value, json};
 /// The failure of a history-item read of `query` (its wire row): the
 /// shared history wording ([`crate::tools::gh_shared::history::history_failure`]),
 /// [`recovery`]'s lead and, for a missing ref, [`missing_ref`]'s message
-/// and `atDefaultBranch` retry. A repository renamed since the query was
-/// written is named once on a missing-ref failure ([`renamed_warning`]), and
-/// every lead names it as it is now.
+/// and `atDefaultBranch` retry. A bare 404 of a repository that does not
+/// resolve is the shared repository failure, whose leads search for it
+/// ([`failure_scope`]). A repository renamed since the query was written is
+/// named once in the message ([`renamed_warning`]), and every lead names it
+/// as it is now.
 pub(crate) async fn recover(
     provider: &GitHubProvider,
     query: &Value,
-    mut error: ProviderError,
+    error: ProviderError,
     context: &RequestContext,
 ) -> GhFailure {
-    let missing = error.reason == Some(ProviderErrorReason::RefNotFound);
-    let renamed = if missing {
-        renamed_repository(provider, query, context).await
-    } else {
-        None
+    let text = |name: &str| query.get(name).and_then(Value::as_str);
+    let (mut error, renamed) = match (text("owner"), text("repo")) {
+        (Some(owner), Some(repo)) => {
+            let scope = failure_scope(provider, owner, repo, None, error, context).await;
+            if repository_not_found(&scope.error) {
+                return repository_failure(scope.error, owner, repo);
+            }
+            let renamed = scope
+                .canonical
+                .map(|to| ((owner.to_owned(), repo.to_owned()), to));
+            let mut error = scope.error;
+            // GitHub answered for the repository: only the item is missing.
+            if (context.repository_resolves(owner, repo)
+                || context.read_full_name(owner, repo).is_some())
+                && let Ok(request) = super::HistoryItemRequest::from_row(query)
+                && super::bare_not_found(&error, &request)
+            {
+                error.message =
+                    super::not_found_message(&request, error.reason, true).into_boxed_str();
+            }
+            (error, renamed)
+        }
+        _ => (error, None),
     };
+    let missing = error.reason == Some(ProviderErrorReason::RefNotFound);
     let canonical = renamed
         .as_ref()
         .and_then(|(_, to)| with_repo(query, &to.0, &to.1).ok());
@@ -60,23 +81,6 @@ pub(crate) async fn recover(
     }
     failure.calls = next.map(Box::new);
     failure
-}
-
-/// The repository `query` names as `((owner, repo), canonical)` when GitHub
-/// redirected it to another name (a metadata check only for a
-/// repository GitHub never redirected).
-async fn renamed_repository(
-    provider: &GitHubProvider,
-    query: &Value,
-    context: &RequestContext,
-) -> Option<((String, String), (String, String))> {
-    let text = |name: &str| query.get(name).and_then(Value::as_str);
-    let (owner, repo) = (text("owner")?, text("repo")?);
-    let to = canonical_repo(provider, owner, repo, context, RenameCheck::Redirected)
-        .await
-        .ok()
-        .flatten()?;
-    Some(((owner.to_owned(), repo.to_owned()), to))
 }
 
 /// A history item read at a ref that is not there, named against the
@@ -226,5 +230,7 @@ fn find_item(operation: Option<&str>, query: &Value) -> Option<Value> {
     Some(Value::Object(Map::from_iter([(name.to_owned(), listing)])))
 }
 
+#[cfg(test)]
+mod missing_repository_tests;
 #[cfg(test)]
 mod tests;

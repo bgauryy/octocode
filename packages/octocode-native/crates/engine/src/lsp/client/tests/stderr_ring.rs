@@ -2,7 +2,8 @@
 
 use super::*;
 use crate::lsp::client::stderr::{
-    STDERR_LINE_MAX_CHARS, STDERR_RING_CAPACITY, drain_stderr, push_stderr_line, read_capped_line,
+    ReadNow, STDERR_LINE_MAX_CHARS, STDERR_RING_CAPACITY, UntilExit, drain_stderr,
+    push_stderr_line, read_capped_line,
 };
 use tokio::io::BufReader;
 
@@ -96,4 +97,185 @@ fn capped_line_reader_discards_the_overflow_without_buffering_it() {
             0
         );
     });
+}
+
+/// A pipe a leftover process holds open: its stream never answers, and it
+/// holds `held` unread (read without waiting, then `WouldBlock`).
+struct HeldPipe {
+    held: Vec<u8>,
+}
+
+impl tokio::io::AsyncRead for HeldPipe {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+        _: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::task::Poll::Pending
+    }
+}
+
+impl ReadNow for HeldPipe {
+    fn read_now(&mut self, buf: &mut [u8]) -> Option<std::io::Result<usize>> {
+        if self.held.is_empty() {
+            return Some(Err(std::io::ErrorKind::WouldBlock.into()));
+        }
+        let read = buf.len().min(self.held.len());
+        buf[..read].copy_from_slice(&self.held[..read]);
+        self.held.drain(..read);
+        Some(Ok(read))
+    }
+}
+
+/// Once the server has exited, the drain keeps every line the pipe holds,
+/// a last one without its newline too, and ends without waiting for EOF.
+#[tokio::test]
+async fn an_exited_servers_drain_reads_what_the_pipe_holds_and_ends() {
+    let (exited, on_exit) = tokio::sync::oneshot::channel();
+    let pipe = HeldPipe {
+        held: b"first\nsecond\nno newline".to_vec(),
+    };
+    let lines = Arc::new(StdMutex::new(VecDeque::new()));
+    let drain = tokio::spawn(drain_stderr(
+        UntilExit::new(pipe, on_exit),
+        Arc::clone(&lines),
+    ));
+    exited.send(()).expect("drain listens");
+    drain.await.expect("drain ends");
+    let lines = lines.lock().unwrap();
+    assert_eq!(
+        lines.iter().map(String::as_str).collect::<Vec<_>>(),
+        ["first", "second", "no newline"]
+    );
+}
+
+/// A running server's drain (no exit signal ever sent) reads to EOF: the
+/// signal's sender going away does not end it.
+#[tokio::test]
+async fn a_running_servers_drain_reads_to_eof() {
+    struct Stream(tokio::io::DuplexStream);
+    impl tokio::io::AsyncRead for Stream {
+        fn poll_read(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+            buf: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::pin::Pin::new(&mut self.0).poll_read(cx, buf)
+        }
+    }
+    impl ReadNow for Stream {
+        fn read_now(&mut self, _: &mut [u8]) -> Option<std::io::Result<usize>> {
+            Some(Err(std::io::ErrorKind::WouldBlock.into()))
+        }
+    }
+    let (mut writer, reader) = tokio::io::duplex(64);
+    let (exited, on_exit) = tokio::sync::oneshot::channel::<()>();
+    let lines = Arc::new(StdMutex::new(VecDeque::new()));
+    let drain = tokio::spawn(drain_stderr(
+        UntilExit::new(Stream(reader), on_exit),
+        Arc::clone(&lines),
+    ));
+    tokio::io::AsyncWriteExt::write_all(&mut writer, b"before\n")
+        .await
+        .unwrap();
+    drop(exited);
+    tokio::io::AsyncWriteExt::write_all(&mut writer, b"after\n")
+        .await
+        .unwrap();
+    drop(writer);
+    drain.await.expect("drain ends at EOF");
+    let lines = lines.lock().unwrap();
+    assert_eq!(
+        lines.iter().map(String::as_str).collect::<Vec<_>>(),
+        ["before", "after"]
+    );
+}
+
+/// A server that dies at launch says why on stderr; the start error carries it
+/// instead of only "connection closed".
+#[tokio::test]
+#[cfg(unix)]
+async fn a_failed_start_reports_the_servers_stderr() {
+    let tmp = TmpDir::new();
+    let script = tmp.0.join("dying-server");
+    write_executable(
+        &script,
+        "#!/bin/sh\necho 'error: relative path toolchain' >&2\nexit 1\n",
+    );
+    let mut config = ts_config();
+    config.command = script.to_string_lossy().into_owned();
+    config.args = None;
+    let client = NativeLspClient::new(config);
+    let error = client
+        .start()
+        .await
+        .expect_err("the server exits at launch");
+    assert!(
+        error.reason.contains("error: relative path toolchain"),
+        "{}",
+        error.reason
+    );
+}
+
+/// A server that dies at launch leaves a detached process (its own session,
+/// so the group sweep misses it) holding the stderr pipe open: the start
+/// still returns, with the line the server wrote, while that process lives.
+#[tokio::test]
+#[cfg(unix)]
+async fn a_failed_start_returns_while_a_detached_process_holds_stderr() {
+    if !node_available() {
+        return;
+    }
+    let tmp = TmpDir::new();
+    let script = tmp.0.join("dying-server.js");
+    let holder_file = tmp.0.join("holder.pid");
+    write_executable(
+        &script,
+        r#"#!/usr/bin/env node
+const { spawn } = require('child_process');
+const fs = require('fs');
+const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: ['ignore', 'ignore', 'inherit'], detached: true });
+holder.unref();
+fs.writeFileSync(process.env.FAKE_HOLDER_PID_FILE, String(holder.pid));
+fs.writeSync(2, 'error: the server could not start\n');
+process.exit(1);
+"#,
+    );
+    let mut config = ts_config();
+    config.command = script.to_string_lossy().into_owned();
+    config.args = None;
+    config.env = Some(
+        [(
+            "FAKE_HOLDER_PID_FILE".to_owned(),
+            holder_file.to_string_lossy().into_owned(),
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let client = NativeLspClient::new(config);
+    let error = client
+        .start()
+        .await
+        .expect_err("the server exits at launch");
+    let holder: i32 = std::fs::read_to_string(&holder_file)
+        .expect("holder pid")
+        .trim()
+        .parse()
+        .expect("numeric pid");
+    // SAFETY: signal 0 only probes the pid the fixture recorded.
+    let held = unsafe { libc::kill(holder, 0) } == 0;
+    // SAFETY: the fixture recorded this holder's pid; end it so the test
+    // leaves nothing behind.
+    unsafe {
+        libc::kill(holder, libc::SIGKILL);
+    }
+    assert!(
+        held,
+        "the start returned only after the holder {holder} exited"
+    );
+    assert!(
+        error.reason.contains("error: the server could not start"),
+        "{}",
+        error.reason
+    );
 }

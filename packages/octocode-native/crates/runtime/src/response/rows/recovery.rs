@@ -1,33 +1,20 @@
 use crate::response::output::{SANDBOX_HINT, ToolOutput};
 use octocode_contract_types::ErrorCode;
-use serde_json::{Value, json};
+use serde_json::Value;
 
 pub(crate) fn attach_diagnostics(
     row: &mut Value,
     diagnostics: crate::response::result::ToolDiagnostics,
 ) {
-    let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
+    let Some(data) = row.get_mut("data") else {
         return;
     };
-    for reason in diagnostics.partial_reasons {
-        crate::response::paging::mark_partial(data, reason, &[]);
-    }
-    append(data, "hints", diagnostics.hints);
-}
-
-fn append(data: &mut serde_json::Map<String, Value>, key: &str, values: Vec<String>) {
-    if values.is_empty() {
-        return;
-    }
-    let target = data.entry(key).or_insert_with(|| json!([]));
-    if let Some(existing) = target.as_array_mut() {
-        for value in values {
-            let value = Value::String(value);
-            if !existing.contains(&value) {
-                existing.push(value);
-            }
+    if let Some(fields) = data.as_object_mut() {
+        for reason in diagnostics.partial_reasons {
+            crate::response::paging::mark_partial(fields, reason, &[]);
         }
     }
+    crate::response::result::add_hints(data, diagnostics.hints);
 }
 
 /// Authentication recovery shared by every GitHub tool.
@@ -35,6 +22,10 @@ pub(crate) const GITHUB_AUTH_RECOVERY_HINT: &str = "Run octocode auth login or s
 
 /// The one recovery for a cancelled call, on every tool and stage.
 pub(crate) const CANCELLED_HINT: &str = "Retry only if the result is still needed and what cancelled it changed; otherwise report the cancellation.";
+
+/// The recovery of a source too large to read or analyse whole: valid only
+/// where localSearch and localFetch ranges still serve it.
+pub(crate) const LARGE_SOURCE_HINT: &str = "Locate a bounded region with localSearch, then read exact ranges with localFetch. Full-file structural analysis may remain unavailable.";
 
 const TRANSIENT_HINT: &str = "Retry once only if retryable is true; if it persists, check provider availability and report the coverage gap.";
 
@@ -44,7 +35,7 @@ const TRANSIENT_HINT: &str = "Retry once only if retryable is true; if it persis
 /// and future tool-owned guidance share the normal redaction boundary.
 pub(crate) fn attach_error_hint(tool: &dyn ToolOutput, data: &mut Value, query: &Value) {
     if let Some(hint) = missing_error_hint(tool, data, query) {
-        data["hints"] = json!([hint]);
+        crate::response::result::add_hints(data, [hint]);
     }
 }
 
@@ -135,9 +126,7 @@ fn source_hint(code: ErrorCode) -> Option<&'static str> {
         ErrorCode::ContentSecurityLimit | ErrorCode::SecurityValidationFailed => {
             "The source could not be processed safely. Choose a smaller supported source; do not bypass the security check."
         }
-        ErrorCode::FileTooLarge | ErrorCode::LargeSourceWindowOnly => {
-            "Locate a bounded region with localSearch, then read exact ranges with localFetch. Full-file structural analysis may remain unavailable."
-        }
+        ErrorCode::FileTooLarge | ErrorCode::LargeSourceWindowOnly => LARGE_SOURCE_HINT,
         ErrorCode::StaleSnapshot
         | ErrorCode::ResponseSnapshotExpired
         | ErrorCode::SourceMismatch => {

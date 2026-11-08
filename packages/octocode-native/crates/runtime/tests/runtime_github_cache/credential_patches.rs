@@ -113,9 +113,11 @@ async fn mounted(route: &Route) -> MockServer {
 }
 
 /// Commit, compare and pull-request patches of a credential-named file, by its
-/// name or a rename's old name: the row still shows them, a repeat answers the
-/// same, and the marker is in no file under the home once the runtime closes.
-/// The same patch of an ordinary file is on disk (the scan can see it).
+/// name or a rename's old name: a dotenv patch shows the plain marker (it is in
+/// no credential form) and a key file's patch is redacted whole, a repeat
+/// answers the same, and the marker is in no file under the home once the
+/// runtime closes. The same patch of an ordinary file is on disk (the scan can
+/// see it).
 #[tokio::test]
 async fn patches_of_credential_files_reach_no_file_under_the_home() {
     let renamed = {
@@ -124,13 +126,21 @@ async fn patches_of_credential_files_reach_no_file_under_the_home() {
         file["status"] = json!("renamed");
         file
     };
-    for files in [
-        vec![changed("tests/.env", WITHHELD)],
-        vec![
-            changed("src/app.rs", "ordinary"),
-            changed("KEY.PEM", WITHHELD),
-        ],
-        vec![renamed],
+    // Each fixture, and whether its row shows the marker. A credential
+    // extension the scanner leaves as text (`.ovpn` is no private-key class)
+    // shows it, so the disk check below proves the hold for that class too,
+    // where the redacted `KEY.PEM` row alone could not.
+    for (files, shown) in [
+        (vec![changed("tests/.env", WITHHELD)], true),
+        (vec![changed("deploy/client.ovpn", WITHHELD)], true),
+        (
+            vec![
+                changed("src/app.rs", "ordinary"),
+                changed("KEY.PEM", WITHHELD),
+            ],
+            false,
+        ),
+        (vec![renamed], true),
     ] {
         for route in routes(files.clone()) {
             let server = mounted(&route).await;
@@ -142,11 +152,19 @@ async fn patches_of_credential_files_reach_no_file_under_the_home() {
                 .expect("read");
             assert_eq!(row_status(&first), "success", "{}", route.name);
             let row = row_data(&first).to_string();
-            assert!(
-                row.contains(WITHHELD),
-                "{}: the row hides it: {row}",
-                route.name
-            );
+            if shown {
+                assert!(
+                    row.contains(WITHHELD),
+                    "{}: the row hides it: {row}",
+                    route.name
+                );
+            } else {
+                assert!(
+                    !row.contains(WITHHELD) && row.contains("REDACTED"),
+                    "{}: a key file's patch is redacted: {row}",
+                    route.name
+                );
+            }
             let repeat = call(&runtime, "ghGetHistoryItem", route.query.clone())
                 .await
                 .expect("repeat");

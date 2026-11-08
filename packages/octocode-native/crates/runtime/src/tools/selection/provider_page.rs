@@ -2,6 +2,7 @@
 //! returns its own pages of files (ghSearchCode). The page is the judged
 //! source and each of its hits a candidate; its unfiltered lead keeps the page.
 use super::provider_hits;
+use super::row_units::Rows;
 use super::{
     Candidate, Failure, Runtime, Unclassified, select_scoped, unclassified_notice, unfiltered,
     unless_transient,
@@ -28,8 +29,12 @@ pub(crate) fn apply_sanitized_rows(
     ) else {
         return Ok(());
     };
-    let unavailable_receipt = |total: usize, reason: &str| {
-        serde_json::to_value(unavailable(scope, unit, total, reason)).unwrap_or(Value::Null)
+    let cx = RowContext {
+        tool,
+        output,
+        runtime,
+        scope,
+        unit,
     };
     for row in rows {
         let Some(index) = row["index"].as_u64().and_then(|i| usize::try_from(i).ok()) else {
@@ -45,46 +50,97 @@ pub(crate) fn apply_sanitized_rows(
         if query.get("classification").is_none() && query.get("selection").is_none() {
             continue;
         }
-        let failed = row["status"] == "error";
-        let data = &mut row["data"];
-        if failed {
-            let total = data["files"].as_array().map_or(0, Vec::len);
-            if !data.is_object() {
-                *data = json!({});
-            }
-            if let Some(fields) = data.as_object_mut() {
-                fields.remove("files");
-            }
-            data["selection"] = unavailable_receipt(total, "sourceUnavailable");
-            set_next(data, "unfiltered", provider_page_unfiltered(tool, query));
-            continue;
-        }
+        let response_at = (queries.len() != 1).then_some(admitted_index);
+        select_row(&cx, row, query, response_query, response_at)?;
+    }
+    Ok(())
+}
+
+/// What every row of one page's selection shares.
+struct RowContext<'a> {
+    tool: ToolId,
+    output: &'a dyn crate::response::output::ToolOutput,
+    runtime: &'a Runtime,
+    scope: octocode_contract_types::SelectionScope,
+    unit: octocode_contract_types::SelectionUnit,
+}
+
+/// Select one classified row of the page; `response_at` places its query in
+/// a multi-row response query (`None`: the response query is the row's).
+fn select_row(
+    cx: &RowContext<'_>,
+    row: &mut Value,
+    query: &crate::security::CheckedQuery,
+    response_query: &mut Value,
+    response_at: Option<usize>,
+) -> Result<(), crate::execution::ExecutionError> {
+    let RowContext {
+        tool,
+        output,
+        runtime,
+        scope,
+        unit,
+    } = *cx;
+    let unavailable_receipt = |total: usize, reason: &str| {
+        serde_json::to_value(unavailable(scope, unit, total, reason)).unwrap_or(Value::Null)
+    };
+    let failed = row["status"] == "error";
+    let data = &mut row["data"];
+    if failed {
+        let total = data["files"].as_array().map_or(0, Vec::len);
         if !data.is_object() {
             *data = json!({});
         }
-        let Some(Value::Array(values)) = data.get_mut("files").map(Value::take) else {
-            row["status"] = json!("error");
-            row["data"] = json!({
-                "errorCode":ErrorCode::InvalidClassificationView,
-                "error":"Classification requires an array of source evidence candidates.",
-                "selection": unavailable_receipt(
-                    0,
-                    crate::id::error_codes::as_str(ErrorCode::InvalidClassificationView),
-                ),
-                "next":{"unfiltered":provider_page_unfiltered(tool, query)}
-            });
-            continue;
-        };
-        // Every hit is a candidate; a row with nothing to judge stays one
-        // unknown candidate.
-        let hits = values
-            .iter()
-            .map(|item| {
-                let judged = has_text(item) && !withheld(item);
-                provider_hits::hits(item, query, judged)
-            })
-            .collect::<Vec<_>>();
-        let states = values
+        if let Some(fields) = data.as_object_mut() {
+            fields.remove("files");
+        }
+        data["selection"] = unavailable_receipt(total, "sourceUnavailable");
+        crate::response::result::set_next(
+            data,
+            "unfiltered",
+            provider_page_unfiltered(tool, query),
+        );
+        return Ok(());
+    }
+    if !data.is_object() {
+        *data = json!({});
+    }
+    // Code search judges the hits of its files; every other classified
+    // tool judges its listed rows (`Rows`), which stay in the data.
+    let rows = (tool != ToolId::GhSearchCode).then(|| Rows::of(tool, data));
+    let taken = match rows {
+        Some(_) => Some(Value::Array(Vec::new())),
+        None => data.get_mut("files").map(Value::take),
+    };
+    let Some(Value::Array(values)) = taken else {
+        row["status"] = json!("error");
+        row["data"] = json!({
+            "errorCode":ErrorCode::InvalidClassificationView,
+            "error":"Classification requires an array of source evidence candidates.",
+            "selection": unavailable_receipt(
+                0,
+                crate::id::error_codes::as_str(ErrorCode::InvalidClassificationView),
+            ),
+            "next":{"unfiltered":provider_page_unfiltered(tool, query)}
+        });
+        return Ok(());
+    };
+    // Every hit is a candidate; a row with nothing to judge stays one
+    // unknown candidate.
+    let hits = values
+        .iter()
+        .map(|item| {
+            let judged = has_text(item) && !withheld(item);
+            provider_hits::hits(item, query, judged)
+        })
+        .collect::<Vec<_>>();
+    let states = match &rows {
+        Some(rows) => rows
+            .states()
+            .into_iter()
+            .map(|state| state.map(|state| runtime.judge.project(state)))
+            .collect::<Vec<_>>(),
+        None => values
             .iter()
             .zip(&hits)
             .flat_map(|(item, hits)| {
@@ -92,73 +148,92 @@ pub(crate) fn apply_sanitized_rows(
                     provider_hits::state(item, hit).map(|state| runtime.judge.project(state))
                 })
             })
-            .collect::<Vec<_>>();
-        let source = candidate_source_digest(tool, query, data, &states);
-        let candidates = states.into_iter().map(Candidate::new).collect::<Vec<_>>();
-        let (outcome, provider) = match unless_transient(select_scoped(
-            Some(runtime),
-            tool,
-            query,
-            &source,
-            query["selection"].as_str(),
-            &candidates,
-            None,
-            scope,
-            unit,
-        )) {
-            Ok(selected) => selected,
-            Err(Failure::Cancelled) => return Err(crate::execution::ExecutionError::Cancelled),
-            Err(Failure::Provider(failure)) => {
-                row["status"] = json!("error");
-                row["data"] = failure.row(provider_page_unfiltered(tool, query));
-                continue;
-            }
-            Err(Failure::Stale) => {
-                mark_stale(row, tool, query);
-                continue;
-            }
-        };
-        let total = hits.iter().map(Vec::len).sum();
-        let shown = outcome.shown(total);
-        let withheld_note = withheld_note(&values);
-        let (kept, hidden) = keep_shown(values, &hits, &shown, &outcome);
-        data["files"] = Value::Array(kept);
-        data["selection"] = serde_json::to_value(&outcome.receipt).unwrap_or(Value::Null);
-        strip_plan_from_tool_continuations(data, tool);
-        // The unfiltered page reaches what selection left out; a page that
-        // kept every candidate (or had none, or shows every one because the
-        // provider could not answer) leaves nothing out.
-        if outcome.leaves_out() {
-            set_next(data, "unfiltered", provider_page_unfiltered(tool, query));
+            .collect::<Vec<_>>(),
+    };
+    let total = states.len();
+    let source = candidate_source_digest(tool, query, data, &states);
+    let candidates = states.into_iter().map(Candidate::new).collect::<Vec<_>>();
+    let (outcome, provider) = match unless_transient(select_scoped(
+        Some(runtime),
+        tool,
+        query,
+        &source,
+        query["selection"].as_str(),
+        &candidates,
+        None,
+        scope,
+        unit,
+    )) {
+        Ok(selected) => selected,
+        Err(Failure::Cancelled) => return Err(crate::execution::ExecutionError::Cancelled),
+        Err(Failure::Provider(failure)) => {
+            row["status"] = json!("error");
+            row["data"] = failure.row(provider_page_unfiltered(tool, query));
+            return Ok(());
         }
-        if let Some(token) = outcome.next_candidates() {
-            let mut next_query = (**query).clone();
-            next_query["selection"] = json!(token);
-            set_next(
-                data,
-                "nextCandidatePage",
-                crate::response::result::Continuation::continued(tool, next_query).build(),
-            );
+        Err(Failure::Stale) => {
+            mark_stale(row, tool, query);
+            return Ok(());
         }
-        output.finish_selection(data, query, &hidden);
-        crate::response::paging::push_warnings(
+    };
+    let shown = outcome.shown(total);
+    let unread_notes = rows
+        .as_ref()
+        .map_or_else(Vec::new, |rows| rows.unread_notes(tool, query, data));
+    let (withheld_note, hidden) = match &rows {
+        Some(rows) => {
+            rows.retain(data, &shown);
+            (rows.withheld_note(), Vec::new())
+        }
+        None => {
+            let note = withheld_note(&values);
+            let (kept, hidden) = keep_shown(values, &hits, &shown, &outcome);
+            data["files"] = Value::Array(kept);
+            (note, hidden)
+        }
+    };
+    data["selection"] = serde_json::to_value(&outcome.receipt).unwrap_or(Value::Null);
+    strip_plan_from_tool_continuations(data, tool);
+    // The unfiltered page reaches what selection left out; a page that
+    // kept every candidate (or had none, or shows every one because the
+    // provider could not answer) leaves nothing out.
+    if outcome.leaves_out() {
+        crate::response::result::set_next(
             data,
-            provider
-                .as_ref()
-                .map(|error| unclassified_notice(error, Unclassified::Page))
-                .into_iter()
-                .chain(outcome.long_context_notice.clone())
-                .chain(withheld_note),
+            "unfiltered",
+            provider_page_unfiltered(tool, query),
         );
-        let response_row = if queries.len() == 1 {
-            Some(&mut *response_query)
-        } else {
-            response_query.pointer_mut(&format!("/queries/{admitted_index}"))
-        };
-        if let Some(response_row) = response_row.and_then(Value::as_object_mut) {
-            response_row.insert("selection".into(), json!(outcome.token));
-        }
     }
+    if let Some(token) = outcome.next_candidates()
+        && let Some(call) = crate::response::paging::next_page_call(
+            tool,
+            (**query).clone(),
+            "selection",
+            token,
+            &[],
+        )
+    {
+        crate::response::result::set_next(data, "nextCandidatePage", call);
+    }
+    output.finish_selection(data, query, &hidden);
+    crate::response::paging::push_warnings(
+        data,
+        provider
+            .as_ref()
+            .map(|error| unclassified_notice(error, Unclassified::Page))
+            .into_iter()
+            .chain(outcome.long_context_notice.clone())
+            .chain(withheld_note)
+            .chain(unread_notes),
+    );
+    let response_row = match response_at {
+        None => Some(&mut *response_query),
+        Some(admitted_index) => response_query.pointer_mut(&format!("/queries/{admitted_index}")),
+    };
+    if let Some(response_row) = response_row.and_then(Value::as_object_mut) {
+        response_row.insert("selection".into(), json!(outcome.token));
+    }
+
     Ok(())
 }
 
@@ -223,20 +298,18 @@ fn withheld_note(items: &[Value]) -> Option<String> {
         .filter(|item| withheld(item))
         .filter_map(|item| item["path"].as_str())
         .collect::<Vec<_>>();
+    withheld_paths_note(&paths)
+}
+
+/// The one disclosure of candidates the classification egress withholds.
+pub(super) fn withheld_paths_note<S: AsRef<str>>(paths: &[S]) -> Option<String> {
     (!paths.is_empty()).then(|| {
+        let paths = paths.iter().map(AsRef::as_ref).collect::<Vec<_>>();
         format!(
             "Not judged: the classification egress withholds credential-named files, so nothing of these was read or sent to the provider: {}.",
             paths.join(", ")
         )
     })
-}
-
-/// Set the continuation `key` of a row's data.
-fn set_next(data: &mut Value, key: &str, lead: Value) {
-    if !data["next"].is_object() {
-        data["next"] = json!({});
-    }
-    data["next"][key] = lead;
 }
 
 /// Answer a row whose snapshot went stale with the restart of its query.
@@ -252,9 +325,16 @@ fn mark_stale(row: &mut Value, tool: ToolId, query: &Value) {
     row["status"] = stale["status"].clone();
 }
 
-/// A provider page keeps its page: it is the judged source.
+/// A provider page keeps its page: it is the judged source, so the lead
+/// carries every position field the tool's own continuations use (its
+/// contract's `x-cursor` fields) and drops only the selection plan.
 fn provider_page_unfiltered(tool: ToolId, query: &Value) -> Value {
-    unfiltered(tool, query, &["page"])
+    let position = crate::contracts::state_fields(tool)
+        .iter()
+        .map(String::as_str)
+        .filter(|field| *field != "selection")
+        .collect::<Vec<_>>();
+    unfiltered(tool, query, &position)
 }
 
 fn candidate_source_digest(
@@ -295,7 +375,20 @@ pub(super) fn strip_plan_from_tool_continuations(value: &mut Value, tool: ToolId
             scrub_lead(lead, tool, true);
         }
     }
-    for name in ["files", "matches"] {
+    // A collection's page cursor rides its `contentPagination` block.
+    if let Some(blocks) = fields
+        .get_mut("contentPagination")
+        .and_then(Value::as_object_mut)
+    {
+        for block in blocks.values_mut() {
+            if let Some(leads) = block.get_mut("next").and_then(Value::as_object_mut) {
+                for lead in leads.values_mut() {
+                    scrub_lead(lead, tool, false);
+                }
+            }
+        }
+    }
+    for name in ["files", "matches", "pullRequests", "issues"] {
         if let Some(items) = fields.get_mut(name).and_then(Value::as_array_mut) {
             for item in items {
                 strip_plan_from_tool_continuations(item, tool);

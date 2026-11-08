@@ -115,6 +115,24 @@ fn files_read_lead_skips_generated_and_large() {
     assert!(read.ends_with("b.rs"), "{out}");
 }
 
+/// With no small hand-written file, the lead still prefers a hand-written
+/// file within the fallback size over a generated one.
+#[test]
+fn the_fallback_read_lead_skips_generated_files_too() {
+    let root = Fixture::new();
+    std::fs::write(
+        root.0.join("a_types.generated.rs"),
+        "pub struct A;\n".repeat(8_000),
+    )
+    .expect("generated");
+    std::fs::write(root.0.join("b.rs"), "fn b() {}\n".repeat(8_000)).expect("large hand-written");
+    let out = run(&root.0, json!({"operation":"files","path":root.0})).expect("files");
+    let read = related(&out, "localFetch")["input"]["queries"][0]["path"]
+        .as_str()
+        .unwrap_or_else(|| panic!("read lead: {out}"));
+    assert!(read.ends_with("b.rs"), "{out}");
+}
+
 /// A root tree leads to its manifest, read whole.
 #[test]
 fn root_tree_leads_to_manifest() {
@@ -131,7 +149,11 @@ fn root_tree_leads_to_manifest() {
         "{out}"
     );
     // A plain read: the typed query names the `content` view it runs.
-    assert_eq!(query.get("view"), Some(&json!("content")), "{out}");
+    assert_eq!(
+        crate::response::result::read_view(crate::id::ToolId::LocalFetch, query),
+        octocode_contract_types::ReadView::Content,
+        "{out}"
+    );
 }
 
 /// A tree ranks its read lead with the rule ghStructure uses
@@ -151,7 +173,10 @@ fn tree_read_lead_ranks_like_ghstructure() {
         let out = run(&root.0, json!({"operation":"tree","path":root.0})).expect("tree");
         let query = related(&out, "localFetch")["input"]["queries"][0].clone();
         let path = query["path"].as_str().expect("read lead").to_owned();
-        (path, query.get("view").cloned())
+        (
+            path,
+            crate::response::result::read_view(crate::id::ToolId::LocalFetch, &query),
+        )
     };
     let leads = |files: &[&str], expected: &str| {
         let (path, _) = lead(files);
@@ -162,11 +187,11 @@ fn tree_read_lead_ranks_like_ghstructure() {
     leads(&["mm.mjs", "AGENTS.md"], "AGENTS.md");
     let (path, view) = lead(&["README.md", "package.json"]);
     assert!(path.ends_with("/package.json"), "{path}");
-    assert_eq!(view, Some(json!("content")));
+    assert_eq!(view, octocode_contract_types::ReadView::Content);
     // Docs outline like ghStructure's read of the same file.
     let (path, view) = lead(&["README.md"]);
     assert!(path.ends_with("/README.md"), "{path}");
-    assert_eq!(view, Some(json!("symbols")));
+    assert_eq!(view, octocode_contract_types::ReadView::Symbols);
     // Only the listed directory's own manifest describes it.
     leads(&["pkg/package.json", "util.rs"], "util.rs");
 }

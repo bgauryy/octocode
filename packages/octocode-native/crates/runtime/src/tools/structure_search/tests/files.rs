@@ -111,3 +111,47 @@ fn empty_false_lists_what_empty_true_leaves_out() {
     assert_eq!(names(true), ["./blank.rs", "./hollow"]);
     assert_eq!(names(false), ["./full.rs"]);
 }
+
+/// On Unix `\` is a legal file-name byte: a file named `f\g.rs` lists as one
+/// entry of that exact name, never as `g.rs` inside a directory `f`, and the
+/// listed path names the file on disk.
+#[cfg(unix)]
+#[test]
+fn a_backslash_in_a_file_name_is_one_entry_in_every_view() {
+    let root = Fixture::new();
+    root.write("f\\g.rs", "one\n");
+    root.write("sub/a.rs", "two\n");
+    for view in ["paths", "details"] {
+        let out = run(
+            &root.0,
+            json!({"operation":"files","path":root.0,"entryType":"file","view":view}),
+        )
+        .expect("listing");
+        let entries = listed(&out);
+        let paths: Vec<_> = entries
+            .iter()
+            .map(|entry| entry["path"].as_str().expect("path").to_owned())
+            .collect();
+        assert_eq!(paths.len(), 2, "{view}: {paths:?}");
+        let shown = paths
+            .iter()
+            .find(|path| path.contains('\\'))
+            .unwrap_or_else(|| panic!("{view}: {paths:?}"));
+        assert_eq!(shown.trim_start_matches("./"), "f\\g.rs", "{view}");
+        assert!(root.0.join("f\\g.rs").is_file(), "{view}");
+    }
+}
+
+/// An ignored file named `f\g.rs` is disclosed in `skippedPaths` under its
+/// exact name, not under a directory `f`.
+#[cfg(unix)]
+#[test]
+fn skipped_paths_name_an_ignored_backslash_file_whole() {
+    let root = Fixture::new();
+    std::fs::create_dir(root.0.join(".git")).expect("repository marker");
+    root.write(".gitignore", "f\\\\g.rs\n");
+    root.write("f\\g.rs", "one\n");
+    root.write("keep.rs", "two\n");
+    let out = run(&root.0, json!({"operation":"files","path":root.0})).expect("listing");
+    assert_eq!(skipped_names(&out, "ignored"), ["f\\g.rs"], "{out}");
+}

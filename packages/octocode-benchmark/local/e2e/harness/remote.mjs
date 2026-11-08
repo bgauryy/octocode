@@ -9,6 +9,8 @@ import { ROOT } from './paths.mjs';
 import { sourceLines, declarations, structureFiles } from './responses.mjs';
 import { createDriver, rowsOf, errorCodes } from './tool-health/driver.mjs';
 import { transportProblem } from './tool-health/compare.mjs';
+import { snapshotBuild } from './build-snapshot.mjs';
+snapshotBuild();
 
 if (!LIVE) throw new Error('Live provider checks require OCTOCODE_LIVE=1');
 const { check, skip, summary } = checks('remote');

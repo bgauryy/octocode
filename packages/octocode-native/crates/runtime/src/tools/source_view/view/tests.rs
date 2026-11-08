@@ -99,10 +99,11 @@ fn fetch_partition_binding_rejects_same_count_legacy_replay() {
         limits: SelectionLimits { max_chars: 20_000 },
         available: true,
         judge: Arc::new(FirstCandidate(calls.clone())),
+        saved: Arc::default(),
         handle: executor.handle().clone(),
         context: crate::execution::ExecutionContext {
             cancellation: octocode_io::cancellation::Cancellation::new(),
-            deadline: Instant::now() + Duration::from_secs(5),
+            deadline: Some(Instant::now() + Duration::from_secs(5)),
             response_window: None,
             github_credential: None,
         },

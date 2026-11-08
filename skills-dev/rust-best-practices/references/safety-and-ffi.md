@@ -1,4 +1,4 @@
-Load when you review `unsafe`, validate untrusted input, build a Node addon (napi-rs), a C-ABI library (`cdylib`), a language binding, or wrap a C library (tree-sitter grammars, `cc`-built deps). Why: UB or a panic across a boundary crashes the host process, not just your crate. UB and aliasing authority: **The Rustonomicon** (`references/sources-and-crates.md`); cite it, do not reason about UB from memory. Allocation-level `unsafe` and memory across FFI: `references/performance-and-memory.md`. napi TS types and npm packaging: `references/napi.md`.
+Load when you review `unsafe`, validate untrusted input, build a Node addon (napi-rs; not used in this repo), a C-ABI library (`cdylib`), a language binding, or wrap a C library (tree-sitter grammars, `cc`-built deps). Why: UB or a panic across a boundary crashes the host process, not just your crate. UB and aliasing authority: **The Rustonomicon** (`references/sources-and-crates.md`); cite it, do not reason about UB from memory. Allocation-level `unsafe` and memory across FFI: `references/performance-and-memory.md`. napi TS types and npm packaging: `references/napi.md`.
 
 # Safety, security, and FFI
 
@@ -30,9 +30,9 @@ Load when you review `unsafe`, validate untrusted input, build a Node addon (nap
 ## FFI: panic must not cross the boundary
 - A Rust panic reaching a non-unwinding ABI aborts; a foreign exception entering Rust there is undefined behavior. `C-unwind` permits unwinding but requires a compatible caller. [Rustonomicon FFI](https://doc.rust-lang.org/nomicon/ffi.html#ffi-and-unwinding).
 - Where the host must survive, catch unwinding Rust panics inside the export and return an error. `catch_unwind` cannot catch aborts or safely handle foreign exceptions; `panic = "abort"` terminates the host.
-- Return `napi::Result` (`references/napi.md`); map core errors with `napi::Error::new(Status::InvalidArg, msg)`. Never `panic!`/`unwrap()` in exports; enforce with `unwrap_used = "deny"` (this repo does).
+- In a napi-rs project (not used in this repo), return `napi::Result` (`references/napi.md`); map core errors with `napi::Error::new(Status::InvalidArg, msg)`. Never `panic!`/`unwrap()` in exports; enforce with `unwrap_used = "deny"` (this repo does).
 
-## FFI: napi-rs threads
+## FFI: napi-rs threads (for napi-rs projects; not used in this repo)
 - **Async rule:** move work that can block the Node event loop to the appropriate executor: `#[napi] async fn` for asynchronous I/O, `AsyncTask` for bounded blocking jobs, or a dedicated bounded pool for CPU-heavy work. Verify cancellation and lifetime behavior for the chosen API; latency depends on the caller's budget, not a universal millisecond cutoff.
 - **Don't flood libuv's shared pool.** libuv threads also serve Node's fs/DNS/crypto. Route CPU-heavy parse/search work to your own `rayon`/Tokio pool; keep libuv for the thin async boundary. Bound concurrency at the JS API.
 - **`ThreadsafeFunction` payloads must be `'static` owned data.** Convert to `String`/`Buffer`/owned structs before crossing the thread boundary; never store borrowed `Object<'env>`/`Function<'env>`.

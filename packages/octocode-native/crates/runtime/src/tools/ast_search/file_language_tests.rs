@@ -177,9 +177,10 @@ fn match_reports_files_skipped_without_a_grammar() {
     assert!(out.get("isPartial").is_none(), "{out}");
 }
 
-/// `language` restricts the scope to that language's files: a file of no
-/// grammar (or of another one) was never in it, so it is not a skipped file
-/// and no warning names it, while the same walk without `language` does.
+/// Under one language, `parser` or the one the walk infers, a file of no
+/// grammar whose name is of a known other type (`CMakeLists.txt`) is a quiet
+/// `skippedGrammars` count, never a warning; only the files of unknown type,
+/// which could be the language's source, are named as unproven absence.
 #[test]
 fn match_with_language_does_not_report_files_outside_its_scope() {
     let root = Fixture::new();
@@ -200,9 +201,16 @@ fn match_with_language_does_not_report_files_outside_its_scope() {
     assert!(restricted.get("warnings").is_none(), "{restricted}");
     assert!(restricted.get("isPartial").is_none(), "{restricted}");
     let unrestricted = query(json!({}));
-    let warning = unrestricted["notices"][0].as_str().expect("notice");
-    assert!(warning.starts_with("4 files skipped"), "{warning}");
-    assert!(warning.contains("CMakeLists.txt"), "{warning}");
+    assert_eq!(
+        unrestricted["inferredLanguage"], "typescript",
+        "{unrestricted}"
+    );
+    for out in [restricted, unrestricted] {
+        let warning = out["notices"][0].as_str().expect("notice");
+        assert!(warning.starts_with("3 files skipped"), "{warning}");
+        assert!(!warning.contains("CMakeLists.txt"), "{warning}");
+        assert_eq!(out["skippedGrammars"], json!({"cmake":1}), "{out}");
+    }
 }
 
 /// A templated declaration's `startLine` is its `template <…>` header (C++

@@ -14,13 +14,41 @@ pub(super) fn build_identity(
     cargo: Option<&str>,
     registry_identity: &str,
 ) -> String {
+    identity_of(Versions::CURRENT, options, cargo, registry_identity)
+}
+
+/// The representation versions a snapshot depends on: storage format,
+/// extracted facts, and binding and projection.
+#[derive(Clone, Copy)]
+struct Versions {
+    format: u32,
+    facts: u32,
+    analysis: u32,
+}
+
+impl Versions {
+    const CURRENT: Self = Self {
+        format: format::FORMAT_VERSION,
+        facts: octocode_engine::signatures::GRAPH_FACTS_SCHEMA_VERSION,
+        analysis: super::super::super::ANALYSIS_VERSION,
+    };
+}
+
+fn identity_of(
+    versions: Versions,
+    options: &IngestOptions,
+    cargo: Option<&str>,
+    registry_identity: &str,
+) -> String {
     octocode_engine::digest::sha256(
         json!([
-            format::FORMAT_VERSION,
-            super::super::super::ANALYSIS_VERSION,
+            versions.format,
+            versions.facts,
+            versions.analysis,
             env!("CARGO_PKG_VERSION"),
             registry_identity,
             options.exclude,
+            options.walk.disclosure(),
             options.language_globs,
             cargo,
         ])
@@ -92,4 +120,34 @@ fn newest(home: &Path, root: &str) -> Option<(String, Value)> {
         let manifest = read_manifest(&home.join(&id))?;
         (manifest["root"] == root).then_some((id, manifest))
     })
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+
+    /// Facts extracted under another schema build another graph, so a
+    /// snapshot of an unchanged tree from that schema is not reused.
+    #[test]
+    fn each_representation_version_changes_the_build_identity() {
+        let options = IngestOptions::default();
+        let current = build_identity(&options, None, "registry");
+        let bumps = [
+            Versions {
+                format: Versions::CURRENT.format + 1,
+                ..Versions::CURRENT
+            },
+            Versions {
+                facts: Versions::CURRENT.facts + 1,
+                ..Versions::CURRENT
+            },
+            Versions {
+                analysis: Versions::CURRENT.analysis + 1,
+                ..Versions::CURRENT
+            },
+        ];
+        for versions in bumps {
+            assert_ne!(identity_of(versions, &options, None, "registry"), current);
+        }
+    }
 }

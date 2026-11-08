@@ -6,8 +6,8 @@ use super::{Section, visit};
 use std::ops::Range;
 use std::path::Path;
 
-/// Kind of a page that joins more than one section; its `name` lists the
-/// members' names in source order.
+/// Kind of a page that joins more than one section; its `name` is its first
+/// and last member's ([`Group::finish`]).
 pub(crate) const GROUP_KIND: &str = "declarations";
 
 /// A merged page holds at most this share of the section grain
@@ -77,10 +77,21 @@ impl Group {
         self.chars += chars;
     }
 
+    /// A merged page is named by its first and last member, with how many
+    /// declarations it joins once more than two: short, and distinct per page
+    /// since pages never overlap. Its target lines hold every member.
     fn finish(mut self) -> Section {
         if self.members > 1 {
             self.section.kind = GROUP_KIND.to_owned();
-            self.section.name = (!self.names.is_empty()).then(|| self.names.join(", "));
+            self.section.name = match self.names.as_slice() {
+                [] => None,
+                [only] => Some(only.clone()),
+                [first, last] => Some(format!("{first}, {last}")),
+                [first, .., last] => Some(format!(
+                    "{first} … {last} ({} {GROUP_KIND})",
+                    self.members
+                )),
+            };
         }
         self.section
     }

@@ -28,6 +28,28 @@ fn older_analysis_is_readable_but_stale_and_rebuilt() {
     assert_fresh_build(&ingest_fixture(dir.0.as_path(), None));
 }
 
+/// Facts extracted under an older schema build another graph: such a
+/// snapshot of an unchanged tree is stale, and an ingest rebuilds it.
+#[test]
+fn older_fact_schema_is_stale_and_rebuilt() {
+    let dir = fixture();
+    let first = ingest_fixture(dir.0.as_path(), None);
+    let graph_dir = PathBuf::from(first.value["dir"].as_str().expect("dir"));
+    let mut manifest = read_manifest(&graph_dir).expect("manifest");
+    manifest["factsSchemaVersion"] =
+        json!(octocode_engine::signatures::GRAPH_FACTS_SCHEMA_VERSION - 1);
+    std::fs::write(
+        graph_dir.join(MANIFEST_FILE),
+        serde_json::to_vec(&manifest).expect("json"),
+    )
+    .expect("write");
+    let out = ask(dir.0.as_path(), "stats", None, |o| o.check_freshness = true);
+    assert_eq!(out.value["freshness"]["fresh"], false, "{}", out.value);
+    let rebuilt = ingest_fixture(dir.0.as_path(), None);
+    assert_fresh_build(&rebuilt);
+    assert_ne!(rebuilt.value["id"], first.value["id"]);
+}
+
 #[test]
 fn oversized_snapshot_is_rejected_before_allocation() {
     let dir = Fixture::new();
@@ -351,6 +373,43 @@ fn ingest_prunes_older_format_snapshots_of_every_root() {
     assert!(left.contains(&src_id), "{left:?}");
 }
 
+/// An older-format snapshot that an older build's reader used within the
+/// lease survives the prune, as a same-format one does: a rebuild by this
+/// build must not end that reader's walk. Once idle, the next ingest
+/// prunes it.
+#[test]
+fn a_leased_older_format_snapshot_survives_prune() {
+    let dir = fixture();
+    dir.write("other/x.ts", "export const x = 1;\n");
+    let home = dir.0.as_path().join(".octocode").join("graph");
+    let old = ingest_root(dir.0.as_path(), &dir.0.as_path().join("other"), None, false);
+    let old_id = old.value["id"].as_str().expect("id").to_owned();
+    age_snapshot(&home.join(&old_id));
+    renew_lease(&home.join(&old_id)).expect("lease");
+    let app = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(app.class, ExitClass::Success, "{}", app.value);
+    assert!(app.value.get("pruned").is_none(), "{}", app.value);
+    assert!(list_snapshots(&home).contains(&old_id));
+
+    let expired = std::time::SystemTime::now()
+        - crate::cache::CONTINUATION_IDLE
+        - std::time::Duration::from_secs(1);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(home.join(&old_id).join(READ_LEASE_FILE))
+        .expect("lease marker")
+        .set_modified(expired)
+        .expect("backdate lease");
+    dir.write("app/src/late.ts", "export const late = 1;\n");
+    let again = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(
+        again.value["pruned"],
+        json!([old_id.clone()]),
+        "{}",
+        again.value
+    );
+}
+
 /// A substring that names only snapshots of one root is no ambiguity: it
 /// picks that root's newest snapshot, as a scope does.
 #[test]
@@ -376,4 +435,41 @@ fn a_substring_naming_one_roots_snapshots_picks_its_newest() {
 #[test]
 fn the_format_that_wrote_exclude_dir_is_no_longer_current() {
     assert_ne!(format::FORMAT_VERSION, 16);
+}
+
+/// A reader that renews a snapshot's lease after prune judged it idle and
+/// before prune acts must keep it: the removal itself decides, so a renewal
+/// that landed first is never lost to a stale idle verdict.
+#[test]
+fn a_lease_renewed_while_prune_acts_keeps_the_snapshot() {
+    let dir = fixture();
+    let src = dir.0.as_path().join("app/src");
+    let home = dir.0.as_path().join(".octocode").join("graph");
+    let first = ingest_root(dir.0.as_path(), &src, None, true);
+    let second = ingest_root(dir.0.as_path(), &src, None, true);
+    let (old_id, new_id) = (
+        first.value["id"].as_str().expect("id").to_owned(),
+        second.value["id"].as_str().expect("id").to_owned(),
+    );
+    // The older snapshot's lease has run out: prune judges it idle.
+    let expired = std::time::SystemTime::now()
+        - crate::cache::CONTINUATION_IDLE
+        - std::time::Duration::from_secs(1);
+    renew_lease(&home.join(&old_id)).expect("lease marker");
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(home.join(&old_id).join(READ_LEASE_FILE))
+        .expect("lease marker")
+        .set_modified(expired)
+        .expect("backdate lease");
+    let scanned = read_manifest(&home.join(&old_id)).expect("manifest")["root"]
+        .as_str()
+        .map(PathBuf::from)
+        .expect("root");
+    let removed = prune_with(&home, &scanned, 1, &|snapshot| {
+        renew_lease(snapshot).expect("a reader renews the lease");
+    });
+    let left = list_snapshots(&home);
+    assert!(removed.is_empty(), "{removed:?}");
+    assert!(left.contains(&old_id) && left.contains(&new_id), "{left:?}");
 }

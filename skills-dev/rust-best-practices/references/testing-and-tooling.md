@@ -71,7 +71,7 @@ Typecheck the crate you changed, with the same features as the dev build and the
 cargo check -p <crate> --all-targets --features <dev-unify>
 ```
 
-Format the files you touched with `cargo fmt`. When you want lints before handoff, run Clippy on that same selection instead of `cargo check`, not after it. Clippy already typechecks.
+Format the files you touched with `rustfmt --edition 2024 <file>...` (`packages/octocode-native/rustfmt.toml` pins the edition). When you want lints before handoff, run Clippy on that same selection instead of `cargo check`, not after it. Clippy already typechecks.
 
 ```bash
 cargo clippy -p <crate> --all-targets --features <dev-unify> -- -D warnings
@@ -82,9 +82,10 @@ In Octocode, match the selections in `packages/octocode-native/scripts/rust-test
 For a workspace that uses this gate, run it once at handoff; otherwise follow its own CI commands and feature selection:
 
 ```bash
-cargo fmt --all -- --check
 cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
 ```
+
+Check formatting of your own files with `rustfmt --edition 2024 --check <file>...`. The whole-workspace `cargo fmt --all -- --check` (`yarn fmt:rust:check` in `packages/octocode-native`) runs only when no other session is building: AGENTS.md forbids `cargo fmt --all` during a shared build.
 
 ## Aliases = npm scripts
 The `lint` alias is the gate, not the edit loop.
@@ -105,6 +106,13 @@ Anything beyond one command goes in an `xtask` crate, not bash.
 - For pagination changes, walk every executable `next.*` page. Assert complete coverage exactly once, stable query identity, and rejection or safe replay after source edits.
 - Cover errors, warnings, and partial rows through CLI/MCP as well as Rust. A green exit or Rust-only test does not prove every tool row succeeded.
 - `lint:ci` and `test:ci` exclude `@octocodeai/octocode-native`, so a green run of those tasks does not prove the native gate. Run the native package gate locally.
+
+## Lint ratchet (octocode-native)
+- `node skills-dev/octocode-dev/scripts/dev.mjs lint:rust [--write]` runs Clippy with the ratchet lints (`RATCHET` in `skills-dev/octocode-dev/scripts/rust-lint.mjs`) and production-only bans (`packages/octocode-native/clippy-ratchet.toml`). `--write` rewrites `clippy-baseline.json` from current findings.
+- Baselines only shrink: a crate above its entry fails, `--write` never raises a total, and `--adopt` adds a newly listed lint once as a reviewed change.
+- `unwrap_used`, `expect_used` and the other denied lints fail plain Clippy, so they have no baseline. A justified site uses a plain `#[expect(clippy::expect_used, reason = "...")]` (14 sites, e.g. `packages/octocode-native/crates/engine/src/security.rs:22`).
+- The `#[cfg_attr(octocode_clippy_ratchet, expect(clippy::disallowed_methods, reason = "..."))]` form is for ratchet-only lints: plain Clippy does not load that cfg, so it would not fire there (`packages/octocode-native/crates/io/src/http.rs:51`).
+- Function length: `too-many-lines-threshold = 150` (`packages/octocode-native/clippy.toml:15`) with `too_many_lines = "warn"` (`Cargo.toml:95`); CI's `-D warnings` makes a longer function fail. Split it into named steps.
 
 ## CI order (fail fast, cheap first)
 `fmt --check` → `clippy --all-targets -D warnings` → `nextest` + `test --doc` → `audit` (RUSTSEC) + `deny check` (licenses, bans, advisories, duplicates) → `hack --each-feature check` → `semver-checks` (libs) → MSRV build → Miri on unsafe-bearing crates, `cargo fuzz` on parsers/decoders of untrusted bytes. Block merge on fmt through deny, plus Miri and fuzz where those crates exist. Miri, `cargo careful`, and Kani stay off the edit loop. Cache with `Swatinem/rust-cache` (+ `sccache` per `references/build-profiles.md`).

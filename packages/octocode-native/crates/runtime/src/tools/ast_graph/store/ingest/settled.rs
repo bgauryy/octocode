@@ -13,8 +13,7 @@ pub(super) fn settled_inputs(
     let proof = settled_input_stamps(paths, &built.root, tables, &built.resolution_inputs);
     let inputs = snapshot_inputs(paths, &built.root, tables);
     if inputs != built.resolution_inputs {
-        return Err(GraphOutput::error(
-            ErrorCode::ExecutionFailed,
+        return Err(GraphOutput::changed_during_build(
             "project configuration changed during graph analysis; rebuild from settled inputs",
         ));
     }
@@ -25,19 +24,15 @@ pub(super) fn settled_inputs(
         let source = match paths.validate_read(built.root.join(file)) {
             Ok(source) => source.canonical,
             Err(_) => {
-                return Err(GraphOutput::error(
-                    ErrorCode::ExecutionFailed,
+                return Err(GraphOutput::changed_during_build(
                     "source access changed during graph analysis; rebuild from accessible inputs",
                 ));
             }
         };
         if source_matches(&source, &facts.digest, facts.stamp.as_ref()) != Some(true) {
-            return Err(GraphOutput::error(
-                ErrorCode::ExecutionFailed,
-                format!(
-                    "source {file:?} changed during graph analysis; rebuild from settled inputs"
-                ),
-            ));
+            return Err(GraphOutput::changed_during_build(format!(
+                "source {file:?} changed during graph analysis; rebuild from settled inputs"
+            )));
         }
     }
     let proof = proof.filter(|_| !withholds_configs(&built.root, tables, &inputs));

@@ -1,7 +1,6 @@
 // The generated CLI presentation, shared by the tests that read it, with typed
 // accessors that narrow its JSON instead of asserting a shape.
 import { buildCliPresentation } from '../scripts/tool-contract/presentation.ts';
-import { contractIr } from './contract-ir.ts';
 
 export type Json = Record<string, unknown>;
 
@@ -32,7 +31,7 @@ export function strings(value: unknown): string[] {
     : [];
 }
 
-export const presentation = buildCliPresentation(contractIr());
+export const presentation = buildCliPresentation();
 export const tools = list(presentation.tools);
 export const tool = (name: string): Json => {
   const found = tools.find(entry => entry.name === name);

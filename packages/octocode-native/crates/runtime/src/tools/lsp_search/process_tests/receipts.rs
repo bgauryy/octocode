@@ -48,7 +48,7 @@ fn a_missing_capability_lists_the_operations_the_server_advertises() {
     assert_eq!(row["errorCode"], "capabilityUnavailable", "{row}");
     assert_eq!(
         row["lsp"],
-        serde_json::json!({"serverAvailable": true, "receipt": {
+        serde_json::json!({"serverAvailable": true, "level": "server", "receipt": {
             "command": script.to_string_lossy(), "source": "user",
             "operations": ["hover", "diagnostic"]
         }}),

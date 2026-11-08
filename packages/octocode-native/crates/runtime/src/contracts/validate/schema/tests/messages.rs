@@ -160,14 +160,14 @@ fn an_unreadable_item_pattern_gives_the_lists_note() {
 #[test]
 fn a_value_outside_its_format_names_the_format_not_its_pattern() {
     let row = json!({"operation": "pullRequest",
-        "filters": {"createdAt": {"include": [{"from": "not-a-date"}]}}});
+        "filters": {"createdAt": {"from": "not-a-date"}}});
     let error =
         crate::contracts::prepare_many_and_validate("ghSearchHistory", json!({"queries": [row]}))
             .expect_err("not a date-time");
     let shown = crate::contracts::validate::format_input_error("ghSearchHistory", &error, &[]);
     assert_eq!(
         shown["error"],
-        r#"queries.0.filters.createdAt.include.0.from: "not-a-date" is not a valid value for from: it must be a date-time (RFC 3339), e.g. 2026-10-01T00:00:00Z"#,
+        r#"queries.0.filters.createdAt.from: "not-a-date" is not a valid value for from: it must be a date-time (RFC 3339), e.g. 2026-10-01T00:00:00Z"#,
         "{shown}"
     );
     // A format the validator has no example for is still named.
@@ -253,7 +253,7 @@ fn only_a_pattern_that_behaves_as_a_repository_path_states_that_rule() {
 /// A value with no rule of its own is named as a value of the field.
 #[test]
 fn a_pattern_error_reads_as_a_value_of_the_field() {
-    let row = json!({"operation":"pullRequest","owner":"o","repo":"r","filters":{"createdAt":{"include":[{"from":"yesterday"}]}}});
+    let row = json!({"operation":"pullRequest","owner":"o","repo":"r","filters":{"createdAt":{"from":"yesterday"}}});
     let shown = first_error("ghSearchHistory", row);
     assert!(
         shown.contains(r#""yesterday" is not a valid value for from: it must be"#),

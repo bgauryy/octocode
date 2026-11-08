@@ -28,6 +28,24 @@ async fn read_as(runtime: &ToolRuntime, token: &str, file: &str) -> ToolOutcome 
 }
 
 async fn sends_by(server: &MockServer, token: &str) -> usize {
+    sends_matching(server, token, |_| true).await
+}
+
+/// The REST (`GET`) requests `token` sent about the file `name`, in their
+/// path or query (a contents read or a `commits?path=` lookup): the `core`
+/// quota's, apart from GraphQL's own bucket.
+async fn gets_for(server: &MockServer, token: &str, name: &str) -> usize {
+    sends_matching(server, token, |request| {
+        request.method == "GET" && request.url.as_str().contains(name)
+    })
+    .await
+}
+
+async fn sends_matching(
+    server: &MockServer,
+    token: &str,
+    keep: impl Fn(&wiremock::Request) -> bool,
+) -> usize {
     let bearer = format!("Bearer {token}");
     server
         .received_requests()
@@ -35,10 +53,11 @@ async fn sends_by(server: &MockServer, token: &str) -> usize {
         .unwrap()
         .iter()
         .filter(|request| {
-            request
-                .headers
-                .get("authorization")
-                .is_some_and(|value| value == bearer.as_str())
+            keep(request)
+                && request
+                    .headers
+                    .get("authorization")
+                    .is_some_and(|value| value == bearer.as_str())
         })
         .count()
 }
@@ -77,7 +96,6 @@ async fn request_tokens_get_isolated_cache_and_rate_partitions() {
                 .insert_header("x-ratelimit-resource", "core")
                 .set_body_json(json!({"message": "API rate limit exceeded"})),
         )
-        .expect(1)
         .mount(&server)
         .await;
     Mock::given(method("GET"))
@@ -92,7 +110,13 @@ async fn request_tokens_get_isolated_cache_and_rate_partitions() {
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    // A spent quota's refusal needs a caller budget the reset falls past:
+    // without one (B75) a quota wait keeps waiting until the reset or a
+    // cancel.
+    let runtime = workspace
+        .runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))])
+        .with_request_budget(std::time::Duration::from_secs(300))
+        .expect("caller budget");
 
     let first = read_as(&runtime, alice, "secret.txt").await;
     assert_eq!(
@@ -115,8 +139,14 @@ async fn request_tokens_get_isolated_cache_and_rate_partitions() {
         "bob's read reached GitHub"
     );
 
-    for _ in 0..2 {
-        let spent = read_as(&runtime, carol, "open.txt").await;
+    // One read fans out to several requests at once (content, last-change
+    // lookups); how many of them leave before the first 403 spends the `core`
+    // quota depends on scheduling, and a straggler may arrive after the read
+    // returns. So the second read asks for another file: whatever the first
+    // read still has in flight is for `open.txt`, and a spent quota sends no
+    // REST request for `other.txt` (GraphQL has its own quota).
+    for name in ["open.txt", "other.txt"] {
+        let spent = read_as(&runtime, carol, name).await;
         assert_eq!(
             row_data(&spent)["errorCode"],
             "rateLimited",
@@ -124,6 +154,15 @@ async fn request_tokens_get_isolated_cache_and_rate_partitions() {
             spent.structured_content
         );
     }
+    assert!(
+        gets_for(&server, carol, "open.txt").await >= 1,
+        "carol's first read reached GitHub"
+    );
+    assert_eq!(
+        gets_for(&server, carol, "other.txt").await,
+        0,
+        "a spent quota refuses without sending"
+    );
     let fresh = read_as(&runtime, dave, "open.txt").await;
     assert_eq!(
         row_status(&fresh),
@@ -149,6 +188,15 @@ async fn rejected_request_token_never_falls_back_or_echoes() {
     let server = MockServer::builder().start().await;
     let bad = format!("ghp_{}", "Z".repeat(36));
     Mock::given(method("GET"))
+        .and(header("authorization", format!("Bearer {bad}").as_str()))
+        .respond_with(
+            ResponseTemplate::new(401)
+                .set_body_json(json!({"message": format!("Bad credentials {bad}")})),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
         .and(header("authorization", format!("Bearer {bad}").as_str()))
         .respond_with(
             ResponseTemplate::new(401)
@@ -218,9 +266,16 @@ async fn rejected_request_token_never_falls_back_or_echoes() {
         .filter(|path| **path == "/api/graphql")
         .count();
     assert_eq!((reads, dates), (2, 2), "{by_bad:?}");
+    // GraphQL refuses the token with 401: no REST request that cannot
+    // succeed follows.
+    let lists = by_bad
+        .iter()
+        .filter(|path| **path == "/api/v3/repos/a/b/commits")
+        .count();
+    assert_eq!(lists, 0, "{by_bad:?}");
     assert_eq!(
         sends_by(&server, &bad).await,
-        reads + dates,
+        reads + dates + lists,
         "the supplied token, every time, on nothing else"
     );
     assert_eq!(

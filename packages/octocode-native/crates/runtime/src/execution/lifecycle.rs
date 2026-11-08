@@ -8,9 +8,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 
-/// Longest per-request timeout a runtime accepts. Deadlines are
+/// Longest budget a caller may set, and the longest single wait (a lock, a
+/// provider's retry) of a request without one. Deadlines are
 /// `Instant::now() + timeout`; a bound keeps that sum representable on every
-/// platform instead of panicking at admission (M4).
+/// platform instead of panicking at admission (M4). It never ends a request:
+/// without a caller budget no deadline applies.
 pub const MAX_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Admission bounds. Every admitted request runs at once: there is no run
@@ -21,22 +23,19 @@ pub const MAX_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
 pub struct RequestLimits {
     /// Admitted requests (all running) before `busy`.
     pub pending: usize,
-    pub timeout: Duration,
+    /// The caller's budget for each request (`HostOptions::timeout_secs`);
+    /// a request past it ends with an honest partial. `None`, every surface's
+    /// default: no deadline. Each layer's own limit (a hung language server,
+    /// a provider's request timeout, a memory budget) and a cancel (MCP
+    /// `notifications/cancelled`, Ctrl-C, a client that leaves) end the work.
+    pub timeout: Option<Duration>,
 }
-
-/// The per-request execution budget of every runtime surface (CLI, warm
-/// server, MCP): above the worst configured cold start plus one logical
-/// request (initialize, language-server readiness, retries and delays, and
-/// the request's base timeout); a language server that keeps progressing
-/// may wait out the rest of it. `HostOptions::timeout_secs` overrides it for
-/// an embedder.
-pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
 
 impl Default for RequestLimits {
     fn default() -> Self {
         Self {
             pending: 64,
-            timeout: DEFAULT_TIMEOUT,
+            timeout: None,
         }
     }
 }
@@ -98,7 +97,10 @@ impl std::fmt::Display for ExecutionError {
 #[derive(Clone, Debug)]
 pub(crate) struct ExecutionContext {
     pub cancellation: Cancellation,
-    pub deadline: Instant,
+    /// When the caller's budget ends; `None` when the caller set none. Work
+    /// that needs an instant for one wait takes
+    /// [`super::cancel::deadline_of`].
+    pub deadline: Option<Instant>,
     /// This row's share of the response page (an explicit `responseChars`,
     /// else the runtime's `auto_page_chars`) that a streamed page must
     /// fit, set by the engine per row. `None` = no window; pages take their
@@ -119,7 +121,10 @@ impl ExecutionContext {
     }
 
     pub fn check(&self) -> Result<(), ExecutionError> {
-        if Instant::now() >= self.deadline {
+        if self
+            .deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
             return Err(ExecutionError::Timeout);
         }
         if self.cancellation.is_cancelled() {
@@ -194,7 +199,10 @@ impl Drop for RequestGuard {
 
 impl RequestRuntime {
     pub fn new(limits: RequestLimits) -> Result<Self, ExecutionError> {
-        if limits.pending == 0 || limits.timeout.is_zero() || limits.timeout > MAX_TIMEOUT {
+        let invalid_budget = limits
+            .timeout
+            .is_some_and(|timeout| timeout.is_zero() || timeout > MAX_TIMEOUT);
+        if limits.pending == 0 || invalid_budget {
             return Err(ExecutionError::InvalidLimits);
         }
         Ok(Self {
@@ -271,9 +279,14 @@ impl RequestRuntime {
         if state.requests.len() >= self.inner.limits.pending {
             return Err(ExecutionError::Busy);
         }
-        let deadline = Instant::now()
-            .checked_add(self.inner.limits.timeout)
-            .ok_or(ExecutionError::InvalidLimits)?;
+        let deadline = match self.inner.limits.timeout {
+            Some(timeout) => Some(
+                Instant::now()
+                    .checked_add(timeout)
+                    .ok_or(ExecutionError::InvalidLimits)?,
+            ),
+            None => None,
+        };
         state.requests.insert(request_id.clone(), token.clone());
         Ok(RequestAdmission {
             persistent_continuations: false,
@@ -305,7 +318,7 @@ impl RequestRuntime {
         let RequestAdmission { guard, context, .. } = admission;
         let token = context.cancellation.clone();
         let _cancel_on_drop = token.clone().drop_guard();
-        let deadline = tokio::time::Instant::from_std(context.deadline);
+        let deadline = context.deadline.map(tokio::time::Instant::from_std);
         // The request's cancellation (its caller gone, or its deadline) also
         // stops the deep-stack parses its work waits on.
         let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -330,13 +343,21 @@ impl RequestRuntime {
             biased;
             result = &mut task => return result.map_err(|_| ExecutionError::WorkerFailed)?,
             _ = token.cancelled() => ExecutionError::Cancelled,
-            _ = tokio::time::sleep_until(deadline) => ExecutionError::Timeout,
+            () = until(deadline) => ExecutionError::Timeout,
         };
         // A blocking operation cannot be aborted safely. Signal it and join;
         // never report cleanup complete while it still owns file/process state.
         token.cancel();
         let _ = task.await;
         Err(reason)
+    }
+}
+
+/// Completes at `deadline`; never without one.
+async fn until(deadline: Option<tokio::time::Instant>) {
+    match deadline {
+        Some(deadline) => tokio::time::sleep_until(deadline).await,
+        None => std::future::pending().await,
     }
 }
 

@@ -7,7 +7,7 @@ use super::*;
 const TRIES: usize = 400;
 
 /// A file `context` admits: its own regex sampled, under a directory.
-fn path_for(context: Option<&str>, rng: &mut Lcg) -> String {
+pub(super) fn path_for(context: Option<&str>, rng: &mut Lcg) -> String {
     let Some(context) = context else {
         return "conf/app.conf".to_owned();
     };
@@ -150,4 +150,38 @@ fn public_dh_parameters_stay_readable() {
         "Ab3".repeat(20)
     );
     assert_eq!(detect(&text, Some("conf/dhparam.conf")).sanitized, text);
+}
+
+/// Redaction keeps line numbers: whatever a pattern's own syntax spells,
+/// sampled between ordinary lines in a file its context admits, the redacted
+/// text has the lines it had. A reader that finds the count changed cannot
+/// place a line, so it must withhold; this names the pattern that does it.
+#[test]
+fn every_pattern_keeps_the_line_count_of_what_it_redacts() {
+    let mut rng = Lcg(0xfeed);
+    let mut moved = std::collections::BTreeSet::new();
+    for (idx, pattern) in PATTERNS.iter().enumerate() {
+        let hir = regex_syntax::parse(pattern.regex).expect(pattern.name);
+        for _ in 0..TRIES {
+            let path = path_for(pattern.file_context, &mut rng);
+            let mut text = String::from("first\n");
+            sample(&hir, &mut rng, &mut text);
+            text.push_str("\nlast\n");
+            for scope in [
+                Scope::File(&path),
+                Scope::Pathless,
+                Scope::Stored(Some(&path)),
+            ] {
+                if !should_apply(idx, scope, &text) {
+                    continue;
+                }
+                if let Some(result) = redact(&text, scope)
+                    && result.sanitized.split('\n').count() != text.split('\n').count()
+                {
+                    moved.insert(pattern.name);
+                }
+            }
+        }
+    }
+    assert_eq!(moved, std::collections::BTreeSet::new());
 }

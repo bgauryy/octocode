@@ -44,14 +44,12 @@ process.stdin.on('data', (d) => {
 #[cfg(unix)]
 #[test]
 fn fresh_requests_observe_each_provider_answer() {
-    use std::os::unix::fs::PermissionsExt;
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let tmp = TmpDir::new();
         let root = tmp.0.join("octocode-engine-response-reuse");
         std::fs::create_dir_all(&root).unwrap();
         let script = root.join("fake-lsp.js");
-        std::fs::write(&script, COUNTING_SERVER).unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_executable(&script, COUNTING_SERVER);
         let source = root.join("a.ts");
         std::fs::write(&source, "function foo() {}\nfoo();\n".repeat(10)).unwrap();
         let source_path = source
@@ -204,7 +202,6 @@ process.stdin.on('data', (d) => {
 #[cfg(unix)]
 #[test]
 fn open_documents_follow_their_files_and_never_replay_older_answers() {
-    use std::os::unix::fs::PermissionsExt;
     if !node_available() {
         return;
     }
@@ -214,8 +211,7 @@ fn open_documents_follow_their_files_and_never_replay_older_answers() {
         std::fs::create_dir_all(&root).unwrap();
         let root = root.canonicalize().unwrap();
         let script = root.join("fake-lsp.js");
-        std::fs::write(&script, DOCUMENT_SERVER).unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_executable(&script, DOCUMENT_SERVER);
         let anchor = root.join("a.ts");
         std::fs::write(&anchor, "use();\n".repeat(10)).unwrap();
         let other = root.join("b.ts");

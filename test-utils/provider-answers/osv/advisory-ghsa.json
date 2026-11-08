@@ -5,7 +5,7 @@
   "operation": "advisory",
   "id": "GHSA-29mw-wpgm-hmr9"
  },
- "recordedAt": "2026-11-05",
+ "recordedAt": "2026-11-08",
  "unread": [
   "affected[*].package.ecosystem",
   "affected[*].package.purl",
@@ -27,7 +27,7 @@
      "application/json"
     ]
    ],
-   "digest": "sha256:75a505d298d6e520431d9dfdd16773a66dc8df1aa2c0f9775b468568475962aa",
+   "digest": "sha256:cae7b9b88a6162338a055a4bd81a5f3dbf5e637b2fc2efb765716c75ede686fc",
    "body": {
     "id": "GHSA-29mw-wpgm-hmr9",
     "summary": "Regular Expression Denial of Service (ReDoS) in lodash",
@@ -38,14 +38,14 @@
     "modified": "2025-09-29T21:12:31.102523Z",
     "published": "2022-01-06T20:30:46Z",
     "database_specific": {
+     "github_reviewed_at": "2021-03-19T22:45:28Z",
      "nvd_published_at": "2021-02-15T11:15:00Z",
      "cwe_ids": [
       "CWE-1333",
       "CWE-400"
      ],
      "severity": "MODERATE",
-     "github_reviewed": true,
-     "github_reviewed_at": "2021-03-19T22:45:28Z"
+     "github_reviewed": true
     },
     "references": [
      {

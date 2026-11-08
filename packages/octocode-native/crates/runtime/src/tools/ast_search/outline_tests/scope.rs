@@ -48,11 +48,14 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
         // No page reaches the rest: a terminal limit naming its cut.
         assert_eq!(out["terminalLimit"], true, "{out}");
         assert_eq!(out["partialReasons"], json!(["fileTooLarge"]), "{out}");
-        // No literal searched: the typed error is the whole answer.
-        assert!(
-            out.get("next").is_none() && out.get("hints").is_none(),
+        // No literal searched: the shared large-source recovery, and a read
+        // of the file's windows (localFetch serves it).
+        assert_eq!(
+            out["hints"],
+            json!([crate::response::rows::LARGE_SOURCE_HINT]),
             "{out}"
         );
+        assert_eq!(out["related"][0]["tool"], "localFetch", "{out}");
     }
     // A searched name leads to a text search of it in the same file.
     let named = run(

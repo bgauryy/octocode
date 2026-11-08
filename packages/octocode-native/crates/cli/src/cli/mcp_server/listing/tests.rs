@@ -51,45 +51,52 @@ fn lists_available_tools_in_catalog_order_with_published_inputs() {
     }
 }
 
+/// The served instructions are core's composition for exactly the listed
+/// tools (byte equality with core is the runtime's `compose_instructions`
+/// test), with no CLI notes.
 #[test]
-fn instructions_are_the_one_core_string_without_cli_notes() {
-    let catalog = catalog(&["localSearch"], json!({"selection": false}), json!([]));
-    let text = build(presentation(), &catalog)
-        .expect("listing")
-        .instructions;
-    assert_eq!(text, presentation()["instructions"].as_str().expect("text"));
-    assert!(!text.is_empty());
-    assert!(!text.contains("<cli>"), "{text}");
-}
-
-/// Every optional tool's block is served exactly when the listing holds that
-/// tool, and the base names none of them.
-#[test]
-fn an_instructions_block_follows_its_listed_tool() {
-    let base = presentation()["instructions"].as_str().expect("base");
-    let text = |available: &[&str]| {
-        let catalog = catalog(available, json!({"selection": true}), json!([]));
-        build(presentation(), &catalog)
-            .expect("listing")
-            .instructions
-    };
-    let optional: Vec<(&str, &str)> = presentation()["tools"]
+fn instructions_are_core_s_composition_for_the_listed_tools() {
+    let optional: Vec<String> = presentation()["instructions"]["blocks"]
         .as_array()
-        .expect("tools")
+        .expect("blocks")
         .iter()
-        .filter_map(|tool| Some((tool["name"].as_str()?, tool["instructions"].as_str()?)))
+        .filter_map(|block| block["tool"].as_str().map(str::to_owned))
         .collect();
-    assert!(optional.iter().any(|(name, _)| *name == "clasify"));
-    let plain = presentation_tools();
-    let plain: Vec<&str> = plain
-        .iter()
-        .map(String::as_str)
-        .filter(|name| optional.iter().all(|(optional, _)| optional != name))
+    assert!(optional.iter().any(|name| name == "clasify"));
+    let plain: Vec<String> = presentation_tools()
+        .into_iter()
+        .filter(|name| !optional.contains(name))
         .collect();
-    assert_eq!(text(&plain), base);
-    for (name, block) in &optional {
-        assert!(!base.contains(name), "{name}: {base}");
-        assert_eq!(text(&[plain[0], name]), format!("{base}{block}"), "{name}");
+    let mut sets: Vec<Vec<String>> = vec![
+        vec!["localSearch".into()],
+        plain.clone(),
+        presentation_tools(),
+    ];
+    sets.extend(optional.iter().map(|name| {
+        let mut set = plain.clone();
+        set.push(name.clone());
+        set
+    }));
+    for set in sets {
+        let available: Vec<&str> = set.iter().map(String::as_str).collect();
+        let catalog = catalog(&available, json!({"selection": true}), json!([]));
+        let text = build(presentation(), &catalog)
+            .expect("listing")
+            .instructions;
+        assert_eq!(
+            text,
+            octocode_native::contracts::compose_instructions(presentation(), |name| {
+                available.contains(&name)
+            }),
+            "{available:?}"
+        );
+        assert!(!text.contains("<cli>"), "{text}");
+        // A tool that is not listed is not named, by its block or by a route.
+        for name in presentation_tools() {
+            if !available.contains(&name.as_str()) {
+                assert!(!text.contains(&name), "{name}: {text}");
+            }
+        }
     }
 }
 

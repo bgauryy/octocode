@@ -1,7 +1,7 @@
 use octocode_contract_types::{GhGetFileContentQuery, LocalFetchQuery};
 use octocode_github::ProviderError;
 
-pub(super) fn local_query(query: &GhGetFileContentQuery) -> Result<LocalFetchQuery, ProviderError> {
+pub(crate) fn local_query(query: &GhGetFileContentQuery) -> Result<LocalFetchQuery, ProviderError> {
     let mut row = serde_json::to_value(query).map_err(decode_display)?;
     if let Some(row) = row.as_object_mut() {
         for key in ["owner", "repo", "ref"] {

@@ -174,12 +174,21 @@ async fn a_paged_partial_batch_discloses_oversized_pages_and_returns_rejections_
             .structured_content;
         support::checks::assert_output_contract("localSearch", &output);
         let pagination = &output["responsePagination"];
-        let chars = output.to_string().encode_utf16().count();
+        // The rejected row rides page 1 outside its plan and measure.
+        let mut planned = output.clone().into_value();
+        if let Some(rows) = planned["results"].as_array_mut() {
+            rows.retain(|row| row["index"] != 1);
+        }
+        planned.as_object_mut().unwrap().remove("oversized");
+        let chars = octocode_native::response::pager::budgeted_chars(&planned).expect("page");
         assert!(pagination.get("returnedChars").is_none());
         assert!(pagination.get("totalChars").is_none());
-        if chars > 800 {
-            assert_eq!(pagination["oversized"], true);
-        }
+        assert!(pagination.get("oversized").is_none(), "{output}");
+        assert_eq!(
+            output.get("oversized") == Some(&json!(true)),
+            chars > 800,
+            "{output}"
+        );
         rejected += output["results"]
             .as_array()
             .unwrap()

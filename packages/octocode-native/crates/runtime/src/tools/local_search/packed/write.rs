@@ -1,8 +1,9 @@
 //! The packed encoding's writer: LEB128 numbers and length-prefixed values,
 //! into a buffer ([`Writer`]) or straight into a hasher ([`Identity`]).
 
+use super::super::page_view::EntryFacts;
 use octocode_engine::digest::HashWriter;
-use octocode_engine::types::TextSearchFile;
+use octocode_engine::types::{TextSearchFile, TextSearchMatch};
 use std::io::Write;
 use std::time::SystemTime;
 
@@ -33,8 +34,13 @@ impl<W: Write> Writer<W> {
         self.sink.write_all(bytes).ok()
     }
 
+    /// Bytes written so far.
+    pub(super) fn written(&self) -> usize {
+        self.written
+    }
+
     /// LEB128: seven bits a byte, low first, high bit set on all but the last.
-    fn number(&mut self, mut value: u64) -> Option<()> {
+    pub(super) fn number(&mut self, mut value: u64) -> Option<()> {
         let mut buffer = [0u8; 10];
         let mut len = 0;
         loop {
@@ -69,6 +75,21 @@ impl<W: Write> Writer<W> {
         stamps: bool,
         cancelled: &dyn Fn() -> bool,
     ) -> Option<()> {
+        let mut classes = std::collections::HashMap::new();
+        self.file_rows(file, &file.matches, stamps, &mut classes, cancelled)
+    }
+
+    /// [`Self::file`] holding `rows` in place of the file's own; deferred
+    /// values are numbered into `classes`, so the frames of one file share
+    /// one numbering.
+    pub(super) fn file_rows(
+        &mut self,
+        file: &TextSearchFile,
+        rows: &[TextSearchMatch],
+        stamps: bool,
+        classes: &mut std::collections::HashMap<[u8; 32], u64>,
+        cancelled: &dyn Fn() -> bool,
+    ) -> Option<()> {
         self.text(&file.path)?;
         self.number(u64::from(file.match_count))?;
         self.number(file.term_counts.len() as u64)?;
@@ -86,9 +107,8 @@ impl<W: Write> Writer<W> {
                 self.bytes(&source.digest)?;
             }
         }
-        self.number(file.matches.len() as u64)?;
-        let mut classes = std::collections::HashMap::new();
-        for hit in &file.matches {
+        self.number(rows.len() as u64)?;
+        for hit in rows {
             if cancelled() {
                 return None;
             }
@@ -109,6 +129,26 @@ impl<W: Write> Writer<W> {
             }
             // How many context lines before its match the value starts.
             self.number(u64::from(hit.line.checked_sub(hit.first_line)?))?;
+        }
+        Some(())
+    }
+
+    /// A page entry's facts: row total and rank range, later lines and
+    /// the count past them, then each neighbouring window's four lines.
+    pub(super) fn facts(&mut self, facts: &EntryFacts) -> Option<()> {
+        for value in [facts.total, facts.start, facts.end] {
+            self.number(u64::from(value))?;
+        }
+        self.number(facts.later.len() as u64)?;
+        for line in &facts.later {
+            self.number(u64::from(*line))?;
+        }
+        self.optional(facts.unlisted)?;
+        self.number(facts.neighbours.len() as u64)?;
+        for window in &facts.neighbours {
+            for line in [window.line, window.matched_last, window.first, window.last] {
+                self.number(u64::from(line))?;
+            }
         }
         Some(())
     }

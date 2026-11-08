@@ -336,7 +336,7 @@ async fn gh_search_history_commit_list_forwards_committer() {
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "commit", "owner": "a", "repo": "b", "filters": {"committer":{"include":["web-flow"]}}}),
+        json!({"operation": "commit", "owner": "a", "repo": "b", "filters": {"committer":"web-flow"}}),
     )
     .await
     .expect("commit list");

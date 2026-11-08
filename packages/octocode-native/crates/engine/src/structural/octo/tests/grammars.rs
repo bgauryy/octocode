@@ -181,8 +181,10 @@ fn shared_pattern_context_accepts_bare_calls_in_c_family_rust_and_go() {
 
 /// A Rust expression fragment that only parses as a statement takes the
 /// `;` terminator whatever its kind, not only a call: `$A?`, `$X.await`,
-/// `$A as $T` and `&mut $A` compile bare and match exactly what their
-/// `;`-terminated spelling matches.
+/// `$A as $T` and `&mut $A` compile bare and match the expression wherever
+/// it is. A `;` the caller writes is required (B110): the `;`-terminated
+/// spelling matches only an expression that is a statement of its own,
+/// and none of these is.
 #[test]
 fn rust_expression_fragments_take_the_statement_terminator() {
     let source = "async fn run(v: Vec<u8>) -> Option<u8> {\n    let a = parse(v)?;\n    let b = fut.await;\n    let c = n as u64;\n    take(&mut buf);\n    None\n}\n";
@@ -196,16 +198,18 @@ fn rust_expression_fragments_take_the_statement_terminator() {
         let terminated = run_pattern(source, "rs", &format!("{pattern};"));
         assert_eq!(bare.len(), 1, "{pattern}");
         assert_eq!(bare[0].text, expected, "{pattern}");
-        assert_eq!(
-            bare.iter().map(|m| &m.text).collect::<Vec<_>>(),
-            terminated.iter().map(|m| &m.text).collect::<Vec<_>>(),
-            "{pattern}"
-        );
+        let texts: Vec<_> = terminated.iter().map(|m| &m.text).collect();
+        assert!(texts.is_empty(), "{pattern}: {texts:?}");
     }
-    // A bare metavariable compiles too: `$A;` unwraps to `$A`.
+    // A bare metavariable compiles too: `$A;` unwraps to `$A` and matches
+    // the expression of each terminated statement.
+    let statements = run_pattern(source, "rs", "$A;");
     assert_eq!(
-        run_pattern(source, "rs", "$A").len(),
-        run_pattern(source, "rs", "$A;").len()
+        statements
+            .iter()
+            .map(|m| m.text.as_str())
+            .collect::<Vec<_>>(),
+        ["take(&mut buf)"]
     );
 }
 

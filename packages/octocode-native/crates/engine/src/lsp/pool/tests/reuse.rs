@@ -4,7 +4,9 @@ use super::*;
 async fn acquire_waits_for_resume_and_reuses_the_same_client_without_starting() {
     let pool = pool(4, 60_000);
     let first = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(1)))
+        })
         .await
         .expect("install")
         .expect("client");
@@ -13,7 +15,7 @@ async fn acquire_waits_for_resume_and_reuses_the_same_client_without_starting() 
     assert_eq!(first.resumes.load(Ordering::SeqCst), 1);
     let (release, wait) = oneshot::channel();
     *first.resume_gate.lock().await = Some(wait);
-    let next = pool.acquire("k".into(), || async {
+    let next = pool.acquire("k".into(), "k".into(), || async {
         panic!("a live client must not restart")
     });
     tokio::pin!(next);
@@ -47,12 +49,16 @@ fn idle_servers_outlive_agent_think_time() {
 async fn a_client_whose_project_config_changed_is_replaced_when_idle() {
     let pool = pool(4, 60_000);
     let old = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(1)))
+        })
         .await
         .expect("install")
         .expect("client");
     let same = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(2)))
+        })
         .await
         .expect("reuse")
         .expect("client");
@@ -61,7 +67,9 @@ async fn a_client_whose_project_config_changed_is_replaced_when_idle() {
 
     old.config_changed.store(true, Ordering::SeqCst);
     let replaced = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(3))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(3)))
+        })
         .await
         .expect("replace")
         .expect("client");
@@ -69,7 +77,9 @@ async fn a_client_whose_project_config_changed_is_replaced_when_idle() {
     assert_eq!(old.stops.load(Ordering::SeqCst), 1, "old server stopped");
     assert_eq!(pool.len(), 1);
     let again = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(4))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(4)))
+        })
         .await
         .expect("reuse")
         .expect("client");
@@ -80,14 +90,18 @@ async fn a_client_whose_project_config_changed_is_replaced_when_idle() {
 async fn a_busy_client_is_never_replaced_for_a_config_change() {
     let pool = pool(4, 60_000);
     let old = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(1)))
+        })
         .await
         .expect("install")
         .expect("client");
     old.config_changed.store(true, Ordering::SeqCst);
     old.busy.store(true, Ordering::SeqCst);
     let during = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(2)))
+        })
         .await
         .expect("acquire")
         .expect("client");
@@ -96,7 +110,9 @@ async fn a_busy_client_is_never_replaced_for_a_config_change() {
 
     old.busy.store(false, Ordering::SeqCst);
     let after = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(3))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(3)))
+        })
         .await
         .expect("acquire")
         .expect("client");
@@ -108,14 +124,18 @@ async fn a_busy_client_is_never_replaced_for_a_config_change() {
 async fn idle_use_renews_expiry_and_stale_timers_do_not_remove_replacements() {
     let pool = pool(4, 100);
     let first = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(1)))
+        })
         .await
         .expect("install")
         .expect("client");
     tokio::task::yield_now().await;
     tokio::time::advance(Duration::from_millis(75)).await;
     let reused = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(2)))
+        })
         .await
         .expect("reuse")
         .expect("client");
@@ -149,7 +169,12 @@ async fn acquire_leased_takes_the_lease_under_the_pool_lock() {
         Busy(Arc::clone(&client.busy))
     };
     let (client, held) = pool
-        .acquire_leased("k".into(), || async { Ok(Some(FakeClient::new(1))) }, lease)
+        .acquire_leased(
+            "k".into(),
+            "k".into(),
+            || async { Ok(Some(FakeClient::new(1))) },
+            lease,
+        )
         .await
         .expect("install")
         .expect("client");
@@ -160,7 +185,12 @@ async fn acquire_leased_takes_the_lease_under_the_pool_lock() {
     assert_eq!(client.stops.load(Ordering::SeqCst), 0);
     // A reused entry is leased the same way.
     let (again, second) = pool
-        .acquire_leased("k".into(), || async { Ok(Some(FakeClient::new(2))) }, lease)
+        .acquire_leased(
+            "k".into(),
+            "k".into(),
+            || async { Ok(Some(FakeClient::new(2))) },
+            lease,
+        )
         .await
         .expect("reuse")
         .expect("client");
@@ -178,7 +208,9 @@ async fn acquire_leased_takes_the_lease_under_the_pool_lock() {
 async fn active_request_prevents_idle_shutdown_until_request_finishes() {
     let pool = pool(4, 100);
     let client = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(1)))
+        })
         .await
         .expect("install")
         .expect("client");
@@ -200,14 +232,18 @@ async fn active_request_prevents_idle_shutdown_until_request_finishes() {
 async fn one_idle_timer_per_entry_across_many_acquires() {
     let pool = pool(4, 100);
     let client = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(1)))
+        })
         .await
         .expect("install")
         .expect("client");
     for _ in 0..10 {
         tokio::time::advance(Duration::from_millis(20)).await;
         let _ = pool
-            .acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
+            .acquire("k".into(), "k".into(), || async {
+                Ok(Some(FakeClient::new(2)))
+            })
             .await
             .expect("reuse");
     }
@@ -223,14 +259,18 @@ async fn one_idle_timer_per_entry_across_many_acquires() {
 async fn cleared_entry_aborts_its_idle_timer_and_replacement_keeps_its_own() {
     let pool = pool(4, 100);
     let first = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(1)))
+        })
         .await
         .expect("install")
         .expect("client");
     assert!(pool.clear("k").await);
     tokio::time::advance(Duration::from_millis(60)).await;
     let second = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(2)))
+        })
         .await
         .expect("replace")
         .expect("client");

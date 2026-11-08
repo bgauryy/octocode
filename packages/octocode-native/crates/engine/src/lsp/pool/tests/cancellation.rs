@@ -8,7 +8,7 @@ async fn cancelled_start_does_not_strand_inflight_or_block_retry() {
     let first = {
         let pool = Arc::clone(&pool);
         tokio::spawn(async move {
-            pool.acquire("k".into(), || async move {
+            pool.acquire("k".into(), "k".into(), || async move {
                 let _ = entered_send.send(());
                 let _ = release_receive.await;
                 Ok(Some(FakeClient::new(1)))
@@ -32,7 +32,9 @@ async fn cancelled_start_does_not_strand_inflight_or_block_retry() {
 
     let retried = tokio::time::timeout(
         Duration::from_secs(1),
-        pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) }),
+        pool.acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(2)))
+        }),
     )
     .await
     .expect("cancelled startup must not block a retry")
@@ -52,7 +54,7 @@ async fn cancelled_install_stops_the_uninstalled_client_and_allows_retry() {
     let first = {
         let pool = Arc::clone(&pool);
         tokio::spawn(async move {
-            pool.acquire("k".into(), || async move {
+            pool.acquire("k".into(), "k".into(), || async move {
                 let _ = entered_send.send(());
                 let _ = release_receive.await;
                 Ok(Some(uninstalled))
@@ -81,7 +83,9 @@ async fn cancelled_install_stops_the_uninstalled_client_and_allows_retry() {
 
     let retried = tokio::time::timeout(
         Duration::from_secs(1),
-        pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) }),
+        pool.acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(2)))
+        }),
     )
     .await
     .expect("cancelled install must not block a retry")
@@ -94,7 +98,9 @@ async fn cancelled_install_stops_the_uninstalled_client_and_allows_retry() {
 async fn cancelled_health_check_does_not_strand_inflight_or_stop_live_client() {
     let pool = Arc::new(pool(4, 60_000));
     let client = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(1)))
+        })
         .await
         .expect("install")
         .expect("client");
@@ -103,8 +109,10 @@ async fn cancelled_health_check_does_not_strand_inflight_or_stop_live_client() {
     let checking = {
         let pool = Arc::clone(&pool);
         tokio::spawn(async move {
-            pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
-                .await
+            pool.acquire("k".into(), "k".into(), || async {
+                Ok(Some(FakeClient::new(2)))
+            })
+            .await
         })
     };
     tokio::time::timeout(Duration::from_secs(1), async {
@@ -120,7 +128,9 @@ async fn cancelled_health_check_does_not_strand_inflight_or_stop_live_client() {
 
     let reused = tokio::time::timeout(
         Duration::from_secs(1),
-        pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) }),
+        pool.acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(2)))
+        }),
     )
     .await
     .expect("cancelled health check must not block reuse")
@@ -139,7 +149,7 @@ async fn clear_during_start_invalidates_late_completion() {
     let task = {
         let pool = Arc::clone(&pool);
         tokio::spawn(async move {
-            pool.acquire("k".into(), || async move {
+            pool.acquire("k".into(), "k".into(), || async move {
                 let _ = receive.await;
                 Ok(Some(late))
             })
@@ -158,7 +168,9 @@ async fn clear_during_start_invalidates_late_completion() {
 async fn clear_during_health_invalidates_waiters_and_shutdown_stops_all() {
     let pool = Arc::new(pool(4, 60_000));
     let client = pool
-        .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
+        .acquire("k".into(), "k".into(), || async {
+            Ok(Some(FakeClient::new(1)))
+        })
         .await
         .expect("install")
         .expect("client");
@@ -167,8 +179,10 @@ async fn clear_during_health_invalidates_waiters_and_shutdown_stops_all() {
     let task = {
         let pool = Arc::clone(&pool);
         tokio::spawn(async move {
-            pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
-                .await
+            pool.acquire("k".into(), "k".into(), || async {
+                Ok(Some(FakeClient::new(2)))
+            })
+            .await
         })
     };
     tokio::task::yield_now().await;
@@ -177,7 +191,9 @@ async fn clear_during_health_invalidates_waiters_and_shutdown_stops_all() {
     assert!(task.await.expect("task").expect("acquire").is_none());
     assert_eq!(client.stops.load(Ordering::SeqCst), 1);
     let other = pool
-        .acquire("other".into(), || async { Ok(Some(FakeClient::new(3))) })
+        .acquire("other".into(), "other".into(), || async {
+            Ok(Some(FakeClient::new(3)))
+        })
         .await
         .expect("other")
         .expect("client");

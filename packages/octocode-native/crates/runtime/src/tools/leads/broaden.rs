@@ -108,9 +108,9 @@ pub(crate) fn set_broadened(value: &mut Value, _row: &Value, lead: Value) {
     if let Some(related) = value.get_mut("related").and_then(Value::as_array_mut) {
         related.push(lead);
     }
-    super::push_hint(
+    crate::response::result::add_hints(
         value,
-        "No match with these filters: each related[] request drops one; run it only if the wider scope still answers the question.",
+        ["No match with these filters: each related[] request drops one; run it only if the wider scope still answers the question."],
     );
 }
 
@@ -118,9 +118,9 @@ pub(crate) fn set_broadened(value: &mut Value, _row: &Value, lead: Value) {
 /// filter to drop): say how GitHub matched it, so the next query changes the
 /// words.
 pub(crate) fn set_no_broader(value: &mut Value) {
-    super::push_hint(
+    crate::response::result::add_hints(
         value,
-        "No match: search terms are ANDed, so every word must match; try one distinctive word, or a different spelling.",
+        ["No match: search terms are ANDed, so every word must match; try one distinctive word, or a different spelling."],
     );
 }
 

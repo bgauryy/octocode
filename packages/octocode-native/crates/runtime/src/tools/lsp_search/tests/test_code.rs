@@ -56,6 +56,7 @@ async fn reference_files(test_code: Option<&str>) -> (serde_json::Value, std::pa
         "referencesProvider",
         found,
         TEST_BUDGET,
+        &crate::security::ContentSecurity::new(),
     )
     .await;
     crate::contracts::validate_output("lspSearch", &public_row(&row))

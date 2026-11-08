@@ -11,6 +11,7 @@ mod pages;
 mod per_binding;
 mod recovery;
 mod scope_work;
+mod two_roots;
 mod unanswered;
 mod windows;
 
@@ -114,7 +115,6 @@ fn importer_fixture_serving(
     PathBuf,
     crate::tools::lsp_search::LspExecutionConfig,
 ) {
-    use std::os::unix::fs::PermissionsExt;
     let dir = Fixture::new();
     let outer = dir.0.canonicalize().expect("canonical fixture");
     let root = outer.join("ws");
@@ -126,8 +126,7 @@ fn importer_fixture_serving(
         "__ROOT__",
         &serde_json::to_string(&root.to_string_lossy()).expect("root literal"),
     );
-    std::fs::write(&script, source).expect("script");
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    crate::tools::lsp_search::tests::write_executable(&script, source.as_bytes());
     std::fs::write(root.join("tsconfig.json"), "{}\n").expect("tsconfig");
     std::fs::write(root.join("a.ts"), "export function target() {}\n").expect("anchor");
     std::fs::write(root.join("other.ts"), "export function other() {}\n").expect("other");
@@ -149,6 +148,9 @@ fn importer_fixture_serving(
         octocode_home: Some(root.to_path_buf()),
         ..crate::tools::lsp_search::LspExecutionConfig::default()
     };
+    // The fixture is the repository as it stood before the first page: its
+    // files are settled, and only a later write is a change.
+    octocode_engine::stamp::settle_written_so_far();
     (dir, root, execution)
 }
 
@@ -202,6 +204,9 @@ async fn walk_pages(
             .and_then(serde_json::Value::as_u64)
             .unwrap_or(1);
         let query = serde_json::from_value(row.clone()).expect("continuation is a valid query");
+        // Whatever the earlier pages left in the scope is part of the
+        // repository the next one reads: a change is only a later write.
+        octocode_engine::stamp::settle_written_so_far();
         let result = crate::tools::lsp_search::execute(
             query,
             &crate::execution::cancel::NeverCancel,

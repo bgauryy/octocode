@@ -9,7 +9,8 @@ pub(crate) struct CollectionRoute {
     pub(crate) collection: bool,
 }
 
-/// A finite trie of declared collection paths with exact schema-reference edges.
+/// A finite trie of declared row paths (`*` for any element or record key)
+/// with exact schema-reference edges.
 #[derive(Default)]
 pub(crate) struct CollectionRoutes {
     pub(crate) nodes: Vec<CollectionRoute>,
@@ -30,6 +31,46 @@ impl CollectionRoutes {
             }
         }
         routes
+    }
+
+    /// The nodes a concrete row pointer reaches: each segment by its key or
+    /// `*`, and a reference edge wherever one leaves a reached node.
+    fn reach(&self, pointer: &str) -> Vec<usize> {
+        if self.nodes.is_empty() {
+            return Vec::new();
+        }
+        let mut states = self.with_references(vec![0]);
+        for segment in pointer.strip_prefix('/').unwrap_or(pointer).split('/') {
+            if pointer.is_empty() || states.is_empty() {
+                break;
+            }
+            let key = crate::json_pointer::unescape(segment);
+            let next = states
+                .iter()
+                .flat_map(|state| {
+                    let children = &self.nodes[*state].children;
+                    [children.get(&key), children.get("*")]
+                })
+                .flatten()
+                .copied()
+                .collect();
+            states = self.with_references(next);
+        }
+        states
+    }
+
+    /// `states` and every node their reference edges lead to.
+    fn with_references(&self, mut states: Vec<usize>) -> Vec<usize> {
+        let mut index = 0;
+        while let Some(state) = states.get(index).copied() {
+            for target in &self.nodes[state].references {
+                if !states.contains(target) {
+                    states.push(*target);
+                }
+            }
+            index += 1;
+        }
+        states
     }
 
     fn insert(&mut self, path: &str) -> usize {
@@ -67,11 +108,45 @@ const VALUE_BOUNDS: [&str; 6] = [
     "maxLength",
 ];
 
+/// Keywords that bound a list's size or shape: a list one of them
+/// constrains may have no valid empty form, so a later part keeps it whole.
+const LIST_BOUNDS: [&str; 6] = [
+    "minItems",
+    "prefixItems",
+    "contains",
+    "minContains",
+    "enum",
+    "const",
+];
+
+/// Keywords that bound a record's size or value: such a record may have no
+/// valid empty form, so a later part keeps it whole.
+const RECORD_BOUNDS: [&str; 3] = ["minProperties", "enum", "const"];
+
 /// Whether the string at `pointer` (in a result row of `tool`, `/data/…`) is
 /// free text a page may cut into windows: the tool's output schema, the one
 /// the output validator checks, reaches it and bounds its value nowhere.
 /// A string the schema does not reach stays whole.
 pub(crate) fn free_text_at(tool: ToolId, pointer: &str) -> bool {
+    unbounded_at(tool, pointer, &VALUE_BOUNDS)
+}
+
+/// Whether the output schema admits `value`'s empty form (`""`, `[]`, an
+/// object without its undeclared members) at `pointer`, as
+/// [`free_text_at`] decides for a string: the schema reaches the value and
+/// bounds it nowhere. Any other value has no empty form.
+pub(crate) fn emptiable_at(tool: ToolId, pointer: &str, value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::String(_) => free_text_at(tool, pointer),
+        serde_json::Value::Array(_) => unbounded_at(tool, pointer, &LIST_BOUNDS),
+        serde_json::Value::Object(_) => unbounded_at(tool, pointer, &RECORD_BOUNDS),
+        _ => false,
+    }
+}
+
+/// Whether `tool`'s output schema reaches row pointer `pointer` and, on
+/// every schema reaching it, bounds the value with none of `bounds`.
+fn unbounded_at(tool: ToolId, pointer: &str, bounds: &[&str]) -> bool {
     use super::schema_facts::{child_schemas, item_schemas, property_schemas};
     let Ok(contract) = super::tool_contract(tool) else {
         return false;
@@ -102,24 +177,25 @@ pub(crate) fn free_text_at(tool: ToolId, pointer: &str) -> bool {
     !at.is_empty()
         && at
             .iter()
-            .all(|schema| !bounds_value(schema, defs, &mut Vec::new()))
+            .all(|schema| !bounds_value(schema, defs, bounds, &mut Vec::new()))
 }
 
 /// Whether `schema`, through references and composition branches, bounds a
-/// value with any of [`VALUE_BOUNDS`].
+/// value with any of `bounds`; a minimum of zero bounds nothing.
 fn bounds_value<'a>(
     schema: &'a serde_json::Value,
     defs: &'a serde_json::Value,
+    bounds: &[&str],
     seen: &mut Vec<*const serde_json::Value>,
 ) -> bool {
     if seen.contains(&std::ptr::from_ref(schema)) {
         return false;
     }
     seen.push(std::ptr::from_ref(schema));
-    if VALUE_BOUNDS
-        .iter()
-        .any(|keyword| super::schema_facts::schema_keyword(schema, defs, keyword).is_some())
-    {
+    if bounds.iter().any(|keyword| {
+        super::schema_facts::schema_keyword(schema, defs, keyword)
+            .is_some_and(|bound| bound.as_u64() != Some(0))
+    }) {
         return true;
     }
     let resolved = super::schema_facts::resolve_ref(schema, defs);
@@ -128,18 +204,113 @@ fn bounds_value<'a>(
             .as_array()
             .into_iter()
             .flatten()
-            .any(|branch| bounds_value(branch, defs, seen))
+            .any(|branch| bounds_value(branch, defs, bounds, seen))
     })
 }
 
+/// What a later part of a split row keeps of a member, as core declares it
+/// (`pageContextFields`). Ordered by precedence: a member two declared paths
+/// reach (through a recursive reference) takes the greater.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum PageContext {
+    /// An optional identity, next or disclosure field: repeated whole when
+    /// present.
+    Optional,
+    /// A required evidence field: delivered once, kept on a later part only
+    /// so the part validates against the output schema
+    /// ([`PageContextFields::keep_later`] empties it).
+    RequiredEvidence,
+    /// A required identity, next or disclosure field: repeated whole.
+    Required,
+}
+
+/// Whether `map` is an executable call (`tool` beside `input`, the shape
+/// core's `pageContextFields` recognizes): it runs only whole.
+pub(crate) fn executable_call(map: &serde_json::Map<String, serde_json::Value>) -> bool {
+    map.contains_key("tool") && map.contains_key("input")
+}
+
 pub(crate) struct PageContextFields {
-    pub(crate) required: BTreeSet<String>,
-    pub(crate) optional: BTreeSet<String>,
+    tool: ToolId,
+    /// The declared page-context pointers, with the collection references.
+    context_routes: CollectionRoutes,
+    /// Each declared pointer's trie node and what a later part keeps there.
+    kinds: BTreeMap<usize, PageContext>,
     pub(crate) collection_routes: CollectionRoutes,
     /// Declared collections at a fixed place in a row (no `*` on the way).
     pub(crate) fixed_paths: Vec<String>,
     /// Fixed collections and holders the schema lets a part omit.
     pub(crate) optional_paths: BTreeSet<String>,
+}
+
+impl PageContextFields {
+    /// What a later part keeps of the member at row pointer `pointer`;
+    /// `None`: the member rides the row's first part only.
+    pub(crate) fn at(&self, pointer: &str) -> Option<PageContext> {
+        self.context_routes
+            .reach(pointer)
+            .into_iter()
+            .filter_map(|node| self.kinds.get(&node).copied())
+            .max()
+    }
+
+    /// Whether the output schema requires the member at `pointer` on the
+    /// object holding it, so every part keeps it.
+    pub(crate) fn requires(&self, pointer: &str) -> bool {
+        matches!(
+            self.at(pointer),
+            Some(PageContext::Required | PageContext::RequiredEvidence)
+        )
+    }
+
+    /// Whether a later part keeps the member at `pointer`, and in what form:
+    /// an identity, next or disclosure field rides whole; required evidence,
+    /// which the first part delivered, stays only so the part validates, in
+    /// the empty form the output schema admits there ([`emptiable_at`]): a
+    /// free-text string as `""`, a list as `[]`, an object (not an
+    /// executable call) with its members kept by this same rule. A value
+    /// with no valid empty form (a number, an enum, a bounded string, list
+    /// or record) rides whole: each part repeats it unchanged.
+    pub(crate) fn keep_later(&self, pointer: &str, value: &mut serde_json::Value) -> bool {
+        use serde_json::Value;
+        match self.at(pointer) {
+            None => false,
+            Some(PageContext::Required | PageContext::Optional) => true,
+            Some(PageContext::RequiredEvidence) => {
+                if !emptiable_at(self.tool, pointer, value) {
+                    return true;
+                }
+                match value {
+                    Value::String(text) => text.clear(),
+                    Value::Array(items) => items.clear(),
+                    Value::Object(map) if !executable_call(map) => map.retain(|name, member| {
+                        let member_pointer =
+                            format!("{pointer}/{}", crate::json_pointer::escape(name));
+                        self.keep_later(&member_pointer, member)
+                    }),
+                    _ => {}
+                }
+                true
+            }
+        }
+    }
+
+    /// Whether the value at `pointer` repeats whole on every part, itself or
+    /// inside an identity, next or disclosure field: such a string is never
+    /// cut into windows, since each part would repeat it.
+    pub(crate) fn repeats_whole(&self, pointer: &str) -> bool {
+        let mut prefix = pointer;
+        while !prefix.is_empty() {
+            if matches!(
+                self.at(prefix),
+                Some(PageContext::Required | PageContext::Optional)
+            ) {
+                return true;
+            }
+            prefix = prefix.rsplit_once('/').map_or("", |(parent, _)| parent);
+        }
+        false
+    }
 }
 
 #[expect(
@@ -152,13 +323,13 @@ pub(crate) fn page_context_fields(tool: ToolId) -> &'static PageContextFields {
     FIELDS[tool.index()].get_or_init(|| {
         let contract = super::tool_contract(tool).expect("embedded contract contains every tool");
         let context = &contract["pageContextFields"];
-        let names = |kind: &str| {
+        let declared = |kind: &str| {
             context[kind]
                 .as_array()
                 .expect("core declares each tool's page context")
                 .iter()
-                .map(|field| field.as_str().expect("page context field name").to_owned())
-                .collect()
+                .map(|field| field.as_str().expect("page context pointer").to_owned())
+                .collect::<Vec<_>>()
         };
         let pointers = |field: &str| {
             contract
@@ -175,32 +346,41 @@ pub(crate) fn page_context_fields(tool: ToolId) -> &'static PageContextFields {
                 .collect::<Vec<_>>()
         };
         let paths = pointers("collectionPaths");
-        let collection_routes = {
-            let references = contract
-                .get("collectionRefs")
-                .map(|value| {
-                    value
-                        .as_array()
-                        .expect("core collection references are an array")
-                })
-                .into_iter()
-                .flatten()
-                .map(|reference| {
-                    let path = reference["path"]
-                        .as_str()
-                        .expect("collection reference path");
-                    let target = reference["target"]
-                        .as_str()
-                        .expect("collection reference target");
-                    (path.to_owned(), target.to_owned())
-                })
-                .collect::<Vec<_>>();
-            CollectionRoutes::new(&paths, &references)
-        };
+        let references = contract
+            .get("collectionRefs")
+            .map(|value| {
+                value
+                    .as_array()
+                    .expect("core collection references are an array")
+            })
+            .into_iter()
+            .flatten()
+            .map(|reference| {
+                let path = reference["path"]
+                    .as_str()
+                    .expect("collection reference path");
+                let target = reference["target"]
+                    .as_str()
+                    .expect("collection reference target");
+                (path.to_owned(), target.to_owned())
+            })
+            .collect::<Vec<_>>();
+        let mut context_routes = CollectionRoutes::new(&[], &references);
+        let mut kinds = BTreeMap::new();
+        for (kind, context) in [
+            ("optional", PageContext::Optional),
+            ("requiredEvidence", PageContext::RequiredEvidence),
+            ("required", PageContext::Required),
+        ] {
+            for pointer in declared(kind) {
+                kinds.insert(context_routes.insert(&pointer), context);
+            }
+        }
         PageContextFields {
-            required: names("required"),
-            optional: names("optional"),
-            collection_routes,
+            tool,
+            context_routes,
+            kinds,
+            collection_routes: CollectionRoutes::new(&paths, &references),
             fixed_paths: paths
                 .iter()
                 .filter(|path| !path.split('/').any(|segment| segment == "*"))
@@ -225,12 +405,82 @@ mod tests {
         assert!(!free_text_at(ToolId::GhGetFileContent, "/data/undeclared"));
     }
 
+    /// Required evidence is emptied only where the output schema admits the
+    /// empty form: a score question's levels (at least two items), a choice
+    /// question's labels (at least one property), array instructions (at
+    /// least one item) and a section's byte pair repeat whole; a section's
+    /// context list, which the schema leaves unbounded, empties.
     #[test]
-    fn every_tool_declares_disjoint_page_context_fields() {
-        for tool in ToolId::ALL {
-            let context = page_context_fields(tool);
-            assert!(context.required.is_disjoint(&context.optional), "{tool:?}");
+    fn emptying_honours_the_output_schema_bounds() {
+        use serde_json::json;
+        let clasify = page_context_fields(ToolId::Clasify);
+        let later = |pointer: &str, value: serde_json::Value| {
+            let mut kept = value;
+            assert!(clasify.keep_later(pointer, &mut kept), "{pointer}");
+            kept
+        };
+        for (pointer, value) in [
+            ("/data/questions/q/criteria", json!(["low", "high"])),
+            ("/data/questions/q/criteria", json!({"yes": "holds"})),
+            ("/data/questions/q/instructions", json!(["one named fact"])),
+            ("/data/resources/r/sections/0/target/bytes", json!([0, 40])),
+        ] {
+            assert_eq!(later(pointer, value.clone()), value, "{pointer}");
         }
+        let context = json!([{"bytes": [0, 5], "lines": {"startLine": 1, "endLine": 1}}]);
+        assert_eq!(
+            later("/data/resources/r/sections/0/context", context),
+            json!([])
+        );
+    }
+
+    #[test]
+    fn every_tool_declares_each_page_context_pointer_once() {
+        for tool in ToolId::ALL {
+            let contract = crate::contracts::tool_contract(tool).expect("embedded contract");
+            let declared = ["required", "requiredEvidence", "optional"]
+                .iter()
+                .flat_map(|kind| {
+                    contract["pageContextFields"][*kind]
+                        .as_array()
+                        .expect("page context list")
+                        .iter()
+                        .filter_map(serde_json::Value::as_str)
+                })
+                .collect::<Vec<_>>();
+            let unique = declared.iter().collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(unique.len(), declared.len(), "{tool:?}");
+            assert_eq!(
+                page_context_fields(tool).kinds.len(),
+                declared.len(),
+                "{tool:?}"
+            );
+        }
+    }
+
+    /// Page context names a member of one object, not every member of that
+    /// name: a related call's required `content` input leaves the row's
+    /// optional `path` first-part evidence, and a recursive member resolves
+    /// through its collection reference.
+    #[test]
+    fn page_context_resolves_by_row_pointer() {
+        let fetch = page_context_fields(ToolId::LocalFetch);
+        assert_eq!(
+            fetch.at("/data/content"),
+            Some(PageContext::RequiredEvidence)
+        );
+        assert_eq!(fetch.at("/data/path"), Some(PageContext::Optional));
+        assert_eq!(fetch.at("/data/related/0/input/queries/0/content"), None);
+        assert_eq!(fetch.at("/data/pagination"), Some(PageContext::Optional));
+        let outline = page_context_fields(ToolId::AstSearch);
+        assert_eq!(
+            outline.at("/data/symbols/3/members/0/members/1/exported"),
+            outline.at("/data/symbols/0/exported"),
+        );
+        assert_eq!(
+            outline.at("/data/symbols/0/exported"),
+            Some(PageContext::Optional)
+        );
     }
 
     #[test]

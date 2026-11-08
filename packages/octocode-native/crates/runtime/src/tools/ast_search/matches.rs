@@ -1,27 +1,27 @@
 use crate::id::ToolId;
 use crate::response::result::ToolError;
 use crate::{execution::cancel::CancellationCheck, policy::path::PathPolicy};
-use exact_miss::{exact_miss, kind_broaden};
+use exact_miss::exact_miss;
 use gaps::ScopeGaps;
-use groups::{group_files, rebuild_page};
+use groups::{fill_page, group_files};
 use memo::{SCANS, fresh_scan, remember_scan, scan_key, stored_scan};
 use octocode_engine::num::saturating_u32;
 use octocode_engine::structural::{StructuralDemand, StructuralDetailedMatch};
 use qualified::qualified_miss;
 use query::OwnedMatch;
-use render::{file_page, render_match_page};
+use render::render_match_page;
 use rows::{MatchRow, diag, match_value};
 use scan::sort_files;
 use scope::{Inapplicable, compile_in_grammars, infer_grammar, resolve_scope};
 use serde_json::Value;
-use snapshot::{interrupted_rescan, match_snapshot};
+use snapshot::{interrupted_rescan, match_snapshot_under};
 
 /// The views that list files, not matches.
 fn file_list(q: MatchQuery<'_>) -> bool {
     matches!(q.result_view().as_deref(), Some("files" | "countMatches"))
 }
 
-/// The size a match's row adds to its match page.
+/// The size a match's row adds to its page.
 fn row_chars(row: &MatchRow) -> usize {
     octocode_engine::json_size::utf16_units(&row.value).unwrap_or(0) + 1
 }
@@ -46,7 +46,7 @@ fn match_price(
 
 /// What a directory scan keeps of each match: a file view needs only the
 /// counts; a match view prices every row (pages are cut from the prices)
-/// and rebuilds only the rows of the file page it shows.
+/// and rebuilds only the rows of the page it shows.
 fn demand<'a>(
     q: MatchQuery<'_>,
     price: &'a (dyn Fn(&StructuralDetailedMatch) -> u32 + Sync),
@@ -64,7 +64,14 @@ pub fn execute_match(
     cancel: &dyn CancellationCheck,
     response_window: Option<usize>,
 ) -> Result<Value, ToolError> {
-    run_match(q, paths, cancel, response_window).map(super::output::finish)
+    run_match_under(
+        crate::build_identity::BUILD_IDENTITY,
+        q,
+        paths,
+        cancel,
+        response_window,
+    )
+    .map(super::output::finish)
 }
 
 /// A window past the first whose candidates before it are not the ones the
@@ -129,7 +136,10 @@ fn fresh_window(
     Ok(Fresh::Scanned(from_start, Box::new(scan), started))
 }
 
-fn run_match(
+/// [`execute_match`] as the build `build` would answer: the build is an input
+/// of every snapshot, so a page minted by another build is refused.
+fn run_match_under(
+    build: &str,
     q: MatchQuery<'_>,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
@@ -137,7 +147,7 @@ fn run_match(
 ) -> Result<Value, ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
     let scope = resolve_scope(q, paths, cancel)?;
-    let continues = q.page() > 1 || q.match_page() > 1;
+    let continues = q.page() > 1;
     let key = scan_key(q, paths);
     // A continuation page reuses the scan its first page stored when nothing
     // it read changed; the snapshot below still decides whether it serves.
@@ -163,7 +173,7 @@ fn run_match(
     let grammars = compile_in_grammars(q, &scope, &scan);
     scope.inferred = infer_grammar(q, &scope, &scan, &grammars, paths, cancel)?;
     let inapplicable = Inapplicable::of(q, &scan);
-    let snapshot = match_snapshot(q, &scope, &scan);
+    let snapshot = match_snapshot_under(build, q, &scope, &scan);
     // A page number without a snapshot asks for that page of a fresh scan;
     // only a snapshot that no longer matches is stale.
     if continues && q.snapshot().is_some_and(|given| given != snapshot) {
@@ -173,7 +183,8 @@ fn run_match(
             if let Some(stale) = q.snapshot() {
                 SCANS.evict(&stale);
             }
-            return execute_match(q, paths, cancel, response_window);
+            return run_match_under(build, q, paths, cancel, response_window)
+                .map(super::output::finish);
         }
         if let Some(error) = interrupted_rescan(q, &scan) {
             return Err(error);
@@ -184,37 +195,22 @@ fn run_match(
     }
     let budget = crate::response::page_windows::page_budget(response_window);
     let row_paths = super::RowPaths::new(paths, &scope.canonical, scope.is_file);
-    let mut grouped = group_files(q, &scan.files, budget, row_paths, cancel)?;
+    let mut grouped = group_files(q, &scan.files, row_paths, cancel)?;
     grouped.skipped_grammars = inapplicable.counts();
     // Group paths are rooted at the scope's parent; the notice names them as
     // the response names rows.
     grouped.recovered = grouped
         .recovered
         .respelled(|shown| row_paths.delivered(shown));
-    let shown = file_page(q, &grouped.groups, budget).window;
-    match rebuild_page(
-        q,
-        &scope,
-        &scan.files,
-        &mut grouped.groups[shown],
-        budget,
-        row_paths,
-        Some(page_rows::PageRows {
-            snapshot: &snapshot,
-            key: &key,
-            proved: !fresh,
-        }),
-        cancel,
-    ) {
-        Ok(incomplete) => {
-            // Counted and disclosed as the scan counts a file its limit cut.
-            grouped.unevaluated_files = grouped
-                .unevaluated_files
-                .saturating_add(saturating_u32(incomplete.len()));
-            grouped
-                .diagnostics
-                .extend(incomplete.iter().flatten().map(diag));
-        }
+    let page = stream::stream_page(q, &grouped.groups, budget);
+    let rows = page_rows::PageRows {
+        snapshot: &snapshot,
+        key: &key,
+        proved: !fresh,
+    };
+    let shown = (&mut grouped, &page);
+    match show_page(q, (&scope, &scan), shown, (paths, row_paths), rows, cancel) {
+        Ok(()) => {}
         Err(groups::RebuildError::Evidence(error)) => return Err(error),
         Err(groups::RebuildError::SourceChanged) => {
             // A file on this page changed after the scan priced it.
@@ -222,25 +218,14 @@ fn run_match(
                 if let Some(stale) = q.snapshot() {
                     SCANS.evict(&stale);
                 }
-                return execute_match(q, paths, cancel, response_window);
+                return run_match_under(build, q, paths, cancel, response_window)
+                    .map(super::output::finish);
             }
             return Ok(crate::response::result::stale_snapshot(
                 crate::response::result::restart_query(ToolId::AstSearch, &q.to_value()),
             ));
         }
     }
-    let shown = file_page(q, &grouped.groups, budget).window;
-    key_rows::hide_page_key_blocks(
-        &mut grouped.groups[shown],
-        (&scan, &scope),
-        row_paths,
-        paths,
-        page_rows::PageRows {
-            snapshot: &snapshot,
-            key: &key,
-            proved: !fresh,
-        },
-    );
     if !scan.truncated
         && q.scan_offset() == 0
         && let Some(error) = inapplicable.rejection()
@@ -265,12 +250,10 @@ fn run_match(
         ScopeGaps::beside_parsed(q, &scope, paths, states_absence, cancel)
     };
     let qualified = qualified_miss(q, &scope, &scan, (paths, row_paths), cancel);
-    let exact_miss_scope = qualified.is_none()
-        && grouped.total_matches == 0
+    let exact_miss_scope = grouped.total_matches == 0
         && grouped.scanned_files > 0
         && !scan.truncated
         && q.scan_offset() == 0;
-    let hits = grouped.total_matches;
     let mut out = render_match_page(
         q,
         &scope,
@@ -278,19 +261,17 @@ fn run_match(
         grouped,
         &snapshot,
         gaps,
-        (budget, row_paths),
+        (&page, row_paths),
         cancel,
     )?;
-    if let Some(qualified) = qualified {
-        qualified.attach(&mut out);
-    }
-    if hits > 0
-        && let Some(hint) = exact_miss::fuller_form_hint(q, &scope)
-    {
-        crate::tools::leads::push_hint(&mut out, hint);
+    if let Some(hint) = exact_miss::fuller_form_hint(q, &scope) {
+        crate::response::result::add_hints(&mut out, [hint]);
     }
     if exact_miss_scope {
         explain_miss(q, &scope, paths, cancel, &mut out);
+    }
+    if let Some(qualified) = qualified {
+        qualified.attach(&mut out);
     }
     if fresh
         && out["calls"]
@@ -300,6 +281,38 @@ fn run_match(
         remember_scan((snapshot, key), &scope, &scan, paths, started);
     }
     Ok(out)
+}
+
+/// Fill the rows `page` shows of `grouped`'s files and hide what they show of
+/// private-key blocks. A shown file whose match did not finish is counted and
+/// disclosed as the scan counts a file its limit cut.
+fn show_page(
+    q: MatchQuery<'_>,
+    (scope, scan): (&types::Scope, &types::Scan),
+    (grouped, page): (&mut types::Grouped, &stream::StreamPage),
+    (paths, row_paths): (&PathPolicy, super::RowPaths<'_>),
+    rows: page_rows::PageRows<'_>,
+    cancel: &dyn CancellationCheck,
+) -> Result<(), groups::RebuildError> {
+    let shown = &mut grouped.groups[page.window.clone()];
+    let incomplete = fill_page(
+        q,
+        scope,
+        &scan.files,
+        (shown, &page.slices),
+        row_paths,
+        Some(rows),
+        cancel,
+    )?;
+    grouped.unevaluated_files = grouped
+        .unevaluated_files
+        .saturating_add(saturating_u32(incomplete.len()));
+    grouped
+        .diagnostics
+        .extend(incomplete.iter().flatten().map(diag));
+    let shown = &mut grouped.groups[page.window.clone()];
+    key_rows::hide_page_key_blocks(shown, (scan, scope), row_paths, paths, rows);
+    Ok(())
 }
 
 /// What an empty whole scan can say of its rule, the first that applies: its
@@ -319,13 +332,13 @@ fn explain_miss(
     }
     match exact_miss(q, scope, paths, cancel) {
         Some(miss) => miss.attach(out),
-        None => match kind_broaden(q, scope, paths, cancel) {
-            Some(lead) => out["calls"]["broadenSearch"] = lead,
-            None => exact_miss::attach_absent_kind(q, scope, out),
-        },
+        None => {
+            construct_miss::attach_construct_miss(q, scope, paths, cancel, out);
+        }
     }
 }
 
+mod construct_miss;
 mod continuations;
 mod exact_miss;
 mod gaps;
@@ -344,6 +357,7 @@ mod scan;
 mod scope;
 mod snapshot;
 mod standing;
+mod stream;
 mod types;
 pub use query::MatchQuery;
 
@@ -366,6 +380,8 @@ mod external_ignore_freshness_tests;
 #[cfg(test)]
 mod concurrent_scan_tests;
 
+#[cfg(test)]
+mod build_identity_tests;
 #[cfg(test)]
 mod demand_tests;
 

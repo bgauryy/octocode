@@ -222,6 +222,44 @@ async fn a_live_check_reports_servers_that_do_not_start() {
     }
 }
 
+/// A server that prints a token to stderr and dies: the live check's error
+/// carries that stderr through the output gate, redacted.
+#[cfg(unix)]
+#[tokio::test(flavor = "current_thread")]
+async fn a_live_check_redacts_a_secret_the_server_wrote_to_stderr() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("canonical");
+    let token = format!("ghp_{}", "a1B2c3D4e5".repeat(4).get(..36).expect("36"));
+    let server = root.join("leaking-server");
+    std::fs::write(
+        &server,
+        format!("#!/bin/sh\necho 'auth failed for {token}' >&2\nexit 1\n"),
+    )
+    .expect("server");
+    std::fs::set_permissions(&server, std::fs::Permissions::from_mode(0o755)).expect("executable");
+    std::fs::write(
+        root.join("lsp-servers.json"),
+        serde_json::json!({"languageServers":{".rs":{"command":server,"args":[],"languageId":"rust"}}})
+            .to_string(),
+    )
+    .expect("config");
+    let file = root.join("a.rs");
+    std::fs::write(&file, "fn a() {}\n").expect("source");
+    let discovery = LspDiscoveryOptions {
+        octocode_home: Some(root.clone()),
+        ..LspDiscoveryOptions::default()
+    };
+    let path = file.to_string_lossy().into_owned();
+    let (report, failed) = super::super::live_check::live_report(&discovery, Some(&path))
+        .await
+        .expect("checked");
+    assert!(failed, "{report}");
+    let error = report["live"][0]["error"].as_str().unwrap_or_default();
+    assert!(error.contains("auth failed for"), "{report}");
+    assert!(!report.to_string().contains(&token), "{report}");
+}
+
 /// A home whose `lsp-servers.json` routes `.rs` to a command that is not
 /// installed, plus a managed install of rust-analyzer.
 fn home_with_missing_server() -> (tempfile::TempDir, LspDiscoveryOptions) {

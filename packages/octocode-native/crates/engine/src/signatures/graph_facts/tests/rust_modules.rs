@@ -54,6 +54,16 @@ fn rust_cfg_and_path_attributes_survive_comments_and_inner_attributes() {
     assert_eq!(modules[0]["unsupported"], true);
     assert_eq!(modules[1].get("testPath"), None);
     assert_eq!(modules[2]["path"], "p.rs");
+    // One `cfg_attr` per build: neither arm erases the other's file.
+    for source in [
+        "#[cfg_attr(test, path = \"x.rs\")] #[cfg_attr(not(test), path = \"y.rs\")] mod m;",
+        "#[cfg_attr(not(test), path = \"y.rs\")] #[cfg_attr(test, path = \"x.rs\")] mod m;",
+    ] {
+        let split = facts(source, "src/lib.rs");
+        let module = &split["modules"][0];
+        assert_eq!(module["testPath"], "x.rs", "{source}: {module}");
+        assert_eq!(module["plainPath"], "y.rs", "{source}: {module}");
+    }
     let local = facts(
         "fn f() { mod hidden { #[path = \"child.rs\"] mod child; } }",
         "src/lib.rs",

@@ -23,8 +23,8 @@ mod byte_window;
 mod rows;
 mod shaping;
 mod snapshots;
+pub(super) use rows::group_by_file;
 use rows::location_sort_key;
-pub(super) use rows::{attach_read_lead, group_by_file};
 #[cfg(test)]
 pub(super) use shaping::MAX_DECLARATION_CONTENT_LINES;
 use shaping::{DECLARATION_CLIPPED, location_payload, location_sizes};
@@ -98,8 +98,12 @@ pub(super) async fn locations(
     provider: &str,
     snippets: Vec<impl serde::Serialize>,
     budget: usize,
+    security: &crate::security::ContentSecurity,
 ) -> Value {
-    salted_locations(query, sources, kind, provider, snippets, None, budget).await
+    salted_locations(
+        query, sources, kind, provider, snippets, None, budget, security,
+    )
+    .await
 }
 
 /// [`locations`] whose snapshot also covers `salt` (the importer candidate
@@ -112,6 +116,7 @@ pub(super) async fn salted_locations(
     snippets: Vec<impl serde::Serialize>,
     salt: Option<&str>,
     budget: usize,
+    security: &crate::security::ContentSecurity,
 ) -> Value {
     // Defense in depth: the engine already refused unauthorized snippet
     // reads; any location still naming an unauthorized path is dropped.
@@ -151,6 +156,7 @@ pub(super) async fn salted_locations(
             provider,
             salt,
             budget,
+            security,
         };
         location_page(query, sources, &locations, shape).await
     };
@@ -164,6 +170,8 @@ struct LocationShape<'a> {
     provider: &'a str,
     salt: Option<&'a str>,
     budget: usize,
+    /// The scanner that redacts the source a byte window is cut from.
+    security: &'a crate::security::ContentSecurity,
 }
 
 /// The page row of the kept, ordered `locations`.
@@ -176,6 +184,7 @@ async fn location_page(
         provider,
         salt,
         budget,
+        security,
     }: LocationShape<'_>,
 ) -> Value {
     let snapshot = salted_snapshot(query, kind, locations, salt);
@@ -196,7 +205,7 @@ async fn location_page(
     let mut windows = if grouped || context_lines.is_some() {
         Vec::new()
     } else {
-        byte_window::window_long_declarations(&mut entries, budget, sources).await
+        byte_window::window_long_declarations(&mut entries, budget, sources, security).await
     };
     let sizes = location_sizes(&entries, grouped, context_lines);
     let (range, pagination, next_page) = page_window(
@@ -217,10 +226,11 @@ async fn location_page(
             }
             // A context window too long for the page is a byte window from
             // its anchor, as a long declaration is.
-            for window in byte_window::window_long_declarations(&mut page, budget, sources)
-                .await
-                .into_iter()
-                .flatten()
+            for window in
+                byte_window::window_long_declarations(&mut page, budget, sources, security)
+                    .await
+                    .into_iter()
+                    .flatten()
             {
                 line_reads.extend(window.related);
                 unsealed.extend(window.unsealed);
@@ -261,7 +271,11 @@ async fn location_page(
                 octocode_contract_types::LspSearchChannel::ReadDeclaration,
                 read,
             ),
-            n => row["next"][format!("readDeclaration{}", n + 1)] = read.build(),
+            n => crate::response::result::set_next(
+                &mut row,
+                &format!("readDeclaration{}", n + 1),
+                read.build(),
+            ),
         }
     }
     // A declaration no window could be cut for: partial, for its cause.

@@ -79,7 +79,7 @@ fn listed_files(root: &std::path::Path) -> (Vec<Listed>, Vec<std::path::PathBuf>
         } else if entry.file_type().is_some_and(|kind| kind.is_file()) {
             let rel = entry.path().strip_prefix(root).map_or_else(
                 |_| entry.path().to_string_lossy().into_owned(),
-                |path| path.to_string_lossy().replace('\\', "/"),
+                octocode_engine::text::slash_path,
             );
             files.push(Listed {
                 rel,

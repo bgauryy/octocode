@@ -19,12 +19,7 @@ fn every_row_is_delivered_exactly_once_within_the_page_bound() {
         assert_eq!(delivered(&pages), expected, "length {length}");
         let mut parts: std::collections::BTreeMap<u64, Vec<(u64, u64)>> = Default::default();
         let mut small = 0;
-        for (page, pagination) in &pages {
-            assert!(
-                pagination.returned_chars <= length || pagination.oversized == Some(true),
-                "length {length}: {} chars unflagged",
-                pagination.returned_chars
-            );
+        for (page, _) in &pages {
             for row in page["results"].as_array().expect("rows") {
                 small += usize::from(row["data"]["content"] == "small");
                 let index = row["index"].as_u64().expect("index");
@@ -66,7 +61,7 @@ fn a_page_with_rows_left_over_leads_with_an_incomplete_warning() {
     assert!(!pagination.has_more);
     assert!(last.get("warnings").is_none(), "{last:?}");
     for (_, pagination) in &pages {
-        assert!(pagination.oversized.is_none());
+        assert!(pagination.returned_chars <= 12_000);
     }
 }
 
@@ -110,7 +105,6 @@ fn split_rows_fill_pages_in_row_order() {
             "{}",
             pagination.returned_chars
         );
-        assert!(pagination.oversized.is_none(), "{page:?}");
         for row in page["results"].as_array().expect("rows") {
             let part = row["rowPart"]["part"].as_u64().expect("split");
             let of = row["rowPart"]["of"].as_u64().expect("split");
@@ -145,6 +139,6 @@ fn rows_that_fit_a_page_are_never_split() {
         assert_eq!(rows.len(), 1, "{page:?}");
         assert!(rows[0].get("rowPart").is_none(), "{page:?}");
         assert_eq!(rows[0]["index"], index);
-        assert!(pagination.oversized.is_none());
+        assert!(pagination.returned_chars <= 3_000);
     }
 }

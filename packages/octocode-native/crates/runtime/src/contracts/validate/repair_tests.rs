@@ -132,6 +132,12 @@ fn every_misuse_shape_gets_a_one_line_repair() {
             "`queries` and `cursor` belong to different forms and cannot be combined; send one form",
         ),
         (
+            // A cursor keeps the page size it was issued with.
+            "localSearch",
+            json!({"cursor":"issued","responseChars":900}),
+            r#"'responseChars' is not allowed beside cursor: send {"cursor":"…"} alone, as next.input gives it; 'responseChars' requires queries, in a new request."#,
+        ),
+        (
             "localFetch",
             json!({"queries":[{"path":"a.ts","ranges":[{"startLine":"1","endLine":2}]}]}),
             r#"queries.0.ranges.0.startLine: Expected number; send 1, not "1""#,
@@ -158,4 +164,50 @@ fn a_far_unknown_field_lists_the_allowed_fields_instead_of_guessing() {
         line.starts_with("Unknown field 'somethingElse' in queries[0]. Allowed fields: "),
         "{line}"
     );
+}
+
+/// A near-miss ecosystem names the one value it means, from the contract's own
+/// enum and purl types: no alias is written here.
+#[test]
+fn a_near_miss_ecosystem_names_the_one_it_means() {
+    let wrong = |ecosystem: &str| {
+        first_line(
+            "securityCheck",
+            json!({"queries":[{"operation":"package","ecosystem":ecosystem,"packageName":"time"}]}),
+        )
+    };
+    for (sent, meant) in [
+        ("NPM", "npm"),
+        ("crates", "crates.io"),
+        ("cargo", "crates.io"),
+        ("golang", "Go"),
+        ("gem", "RubyGems"),
+        ("composer", "Packagist"),
+        ("rocky", "Rocky Linux"),
+    ] {
+        let line = wrong(sent);
+        assert!(line.contains(&format!("use \"{meant}\"")), "{sent}: {line}");
+    }
+}
+
+/// `deb`, `apk` and `rpm` are purl types, not typos of another ecosystem: each
+/// names every ecosystem the contract's purl table lists for it, never `npm`.
+#[test]
+fn a_distribution_purl_type_names_each_ecosystem_the_contract_lists() {
+    let contract = crate::contracts::security::security_contract().expect("security block");
+    for purl_type in ["deb", "apk", "rpm"] {
+        let ecosystems = &contract.ecosystems.purl_types[purl_type];
+        assert!(ecosystems.len() > 1, "{purl_type}");
+        let line = first_line(
+            "securityCheck",
+            json!({"queries":[{"operation":"package","ecosystem":purl_type,"packageName":"bash"}]}),
+        );
+        let head = ecosystems[..ecosystems.len() - 1]
+            .iter()
+            .map(|name| format!("\"{name}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let want = format!("use {head} or \"{}\"; ", ecosystems.last().unwrap());
+        assert!(line.contains(&want), "{purl_type}: {line}");
+    }
 }

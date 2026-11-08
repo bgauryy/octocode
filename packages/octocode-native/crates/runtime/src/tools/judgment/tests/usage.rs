@@ -206,9 +206,17 @@ fn the_long_context_notice_counts_only_retries_and_never_reports_unknown_usage_a
         }
         usage.long_context_notice()
     };
-    assert_eq!(notice(&[judged(700, 1, false)]), None, "no retry, no notice");
-    let mixed = notice(&[judged(700, 1, false), judged(40, 1, true), judged(2, 1, true)])
-        .expect("retries are disclosed");
+    assert_eq!(
+        notice(&[judged(700, 1, false)]),
+        None,
+        "no retry, no notice"
+    );
+    let mixed = notice(&[
+        judged(700, 1, false),
+        judged(40, 1, true),
+        judged(2, 1, true),
+    ])
+    .expect("retries are disclosed");
     assert!(
         mixed.starts_with("2 evaluations refused") && mixed.contains(": 42 input tokens billed."),
         "only the retried evaluations and their tokens: {mixed}"
@@ -223,4 +231,37 @@ fn the_long_context_notice_counts_only_retries_and_never_reports_unknown_usage_a
         partly.contains("at least 40 input tokens billed; 1 of them reported no usage"),
         "{partly}"
     );
+}
+
+/// A replayed page still says its judgments were retried in the long-context
+/// window, but never that the replaying call billed the tokens: the original
+/// read did.
+#[test]
+fn a_replayed_long_context_notice_attributes_the_billing_to_the_original_read() {
+    for (known_usage_calls, billed) in [(1, "42 input tokens billed"), (0, "billed unknown")] {
+        let mut usage = stats::ClassificationUsage::default();
+        usage.add(&Ok(Judged {
+            answers: vec![],
+            model: "resolved".into(),
+            input_tokens: 42,
+            output_tokens: 1,
+            provider_calls: 1,
+            known_usage_calls,
+            long_context_retry: Some(LongContextRetry {
+                unreported_calls: 1 - known_usage_calls,
+            }),
+        }));
+        let original = usage.long_context_notice().expect("original notice");
+        assert!(original.contains(billed) && !original.contains("original read"));
+        let replay = usage
+            .replayed()
+            .long_context_notice()
+            .expect("replay notice");
+        assert!(
+            replay.contains("retried in the long-context window (slower, less accurate)")
+                && replay.contains(billed)
+                && replay.contains("by the original read"),
+            "{replay}"
+        );
+    }
 }

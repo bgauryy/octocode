@@ -4,7 +4,7 @@ use crate::tools::local_search::local_search_query::View;
 
 use super::super::coverage::Coverage;
 use super::super::layout::Layout;
-use super::super::leads::{Found, scope_listing};
+use super::super::leads::{Found, scope_listing, workspace_root_lead};
 use super::super::types::{
     FileErrors, FilePagination, LocalSearchResult, SearchStats, SearchStatus,
 };
@@ -58,6 +58,13 @@ pub(super) fn settle_row(
         && !(local_search_query::has_classification(query)
             && page.scanned.files_matched.unwrap_or(0) > 0);
     let mut stats = search_stats(local_search_query::view(query), page.scanned, total_files);
+    // Rows name paths from the workspace; so does the first unreadable one.
+    if let Some(errors) = &mut stats.file_errors {
+        errors.first = errors
+            .first
+            .as_deref()
+            .map(|first| paths.workspace_relative_text(first));
+    }
     let mut coverage = Coverage::of(
         query,
         &stats,
@@ -66,7 +73,12 @@ pub(super) fn settle_row(
         output_root,
         page.skipped,
     );
-    let mut warnings = coverage.warnings(layout, rows.shown_redacted, page.unverified, empty);
+    for reason in coverage.partial_reasons() {
+        if !stats.partial_reasons.contains(&reason) {
+            stats.partial_reasons.push(reason);
+        }
+    }
+    let mut warnings = coverage.warnings(layout, rows.shown_redacted, page.unverified);
     warnings.extend(rows.notes);
     let capped = stats.capped.unwrap_or(false);
     let (status, settled_terminal) = settle(
@@ -125,6 +137,15 @@ pub(super) fn settle_row(
     let lists_scope =
         (coverage.scope_miss || (empty && coverage.binary_cut)).then_some(!coverage.scope_miss);
     route_beyond_pages(query, lists_scope, &mut next);
+    // A plain miss (nothing skipped, filtered or cut explains it) under a
+    // narrower path: the same search from the workspace root is the step.
+    if status == SearchStatus::Empty
+        && next.is_none()
+        && coverage.plain_miss()
+        && let Some(lead) = workspace_root_lead(query, paths, page.root)?
+    {
+        next = Some(json!({ "broadenSearch": lead }));
+    }
     let is_partial = coverage.gap() || capped;
     // A partial scan's file count is not final.
     if is_partial {

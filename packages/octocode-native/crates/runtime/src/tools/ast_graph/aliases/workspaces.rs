@@ -72,23 +72,53 @@ fn pattern_dirs(base: &Path, pattern: &str) -> Vec<PathBuf> {
     vec![base.join(pattern)]
 }
 
+/// The workspace patterns of the root at `dir` whose `package.json` is
+/// `value`: its `workspaces` field, else its `pnpm-workspace.yaml`.
+fn root_patterns(
+    reader: &ConfigReader<'_>,
+    dir: &Path,
+    value: Option<&Value>,
+) -> Option<Vec<String>> {
+    value
+        .map(workspace_patterns)
+        .filter(|patterns| !patterns.is_empty())
+        .or_else(|| {
+            read_config_text(
+                reader.paths,
+                reader.security,
+                &dir.join("pnpm-workspace.yaml"),
+            )
+            .map(|text| pnpm_patterns(&text))
+        })
+}
+
 impl ResolveContext {
+    /// The member directories of a scanned workspace root at `dir`.
+    pub(super) fn load_workspace_members(
+        &mut self,
+        reader: &ConfigReader<'_>,
+        dir: &str,
+        value: &Value,
+    ) {
+        let base = reader.root.join(dir);
+        let Some(patterns) = root_patterns(reader, &base, Some(value)) else {
+            return;
+        };
+        for member in patterns
+            .iter()
+            .flat_map(|pattern| pattern_dirs(&base, pattern))
+        {
+            if let Some(relative) = relative_to_root(reader.root, &lexical(&member)) {
+                self.workspace_members.insert(relative);
+            }
+        }
+    }
+
     /// A scan below a JS workspace root knows its sibling packages by name.
     pub(super) fn load_outer_workspaces(&mut self, reader: &ConfigReader<'_>) {
         for dir in dirs_above_within_repository(reader.root) {
-            let patterns = reader
-                .read_json(&dir.join("package.json"))
-                .map(|value| workspace_patterns(&value))
-                .filter(|patterns| !patterns.is_empty())
-                .or_else(|| {
-                    read_config_text(
-                        reader.paths,
-                        reader.security,
-                        &dir.join("pnpm-workspace.yaml"),
-                    )
-                    .map(|text| pnpm_patterns(&text))
-                });
-            let Some(patterns) = patterns else {
+            let value = reader.read_json(&dir.join("package.json"));
+            let Some(patterns) = root_patterns(reader, &dir, value.as_ref()) else {
                 continue;
             };
             for package in patterns

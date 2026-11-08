@@ -16,11 +16,25 @@ use std::path::{Path, PathBuf};
 /// running the tool in this process, like any other failed exchange.
 pub(super) const MAX_RESPONSE_BYTES: u64 = 64 * 1024 * 1024;
 
-/// How long a client waits for the reply: the server's own request budget
-/// plus a margin, so a server that ran out of time has said so first. Past
-/// it the call is over; running it again in process would double the wait.
-pub(super) const REPLY_DEADLINE: std::time::Duration =
-    octocode_native::execution::DEFAULT_TIMEOUT.saturating_add(std::time::Duration::from_secs(15));
+/// What a client waits past the server's request budget, so a server that
+/// ran out of time has said so first.
+const REPLY_MARGIN: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// How long a client waits for the reply: the budget of the server's
+/// runtimes, which take the default request limits. Past it the call is
+/// over; running it again in process would double the wait.
+pub(super) fn reply_deadline() -> Option<std::time::Duration> {
+    reply_deadline_for(octocode_native::execution::RequestLimits::default().timeout)
+}
+
+/// The reply wait for a server whose request budget is `budget`: past it by
+/// [`REPLY_MARGIN`], or none when the server has none (the reply, the
+/// server closing, or Ctrl-C ends the wait).
+pub(super) fn reply_deadline_for(
+    budget: Option<std::time::Duration>,
+) -> Option<std::time::Duration> {
+    budget.map(|budget| budget.saturating_add(REPLY_MARGIN))
+}
 
 /// Why an exchange with a server produced no printed call.
 #[derive(Debug, PartialEq, Eq)]
@@ -72,10 +86,11 @@ pub(in crate::cli) async fn call(
             std::future::pending::<()>().await;
         }
     };
+    let deadline = reply_deadline();
     let exchanged = exchange(
         &mut stream,
         &request,
-        REPLY_DEADLINE,
+        deadline,
         first,
         tokio::signal::ctrl_c(),
         interrupted,
@@ -96,7 +111,7 @@ pub(in crate::cli) async fn call(
                     code: ErrorCode::Timeout,
                     message: format!(
                         "The warm server sent no {tool} reply within {} s; the call was not run again in process.",
-                        REPLY_DEADLINE.as_secs()
+                        deadline.unwrap_or_default().as_secs()
                     ),
                     payload: None,
                     validation_issues: None,
@@ -193,7 +208,22 @@ pub(super) fn target(loaded: &mut Option<octocode_native::config::ConfigInput>) 
     })
 }
 
-/// Send one request and read the printed call back within `deadline`.
+/// `awaited`, or [`Failed::Deadline`] once `deadline` passes; with none,
+/// `awaited` alone decides.
+async fn within<T>(
+    deadline: Option<std::time::Duration>,
+    awaited: impl std::future::Future<Output = Result<T, Failed>>,
+) -> Result<T, Failed> {
+    match deadline {
+        Some(deadline) => tokio::time::timeout(deadline, awaited)
+            .await
+            .map_err(|_| Failed::Deadline)?,
+        None => awaited.await,
+    }
+}
+
+/// Send one request and read the printed call back within `deadline`, or
+/// with none for as long as the server keeps the connection.
 /// `first` is the first interrupt: it calls `interrupted`, closes the
 /// request side (the server cancels), then waits for the server to finish
 /// unless `second` arrives first. Each progress frame the server sends
@@ -201,7 +231,7 @@ pub(super) fn target(loaded: &mut Option<octocode_native::config::ConfigInput>) 
 pub(super) async fn exchange(
     stream: &mut tokio::net::UnixStream,
     request: &Request<'_>,
-    deadline: std::time::Duration,
+    deadline: Option<std::time::Duration>,
     first: impl std::future::Future<Output = ()>,
     second: impl std::future::Future,
     interrupted: impl FnOnce(),
@@ -243,9 +273,7 @@ pub(super) async fn exchange(
         }
     };
     let reply = tokio::select! {
-        awaited = tokio::time::timeout(deadline, awaited) => {
-            awaited.map_err(|_| Failed::Deadline)??
-        }
+        awaited = within(deadline, awaited) => awaited?,
         () = first => {
             interrupted();
             let _ = write.shutdown().await;

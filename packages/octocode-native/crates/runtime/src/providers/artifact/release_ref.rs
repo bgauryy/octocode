@@ -2,15 +2,18 @@
 //! lead source only: any failure leaves the lookup without a release ref.
 use super::util::github_slug;
 use super::{ArtifactItem, RepositoryStatus, http::RegistryClient};
+mod listing;
+pub(crate) use listing::TagSearch;
 
 /// What GitHub says of a commit (or `HEAD`) of a repository.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommitCheck {
     /// The commit exists.
     Found,
     /// The commit exists, but GitHub reached it through a redirect: the
-    /// repository was renamed or transferred, so the registry's link is stale.
-    FoundAfterRedirect,
+    /// repository was renamed or transferred, so the registry's link is
+    /// stale. `to` is the `owner/repo` GitHub redirects to, when it names it.
+    FoundAfterRedirect { to: Option<String> },
     /// The repository exists and has no such commit.
     Missing,
     /// The repository itself does not resolve (deleted, private, or never
@@ -18,21 +21,90 @@ pub enum CommitCheck {
     RepositoryMissing,
 }
 
-/// A pending commit check; `None` means the check could not run.
-pub type CommitFuture<'a> =
-    std::pin::Pin<Box<dyn std::future::Future<Output = Option<CommitCheck>> + 'a>>;
-/// A pending look-up of the commit a release tag names.
+/// Why a commit check gave no answer about the commit or the repository.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CheckFailure {
+    /// The repository link names no GitHub repository.
+    NotGitHub,
+    /// This call has no GitHub access.
+    Unavailable,
+    /// No GitHub credential or request could be prepared.
+    Request,
+    /// GitHub answered with this failure (a rate limit, an authorization or
+    /// a network failure).
+    Provider(octocode_github::ProviderErrorKind),
+    /// The GitHub services could not be built (a malformed API URL, a bad
+    /// setting): every check of the call fails the same way, with this message.
+    Services(String),
+}
+
+impl CheckFailure {
+    /// The cause, as a clause a disclosure can carry.
+    pub fn describe(&self) -> String {
+        use octocode_github::ProviderErrorKind as Kind;
+        match self {
+            Self::Services(message) => format!(
+                "GitHub could not be set up: {}",
+                message.trim_end_matches('.')
+            ),
+            Self::NotGitHub => "the repository is not on GitHub".to_owned(),
+            Self::Unavailable => "GitHub is not available to this call".to_owned(),
+            Self::Request => "no GitHub request could be prepared (credentials)".to_owned(),
+            Self::Provider(Kind::RateLimited) => "GitHub's rate limit stopped it".to_owned(),
+            Self::Provider(Kind::Authentication | Kind::Permission) => {
+                "GitHub refused the credential".to_owned()
+            }
+            Self::Provider(kind) => format!("GitHub failed it ({})", kind.code()),
+        }
+    }
+}
+
+/// Release-tag checks that all fail with one cause: what a call uses when
+/// its GitHub services cannot be built, so each check states why instead of
+/// being skipped.
+pub struct FailedTags(pub CheckFailure);
+
+impl ReleaseTags for FailedTags {
+    fn tag_commit<'a>(&'a self, _: &'a str, _: &'a str, _: &'a str) -> TagCommitFuture<'a> {
+        let failure = self.0.clone();
+        Box::pin(async move { Err(failure) })
+    }
+
+    fn tag_names<'a>(&'a self, _: &'a str, _: &'a str) -> TagNamesFuture<'a> {
+        let failure = self.0.clone();
+        Box::pin(async move { Err(failure) })
+    }
+
+    fn commit_check<'a>(&'a self, _: &'a str, _: &'a str, _: &'a str) -> CommitFuture<'a> {
+        let failure = self.0.clone();
+        Box::pin(async move { Err(failure) })
+    }
+}
+
+/// What a commit check found, or why it could not tell: a missing commit and
+/// a failed check are different answers.
+pub type CommitResult = Result<CommitCheck, CheckFailure>;
+
+/// A pending commit check.
+pub type CommitFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = CommitResult> + 'a>>;
+/// A pending look-up of the commit a release tag names: `Ok(None)` when the
+/// repository has no such tag.
 pub type TagCommitFuture<'a> =
-    std::pin::Pin<Box<dyn std::future::Future<Output = Option<Option<String>>> + 'a>>;
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<String>, CheckFailure>> + 'a>>;
+/// A pending read of every tag name of a repository.
+pub type TagNamesFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<String>, CheckFailure>> + 'a>>;
 
 /// Checks that a release tag or a recorded commit exists in a GitHub
 /// repository, through the configured GitHub API (its URL, the caller's
-/// credential and request budget). `None` means the check failed.
+/// credential and request budget).
 pub trait ReleaseTags: Send + Sync {
     /// The commit `tag` of `owner/repo` names (a branch of that name is not
-    /// a tag), `Some(None)` when the repository has no such tag.
+    /// a tag), `Ok(None)` when the repository has no such tag.
     fn tag_commit<'a>(&'a self, owner: &'a str, repo: &'a str, tag: &'a str)
     -> TagCommitFuture<'a>;
+    /// Every tag name of `owner/repo`, read whole.
+    fn tag_names<'a>(&'a self, owner: &'a str, repo: &'a str) -> TagNamesFuture<'a>;
     /// What GitHub says of `commit` (a SHA a registry recorded, or `HEAD`) in
     /// `owner/repo`.
     fn commit_check<'a>(
@@ -59,7 +131,7 @@ pub(crate) async fn pin_release_tag(
     let Some(repository) = unpinned_repository(artifact) else {
         return;
     };
-    let mut found = github_release_tag(
+    let search = github_release_tag(
         &repository,
         artifact.repository_directory.as_deref(),
         package,
@@ -68,18 +140,27 @@ pub(crate) async fn pin_release_tag(
         client,
     )
     .await;
+    let ambiguous = matches!(&search, TagSearch::Unnamed(named) if !named.is_empty());
+    search.note_on(artifact, version);
+    let mut found = search.found();
     // No tag names the release: a declared tag of another release (a release
     // candidate's) that exists is still nearer the release than the default
     // branch. It is pinned as the registry's claim (`registryRef`), never as
-    // a checked release tag, and the response names it.
+    // a checked release tag, and the response names it. Tags that name the
+    // release at different commits are stated instead: a release
+    // candidate's tag is no nearer than they are.
     let mut declared_ref = false;
     if found.is_none()
+        && !ambiguous
         && let Some(tag) = declared
             .map(str::trim)
             .filter(|tag| !names_version(tag, bare_version(version)))
         && let (Some(tags), Some((owner, repo))) = (client.tags, github_slug(&repository))
     {
-        found = first_existing_tag(tags, &owner, &repo, &[&[tag.to_owned()]]).await;
+        found = first_existing_tag(tags, &owner, &repo, &[&[tag.to_owned()]])
+            .await
+            .ok()
+            .flatten();
         declared_ref = found.is_some();
     }
     settle_pin(artifact, &repository, found, client).await;
@@ -112,7 +193,10 @@ pub(crate) async fn pin_go_release_tag(
     let Some(repository) = unpinned_repository(artifact) else {
         return;
     };
-    let found = go_release_tag(&repository, directory, version, client).await;
+    let found = go_release_tag(&repository, directory, version, client)
+        .await
+        .ok()
+        .flatten();
     settle_pin(artifact, &repository, found, client).await;
 }
 
@@ -138,10 +222,11 @@ async fn settle_pin(
     artifact.source_tag = artifact.source_ref.is_some();
     // No tag to pin: the source reads the default branch of the repository
     // the registry names, so first learn whether that repository is there.
-    if artifact.source_ref.is_none()
-        && let Some(check) = commit_check(repository, "HEAD", client).await
-    {
-        artifact.note_repository(check);
+    if artifact.source_ref.is_none() {
+        match commit_check(repository, "HEAD", client).await {
+            Ok(check) => artifact.note_repository(check),
+            Err(failure) => artifact.note_unchecked("the repository", failure),
+        }
     }
 }
 
@@ -161,7 +246,7 @@ pub(crate) async fn check_commit_against_tag(
     let Some(repository) = artifact.repository.as_deref() else {
         return;
     };
-    let Some(release) = github_release_tag(
+    let search = github_release_tag(
         repository,
         artifact.repository_directory.as_deref(),
         package,
@@ -169,14 +254,25 @@ pub(crate) async fn check_commit_against_tag(
         None,
         client,
     )
-    .await
-    else {
-        return;
-    };
-    if release.commit.eq_ignore_ascii_case(commit) {
-        artifact.source_tag = true;
-    } else {
-        artifact.tag_differs = Some(release);
+    .await;
+    match &search {
+        TagSearch::Found(release) if release.commit.eq_ignore_ascii_case(commit) => {
+            artifact.source_tag = true;
+        }
+        TagSearch::Found(release) => artifact.tag_differs = Some(release.clone()),
+        // Tags naming the version at different commits: the one naming the
+        // registry's commit proves it.
+        TagSearch::Unnamed(named)
+            if named
+                .iter()
+                .any(|release| release.commit.eq_ignore_ascii_case(commit)) =>
+        {
+            artifact.source_tag = true;
+        }
+        TagSearch::Unnamed(_) => search.note_on(artifact, version),
+        // The registry's commit stays its claim (`registryRef`), which says
+        // no tag checked it: no absence is claimed to scope.
+        TagSearch::Unchecked | TagSearch::Unlisted(_) => {}
     }
 }
 
@@ -190,9 +286,12 @@ pub struct ReleaseTag {
 /// The release tag of `version` in a GitHub repository, when one exists
 /// upstream: `v<version>`, `<version>`, then the shapes a monorepo uses for
 /// one package's releases ([`tag_candidates`]); a leading `v` of `version` is
-/// the same release, and a tag the package's metadata declares is asked first. Without a GitHub check, or
-/// when the check fails (rate limit, missing repository), there is no tag.
-/// Each lookup checks current tags; neither matches nor absences are retained.
+/// the same release, and a tag the package's metadata declares is asked
+/// first. When no candidate names it (or a check fails), the repository's
+/// own tag list decides, whatever prefix its tags carry
+/// ([`listing::listed_release_tag`]); a list that cannot be read is
+/// [`TagSearch::Unlisted`] with its cause. Each lookup checks current tags;
+/// neither matches nor absences are retained.
 async fn github_release_tag(
     repository: &str,
     directory: Option<&str>,
@@ -200,9 +299,10 @@ async fn github_release_tag(
     version: &str,
     declared: Option<&str>,
     client: &RegistryClient<'_>,
-) -> Option<ReleaseTag> {
-    let tags = client.tags?;
-    let (owner, repo) = github_slug(repository)?;
+) -> TagSearch {
+    let (Some(tags), Some((owner, repo))) = (client.tags, github_slug(repository)) else {
+        return TagSearch::Unchecked;
+    };
     let bare = bare_version(version);
     let mut candidates = tag_candidates(&repo, package, directory, bare);
     let named = declared
@@ -214,7 +314,10 @@ async fn github_release_tag(
     // package declares), then a monorepo package's own shapes, each round's
     // checks together.
     let (plain, own) = candidates.split_at(candidates.len().min(2 + usize::from(named)));
-    first_existing_tag(tags, &owner, &repo, &[plain, own]).await
+    if let Ok(Some(release)) = first_existing_tag(tags, &owner, &repo, &[plain, own]).await {
+        return TagSearch::Found(release);
+    }
+    listing::listed_release_tag(tags, &owner, &repo, bare).await
 }
 
 /// Whether `tag` names release `version`: it ends with the version, and the
@@ -264,9 +367,9 @@ async fn go_release_tag(
     directory: Option<&str>,
     version: &str,
     client: &RegistryClient<'_>,
-) -> Option<ReleaseTag> {
-    let tags = client.tags?;
-    let (owner, repo) = github_slug(repository)?;
+) -> Result<Option<ReleaseTag>, CheckFailure> {
+    let tags = client.tags.ok_or(CheckFailure::Unavailable)?;
+    let (owner, repo) = github_slug(repository).ok_or(CheckFailure::NotGitHub)?;
     let release = version.strip_suffix("+incompatible").unwrap_or(version);
     let tag = match directory.filter(|directory| !directory.is_empty()) {
         Some(directory) => format!("{directory}/{release}"),
@@ -277,13 +380,13 @@ async fn go_release_tag(
 
 /// The first of `candidates` (rounds in order, each round's checks together,
 /// a round's candidates in order) the repository has as a tag. A failed check
-/// is no answer: nothing is remembered, and there is no tag.
+/// is no answer: nothing is remembered, and the lookup fails with its cause.
 async fn first_existing_tag(
     tags: &dyn ReleaseTags,
     owner: &str,
     repo: &str,
     rounds: &[&[String]],
-) -> Option<ReleaseTag> {
+) -> Result<Option<ReleaseTag>, CheckFailure> {
     for round in rounds {
         let answers = futures_util::future::join_all(
             round.iter().map(|tag| tags.tag_commit(owner, repo, tag)),
@@ -291,14 +394,14 @@ async fn first_existing_tag(
         .await;
         for (tag, commit) in round.iter().zip(answers) {
             if let Some(commit) = commit? {
-                return Some(ReleaseTag {
+                return Ok(Some(ReleaseTag {
                     tag: tag.clone(),
                     commit,
-                });
+                }));
             }
         }
     }
-    None
+    Ok(None)
 }
 
 /// Tags a package's release may carry, most common first: `v<version>` and
@@ -361,15 +464,15 @@ fn tag_stems(repo: &str, package: &str, directory: Option<&str>) -> Vec<String> 
 }
 
 /// What GitHub says of `reference` (a recorded commit, or `HEAD`) in
-/// `repository`; `None` when the repository is not on GitHub or no check
-/// could run (no GitHub access, rate limit), so only a definite answer
-/// changes a row.
+/// `repository`: found, missing, or the [`CheckFailure`] that left it
+/// unknown, so only a definite answer changes a row and a failure is stated.
 pub(crate) async fn commit_check(
     repository: &str,
     reference: &str,
     client: &RegistryClient<'_>,
-) -> Option<CommitCheck> {
-    let (tags, (owner, repo)) = (client.tags?, github_slug(repository)?);
+) -> CommitResult {
+    let tags = client.tags.ok_or(CheckFailure::Unavailable)?;
+    let (owner, repo) = github_slug(repository).ok_or(CheckFailure::NotGitHub)?;
     tags.commit_check(&owner, &repo, reference).await
 }
 

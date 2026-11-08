@@ -3,14 +3,17 @@
 //! read that opens one.
 
 use super::RuntimeError;
+use crate::build_identity::BUILD_IDENTITY;
 use crate::config::{self, ConfigOutput};
-use crate::response::cursor::{Cursor, ROW_PLAN_VERSION};
+use crate::response::cursor::Cursor;
 use crate::response::pager::SavedPages;
 use crate::response::result::FailureKind;
 use crate::security::{CheckedQuery, Sanitized};
 use octocode_contract_types::ErrorCode;
 
-use crate::cache::{CONTINUATION_IDLE, CONTINUATION_RETENTION};
+use crate::cache::{CONTINUATION_IDLE, CacheClass};
+use crate::id::ToolId;
+use crate::tools::clasify::sections::PLAN_IDLE;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -44,7 +47,7 @@ pub(super) struct PageReplayMemo {
 impl PageReplayMemo {
     pub(super) fn new(config: &ConfigOutput, cwd: &std::path::Path) -> Self {
         let persistent = config::saves_local_results(&config.resolved);
-        let policy = replay_policy(config, cwd, ROW_PLAN_VERSION);
+        let policy = replay_policy(config, cwd, BUILD_IDENTITY);
         Self {
             store: crate::cache::Store::new(
                 crate::cache::CacheConfig::derived(),
@@ -76,6 +79,7 @@ impl PageReplayMemo {
 
     pub(super) fn insert(
         &self,
+        tool: &str,
         cursor: &Cursor,
         replay: PageReplay,
         deadline: std::time::Instant,
@@ -94,15 +98,15 @@ impl PageReplayMemo {
             Self::key(cursor, &self.policy),
             replay,
             weight,
-            CONTINUATION_RETENTION,
+            retention_of(tool),
         )
     }
 }
 
-fn replay_policy(config: &ConfigOutput, cwd: &std::path::Path, plan_version: u32) -> String {
+fn replay_policy(config: &ConfigOutput, cwd: &std::path::Path, build: &str) -> String {
     octocode_engine::digest::sha256(
         format!(
-            "{}:{}:{}:{plan_version}",
+            "{}:{}:{}:{build}",
             config.identity_digest(),
             cwd.display(),
             octocode_contract_types::TOOL_TYPES_CONTRACT_FINGERPRINT
@@ -117,8 +121,30 @@ mod tests;
 #[cfg(test)]
 mod refusal_tests;
 
-pub(super) fn page_expiry() -> String {
-    crate::civil_date::iso8601_millis_after(CONTINUATION_IDLE)
+/// How long saved work for `tool` stays reachable after its last read: the
+/// one owner of the lifetime of its cursors, saved pages, the expiry a page
+/// states and the lifetime a refusal names. A clasify cursor names a plan
+/// kept [`crate::tools::clasify::sections::PLAN_RETENTION`], so its pages and cursor live that long and never
+/// die before the plan they continue.
+fn idle_lifetime(tool: &str) -> std::time::Duration {
+    if tool == ToolId::Clasify.as_str() {
+        PLAN_IDLE
+    } else {
+        CONTINUATION_IDLE
+    }
+}
+
+/// The class saved work for `tool` is stored under: always idle, so every
+/// read restarts the lifetime and [`page_expiry`] states the truth.
+pub(super) fn retention_of(tool: &str) -> CacheClass {
+    CacheClass::Idle {
+        ttl: idle_lifetime(tool),
+    }
+}
+
+/// The expiry a page of `tool` states: its read restarted the lifetime.
+pub(super) fn page_expiry(tool: &str) -> String {
+    crate::civil_date::iso8601_millis_after(idle_lifetime(tool))
 }
 
 /// Why saved work does not answer a cursor. Each cause has its own text,
@@ -133,8 +159,6 @@ pub(super) enum Refusal {
     OtherTool,
     /// Issued under another access identity: another request credential.
     OtherAccess,
-    /// Issued on the other surface (CLI or MCP) under the same credential.
-    OtherSurface,
     /// The current GitHub identity is not (or cannot be confirmed as) the
     /// one the handle was issued to.
     IdentityChanged,
@@ -142,11 +166,12 @@ pub(super) enum Refusal {
     RequestChanged,
 }
 
-/// Where a refused cursor was sent: the storage and surface its text names.
+/// Where a refused cursor was sent: the storage and surface its text names,
+/// and the tool whose saved-work lifetime it states.
 #[derive(Clone, Copy)]
 pub(super) struct RefusalScope {
     pub(super) persistent: bool,
-    pub(super) mcp: bool,
+    pub(super) tool: ToolId,
 }
 
 /// The error for `refusal`: its cause, then the recovery every refusal
@@ -154,7 +179,7 @@ pub(super) struct RefusalScope {
 /// caller's input (`invalidInput`); any other cause is saved work this
 /// runtime cannot answer (`responseSnapshotExpired`).
 pub(super) fn snapshot_expired(refusal: Refusal, scope: RefusalScope) -> RuntimeError {
-    let lifetime = CONTINUATION_IDLE.as_secs();
+    let lifetime = idle_lifetime(scope.tool.as_str()).as_secs();
     let cause = match refusal {
         Refusal::Malformed => {
             "Malformed cursor: it is not an issued handle (edited, truncated or invented).".into()
@@ -169,14 +194,6 @@ pub(super) fn snapshot_expired(refusal: Refusal, scope: RefusalScope) -> Runtime
             "This cursor was issued to another tool; send it to the tool its emitted call names."
                 .into()
         }
-        Refusal::OtherSurface => format!(
-            "This cursor was {}; a cursor resumes only on the surface that issued it.",
-            if scope.mcp {
-                "issued by the CLI"
-            } else {
-                "issued by an MCP server"
-            }
-        ),
         Refusal::OtherAccess => {
             "This cursor was issued under another request credential; saved work answers only the credential it was issued to.".into()
         }
@@ -191,7 +208,6 @@ pub(super) fn snapshot_expired(refusal: Refusal, scope: RefusalScope) -> Runtime
         Refusal::Malformed | Refusal::OtherTool => ErrorCode::InvalidInput,
         Refusal::NotRetained
         | Refusal::OtherAccess
-        | Refusal::OtherSurface
         | Refusal::IdentityChanged
         | Refusal::RequestChanged => ErrorCode::ResponseSnapshotExpired,
     };
@@ -214,11 +230,11 @@ pub(super) fn source_changed() -> RuntimeError {
 }
 
 /// Identity of an executed batch: validated rows in canonical key order,
-/// original input indices, surface and request credential. The saved handle
+/// original input indices and request credential. The surface (CLI or MCP) is
+/// no part of it: one saved page resumes on either. The saved handle
 /// carries this digest; an independent access digest verifies each replay.
 pub(super) fn page_replay_key(
     tool: &str,
-    mcp: bool,
     queries: &[CheckedQuery],
     indices: &[usize],
     credential: Option<&octocode_github::ResolvedCredential>,
@@ -229,7 +245,6 @@ pub(super) fn page_replay_key(
         .map(|credential| octocode_engine::digest::sha256(credential.expose_secret().as_bytes()));
     let identity = json!({
         "tool": tool,
-        "mcp": mcp,
         "queries": queries,
         "indices": indices,
         "credential": credential,

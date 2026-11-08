@@ -4,7 +4,7 @@ use serde_json::json;
 fn context() -> ExecutionContext {
     ExecutionContext {
         cancellation: octocode_io::cancellation::Cancellation::new(),
-        deadline: Instant::now() + Duration::from_secs(5),
+        deadline: Some(Instant::now() + Duration::from_secs(5)),
         response_window: None,
         github_credential: None,
     }
@@ -90,7 +90,7 @@ fn a_busy_store_honors_cancellation_and_deadline_without_publishing() {
     let cancelled = context();
     cancelled.cancellation.cancel();
     let mut expiring = context();
-    expiring.deadline = Instant::now() + Duration::from_millis(20);
+    expiring.deadline = Some(Instant::now() + Duration::from_millis(20));
     for (context, expected) in [
         (cancelled, ExecutionError::Cancelled),
         (expiring, ExecutionError::Timeout),
@@ -109,7 +109,7 @@ fn memory_publication_stops_while_another_writer_still_holds_the_lock() {
     let mut pending = registry.pending([4; 32], None);
     let token = insert_page(&mut pending, 1);
     let mut context = context();
-    context.deadline = Instant::now() + Duration::from_millis(20);
+    context.deadline = Some(Instant::now() + Duration::from_millis(20));
     let (sent, received) = std::sync::mpsc::channel();
     std::thread::scope(|scope| {
         scope.spawn(|| sent.send(registry.retain(pending, &context)).unwrap());

@@ -136,15 +136,7 @@ pub(in super::super) fn annotate_empty_includes(
                 }
                 tips.push(build_script_tip(rerun, allowed));
             }
-            if !tips.is_empty() {
-                let hints = row
-                    .as_object_mut()
-                    .map(|object| object.entry("hints").or_insert_with(|| json!([])))
-                    .and_then(Value::as_array_mut);
-                if let Some(hints) = hints {
-                    hints.extend(tips.into_iter().map(Value::from));
-                }
-            }
+            crate::response::result::add_hints(row, tips);
         }
     }
 }

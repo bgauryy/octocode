@@ -25,6 +25,8 @@ const NOT_CONFIGURATION = new Map([
   ['OCTOCODE_ASKPASS_PASSWORD_PROMPT', 'private Git helper prompt, set for one child by AskPass'],
   ['OCTOCODE_ASKPASS_TOKEN', 'private Git helper credential, set for one child by AskPass'],
   ['SERVICE_API_KEY', 'the example in the is_secret_key doc comment'],
+  ['OCTOCODE_BUILD_IDENTITY', 'compile-time value build/identity.rs sets with cargo:rustc-env, never read at run time'],
+  ['OCTOCODE_BUILD_IDENTITY_ROOTS', 'compile-time value build/identity.rs sets with cargo:rustc-env, never read at run time'],
 ]);
 
 function walk(directory: string, keep: (path: string) => boolean): string[] {

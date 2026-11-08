@@ -56,9 +56,7 @@ fn repaired(tool_name: &str, id: ToolId, mut input: Value) -> Value {
         if issues.is_empty() {
             return input;
         }
-        if !repair_values(tool_name, &mut input, &issues, (&defs, &operations))
-            && !unwrap_lone_selections(&mut input, &batch.rows)
-        {
+        if !repair_values(tool_name, &mut input, &issues, (&defs, &operations)) {
             return input;
         }
     }
@@ -93,8 +91,9 @@ fn shaped(id: ToolId, input: Value) -> Value {
         };
         request.insert("queries".to_owned(), queries);
     } else if request.contains_key("cursor") {
-        // A cursor keeps the page size it was issued with.
-        request.remove("responseChars");
+        // A cursor call is the cursor alone; validation refuses any other
+        // field, the page size included (the cursor keeps the one it was
+        // issued with).
         return Value::Object(request);
     } else {
         let (row, envelope): (Map<_, _>, Map<_, _>) = request
@@ -208,64 +207,6 @@ fn rows_mut(request: &mut Map<String, Value>) -> impl Iterator<Item = &mut Map<S
         .filter_map(Value::as_object_mut)
 }
 
-/// A filter that takes one value, sent as a one-item `{include:[value]}`, the
-/// shape its sibling query form takes (`committedAt` with and without
-/// `keywords`). Only on an invalid row, and only an object value: validation of
-/// the result decides.
-fn unwrap_lone_selections(input: &mut Value, rows: &[Vec<ValidationIssue>]) -> bool {
-    let mut changed = false;
-    for (index, issues) in rows.iter().enumerate() {
-        if issues.is_empty() {
-            continue;
-        }
-        let Some(filters) = input["queries"][index]
-            .get_mut("filters")
-            .and_then(Value::as_object_mut)
-        else {
-            continue;
-        };
-        for value in filters.values_mut() {
-            let lone = value.as_object().filter(|selection| selection.len() == 1);
-            let item = lone
-                .and_then(|selection| selection.get("include"))
-                .and_then(Value::as_array)
-                .filter(|items| items.len() == 1 && items[0].is_object())
-                .map(|items| items[0].clone());
-            if let Some(item) = item {
-                *value = item;
-                changed = true;
-            }
-        }
-    }
-    changed
-}
-
-/// A filter selection is `{include, exclude}`: a bare value of it means
-/// `include`. Whether the item fits is validation's call.
-fn repair_selection(input: &mut Value, issue: &ValidationIssue) -> bool {
-    let Some((_, parent)) = issue.path.split_last() else {
-        return false;
-    };
-    let takes_selection = issue
-        .schema
-        .as_ref()
-        .and_then(|schema| schema["knownFields"].as_array())
-        .is_some_and(|known| {
-            known.iter().any(|field| field == "include")
-                && known
-                    .iter()
-                    .all(|field| field == "include" || field == "exclude")
-        });
-    let Some(at) = input.pointer_mut(&crate::json_pointer::of(parent)) else {
-        return false;
-    };
-    if !takes_selection || at.get("include").is_some() || at.get("exclude").is_some() {
-        return false;
-    }
-    *at = serde_json::json!({"include": [at.take()]});
-    true
-}
-
 /// Whether `path` ends at an array index below its query row.
 fn is_list_item(path: &[String]) -> bool {
     path.len() > 2
@@ -357,10 +298,6 @@ fn repair_values(
     for issue in issues {
         if issue.rule_id == "schema.required" {
             applied |= repair_operation(tool_name, input, issue, operations);
-            continue;
-        }
-        if issue.rule_id == "schema.unknown-field" {
-            applied |= repair_selection(input, issue);
             continue;
         }
         let (Some(schema), Some(received)) = (&issue.schema, &issue.received) else {

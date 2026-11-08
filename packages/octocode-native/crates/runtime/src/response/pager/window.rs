@@ -1,6 +1,6 @@
 use super::super::cursor::Cursor;
 use super::super::page_model::{ResponsePageOptions, ResponsePagination};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 pub(super) fn page_cursor(
     request: &ResponsePageOptions,
@@ -33,5 +33,5 @@ pub(super) fn build_continuation(
     if cursor.len() > usize::try_from(maximum).ok()? {
         return None;
     }
-    Some(json!({"kind":"continue", "tool":tool, "input":{"cursor":cursor}}))
+    Some(crate::response::result::Continuation::cursor(tool, cursor))
 }

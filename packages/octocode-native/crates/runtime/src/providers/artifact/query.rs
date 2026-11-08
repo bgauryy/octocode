@@ -4,7 +4,22 @@
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType};
 
 pub(crate) mod artifact_type {
-    use octocode_contract_types::ArtifactType;
+    use octocode_contract_types::{ArtifactType, SecurityCheckQueryPackageEcosystem as Ecosystem};
+
+    /// The OSV ecosystem of a registry the artifact provider reads: shared by
+    /// artifactSearch's advisory lead and securityCheck's registry gate.
+    pub(crate) const fn osv_ecosystem(kind: ArtifactType) -> Ecosystem {
+        match kind {
+            ArtifactType::Npm => Ecosystem::Npm,
+            ArtifactType::Pypi => Ecosystem::PyPi,
+            ArtifactType::Crates => Ecosystem::CratesIo,
+            ArtifactType::Maven => Ecosystem::Maven,
+            ArtifactType::Nuget => Ecosystem::NuGet,
+            ArtifactType::Go => Ecosystem::Go,
+            ArtifactType::Packagist => Ecosystem::Packagist,
+            ArtifactType::Rubygems => Ecosystem::RubyGems,
+        }
+    }
 
     pub(crate) fn as_str(kind: ArtifactType) -> &'static str {
         match kind {

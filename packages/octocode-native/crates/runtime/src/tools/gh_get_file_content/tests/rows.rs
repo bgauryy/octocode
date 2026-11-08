@@ -203,3 +203,89 @@ async fn a_zero_byte_file_is_a_successful_read() {
     assert_eq!(read.status, None, "{}", read.data);
     assert_eq!(read.data["content"], "", "{}", read.data);
 }
+
+/// B97: an anonymous call cannot send GraphQL, so the receipt comes from the
+/// REST commit list under the configured API origin, whatever its host.
+#[tokio::test]
+async fn an_anonymous_first_page_states_the_last_change_from_the_commit_list() {
+    let server = MockServer::builder().start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/contents/a.txt",
+        200,
+        serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("hi\n")}),
+    )
+    .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits"))
+        .and(query_param("path", "a.txt"))
+        .and(query_param("sha", sha))
+        .respond_with(ResponseTemplate::new(200)
+            .insert_header("link", "<https://api.github.com/repositories/1/commits?page=2>; rel=\"next\"")
+            .insert_header("etag", "W/\"x\"")
+            .insert_header("cache-control", "private, max-age=60, s-maxage=60")
+            .set_body_json(json!([{
+            "sha": sha,
+            "author": {"login": "ada-l"},
+            "commit": {"committer": {"date": "2026-01-02T00:00:00Z"}, "author": {"name": "Ada"}}
+        }])))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let query: GhGetFileContentQuery =
+        serde_json::from_value(json!({"owner":"a","repo":"b","path":"a.txt","ref":sha}))
+            .expect("query");
+    let anonymous = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+    let stamped = execute_default_regex(&provider, &query, &anonymous, Some(50_000))
+        .await
+        .expect("result");
+    assert_eq!(
+        stamped.file.last_modified.as_deref(),
+        Some("2026-01-02T00:00:00Z")
+    );
+    assert_eq!(stamped.file.last_modified_by.as_deref(), Some("ada-l"));
+}
+
+/// A failed last-change read is no reason to lose the body, nor to lose the
+/// reason: the row says why `lastModified` is absent, by error code.
+#[tokio::test]
+async fn a_failed_last_change_read_is_named_on_the_row() {
+    let server = MockServer::builder().start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/contents/a.txt",
+        200,
+        serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("hi\n")}),
+    )
+    .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/commits",
+        403,
+        serde_json::json!({"message":"Resource not accessible"}),
+    )
+    .await;
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let query: GhGetFileContentQuery =
+        serde_json::from_value(json!({"owner":"a","repo":"b","path":"a.txt","ref":sha}))
+            .expect("query");
+    let anonymous = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+    let row = execute_default_regex(&provider, &query, &anonymous, Some(50_000))
+        .await
+        .expect("the body is still read");
+    assert_eq!(row.file.last_modified, None);
+    let warning = row
+        .file
+        .content
+        .warnings
+        .iter()
+        .find(|warning| warning.contains("lastModified"))
+        .unwrap_or_else(|| panic!("no note: {:?}", row.file.content.warnings));
+    assert!(
+        warning.contains(&ErrorCode::PermissionDenied.to_string()),
+        "{warning}"
+    );
+}

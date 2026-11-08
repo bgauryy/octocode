@@ -38,6 +38,22 @@ impl Fixture {
         std::fs::write(&path, contents).expect("fixture write");
         path
     }
+
+    /// Date `relative` (a file or a directory) an hour ahead: a file whose last write is in the future
+    /// is inside every settle window, however the clock reads, so it stays
+    /// unsettled with no sleep.
+    pub(crate) fn date_ahead(&self, relative: &str) {
+        let path = self.0.join(relative);
+        // A directory opens read-only (Unix; Windows has no such open); a
+        // file needs write access for `set_modified` on Windows.
+        std::fs::File::options()
+            .read(true)
+            .write(!path.is_dir())
+            .open(&path)
+            .expect("open fixture")
+            .set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(3600))
+            .expect("date fixture ahead");
+    }
 }
 
 /// Creates a FIFO (named pipe) at `path`, owner read/write only.

@@ -1,6 +1,7 @@
 //! Whether a snapshot still matches its sources: stamps, digests, inputs and
 //! the change list.
 use super::*;
+use crate::tools::ast_graph::walk_scope::build_admission;
 use octocode_engine::stamp::SourceStamp;
 
 mod scope_proof;
@@ -170,17 +171,20 @@ fn inputs_proven(
 
 /// The source files a re-ingest of `root` would scan, root-relative: the one
 /// default prune, the caller's exclusions and `.gitignore`, graph-fact
-/// extensions and the files its language globs name.
+/// extensions and the files its language globs name, and what the build's
+/// own admission ([`build_admission`]) lets through: a source the path policy
+/// withholds is no source to scan.
 pub(super) fn scope_files(
+    paths: &PathPolicy,
     root: &Path,
-    exclude: &[String],
-    language_globs: &BTreeMap<String, Vec<String>>,
+    scope: &crate::tools::ast_graph::build_scope::BuildScope,
     extensions: &[String],
     dir: &mut dyn FnMut(&Path),
 ) -> BTreeSet<String> {
     #[cfg(test)]
     SCOPE_WALKS.with(|walks| walks.set(walks.get() + 1));
-    let globs = language_globs
+    let globs = scope
+        .language_globs
         .values()
         .flatten()
         .filter_map(|pattern| {
@@ -193,19 +197,39 @@ pub(super) fn scope_files(
             .flatten()
         })
         .collect::<Vec<_>>();
-    let skipped =
-        octocode_engine::search::glob::set(root, exclude.iter().map(String::as_str), "exclude")
-            .ok()
-            .flatten();
+    let skipped = octocode_engine::search::glob::set(
+        root,
+        scope.exclude.iter().map(String::as_str),
+        "exclude",
+    )
+    .ok()
+    .flatten();
+    let admission = build_admission(paths, root);
+    // The walk is depth first: a withheld directory's entries follow it.
+    let mut withheld: Option<PathBuf> = None;
     let mut current = BTreeSet::new();
-    for entry in crate::tools::pruned_walk(root, []).build().flatten() {
+    for entry in
+        crate::tools::pruned_walk_under(root, scope.walk.default_excludes, [], scope.walk.ignore)
+            .build()
+            .flatten()
+    {
+        let path = entry.path();
+        if withheld.as_ref().is_some_and(|held| path.starts_with(held)) {
+            continue;
+        }
+        if path != root && !admission.admit(path, entry.file_type(), |_| false) {
+            withheld = entry
+                .file_type()
+                .is_some_and(|kind| kind.is_dir())
+                .then(|| path.to_path_buf());
+            continue;
+        }
         if entry.file_type().is_some_and(|kind| kind.is_dir()) {
-            dir(entry.path());
+            dir(path);
         }
         if !entry.file_type().is_some_and(|kind| kind.is_file()) {
             continue;
         }
-        let path = entry.path();
         if skipped
             .as_ref()
             .is_some_and(|matcher| octocode_engine::search::glob::matches(matcher, path, false))
@@ -279,7 +303,7 @@ pub(crate) fn snapshot_changes(
             return Freshness { changes };
         }
     }
-    for (file, status) in scope_changes(root, tables, manifest, &changes) {
+    for (file, status) in scope_changes(paths, root, tables, manifest, &changes) {
         changes.push(Change {
             file,
             status,
@@ -317,6 +341,7 @@ pub(crate) fn snapshot_changes(
 /// files it would no longer scan (gone, or now ignored or excluded) that
 /// `changes` does not already report.
 fn scope_changes(
+    paths: &PathPolicy,
     root: &Path,
     tables: &format::GraphTables,
     manifest: &Value,
@@ -331,24 +356,18 @@ fn scope_changes(
         .filter(|node| node.kind == format::NodeKind::File)
         .map(|node| tables.str(node.key))
         .collect::<BTreeSet<_>>();
-    let strings = |value: &Value| {
-        value
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect::<Vec<_>>()
-    };
-    let globs = serde_json::from_value::<BTreeMap<String, Vec<String>>>(
-        manifest["scan"]["languageGlobs"].clone(),
-    )
-    .unwrap_or_default();
+    let extensions = manifest["registryExtensions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
     let current = scope_files(
+        paths,
         root,
-        &strings(&manifest["scan"]["exclude"]),
-        &globs,
-        &strings(&manifest["registryExtensions"]),
+        &crate::tools::ast_graph::build_scope::BuildScope::of_manifest(&manifest["scan"]),
+        &extensions,
         &mut |_| {},
     );
     let reported = changes

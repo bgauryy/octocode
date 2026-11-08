@@ -12,7 +12,6 @@ fn every_code_fragment_keeps_optional_provenance_and_evidence_qualifiers() {
     file["lines"] = json!(lines);
     let plan = PreparedRows::new(
         vec![json!({"index":0,"data":{"files":[file]}})],
-        &[None],
         crate::id::ToolId::GhSearchCode,
     )
     .plan(1000, &Cancellation::new())

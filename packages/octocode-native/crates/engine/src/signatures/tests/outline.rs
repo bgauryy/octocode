@@ -30,8 +30,11 @@ fn an_over_long_row_lists_the_heads_of_its_declarations() {
         .lines()
         .find(|row| row.contains("Generated"))
         .unwrap_or_else(|| panic!("a row for the long line in {outline}"));
+    let heads = (0..120)
+        .map(|i| format!(" pub field_{i} …"))
+        .collect::<String>();
     assert!(
-        row.ends_with("\tpub struct Generated … pub fn after …"),
+        row.ends_with(&format!("\tpub struct Generated …{heads} pub fn after …")),
         "{row}"
     );
 
@@ -312,4 +315,18 @@ fn a_one_line_bundle_of_a_hundred_thousand_functions_lists_every_head() {
         assert!(outline.contains(&format!("function f{index}")), "f{index}");
     }
     assert!(!outline.contains("function f100000"));
+}
+
+/// Outer attributes open a top-level item as decorators open a Python or
+/// TypeScript one: their rows stay above the name row, while inner
+/// attributes (`#![…]`) and doc comments are not rows of the item.
+#[test]
+fn rust_outer_attributes_show_above_their_top_level_item() {
+    let source = "#![allow(dead_code)]\n\n/// A point.\n#[derive(Debug, Clone)]\n#[repr(C)]\npub struct Point {\n    x: i32,\n}\n\n#[inline]\npub fn run() {\n    let a = 1;\n    let b = 2;\n    let c = a + b;\n    println!(\"{c}\");\n}\n";
+    let outline = extract_signatures_inner(source, "lib.rs").expect("outline");
+    let rows: Vec<&str> = outline.lines().collect();
+    assert!(rows.contains(&"4\t#[derive(Debug, Clone)] …"), "{outline}");
+    assert!(rows.contains(&"10\t#[inline]"), "{outline}");
+    assert!(!outline.contains("#![allow"), "{outline}");
+    assert!(!outline.contains("A point"), "{outline}");
 }

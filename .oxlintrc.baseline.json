@@ -166,7 +166,7 @@
     {"files":["packages/octocode-native/bin/platform.cjs"],"rules":{"no-empty":"off"}},
     {"files":["packages/octocode-native/bin/resolve-binary.cjs"],"rules":{"no-useless-escape":"off"}},
     {"files":["packages/octocode-native/scripts/build-native.cjs"],"rules":{"typescript/no-floating-promises":"off"}},
-    {"files":["packages/octocode-vscode/src/extension.ts"],"rules":{"max-depth":["error",{"max":5}],"max-lines-per-function":["error",{"max":212,"skipBlankLines":false,"skipComments":false}],"no-console":"off","typescript/restrict-template-expressions":"off"}},
+    {"files":["packages/octocode-vscode/src/extension.ts"],"rules":{"max-lines-per-function":["error",{"max":186,"skipBlankLines":false,"skipComments":false}],"no-console":"off","typescript/restrict-template-expressions":"off"}},
     {"files":["packages/octocode-vscode/tests/extension.test.ts"],"rules":{"max-lines-per-function":["error",{"max":156,"skipBlankLines":false,"skipComments":false}],"typescript/consistent-type-imports":"off"}},
     {"files":["packages/octocode-vscode/tests/mcpConfig.test.ts"],"rules":{"typescript/consistent-type-imports":"off"}},
     {"files":["packages/octocode-vscode/tests/mcpConfigSecurity.test.ts"],"rules":{"max-lines-per-function":["error",{"max":168,"skipBlankLines":false,"skipComments":false}],"typescript/no-unnecessary-type-assertion":"off"}},

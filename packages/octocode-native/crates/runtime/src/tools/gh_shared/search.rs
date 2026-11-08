@@ -3,7 +3,7 @@ use super::{
     GhFailure, RepoPath, repository_not_found, repository_recovery, repository_search_hint,
 };
 use crate::id::ToolId;
-use crate::response::result::{Continuation, query_row};
+use crate::response::result::query_row;
 use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
 use serde_json::{Value, json};
 
@@ -119,7 +119,7 @@ pub(crate) fn with_search_repair(
     let (leads, hints) = if failure.error.reason == Some(ProviderErrorReason::SearchWindowExceeded)
     {
         let last = page_replay(tool, query, SearchWindow::PageStart.last_page(per));
-        (json!({ "repair": last }), Vec::new())
+        (last.map_or_else(|| json!({}), |last| json!({ "repair": last })), Vec::new())
     } else if let Some(repo) = repo.filter(|_| repository_not_found(&failure.error)) {
         (
             repository_recovery(owner, repo),
@@ -149,14 +149,15 @@ pub(crate) fn add_next(
     if !has_more {
         return;
     }
-    value["calls"] = json!({"nextPage": page_replay(tool, query, page + 1)});
+    if let Some(next) = page_replay(tool, query, page + 1) {
+        value["calls"] = json!({"nextPage": next});
+    }
 }
 
-/// The same query at `page`: an exact replay.
-fn page_replay(tool: ToolId, query: &impl serde::Serialize, page: usize) -> Value {
-    let mut row = query_row(query, &[]);
-    row["page"] = json!(page);
-    Continuation::continued(tool, row).build()
+/// The same query at `page`: an exact replay, none when the query is not
+/// an object row.
+fn page_replay(tool: ToolId, query: &impl serde::Serialize, page: usize) -> Option<Value> {
+    crate::response::paging::next_page_call(tool, query_row(query, &[]), "page", page, &[])
 }
 
 /// The listing that checks an empty search's `path` scope (a path that is
@@ -245,6 +246,8 @@ pub(crate) fn apply_partial(
             crate::response::paging::PartialReason::ProviderIncompleteResults,
             &[],
         );
-        value["calls"]["retry"] = page_replay(tool, query, page);
+        if let Some(retry) = page_replay(tool, query, page) {
+            value["calls"]["retry"] = retry;
+        }
     }
 }

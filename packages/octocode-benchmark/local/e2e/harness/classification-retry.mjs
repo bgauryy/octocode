@@ -4,6 +4,8 @@ import { checks, startServer, writeResults } from './mcp-client.mjs';
 import { collect } from './responses.mjs';
 import { answer, setup } from './classification-fixture.mjs';
 import { canon } from './lead-predicates.mjs';
+import { snapshotBuild } from './build-snapshot.mjs';
+snapshotBuild();
 
 const { check, summary } = checks('classification-retry');
 let mode = 'success';

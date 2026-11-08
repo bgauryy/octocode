@@ -6,4 +6,5 @@ use serde_json::json;
 mod embedded;
 mod input;
 mod output;
+mod output_names;
 mod surface;

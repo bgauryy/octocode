@@ -340,8 +340,9 @@ fn listing_page<Q: Listing>(
         "files": files,
         "snapshot": snapshot,
     });
-    // Every page states its block; the response stage keeps it where it
-    // routes (`response::rows::walks_on`).
+    // Every page states its block; the response stage keeps it unless the
+    // block is one complete first page (`response::pages::publish`'s
+    // `complete`).
     // A window `next.nextPage` continues is not the listing's end: its
     // rows are what this window loaded, not the listing's total.
     let continues = cut.walk_lead().is_some();
@@ -359,7 +360,10 @@ fn listing_page<Q: Listing>(
     out["pagination"] = facts.to_value();
     if ranking {
         out["pagination"]["countScope"] = json!("complete");
-    } else if continues {
+    } else if continues || q.scan_offset() > 0 || q.walk_offset() > 0 {
+        // A later window counts only what it loaded: stating that keeps the
+        // block of its last page, which would otherwise read as one complete
+        // first page and be dropped from the response.
         out["pagination"]["countScope"] = json!("loaded");
     }
     // A walk cut by time proved nothing about what it did not scan, and a

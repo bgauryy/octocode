@@ -14,7 +14,9 @@ pub(crate) use judge::section_question;
 mod plan;
 mod provider_hits;
 mod provider_page;
+mod row_units;
 mod run;
+mod saved;
 #[cfg(test)]
 mod tests;
 
@@ -22,12 +24,16 @@ use plan::in_runs;
 pub(crate) use provider_page::apply_sanitized_rows;
 use run::select_scoped;
 pub(crate) use run::{needs_candidate_states, select};
+pub(crate) use saved::SavedPlans;
 
 #[derive(Clone)]
 pub(crate) struct Runtime {
     pub limits: SelectionLimits,
     pub available: bool,
     pub judge: std::sync::Arc<dyn SelectionJudge>,
+    /// The candidate pages the owning runtime judged, so a replayed cursor
+    /// reads its page instead of billing the provider again.
+    pub saved: std::sync::Arc<SavedPlans>,
     pub handle: tokio::runtime::Handle,
     pub context: ExecutionContext,
 }
@@ -406,9 +412,7 @@ impl ProviderFailure {
     pub(crate) fn row(self, unfiltered: Value) -> Value {
         let error = self.tool_error(unfiltered);
         let mut data = json!({"errorCode":error.code, "error":error.message});
-        if !error.hints.is_empty() {
-            data["hints"] = json!(error.hints);
-        }
+        crate::response::result::add_hints(&mut data, error.hints);
         data["selection"] = serde_json::to_value(error.selection).unwrap_or(Value::Null);
         if let Some(calls) = error.calls {
             crate::response::result::attach_calls(&mut data, *calls);

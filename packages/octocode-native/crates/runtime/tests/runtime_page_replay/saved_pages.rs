@@ -64,11 +64,16 @@ async fn saved_pages_reject_mixed_input_tool_credential_config_and_workspace_cha
         .expect_err("credential boundary");
     assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
     let admission = runtime.admit("surface".into()).expect("admit");
-    let error = runtime
+    // The surface is no part of a handle's identity: the other one resumes it.
+    let resumed = runtime
         .execute(admission, "localSearch".into(), next.clone(), Channel::Mcp)
         .await
-        .expect_err("surface boundary");
-    assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
+        .expect("a cursor resumes on either surface");
+    assert!(
+        resumed.structured_content["results"].is_array(),
+        "{}",
+        resumed.structured_content
+    );
     for changed in ["cwd", "config"] {
         let mut input = workspace.config(&env);
         if changed == "cwd" {

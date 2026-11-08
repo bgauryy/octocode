@@ -104,12 +104,12 @@ impl ToolRuntime {
             ));
         }
         let clasify = id.is_clasify();
-        let access = page_replay_key("", mcp, &[], &[], admission.github_credential());
+        let access = page_replay_key("", &[], &[], admission.github_credential());
         let opened = if let Some(token) = input.get("cursor").and_then(Value::as_str) {
             contracts::validate(&tool, input.clone()).map_err(|error| {
                 super::admission::invalid_input_error(&tool, error, &self.unpublished_fields(&tool))
             })?;
-            Some(self.open_cursor(id, token, mcp, admission.github_credential())?)
+            Some(self.open_cursor(id, token, admission.github_credential())?)
         } else {
             None
         };
@@ -142,7 +142,7 @@ impl ToolRuntime {
             if let (Some(cursor), Some(replay)) = (page, retained.filter(|_| pinned.is_none())) {
                 let replay = replay
                     .filter(|replay| replay.access == access)
-                    .ok_or_else(|| self.refuse(Refusal::OtherAccess, mcp))?;
+                    .ok_or_else(|| self.refuse(id, Refusal::OtherAccess))?;
                 options.open(cursor);
                 (
                     Vec::new(),
@@ -170,13 +170,12 @@ impl ToolRuntime {
                     super::super::row_indices::admitted_indices(queries.len(), &rejected_at);
                 let key = page_replay_key(
                     &tool,
-                    mcp,
                     &queries,
                     &origin.indices(&row_indices),
                     admission.github_credential(),
                 );
                 if pinned.as_ref().is_some_and(|cursor| cursor.key != key) {
-                    return Err(self.refuse(Refusal::RequestChanged, mcp));
+                    return Err(self.refuse(id, Refusal::RequestChanged));
                 }
                 (
                     queries,
@@ -253,37 +252,29 @@ impl ToolRuntime {
             availability: self.availability.clone(),
             selection_available: self.selection_available,
             evaluator: self.evaluator.clone(),
+            selection_pages: self.selection_pages.clone(),
         }
     }
 
-    /// The saved work `token` resumes for `id` on this surface. A handle
-    /// retained under another access identity is told apart: the same
-    /// credential on the other surface, else another credential.
+    /// The saved work `token` resumes for `id`, on either surface.
     fn open_cursor(
         &self,
         id: ToolId,
         token: &str,
-        mcp: bool,
         credential: Option<&octocode_github::ResolvedCredential>,
     ) -> Result<super::cursors::Opened, RuntimeError> {
-        let access = |mcp| page_replay_key("", mcp, &[], &[], credential);
         self.cursors
-            .open(id, token, access(mcp))
-            .map_err(|refusal| match refusal {
-                Refusal::OtherAccess if self.cursors.open(id, token, access(!mcp)).is_ok() => {
-                    self.refuse(Refusal::OtherSurface, mcp)
-                }
-                refusal => self.refuse(refusal, mcp),
-            })
+            .open(id, token, page_replay_key("", &[], &[], credential))
+            .map_err(|refusal| self.refuse(id, refusal))
     }
 
-    /// The error for a cursor this runtime refuses, sent on the `mcp` surface.
-    fn refuse(&self, refusal: Refusal, mcp: bool) -> RuntimeError {
+    /// The error for a cursor sent to `tool` that this runtime refuses.
+    fn refuse(&self, tool: ToolId, refusal: Refusal) -> RuntimeError {
         snapshot_expired(
             refusal,
             RefusalScope {
                 persistent: self.page_replays.persistent,
-                mcp,
+                tool,
             },
         )
     }

@@ -193,6 +193,16 @@ pub(crate) fn repository_recovery(owner: Option<&str>, repo: &str) -> Value {
     calls
 }
 
+/// The failure of a read whose repository did not resolve: its message,
+/// its [`repository_recovery`] leads and the [`repository_search_hint`]
+/// that labels them.
+pub(crate) fn repository_failure(error: ProviderError, owner: &str, repo: &str) -> GhFailure {
+    let mut failure = GhFailure::new(error, repository_not_found_message(owner, repo))
+        .hint(repository_search_hint(Some(owner), repo));
+    failure.calls = Some(Box::new(repository_recovery(Some(owner), repo)));
+    failure
+}
+
 /// The hint beside [`repository_recovery`]: the name search lists
 /// repositories named like `repo` under any owner, not the one asked for,
 /// so its rows are candidates whose owner the caller confirms.

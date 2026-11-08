@@ -5,18 +5,19 @@ mod settle;
 use super::cursor::cursor;
 use super::layout::{Layout, NamePricing};
 use super::local_search_query;
+use super::page_view::{PageView, StoredPage};
 use super::probes::Alternates;
 use super::types::{LocalSearchResult, SearchStatus};
 use super::verify::{
-    CutOutlines, Outlines, PageScope, Redacted, Redaction, outline_for_cut, redact_scan,
-    validate_matched, verify_shown,
+    CutOutlines, Outlines, PageScope, Redacted, Redaction, check_key_scans, outline_for_cut,
+    redact_scan, validate_matched, verify_shown,
 };
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
 use octocode_contract_types::LocalSearchQuery;
-use octocode_engine::num::saturating_u32;
+use octocode_engine::types::TextSearchResult;
 use projection::annotate_rows;
 pub(super) use projection::order_files;
 #[cfg(test)]
@@ -122,16 +123,19 @@ pub(super) fn page_of(
         cancel,
         judged: &scan.learned.judged,
     };
-    let shaped = shape_page(
-        &scope,
-        &mut scan.parsed,
-        scan.page_budget,
-        scan.stored_redaction.as_deref(),
-        &scan.learned,
-        selection,
-        &scan.identity,
-    )?;
-    let total_files = saturating_u32(scan.parsed.files.len());
+    let shaped = match scan.seek.take() {
+        Some(packed) => shape_stored_page(&scope, &packed)?,
+        None => shape_page(
+            &scope,
+            &mut scan.parsed,
+            scan.page_budget,
+            (scan.stored_redaction.as_deref(), scan.reusable.is_some()),
+            &scan.learned,
+            selection,
+            &scan.identity,
+        )?,
+    };
+    let mut view = shaped.view;
     let reusable = scan
         .reusable
         .take()
@@ -150,8 +154,7 @@ pub(super) fn page_of(
         .map(super::selection::Selected::token);
     let (next, match_next, leftover_matches) = cursor(
         query,
-        &scan.parsed,
-        &shaped.layout,
+        &view,
         &scan.identity,
         reusable,
         std::mem::take(&mut scan.policy_key),
@@ -161,20 +164,19 @@ pub(super) fn page_of(
     cancel.check().map_err(ToolError::cancelled)?;
     let rows = annotate_rows(
         &scope,
-        &shaped.layout,
-        std::mem::take(&mut scan.parsed.files),
+        &view.layout,
+        (std::mem::take(&mut view.parsed.files), &view.facts),
         &shaped.redacted,
         shaped.outlines,
-        scan.page_budget,
     );
     let page = Page {
         root,
-        layout: &shaped.layout,
-        scanned: &scan.parsed.stats,
+        layout: &view.layout,
+        scanned: &view.parsed.stats,
         skipped: &scan.skipped,
         search_options: &scan.search_options,
         alternates,
-        total_files,
+        total_files: view.totals.files,
         unverified: shaped.unverified,
         leftover_matches,
     };
@@ -243,7 +245,8 @@ fn refuse_binary_target(
 /// A cut page whose shown values are verified.
 pub(super) struct Shaped {
     pub(super) packed: Option<super::packed::Encoded>,
-    pub(super) layout: Layout,
+    /// The page cut, as its own small scan.
+    pub(super) view: PageView,
     pub(super) redacted: Redacted,
     /// What redacting the scan changed, for a stored scan's later pages.
     pub(super) redaction: Redaction,
@@ -255,6 +258,9 @@ pub(super) struct Shaped {
 }
 
 /// Redact the scan, order it, cut the page, and verify what it shows.
+/// A fresh scan (`fresh`) is encoded for its cursor: by page once its cut
+/// is made, or whole when its page judges rows before cutting
+/// (classification) or shows none (a list view); see [`super::packed`].
 ///
 /// Every file the page reads or shows passes the read policy first: the
 /// key-block reads inside [`redact_scan`] and each shown file here. A file
@@ -265,7 +271,7 @@ pub(super) fn shape_page(
     scope: &PageScope<'_, impl CancellationCheck>,
     parsed: &mut octocode_engine::types::TextSearchResult,
     page_budget: usize,
-    stored_redaction: Option<&Redaction>,
+    (stored_redaction, fresh): (Option<&Redaction>, bool),
     learned: &super::manifest::Learned,
     selection: Option<&crate::tools::selection::Runtime>,
     identity: &str,
@@ -276,13 +282,27 @@ pub(super) fn shape_page(
         output_root,
         ..
     } = *scope;
+    let cancelled = || scope.cancel.check().is_err();
     let (mut redacted, withheld, redaction) = redact_scan(scope, parsed, stored_redaction)?;
-    // Encoded before the page reorders and fills it; deflated only if the
-    // page's cursor keeps it (see `manifest::put_checked`).
-    let packed = if stored_redaction.is_none() {
-        super::manifest::encode_checked(parsed, &|| scope.cancel.check().is_err())
+    let whole = local_search_query::has_classification(query)
+        || super::layout::list_view(local_search_query::view(query));
+    // A whole scan is encoded before the page reorders and fills it;
+    // deflated only if the page's cursor keeps it (see
+    // `manifest::put_checked`).
+    let mut packed = (fresh && whole)
+        .then(|| super::manifest::encode_checked(parsed, &cancelled))
+        .flatten();
+    // The files whose key-block scan read their bytes, by path: the frames
+    // of a seekable scan are written in page order.
+    let key_scans = if fresh && !whole {
+        redaction
+            .key_files
+            .iter()
+            .filter(|(_, read)| read.is_some())
+            .filter_map(|(index, _)| Some(parsed.files.get(*index)?.path.clone()))
+            .collect::<std::collections::HashSet<_>>()
     } else {
-        None
+        std::collections::HashSet::new()
     };
     order_files(query, &mut parsed.files);
     let selection = super::selection::select_hits(
@@ -311,21 +331,96 @@ pub(super) fn shape_page(
     for (index, _) in &layout.shown {
         validate_matched(paths, &output_root.join(&parsed.files[*index].path))?;
     }
+    // A seekable scan is encoded once its cut is made and before the page
+    // verifies its own rows: a stored page holds values as the scan had
+    // them, never as one page materialized them.
+    if fresh && !whole {
+        packed = super::page_view::encode_pages(
+            parsed,
+            &layout,
+            (&redacted, &key_scans),
+            octocode_engine::memory::MEMORY.limit(),
+            &cancelled,
+        );
+    }
+    let whole = TextSearchResult {
+        files: std::mem::take(&mut parsed.files),
+        stats: parsed.stats.clone(),
+    };
+    let (mut view, indexes) = PageView::dense(whole, layout);
+    // The cut's outlines, by the page file each was parsed for.
+    let mut cut = indexes
+        .iter()
+        .enumerate()
+        .filter_map(|(page, index)| Some((page, cut.remove(index)?)))
+        .collect::<CutOutlines>();
     let mut outlines = Outlines::new();
     let unverified = verify_shown(
         scope,
-        parsed,
-        &layout,
+        &mut view.parsed,
+        &view.layout,
         (&mut redacted, &withheld),
         (&mut cut, &mut outlines),
     )?;
     Ok(Shaped {
         packed,
-        layout,
+        view,
         redacted,
         redaction,
         unverified,
         outlines,
         selection,
+    })
+}
+
+/// The page of a seekable stored scan, read from its own frames: no row is
+/// redacted, ordered, ranked or priced again (its first page did that once
+/// for every page). Its files' key-block scans are checked against their
+/// stored bytes, and its shown values verified, as on any page.
+fn shape_stored_page(
+    scope: &PageScope<'_, impl CancellationCheck>,
+    packed: &super::packed::Packed,
+) -> Result<Shaped, ToolError> {
+    let PageScope {
+        query,
+        paths,
+        output_root,
+        cancel,
+        ..
+    } = *scope;
+    // A selection token continues only the classification page that
+    // issued it.
+    if local_search_query::selection(query).is_some() {
+        return Err(super::cursor::stale_snapshot(query));
+    }
+    let Some(StoredPage {
+        mut view,
+        mut redacted,
+        key_scans,
+    }) = PageView::stored(packed, query, &|| cancel.check().is_err())
+    else {
+        cancel.check().map_err(ToolError::cancelled)?;
+        return Err(super::cursor::changed_since_scan(query));
+    };
+    check_key_scans(scope, &view.parsed.files, &key_scans)?;
+    for (index, _) in &view.layout.shown {
+        validate_matched(paths, &output_root.join(&view.parsed.files[*index].path))?;
+    }
+    let mut outlines = Outlines::new();
+    let unverified = verify_shown(
+        scope,
+        &mut view.parsed,
+        &view.layout,
+        (&mut redacted, &super::verify::Withheld::new()),
+        (&mut CutOutlines::new(), &mut outlines),
+    )?;
+    Ok(Shaped {
+        packed: None,
+        view,
+        redacted,
+        redaction: Redaction::default(),
+        unverified,
+        outlines,
+        selection: None,
     })
 }

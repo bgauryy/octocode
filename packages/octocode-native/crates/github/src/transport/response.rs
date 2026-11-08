@@ -11,7 +11,7 @@ use octocode_io::{
 };
 
 use super::RequestContext;
-use crate::{GitHubEndpoint, ProviderError, ProviderErrorKind, ProviderErrorReason};
+use crate::{ProviderError, ProviderErrorKind, ProviderErrorReason};
 
 /// An error response's body, and why it is empty when it could not be read.
 /// A cancel while reading it is a cancel, not an empty body classified by
@@ -95,10 +95,12 @@ pub(crate) fn last_page(headers: &HeaderMap) -> Option<usize> {
     link_page(&last).and_then(|page| usize::try_from(page).ok())
 }
 
-pub(super) fn parse_next(
-    headers: &HeaderMap,
-    endpoint: &GitHubEndpoint,
-) -> Result<Option<Url>, ProviderError> {
+/// The next page the `Link` header names. A link to another origin (a proxy
+/// forwarding GitHub's own) is still the fact that more rows exist, so the
+/// page keeps it and states `hasMore`; it is never followed, because every
+/// request is bound to the configured origin
+/// ([`crate::GitHubEndpoint::permits`]), and callers page by their own URL.
+pub(super) fn parse_next(headers: &HeaderMap) -> Result<Option<Url>, ProviderError> {
     let Some(value) = headers.get("link").and_then(|v| v.to_str().ok()) else {
         return Ok(None);
     };
@@ -109,12 +111,6 @@ pub(super) fn parse_next(
     let next = Url::parse(raw).map_err(|_| {
         ProviderError::new(ProviderErrorKind::Decode, "invalid GitHub pagination link")
     })?;
-    if !endpoint.permits(&next) {
-        return Err(ProviderError::new(
-            ProviderErrorKind::RedirectDenied,
-            "GitHub pagination link changed origin",
-        ));
-    }
     let page = link_page;
     // GitHub may advertise next=N+1 alongside last=N on a full final page.
     // Only comparable numbered links establish that next is past the end.

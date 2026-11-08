@@ -26,7 +26,8 @@ const caseInput = (ctx, spec) => spec.input ? resolveQuery(ctx, spec.input) : { 
 /** The state of one tool run: its checks, timings, skips, explore reports and call helpers. */
 export function createRun(suite, { name, spec, cwd, server }) {
   const { surfaces: s } = suite;
-  const run = { suite, name, spec, cwd, server, ctx: s.ctx, phase: 'happy', checks: [], timings: [], skips: [], advancedCalls: [], reports: { cli: [], mcp: [] } };
+  // The registry world is this tool's own: what other tools ask or inject meanwhile never reaches it.
+  const run = { suite, name, spec, cwd, server, ctx: { ...s.ctx, registry: s.registryFor(name) }, phase: 'happy', checks: [], timings: [], skips: [], advancedCalls: [], reports: { cli: [], mcp: [] } };
   run.surfaces = ['cli', 'mcp'];
   run.record = (check, ok, detail) => { run.checks.push({ check, ok: !!ok, detail: detail === undefined ? '' : String(detail) }); return !!ok; };
   run.na = (check, reason) => run.checks.push({ check, ok: null, na: reason });
@@ -267,6 +268,8 @@ export function toolResult(run, t0) {
   const mine = new Set(['cli', 'mcp'].map(s => tokenFor(name, s)));
   const newUnhandled = run.ctx.mock.unhandledFrom.filter(u => mine.has(u.token)).map(u => u.request);
   run.record('mock.requests', newUnhandled.length === 0, newUnhandled.join('; '));
+  const { unhandled: registryUnhandled, denied: registryDenied } = run.ctx.registry;
+  run.record('registry.requests', registryUnhandled.length === 0 && registryDenied.length === 0, JSON.stringify({ unhandled: registryUnhandled, denied: registryDenied }));
   const failed = checks.filter(c => c.ok === false);
   const all = [...reports.cli, ...reports.mcp];
   return {

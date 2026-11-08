@@ -59,6 +59,7 @@ pub(super) use paths::{canonical, canonical_uri, widest_authorized_dir, with_can
 pub(super) use question::Question;
 pub(super) use scan::IgnoredMentions;
 use scan::scan_text;
+pub(super) use text::IgnoredSpelling;
 pub(super) use text::imports_in_code;
 
 /// Project files whose edits change what a language server answers.
@@ -118,8 +119,15 @@ pub(super) struct Scope {
     pub(super) include: Vec<String>,
     /// Neither a repository nor a workspace manifest says where this project
     /// ends, so the scan stopped at the server's root: a module beside it is out
-    /// of sight, and an answer naming no use cannot speak for it.
+    /// of sight, and no answer can speak for it.
     pub(super) unbounded: bool,
+    /// For an unbounded scope: the project directories beside the server's root
+    /// (canonical), each holding a project marker; what its answer cannot speak for.
+    /// Found lazily ([`Scope::resolve_siblings`]).
+    pub(super) siblings: std::sync::OnceLock<Vec<String>>,
+    /// The read policy that authorizes the lookup of `siblings`; set only for
+    /// an unbounded scope.
+    policy: Option<PathPolicy>,
     /// This request has no finished index behind it: text chose which files the
     /// server could read, so its answer is partial.
     opened_by_text: std::sync::atomic::AtomicBool,
@@ -130,6 +138,9 @@ pub(super) struct Scope {
     /// files the server may still compile; `None` when unknown.
     server_root: Option<PathBuf>,
     text: Mutex<Option<TextScan>>,
+    /// The ignored files that use the name in code, once checked
+    /// ([`Self::check_ignored_spellings`]).
+    ignored_spellings: Mutex<Option<text::IgnoredSpelling>>,
     /// This request's one scope walk, once made ([`Self::walked`]).
     walked: Mutex<Option<Walked>>,
     /// What the request asks for ([`Self::asks`]).
@@ -162,11 +173,14 @@ impl Scope {
             root,
             narrowed: false,
             unbounded: false,
+            siblings: std::sync::OnceLock::new(),
+            policy: None,
             opened_by_text: std::sync::atomic::AtomicBool::new(false),
             include,
             markup: Vec::new(),
             server_root: None,
             text: Mutex::new(None),
+            ignored_spellings: Mutex::new(None),
             question: std::sync::OnceLock::new(),
             walked: Mutex::new(None),
             answered: Mutex::new(BTreeSet::new()),

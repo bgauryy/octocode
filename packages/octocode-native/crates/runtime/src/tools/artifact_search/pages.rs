@@ -3,7 +3,6 @@ use super::{ArtifactSearchQuery, artifact_search_query};
 use crate::id::ToolId;
 use crate::providers::artifact::{ArtifactProviderState, page_out_of_range, reachable_end};
 use crate::response::paging;
-use crate::response::result::Continuation;
 use octocode_engine::num::saturating_usize;
 use serde_json::Value;
 
@@ -60,9 +59,16 @@ pub(super) fn discovery_page(
     if !more {
         return;
     }
-    if let Ok(next_query) = serde_json::to_value(next_query) {
-        data["calls"]["nextPage"] =
-            Continuation::continued(ToolId::ArtifactSearch, next_query).build();
+    if let Ok(next_query) = serde_json::to_value(next_query)
+        && let Some(call) = paging::next_page_call(
+            ToolId::ArtifactSearch,
+            next_query,
+            "page",
+            current.saturating_add(1),
+            &[],
+        )
+    {
+        data["calls"]["nextPage"] = call;
     }
     if let Some(total) = capped_total {
         paging::mark_partial(

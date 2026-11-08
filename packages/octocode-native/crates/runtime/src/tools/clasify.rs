@@ -84,7 +84,7 @@ pub(crate) fn call(
             .iter()
             .map(|row| {
                 let (gate, evaluations, section_budget) = (&gate, &evaluations, &section_budget);
-                scope.spawn(move || {
+                scope.spawn(octocode_io::notice::carried(move || {
                     let _enter = dispatcher.handle().enter();
                     if let Some(refused) =
                         admission::unretainable_source(row, section_runtime.can_resume)
@@ -102,7 +102,10 @@ pub(crate) fn call(
                         )),
                         Input::Models => {
                             RowOutcome::Models(dispatcher.handle().block_on(evaluator.models(
-                                &evaluator.budget(context.deadline, context.cancellation.clone()),
+                                &evaluator.budget(
+                                    crate::execution::cancel::deadline_of(context),
+                                    context.cancellation.clone(),
+                                ),
                                 gate,
                             )))
                         }
@@ -116,7 +119,7 @@ pub(crate) fn call(
                             gate,
                         ),
                     }
-                })
+                }))
             })
             .collect::<Vec<_>>();
         tasks

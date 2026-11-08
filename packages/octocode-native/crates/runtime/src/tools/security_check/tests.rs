@@ -1,6 +1,7 @@
 //! Rows by operation, against recorded doubles.
 use super::*;
 use crate::providers::artifact::test_http::{RouteHttp, test_budget};
+use crate::tools::security_check::osv_double::OsvPages;
 use serde_json::json;
 
 /// Every setting at its contract default.
@@ -34,6 +35,8 @@ async fn answer(http: &RouteHttp, query: Value) -> Result<Value, ArtifactError> 
             answers: None,
             reused: &reused,
             config: &default_config(),
+            github: None,
+            osv_api: crate::execution::RuntimeLimits::DEFAULT.osv_api,
         },
     )
     .await
@@ -50,7 +53,7 @@ fn registry() -> RouteHttp {
 
 #[tokio::test]
 async fn a_package_url_runs_as_that_package() {
-    let http = registry().post_sequence(vec![(200, json!({"vulns": [{"id": "GHSA-1"}]}))]);
+    let http = registry().osv_pages(vec![(200, json!({"vulns": [{"id": "GHSA-1"}]}))]);
     let data = answer(
         &http,
         json!({"operation": "url", "url": "https://www.npmjs.com/package/lodash/v/4.17.20"}),
@@ -58,7 +61,7 @@ async fn a_package_url_runs_as_that_package() {
     .await
     .expect("row");
     assert_eq!(data["advisories"][0]["id"], "GHSA-1");
-    assert_eq!(http.post_bodies()[0]["version"], "4.17.20");
+    assert_eq!(http.osv_queries()[0]["version"], "4.17.20");
 }
 
 #[tokio::test]
@@ -79,34 +82,23 @@ async fn a_url_that_names_no_package_says_so_and_sends_nothing() {
     assert!(http.seen().is_empty());
 }
 
-/// A repository page is refused before any request. Its lead is the
-/// repository's root tree, whose manifest names the package to check: never a
-/// guessed package (a Go module form of a JavaScript repository is notFound).
+/// A GitHub repository page is read as the repository operation: no registry
+/// and no OSV hears its name, and a call with no GitHub transport says GitHub
+/// was not asked, never reads clean.
 #[tokio::test]
-async fn a_repository_url_sends_nothing_and_leads_to_its_manifest() {
+async fn a_repository_url_is_read_by_github_and_sends_nothing_elsewhere() {
     let http = RouteHttp::new();
-    let error = answer(
+    let data = answer(
         &http,
         json!({"operation": "url", "url": "https://github.com/acme/private"}),
     )
     .await
-    .expect_err("refused");
-    assert_eq!(error.code, ErrorCode::InvalidInput);
-    assert!(
-        error.message.contains("is a repository"),
-        "{}",
-        error.message
-    );
+    .expect("row");
     assert!(http.seen().is_empty(), "{:?}", http.targets());
-    let calls = serde_json::to_value(&error.calls).expect("lead");
-    let lead = &calls["viewTree"];
-    assert_eq!(lead["tool"], "ghStructure", "{calls}");
-    assert_eq!(
-        lead["input"]["queries"][0],
-        json!({"owner": "acme", "repo": "private", "operation": "tree"}),
-        "{calls}"
-    );
-    assert!(calls.get("repair").is_none(), "{calls}");
+    assert_eq!(data["sources"][0]["source"], "github", "{data}");
+    assert_eq!(data["sources"][0]["status"], "unavailable", "{data}");
+    assert_eq!(data["isPartial"], true, "{data}");
+    assert!(data.get("advisories").is_none(), "{data}");
 }
 
 #[tokio::test]
@@ -156,6 +148,24 @@ async fn a_mixed_case_advisory_id_is_found_as_given() {
         .expect("row");
     assert_eq!(data["advisories"][0]["id"], id);
     assert!(data.get("warnings").is_none(), "{data}");
+    assert_eq!(http.targets(), [path]);
+}
+
+/// A pasted `github.com/advisories/GHSA-…` page is the advisory, read from OSV
+/// by id: never a repository named `advisories`.
+#[tokio::test]
+async fn a_github_advisory_url_is_read_as_the_advisory() {
+    let id = "GHSA-jfh8-c2jp-5v3q";
+    let path = format!("/v1/vulns/{id}");
+    let http = RouteHttp::new().json(&path, json!({"id": id, "summary": "an advisory"}));
+    let data = answer(
+        &http,
+        json!({"operation": "url", "url": format!("https://github.com/advisories/{id}")}),
+    )
+    .await
+    .expect("row");
+    assert_eq!(data["advisories"][0]["id"], id, "{data}");
+    assert!(data.get("repository").is_none(), "{data}");
     assert_eq!(http.targets(), [path]);
 }
 
@@ -229,13 +239,27 @@ fn an_entry_without_version_ranges_says_what_it_lists() {
     let lead = super::answer::advisory_lead(&row);
     let sentence = lead["answer"].as_str().expect("answer");
     for expected in [
-        "org.xbib.elasticsearch:log4j (1 version listed in the record)",
+        "org.xbib.elasticsearch:log4j (the record lists 1 affected version)",
         "g:git (git commit ranges in the record)",
         "g:none (no ranges or versions in the record)",
     ] {
         assert!(sentence.contains(expected), "{expected}: {sentence}");
     }
     assert!(!sentence.contains("(ranges in the record)"), "{sentence}");
+}
+
+/// OSV lets `versions` add to ranges: an entry holding both states both.
+#[test]
+fn an_entry_with_ranges_and_versions_states_both() {
+    let row = json!({"advisories": [{"id": "GHSA-both", "affected": [
+        {"packageName": "p", "versions": ["0.9", "2.5"], "ranges": [{"type": "ECOSYSTEM",
+            "events": [{"introduced": "1.0"}, {"fixed": "1.2"}]}]}]}]});
+    let lead = super::answer::advisory_lead(&row);
+    let sentence = lead["answer"].as_str().expect("answer");
+    assert!(
+        sentence.contains("p >=1.0 <1.2 (fixed 1.2) (the record lists 2 affected versions)"),
+        "{sentence}"
+    );
 }
 
 /// An ECOSYSTEM range keeps the order OSV lists: a generic comparator
@@ -380,7 +404,270 @@ fn the_source_names_match_the_contract() {
     enums(&contract["$defs"], &mut found);
     let ours = source::Source::ALL.map(|source| source.name().to_owned());
     assert!(!found.is_empty(), "no source enum in the contract");
-    assert!(found.iter().all(|names| names == &ours), "{found:?}");
+    // The contract also names sources this row builder does not ask (GitHub, registry).
+    assert!(
+        found
+            .iter()
+            .all(|names| ours.iter().all(|name| names.contains(name))),
+        "{found:?}"
+    );
+}
+
+fn debian_record(id: &str, releases: &[&str]) -> Value {
+    json!({"id": id, "affected": releases.iter().map(|release| json!({
+        "package": {"name": "openssl", "ecosystem": format!("Debian:{release}")},
+        "ranges": [{"type": "ECOSYSTEM", "events": [{"introduced": "0"}, {"fixed": format!("fixed-in-{release}")}]}],
+    })).collect::<Vec<_>>()})
+}
+
+fn debian(release: Option<&str>, version: Option<&str>) -> Value {
+    let mut query =
+        json!({"operation": "package", "ecosystem": "Debian", "packageName": "openssl"});
+    if let Some(release) = release {
+        query["release"] = json!(release);
+    }
+    if let Some(version) = version {
+        query["version"] = json!(version);
+    }
+    query
+}
+
+#[tokio::test]
+async fn a_release_is_refused_off_the_distributions() {
+    let http = RouteHttp::new();
+    let query = json!({"operation": "package", "ecosystem": "npm", "packageName": "lodash", "release": "12"});
+    let error = answer(&http, query).await.expect_err("refused");
+    assert_eq!(error.code, octocode_contract_types::ErrorCode::InvalidInput);
+    assert!(http.osv_queries().is_empty(), "nothing is sent to OSV");
+}
+
+#[tokio::test]
+async fn a_release_is_sent_as_the_ecosystem_and_the_rows_keep_only_that_release() {
+    let http = RouteHttp::new().osv_pages(vec![(
+        200,
+        json!({"vulns": [debian_record("DSA-1", &["12", "11"])]}),
+    )]);
+    let data = answer(&http, debian(Some("12"), Some("3.0.8-1")))
+        .await
+        .expect("row");
+    assert_eq!(http.osv_queries()[0]["package"]["ecosystem"], "Debian:12");
+    assert_eq!(http.osv_queries()[0]["package"]["name"], "openssl");
+    assert_eq!(
+        http.osv_queries().len(),
+        1,
+        "a found answer needs no second call"
+    );
+    let shown = data.to_string();
+    assert!(shown.contains("fixed-in-12"), "{shown}");
+    assert!(!shown.contains("fixed-in-11"), "{shown}");
+    assert_eq!(data["registryConfirmed"], false);
+}
+
+#[tokio::test]
+async fn a_release_osv_does_not_know_is_disclosed_not_none_known() {
+    let http = RouteHttp::new().osv_pages(vec![(200, json!({}))]);
+    let data = answer(&http, debian(Some("twelve"), Some("3.0.8-1")))
+        .await
+        .expect("row");
+    assert_ne!(data["status"], "empty", "{data}");
+    assert!(
+        data["answer"].as_str().expect("answer").contains("release"),
+        "{data}"
+    );
+    assert_eq!(data["sources"][0]["status"], "notCovered", "{data}");
+    assert!(data["sources"][0]["why"].is_string(), "{data}");
+    assert!(data.get("affected").is_none(), "{data}");
+    // The empty version answer is followed by one ask by name, the same ecosystem.
+    let bodies = http.osv_queries();
+    assert_eq!(bodies.len(), 2, "{bodies:?}");
+    assert!(bodies[0].get("version").is_some(), "{bodies:?}");
+    assert!(bodies[1].get("version").is_none(), "{bodies:?}");
+    assert_eq!(bodies[1]["package"], bodies[0]["package"], "{bodies:?}");
+}
+
+/// OSV answers a version of a release it names with nothing when no advisory
+/// covers it, and a version of a release it does not name the same way. The
+/// package's records in that release tell them apart: with some, nothing at the
+/// version is an answer. Every distribution with releases, as the contract lists them.
+#[tokio::test]
+async fn a_release_that_lists_the_package_reads_clean_at_a_version_with_no_record() {
+    let named = distros(true);
+    assert!(named.iter().any(|name| name == "Debian"));
+    for name in named {
+        let http = RouteHttp::new().osv_pages(vec![
+            (200, json!({})),
+            (200, json!({"vulns": [debian_record("DSA-1", &["12"])]})),
+        ]);
+        let data = answer(&http, distro_row(&name, Some("12")))
+            .await
+            .expect("row");
+        assert_eq!(data["affected"], false, "{name}: {data}");
+        assert_eq!(data["status"], "empty", "{name}: {data}");
+        assert_eq!(data["sources"][0]["status"], "noneKnown", "{name}: {data}");
+        let lead = data["answer"].as_str().expect("answer");
+        assert!(lead.contains("none known"), "{name}: {lead}");
+        assert!(
+            !lead.contains("no record for this release"),
+            "{name}: {lead}"
+        );
+        assert!(
+            lead.contains("asked by name"),
+            "{name}: the probe is disclosed: {lead}"
+        );
+        assert!(
+            !lead.contains("misspelt"),
+            "{name}: the release names it: {lead}"
+        );
+        let bodies = http.osv_queries();
+        assert_eq!(
+            bodies.len(),
+            2,
+            "{name}: one extra ask, on the empty answer: {bodies:?}"
+        );
+        assert!(bodies[1].get("version").is_none(), "{name}: {bodies:?}");
+        assert_eq!(
+            bodies[1]["package"], bodies[0]["package"],
+            "{name}: {bodies:?}"
+        );
+    }
+}
+
+/// A by-name ask that fails keeps the row: the empty answer stays not covered,
+/// and the failure is said.
+#[tokio::test]
+async fn a_failed_release_probe_keeps_the_row_not_covered() {
+    let http = RouteHttp::new().osv_pages(vec![
+        (200, json!({})),
+        (500, json!({"code": 13, "message": "down"})),
+    ]);
+    let data = answer(&http, debian(Some("12"), Some("3.0.8-1")))
+        .await
+        .expect("a row, not an error");
+    assert_eq!(data["sources"][0]["status"], "notCovered", "{data}");
+    let warned = data["warnings"].to_string();
+    assert!(warned.contains("by name"), "{data}");
+    assert!(warned.contains("failed"), "{data}");
+}
+
+/// With no version there is nothing to clear, so an empty answer by name stays
+/// an unnamed release, with no second ask.
+#[tokio::test]
+async fn a_release_asked_with_no_version_makes_no_second_ask() {
+    let http = RouteHttp::new().osv_pages(vec![(200, json!({}))]);
+    let data = answer(&http, debian(Some("99"), None)).await.expect("row");
+    assert_eq!(data["sources"][0]["status"], "notCovered", "{data}");
+    assert_eq!(http.osv_queries().len(), 1);
+}
+
+fn distro_row(ecosystem: &str, release: Option<&str>) -> Value {
+    let mut query = json!({"operation": "package", "ecosystem": ecosystem,
+        "packageName": "openssl", "version": "1.1.1k-r0"});
+    if let Some(release) = release {
+        query["release"] = json!(release);
+    }
+    query
+}
+
+fn distros(per_release: bool) -> Vec<String> {
+    let contract = crate::contracts::security::security_contract().expect("security block");
+    contract
+        .ecosystems
+        .distros
+        .iter()
+        .filter(|name| {
+            let ecosystem = serde_json::from_value(json!(name)).expect("an ecosystem");
+            ecosystem::takes_release(ecosystem).expect("contract") == per_release
+        })
+        .cloned()
+        .collect()
+}
+
+/// A version asked of a distribution that matches per release, with no release,
+/// is answered by OSV with nothing: that is not "none known" for any release.
+#[tokio::test]
+async fn a_distro_version_without_a_release_is_not_none_known() {
+    let contract = crate::contracts::security::security_contract().expect("security block");
+    let needing = distros(true)
+        .into_iter()
+        .filter(|name| !contract.ecosystems.bare_versions.contains(name))
+        .collect::<Vec<_>>();
+    assert!(needing.iter().any(|name| name == "Alpine"));
+    for name in needing {
+        let http = RouteHttp::new().osv_pages(vec![(200, json!({}))]);
+        let data = answer(&http, distro_row(&name, None)).await.expect("row");
+        assert!(data.get("affected").is_none(), "{name}: {data}");
+        assert!(data.get("status").is_none(), "{name}: {data}");
+        let lead = data["answer"].as_str().expect("answer");
+        assert!(
+            lead.contains("not evaluated") && lead.contains("pass release"),
+            "{name}: {lead}"
+        );
+        assert!(!lead.contains("none known to OSV"), "{name}: {lead}");
+        assert_eq!(data["sources"][0]["status"], "notCovered", "{name}: {data}");
+        assert!(data["sources"][0]["why"].is_string(), "{name}: {data}");
+        assert_eq!(
+            http.osv_queries().len(),
+            1,
+            "{name}: no release, nothing to ask by name"
+        );
+    }
+}
+
+/// A distribution whose bare name evaluates a version (the contract's
+/// `bareVersions`) answers a version asked with no release: empty is none known.
+#[tokio::test]
+async fn a_bare_version_distro_evaluates_a_version_without_a_release() {
+    let contract = crate::contracts::security::security_contract().expect("security block");
+    let bare = &contract.ecosystems.bare_versions;
+    assert!(!bare.is_empty());
+    for name in bare {
+        let http = RouteHttp::new().osv_pages(vec![(200, json!({}))]);
+        let data = answer(&http, distro_row(name, None)).await.expect("row");
+        assert_eq!(data["affected"], false, "{name}: {data}");
+        assert_eq!(data["sources"][0]["status"], "noneKnown", "{name}: {data}");
+    }
+}
+
+/// Advisories OSV did name are a finding with or without a release.
+#[tokio::test]
+async fn a_distro_version_without_a_release_that_has_advisories_is_affected() {
+    let http = RouteHttp::new().osv_pages(vec![(
+        200,
+        json!({"vulns": [debian_record("DSA-1", &["12"])]}),
+    )]);
+    let data = answer(&http, distro_row("Debian", None))
+        .await
+        .expect("row");
+    assert_eq!(data["affected"], true, "{data}");
+}
+
+/// A rolling distribution has no releases, so its versions are evaluated as asked.
+#[tokio::test]
+async fn a_rolling_distro_version_needs_no_release() {
+    let rolling = distros(false);
+    assert!(!rolling.is_empty());
+    for name in rolling {
+        let http = RouteHttp::new().osv_pages(vec![(200, json!({}))]);
+        let data = answer(&http, distro_row(&name, None)).await.expect("row");
+        assert_eq!(data["affected"], false, "{name}: {data}");
+        assert_eq!(data["sources"][0]["status"], "noneKnown", "{name}: {data}");
+        let refused = answer(&RouteHttp::new(), distro_row(&name, Some("v1")))
+            .await
+            .expect_err("a release names nothing here");
+        assert_eq!(refused.code, ErrorCode::InvalidInput, "{name}");
+    }
+}
+
+#[tokio::test]
+async fn an_ecosystem_without_a_reader_and_no_version_leaves_affected_unknown() {
+    let http = RouteHttp::new().osv_pages(vec![(
+        200,
+        json!({"vulns": [debian_record("DSA-1", &["12"])]}),
+    )]);
+    let data = answer(&http, debian(None, None)).await.expect("row");
+    assert!(data.get("affected").is_none(), "{data}");
+    assert_eq!(data["registryConfirmed"], false);
+    assert!(http.osv_queries()[0].get("version").is_none());
 }
 
 const COMMIT: &str = "6879efc2c1596d11a6a6ad296f80063b558d5e0f";
@@ -389,7 +676,7 @@ const COMMIT: &str = "6879efc2c1596d11a6a6ad296f80063b558d5e0f";
 /// so the row says "none known" and that it cannot tell them apart.
 #[tokio::test]
 async fn an_empty_commit_answer_never_reads_as_clean() {
-    let http = RouteHttp::new().post_sequence(vec![(200, json!({}))]);
+    let http = RouteHttp::new().osv_pages(vec![(200, json!({}))]);
     let data = answer(&http, json!({"operation": "commit", "commit": COMMIT}))
         .await
         .expect("row");
@@ -402,7 +689,7 @@ async fn an_empty_commit_answer_never_reads_as_clean() {
     assert!(lead.contains("None known to OSV for commit"), "{lead}");
     assert!(lead.contains("proves nothing"), "{lead}");
     assert!(lead.contains("does not track"), "{lead}");
-    assert_eq!(http.post_bodies(), [json!({"commit": COMMIT})]);
+    assert_eq!(http.osv_queries(), [json!({"commit": COMMIT})]);
 }
 
 #[tokio::test]
@@ -410,7 +697,7 @@ async fn a_found_commit_says_so_and_the_repo_stays_local() {
     let record = json!({"id": "OSV-2020-484", "aliases": ["CVE-2023-25193"], "affected": [{
         "ranges": [{"type": "GIT", "repo": "https://github.com/harfbuzz/harfbuzz",
             "events": [{"introduced": "0"}, {"fixed": "abc"}]}]}]});
-    let http = RouteHttp::new().post_sequence(vec![(200, json!({"vulns": [record.clone()]}))]);
+    let http = RouteHttp::new().osv_pages(vec![(200, json!({"vulns": [record.clone()]}))]);
     let data = answer(
         &http,
         json!({"operation": "commit", "commit": COMMIT, "repo": "https://github.com/harfbuzz/harfbuzz.git"}),
@@ -419,14 +706,17 @@ async fn a_found_commit_says_so_and_the_repo_stays_local() {
     .expect("row");
     assert_eq!(data["affected"], true);
     assert_eq!(data["cves"], json!(["CVE-2023-25193"]));
-    assert!(data.get("warnings").is_none(), "{data}");
+    assert!(
+        !data["warnings"].to_string().contains("another repository"),
+        "{data}"
+    );
     assert_eq!(
-        http.post_bodies(),
+        http.osv_queries(),
         [json!({"commit": COMMIT})],
         "the repo is not sent"
     );
     // A record in another repository is pointed out.
-    let http = RouteHttp::new().post_sequence(vec![(200, json!({"vulns": [record]}))]);
+    let http = RouteHttp::new().osv_pages(vec![(200, json!({"vulns": [record]}))]);
     let data = answer(
         &http,
         json!({"operation": "commit", "commit": COMMIT, "repo": "https://example.test/o/r"}),
@@ -434,10 +724,7 @@ async fn a_found_commit_says_so_and_the_repo_stays_local() {
     .await
     .expect("row");
     assert!(
-        data["warnings"][0]
-            .as_str()
-            .unwrap_or("")
-            .contains("another repository"),
+        data["warnings"].to_string().contains("another repository"),
         "{data}"
     );
 }
@@ -470,7 +757,7 @@ async fn rows_hold_to_the_output_contract() {
             "ecosystem_specific": {"imports": [{"path": "a"}]},
             "database_specific": {"source": "https://example.test/s", "cvss": "x"},
             "ranges": [{"type": "GIT", "repo": "https://example.test/r", "events": [{"fixed": "abc"}]}]}]});
-    let http = registry().post_sequence(vec![(200, json!({"vulns": [pysec.clone()]}))]);
+    let http = registry().osv_pages(vec![(200, json!({"vulns": [pysec.clone()]}))]);
     let package = answer(
         &http,
         json!({"operation": "package", "ecosystem": "npm", "packageName": "lodash", "version": "4.17.20"}),
@@ -478,7 +765,7 @@ async fn rows_hold_to_the_output_contract() {
     .await
     .expect("package row");
     assert_row_contract(ToolId::SecurityCheck, &package);
-    let http = RouteHttp::new().post_sequence(vec![(200, json!({"vulns": [pysec.clone()]}))]);
+    let http = RouteHttp::new().osv_pages(vec![(200, json!({"vulns": [pysec.clone()]}))]);
     let commit = answer(&http, json!({"operation": "commit", "commit": COMMIT}))
         .await
         .expect("commit row");
@@ -488,4 +775,157 @@ async fn rows_hold_to_the_output_contract() {
         .await
         .expect("advisory row");
     assert_row_contract(ToolId::SecurityCheck, &whole);
+    // A Go package path: its module's records for other packages are set apart.
+    let sibling = json!({"id": "GO-1", "affected": [{"package": {"name": "golang.org/x/net", "ecosystem": "Go"},
+        "ecosystem_specific": {"imports": [{"path": "golang.org/x/net/other"}]}}]});
+    let http = RouteHttp::new()
+        .status(
+            "/v1/module/golang.org/x/net/http2",
+            400,
+            json!({"message": "is a package"}),
+        )
+        .json(
+            "/v1/package/golang.org/x/net/http2",
+            json!({"path": "golang.org/x/net/http2",
+            "modulePath": "golang.org/x/net", "version": "v0.1.0"}),
+        )
+        .osv_pages(vec![(200, json!({"vulns": [sibling]}))]);
+    let module_only = answer(
+        &http,
+        json!({"operation": "package", "ecosystem": "Go", "packageName": "golang.org/x/net/http2", "version": "v0.1.0"}),
+    )
+    .await
+    .expect("go row");
+    assert!(
+        module_only["moduleOnly"]["advisories"].is_array(),
+        "{module_only}"
+    );
+    assert_row_contract(ToolId::SecurityCheck, &module_only);
+}
+
+fn actions_record(id: &str, events: Value) -> Value {
+    json!({"id": id, "affected": [{
+        "package": {"name": "tj-actions/changed-files", "ecosystem": "GitHub Actions"},
+        "ranges": [{"type": "ECOSYSTEM", "events": events}],
+    }]})
+}
+
+async fn actions(version: &str, records: Vec<Value>) -> (Value, Vec<Value>) {
+    let http = RouteHttp::new().osv_pages(vec![(200, json!({ "vulns": records }))]);
+    let data = answer(
+        &http,
+        json!({"operation": "package", "ecosystem": "GitHub Actions",
+            "packageName": "tj-actions/changed-files", "version": version}),
+    )
+    .await
+    .expect("row");
+    (data, http.osv_queries())
+}
+
+/// OSV matches no version of this ecosystem, so a version query would read clean:
+/// the row asks by name and compares the records' ranges, never "none known" unread.
+#[tokio::test]
+async fn a_github_actions_version_is_compared_with_the_records_ranges() {
+    let records = || {
+        vec![
+            actions_record("GHSA-OLD", json!([{"introduced": "0"}, {"fixed": "41"}])),
+            actions_record(
+                "GHSA-NEW",
+                json!([{"introduced": "0"}, {"fixed": "46.0.1"}]),
+            ),
+        ]
+    };
+    let (data, bodies) = actions("40.0.0", records()).await;
+    assert!(bodies[0].get("version").is_none(), "{bodies:?}");
+    assert_eq!(data["affected"], true, "{data}");
+    assert_eq!(
+        data["advisories"].as_array().expect("list").len(),
+        2,
+        "{data}"
+    );
+    let said = data["answer"].as_str().expect("answer");
+    assert!(said.contains("compared with the version here"), "{said}");
+    assert!(said.contains("Not registry-confirmed"), "{said}");
+    let (data, _) = actions("45.0.0", records()).await;
+    assert_eq!(
+        data["advisories"].as_array().expect("list").len(),
+        1,
+        "{data}"
+    );
+    let (data, _) = actions("46.0.1", records()).await;
+    assert_eq!(data["affected"], false, "{data}");
+    assert_eq!(data["status"], "empty", "{data}");
+}
+
+/// A record whose range cannot be compared is listed and says so: neither
+/// affected nor cleared.
+#[tokio::test]
+async fn a_record_that_cannot_be_compared_is_listed_not_claimed() {
+    let unreadable = actions_record("GHSA-X", json!([{"introduced": "0"}, {"fixed": "nightly"}]));
+    let (data, _) = actions("40.0.0", vec![unreadable]).await;
+    assert!(data.get("affected").is_none(), "{data}");
+    assert_ne!(data["status"], "empty", "{data}");
+    assert_eq!(data["advisories"][0]["id"], "GHSA-X", "{data}");
+    let said = data["answer"].as_str().expect("answer");
+    assert!(
+        said.contains("not evaluated") && said.contains("GHSA-X"),
+        "{said}"
+    );
+    assert!(data.get("cves").is_none(), "{data}");
+}
+
+/// No registry reads this ecosystem: the answer says the name was not confirmed,
+/// whether or not anything was found.
+#[tokio::test]
+async fn an_unconfirmed_name_is_said_in_the_answer() {
+    for vulns in [json!([]), json!([{"id": "GHSA-1"}])] {
+        let http = RouteHttp::new().osv_pages(vec![(200, json!({ "vulns": vulns }))]);
+        let data = answer(
+            &http,
+            json!({"operation": "package", "ecosystem": "Hex", "packageName": "phoenix", "version": "1.4.0"}),
+        )
+        .await
+        .expect("row");
+        assert_eq!(data["registryConfirmed"], false);
+        let said = data["answer"].as_str().expect("answer");
+        assert!(said.contains("Not registry-confirmed"), "{said}");
+    }
+}
+
+/// A purl of any type in the contract runs as that ecosystem's package, and a
+/// distribution purl's `distro` is its release.
+#[tokio::test]
+async fn purls_of_the_contract_s_types_run_as_their_ecosystem() {
+    for (purl, ecosystem, name, version) in [
+        ("pkg:hex/phoenix@1.4.0", "Hex", "phoenix", "1.4.0"),
+        ("pkg:pub/http@0.12.0", "Pub", "http", "0.12.0"),
+        (
+            "pkg:swift/github.com/apple/swift-nio@2.0.0",
+            "SwiftURL",
+            "github.com/apple/swift-nio",
+            "2.0.0",
+        ),
+        ("pkg:cran/jsonlite@1.8.0", "CRAN", "jsonlite", "1.8.0"),
+        (
+            "pkg:deb/debian/openssl@1.1.1n-0%2Bdeb11u1?distro=debian-11",
+            "Debian:11",
+            "openssl",
+            "1.1.1n-0+deb11u1",
+        ),
+        (
+            "pkg:apk/alpine/openssl@1.1.1l-r0?distro=alpine-3.14.2",
+            "Alpine:v3.14",
+            "openssl",
+            "1.1.1l-r0",
+        ),
+    ] {
+        let http = RouteHttp::new().osv_pages(vec![(200, json!({"vulns": [{"id": "X-1"}]}))]);
+        answer(&http, json!({"operation": "url", "url": purl}))
+            .await
+            .unwrap_or_else(|error| panic!("{purl}: {error:?}"));
+        let body = &http.osv_queries()[0];
+        assert_eq!(body["package"]["ecosystem"], ecosystem, "{purl}");
+        assert_eq!(body["package"]["name"], name, "{purl}");
+        assert_eq!(body["version"], version, "{purl}");
+    }
 }

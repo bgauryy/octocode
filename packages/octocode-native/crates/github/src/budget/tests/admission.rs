@@ -156,6 +156,48 @@ async fn a_dropped_wait_releases_its_persisted_slot() {
     }
 }
 
+/// B91 r2: the time a request polls for a peer process's state lock is a
+/// client-side wait for the shared slot, disclosed as `spacing`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_peer_held_state_lock_is_disclosed_as_spacing() {
+    let dir = tempfile::tempdir().expect("state directory");
+    let key = LimiterKey::new("h", None);
+    let budget = GitHubBudget::with_config(quota_paced());
+    let state = budget.key_state(&key, Some(dir.path()));
+    let mut sidecar = dir.path().join(key.file_name()).into_os_string();
+    sidecar.push(".lock");
+    let peer = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&sidecar)
+        .expect("lock file");
+    peer.lock().expect("peer takes the lock");
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        peer.unlock().expect("peer releases the lock");
+    });
+    let waits = ClientWaits::default();
+    state
+        .admit(
+            Some(Group::CodeSearch),
+            budget.config(),
+            Instant::now() + Duration::from_secs(10),
+            &Cancellation::new(),
+            &waits,
+        )
+        .await
+        .expect("admitted once the lock is free");
+    releaser.join().expect("peer");
+    let spacing = waits
+        .summed()
+        .iter()
+        .filter(|wait| wait.kind == octocode_contract_types::ClientWaitKind::Spacing)
+        .map(|wait| wait.ms)
+        .sum::<i64>();
+    assert!(spacing >= 200, "{:?}", waits.summed());
+}
+
 /// A peer process that holds the state file's lock must not hold this request
 /// past its deadline or its cancellation, and the request goes through as soon
 /// as the lock is released.
@@ -200,6 +242,7 @@ async fn a_held_state_lock_cannot_block_admission_past_its_deadline() {
             budget.config(),
             Instant::now() + Duration::from_secs(60),
             &token,
+            &crate::budget::ClientWaits::default(),
         )
         .await
         .err()

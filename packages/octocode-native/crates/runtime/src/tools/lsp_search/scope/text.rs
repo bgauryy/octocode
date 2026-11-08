@@ -188,6 +188,16 @@ impl Scope {
         let Some(unanswered) = self.unanswered(symbol) else {
             return Ok(());
         };
+        self.classify_files(symbol, unanswered, cancel).await
+    }
+
+    /// [`Self::check_code_uses`] over `files`, whatever walk found them.
+    async fn classify_files(
+        &self,
+        symbol: &str,
+        unanswered: Vec<String>,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<(), LspFailure> {
         let (memo, symbol) = (Arc::clone(&self.code_uses), symbol.to_owned());
         let (site, slot) = (self.site(), Arc::clone(&self.reach));
         let question = self.question.get().copied().unwrap_or_default();
@@ -213,6 +223,47 @@ impl Scope {
         })
         .await?;
         Ok(())
+    }
+
+    /// Find the ignored files that spell `symbol` and the answer leaves out,
+    /// and judge each as the visible ones are ([`Self::check_code_uses`]): the
+    /// one policy of which spellings count, whether or not an ignore rule hides
+    /// the file. [`Self::ignored_only_files`] reads the result.
+    pub(in super::super) async fn check_ignored_spellings(
+        &self,
+        symbol: &str,
+        policy: &PathPolicy,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<(), LspFailure> {
+        let skip = self.answered_files();
+        let found = self.ignored_text_files(symbol, &skip, policy, cancel).await?;
+        self.classify_files(symbol, found.files.clone(), cancel)
+            .await?;
+        let files = found
+            .files
+            .into_iter()
+            .filter(|file| self.code_use(symbol, file) == Use::Code)
+            .collect();
+        *self
+            .ignored_spellings
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(IgnoredSpelling {
+            symbol: symbol.to_owned(),
+            files,
+            rules: found.rules,
+            unfinished: found.unfinished,
+        });
+        Ok(())
+    }
+
+    /// What [`Self::check_ignored_spellings`] found for `symbol`; `None`
+    /// before it ran.
+    pub(in super::super) fn ignored_only_files(&self, symbol: &str) -> Option<IgnoredSpelling> {
+        self.ignored_spellings
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+            .filter(|found| found.symbol == symbol)
     }
 
     fn site(&self) -> Option<reach::Site> {
@@ -279,6 +330,18 @@ impl Scope {
             .insert(key, found);
         found
     }
+}
+
+/// Ignored files that use a name in code, outside the answer.
+#[derive(Clone, Debug)]
+pub(in super::super) struct IgnoredSpelling {
+    symbol: String,
+    /// Canonical paths, sorted.
+    pub(in super::super) files: Vec<String>,
+    /// The deciding ignore rules of the first files.
+    pub(in super::super) rules: Vec<String>,
+    /// The walk or the read did not finish: more may exist.
+    pub(in super::super) unfinished: bool,
 }
 
 /// How a scanned file uses a symbol.

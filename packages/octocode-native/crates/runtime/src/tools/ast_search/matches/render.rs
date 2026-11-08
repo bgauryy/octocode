@@ -1,11 +1,12 @@
-//! The match page a query renders: its file page, coverage diagnostics,
+//! The match page a query renders: its page of the stream, coverage diagnostics,
 //! warnings and partial reasons, and why an empty page is empty.
 use super::continuations::{anchor_line, attach_match_continuations, tree_lead};
 use super::gaps::ScopeGaps;
 use super::query::MatchQuery;
 use super::reads::row_file;
 use super::rows::diag;
-use super::types::{Group, Grouped, Scan, ScanCut, Scope, recovered_notice, unparsed_notice};
+use super::stream::StreamPage;
+use super::types::{Group, Grouped, Scan, ScanCut, Scope, recovered_notice};
 use serde_json::{Value, json};
 
 /// Scan-level coverage diagnostics the per-file groups do not carry.
@@ -41,18 +42,17 @@ pub(super) fn render_match_page(
     mut grouped: Grouped,
     snapshot: &str,
     gaps: ScopeGaps,
-    presentation: (usize, super::super::RowPaths<'_>),
+    presentation: (&StreamPage, super::super::RowPaths<'_>),
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<Value, crate::response::result::ToolError> {
-    let (budget, row_paths) = presentation;
+    let (page, row_paths) = presentation;
     let truncated = scan.truncated;
     let diagnostics = crate::tools::ast_rule::group_diagnostics(merge_diagnostics(
         std::mem::take(&mut grouped.diagnostics),
         scan_diagnostics(scope, scan),
     ));
     let groups = std::mem::take(&mut grouped.groups);
-    let page = file_page(q, &groups, budget);
-    let narrow = narrowing_notice(grouped.total_matches, &page);
+    let narrow = narrowing_notice(grouped.total_matches, groups.len(), page);
     let page_groups = &groups[page.window.clone()];
     let more = page.more;
     let mut out =
@@ -65,7 +65,7 @@ pub(super) fn render_match_page(
     }
     if !groups.is_empty() {
         out["files"] = Value::Array(listed_rows(page_groups, row_paths));
-        out["pagination"] = page.pagination;
+        out["pagination"] = page.pagination.clone();
     }
     if !diagnostics.is_empty() {
         out["diagnostics"] = json!(diagnostics);
@@ -96,20 +96,17 @@ pub(super) fn render_match_page(
             &q.exclude().unwrap_or_default(),
         ),
     );
-    // The scan's census, said on its first file page; a later page of the
-    // same scan repeats nothing (a scan window reads other files).
-    let later_page = ["page", "matchPage"]
-        .iter()
-        .any(|field| q.to_value()[*field].as_u64().is_some_and(|page| page > 1));
-    if !later_page {
+    // The scan's census, said on its first page; a later page of the same
+    // scan repeats nothing (a scan window reads other files).
+    if q.page() <= 1 {
+        let one_language = scope.language.is_some() || scope.inferred.is_some();
+        let (unparsed, skipped_grammars) = scan
+            .unparsed
+            .disclosed(one_language, grouped.skipped_grammars.clone());
         push_census(
             &mut out,
-            [
-                unparsed_notice(&scan.unparsed),
-                recovered_notice(&grouped.recovered),
-                narrow,
-            ],
-            grouped.skipped_grammars.clone(),
+            [unparsed, recovered_notice(&grouped.recovered), narrow],
+            skipped_grammars,
         );
     }
     // An empty page explains itself, skipped walks included; the matches of
@@ -136,9 +133,10 @@ pub(super) fn render_match_page(
     if empty {
         out["status"] = json!("empty");
     }
-    // Every file and match is listed and the scan saw its whole scope: the
-    // row's expansions and reads are drill-downs, not unread rest.
-    if !groups.is_empty() && !more && !incomplete && scan.withheld.total() == 0 {
+    // The scan saw its whole scope: the row's later pages are pagination of
+    // a complete result (the same on every page), and its expansions and
+    // reads are drill-downs, not unread rest.
+    if !groups.is_empty() && !incomplete && scan.withheld.total() == 0 {
         out["coverage"] = json!({"state": "complete"});
     }
     attach_match_continuations(
@@ -160,10 +158,9 @@ pub(super) fn render_match_page(
     }
     // `coverage.state: "complete"` tells a reader the row's pages are
     // drill-downs; a row with no page needs no such note.
-    let has_page = page_groups.iter().any(|group| group.more_matches)
-        || out["calls"]
-            .as_object()
-            .is_some_and(|next| next.values().any(|call| call["kind"] == "continue"));
+    let has_page = out["calls"]
+        .as_object()
+        .is_some_and(|next| next.values().any(|call| call["kind"] == "continue"));
     if !has_page && let Some(fields) = out.as_object_mut() {
         fields.shift_remove("coverage");
     }
@@ -210,9 +207,8 @@ fn mark_coverage_cuts(out: &mut Value, scan: &Scan, grouped: &Grouped) -> bool {
 /// compared with the source: the file a single-file scope names, else a
 /// near miss, the line of a parsed file that spells the query's anchor.
 /// Another file of a directory is no near miss, and a declaration pattern's
-/// near miss is the declaration of its kind and name
-/// ([`super::exact_miss::exact_miss`]), else the rule listing its kind
-/// ([`super::exact_miss::kind_broaden`]).
+/// near miss is the declaration of its kind and name, beside the rule
+/// listing its kind ([`super::exact_miss::exact_miss`]).
 fn attach_syntax_lead(
     q: MatchQuery<'_>,
     scope: &Scope,
@@ -281,60 +277,21 @@ fn push_census(out: &mut Value, notices: [Option<String>; 3], skipped_grammars: 
 /// The first page of a match set that fills more than one page (the
 /// response window and `limit` decide, as they cut every page) names its
 /// size and how to narrow it before every page is read.
-fn narrowing_notice(matches: u64, page: &FilePage) -> Option<String> {
-    let pages = page.pagination["totalPages"].as_u64()?;
-    let files = page.pagination["totalItems"].as_u64()?;
+fn narrowing_notice(matches: u64, files: usize, page: &StreamPage) -> Option<String> {
+    // A page over the budget states no page count, so neither does this.
+    let pages = page.pagination.get("totalPages").map(|_| page.pages)?;
     (page.more && pages > 1).then(|| {
         format!(
             "{matches} matches in {} fill {pages} pages; to read fewer, narrow the rule (pattern, has, inside, not) or the scope (include, exclude, a deeper path).",
-            octocode_engine::text::counted(files, "file", "files")
+            octocode_engine::text::counted(files as u64, "file", "files")
         )
     })
 }
 
-/// The file page a query asks for.
-pub(super) struct FilePage {
-    /// Its groups, as a range of every file's groups.
-    pub(super) window: std::ops::Range<usize>,
-    /// Files are left after it.
-    pub(super) more: bool,
-    /// Its pagination block.
-    pub(super) pagination: Value,
-}
-
-/// Cuts `groups` into pages bounded by the response window
-/// and picks page `q.page()`; a page past the end is empty.
-pub(super) fn file_page(q: MatchQuery<'_>, groups: &[Group], budget: usize) -> FilePage {
-    let paging = crate::response::page_windows::Paging::of(q.limit(), budget);
-    let sizes = groups.iter().map(|group| group.chars).collect::<Vec<_>>();
-    let rows = groups.iter().map(|group| group.rows).collect::<Vec<_>>();
-    let cut = crate::response::page_windows::select_weighted(
-        paging,
-        &sizes,
-        Some(&rows),
-        q.page() as usize,
-    );
-    FilePage {
-        window: cut.range,
-        more: cut.more,
-        pagination: cut.facts.to_value(),
-    }
-}
-
-/// The file rows of a page. A later match page lists only the files it
-/// still has matches for: a file whose matches ended on an earlier match
-/// page adds no row (unless no file has any left).
+/// The file rows of a page, each path as delivered.
 fn listed_rows(page_groups: &[Group], row_paths: super::super::RowPaths<'_>) -> Vec<Value> {
-    let listed = page_groups
+    page_groups
         .iter()
-        .filter(|group| !group.out_of_range)
-        .collect::<Vec<_>>();
-    let rows = if listed.is_empty() {
-        page_groups.iter().collect()
-    } else {
-        listed
-    };
-    rows.into_iter()
         .map(|group| {
             let mut row = group.row.clone();
             if let Some(path) = row["path"].as_str() {
@@ -365,11 +322,30 @@ pub(super) fn explain_empty(
 ) {
     // Earlier windows may have parsed what this one did not.
     let unparsed = facts.parsed == 0 && !facts.diagnosed && q.scan_offset() == 0;
-    if unparsed {
+    // include/exclude left the walk no file: the globs, not the grammar, are
+    // why nothing parsed, unless a skipped walk holds the files.
+    let glob_miss = unparsed
+        && facts.scanned == 0
+        && gaps.skipped.is_none()
+        && (q.include().is_some() || q.exclude().is_some());
+    if glob_miss {
+        crate::response::result::add_hints(out, [crate::policy::include::GLOB_MISS_HINT]);
+        if let Some(listing) = crate::tools::leads::files_listing::scope_listing(
+            &q.path(),
+            Default::default(),
+            q.include_ignored() == Some(true),
+            !q.default_excludes(),
+        ) {
+            out["calls"]["viewTree"] = listing;
+        }
+    } else if unparsed {
         let language = q
             .language()
             .map_or_else(String::new, |language| format!(" {language}"));
-        out["hints"] = json!([format!("No{language} file under this path was parsed.")]);
+        crate::response::result::add_hints(
+            out,
+            [format!("No{language} file under this path was parsed.")],
+        );
     } else if facts.scanned > 0 {
         // `matchCount: 0` and `filesScanned` state the coverage; a hint
         // only names what the scan skipped.

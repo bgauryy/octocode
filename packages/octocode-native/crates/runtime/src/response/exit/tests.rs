@@ -5,6 +5,31 @@ mod outcomes;
 mod rows;
 mod spelling;
 
+/// One (exit code, isError) pairing: a call flagged as a tool error never
+/// exits as success or empty, and a failed or rejected outcome whose rows
+/// all failed is flagged.
+#[test]
+fn the_error_flag_and_the_exit_class_agree() {
+    let answered = json!({"results":[{"data":{}}]});
+    let failed =
+        json!({"results":[{"index":0,"status":"error","data":{"errorCode":"invalidInput"}}]});
+    let mixed = json!({"results":[{"data":{}},{"index":1,"status":"error","data":{"errorCode":"invalidInput"}}]});
+    for (value, all_failed, flagged) in [
+        (answered, false, false),
+        (failed, true, true),
+        (mixed, false, false),
+    ] {
+        let call = outcome(value.clone(), None, all_failed);
+        assert_eq!(call.is_error(), flagged, "{value}");
+        if call.is_error() {
+            assert!(
+                !matches!(call.exit_class(), ExitClass::Success | ExitClass::Empty),
+                "{value}"
+            );
+        }
+    }
+}
+
 fn all_rows_invalid_input(value: &Value) -> bool {
     value["results"]
         .as_array()

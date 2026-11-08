@@ -2,7 +2,7 @@
 //! row's context beside each window, so when that context alone fills the
 //! page, cutting the string fits nothing and only multiplies the context.
 //! Such a row stays whole and its page discloses it as oversized.
-use super::nested_continuation::merge;
+use super::nested_continuation::{Join, declared_collections, merge};
 use super::*;
 use crate::id::ToolId;
 use octocode_io::cancellation::Cancellation;
@@ -23,7 +23,7 @@ fn line_row() -> Value {
 
 /// Every part of `data` at `budget`, in order.
 fn parts(tool: ToolId, data: &Value, budget: usize) -> Vec<Value> {
-    let plan = PreparedRows::new(vec![json!({"index":0,"data":data.clone()})], &[None], tool)
+    let plan = PreparedRows::new(vec![json!({"index":0,"data":data.clone()})], tool)
         .plan(budget, &Cancellation::new())
         .expect("valid plan");
     (0..plan.total_pages)
@@ -69,6 +69,7 @@ fn a_row_whose_context_fills_the_page_stays_whole() {
 #[test]
 fn string_windows_join_back_to_the_row_at_every_budget() {
     let data = line_row();
+    let collections = declared_collections(ToolId::GhGetFileContent, &data);
     for budget in 1..=600 {
         let mut joined: Option<Value> = None;
         for part in parts(ToolId::GhGetFileContent, &data, budget) {
@@ -78,8 +79,11 @@ fn string_windows_join_back_to_the_row_at_every_budget() {
                     joined,
                     part["data"].clone(),
                     "/data",
-                    &[],
-                    part["rowPart"]["text"].as_str(),
+                    &Join {
+                        continued: &[],
+                        text: part["rowPart"]["text"].as_str(),
+                        collections: &collections,
+                    },
                 ),
             }
         }

@@ -3,8 +3,9 @@
 // `<tool> --help` without Node. Every schema view is a core Zod schema emitted
 // once as JSON: `query` is the row MCP lists, and each
 // `--select operation=X` that operation's row. Execution takes one canonical JSON envelope.
-import { MCP_INSTRUCTIONS, MCP_TOOL_INSTRUCTIONS } from '@octocodeai/octocode-core/mcp';
+import { MCP_INSTRUCTION_PARTS } from '@octocodeai/octocode-core/mcp';
 import {
+  buildOutputPresentationSchemas,
   DIRECT_TOOL_DEFINITIONS,
   getPublicToolCatalog,
   operationRows,
@@ -15,7 +16,6 @@ import {
   sentForms,
   rowVariants,
   toolVariants,
-  type EnforcementContractIr,
 } from '@octocodeai/octocode-core/schema';
 import { outputFields } from './output-view.ts';
 
@@ -162,26 +162,28 @@ function rendered(definition: Definition, selection: boolean) {
 }
 
 /** The `cli-presentation.json` the native binary embeds beside the enforcement contract. */
-export function buildCliPresentation(ir: EnforcementContractIr): Json {
+export function buildCliPresentation(): Json {
   const catalog = getPublicToolCatalog();
+  // The enforcement IR carries no prose; each presentation schema brings its own $defs.
+  const outputSchemas = buildOutputPresentationSchemas();
   return {
     fingerprint: catalog.fingerprint,
-    // MCP `initialize` and the CLI catalog serve this, then each available tool's `instructions`.
-    instructions: MCP_INSTRUCTIONS,
+    // MCP `initialize` and the CLI catalog serve these parts, composed for the enabled tools:
+    // head, the routes whose `needs` are all enabled, body, then the enabled tools' blocks.
+    instructions: MCP_INSTRUCTION_PARTS,
     tools: DIRECT_TOOL_DEFINITIONS.map(definition => {
       const { name } = definition;
-      const tool = ir.tools.find(entry => entry.name === name);
+      const outputSchema = outputSchemas[name];
       const plain = rendered(definition, false);
       const selected = rendered(definition, true);
       return {
         name,
         title: definition.title,
-        ...(MCP_TOOL_INSTRUCTIONS[name] && { instructions: MCP_TOOL_INSTRUCTIONS[name] }),
         variantNames: Object.keys(operationRows(definition)),
         fields: compactFields(definition, false),
         help: toolHelpSection(definition),
         // `schema <tool> --view output`: one copy, whichever row form is served.
-        output: tool ? outputFields(tool.outputSchema, ir.$defs) : {},
+        output: outputSchema ? outputFields(outputSchema, {}) : {},
         ...plain,
         // Emit the selection variant only when it changes the row; Rust picks
         // it with the runtime's resolved switch.

@@ -10,6 +10,7 @@ mod local_search_query;
 mod manifest;
 mod output;
 mod packed;
+mod page_view;
 mod pattern;
 mod probes;
 mod rows;

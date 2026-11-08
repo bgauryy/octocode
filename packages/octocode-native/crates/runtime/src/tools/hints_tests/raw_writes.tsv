@@ -1,0 +1,3 @@
+# Raw writes of hints, isPartial or "kind":"continue" outside
+# response/, the owner (add_hints, mark_partial, Continuation): file, field,
+# why it is not routed. Checked by tools/hints_tests.rs.

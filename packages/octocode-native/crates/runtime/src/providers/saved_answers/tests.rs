@@ -280,8 +280,9 @@ fn the_oldest_reuse_is_the_one_disclosed() {
     let mut row = json!({"artifacts": []});
     disclose_reuse(&mut row, 86_400_000);
     assert_eq!(
-        row["hints"][0],
-        "Answer observed 1970-01-02T00:00:00Z: its origin was not asked again, so later changes are not shown."
+        row,
+        json!({"artifacts": [], "observedAt": "1970-01-02T00:00:00Z"}),
+        "the moment is a typed field, not hint text"
     );
 }
 

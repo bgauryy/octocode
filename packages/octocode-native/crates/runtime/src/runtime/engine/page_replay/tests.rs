@@ -1,4 +1,5 @@
 use super::*;
+use crate::cache::CONTINUATION_RETENTION;
 use crate::execution::ExecutionContext;
 use crate::id::ToolId;
 use crate::runtime::engine::cursors::{Registry, SavedWork};
@@ -12,10 +13,10 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
         home.path(),
         &[("OCTOCODE_STORAGE_MODE", "persistent")],
     );
-    let access = page_replay_key("", true, &[], &[], None);
+    let access = page_replay_key("", &[], &[], None);
     let context = ExecutionContext {
         cancellation: Cancellation::new(),
-        deadline: Instant::now() + Duration::from_secs(30),
+        deadline: Some(Instant::now() + Duration::from_secs(30)),
         response_window: None,
         github_credential: None,
     };
@@ -28,8 +29,8 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
         )
         .as_bytes(),
     );
-    let previous = replay_policy(&runtime.config, &runtime.input.cwd, ROW_PLAN_VERSION - 1);
-    let current = replay_policy(&runtime.config, &runtime.input.cwd, ROW_PLAN_VERSION);
+    let previous = replay_policy(&runtime.config, &runtime.input.cwd, "another-build");
+    let current = replay_policy(&runtime.config, &runtime.input.cwd, BUILD_IDENTITY);
     assert_eq!(current, runtime.page_replays.policy);
     let make = |policy| {
         Registry::new(
@@ -116,8 +117,11 @@ async fn changed_plan_expires_disk_handles_before_execution_but_current_handles_
 fn expired_response_guidance_uses_the_retained_page_lifetime() {
     let lifetime = format!("{} seconds", super::CONTINUATION_IDLE.as_secs());
     for persistent in [true, false] {
-        for mcp in [true, false] {
-            let scope = RefusalScope { persistent, mcp };
+        {
+            let scope = RefusalScope {
+                persistent,
+                tool: ToolId::LocalFetch,
+            };
             let expired = super::snapshot_expired(Refusal::NotRetained, scope);
             assert!(
                 expired.message.contains(&lifetime),
@@ -129,7 +133,6 @@ fn expired_response_guidance_uses_the_retained_page_lifetime() {
                 Refusal::NotRetained,
                 Refusal::OtherTool,
                 Refusal::OtherAccess,
-                Refusal::OtherSurface,
                 Refusal::IdentityChanged,
                 Refusal::RequestChanged,
             ] {
@@ -165,4 +168,85 @@ fn a_burst_of_small_saved_work_never_evicts_an_active_walk() {
         store.get(&key(0)).is_some(),
         "the active walk survives the burst"
     );
+}
+
+/// A continuation that expires before the plan it continues is a dead end:
+/// every tool's cursor, saved pages and stated expiry share one lifetime, and
+/// a clasify cursor is never shorter than its plan.
+#[test]
+fn a_clasify_continuation_lives_as_long_as_its_plan() {
+    use crate::tools::clasify::sections::PLAN_RETENTION;
+    assert_eq!(retention_of(ToolId::Clasify.as_str()), PLAN_RETENTION);
+    for tool in [ToolId::LocalFetch, ToolId::GhSearchCode] {
+        assert_eq!(retention_of(tool.as_str()), CONTINUATION_RETENTION);
+    }
+    assert!(
+        retention_of(ToolId::Clasify.as_str()).ttl()
+            > retention_of(ToolId::LocalFetch.as_str()).ttl()
+    );
+    assert_ne!(
+        page_expiry(ToolId::Clasify.as_str()),
+        page_expiry(ToolId::LocalFetch.as_str())
+    );
+}
+
+/// Every page states `now + lifetime` as its expiry, so saved work must
+/// count its lifetime from its last read: a clasify page saved 31 minutes
+/// ago and read a minute ago stated an expiry 29 minutes from now, and is
+/// still served (CLS-C29).
+#[test]
+fn a_saved_clasify_page_lives_its_stated_expiry_from_its_last_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = crate::cache::Store::<u32>::new(
+        crate::cache::CacheConfig::derived(),
+        Some(dir.path().to_path_buf()),
+    );
+    let key = crate::cache::CacheKey {
+        namespace: "response-pages-v2".into(),
+        scope: "policy".into(),
+        resource: "page".into(),
+    };
+    let lifetime = retention_of(ToolId::Clasify.as_str());
+    let ttl = lifetime.ttl().expect("a clasify page expires");
+    assert!(store.put_confirmed(key.clone(), 7, 8, lifetime).1);
+    let file = crate::cache::Disk::new(dir.path().to_path_buf()).file(&key);
+    let bytes = std::fs::read(&file).unwrap();
+    let split = bytes.iter().position(|byte| *byte == b'\n').unwrap();
+    let mut header: serde_json::Value = serde_json::from_slice(&bytes[..split]).unwrap();
+    let saved = crate::civil_date::unix_secs().unsigned_abs() - (ttl + Duration::from_secs(60)).as_secs();
+    header["storedAtUnix"] = serde_json::json!(saved);
+    let mut rewritten = serde_json::to_vec(&header).unwrap();
+    rewritten.extend_from_slice(&bytes[split..]);
+    std::fs::write(&file, rewritten).unwrap();
+    let last_read = std::time::SystemTime::now() - Duration::from_secs(60);
+    std::fs::File::options()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_modified(last_read)
+        .unwrap();
+    assert_eq!(
+        store.get(&key).map(|hit| *hit.value),
+        Some(7),
+        "a page read a minute ago lives until the expiry that read stated"
+    );
+}
+
+/// A refused cursor states the lifetime of the tool it was sent to: a
+/// clasify cursor lives as long as its plan, any other its idle window.
+#[test]
+fn a_refusal_states_the_lifetime_of_its_tool() {
+    for persistent in [true, false] {
+        for tool in [ToolId::Clasify, ToolId::LocalFetch] {
+            let seconds = retention_of(tool.as_str()).ttl().unwrap().as_secs();
+            let error = snapshot_expired(Refusal::NotRetained, RefusalScope { persistent, tool });
+            assert!(
+                error
+                    .message
+                    .contains(&format!("{seconds} seconds after its last read")),
+                "{tool:?}: {}",
+                error.message
+            );
+        }
+    }
 }

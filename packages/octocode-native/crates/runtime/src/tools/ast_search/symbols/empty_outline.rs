@@ -111,7 +111,7 @@ pub(super) fn note_skipped(
         let lead = skipped::lead(ToolId::AstSearch, q, &disclosure.causes);
         skipped::attach(out, &disclosure, lead);
     } else {
-        crate::tools::leads::push_hint(out, disclosure.text);
+        crate::response::result::add_hints(out, [disclosure.text]);
     }
     // The response keeps the first leads of `next`: the text fallback goes
     // after the leads that lift what the outline skipped.

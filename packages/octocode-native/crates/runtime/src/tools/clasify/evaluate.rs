@@ -79,7 +79,10 @@ pub(super) fn evaluate_row(
     };
     let state = super::rows::contextual_state(&state, row.context.as_deref());
     // One request's time starts when it runs, after the capture.
-    let budget = evaluator.budget(context.deadline, context.cancellation.clone());
+    let budget = evaluator.budget(
+        crate::execution::cancel::deadline_of(context),
+        context.cancellation.clone(),
+    );
     let (mut judged, identity) = dispatcher.handle().block_on(evaluator.evaluate_once(
         evaluations,
         EvaluationInput {

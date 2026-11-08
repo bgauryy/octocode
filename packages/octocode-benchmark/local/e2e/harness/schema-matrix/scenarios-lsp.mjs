@@ -32,15 +32,15 @@ function cappedNodeScene() {
   const children = name => Array.from({ length: 45 }, (_, index) => `${name}child${index}`);
   const names = ['root', ...parents, ...parents.flatMap(children)];
   const lines = new Map(names.map((name, index) => [name, index]));
-  const source = names.map(name => `pub fn ${name}() {}`).join('\n') + '\n';
+  const source = `${names.map(name => `pub fn ${name}() {}`).join('\n')}\n`;
   const node = (base, name) => ({
     ...item(base, 'src/lib.rs', lines.get(name), name),
     range: range(lines.get(name), 0, `pub fn ${name}() {}`.length),
     selectionRange: range(lines.get(name), 7, name.length),
   });
-  const incoming = (base, parent, names) => ({
+  const incoming = (base, parent, callers) => ({
     method: 'callHierarchy/incomingCalls', item: parent,
-    result: names.map(name => ({ from: node(base, name), fromRanges: [range(lines.get(parent), 7, parent.length)] })),
+    result: callers.map(name => ({ from: node(base, name), fromRanges: [range(lines.get(parent), 7, parent.length)] })),
   });
   return {
     files: { ...CARGO, 'src/lib.rs': source },

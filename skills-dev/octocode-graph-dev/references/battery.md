@@ -41,6 +41,7 @@ node --test scripts/bench-compare.test.mjs scripts/battery-status.test.mjs scrip
 | `recall.dropped` | Oracle hits removed as the probe's own declarations, `exclude`d files, or text inside strings and comments |
 | `ingest.callLinkRate` | Linked call sites ÷ all extracted sites: syntax coverage, not semantic recall |
 | `ingest.unresolvedByReason` | Why sites stayed unlinked; a moved count shows which rule a change touched |
+| `incremental` | A second `graphBuild` without `refresh` on the unchanged tree: `ms`, and `reused` (same snapshot id). `bench-compare.mjs` tabulates `Reuse ms` and treats `reused` going true → false as a regression |
 | `callers.pagesComplete` | Every callers page was followed; `false` means the ratios are partial |
 
 The oracle ([lib/oracle.mjs](../scripts/lib/oracle.mjs)) matches text, not bindings (`\bname\s*[(<\[]`; never `rg -w` with a trailing `(`, which matches nothing), then drops:

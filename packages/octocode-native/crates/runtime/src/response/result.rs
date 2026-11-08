@@ -8,6 +8,8 @@ pub use error::{FailureKind, ToolError};
 pub(crate) use error::{STALE_SNAPSHOT_ERROR, failure_kind, missing_path_lead};
 use serde::Serialize;
 use serde_json::Value;
+#[cfg(test)]
+pub(crate) use typed_row::read_view;
 pub(crate) use typed_row::{edited_query, query_row, query_value, wire_query, with_changes};
 
 use crate::id::ToolId;
@@ -110,6 +112,13 @@ impl Continuation {
                 "input": input,
             }),
         }
+    }
+
+    /// The call that resumes saved work from its cursor handle: `input` is
+    /// the handle alone, so it carries no query row to check. The one
+    /// builder of a `"kind":"continue"` call outside [`Self::new`].
+    pub fn cursor(tool: &str, cursor: impl Into<Value>) -> Value {
+        serde_json::json!({"kind": "continue", "tool": tool, "input": {"cursor": cursor.into()}})
     }
 
     /// The tool this call runs.
@@ -307,7 +316,94 @@ pub(crate) fn remove_null_fields(value: &mut Value) {
 mod tests;
 
 #[cfg(test)]
-mod canonical_tests;
+pub(crate) mod canonical_tests;
+
+/// The one hint writer: appends each of `hints` not already stated under
+/// `hints`, creating the list for a first hint and never an empty one. A row
+/// that is not an object is left alone.
+pub(crate) fn add_hints<I>(row: &mut Value, hints: I)
+where
+    I: IntoIterator,
+    I::Item: Into<String>,
+{
+    let Some(fields) = row.as_object_mut() else {
+        return;
+    };
+    let mut hints = hints.into_iter().map(Into::into).peekable();
+    if hints.peek().is_none() {
+        return;
+    }
+    let target = fields
+        .entry(HINTS_KEY)
+        .or_insert_with(|| serde_json::json!([]));
+    if !target.is_array() {
+        *target = serde_json::json!([]);
+    }
+    if let Some(list) = target.as_array_mut() {
+        for hint in hints {
+            let hint = Value::String(hint);
+            if !list.contains(&hint) {
+                list.push(hint);
+            }
+        }
+    }
+}
+
+/// Replaces the row's hints with `hints`, for a recovery that supersedes
+/// what the row stated (a request token's re-authentication over the
+/// local-only login hint). No hints leave the row's own untouched.
+pub(crate) fn set_hints<I>(row: &mut Value, hints: I)
+where
+    I: IntoIterator,
+    I::Item: Into<String>,
+{
+    let hints = hints.into_iter().map(Into::into).collect::<Vec<String>>();
+    let Some(fields) = row.as_object_mut() else {
+        return;
+    };
+    if !hints.is_empty() {
+        fields.remove(HINTS_KEY);
+        add_hints(row, hints);
+    }
+}
+
+/// Like [`add_hints`], but `hints` lead the list and the row's own follow.
+pub(crate) fn prepend_hints<I>(row: &mut Value, hints: I)
+where
+    I: IntoIterator,
+    I::Item: Into<String>,
+{
+    let Some(fields) = row.as_object_mut() else {
+        return;
+    };
+    let existing = fields.remove(HINTS_KEY);
+    add_hints(row, hints);
+    let existing = existing.as_ref().and_then(Value::as_array);
+    add_hints(
+        row,
+        existing
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned),
+    );
+}
+
+/// The one writer of a public `next` call: `call` under `key`, creating the
+/// channel for a first call and keeping the others. A row that is not an
+/// object is left alone.
+pub(crate) fn set_next(row: &mut Value, key: &str, call: Value) {
+    let Some(fields) = row.as_object_mut() else {
+        return;
+    };
+    let next = fields
+        .entry(PAGES_KEY)
+        .or_insert_with(|| serde_json::json!({}));
+    if !next.is_object() {
+        *next = serde_json::json!({});
+    }
+    next[key] = call;
+}
 
 pub(crate) fn attach_related(data: &mut Value, call: Value) {
     if data.get("related").is_none() {

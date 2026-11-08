@@ -75,7 +75,7 @@ pub(super) struct Scan {
     /// Octocode's own store directories the walk skipped, root-relative.
     pub(super) artifacts: std::collections::BTreeSet<String>,
     /// Files the walk passed over because no grammar parses their names.
-    pub(super) unparsed: NamedFiles,
+    pub(super) unparsed: Unparsed,
     /// Without `parser`: the files the walk admitted, by parser extension
     /// (the census the scope's grammar is inferred from).
     pub(super) census: std::collections::BTreeMap<String, usize>,
@@ -136,6 +136,54 @@ impl NamedFiles {
     }
 }
 
+/// The files a walk passed over because no grammar parses their names.
+#[derive(Default)]
+pub(super) struct Unparsed {
+    /// Every such file.
+    pub(super) files: NamedFiles,
+    /// Of those, the files of no known type (ripgrep's default type table):
+    /// the ones that could hold source of a rule's language.
+    pub(super) untyped: NamedFiles,
+    /// The rest, counted by type name.
+    pub(super) typed: std::collections::BTreeMap<String, usize>,
+}
+
+impl Unparsed {
+    /// Record `path` (its row spelling `shown`), of type `known` when its
+    /// name is of one.
+    pub(super) fn record(&mut self, shown: String, known: Option<&str>) {
+        if let Some(known) = known {
+            *self.typed.entry(known.to_owned()).or_default() += 1;
+        } else {
+            self.untyped.record(shown.clone());
+        }
+        self.files.record(shown);
+    }
+
+    /// What a page discloses: under one rule language (`parser`, or the
+    /// grammar inferred from the scan) a file of a known other type is not
+    /// that language's source, so it is a quiet count beside the grammars
+    /// the query does not compile in, and only a file of unknown type warns;
+    /// without one language every such file warns.
+    pub(super) fn disclosed(
+        &self,
+        one_language: bool,
+        mut skipped_grammars: Option<Value>,
+    ) -> (Option<String>, Option<Value>) {
+        if !one_language {
+            return (unparsed_notice(&self.files), skipped_grammars);
+        }
+        if !self.typed.is_empty() {
+            let counts = skipped_grammars.get_or_insert_with(|| Value::Object(Default::default()));
+            for (name, files) in &self.typed {
+                let known = counts[name.as_str()].as_u64().unwrap_or_default();
+                counts[name.as_str()] = Value::from(known.saturating_add(*files as u64));
+            }
+        }
+        (unparsed_notice(&self.untyped), skipped_grammars)
+    }
+}
+
 /// The notice that names the files passed over for want of a grammar, that
 /// absence there is unproven (an empty result included), and the field
 /// that parses them.
@@ -167,24 +215,22 @@ pub(super) fn recovered_notice(files: &NamedFiles) -> Option<String> {
     ))
 }
 
-/// One file's row on the result page, with what its match page withheld.
+/// One file's row on the result page, with what its matches withheld.
 pub(super) struct Group {
     pub(super) row: Value,
     pub(super) source_descriptors:
         Vec<std::sync::Arc<octocode_engine::text::analysis::SourceDescriptors>>,
-    /// What the file adds to a file page: its first match page.
+    /// In the match views, what the file's header adds to each page its
+    /// matches are on; in the file views, the file's row.
     pub(super) chars: usize,
-    /// Rows the file counts against `limit` on a file page: its first match
-    /// page's rows, or every row when its matches span match pages (it
-    /// then takes a file page alone, so no later match page of a file page
-    /// exceeds `limit`).
-    pub(super) rows: usize,
-    /// This match page starts past the file's last match.
-    pub(super) out_of_range: bool,
-    pub(super) more_matches: bool,
+    /// Each match's row size, in walk order ([`super::stream`]); empty in
+    /// the file views, where the file is the paged item.
+    pub(super) sizes: Vec<usize>,
+    /// A held scan's rows, sliced when a page shows them.
+    pub(super) held: Option<Vec<super::rows::MatchRow>>,
     pub(super) truncated_captures: bool,
     /// A priced file whose rows are not built yet: its index in the scan's
-    /// files ([`rebuild_page`]).
+    /// files ([`super::groups::fill_page`]).
     pub(super) priced: Option<usize>,
 }
 

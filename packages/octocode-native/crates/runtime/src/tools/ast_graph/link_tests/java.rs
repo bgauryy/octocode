@@ -182,7 +182,8 @@ fn single_type_imports_shadow_the_package() {
             .map(|(id, _)| id)
             .collect::<Vec<_>>()
     };
-    assert_eq!(ids("src/com/acme/Use.java#Use"), [other]);
+    // A field initializer's call is the field's own.
+    assert_eq!(ids("src/com/acme/Use.java#Use.helper"), [other]);
     assert_eq!(
         ids("src/com/acme/Use.java#Use.u"),
         [other.to_owned(), format!("{other}.help")]

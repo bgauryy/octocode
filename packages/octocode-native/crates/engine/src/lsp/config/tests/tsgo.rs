@@ -192,35 +192,51 @@ fn only_tsgo_serves_requests_concurrently() {
 /// (typescript-go `internal/ls/symbols.go`); other servers have no
 /// known cap.
 #[test]
-fn only_tsgo_caps_workspace_symbols() {
-    let config = |command: &str| LspLanguageServerConfig {
-        command: command.to_owned(),
-        args: None,
-        workspace_root: "/workspace".to_owned(),
-        language_id: Some("typescript".to_owned()),
-        initialization_options: None,
-        env: None,
-        max_memory_mb: None,
-        source: Default::default(),
+fn servers_that_cap_workspace_symbols_state_their_limit() {
+    let config = |command: &str, args: &[&str], options: Option<serde_json::Value>| {
+        LspLanguageServerConfig {
+            command: command.to_owned(),
+            args: Some(args.iter().map(|arg| (*arg).to_owned()).collect()),
+            workspace_root: "/workspace".to_owned(),
+            language_id: Some("typescript".to_owned()),
+            initialization_options: options,
+            env: None,
+            max_memory_mb: None,
+            source: Default::default(),
+        }
+    };
+    let limit =
+        |command: &str| crate::lsp::config::workspace_symbol_limit(&config(command, &[], None));
+    assert_eq!(
+        limit("/i/@typescript/native-preview-darwin-arm64/lib/tsgo"),
+        Some(256)
+    );
+    assert_eq!(limit("tsgo.cmd"), Some(256));
+    assert_eq!(limit("typescript-language-server"), None);
+    // gopls answers at most `maxSymbols`; rust-analyzer and clangd at their
+    // default result limits, until configured otherwise.
+    assert_eq!(limit("gopls"), Some(100));
+    assert_eq!(limit("rust-analyzer"), Some(128));
+    assert_eq!(limit("clangd"), Some(100));
+    let ra = |options| {
+        crate::lsp::config::workspace_symbol_limit(&config("rust-analyzer", &[], Some(options)))
     };
     assert_eq!(
-        crate::lsp::config::workspace_symbol_limit(&config(
-            "/i/@typescript/native-preview-darwin-arm64/lib/tsgo"
-        )),
-        Some(256)
+        ra(json!({"workspace": {"symbol": {"search": {"limit": 500}}}})),
+        Some(500)
     );
+    let clangd =
+        |args: &[&str]| crate::lsp::config::workspace_symbol_limit(&config("clangd", args, None));
+    assert_eq!(clangd(&["--limit-results=40"]), Some(40));
+    assert_eq!(clangd(&["--limit-results", "7"]), Some(7));
+    assert_eq!(clangd(&["-limit-results=12"]), Some(12), "one dash");
     assert_eq!(
-        crate::lsp::config::workspace_symbol_limit(&config("tsgo.cmd")),
-        Some(256)
+        clangd(&["-limit-results", "9"]),
+        Some(9),
+        "one dash, two tokens"
     );
-    assert_eq!(
-        crate::lsp::config::workspace_symbol_limit(&config("typescript-language-server")),
-        None
-    );
-    assert_eq!(
-        crate::lsp::config::workspace_symbol_limit(&config("gopls")),
-        None
-    );
+    assert_eq!(clangd(&["--limit-results=0"]), None, "0 is no limit");
+    assert_eq!(clangd(&["--limit-resultsx=5"]), Some(100), "another flag");
 }
 
 #[cfg(unix)]

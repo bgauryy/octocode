@@ -210,7 +210,7 @@ fn patchless_rows_chars(files: &[Value], views: &[Option<String>], lengths: &[us
             let mut row = file_metadata(file);
             match (view, missing_patch_reason(file)) {
                 (None, Some(reason)) => {
-                    row["isPartial"] = json!(true);
+                    crate::response::paging::set_partial(&mut row, true);
                     row["terminalLimit"] = json!(true);
                     row["patchUnavailable"] = json!(reason);
                 }

@@ -63,6 +63,7 @@ pub(super) fn collect_rust_module(
             inline,
             path,
             test_path: rust.context.attributes.test_path.clone(),
+            plain_path: rust.context.attributes.plain_path.clone(),
             unsupported,
         });
         if !inline {

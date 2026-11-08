@@ -71,3 +71,26 @@ async fn a_peers_reported_quota_paces_this_process() {
     }
     assert!(row(1).is_some(), "the peer reported two left until reset");
 }
+
+/// The shared state directory holds a token's rate-limit facts: it and every
+/// parent created for it are private to the user, as the rest of the home is.
+#[cfg(unix)]
+#[test]
+fn the_state_directory_and_its_new_parents_are_private() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().expect("root");
+    let state = root.path().join("home").join("tmp").join("ratelimit");
+    let budget = GitHubBudget::with_config(quota_paced());
+    let _ = budget.key_state(&LimiterKey::new("h", Some("tok")), Some(&state));
+    for dir in [
+        &state,
+        state.parent().unwrap(),
+        state.parent().unwrap().parent().unwrap(),
+    ] {
+        let mode = std::fs::metadata(dir)
+            .expect("created")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o700, "{}", dir.display());
+    }
+}

@@ -15,7 +15,7 @@
 //! passed are the same, unchanged (the engine compares the pin). Otherwise,
 //! or when it is gone, the window searches those files again before its own
 //! end applies, so every window makes progress.
-use super::cursor::{SNAPSHOT_SCHEME, SNAPSHOT_VERSION, malformed_snapshot};
+use super::cursor::{SNAPSHOT_SCHEME, malformed_snapshot};
 use super::local_search_query;
 use super::types::{LocalSearchResult, SearchStats, SearchStatus};
 use crate::execution::cancel::CancellationCheck;
@@ -115,7 +115,10 @@ pub(super) fn paused_row(
         pin,
         searched,
     } = pause;
-    let snapshot = format!("{SNAPSHOT_SCHEME}{SNAPSHOT_VERSION}:{pin}");
+    let snapshot = format!(
+        "{SNAPSHOT_SCHEME}{}:{pin}",
+        crate::build_identity::BUILD_IDENTITY
+    );
     let resume = local_search_query::edited(
         query,
         &json!({"scanOffset": position, "snapshot": snapshot, "page": null, "matchPage": null}),

@@ -60,7 +60,11 @@ fn run_syntax(
     let display_path =
         super::RowPaths::new(paths, &p.canonical, true).delivered(&p.canonical.to_string_lossy());
     let Some(bytes) = super::source::read_parse_source(&p.canonical)? else {
-        return Ok(super::source::source_limit(&display_path, None));
+        return Ok(super::source::source_limit(
+            &p.canonical,
+            &display_path,
+            None,
+        ));
     };
     // Node rows expose grammar labels and coordinates, never source text.
     // Redacting before parsing would move those coordinates and hide source edits.

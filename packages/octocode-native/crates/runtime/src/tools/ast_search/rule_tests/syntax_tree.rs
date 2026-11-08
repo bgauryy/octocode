@@ -25,11 +25,12 @@ fn syntax_tree_of_an_unsupported_file_is_an_error_row() {
 #[test]
 fn unsupported_syntax_trees_offer_document_outlines_or_text_reads() {
     let root = Fixture::new();
+    use octocode_contract_types::ReadView;
     for (name, view) in [
-        ("instructions.md", "symbols"),
-        ("data.json", "symbols"),
-        ("notes.txt", "content"),
-        ("README", "content"),
+        ("instructions.md", ReadView::Symbols),
+        ("data.json", ReadView::Symbols),
+        ("notes.txt", ReadView::Content),
+        ("README", ReadView::Content),
     ] {
         let file = root.write(name, "# Instructions\nRead this text.\n");
         let out = run(&root.0, json!({"operation":"syntaxTree","path":file})).expect("row");
@@ -39,7 +40,11 @@ fn unsupported_syntax_trees_offer_document_outlines_or_text_reads() {
         assert_eq!(read["tool"], "localFetch", "{out}");
         let query = &read["input"]["queries"][0];
         assert_eq!(query["path"], file.to_string_lossy().as_ref(), "{out}");
-        assert_eq!(query["view"], view, "{out}");
+        assert_eq!(
+            crate::response::result::read_view(crate::id::ToolId::LocalFetch, query),
+            view,
+            "{out}"
+        );
         crate::contracts::validate_built_query("localFetch", query.clone()).expect("valid read");
         assert!(out.get("next").is_none(), "{out}");
     }

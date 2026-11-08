@@ -62,7 +62,7 @@ impl TestCodeIndex {
             })
             .map(|entry| entry.path())
             .filter(|sub| {
-                !self.paths.withholds(sub, EntryKind::Dir) && !sub.join("Cargo.toml").is_file()
+                !self.paths.withholds(sub, EntryKind::Dir) && !self.is_file(&sub.join("Cargo.toml"))
             })
             .collect()
     }
@@ -75,6 +75,22 @@ impl TestCodeIndex {
         self.spelling.of(dir, || {
             lock(&self.read).insert(dir.to_path_buf());
             self.read_spelling_path_in(dir).into()
+        })
+    }
+
+    /// Whether the file `path` (resolved to `canonical`) spells a `#[path]`.
+    /// Its text is the one every verdict shares ([`Self::source`]): a read
+    /// by a parent or a span before or after this scan is the same read.
+    fn spells_path(&self, path: &Path, canonical: &Path) -> bool {
+        let text = self.texts.of(path, || {
+            let bytes = self.bounded(canonical, octocode_engine::text::read_regular)?;
+            String::from_utf8(bytes).ok().map(Arc::from)
+        });
+        text.is_some_and(|text| {
+            if memchr::memmem::find(text.as_bytes(), b"cfg").is_none() {
+                lock(&self.never_cfg).insert(path.to_path_buf());
+            }
+            spells_path_attribute(text.as_bytes())
         })
     }
 
@@ -93,14 +109,7 @@ impl TestCodeIndex {
                 lock(&self.read).extend([path.clone(), canonical.clone()]);
                 !self.paths.withholds(path, EntryKind::File)
                     && !self.paths.withholds(canonical, EntryKind::File)
-                    && self
-                        .bounded(canonical, octocode_engine::text::read_regular)
-                        .is_some_and(|bytes| {
-                            if memchr::memmem::find(&bytes, b"cfg").is_none() {
-                                lock(&self.never_cfg).insert(path.clone());
-                            }
-                            spells_path_attribute(&bytes) && std::str::from_utf8(&bytes).is_ok()
-                        })
+                    && self.spells_path(path, canonical)
             })
             .map(|(path, _)| path)
             .collect()

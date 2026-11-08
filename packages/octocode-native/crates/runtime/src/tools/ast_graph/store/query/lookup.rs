@@ -44,6 +44,45 @@ impl Graph {
         self.t.str(self.t.nodes[id as usize].key)
     }
 
+    /// The file a node lies in: a symbol's file; a file or package itself.
+    pub(super) fn file_of(&self, id: u32) -> u32 {
+        let node = &self.t.nodes[id as usize];
+        match node.kind {
+            NodeKind::Symbol => node.file,
+            NodeKind::File | NodeKind::Package => id,
+        }
+    }
+
+    /// The module a node belongs to: the root-relative directory of its file
+    /// (`.` for the root); a package is its own module.
+    pub(super) fn module(&self, id: u32) -> &str {
+        if self.t.nodes[id as usize].kind == NodeKind::Package {
+            return self.key(id);
+        }
+        self.key(self.file_of(id))
+            .rsplit_once('/')
+            .map_or(".", |(dir, _)| dir)
+    }
+
+    /// The file part of a symbol key `<file>#<qualified name>`: the longest
+    /// `#`-prefix that is a file node's key, since a file path may hold `#`
+    /// (`x.ts#y.ts#f` lies in `x.ts#y.ts` beside a file `x.ts`), while a
+    /// name holds one only after its file (`mod.rs#r#type`). Else the text
+    /// before the first `#`; `None` for a key with no `#`.
+    pub(super) fn file_key<'k>(&self, key: &'k str) -> Option<&'k str> {
+        let cuts = key
+            .match_indices('#')
+            .filter_map(|(at, _)| key.get(..at))
+            .collect::<Vec<_>>();
+        let first = *cuts.first()?;
+        let is_file = |file: &&str| {
+            self.t
+                .by_key(file)
+                .is_some_and(|id| self.t.nodes[id as usize].kind == NodeKind::File)
+        };
+        Some(cuts.into_iter().rev().find(is_file).unwrap_or(first))
+    }
+
     pub(super) fn node_json(
         &self,
         id: u32,
@@ -127,6 +166,40 @@ impl Graph {
             }
         }
         Ok(out)
+    }
+
+    /// The lspSearch call that confirms a symbol's identity and uses at its
+    /// declaration: graph rows are syntax candidates. The symbol name is the
+    /// declared identifier (a member's last segment); `None` without a line.
+    pub(super) fn lsp_lead(&self, file: &str, name: &str, line: u64) -> Option<Value> {
+        if line == 0 || line >= u64::from(NONE) {
+            return None;
+        }
+        let identifier = name
+            .rsplit(['.', ':'])
+            .find(|part| !part.is_empty())
+            .unwrap_or(name);
+        let row = json!({
+            "operation": "references",
+            "path": self.workspace_path(file),
+            "symbolName": identifier,
+            "line": line,
+        });
+        Some(
+            crate::response::result::Continuation::related(crate::id::ToolId::LspSearch, row)
+                .build(),
+        )
+    }
+
+    /// A root-relative key as the workspace-relative path tools take;
+    /// absolute when the snapshot records no workspace holding its root.
+    pub(super) fn workspace_path(&self, key: &str) -> String {
+        let root = Path::new(self.manifest["root"].as_str().unwrap_or_default());
+        let base = self.manifest["workspace"]
+            .as_str()
+            .and_then(|workspace| root.strip_prefix(workspace).ok())
+            .unwrap_or(root);
+        octocode_engine::text::slash_path(&base.join(key))
     }
 
     pub(super) fn edge_fields(&self, out: &mut Map<String, Value>, edge: &EdgeRec) {
@@ -224,9 +297,17 @@ pub(super) struct EdgeFilter {
 
 impl EdgeFilter {
     pub(super) fn admits(&self, edge: &EdgeRec) -> bool {
-        self.kinds.contains(&edge.kind)
-            && (edge.kind != EdgeKind::Calls || edge.confidence <= self.weakest)
-            && (self.tests || !edge.test)
+        self.admits_kind(edge) && !self.below_confidence(edge)
+    }
+
+    /// Admits the edge's kind and test role, whatever its confidence.
+    pub(super) fn admits_kind(&self, edge: &EdgeRec) -> bool {
+        self.kinds.contains(&edge.kind) && (self.tests || !edge.test)
+    }
+
+    /// A call edge weaker than the filter's confidence.
+    pub(super) fn below_confidence(&self, edge: &EdgeRec) -> bool {
+        edge.kind == EdgeKind::Calls && edge.confidence > self.weakest
     }
 
     /// The same filter over production edges only.

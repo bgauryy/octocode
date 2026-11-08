@@ -17,12 +17,14 @@ use super::unsaid::declares;
 use super::{CompiledPattern, JSX_TAG_KINDS, SpecialPattern};
 
 mod root;
+mod terminators;
 
 pub(super) use root::effective_pattern_root;
 use root::{
     errors_beyond_captures, is_pattern_wrapper, is_wrap_marker_function, longer_forms,
     parse_errors, stray_error, top_level_nodes, unparsed_pattern_message,
 };
+use terminators::{bodied_alternate, member_alternate, unwritten_terminator, written_terminator};
 
 /// Pattern text with metavariables substituted for the selected grammar.
 #[derive(Clone)]
@@ -64,10 +66,16 @@ impl PatternText {
 }
 
 impl CompiledPattern {
+    /// Compile `pattern`, on the large stack: compiling recurses once per
+    /// pattern level ([`crate::structural::octo::stack`]).
     pub(in crate::structural::octo) fn new(
         lang: &AgLanguage,
         pattern: &str,
     ) -> Result<Self, CompileError> {
+        crate::structural::octo::stack::compile_on_deep_stack(|| Self::compile(lang, pattern))
+    }
+
+    fn compile(lang: &AgLanguage, pattern: &str) -> Result<Self, CompileError> {
         if let Some(special) = Self::special(lang, pattern) {
             return Ok(special);
         }
@@ -88,7 +96,9 @@ impl CompiledPattern {
         // a call takes it whatever the plain parse made of it (Go reads a
         // bare call as a conversion), and any other fragment (`$A`, `$A?`,
         // `$X.await`, `$A as $T`, `&mut $A`) takes it when the plain snippet
-        // does not parse. The statement wrapper unwraps, so `$A;` is `$A`.
+        // does not parse. The statement wrapper unwraps, so `$A;` compiles to
+        // `$A`; a `;` the caller wrote stays required of the candidate
+        // (`WrittenTerminator`), one compilation appended does not.
         // Complete constructs and unrelated shapes retain their original tree.
         if let Some(kind) = lang.terminated_fragment_kind()
             && !text.is_terminated()
@@ -181,12 +191,41 @@ impl CompiledPattern {
                 "invalid structural pattern: it has {top_level} top-level nodes, but a pattern matches one node. Search for one statement, or use a rule with `has`/`inside` to relate them."
             )));
         }
+        Self::compiled(lang, language, pattern, source, tree)
+    }
+
+    /// The compiled pattern of the caller's `pattern`, parsed from `source`
+    /// into `tree`: its root, what its end spells and the kinds it matches.
+    fn compiled(
+        lang: &AgLanguage,
+        language: Language,
+        pattern: &str,
+        source: String,
+        tree: Tree,
+    ) -> Result<Self, CompileError> {
+        let root = effective_pattern_root(tree.root_node(), &source);
+        let unwritten_terminator = unwritten_terminator(root, pattern, &source);
+        let alternates: Vec<_> =
+            bodied_alternate(&language, pattern, &source, root, unwritten_terminator)?
+                .into_iter()
+                .chain(member_alternate(&language, &source, root)?)
+                .collect();
+        let written_terminator = written_terminator(root, pattern);
         let is_meta = meta_from_node(root, &source, lang.expando()).is_some();
         let candidate_plan = if is_meta {
             CandidatePlan::Any
         } else {
+            let root_key = super::node_key(root);
+            let alternate_kinds = alternates
+                .iter()
+                .filter(|alternate| alternate.node == root_key)
+                .flat_map(|alternate| &alternate.kinds)
+                .filter_map(|id| language.node_kind_for_id(*id))
+                .map(str::to_owned);
             CandidatePlan::from_kinds(
-                std::iter::once(root.kind().to_owned()).chain(longer_forms(root)),
+                std::iter::once(root.kind().to_owned())
+                    .chain(longer_forms(root))
+                    .chain(alternate_kinds),
             )
         };
         Ok(Self {
@@ -197,6 +236,10 @@ impl CompiledPattern {
             selected_node: None,
             special: None,
             candidate_plan,
+            unwritten_terminator,
+            alternates,
+            written_terminator,
+            separators: Default::default(),
         })
     }
 
@@ -217,6 +260,10 @@ impl CompiledPattern {
                     capture: capture.to_owned(),
                 }),
                 candidate_plan: CandidatePlan::from_kinds(JSX_TAG_KINDS.map(str::to_owned)),
+                unwritten_terminator: None,
+                alternates: Vec::new(),
+                written_terminator: None,
+                separators: Default::default(),
             });
         }
 
@@ -234,12 +281,28 @@ impl CompiledPattern {
                     value_capture: value_capture.to_owned(),
                 }),
                 candidate_plan: CandidatePlan::from_kind("pair"),
+                unwritten_terminator: None,
+                alternates: Vec::new(),
+                written_terminator: None,
+                separators: Default::default(),
             });
         }
         None
     }
 
+    /// Compile `context` and select `selector` in it, on the large stack
+    /// ([`Self::new`]).
     pub(in crate::structural::octo) fn contextual(
+        lang: &AgLanguage,
+        context: &str,
+        selector: &str,
+    ) -> Result<Self, CompileError> {
+        crate::structural::octo::stack::compile_on_deep_stack(|| {
+            Self::compile_contextual(lang, context, selector)
+        })
+    }
+
+    fn compile_contextual(
         lang: &AgLanguage,
         context: &str,
         selector: &str,
@@ -283,6 +346,10 @@ impl CompiledPattern {
             special: None,
             candidate_plan: CandidatePlan::from_kind(selector),
             selected_node: Some(selected_node),
+            unwritten_terminator: None,
+            alternates: Vec::new(),
+            written_terminator: None,
+            separators: Default::default(),
         })
     }
 }

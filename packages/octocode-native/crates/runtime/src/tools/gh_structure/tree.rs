@@ -116,6 +116,14 @@ pub(super) async fn execute_tree(
                 broader,
             );
         }
+        if let Some((root, _)) = under_path(&pinned) {
+            crate::response::result::add_hints(
+                &mut value,
+                [format!(
+                    "include globs match paths from the repository root, also with path set: the first related[] request asks them under {root}/."
+                )],
+            );
+        }
     } else if value.pointer("/location/localPath").is_some() {
         // A materialized listing continues with the local tools at
         // `location.localPath`; re-listing the tree it just returned adds
@@ -132,9 +140,9 @@ pub(super) async fn execute_tree(
 
 /// An empty filtered listing, broadened ([`crate::tools::leads::broaden::broaden`]):
 /// the same commit's listing without its `include` globs, so what the tree
-/// holds names why they matched nothing; first, when a glob repeats the
-/// listed `path` (globs match relative to it), the same globs rebased onto
-/// it. Never a materialization.
+/// holds names why they matched nothing; first, when a glob is written
+/// relative to the listed `path` ([`under_path`]), the same globs asked
+/// under it. Never a materialization.
 fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<Value> {
     let mut lead = crate::tools::leads::broaden::broaden(
         ToolId::GhStructure,
@@ -146,25 +154,45 @@ fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<Value> {
         },
         1,
     )?;
-    let root = pinned
-        .path
-        .as_deref()
-        .and_then(|path| crate::tools::gh_shared::listing_path(path).ok())
-        .filter(|root| !root.is_empty());
-    if let Some(root) = root
+    if let Some((_, rebased_globs)) = under_path(pinned)
         && let Some(queries) = lead
             .pointer_mut("/input/queries")
             .and_then(Value::as_array_mut)
     {
-        let prefix = format!("{root}/");
-        let globs = pinned.include.iter().map(|glob| glob.as_str());
-        if globs.clone().any(|glob| glob.starts_with(&prefix)) {
-            let mut rebased = queries[0].clone();
-            rebased["include"] = globs
-                .map(|glob| glob.strip_prefix(&prefix).unwrap_or(glob))
-                .collect();
-            queries.insert(0, rebased);
-        }
+        let mut rebased = queries[0].clone();
+        rebased["include"] = rebased_globs.into();
+        queries.insert(0, rebased);
     }
     Some(lead)
+}
+
+/// The listed `path` and the `include` globs asked under it, when a glob
+/// reads as written relative to `path`: globs match repository-relative
+/// paths also with `path` set, so a glob neither under `path` nor starting
+/// at any depth (`**`) matches nothing below it. Globs already under
+/// `path`, or at any depth, stay as written.
+fn under_path(pinned: &GhStructureQueryTree) -> Option<(String, Vec<String>)> {
+    let root = pinned
+        .path
+        .as_deref()
+        .and_then(|path| crate::tools::gh_shared::listing_path(path).ok())
+        .filter(|root| !root.is_empty())?;
+    let prefix = format!("{root}/");
+    let relative = |glob: &str| !glob.starts_with(&prefix) && !glob.starts_with("**");
+    if !pinned.include.iter().any(|glob| relative(glob.as_str())) {
+        return None;
+    }
+    let globs = pinned
+        .include
+        .iter()
+        .map(|glob| {
+            let glob = glob.as_str();
+            if relative(glob) {
+                format!("{prefix}{glob}")
+            } else {
+                glob.to_owned()
+            }
+        })
+        .collect();
+    Some((root, globs))
 }

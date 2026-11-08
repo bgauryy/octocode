@@ -209,18 +209,26 @@ async fn walks_keep_source_folders_and_disclose_only_credential_files() {
         .iter()
         .filter(|(_, _, expect)| matches!(expect, Expect::WithheldByFilename))
         .count();
-    // Counted at the walked scope as credential files, never as policy
-    // directories, and never by the withheld names.
+    // Disclosed as the directories that hold credential files (one entry per
+    // directory, its count the files it holds), never as policy directories
+    // and never by the withheld names; the counts sum to the total.
     let disclosed = |outcome: &octocode_native::response::outcome::ToolOutcome| {
-        row_data(outcome)["skippedPaths"]["entries"]
+        let data = row_data(outcome);
+        let held = data["skippedPaths"]["entries"]
             .as_array()
-            .is_some_and(|entries| {
-                entries.iter().any(|entry| {
-                    entry["cause"] == "withheld"
-                        && entry["count"] == withheld
-                        && entry["reason"] == "credential file"
-                })
-            })
+            .into_iter()
+            .flatten()
+            .filter(|entry| entry["cause"] == "withheld" && entry["reason"] == "credential file")
+            .collect::<Vec<_>>();
+        let mut holders = held.iter().map(|entry| &entry["path"]).collect::<Vec<_>>();
+        holders.sort_by_key(ToString::to_string);
+        holders.dedup();
+        holders.len() == held.len()
+            && held
+                .iter()
+                .filter_map(|entry| entry["count"].as_u64())
+                .sum::<u64>()
+                == withheld as u64
     };
 
     let searched = call(
@@ -349,5 +357,74 @@ async fn secret_content_is_redacted_in_any_directory() {
     assert!(!text.contains(AWS_KEY), "{text}");
     assert!(text.contains("src/secrets/aws.ts"), "{text}");
     assert!(text.contains("src/credentials/aws.ts"), "{text}");
+    runtime.close().await;
+}
+
+/// A directory holding a searched file and a withheld one is disclosed as
+/// the directory that holds the withheld file, never as the file (B143): the
+/// withheld file's name appears nowhere in the result.
+#[tokio::test]
+async fn a_directory_beside_a_withheld_file_is_disclosed_as_its_holder() {
+    let workspace = Workspace::new();
+    workspace.write("conf/app.properties", "needle=1\n");
+    workspace.write("conf/.env.sample", "needle=2\n");
+    let runtime = runtime(&workspace);
+    let searched = call(
+        &runtime,
+        "localSearch",
+        json!({"path": workspace.workspace, "matchString": ["needle"], "includeHidden": true}),
+    )
+    .await
+    .expect("localSearch");
+    let text = searched.structured_content.to_string();
+    assert!(text.contains("app.properties"), "{text}");
+    assert!(!text.contains(".env.sample"), "{text}");
+    let data = row_data(&searched);
+    let held = data["skippedPaths"]["entries"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry["cause"] == "withheld")
+        .collect::<Vec<_>>();
+    assert_eq!(held.len(), 1, "{text}");
+    assert_eq!(held[0]["path"], "conf", "{text}");
+    assert_eq!(held[0]["reason"], "credential file", "{text}");
+    assert!(held[0].get("count").is_none(), "{text}");
+    runtime.close().await;
+}
+
+/// A directory holding several withheld files is one entry whose `count` is
+/// how many it holds, from the walk root, and no file name appears (B143).
+#[tokio::test]
+async fn a_directory_holding_several_withheld_files_is_one_counted_entry() {
+    let withheld = [".env", ".env.sample", "id_rsa", "server.pem"];
+    let workspace = Workspace::new();
+    workspace.write("conf/app.properties", "needle=1\n");
+    for name in withheld {
+        workspace.write(&format!("conf/{name}"), "needle=2\n");
+    }
+    let runtime = runtime(&workspace);
+    let searched = call(
+        &runtime,
+        "localSearch",
+        json!({"path": workspace.workspace, "matchString": ["needle"], "includeHidden": true}),
+    )
+    .await
+    .expect("localSearch");
+    let text = searched.structured_content.to_string();
+    for name in withheld {
+        assert!(!text.contains(name), "{name} named: {text}");
+    }
+    let data = row_data(&searched);
+    let held = data["skippedPaths"]["entries"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry["cause"] == "withheld")
+        .collect::<Vec<_>>();
+    assert_eq!(held.len(), 1, "{text}");
+    assert_eq!(held[0]["path"], "conf", "{text}");
+    assert_eq!(held[0]["reason"], "credential file", "{text}");
+    assert_eq!(held[0]["count"], withheld.len(), "{text}");
     runtime.close().await;
 }

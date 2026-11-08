@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use grep_matcher::Matcher;
 
+use super::span_sink::{CappedSpans, SpanSink};
 use super::text_search::{
     ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS, Pcre2WorkerSlot, pcre2_builder,
     release_worker_slot, try_acquire_worker_slot,
@@ -37,22 +38,40 @@ pub fn pcre2_find_ranges(
     input: &str,
     max_matches: usize,
 ) -> Result<Vec<(usize, usize)>, Pcre2RangesError> {
-    find_ranges(
+    pcre2_scan_ranges(
         pattern,
         case_insensitive,
         input,
-        max_matches,
+        CappedSpans::new(max_matches),
+    )
+    .map(CappedSpans::into_spans)
+}
+
+/// Offer every match of `pattern` in `input` to `sink`, in order, until it
+/// stops the scan; the sink comes back with what it kept. The sink runs on
+/// the scan's worker thread.
+pub fn pcre2_scan_ranges<S: SpanSink + Send + 'static>(
+    pattern: &str,
+    case_insensitive: bool,
+    input: &str,
+    sink: S,
+) -> Result<S, Pcre2RangesError> {
+    scan_ranges(
+        pattern,
+        case_insensitive,
+        input,
+        sink,
         PCRE2_SEARCH_DEADLINE + PCRE2_DEADLINE_GRACE,
     )
 }
 
-fn find_ranges(
+fn scan_ranges<S: SpanSink + Send + 'static>(
     pattern: &str,
     case_insensitive: bool,
     input: &str,
-    max_matches: usize,
+    mut sink: S,
     deadline: Duration,
-) -> Result<Vec<(usize, usize)>, Pcre2RangesError> {
+) -> Result<S, Pcre2RangesError> {
     let mut builder = pcre2_builder();
     builder
         .caseless(case_insensitive)
@@ -74,12 +93,10 @@ fn find_ranges(
             // Release the slot when this thread exits, even after the caller
             // stopped waiting for an uninterruptible match.
             let _slot = Pcre2WorkerSlot;
-            let mut ranges = Vec::new();
             let scanned = matcher.find_iter(input.as_bytes(), |found| {
-                ranges.push((found.start(), found.end()));
-                ranges.len() < max_matches
+                sink.accept((found.start(), found.end()))
             });
-            let _ = tx.send(scanned.map(|()| ranges).map_err(|error| error.to_string()));
+            let _ = tx.send(scanned.map(|()| sink).map_err(|error| error.to_string()));
         });
     if spawned.is_err() {
         // No worker will run to release the reserved slot.
@@ -87,7 +104,7 @@ fn find_ranges(
     }
     spawned.map_err(|error| Pcre2RangesError::Unavailable(error.to_string()))?;
     match rx.recv_timeout(deadline) {
-        Ok(Ok(ranges)) => Ok(ranges),
+        Ok(Ok(sink)) => Ok(sink),
         Ok(Err(error)) => Err(Pcre2RangesError::Unavailable(error)),
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
             Err(Pcre2RangesError::Unavailable(format!(
@@ -152,6 +169,19 @@ mod tests {
     }
 
     #[test]
+    fn a_scan_offers_matches_until_its_sink_stops_it() {
+        struct StopAfter(usize, Vec<(usize, usize)>);
+        impl SpanSink for StopAfter {
+            fn accept(&mut self, span: (usize, usize)) -> bool {
+                self.1.push(span);
+                self.1.len() < self.0
+            }
+        }
+        let sink = pcre2_scan_ranges("o", false, "o o o o", StopAfter(3, vec![])).unwrap();
+        assert_eq!(sink.1, vec![(0, 1), (2, 3), (4, 5)]);
+    }
+
+    #[test]
     fn invalid_patterns_and_deadlines_are_typed() {
         assert!(matches!(
             pcre2_find_ranges("(", false, "x", 10),
@@ -160,7 +190,14 @@ mod tests {
         let before = active_workers();
         // A zero deadline stops waiting at once; a scan that still beats it
         // is a complete answer, never an invalid pattern.
-        let slow = find_ranges("a", false, &"a".repeat(1 << 20), usize::MAX, Duration::ZERO);
+        let slow = scan_ranges(
+            "a",
+            false,
+            &"a".repeat(1 << 20),
+            CappedSpans::new(usize::MAX),
+            Duration::ZERO,
+        )
+        .map(CappedSpans::into_spans);
         assert!(
             matches!(&slow, Err(Pcre2RangesError::Unavailable(message)) if message.contains("deadline"))
                 || slow.as_ref().is_ok_and(|ranges| ranges.len() == 1 << 20),

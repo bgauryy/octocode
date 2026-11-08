@@ -3,12 +3,14 @@
 //! (`graphBuild`) and answers questions from it (`graphQuery`).
 mod algorithms;
 mod aliases;
+mod build_scope;
 mod cargo;
 mod classify;
 mod edges;
 mod freshness;
 mod graph;
 mod js_paths;
+mod languages;
 mod limits;
 mod linking;
 mod packages;
@@ -16,10 +18,11 @@ mod paths;
 mod progress;
 pub mod store;
 mod types;
+mod walk_scope;
 
 /// Bump when persisted linking semantics change without a binary format
 /// change: snapshots and extraction checkpoints of another version rebuild.
-const ANALYSIS_VERSION: u32 = 24;
+const ANALYSIS_VERSION: u32 = 25;
 
 #[cfg(test)]
 mod link_tests;

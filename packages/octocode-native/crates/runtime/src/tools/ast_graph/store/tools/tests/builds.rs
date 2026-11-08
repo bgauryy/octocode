@@ -184,3 +184,74 @@ fn a_paused_build_resumes_through_expand_scan_without_refresh() {
     let built = call(&dir.0, ToolId::GraphBuild, row.clone());
     assert!(built["id"].is_string(), "{built}");
 }
+
+/// A build whose source files all sit behind ignore rules or the default
+/// excludes names why it holds no file, and leads to the same graphBuild
+/// with the flag that reaches them; running that lead builds them.
+#[test]
+fn a_build_of_only_skipped_files_says_why_it_is_empty() {
+    // In a git work tree a default-pruned name is pruned only where git
+    // ignores it, so the default excludes alone show outside one.
+    let git = Fixture::new();
+    std::fs::create_dir_all(git.0.join(".git")).expect("git");
+    git.write("scratch/.gitignore", "*\n");
+    git.write("scratch/a.ts", "export function a() { return 1; }\n");
+    git.write("plain/c.ts", "export const c = 1;\n");
+    let loose = Fixture::new();
+    loose.write("vendored/node_modules/x/b.ts", "export const b = 1;\n");
+    loose.write("vendored/readme.md", "# not code\n");
+    for (dir, path, flag, value) in [
+        (&git, "scratch", "includeIgnored", json!(true)),
+        (&loose, "vendored", "defaultExcludes", json!(false)),
+    ] {
+        let built = call(&dir.0, ToolId::GraphBuild, json!({"path": path}));
+        assert_eq!(built["counts"]["nodes"], 0, "{built}");
+        let hints = built["hints"].to_string();
+        assert!(hints.contains("behind skipped paths"), "{path}: {built}");
+        assert!(
+            !hints.contains("has no includeIgnored"),
+            "{path}: graphBuild has the flag now: {built}"
+        );
+        let lead = built["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|call| call["tool"] == "graphBuild")
+            .unwrap_or_else(|| panic!("{path}: no lead: {built}"));
+        let query = &lead["input"]["queries"][0];
+        assert_eq!(query[flag], value, "{path}: {lead}");
+        assert_eq!(query["path"], path, "{path}: {lead}");
+        crate::contracts::validate_built_query(ToolId::GraphBuild.as_str(), query.clone())
+            .unwrap_or_else(|error| panic!("{path}: the lead is not runnable: {error:?}"));
+        let lifted = call(&dir.0, ToolId::GraphBuild, query.clone());
+        assert!(
+            lifted["counts"]["nodes"].as_u64().unwrap_or(0) > 0,
+            "{path}: the lead builds the skipped files: {lifted}"
+        );
+    }
+    // A scope with code says nothing about skipped paths.
+    let plain = call(&git.0, ToolId::GraphBuild, json!({"path": "plain"}));
+    assert!(plain.get("hints").is_none(), "{plain}");
+}
+
+/// A build that lost a race with an edit names the cause as transient and
+/// leads to the same graphBuild, runnable as written; it is no tool failure.
+#[test]
+fn a_build_that_lost_a_race_with_an_edit_leads_to_the_same_build() {
+    let query: GraphBuildQuery =
+        serde_json::from_value(json!({"path": "app", "keep": 2})).expect("graphBuild query");
+    let mut out =
+        GraphOutput::changed_during_build("source \"a.ts\" changed during graph analysis");
+    retry_after_change(&mut out, &query);
+    let hints = out.value["hints"].to_string();
+    assert!(hints.contains("run the same graphBuild again"), "{hints}");
+    assert!(!hints.contains("tool failure") || hints.contains("not a tool failure"));
+    let lead = &out.value["related"][0];
+    assert_eq!(lead["tool"], "graphBuild", "{lead}");
+    assert_eq!(lead["input"]["queries"][0]["path"], "app", "{lead}");
+    assert_eq!(lead["input"]["queries"][0]["keep"], 2, "{lead}");
+    // A build that succeeded, or failed otherwise, is left alone.
+    let mut other = GraphOutput::error(ErrorCode::ExecutionFailed, "other");
+    retry_after_change(&mut other, &query);
+    assert!(other.value.get("related").is_none());
+}

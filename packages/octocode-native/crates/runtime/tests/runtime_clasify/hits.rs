@@ -314,6 +314,35 @@ async fn a_classified_read_warns_what_it_kept_and_that_empty_is_not_absence() {
     runtime.close().await;
 }
 
+/// A whole-file read whose chunks all fail the classifiers is empty, and
+/// says that an empty classified result is no absence (CLS-C19).
+#[tokio::test]
+async fn a_classified_read_keeping_no_chunk_is_empty_and_not_absence() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    let file = workspace.write("none.txt", "needle drop one\n\nneedle drop two\n");
+    let runtime = support::clasify_runtime(&workspace, &server, &[]);
+    let row = support::run(
+        &runtime,
+        "localFetch",
+        json!({"path":file,"classification":{"predicates":[PREDICATE]}}),
+    )
+    .await;
+    let data = row.data();
+    assert_eq!(row.status(), "empty", "{data}");
+    assert_eq!(data["selection"]["unit"], "chunks", "{data}");
+    assert_eq!(data["selection"]["selectedItems"], 0, "{data}");
+    let warnings = data["warnings"].to_string();
+    assert!(
+        warnings.contains("classification kept 0 of")
+            && warnings.contains("chunk")
+            && warnings.contains("not absence"),
+        "{data}"
+    );
+    assert!(data["next"]["unfiltered"].is_object(), "{data}");
+    runtime.close().await;
+}
+
 /// The whole read has no hits: its chunks stay the unit, and it says so.
 #[tokio::test]
 async fn a_read_without_a_search_counts_chunks() {

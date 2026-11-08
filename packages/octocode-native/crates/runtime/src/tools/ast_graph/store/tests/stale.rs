@@ -86,6 +86,58 @@ fn stale_reports_sources_added_since_ingest() {
     assert_fresh_build(&ingest_fixture(dir.0.as_path(), None));
 }
 
+/// The `reingest` lead rebuilds the snapshot it is stale against, so it
+/// carries that snapshot's walk: a default walk would build another scope.
+#[test]
+fn the_reingest_lead_carries_the_snapshots_walk() {
+    use crate::tools::ast_graph::walk_scope::WalkScope;
+    use octocode_engine::types::IgnorePolicy;
+    let walk_of_lead = |dir: &Path| {
+        let out = ask(dir, "stale", None, |_| {});
+        assert_eq!(out.value["fresh"], false, "{}", out.value);
+        let build: octocode_contract_types::GraphBuildQuery =
+            serde_json::from_value(out.value["reingest"]["input"]["queries"][0].clone())
+                .expect("a graphBuild row");
+        WalkScope::of_query(&build)
+    };
+    let walks = [
+        WalkScope::default(),
+        WalkScope {
+            ignore: IgnorePolicy {
+                include_ignored: false,
+                include_hidden: true,
+            },
+            ..WalkScope::default()
+        },
+        WalkScope {
+            default_excludes: false,
+            ignore: IgnorePolicy {
+                include_ignored: true,
+                include_hidden: true,
+            },
+        },
+    ];
+    for walk in walks {
+        let dir = fixture();
+        dir.write("app/.hid/h.ts", "export const h = 1;\n");
+        let built = ingest(
+            &IngestOptions {
+                path: dir.0.join("app"),
+                workspace: Some(dir.0.to_path_buf()),
+                walk,
+                ..Default::default()
+            },
+            &workspace_policy(dir.0.as_path()),
+            &ContentSecurity::new(),
+            &NeverCancel,
+            None,
+        );
+        assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+        dir.write("app/src/z.ts", "export const z = 1;\n");
+        assert_eq!(walk_of_lead(dir.0.as_path()), walk);
+    }
+}
+
 /// A snapshot published before snapshot bounds became build refusals may
 /// carry `scan.edgesCapped`; it still parses and answers, and names no cut
 /// the scan did not make.
@@ -287,6 +339,7 @@ fn a_moved_repository_root_is_stale_under_a_proof() {
 fn an_unsettled_input_records_no_proof() {
     let dir = fixture();
     dir.write("app/tsconfig.json", "{\"compilerOptions\":{}}");
+    dir.date_ahead("app/tsconfig.json");
     let built = ingest_fixture(dir.0.as_path(), None);
     assert_fresh_build(&built);
     let graph_dir = PathBuf::from(built.value["dir"].as_str().expect("dir"));

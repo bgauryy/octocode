@@ -193,11 +193,11 @@ pub(super) fn shape(
         // GitHub lists pushed history only: a file that exists only in the
         // caller's checkout reads the same as a path that never existed.
         let at = gh_search_history_query::reference(query).unwrap_or("the default branch");
-        crate::tools::leads::push_hint(
+        crate::response::result::add_hints(
             &mut value,
-            format!(
+            [format!(
                 "No commit touches `{path}` on {at} of GitHub: history covers only what was pushed there, so a file or commit that exists only in your checkout (never pushed, or on an unpushed branch) has none here; read it with local git history, or retry with the ref that holds it. The related[] ghStructure request lists the path's parent to check it exists at that ref."
-            ),
+            )],
         );
     }
     disclose_provider_limits(&mut value, query, paging, narrow);

@@ -45,7 +45,9 @@ export const ghSearchRepo = {
 };
 
 const REVIEW = { changesRequested: 'changes_requested' };
-const selection = (value, holds) => (!value?.include?.length || holds(value.include[0])) && !(value?.exclude ?? []).some(holds);
+const negated = field => `not${field[0].toUpperCase()}${field.slice(1)}`;
+/** A scalar filter selects its value; its not<Field> (one value or a list) excludes each one. */
+const selects = (filters, field, holds) => (filters[field] === undefined || holds(filters[field])) && ![filters[negated(field)] ?? []].flat().some(holds);
 
 function historyTruth(ctx, { query }) {
   if (query.operation === 'commit') return ctx.mock.model.commits.filter(commit => !query.keywords || query.keywords.every(term => commit.message.toLowerCase().includes(term))).map(commit => [commit.oid]);
@@ -58,9 +60,9 @@ function historyTruth(ctx, { query }) {
     && (f.archive !== 'only')
     && (f.isMerged === undefined || Boolean(item.merged) === f.isMerged)
     && (f.isDraft === undefined || Boolean(item.draft) === f.isDraft)
-    && selection(f.checkStatus, value => item.check === value)
-    && selection(f.review, value => item.review === (REVIEW[value] ?? value))
-    && selection(f.linked, () => item.linked)).map(item => [item.number]);
+    && selects(f, 'checkStatus', value => item.check === value)
+    && selects(f, 'review', value => item.review === (REVIEW[value] ?? value))
+    && selects(f, 'linked', () => item.linked)).map(item => [item.number]);
 }
 
 const HISTORY_ORDER = { commentCount: item => item.comments.length, reactionCount: item => item.reactions, createdAt: item => item.day, updatedAt: item => item.updatedDay };
@@ -79,16 +81,14 @@ export const ghSearchHistory = {
   pseudo: [{ key: 'page', values: ['whole', 'tiny'] }],
   base: (row, assignment) => {
     const limit = assignment.page === 'tiny' ? { limit: 1 } : {};
-    if (row.operation === 'commit') return { owner: 'octo', repo: 'demo', ...limit };
-    return { owner: 'octo', repo: 'hist', ...(row.filters?.matchIn && { keywords: ['needle'] }), ...limit };
+    if (row.operation === 'commit') return { owner: 'octo', repo: 'demo', ...limit, ...classificationBase(row, assignment) };
+    return { owner: 'octo', repo: 'hist', ...(row.filters?.matchIn && { keywords: ['needle'] }), ...limit, ...classificationBase(row, assignment) };
   },
   normalize: testCase => { if (testCase.assignment.page === 'tiny') testCase.responseChars = 400; },
   truth: historyTruth,
-  // A pull request cannot be both open and merged: the tool says so instead of asking GitHub.
-  refusal: (ctx, { query }) => (query.filters?.state === 'open' && query.filters.isMerged === true ? 'invalidInput' : null),
   observed: (ctx, { query }, pages) => rowsOf(pages).flatMap(row => (query.operation === 'commit' ? (row.commits ?? []).map(commit => [commit.commitSha]) : historyRows(row).map(item => [item.number]))),
-  check: historyCheck,
-  indistinct: { sort: 'order, judged by check against the corpus', operation: 'one value per form' },
+  check: (ctx, testCase, pages) => longContextProblem(ctx, testCase.query, historyTruth(ctx, testCase).length > 0) ?? historyCheck(ctx, testCase, pages),
+  indistinct: { sort: 'order, judged by check against the corpus', operation: 'one value per form', 'classification.longContext': 'changes the provider request, judged by check; evidence is kept whole' },
 };
 
 const PATCH_LINES = [' Needle kept', '-needle old', '+needle new', ' Needlework'];
@@ -181,16 +181,20 @@ function itemCheck(ctx, { query }, pages) {
   return missing.length ? `patch misses ${missing.join(' | ')} of ${lines.join(' | ')}` : null;
 }
 
+/** Classification judges a pull request's or issue's discussion only: a read with none of it has nothing to judge. */
+const DISCUSSION = new Set(['comments', 'reviews', 'reviewComments']);
+const judgedDiscussion = (ctx, testCase) => itemTruth(ctx, testCase).some(([section, value]) => DISCUSSION.has(section) && Boolean(value));
+
 export const ghGetHistoryItem = {
   tool: 'ghGetHistoryItem',
   pseudo: [{ key: 'page', values: ['whole', 'tiny'] }, { key: 'casing', values: ['lower', 'mixed'] }],
-  base: (row, assignment) => ({ ...itemBase(row), ...itemPattern(row, assignment) }),
+  base: (row, assignment) => ({ ...itemBase(row), ...itemPattern(row, assignment), ...classificationBase(row, assignment) }),
   normalize: testCase => { if (testCase.assignment.page === 'tiny') testCase.responseChars = 500; },
   resolve: (ctx, input) => JSON.parse(JSON.stringify(input).replaceAll('<section-commit>', ctx.sectionCommit).replaceAll('<first-commit>', ctx.mock.model.commits[0].oid)),
   truth: itemTruth,
   observed: itemObserved,
-  check: itemCheck,
-  indistinct: { operation: 'one value per form', caseMode: 'judged on patch text by check', regexEngine: 'judged on patch text by check', wholeWord: 'judged on patch text by check' },
+  check: (ctx, testCase, pages) => longContextProblem(ctx, testCase.query, judgedDiscussion(ctx, testCase)) ?? itemCheck(ctx, testCase, pages),
+  indistinct: { operation: 'one value per form', caseMode: 'judged on patch text by check', regexEngine: 'judged on patch text by check', wholeWord: 'judged on patch text by check', 'classification.longContext': 'changes the provider request, judged by check; evidence is kept whole' },
 };
 
 const demoFiles = ctx => Object.keys(ctx.mock.model.files);

@@ -3,18 +3,32 @@
  "tool": "securityCheck",
  "query": {
   "operation": "package",
-  "ecosystem": "pypi",
+  "ecosystem": "PyPI",
   "packageName": "requests",
   "version": "2.19.0"
  },
- "recordedAt": "2026-11-05",
+ "recordedAt": "2026-11-08",
  "unread": [
+  "affected[*].database_specific",
+  "affected[*].package.ecosystem",
+  "affected[*].package.purl",
+  "affected[*].ranges[*].events[*].introduced",
+  "affected[*].ranges[*].repo",
+  "affected[*].ranges[*].type",
+  "database_specific.cwe_ids",
+  "database_specific.github_reviewed_at",
+  "database_specific.nvd_published_at",
+  "details",
   "info.author",
   "info.author_email",
   "info.classifiers",
   "info.description",
+  "info.description_content_type",
+  "info.dynamic",
   "info.home_page",
   "info.license",
+  "info.license_files",
+  "info.maintainer_email",
   "info.package_url",
   "info.project_url",
   "info.project_urls",
@@ -23,19 +37,34 @@
   "info.requires_python",
   "info.summary",
   "last_serial",
+  "modified",
   "ownership",
-  "urls",
-  "vulns[*].affected[*].database_specific.last_known_affected_version_range",
-  "vulns[*].affected[*].package.ecosystem",
-  "vulns[*].affected[*].package.purl",
-  "vulns[*].affected[*].ranges[*].repo",
-  "vulns[*].database_specific.cwe_ids",
-  "vulns[*].database_specific.github_reviewed_at",
-  "vulns[*].database_specific.nvd_published_at",
-  "vulns[*].modified",
-  "vulns[*].published",
-  "vulns[*].references[*].url",
-  "vulns[*].schema_version"
+  "published",
+  "references",
+  "releases.*[*].core-metadata",
+  "releases.*[*].digests",
+  "releases.*[*].filename",
+  "releases.*[*].md5_digest",
+  "releases.*[*].packagetype",
+  "releases.*[*].requires_python",
+  "releases.*[*].size",
+  "releases.*[*].upload_time",
+  "releases.*[*].url",
+  "releases.*[*].yanked_reason",
+  "results[*].vulns[*].modified",
+  "schema_version",
+  "severity",
+  "urls[*].core-metadata",
+  "urls[*].digests",
+  "urls[*].filename",
+  "urls[*].md5_digest",
+  "urls[*].packagetype",
+  "urls[*].requires_python",
+  "urls[*].size",
+  "urls[*].upload_time",
+  "urls[*].url",
+  "vulnerabilities[*].details",
+  "vulnerabilities[*].link"
  ],
  "exchanges": [
   {
@@ -207,15 +236,480 @@
   },
   {
    "request": {
+    "method": "GET",
+    "url": "https://pypi.org/pypi/requests/json",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "max-age=900, public"
+    ],
+    [
+     "content-type",
+     "application/json"
+    ],
+    [
+     "etag",
+     "\"PIda7csZtWyaGzro3RbDQA\""
+    ]
+   ],
+   "digest": "sha256:bcfc6a202592e4e90f5a28ff002694eaa7c58ba741b76077f432b8bee1480111",
+   "body": {
+    "info": {
+     "author": null,
+     "author_email": "Kenneth Reitz <person@example.test>",
+     "bugtrack_url": null,
+     "classifiers": [
+      "Development Status :: 5 - Production/Stable",
+      "Topic :: Software Development :: Libraries"
+     ],
+     "description": "# Requests\n\n[![Version](https://img.shields.io/pypi/v/requests.svg?maxAge=86400)](https://pypi.org/project/requests/)\n[![Supported Versions](https://img.shields.io/pypi/pyversions/requests.svg)](https://pypi.org/project/requests)\n[![Downloads](https://static.pepy.tech/badge/requests/month)](https://pepy.tech/project/requests)\n[![Contributors](https://img.shields.io/github/contributors/psf/requests.svg)](https://github.com/psf/requests/graphs/contributors)\n[![Documentation](https://readthedocs.org/projects/requests/badge/?version=latest)](https://requests.readthedocs.io)\n\n**Requests** is a simple, yet elegant, HTTP library.\n\n```python\n>>> import requests\n>>> r = requests.get('https://httpbin.org/basic-auth/user/pass', auth=('user', 'pass'))\n>>> r.status_code\n200\n>>> r.headers['content-type']\n'application/json; charset=utf8'\n>>> r.encoding\n'utf-8'\n>>> r.text\n'{\"authenticated\": true, ...'\n>>> r.json()\n{'authenticated': True, ...}\n```\n\nRequests allows you to send HTTP/1.1 requests extremely easily. There’s no need to manually add query strings to your URLs, or to form-encode your `PUT` & `POST` data — but nowadays, just use the `json` method!\n\nRequests is one of the most downloaded Pyt",
+     "description_content_type": "text/markdown",
+     "docs_url": null,
+     "download_url": null,
+     "downloads": {
+      "last_day": -1,
+      "last_month": -1,
+      "last_week": -1
+     },
+     "dynamic": [
+      "License-File"
+     ],
+     "home_page": null,
+     "keywords": null,
+     "license": "Apache-2.0",
+     "license_expression": null,
+     "license_files": [
+      "LICENSE",
+      "NOTICE"
+     ],
+     "maintainer": null,
+     "maintainer_email": "Ian Stapleton Cordasco <person@example.test>, Nate Prewitt <person@example.test>",
+     "name": "requests",
+     "package_url": "https://pypi.org/project/requests/",
+     "platform": null,
+     "project_url": "https://pypi.org/project/requests/",
+     "project_urls": {
+      "Documentation": "https://requests.readthedocs.io",
+      "Source": "https://github.com/psf/requests"
+     },
+     "provides_extra": [
+      "security",
+      "socks",
+      "use-chardet-on-py3"
+     ],
+     "release_url": "https://pypi.org/project/requests/2.34.2/",
+     "requires_dist": [
+      "charset_normalizer<4,>=2",
+      "chardet<8,>=3.0.2; extra == \"use-chardet-on-py3\""
+     ],
+     "requires_python": ">=3.10",
+     "summary": "Python HTTP for Humans.",
+     "version": "2.34.2",
+     "yanked": false,
+     "yanked_reason": null
+    },
+    "last_serial": 37059094,
+    "ownership": {
+     "organization": null,
+     "roles": [
+      {
+       "role": "Owner",
+       "user": "Lukasa"
+      },
+      {
+       "role": "Owner",
+       "user": "graffatcolmingov"
+      },
+      {
+       "role": "Owner",
+       "user": "nateprewitt"
+      }
+     ]
+    },
+    "releases": {
+     "0.0.1": [],
+     "0.10.0": [
+      {
+       "comment_text": "",
+       "core-metadata": false,
+       "digests": {
+        "blake2b_256": "62350230421b8c4efad6624518028163329ad0c2df9e58e6b3bee013427bf8f6",
+        "md5": "c90a48af18eb4170dbe4832c1104440c",
+        "sha256": "210a82e678c45d433a4ad1f105974b3102a8ab5198872dc0a3238a8750d4c65e"
+       },
+       "downloads": -1,
+       "filename": "requests-0.10.0.tar.gz",
+       "has_sig": false,
+       "md5_digest": "c90a48af18eb4170dbe4832c1104440c",
+       "packagetype": "sdist",
+       "python_version": "source",
+       "requires_python": null,
+       "size": 62046,
+       "upload_time": "2012-01-22T05:08:17",
+       "upload_time_iso_8601": "2012-01-22T05:08:17.091441Z",
+       "url": "https://files.pythonhosted.org/packages/62/35/0230421b8c4efad6624518028163329ad0c2df9e58e6b3bee013427bf8f6/requests-0.10.0.tar.gz",
+       "yanked": false,
+       "yanked_reason": null
+      }
+     ],
+     "2.0.0": [
+      {
+       "comment_text": "",
+       "core-metadata": {
+        "sha256": "947ae5985faceddfc9e53915629bb928556e9a552b7e3e7f0304999d0f2ab69f"
+       },
+       "digests": {
+        "blake2b_256": "bf78be2b4c440ea767336d8448fe671fe1d78ca499e49d77dac90f92191cca0e",
+        "md5": "6af9c16dbddd2fc751ae4f1606d041e8",
+        "sha256": "2ef65639cb9600443f85451df487818c31f993ab288f313d29cc9db4f3cbe6ed"
+       },
+       "downloads": -1,
+       "filename": "requests-2.0.0-py2.py3-none-any.whl",
+       "has_sig": false,
+       "md5_digest": "6af9c16dbddd2fc751ae4f1606d041e8",
+       "packagetype": "bdist_wheel",
+       "python_version": "2.7",
+       "requires_python": null,
+       "size": 391141,
+       "upload_time": "2013-11-15T19:09:51",
+       "upload_time_iso_8601": "2013-11-15T19:09:51.527323Z",
+       "url": "https://files.pythonhosted.org/packages/bf/78/be2b4c440ea767336d8448fe671fe1d78ca499e49d77dac90f92191cca0e/requests-2.0.0-py2.py3-none-any.whl",
+       "yanked": false,
+       "yanked_reason": null
+      },
+      {
+       "comment_text": "",
+       "core-metadata": false,
+       "digests": {
+        "blake2b_256": "8e88102742c48605aef8d39fa719d932c67783d789679628fa1433cb4b2c7a2a",
+        "md5": "856fc825c17483e25fd55db115028e3f",
+        "sha256": "78536038f54cff6ade3be6863403146665b5a3923dd61108c98d8b64141f9d70"
+       },
+       "downloads": -1,
+       "filename": "requests-2.0.0.tar.gz",
+       "has_sig": false,
+       "md5_digest": "856fc825c17483e25fd55db115028e3f",
+       "packagetype": "sdist",
+       "python_version": "source",
+       "requires_python": null,
+       "size": 362994,
+       "upload_time": "2013-09-24T18:39:33",
+       "upload_time_iso_8601": "2013-09-24T18:39:33.154169Z",
+       "url": "https://files.pythonhosted.org/packages/8e/88/102742c48605aef8d39fa719d932c67783d789679628fa1433cb4b2c7a2a/requests-2.0.0.tar.gz",
+       "yanked": false,
+       "yanked_reason": null
+      }
+     ],
+     "2.19.0": [
+      {
+       "comment_text": "",
+       "core-metadata": {
+        "sha256": "d34a14e65ec267f5a1c3a2ac97c242f8250a2c47ce916e71041de7d9913748fb"
+       },
+       "digests": {
+        "blake2b_256": "cc15e1c318dbc20032ffbe5628837ca0de2d5b116ffd1b849c699634010f6a5d",
+        "md5": "1ae2b89f8ea3e4aea8b199987fb2aae9",
+        "sha256": "421cfc8d9dde7d6aff68196420afd86b88c65d77d8da9cf83f4ecad785d7b9d6"
+       },
+       "downloads": -1,
+       "filename": "requests-2.19.0-py2.py3-none-any.whl",
+       "has_sig": false,
+       "md5_digest": "1ae2b89f8ea3e4aea8b199987fb2aae9",
+       "packagetype": "bdist_wheel",
+       "python_version": "py2.py3",
+       "requires_python": ">=2.6, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*",
+       "size": 91865,
+       "upload_time": "2018-06-12T14:46:15",
+       "upload_time_iso_8601": "2018-06-12T14:46:15.289074Z",
+       "url": "https://files.pythonhosted.org/packages/cc/15/e1c318dbc20032ffbe5628837ca0de2d5b116ffd1b849c699634010f6a5d/requests-2.19.0-py2.py3-none-any.whl",
+       "yanked": false,
+       "yanked_reason": null
+      },
+      {
+       "comment_text": "",
+       "core-metadata": false,
+       "digests": {
+        "blake2b_256": "752782da3fa4ea7a8c3526c48eaafe427352ff9c931633b917c2251826a43697",
+        "md5": "8a7844c58d496e9e92481de459830229",
+        "sha256": "cc408268d0e21589bcc2b2c248e42932b8c4d112f499c12c92e99e2178a6134c"
+       },
+       "downloads": -1,
+       "filename": "requests-2.19.0.tar.gz",
+       "has_sig": false,
+       "md5_digest": "8a7844c58d496e9e92481de459830229",
+       "packagetype": "sdist",
+       "python_version": "source",
+       "requires_python": ">=2.6, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*",
+       "size": 130875,
+       "upload_time": "2018-06-12T14:46:17",
+       "upload_time_iso_8601": "2018-06-12T14:46:17.223245Z",
+       "url": "https://files.pythonhosted.org/packages/75/27/82da3fa4ea7a8c3526c48eaafe427352ff9c931633b917c2251826a43697/requests-2.19.0.tar.gz",
+       "yanked": false,
+       "yanked_reason": null
+      }
+     ],
+     "2.32.0": [
+      {
+       "comment_text": "",
+       "core-metadata": {
+        "sha256": "366815cd98a835663f39fcb94a5be5a0fee15268b758ea80e64b650a5ecb7781"
+       },
+       "digests": {
+        "blake2b_256": "24e809e8d662a9675a4e4f5dd7a8e6127b463a091d2703ed931a64aa66d00065",
+        "md5": "53f4922c1891e32e32ce579c1825171f",
+        "sha256": "f2c3881dddb70d056c5bd7600a4fae312b2a300e39be6a118d30b90bd27262b5"
+       },
+       "downloads": -1,
+       "filename": "requests-2.32.0-py3-none-any.whl",
+       "has_sig": false,
+       "md5_digest": "53f4922c1891e32e32ce579c1825171f",
+       "packagetype": "bdist_wheel",
+       "python_version": "py3",
+       "requires_python": ">=3.8",
+       "size": 63695,
+       "upload_time": "2024-05-20T16:08:19",
+       "upload_time_iso_8601": "2024-05-20T16:08:19.530618Z",
+       "url": "https://files.pythonhosted.org/packages/24/e8/09e8d662a9675a4e4f5dd7a8e6127b463a091d2703ed931a64aa66d00065/requests-2.32.0-py3-none-any.whl",
+       "yanked": true,
+       "yanked_reason": "Yanked due to conflicts with CVE-2024-35195 mitigation"
+      },
+      {
+       "comment_text": "",
+       "core-metadata": false,
+       "digests": {
+        "blake2b_256": "28a2423f4d16d6934ef502f10ad56673719dd4345e656aedbd6687ccc359ffc5",
+        "md5": "00693243143146aad73add14b3737662",
+        "sha256": "fa5490319474c82ef1d2c9bc459d3652e3ae4ef4c4ebdd18a21145a47ca4b6b8"
+       },
+       "downloads": -1,
+       "filename": "requests-2.32.0.tar.gz",
+       "has_sig": false,
+       "md5_digest": "00693243143146aad73add14b3737662",
+       "packagetype": "sdist",
+       "python_version": "source",
+       "requires_python": ">=3.8",
+       "size": 114373,
+       "upload_time": "2024-05-20T16:11:48",
+       "upload_time_iso_8601": "2024-05-20T16:11:48.306524Z",
+       "url": "https://files.pythonhosted.org/packages/28/a2/423f4d16d6934ef502f10ad56673719dd4345e656aedbd6687ccc359ffc5/requests-2.32.0.tar.gz",
+       "yanked": true,
+       "yanked_reason": "Yanked due to conflicts with CVE-2024-35195 mitigation"
+      }
+     ],
+     "2.32.4": [
+      {
+       "comment_text": null,
+       "core-metadata": {
+        "sha256": "dd2e362ef34da0bd843f62230b55425e81259c6ad34d55b03e0226541e05605e"
+       },
+       "digests": {
+        "blake2b_256": "7ce456027c4a6b4ae70ca9de302488c5ca95ad4a39e190093d6c1a8ace08341b",
+        "md5": "fa8fa331f951fbc5e62f3d3e683a77a4",
+        "sha256": "27babd3cda2a6d50b30443204ee89830707d396671944c998b5975b031ac2b2c"
+       },
+       "downloads": -1,
+       "filename": "requests-2.32.4-py3-none-any.whl",
+       "has_sig": false,
+       "md5_digest": "fa8fa331f951fbc5e62f3d3e683a77a4",
+       "packagetype": "bdist_wheel",
+       "python_version": "py3",
+       "requires_python": ">=3.8",
+       "size": 64847,
+       "upload_time": "2025-06-09T16:43:05",
+       "upload_time_iso_8601": "2025-06-09T16:43:05.728107Z",
+       "url": "https://files.pythonhosted.org/packages/7c/e4/56027c4a6b4ae70ca9de302488c5ca95ad4a39e190093d6c1a8ace08341b/requests-2.32.4-py3-none-any.whl",
+       "yanked": false,
+       "yanked_reason": null
+      },
+      {
+       "comment_text": null,
+       "core-metadata": false,
+       "digests": {
+        "blake2b_256": "e10a929373653770d8a0d7ea76c37de6e41f11eb07559b103b1c02cafb3f7cf8",
+        "md5": "4a380c14fe0f4465c9dbf79ffacefd8f",
+        "sha256": "27d0316682c8a29834d3264820024b62a36942083d52caf2f14c0591336d3422"
+       },
+       "downloads": -1,
+       "filename": "requests-2.32.4.tar.gz",
+       "has_sig": false,
+       "md5_digest": "4a380c14fe0f4465c9dbf79ffacefd8f",
+       "packagetype": "sdist",
+       "python_version": "source",
+       "requires_python": ">=3.8",
+       "size": 135258,
+       "upload_time": "2025-06-09T16:43:07",
+       "upload_time_iso_8601": "2025-06-09T16:43:07.340534Z",
+       "url": "https://files.pythonhosted.org/packages/e1/0a/929373653770d8a0d7ea76c37de6e41f11eb07559b103b1c02cafb3f7cf8/requests-2.32.4.tar.gz",
+       "yanked": false,
+       "yanked_reason": null
+      }
+     ],
+     "2.34.2": [
+      {
+       "comment_text": null,
+       "core-metadata": {
+        "sha256": "8c384ba3e979480faae2859d3c5e6c1276dd2c3616e322e124d52c8cfc556f27"
+       },
+       "digests": {
+        "blake2b_256": "a0f4c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b6528104182a",
+        "md5": "cc4287951c320ff794e5e183c7a91f85",
+        "sha256": "2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0"
+       },
+       "downloads": -1,
+       "filename": "requests-2.34.2-py3-none-any.whl",
+       "has_sig": false,
+       "md5_digest": "cc4287951c320ff794e5e183c7a91f85",
+       "packagetype": "bdist_wheel",
+       "python_version": "py3",
+       "requires_python": ">=3.10",
+       "size": 73075,
+       "upload_time": "2026-05-14T19:25:26",
+       "upload_time_iso_8601": "2026-05-14T19:25:26.443000Z",
+       "url": "https://files.pythonhosted.org/packages/a0/f4/c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b6528104182a/requests-2.34.2-py3-none-any.whl",
+       "yanked": false,
+       "yanked_reason": null
+      },
+      {
+       "comment_text": null,
+       "core-metadata": false,
+       "digests": {
+        "blake2b_256": "acc3e2a2b89f2d3e2179abd6d00ebd70bff6273f37fb3e0cc209f48b39d00cbf",
+        "md5": "611e438d0803e962500225f9807a475e",
+        "sha256": "f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed"
+       },
+       "downloads": -1,
+       "filename": "requests-2.34.2.tar.gz",
+       "has_sig": false,
+       "md5_digest": "611e438d0803e962500225f9807a475e",
+       "packagetype": "sdist",
+       "python_version": "source",
+       "requires_python": ">=3.10",
+       "size": 142856,
+       "upload_time": "2026-05-14T19:25:27",
+       "upload_time_iso_8601": "2026-05-14T19:25:27.735762Z",
+       "url": "https://files.pythonhosted.org/packages/ac/c3/e2a2b89f2d3e2179abd6d00ebd70bff6273f37fb3e0cc209f48b39d00cbf/requests-2.34.2.tar.gz",
+       "yanked": false,
+       "yanked_reason": null
+      }
+     ],
+     "2.9.2": [
+      {
+       "comment_text": "",
+       "core-metadata": {
+        "sha256": "c46d96075811049bd34d81c6e791983ee8966317f41fe2c2af99ec4cac77fe6d"
+       },
+       "digests": {
+        "blake2b_256": "8be7229a428b8eb9a7f925ef16ff09ab25856efe789410d661f10157919f2ae2",
+        "md5": "afecc76f13f3ae5e5dab18ae64c73c84",
+        "sha256": "22a8c72dfc7fc18db1aca6784e97a638e9d09abe2cd387be473f88bd6dcba22f"
+       },
+       "downloads": -1,
+       "filename": "requests-2.9.2-py2.py3-none-any.whl",
+       "has_sig": false,
+       "md5_digest": "afecc76f13f3ae5e5dab18ae64c73c84",
+       "packagetype": "bdist_wheel",
+       "python_version": "2.7",
+       "requires_python": null,
+       "size": 502812,
+       "upload_time": "2016-04-29T21:57:23",
+       "upload_time_iso_8601": "2016-04-29T21:57:23.021820Z",
+       "url": "https://files.pythonhosted.org/packages/8b/e7/229a428b8eb9a7f925ef16ff09ab25856efe789410d661f10157919f2ae2/requests-2.9.2-py2.py3-none-any.whl",
+       "yanked": false,
+       "yanked_reason": null
+      },
+      {
+       "comment_text": "",
+       "core-metadata": false,
+       "digests": {
+        "blake2b_256": "64202133a092a0e87d1c250fe48704974b73a1341b7e4f800edecf40462a825d",
+        "md5": "18d0e51cd5e84c7d8b6dcbdd51551984",
+        "sha256": "d8be941a08cf36e4f424ac76073eb911e5e646a33fcb3402e1642c426bf34682"
+       },
+       "downloads": -1,
+       "filename": "requests-2.9.2.tar.gz",
+       "has_sig": false,
+       "md5_digest": "18d0e51cd5e84c7d8b6dcbdd51551984",
+       "packagetype": "sdist",
+       "python_version": "source",
+       "requires_python": null,
+       "size": 474018,
+       "upload_time": "2016-04-29T21:57:10",
+       "upload_time_iso_8601": "2016-04-29T21:57:10.487144Z",
+       "url": "https://files.pythonhosted.org/packages/64/20/2133a092a0e87d1c250fe48704974b73a1341b7e4f800edecf40462a825d/requests-2.9.2.tar.gz",
+       "yanked": false,
+       "yanked_reason": null
+      }
+     ]
+    },
+    "urls": [
+     {
+      "comment_text": null,
+      "core-metadata": {
+       "sha256": "8c384ba3e979480faae2859d3c5e6c1276dd2c3616e322e124d52c8cfc556f27"
+      },
+      "digests": {
+       "blake2b_256": "a0f4c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b6528104182a",
+       "md5": "cc4287951c320ff794e5e183c7a91f85",
+       "sha256": "2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0"
+      },
+      "downloads": -1,
+      "filename": "requests-2.34.2-py3-none-any.whl",
+      "has_sig": false,
+      "md5_digest": "cc4287951c320ff794e5e183c7a91f85",
+      "packagetype": "bdist_wheel",
+      "python_version": "py3",
+      "requires_python": ">=3.10",
+      "size": 73075,
+      "upload_time": "2026-05-14T19:25:26",
+      "upload_time_iso_8601": "2026-05-14T19:25:26.443000Z",
+      "url": "https://files.pythonhosted.org/packages/a0/f4/c67b0b3f1b9245e8d266f0f112c500d50e5b4e83cb6f3b71b6528104182a/requests-2.34.2-py3-none-any.whl",
+      "yanked": false,
+      "yanked_reason": null
+     },
+     {
+      "comment_text": null,
+      "core-metadata": false,
+      "digests": {
+       "blake2b_256": "acc3e2a2b89f2d3e2179abd6d00ebd70bff6273f37fb3e0cc209f48b39d00cbf",
+       "md5": "611e438d0803e962500225f9807a475e",
+       "sha256": "f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed"
+      },
+      "downloads": -1,
+      "filename": "requests-2.34.2.tar.gz",
+      "has_sig": false,
+      "md5_digest": "611e438d0803e962500225f9807a475e",
+      "packagetype": "sdist",
+      "python_version": "source",
+      "requires_python": ">=3.10",
+      "size": 142856,
+      "upload_time": "2026-05-14T19:25:27",
+      "upload_time_iso_8601": "2026-05-14T19:25:27.735762Z",
+      "url": "https://files.pythonhosted.org/packages/ac/c3/e2a2b89f2d3e2179abd6d00ebd70bff6273f37fb3e0cc209f48b39d00cbf/requests-2.34.2.tar.gz",
+      "yanked": false,
+      "yanked_reason": null
+     }
+    ],
+    "vulnerabilities": []
+   }
+  },
+  {
+   "request": {
     "method": "POST",
-    "url": "https://api.osv.dev/v1/query",
+    "url": "https://api.osv.dev/v1/querybatch",
     "accept": "application/json",
     "body": {
-     "package": {
-      "name": "requests",
-      "ecosystem": "PyPI"
-     },
-     "version": "2.19.0"
+     "queries": [
+      {
+       "package": {
+        "name": "requests",
+        "ecosystem": "PyPI"
+       },
+       "version": "2.19.0"
+      }
+     ]
     }
    },
    "status": 200,
@@ -225,266 +719,50 @@
      "application/json"
     ]
    ],
-   "digest": "sha256:a6547e3eef4601695a768ee5dee759eac5ec292e0c7ae064afa41e7ebaa7814d",
+   "digest": "sha256:7e1d787a137ad7e77c64e9df604f1826f637015e24c1ec37542ffb34a129ddef",
    "body": {
-    "vulns": [
+    "results": [
      {
-      "id": "GHSA-9hjg-9r4m-mvj7",
-      "summary": "Requests vulnerable to .netrc credentials leak via malicious URLs",
-      "details": "### Impact\n\nDue to a URL parsing issue, Requests releases prior to 2.32.4 may leak .netrc credentials to third parties for specific maliciously-crafted URLs.\n\n### Workarounds\nFor older versions of Requests, use of the .netrc file can be disabled with `trust_env=False` on your Requests Session ([docs](https://requests.readthedocs.io/en/latest/api/#requests.Session.trust_env)).\n\n### References\nhttps://github.com/psf/requests/pull/6965\nhttps://seclists.org/fulldisclosure/2025/Jun/2",
-      "aliases": [
-       "CVE-2024-47081",
-       "PYSEC-2026-1872"
-      ],
-      "modified": "2026-10-19T20:00:04.716114530Z",
-      "published": "2025-06-09T19:06:08Z",
-      "database_specific": {
-       "severity": "MODERATE",
-       "github_reviewed": true,
-       "github_reviewed_at": "2025-06-09T19:06:08Z",
-       "nvd_published_at": "2025-06-09T18:15:24Z",
-       "cwe_ids": [
-        "CWE-522"
-       ]
-      },
-      "references": [
+      "vulns": [
        {
-        "type": "WEB",
-        "url": "https://github.com/psf/requests/security/advisories/GHSA-9hjg-9r4m-mvj7"
+        "id": "GHSA-9hjg-9r4m-mvj7",
+        "modified": "2026-10-19T20:00:04.716114Z"
        },
        {
-        "type": "WEB",
-        "url": "http://www.openwall.com/lists/oss-security/2025/06/04/6"
-       }
-      ],
-      "affected": [
-       {
-        "package": {
-         "name": "requests",
-         "ecosystem": "PyPI",
-         "purl": "pkg:pypi/requests"
-        },
-        "ranges": [
-         {
-          "type": "ECOSYSTEM",
-          "events": [
-           {
-            "introduced": "0"
-           },
-           {
-            "fixed": "2.32.4"
-           }
-          ]
-         }
-        ],
-        "versions": [
-         "0.0.1",
-         "2.19.0",
-         "2.9.2"
-        ],
-        "database_specific": {
-         "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2025/06/GHSA-9hjg-9r4m-mvj7/GHSA-9hjg-9r4m-mvj7.json"
-        }
-       }
-      ],
-      "schema_version": "1.9.0",
-      "severity": [
-       {
-        "type": "CVSS_V3",
-        "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N"
-       }
-      ]
-     },
-     {
-      "id": "GHSA-x84v-xcm2-53pg",
-      "summary": "Insufficiently Protected Credentials in Requests",
-      "details": "The Requests package through 2.19.1 before 2018-09-14 for Python sends an HTTP Authorization header to an http URI upon receiving a same-hostname https-to-http redirect, which makes it easier for remote attackers to discover credentials by sniffing the network.",
-      "aliases": [
-       "CVE-2018-18074",
-       "PYSEC-2018-28"
-      ],
-      "modified": "2024-10-21T21:42:55.896669Z",
-      "published": "2018-10-29T19:06:46Z",
-      "database_specific": {
-       "severity": "HIGH",
-       "github_reviewed": true,
-       "github_reviewed_at": "2020-06-16T22:02:40Z",
-       "nvd_published_at": "2018-10-09T17:29:00Z",
-       "cwe_ids": [
-        "CWE-522"
-       ]
-      },
-      "references": [
-       {
-        "type": "ADVISORY",
-        "url": "https://nvd.nist.gov/vuln/detail/CVE-2018-18074"
+        "id": "GHSA-9wx4-h78v-vm56",
+        "modified": "2026-09-10T03:50:13.740879Z"
        },
        {
-        "type": "WEB",
-        "url": "http://lists.opensuse.org/opensuse-security-announce/2019-07/msg00024.html"
-       }
-      ],
-      "affected": [
-       {
-        "package": {
-         "name": "requests",
-         "ecosystem": "PyPI",
-         "purl": "pkg:pypi/requests"
-        },
-        "ranges": [
-         {
-          "type": "ECOSYSTEM",
-          "events": [
-           {
-            "introduced": "0"
-           },
-           {
-            "fixed": "2.20.0"
-           }
-          ]
-         }
-        ],
-        "versions": [
-         "0.0.1",
-         "2.19.0",
-         "2.9.2"
-        ],
-        "database_specific": {
-         "last_known_affected_version_range": "<= 2.19.1",
-         "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2018/10/GHSA-x84v-xcm2-53pg/GHSA-x84v-xcm2-53pg.json"
-        }
-       }
-      ],
-      "schema_version": "1.9.0",
-      "severity": [
-       {
-        "type": "CVSS_V3",
-        "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
-       }
-      ]
-     },
-     {
-      "id": "PYSEC-2018-28",
-      "details": "The Requests package before 2.20.0 for Python sends an HTTP Authorization header to an http URI upon receiving a same-hostname https-to-http redirect, which makes it easier for remote attackers to discover credentials by sniffing the network.",
-      "aliases": [
-       "CVE-2018-18074",
-       "GHSA-x84v-xcm2-53pg"
-      ],
-      "modified": "2023-11-08T04:00:04.815794Z",
-      "published": "2018-10-09T17:29:00Z",
-      "references": [
-       {
-        "type": "WEB",
-        "url": "https://github.com/requests/requests/pull/4718"
+        "id": "GHSA-gc5v-m9x4-r6x2",
+        "modified": "2026-09-10T03:50:39.207922Z"
        },
        {
-        "type": "ADVISORY",
-        "url": "https://github.com/advisories/GHSA-x84v-xcm2-53pg"
-       }
-      ],
-      "affected": [
-       {
-        "package": {
-         "name": "requests",
-         "ecosystem": "PyPI",
-         "purl": "pkg:pypi/requests"
-        },
-        "ranges": [
-         {
-          "type": "GIT",
-          "repo": "https://github.com/requests/requests",
-          "events": [
-           {
-            "introduced": "0"
-           },
-           {
-            "fixed": "c45d7c49ea75133e52ab22a8e9e13173938e36ff"
-           }
-          ]
-         },
-         {
-          "type": "ECOSYSTEM",
-          "events": [
-           {
-            "introduced": "0"
-           },
-           {
-            "fixed": "2.20.0"
-           }
-          ]
-         }
-        ],
-        "versions": [
-         "0.0.1",
-         "2.19.0",
-         "2.9.2"
-        ],
-        "database_specific": {
-         "source": "https://github.com/pypa/advisory-database/blob/main/vulns/requests/PYSEC-2018-28.yaml"
-        }
-       }
-      ],
-      "schema_version": "1.7.3"
-     },
-     {
-      "id": "PYSEC-2026-2275",
-      "details": "Requests is a HTTP library. Prior to version 2.33.0, the `requests.utils.extract_zipped_paths()` utility function uses a predictable filename when extracting files from zip archives into the system temporary directory. If the target file already exists, it is reused without validation. A local attacker with write access to the temp directory could pre-create a malicious file that would be loaded in place of the legitimate one. Standard usage of the Requests library is not affected by this vulnerability. Only applications that call `extract_zipped_paths()` directly are impacted. Starting in version 2.33.0, the library extracts files to a non-deterministic location. If developers are unable to upgrade, they can set `TMPDIR` in their environment to a directory with restricted write access.",
-      "aliases": [
-       "CVE-2026-25645",
-       "GHSA-gc5v-m9x4-r6x2"
-      ],
-      "modified": "2026-07-13T07:15:43.964902190Z",
-      "published": "2026-03-25T17:16:52.970Z",
-      "references": [
-       {
-        "type": "ADVISORY",
-        "url": "https://github.com/psf/requests/releases/tag/v2.33.0"
+        "id": "GHSA-j8r2-6x86-q33q",
+        "modified": "2026-09-10T03:50:01.756149Z"
        },
        {
-        "type": "ADVISORY",
-        "url": "https://github.com/psf/requests/security/advisories/GHSA-gc5v-m9x4-r6x2"
+        "id": "GHSA-x84v-xcm2-53pg",
+        "modified": "2024-10-21T21:42:55.896669Z"
        },
        {
-        "type": "FIX",
-        "url": "https://github.com/psf/requests/commit/66d21cb07bd6255b1280291c4fafb71803cdb3b7"
-       }
-      ],
-      "affected": [
+        "id": "PYSEC-2018-28",
+        "modified": "2023-11-08T04:00:04.815794Z"
+       },
        {
-        "package": {
-         "name": "requests",
-         "ecosystem": "PyPI",
-         "purl": "pkg:pypi/requests"
-        },
-        "ranges": [
-         {
-          "type": "ECOSYSTEM",
-          "events": [
-           {
-            "introduced": "0"
-           },
-           {
-            "fixed": "2.33.0"
-           }
-          ]
-         }
-        ],
-        "versions": [
-         "0.0.1",
-         "2.19.0",
-         "2.9.2"
-        ],
-        "ecosystem_specific": {},
-        "database_specific": {
-         "source": "https://github.com/pypa/advisory-database/blob/main/vulns/requests/PYSEC-2026-2275.yaml"
-        }
-       }
-      ],
-      "schema_version": "1.7.5",
-      "severity": [
+        "id": "PYSEC-2023-74",
+        "modified": "2023-11-08T04:12:35.436175Z"
+       },
        {
-        "type": "CVSS_V3",
-        "score": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N"
+        "id": "PYSEC-2026-1872",
+        "modified": "2026-07-07T17:47:00.332079Z"
+       },
+       {
+        "id": "PYSEC-2026-1873",
+        "modified": "2026-07-07T17:46:36.762141Z"
+       },
+       {
+        "id": "PYSEC-2026-2275",
+        "modified": "2026-07-13T07:15:43.964902Z"
        }
       ]
      }
@@ -493,15 +771,817 @@
   },
   {
    "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/GHSA-9wx4-h78v-vm56",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:90d6e56f2f5cf3400fd612940b9d471cf38f27e19c3c8a939434d86627f4e7f6",
+   "body": {
+    "id": "GHSA-9wx4-h78v-vm56",
+    "summary": "Requests `Session` object does not verify requests after making first request with verify=False",
+    "details": "When using a `requests.Session`, if the first request to a given origin is made with `verify=False`, TLS certificate verification may remain disabled for all subsequent requests to that origin, even if `verify=True` is explicitly specified later.\n\nThis occurs because the underlying connection is reused from the session's connection pool, causing the initial TLS verification setting to persist for the lifetime of the pooled connection. As a result, applications may unintentionally send requests without certificate verification, leading to potential man-in-the-middle attacks and compromised confidentiality or integrity.\n\nThis behavior affects versions of `requests` prior to 2.32.0.",
+    "aliases": [
+     "CVE-2024-35195",
+     "PYSEC-2026-1873"
+    ],
+    "modified": "2026-09-10T03:50:13.740879755Z",
+    "published": "2024-05-20T20:15:00Z",
+    "database_specific": {
+     "severity": "MODERATE",
+     "github_reviewed": true,
+     "github_reviewed_at": "2024-05-20T20:15:00Z",
+     "nvd_published_at": "2024-05-20T21:15:09Z",
+     "cwe_ids": [
+      "CWE-670"
+     ]
+    },
+    "references": [
+     {
+      "type": "WEB",
+      "url": "https://github.com/psf/requests/security/advisories/GHSA-9wx4-h78v-vm56"
+     },
+     {
+      "type": "WEB",
+      "url": "https://lists.fedoraproject.org/archives/list/person@example.test/message/N7WP6EYDSUOCOJYHDK5NX43PYZ4SNHGZ"
+     }
+    ],
+    "affected": [
+     {
+      "package": {
+       "name": "requests",
+       "ecosystem": "PyPI",
+       "purl": "pkg:pypi/requests"
+      },
+      "ranges": [
+       {
+        "type": "ECOSYSTEM",
+        "events": [
+         {
+          "introduced": "0"
+         },
+         {
+          "fixed": "2.32.0"
+         }
+        ]
+       }
+      ],
+      "versions": [
+       "0.0.1",
+       "2.19.0",
+       "2.9.2"
+      ],
+      "database_specific": {
+       "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2024/05/GHSA-9wx4-h78v-vm56/GHSA-9wx4-h78v-vm56.json"
+      }
+     }
+    ],
+    "schema_version": "1.9.0",
+    "severity": [
+     {
+      "type": "CVSS_V3",
+      "score": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:H/A:N"
+     }
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/GHSA-x84v-xcm2-53pg",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:b264311b5ec989bc626ff3d613b284c85ede582865b88a7079dbf0a4219632ba",
+   "body": {
+    "id": "GHSA-x84v-xcm2-53pg",
+    "summary": "Insufficiently Protected Credentials in Requests",
+    "details": "The Requests package through 2.19.1 before 2018-09-14 for Python sends an HTTP Authorization header to an http URI upon receiving a same-hostname https-to-http redirect, which makes it easier for remote attackers to discover credentials by sniffing the network.",
+    "aliases": [
+     "CVE-2018-18074",
+     "PYSEC-2018-28"
+    ],
+    "modified": "2024-10-21T21:42:55.896669Z",
+    "published": "2018-10-29T19:06:46Z",
+    "database_specific": {
+     "cwe_ids": [
+      "CWE-522"
+     ],
+     "severity": "HIGH",
+     "github_reviewed": true,
+     "github_reviewed_at": "2020-06-16T22:02:40Z",
+     "nvd_published_at": "2018-10-09T17:29:00Z"
+    },
+    "references": [
+     {
+      "type": "ADVISORY",
+      "url": "https://nvd.nist.gov/vuln/detail/CVE-2018-18074"
+     },
+     {
+      "type": "WEB",
+      "url": "http://lists.opensuse.org/opensuse-security-announce/2019-07/msg00024.html"
+     }
+    ],
+    "affected": [
+     {
+      "package": {
+       "name": "requests",
+       "ecosystem": "PyPI",
+       "purl": "pkg:pypi/requests"
+      },
+      "ranges": [
+       {
+        "type": "ECOSYSTEM",
+        "events": [
+         {
+          "introduced": "0"
+         },
+         {
+          "fixed": "2.20.0"
+         }
+        ]
+       }
+      ],
+      "versions": [
+       "0.0.1",
+       "2.19.0",
+       "2.9.2"
+      ],
+      "database_specific": {
+       "last_known_affected_version_range": "<= 2.19.1",
+       "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2018/10/GHSA-x84v-xcm2-53pg/GHSA-x84v-xcm2-53pg.json"
+      }
+     }
+    ],
+    "schema_version": "1.9.0",
+    "severity": [
+     {
+      "type": "CVSS_V3",
+      "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N"
+     }
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/PYSEC-2018-28",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:e0cb062f86d9424ac76eff541097fa5aca18264031dbd35c9a34114dd4b43403",
+   "body": {
+    "id": "PYSEC-2018-28",
+    "details": "The Requests package before 2.20.0 for Python sends an HTTP Authorization header to an http URI upon receiving a same-hostname https-to-http redirect, which makes it easier for remote attackers to discover credentials by sniffing the network.",
+    "aliases": [
+     "CVE-2018-18074",
+     "GHSA-x84v-xcm2-53pg"
+    ],
+    "modified": "2023-11-08T04:00:04.815794Z",
+    "published": "2018-10-09T17:29:00Z",
+    "references": [
+     {
+      "type": "WEB",
+      "url": "https://github.com/requests/requests/pull/4718"
+     },
+     {
+      "type": "ADVISORY",
+      "url": "https://github.com/advisories/GHSA-x84v-xcm2-53pg"
+     }
+    ],
+    "affected": [
+     {
+      "package": {
+       "name": "requests",
+       "ecosystem": "PyPI",
+       "purl": "pkg:pypi/requests"
+      },
+      "ranges": [
+       {
+        "type": "GIT",
+        "repo": "https://github.com/requests/requests",
+        "events": [
+         {
+          "introduced": "0"
+         },
+         {
+          "fixed": "c45d7c49ea75133e52ab22a8e9e13173938e36ff"
+         }
+        ]
+       },
+       {
+        "type": "ECOSYSTEM",
+        "events": [
+         {
+          "introduced": "0"
+         },
+         {
+          "fixed": "2.20.0"
+         }
+        ]
+       }
+      ],
+      "versions": [
+       "0.0.1",
+       "2.19.0",
+       "2.9.2"
+      ],
+      "database_specific": {
+       "source": "https://github.com/pypa/advisory-database/blob/main/vulns/requests/PYSEC-2018-28.yaml"
+      }
+     }
+    ],
+    "schema_version": "1.7.3"
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/GHSA-gc5v-m9x4-r6x2",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:ed58e2edea99aab13da4d3d9b0873a2a21b2b77c0a448fe4b324b3b0b1df162b",
+   "body": {
+    "id": "GHSA-gc5v-m9x4-r6x2",
+    "summary": "Requests has Insecure Temp File Reuse in its extract_zipped_paths() utility function",
+    "details": "### Impact\nThe `requests.utils.extract_zipped_paths()` utility function uses a predictable filename when extracting files from zip archives into the system temporary directory. If the target file already exists, it is reused without validation. A local attacker with write access to the temp directory could pre-create a malicious file that would be loaded in place of the legitimate one.\n\n### Affected usages\n**Standard usage of the Requests library is not affected by this vulnerability.** Only applications that call `extract_zipped_paths()` directly are impacted.\n\n### Remediation\nUpgrade to at least Requests 2.33.0, where the library now extracts files to a non-deterministic location.\n\nIf developers are unable to upgrade, they can set `TMPDIR` in their environment to a directory with restricted write access.",
+    "aliases": [
+     "CVE-2026-25645",
+     "PYSEC-2026-2275"
+    ],
+    "modified": "2026-09-10T03:50:39.207922076Z",
+    "published": "2026-03-25T16:56:28Z",
+    "database_specific": {
+     "severity": "MODERATE",
+     "github_reviewed": true,
+     "github_reviewed_at": "2026-03-25T16:56:28Z",
+     "nvd_published_at": "2026-03-25T17:16:52Z",
+     "cwe_ids": [
+      "CWE-377"
+     ]
+    },
+    "references": [
+     {
+      "type": "WEB",
+      "url": "https://github.com/psf/requests/security/advisories/GHSA-gc5v-m9x4-r6x2"
+     },
+     {
+      "type": "WEB",
+      "url": "https://github.com/psf/requests/releases/tag/v2.33.0"
+     }
+    ],
+    "affected": [
+     {
+      "package": {
+       "name": "requests",
+       "ecosystem": "PyPI",
+       "purl": "pkg:pypi/requests"
+      },
+      "ranges": [
+       {
+        "type": "ECOSYSTEM",
+        "events": [
+         {
+          "introduced": "0"
+         },
+         {
+          "fixed": "2.33.0"
+         }
+        ]
+       }
+      ],
+      "versions": [
+       "0.0.1",
+       "2.19.0",
+       "2.9.2"
+      ],
+      "database_specific": {
+       "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2026/03/GHSA-gc5v-m9x4-r6x2/GHSA-gc5v-m9x4-r6x2.json"
+      }
+     }
+    ],
+    "schema_version": "1.9.0",
+    "severity": [
+     {
+      "type": "CVSS_V3",
+      "score": "CVSS:3.1/AV:L/AC:H/PR:L/UI:R/S:U/C:N/I:H/A:N"
+     }
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/GHSA-j8r2-6x86-q33q",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:b1406bba8bb422349775a09e7450ade69f629c6b138024bd21c5d121f3cd0a3e",
+   "body": {
+    "id": "GHSA-j8r2-6x86-q33q",
+    "summary": "Unintended leak of Proxy-Authorization header in requests",
+    "details": "### Impact\n\nSince Requests v2.3.0, Requests has been vulnerable to potentially leaking `Proxy-Authorization` headers to destination servers, specifically during redirects to an HTTPS origin. This is a product of how `rebuild_proxies` is used to recompute and [reattach the `Proxy-Authorization` header](https://github.com/psf/requests/blob/f2629e9e3c7ce3c3c8c025bcd8db551101cbc773/requests/sessions.py#L319-L328) to requests when redirected. Note this behavior has _only_ been observed to affect proxied requests when credentials are supplied in the URL user information component (e.g. `https://username@proxy:8080`).\n\n**Current vulnerable behavior(s):**\n\n1. HTTP → HTTPS: **leak**\n2. HTTPS → HTTP: **no leak**\n3. HTTPS → HTTPS: **leak**\n4. HTTP → HTTP: **no leak**\n\nFor HTTP connections sent through the proxy, the proxy will identify the header in the request itself and remove it prior to forwarding to the destination server. However when sent over HTTPS, the `Proxy-Authorization` header must be sent in the CONNECT request as the proxy has no visibility into further tunneled requests. This results in Requests forwarding the header to the destination server unintentionally, allowing a malici",
+    "aliases": [
+     "CVE-2023-32681",
+     "PYSEC-2023-74"
+    ],
+    "modified": "2026-09-10T03:50:01.756149727Z",
+    "published": "2023-05-22T20:36:32Z",
+    "database_specific": {
+     "cwe_ids": [
+      "CWE-200"
+     ],
+     "severity": "MODERATE",
+     "github_reviewed": true,
+     "github_reviewed_at": "2023-05-22T20:36:32Z",
+     "nvd_published_at": "2023-05-26T18:15:14Z"
+    },
+    "references": [
+     {
+      "type": "WEB",
+      "url": "https://github.com/psf/requests/security/advisories/GHSA-j8r2-6x86-q33q"
+     },
+     {
+      "type": "WEB",
+      "url": "https://security.gentoo.org/glsa/202309-08"
+     }
+    ],
+    "affected": [
+     {
+      "package": {
+       "name": "requests",
+       "ecosystem": "PyPI",
+       "purl": "pkg:pypi/requests"
+      },
+      "ranges": [
+       {
+        "type": "ECOSYSTEM",
+        "events": [
+         {
+          "introduced": "2.3.0"
+         },
+         {
+          "fixed": "2.31.0"
+         }
+        ]
+       }
+      ],
+      "versions": [
+       "2.10.0",
+       "2.19.0",
+       "2.9.2"
+      ],
+      "database_specific": {
+       "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2023/05/GHSA-j8r2-6x86-q33q/GHSA-j8r2-6x86-q33q.json"
+      }
+     }
+    ],
+    "schema_version": "1.9.0",
+    "severity": [
+     {
+      "type": "CVSS_V3",
+      "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:C/C:H/I:N/A:N"
+     }
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/PYSEC-2023-74",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:a8cf62be7bef83ee3f45b601756932152c5f8f050c3ad74a07a8b275a97a5913",
+   "body": {
+    "id": "PYSEC-2023-74",
+    "details": "Requests is a HTTP library. Since Requests 2.3.0, Requests has been leaking Proxy-Authorization headers to destination servers when redirected to an HTTPS endpoint. This is a product of how we use `rebuild_proxies` to reattach the `Proxy-Authorization` header to requests. For HTTP connections sent through the tunnel, the proxy will identify the header in the request itself and remove it prior to forwarding to the destination server. However when sent over HTTPS, the `Proxy-Authorization` header must be sent in the CONNECT request as the proxy has no visibility into the tunneled request. This results in Requests forwarding proxy credentials to the destination server unintentionally, allowing a malicious actor to potentially exfiltrate sensitive information. This issue has been patched in version 2.31.0.\n\n",
+    "aliases": [
+     "CVE-2023-32681",
+     "GHSA-j8r2-6x86-q33q"
+    ],
+    "modified": "2023-11-08T04:12:35.436175Z",
+    "published": "2023-05-26T18:15:00Z",
+    "references": [
+     {
+      "type": "ADVISORY",
+      "url": "https://github.com/psf/requests/security/advisories/GHSA-j8r2-6x86-q33q"
+     },
+     {
+      "type": "WEB",
+      "url": "https://github.com/psf/requests/releases/tag/v2.31.0"
+     },
+     {
+      "type": "FIX",
+      "url": "https://github.com/psf/requests/commit/74ea7cf7a6a27a4eeb2ae24e162bcc942a6706d5"
+     },
+     {
+      "type": "WEB",
+      "url": "https://lists.fedoraproject.org/archives/list/person@example.test/message/AW7HNFGYP44RT3DUDQXG2QT3OEV2PJ7Y/"
+     }
+    ],
+    "affected": [
+     {
+      "package": {
+       "name": "requests",
+       "ecosystem": "PyPI",
+       "purl": "pkg:pypi/requests"
+      },
+      "ranges": [
+       {
+        "type": "GIT",
+        "repo": "https://github.com/psf/requests",
+        "events": [
+         {
+          "introduced": "0"
+         },
+         {
+          "fixed": "74ea7cf7a6a27a4eeb2ae24e162bcc942a6706d5"
+         }
+        ]
+       },
+       {
+        "type": "ECOSYSTEM",
+        "events": [
+         {
+          "introduced": "2.3.0"
+         },
+         {
+          "fixed": "2.31.0"
+         }
+        ]
+       }
+      ],
+      "versions": [
+       "2.10.0",
+       "2.19.0",
+       "2.9.2"
+      ],
+      "database_specific": {
+       "source": "https://github.com/pypa/advisory-database/blob/main/vulns/requests/PYSEC-2023-74.yaml"
+      }
+     }
+    ],
+    "schema_version": "1.7.3"
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/PYSEC-2026-1872",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:aaf80fba462800e5f9ab583bc6b633b2f95423c2e27ef821bf5ebd1fef9ad9c8",
+   "body": {
+    "id": "PYSEC-2026-1872",
+    "summary": "Requests vulnerable to .netrc credentials leak via malicious URLs",
+    "details": "### Impact\n\nDue to a URL parsing issue, Requests releases prior to 2.32.4 may leak .netrc credentials to third parties for specific maliciously-crafted URLs.\n\n### Workarounds\nFor older versions of Requests, use of the .netrc file can be disabled with `trust_env=False` on your Requests Session ([docs](https://requests.readthedocs.io/en/latest/api/#requests.Session.trust_env)).\n\n### References\nhttps://github.com/psf/requests/pull/6965\nhttps://seclists.org/fulldisclosure/2025/Jun/2",
+    "aliases": [
+     "CVE-2024-47081",
+     "GHSA-9hjg-9r4m-mvj7"
+    ],
+    "modified": "2026-07-07T17:47:00.332079836Z",
+    "published": "2026-07-07T16:02:54.151964Z",
+    "references": [
+     {
+      "type": "WEB",
+      "url": "https://github.com/psf/requests/security/advisories/GHSA-9hjg-9r4m-mvj7"
+     },
+     {
+      "type": "ADVISORY",
+      "url": "https://github.com/advisories/GHSA-9hjg-9r4m-mvj7"
+     }
+    ],
+    "affected": [
+     {
+      "package": {
+       "name": "requests",
+       "ecosystem": "PyPI",
+       "purl": "pkg:pypi/requests"
+      },
+      "ranges": [
+       {
+        "type": "ECOSYSTEM",
+        "events": [
+         {
+          "introduced": "0"
+         },
+         {
+          "fixed": "2.32.4"
+         }
+        ]
+       }
+      ],
+      "versions": [
+       "0.0.1",
+       "2.19.0",
+       "2.9.2"
+      ],
+      "database_specific": {
+       "source": "https://github.com/pypa/advisory-database/blob/main/vulns/requests/PYSEC-2026-1872.yaml"
+      }
+     }
+    ],
+    "schema_version": "1.7.5",
+    "severity": [
+     {
+      "type": "CVSS_V3",
+      "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N"
+     }
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/GHSA-9hjg-9r4m-mvj7",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:da1c205d938776a015abcc446e6a3b26b9ca0e96952a20e4ea3a6201708429cb",
+   "body": {
+    "id": "GHSA-9hjg-9r4m-mvj7",
+    "summary": "Requests vulnerable to .netrc credentials leak via malicious URLs",
+    "details": "### Impact\n\nDue to a URL parsing issue, Requests releases prior to 2.32.4 may leak .netrc credentials to third parties for specific maliciously-crafted URLs.\n\n### Workarounds\nFor older versions of Requests, use of the .netrc file can be disabled with `trust_env=False` on your Requests Session ([docs](https://requests.readthedocs.io/en/latest/api/#requests.Session.trust_env)).\n\n### References\nhttps://github.com/psf/requests/pull/6965\nhttps://seclists.org/fulldisclosure/2025/Jun/2",
+    "aliases": [
+     "CVE-2024-47081",
+     "PYSEC-2026-1872"
+    ],
+    "modified": "2026-10-19T20:00:04.716114530Z",
+    "published": "2025-06-09T19:06:08Z",
+    "database_specific": {
+     "cwe_ids": [
+      "CWE-522"
+     ],
+     "severity": "MODERATE",
+     "github_reviewed": true,
+     "github_reviewed_at": "2025-06-09T19:06:08Z",
+     "nvd_published_at": "2025-06-09T18:15:24Z"
+    },
+    "references": [
+     {
+      "type": "WEB",
+      "url": "https://github.com/psf/requests/security/advisories/GHSA-9hjg-9r4m-mvj7"
+     },
+     {
+      "type": "WEB",
+      "url": "http://www.openwall.com/lists/oss-security/2025/06/04/6"
+     }
+    ],
+    "affected": [
+     {
+      "package": {
+       "name": "requests",
+       "ecosystem": "PyPI",
+       "purl": "pkg:pypi/requests"
+      },
+      "ranges": [
+       {
+        "type": "ECOSYSTEM",
+        "events": [
+         {
+          "introduced": "0"
+         },
+         {
+          "fixed": "2.32.4"
+         }
+        ]
+       }
+      ],
+      "versions": [
+       "0.0.1",
+       "2.19.0",
+       "2.9.2"
+      ],
+      "database_specific": {
+       "source": "https://github.com/github/advisory-database/blob/main/advisories/github-reviewed/2025/06/GHSA-9hjg-9r4m-mvj7/GHSA-9hjg-9r4m-mvj7.json"
+      }
+     }
+    ],
+    "schema_version": "1.9.0",
+    "severity": [
+     {
+      "type": "CVSS_V3",
+      "score": "CVSS:3.1/AV:N/AC:H/PR:N/UI:R/S:U/C:H/I:N/A:N"
+     }
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/PYSEC-2026-1873",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:1d2b345ed0eb3340c7622525e479da8e422d62f4b8633093ae417e1b16155954",
+   "body": {
+    "id": "PYSEC-2026-1873",
+    "summary": "Requests `Session` object does not verify requests after making first request with verify=False",
+    "details": "When using a `requests.Session`, if the first request to a given origin is made with `verify=False`, TLS certificate verification may remain disabled for all subsequent requests to that origin, even if `verify=True` is explicitly specified later.\n\nThis occurs because the underlying connection is reused from the session's connection pool, causing the initial TLS verification setting to persist for the lifetime of the pooled connection. As a result, applications may unintentionally send requests without certificate verification, leading to potential man-in-the-middle attacks and compromised confidentiality or integrity.\n\nThis behavior affects versions of `requests` prior to 2.32.0.",
+    "aliases": [
+     "CVE-2024-35195",
+     "GHSA-9wx4-h78v-vm56"
+    ],
+    "modified": "2026-07-07T17:46:36.762141019Z",
+    "published": "2026-07-07T11:45:42.890131Z",
+    "references": [
+     {
+      "type": "WEB",
+      "url": "https://github.com/psf/requests/security/advisories/GHSA-9wx4-h78v-vm56"
+     },
+     {
+      "type": "ADVISORY",
+      "url": "https://github.com/advisories/GHSA-9wx4-h78v-vm56"
+     }
+    ],
+    "affected": [
+     {
+      "package": {
+       "name": "requests",
+       "ecosystem": "PyPI",
+       "purl": "pkg:pypi/requests"
+      },
+      "ranges": [
+       {
+        "type": "ECOSYSTEM",
+        "events": [
+         {
+          "introduced": "0"
+         },
+         {
+          "fixed": "2.32.0"
+         }
+        ]
+       }
+      ],
+      "versions": [
+       "0.0.1",
+       "2.19.0",
+       "2.9.2"
+      ],
+      "database_specific": {
+       "source": "https://github.com/pypa/advisory-database/blob/main/vulns/requests/PYSEC-2026-1873.yaml"
+      }
+     }
+    ],
+    "schema_version": "1.7.5",
+    "severity": [
+     {
+      "type": "CVSS_V3",
+      "score": "CVSS:3.1/AV:L/AC:H/PR:H/UI:R/S:U/C:H/I:H/A:N"
+     }
+    ]
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.osv.dev/v1/vulns/PYSEC-2026-2275",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:2d188f6a77311e237c8eba71532b8593adc620009529951a3ea2ee6dd7a72c18",
+   "body": {
+    "id": "PYSEC-2026-2275",
+    "details": "Requests is a HTTP library. Prior to version 2.33.0, the `requests.utils.extract_zipped_paths()` utility function uses a predictable filename when extracting files from zip archives into the system temporary directory. If the target file already exists, it is reused without validation. A local attacker with write access to the temp directory could pre-create a malicious file that would be loaded in place of the legitimate one. Standard usage of the Requests library is not affected by this vulnerability. Only applications that call `extract_zipped_paths()` directly are impacted. Starting in version 2.33.0, the library extracts files to a non-deterministic location. If developers are unable to upgrade, they can set `TMPDIR` in their environment to a directory with restricted write access.",
+    "aliases": [
+     "CVE-2026-25645",
+     "GHSA-gc5v-m9x4-r6x2"
+    ],
+    "modified": "2026-07-13T07:15:43.964902190Z",
+    "published": "2026-03-25T17:16:52.970Z",
+    "references": [
+     {
+      "type": "ADVISORY",
+      "url": "https://github.com/psf/requests/releases/tag/v2.33.0"
+     },
+     {
+      "type": "ADVISORY",
+      "url": "https://github.com/psf/requests/security/advisories/GHSA-gc5v-m9x4-r6x2"
+     },
+     {
+      "type": "FIX",
+      "url": "https://github.com/psf/requests/commit/66d21cb07bd6255b1280291c4fafb71803cdb3b7"
+     }
+    ],
+    "affected": [
+     {
+      "package": {
+       "name": "requests",
+       "ecosystem": "PyPI",
+       "purl": "pkg:pypi/requests"
+      },
+      "ranges": [
+       {
+        "type": "ECOSYSTEM",
+        "events": [
+         {
+          "introduced": "0"
+         },
+         {
+          "fixed": "2.33.0"
+         }
+        ]
+       }
+      ],
+      "versions": [
+       "0.0.1",
+       "2.19.0",
+       "2.9.2"
+      ],
+      "ecosystem_specific": {},
+      "database_specific": {
+       "source": "https://github.com/pypa/advisory-database/blob/main/vulns/requests/PYSEC-2026-2275.yaml"
+      }
+     }
+    ],
+    "schema_version": "1.7.5",
+    "severity": [
+     {
+      "type": "CVSS_V3",
+      "score": "CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:H/A:N"
+     }
+    ]
+   }
+  },
+  {
+   "request": {
     "method": "POST",
-    "url": "https://api.osv.dev/v1/query",
+    "url": "https://api.osv.dev/v1/querybatch",
     "accept": "application/json",
     "body": {
-     "package": {
-      "name": "requests",
-      "ecosystem": "PyPI"
-     },
-     "version": "2.33.0"
+     "queries": [
+      {
+       "package": {
+        "name": "requests",
+        "ecosystem": "PyPI"
+       },
+       "version": "2.33.0"
+      }
+     ]
     }
    },
    "status": 200,
@@ -511,8 +1591,12 @@
      "application/json"
     ]
    ],
-   "digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
-   "body": {}
+   "digest": "sha256:a0460b2895f6918d679db4ec8ceaa94dc85b501d9060c02839d05e919aac5e31",
+   "body": {
+    "results": [
+     {}
+    ]
+   }
   }
  ]
 }

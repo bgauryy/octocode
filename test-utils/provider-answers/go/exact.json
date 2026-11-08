@@ -1,93 +1,93 @@
 {
-  "case": "go/exact",
-  "tool": "artifactSearch",
-  "query": {
-    "operation": "resolve",
-    "ecosystem": "go",
-    "packageName": "github.com/pkg/errors",
-    "version": "v0.9.1"
+ "case": "go/exact",
+ "tool": "artifactSearch",
+ "query": {
+  "operation": "resolve",
+  "ecosystem": "go",
+  "packageName": "github.com/pkg/errors",
+  "version": "v0.9.1"
+ },
+ "recordedAt": "2026-11-08",
+ "unread": [
+  "commitTime",
+  "repoUrl"
+ ],
+ "exchanges": [
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://pkg.go.dev/v1/module/github.com/pkg/errors?version=v0.9.1",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "public, max-age=10800"
+    ],
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:a7b7683626359dc43432d8213261c8227a17ee1e2834614fd4dfee7d30d4dc79",
+   "body": {
+    "path": "github.com/pkg/errors",
+    "version": "v0.9.1",
+    "commitTime": "2020-01-14T19:47:44Z",
+    "isLatest": true,
+    "isRedistributable": true,
+    "isStandardLibrary": false,
+    "hasGoMod": false,
+    "repoUrl": "https://github.com/pkg/errors"
+   }
   },
-  "recordedAt": "2026-11-05",
-  "unread": [
-    "commitTime",
-    "repoUrl"
-  ],
-  "exchanges": [
-    {
-      "request": {
-        "method": "GET",
-        "url": "https://pkg.go.dev/v1/module/github.com/pkg/errors?version=v0.9.1",
-        "accept": "application/json"
-      },
-      "status": 200,
-      "headers": [
-        [
-          "cache-control",
-          "public, max-age=10800"
-        ],
-        [
-          "content-type",
-          "application/json"
-        ]
-      ],
-      "digest": "sha256:a7b7683626359dc43432d8213261c8227a17ee1e2834614fd4dfee7d30d4dc79",
-      "body": {
-        "path": "github.com/pkg/errors",
-        "version": "v0.9.1",
-        "commitTime": "2020-01-14T19:47:44Z",
-        "isLatest": true,
-        "isRedistributable": true,
-        "isStandardLibrary": false,
-        "hasGoMod": false,
-        "repoUrl": "https://github.com/pkg/errors"
-      }
-    },
-    {
-      "request": {
-        "method": "GET",
-        "url": "https://proxy.golang.org/github.com/pkg/errors/@v/v0.9.1.mod",
-        "accept": "application/xml"
-      },
-      "status": 200,
-      "headers": [
-        [
-          "cache-control",
-          "public, max-age=10800"
-        ],
-        [
-          "content-type",
-          "text/plain; charset=UTF-8"
-        ],
-        [
-          "etag",
-          "\"df28c6a823f181d76179697177c0c5943c6ffb38f3c10b2dc53be360ee7d4589\""
-        ]
-      ],
-      "digest": "sha256:df28c6a823f181d76179697177c0c5943c6ffb38f3c10b2dc53be360ee7d4589",
-      "body": "module github.com/pkg/errors\n"
-    },
-    {
-      "request": {
-        "method": "GET",
-        "url": "https://proxy.golang.org/github.com/pkg/errors/@latest",
-        "accept": "application/json"
-      },
-      "status": 200,
-      "headers": [
-        [
-          "cache-control",
-          "public, max-age=60"
-        ],
-        [
-          "content-type",
-          "application/json"
-        ]
-      ],
-      "digest": "sha256:5d8c58c4cf06efa07ac322b254ced1c5a61a2515113f54f7b63c324a144c1280",
-      "body": {
-        "Version": "v0.9.1",
-        "Time": "2020-01-14T19:47:44Z"
-      }
-    }
-  ]
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://proxy.golang.org/github.com/pkg/errors/@v/v0.9.1.mod",
+    "accept": "application/xml"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "public, max-age=10800"
+    ],
+    [
+     "content-type",
+     "text/plain; charset=UTF-8"
+    ],
+    [
+     "etag",
+     "\"df28c6a823f181d76179697177c0c5943c6ffb38f3c10b2dc53be360ee7d4589\""
+    ]
+   ],
+   "digest": "sha256:df28c6a823f181d76179697177c0c5943c6ffb38f3c10b2dc53be360ee7d4589",
+   "body": "module github.com/pkg/errors\n"
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://proxy.golang.org/github.com/pkg/errors/@latest",
+    "accept": "application/json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "public, max-age=60"
+    ],
+    [
+     "content-type",
+     "application/json"
+    ]
+   ],
+   "digest": "sha256:5d8c58c4cf06efa07ac322b254ced1c5a61a2515113f54f7b63c324a144c1280",
+   "body": {
+    "Version": "v0.9.1",
+    "Time": "2020-01-14T19:47:44Z"
+   }
+  }
+ ]
 }

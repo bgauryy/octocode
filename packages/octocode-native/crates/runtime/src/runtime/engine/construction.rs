@@ -86,7 +86,7 @@ impl ToolRuntime {
             },
             None => config::acquire_config_input(env, cwd, home, options.surface),
         };
-        let mut runtime = Self::build(input, RuntimeLimits::DEFAULT, lsp_pool)?;
+        let runtime = Self::build(input, RuntimeLimits::DEFAULT, lsp_pool)?;
         // Misconfiguration never fails startup; say what was ignored and
         // where.
         Self::print_startup_diagnostics(&runtime.config);
@@ -94,15 +94,25 @@ impl ToolRuntime {
         if config::is_persistent_storage_enabled(&runtime.config.resolved) {
             super::super::maintenance::run_if_due(&runtime.config.home, runtime.limits.capture_ttl);
         }
-        if let Some(secs) = options.timeout_secs {
-            // An embedder's budget replaces the surface default.
-            runtime.requests = RequestRuntime::new(RequestLimits {
-                timeout: std::time::Duration::from_secs(secs),
-                ..RequestLimits::default()
-            })
-            .map_err(runtime_execution_error)?;
+        match options.timeout_secs {
+            Some(secs) => runtime.with_request_budget(std::time::Duration::from_secs(secs)),
+            None => Ok(runtime),
         }
-        Ok(runtime)
+    }
+
+    /// This runtime with the caller's per-request `budget`: a call past it
+    /// answers an honest partial. Without one (every surface's default) no
+    /// deadline applies.
+    pub fn with_request_budget(
+        mut self,
+        budget: std::time::Duration,
+    ) -> Result<Self, RuntimeError> {
+        self.requests = RequestRuntime::new(RequestLimits {
+            timeout: Some(budget),
+            ..RequestLimits::default()
+        })
+        .map_err(runtime_execution_error)?;
+        Ok(self)
     }
 
     pub fn new(input: ConfigInput) -> Result<Self, RuntimeError> {
@@ -189,6 +199,7 @@ impl ToolRuntime {
                 fetched_code_roots.to_vec()
             },
             allow_build_scripts: config.resolved.lsp.allow_build_scripts,
+            security: security.clone(),
             prewarm_state: std::sync::Arc::default(),
         });
         let classification = crate::providers::classification::provider();
@@ -238,6 +249,7 @@ impl ToolRuntime {
             limits,
             availability,
             evaluator,
+            selection_pages: Arc::default(),
             selection_available,
             paths: Arc::new(paths),
             security: Arc::new(security),

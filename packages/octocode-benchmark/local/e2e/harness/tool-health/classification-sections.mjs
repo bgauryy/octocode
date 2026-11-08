@@ -94,6 +94,34 @@ export async function unreadSectionsChecks(ctx, surface, provider) {
   return checks;
 }
 
+/** A memory-storage refusal of a source row: nothing read, no provider called, no continuation. */
+function memoryRefused(row) {
+  if (row?.status !== 'error' || row.data?.errorCode !== 'classificationContextUnavailable') return false;
+  const { error = '', hints = [], usage } = row.data;
+  return error.includes('no source was read') && error.includes('no classification provider was called')
+    && hints.some(hint => hint.includes('persistent storage') && hint.includes('MCP'))
+    && (usage?.calls ?? 0) === 0 && !JSON.stringify(row).includes('"kind":"continue"');
+}
+
+/** `queries` on the CLI under memory storage, with how many provider calls it made. */
+async function memoryCall(ctx, provider, queries) {
+  const before = provider.sent.length;
+  const response = await ctx.cliCall('clasify', { queries, responseChars: 50_000 }, { env: { OCTOCODE_STORAGE_MODE: 'memory' } });
+  return { json: response.json, status: response.status, rows: response.json?.results ?? [], providerCalls: provider.sent.length - before };
+}
+
+const unpaged = json => json?.responsePagination?.hasMore !== true;
+
+/** One source row refused under memory storage, with no provider call. */
+const refusedAlone = run => run.status !== 0 && run.rows.length === 1 && memoryRefused(run.rows[0]) && unpaged(run.json) && run.providerCalls === 0;
+
+/** Source rows refused beside a literal row, which alone reaches the provider once. */
+function refusedBesideLiteral(run) {
+  const [first, middle, last] = run.rows;
+  return run.rows.length === 3 && memoryRefused(first) && memoryRefused(last) && !middle?.status
+    && middle?.data.answers?.evidence?.noul === 0.9 && unpaged(run.json) && run.providerCalls === 1;
+}
+
 export async function memorySectionsChecks(ctx, surface, provider) {
   if (surface !== 'cli') return [];
   const file = path.join(ctx.cwd, 'memory-section-resource.rs');
@@ -103,30 +131,16 @@ export async function memorySectionsChecks(ctx, surface, provider) {
   const evaluate = { operation: 'evaluate', source, questions };
   const literal = { operation: 'evaluate', content: 'There is literal evidence here.', questions };
   const checks = [];
-  const call = queries => ctx.cliCall('clasify', { queries, responseChars: 50_000 }, { env: { OCTOCODE_STORAGE_MODE: 'memory' } });
-  const refused = row => row?.status === 'error' && row.data?.errorCode === 'classificationContextUnavailable'
-    && row.data.error?.includes('no source was read') && row.data.error?.includes('no classification provider was called')
-    && row.data.hints?.some(hint => hint.includes('persistent storage') && hint.includes('MCP'))
-    && (row.data.usage?.calls ?? 0) === 0 && !JSON.stringify(row).includes('"kind":"continue"');
   try {
     for (const [name, text] of [['simple', 'pub fn evidence() {}\n'], ['seventy', sectionSource()]]) {
       fs.writeFileSync(file, text);
       for (const query of [section, evaluate]) {
-        const before = provider.sent.length;
-        const response = await call([query]);
-        const rows = response.json?.results ?? [];
-        checks.push([`sections.memoryRefuses.${name}.${query.operation}`, response.status !== 0
-          && rows.length === 1 && refused(rows[0]) && response.json.responsePagination?.hasMore !== true
-          && provider.sent.length === before, { response: response.json, providerCalls: provider.sent.length - before }]);
+        const run = await memoryCall(ctx, provider, [query]);
+        checks.push([`sections.memoryRefuses.${name}.${query.operation}`, refusedAlone(run), { response: run.json, providerCalls: run.providerCalls }]);
       }
     }
-    const before = provider.sent.length;
-    const response = await call([section, literal, evaluate]);
-    const rows = response.json?.results ?? [];
-    checks.push(['sections.memoryMixedLiteral', rows.length === 3 && refused(rows[0]) && refused(rows[2])
-      && !rows[1]?.status && rows[1]?.data.answers?.evidence?.noul === 0.9
-      && response.json.responsePagination?.hasMore !== true && provider.sent.length === before + 1,
-    { response: response.json, providerCalls: provider.sent.length - before }]);
+    const mixed = await memoryCall(ctx, provider, [section, literal, evaluate]);
+    checks.push(['sections.memoryMixedLiteral', refusedBesideLiteral(mixed), { response: mixed.json, providerCalls: mixed.providerCalls }]);
     return checks;
   } finally { fs.rmSync(file); }
 }

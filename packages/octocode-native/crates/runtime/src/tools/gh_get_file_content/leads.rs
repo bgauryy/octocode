@@ -201,7 +201,13 @@ mod tests {
         let next = rewrite_continuations(&mut result, &source, "abc123").expect("next");
         let whole = &next["unfiltered"];
         assert_eq!(whole["tool"], "ghGetFileContent");
-        assert_eq!(whole["input"]["queries"][0]["view"], "content");
+        assert_eq!(
+            crate::response::result::read_view(
+                ToolId::GhGetFileContent,
+                &whole["input"]["queries"][0]
+            ),
+            octocode_contract_types::ReadView::Content
+        );
         let window = &next["nextPage"]["input"]["queries"][0];
         assert_eq!(window["readProgress"]["offset"], 50);
         let rows = next["unfilteredUnknown2"]["input"]["queries"]

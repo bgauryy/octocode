@@ -16,7 +16,9 @@
       "tests/runtime_input_guard.rs",
       "tests/runtime_batch_indices.rs",
       "tests/runtime_page_replay/windows.rs",
-      "tests/runtime_response_cursor.rs"
+      "tests/runtime_response_cursor.rs",
+      "tests/runtime_one_walk/channels.rs",
+      "src/response/pager/tests/one_page.rs"
     ],
     "fields": {
       "queries": [
@@ -299,9 +301,13 @@
         "src/tools/gh_search_history/tests/terms.rs",
         "src/tools/gh_search_history/tests/provider/request_fields.rs",
         "src/tools/gh_search_history/tests/provider/rows.rs",
-        "tests/runtime_github_history/search.rs"
+        "tests/runtime_github_history/search.rs",
+        "src/tools/selection/tests/row_pages.rs"
       ],
       "fields": {
+        "classification": [
+          "selection"
+        ],
         "fields": [
           "view"
         ],
@@ -338,9 +344,13 @@
       "evidence": [
         "src/tools/gh_get_history_item/tests.rs",
         "tests/runtime_github_history/commits.rs",
-        "tests/runtime_github_compare/pages.rs"
+        "tests/runtime_github_compare/pages.rs",
+        "src/tools/selection/tests/row_pages.rs"
       ],
       "fields": {
+        "classification": [
+          "selection"
+        ],
         "baseRef": [
           "navigation"
         ],
@@ -434,6 +444,7 @@
       "evidence": [
         "src/tools/security_check/osv/tests.rs",
         "src/tools/security_check/package_tests.rs",
+        "src/tools/security_check/repository_tests.rs",
         "src/tools/security_check/tests.rs",
         "src/tools/security_check/url_source_tests.rs"
       ],
@@ -453,8 +464,11 @@
         "packageName": [
           "source"
         ],
+        "release": [
+          "source"
+        ],
         "repo": [
-          "view"
+          "source"
         ],
         "url": [
           "source"
@@ -596,9 +610,13 @@
         "src/tools/structure_search/tests/summaries.rs",
         "src/tools/structure_search/tests/probes.rs",
         "tests/runtime_local/walks.rs",
-        "src/tools/structure_search/tests/views.rs"
+        "src/tools/structure_search/tests/views.rs",
+        "src/tools/selection/tests/row_pages.rs"
       ],
       "fields": {
+        "classification": [
+          "selection"
+        ],
         "access": [
           "filter"
         ],
@@ -911,6 +929,15 @@
           "source"
         ],
         "exclude": [
+          "filter"
+        ],
+        "defaultExcludes": [
+          "filter"
+        ],
+        "includeIgnored": [
+          "filter"
+        ],
+        "includeHidden": [
           "filter"
         ],
         "refresh": [

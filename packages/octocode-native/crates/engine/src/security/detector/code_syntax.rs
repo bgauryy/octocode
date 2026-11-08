@@ -1,0 +1,780 @@
+//! What the syntax of a source-code file says about a line a configuration rule
+//! matched there: in the code itself (`f.evidence.passed = true;`,
+//! `dispatchToken: z.string().optional(),`) it is a statement or a member, and no
+//! credential; in a string literal or a comment it is text, which may hold a
+//! config file (`const FIXTURE = "password: hunter2";`) and is judged as one.
+//!
+//! The parse is the language grammar's own, not a list of names: the text is
+//! data when a node of the match's ancestry is a string or a comment, or a
+//! label (`password: hunter2` as a statement is how YAML or INI text pasted
+//! into a source file parses). A parse that fails or holds any error or
+//! missing node counts as data for the whole text, so nothing is left
+//! readable on a guess.
+
+use std::cell::OnceCell;
+use std::ops::Range;
+
+use tree_sitter::{Node, Tree};
+
+use crate::signatures::languages::{LanguageEntry, find_entry};
+
+/// The grammar of the source-code file at `path`: its extension belongs to a
+/// language the engine parses.
+pub(super) fn grammar_of(path: &str) -> Option<&'static LanguageEntry> {
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    let (_, ext) = name.rsplit_once('.')?;
+    find_entry(&ext.to_ascii_lowercase())
+}
+
+/// The parse of one source-code text, made when first asked.
+pub(crate) struct CodeSyntax<'a> {
+    text: &'a str,
+    grammar: &'static LanguageEntry,
+    tree: OnceCell<Option<Tree>>,
+    lines: OnceCell<Vec<CommentLine>>,
+    data: OnceCell<Vec<DataSpan>>,
+}
+
+/// Where the grammar places the first character of a match.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Place {
+    /// Outside every string and comment: a statement or a member.
+    Code,
+    /// In a comment: prose before it is a config file.
+    Comment,
+    /// In a string, or anywhere in a text that does not parse: text that may
+    /// hold a config file.
+    Text,
+}
+
+/// One outermost node that holds data ([`holds_data`]).
+struct DataSpan {
+    range: Range<usize>,
+    comment: bool,
+}
+
+impl<'a> CodeSyntax<'a> {
+    /// `None` when `path` names no source-code file: its text is no code.
+    pub(super) fn of(path: &str, text: &'a str) -> Option<Self> {
+        Some(Self {
+            text,
+            grammar: grammar_of(path)?,
+            tree: OnceCell::new(),
+            lines: OnceCell::new(),
+            data: OnceCell::new(),
+        })
+    }
+
+    /// The parse, when the text parses without an error or missing node.
+    fn parse(&self) -> Option<&Tree> {
+        self.tree
+            .get_or_init(|| {
+                crate::signatures::extractor::parse_until_stopped(
+                    self.text,
+                    &self.grammar.language,
+                    &|| false,
+                )
+                .ok()
+                .filter(|tree| !tree.root_node().has_error())
+            })
+            .as_ref()
+    }
+
+    /// The comment lines a credential can start in: each holds a key with a
+    /// credential word that an operator follows (`password`, `DB_PASS`), and
+    /// is text, whatever precedes it on its line (`x = 1; // password: …`,
+    /// `// set the password: …`), less the comment's closer (`*/`). A rule that
+    /// reads configuration reads it as a line of its own, from each of its keys.
+    /// A text that does not parse is read lexically, from each place a comment
+    /// may open.
+    pub(super) fn comment_lines(&self) -> &[CommentLine] {
+        self.lines.get_or_init(|| {
+            let mut lines = Vec::new();
+            // No parse for a text no comment can carry a credential in.
+            if has_credential_assignment(self.text, self.grammar) {
+                match self.parse() {
+                    Some(tree) => collect_comment_lines(self.text, tree.root_node(), &mut lines),
+                    // No tree tells a comment from code: the lines read as
+                    // comments where one may open, so nothing is left readable.
+                    None => lexical_comment_lines(self.text, self.grammar, &mut lines),
+                }
+            }
+            lines
+        })
+    }
+
+    /// Where the grammar places the match at `range`. The match can run past
+    /// the end of a string that opens before it (`` `\npassword: x` ``), so the
+    /// verdict is the grammar's at the match's first character, past any
+    /// indent: a match that starts in a literal or a comment is never code. A
+    /// text that does not parse is [`Place::Text`] throughout.
+    #[cfg_attr(
+        octocode_clippy_ratchet,
+        expect(
+            clippy::string_slice,
+            reason = "`range` is a regex match; `start` follows trimmed whitespace and `end` adds one char's UTF-8 length"
+        )
+    )]
+    pub(super) fn place_of(&self, range: &Range<usize>) -> Place {
+        let matched = &self.text[range.clone()];
+        let start = range.start + (matched.len() - matched.trim_start().len());
+        let end = start + self.text[start..].chars().next().map_or(0, char::len_utf8);
+        let Some(tree) = self.parse() else {
+            return Place::Text;
+        };
+        // A node holds the first character when it spans it; the nodes that do
+        // form one chain from the root, so some of them is data exactly when a
+        // data range spans it. The ranges are those of the outermost data
+        // nodes, in order and apart, so the one range that can span the
+        // character is the last that starts at or before it: a search of a
+        // sorted list, where a walk down from the root reads every child of a
+        // node with thousands of them (a file of comments) for each match.
+        let data = self.data.get_or_init(|| data_ranges(tree.root_node()));
+        let before = data.partition_point(|span| span.range.start <= start);
+        match before
+            .checked_sub(1)
+            .and_then(|last| data.get(last))
+            .filter(|span| end <= span.range.end)
+        {
+            None => Place::Code,
+            Some(span) if span.comment => Place::Comment,
+            Some(_) => Place::Text,
+        }
+    }
+}
+
+/// The byte ranges of the outermost nodes under `root` that hold data
+/// ([`holds_data`]), in text order. A walk with a cursor, so a deeply nested
+/// tree does not overflow the call stack, and each node is visited once.
+fn data_ranges(root: Node<'_>) -> Vec<DataSpan> {
+    let mut ranges = Vec::new();
+    let mut cursor = root.walk();
+    loop {
+        let node = cursor.node();
+        let data = holds_data(node);
+        if data {
+            ranges.push(DataSpan {
+                range: node.byte_range(),
+                comment: node.is_named() && node.kind().contains("comment"),
+            });
+        }
+        if !data && cursor.goto_first_child() {
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return ranges;
+            }
+        }
+    }
+}
+
+/// What opens a comment in some grammar the engine parses, or a string a
+/// comment may be written in (a docstring). A comment line holds one of these
+/// before its text, or sits inside a block comment that opened earlier.
+const COMMENT_OPENERS: [&str; 10] = [
+    "//", "#", "--", ";", "%", "/*", "<!--", "\"\"\"", "'''", "(*",
+];
+
+/// What a text has opened and not closed by some line: block comments
+/// (`/* … */`, `<!-- … -->`) counted by nesting depth, and a triple-quoted
+/// string. Block comments nest in Rust and Scala, and a nesting count only
+/// ever holds a comment open longer than a grammar that does not nest would,
+/// which costs a parse and never leaves a comment's text readable.
+#[derive(Clone, Copy, Default)]
+struct BlockState {
+    depth: u32,
+    triple: bool,
+    /// The literal a line ended in, which the next one continues
+    /// ([`rust_block_after`]); no other grammar's scan sets it.
+    literal: Literal,
+    /// The line ended in a `\` after a `//` comment opened on it or on a line
+    /// it continues: C's line comment runs on over the line end.
+    continued: bool,
+    /// A Rust scan met a place grammars read apart ([`holds_disputed_opener`]),
+    /// so no literal state after it is certain: from there on it reads every
+    /// mark as plain text ([`scan_block_marks`] without strings), which reads
+    /// every comment any of the readings has, and the tree decides.
+    hidden: bool,
+}
+
+/// How a line scan tells a grammar's comments from its code and literals: the
+/// one lexical property each grammar declares.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Lexicon {
+    /// Rust, read exactly by [`rust_block_after`]: every `"` outside a
+    /// comment opens a literal, and the scan models each form that holds one
+    /// (character literals with any escape, raw strings, strings that run over
+    /// line ends), nested block comments and `//` comments. `#[` and `#!` open
+    /// an attribute, not a comment.
+    Rust,
+    /// A grammar whose only comment runs from `#` to its line's end (Python):
+    /// no comment runs over a line end, so no line's state reaches the next.
+    LineHash,
+    /// Every other grammar: block comments counted by nesting, and literals
+    /// that a quote may or may not open (a regular expression's `/"/`, a
+    /// character `'"'`, a template), so a pairing of quotes proves nothing and
+    /// a mark it would hide is read as a mark ([`block_after`]).
+    Generic,
+}
+
+fn lexicon(grammar: &LanguageEntry) -> Lexicon {
+    match grammar.language_id {
+        Some("rust") => Lexicon::Rust,
+        Some("python") => Lexicon::LineHash,
+        _ => Lexicon::Generic,
+    }
+}
+
+/// A literal that runs over line ends in Rust.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Literal {
+    #[default]
+    None,
+    /// A double-quoted string.
+    Quoted,
+    /// A raw string (`r#"…"#`) opened with this many `#`.
+    Raw(usize),
+}
+
+impl BlockState {
+    fn is_open(self) -> bool {
+        self.depth > 0 || self.triple || self.continued
+    }
+}
+
+/// The state after `line`, given the state before it.
+fn block_after(line: &str, before: BlockState, grammar: &LanguageEntry) -> BlockState {
+    match lexicon(grammar) {
+        // Rust has no construct but a literal, a character or a comment that
+        // holds a double quote, and its scan reads each of them exactly, so a
+        // literal that hides a mark hides it: no pairing is in doubt.
+        Lexicon::Rust => rust_block_after(line, before),
+        Lexicon::LineHash => BlockState::default(),
+        Lexicon::Generic => {
+            let mut after = generic_block_after(line, before);
+            after.continued = line.ends_with('\\') && (before.continued || line.contains("//"));
+            after
+        }
+    }
+}
+
+/// [`block_after`] for a [`Lexicon::Generic`] grammar.
+fn generic_block_after(line: &str, before: BlockState) -> BlockState {
+    let marks = scan_block_marks(line, before, true);
+    // A double quote may be no string's: `/"/.test(x)`, `a"b` inside a
+    // regular expression, `'He said "hi'`, a quote in a comment. A literal
+    // hides every mark in it, and nothing on the line proves that a pair of
+    // quotes is a literal, so the gate is closed on no pairing: a quote that
+    // nothing closes, or a pairing over a mark that opens a block comment,
+    // reads the line's marks again as plain text, once. Opening on a mark
+    // that was in a literal costs a parse of a text with a key and an
+    // operator, and a block comment that opens after a quote is never missed.
+    // A line comment that holds a block opener is read apart by grammars
+    // ([`holds_disputed_opener`]), so its mark counts too.
+    if marks.in_string || marks.hidden || holds_disputed_opener(line) {
+        return scan_block_marks(line, before, false).state;
+    }
+    marks.state
+}
+
+/// Whether `line` holds a `//` and, after it, a mark that opens a block
+/// comment: a place lexers read apart. tree-sitter-rust opens a block at
+/// `/////*`, rustc reads a line comment to the line's end, and a C
+/// preprocessor joins lines before it reads comments. A scan reads the mark
+/// as an opener (fail closed): a comment no reading has costs a parse, and
+/// the tree decides.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::string_slice,
+        reason = "`at` is a `find` hit of the ASCII `//`, two bytes wide"
+    )
+)]
+fn holds_disputed_opener(line: &str) -> bool {
+    line.find("//")
+        .is_some_and(|at| line[at + "//".len()..].contains("/*"))
+}
+
+/// The state after a line of Rust, given the state before it: block comments
+/// by nesting depth, and a string or raw string that runs over the line end
+/// (which the next line continues, so its quotes pair as the grammar's do). A
+/// `//` comment ends the scan of its line, so a quote or a `/*` in it opens
+/// nothing.
+fn rust_block_after(line: &str, mut state: BlockState) -> BlockState {
+    if state.hidden {
+        return scan_block_marks(line, state, false).state;
+    }
+    let mut rest = line;
+    // The two characters before `rest`, nearest last.
+    let mut previous = [' ', ' '];
+    while let Some(c) = rest.chars().next() {
+        let step = match state.literal {
+            Literal::Quoted if c == '\\' => {
+                1 + rest
+                    .get(1..)
+                    .and_then(|after| after.chars().next())
+                    .map_or(0, char::len_utf8)
+            }
+            Literal::Quoted => {
+                if c == '"' {
+                    state.literal = Literal::None;
+                }
+                c.len_utf8()
+            }
+            Literal::Raw(hashes) => {
+                if c == '"'
+                    && rest.as_bytes()[1..]
+                        .iter()
+                        .take(hashes)
+                        .all(|&byte| byte == b'#')
+                    && rest.len() > hashes
+                {
+                    state.literal = Literal::None;
+                    1 + hashes
+                } else {
+                    c.len_utf8()
+                }
+            }
+            Literal::None if state.depth > 0 => {
+                if rest.starts_with("/*") {
+                    state.depth = state.depth.saturating_add(1);
+                    2
+                } else if rest.starts_with("*/") {
+                    state.depth -= 1;
+                    2
+                } else {
+                    c.len_utf8()
+                }
+            }
+            Literal::None => {
+                if rest.starts_with("//") {
+                    if holds_disputed_opener(rest) {
+                        state.hidden = true;
+                        return scan_block_marks(rest, state, false).state;
+                    }
+                    return state;
+                } else if rest.starts_with("/*") {
+                    state.depth = 1;
+                    2
+                } else if c == '"' {
+                    state.literal = Literal::Quoted;
+                    1
+                } else if let Some((hashes, len)) = raw_string_open(rest, previous) {
+                    state.literal = Literal::Raw(hashes);
+                    len
+                } else {
+                    char_literal_len(rest).unwrap_or(c.len_utf8())
+                }
+            }
+        };
+        let taken = rest.get(..step).unwrap_or(rest);
+        let mut last = taken.chars().rev();
+        let newest = last.next().unwrap_or(c);
+        previous = [last.next().unwrap_or(previous[1]), newest];
+        rest = rest.get(step..).unwrap_or("");
+    }
+    state
+}
+
+/// The `#` count and length of the opener (`r#"`) of a raw string that starts
+/// `rest`, after `previous`: no identifier ends in the `r`, but a `b` or `c`
+/// prefix (`br"…"`, `cr"…"`) belongs to the string.
+fn raw_string_open(rest: &str, previous: [char; 2]) -> Option<(usize, usize)> {
+    let is_ident = |c: char| c.is_alphanumeric() || c == '_';
+    if is_ident(previous[1]) && !(matches!(previous[1], 'b' | 'c') && !is_ident(previous[0])) {
+        return None;
+    }
+    let after_r = rest.strip_prefix('r')?;
+    let hashes = after_r.bytes().take_while(|&byte| byte == b'#').count();
+    after_r
+        .get(hashes..)?
+        .starts_with('"')
+        .then_some((hashes, 1 + hashes + 1))
+}
+
+/// What one pass over a line's marks found.
+struct LineMarks {
+    state: BlockState,
+    /// A double-quoted literal was still open at the line's end.
+    in_string: bool,
+    /// A double-quoted literal held a mark that opens a block comment.
+    hidden: bool,
+}
+
+/// One left-to-right pass over the marks of `line` in a [`Lexicon::Generic`]
+/// grammar, a mark at a time: `**/*.rs` holds the closer `*/`, then `*.rs`,
+/// not an opener. With `strings`, outside a block a mark inside a
+/// double-quoted literal of the line (`"src/*.rs"`) or a triple-quoted one is
+/// text, which [`block_after`] proves nothing by: it notes that a literal hid
+/// a mark. Without, every mark counts and no literal is read.
+fn scan_block_marks(line: &str, mut state: BlockState, strings: bool) -> LineMarks {
+    let mut hidden = false;
+    let mut in_string = false;
+    if !strings {
+        state.triple = false;
+    }
+    let mut rest = line;
+    while let Some(c) = rest.chars().next() {
+        let step = if in_string {
+            hidden |= rest.starts_with("/*");
+            if c == '\\' {
+                1 + rest
+                    .get(1..)
+                    .and_then(|after| after.chars().next())
+                    .map_or(0, char::len_utf8)
+            } else {
+                in_string = c != '"';
+                c.len_utf8()
+            }
+        } else if state.depth > 0 {
+            if rest.starts_with("/*") {
+                state.depth = state.depth.saturating_add(1);
+                2
+            } else if rest.starts_with("*/") {
+                // The `/` is read again: in `*/*` it may open a block, which a
+                // block this scan wrongly took as open (one a line comment
+                // held) would hide by closing over it.
+                state.depth -= 1;
+                1
+            } else {
+                c.len_utf8()
+            }
+        } else if state.triple {
+            hidden |= rest.starts_with("/*");
+            if rest.starts_with("\"\"\"") {
+                state.triple = false;
+                3
+            } else {
+                c.len_utf8()
+            }
+        } else if rest.starts_with("/*") {
+            state.depth = 1;
+            2
+        } else if strings && rest.starts_with("\"\"\"") {
+            state.triple = true;
+            3
+        } else {
+            in_string = strings && c == '"';
+            c.len_utf8()
+        };
+        rest = rest.get(step..).unwrap_or("");
+    }
+    LineMarks {
+        state,
+        in_string,
+        hidden,
+    }
+}
+
+/// The length of the Rust character literal that starts `rest`, as the
+/// grammar reads one: a quote, at most one character or escape, a quote. An
+/// escape is `\x` and two hex digits, `\u{…}` with hex digits, or `\` and any
+/// other one character (`'\''`, `'\\'`). A quote that opens none is a
+/// lifetime's (`'a`).
+fn char_literal_len(rest: &str) -> Option<usize> {
+    let body = rest.strip_prefix('\'')?;
+    let hex = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_hexdigit());
+    let content = match body.chars().next()? {
+        '\'' => 0,
+        '\\' => {
+            let escape = body.get(1..)?;
+            match escape.chars().next()? {
+                'x' => {
+                    hex(escape.get(1..3)?).then_some(())?;
+                    "\\x".len() + 2
+                }
+                'u' => {
+                    let digits = escape.strip_prefix("u{")?;
+                    let close = digits.find('}')?;
+                    hex(digits.get(..close)?).then_some(())?;
+                    "\\u{".len() + close + "}".len()
+                }
+                other => 1 + other.len_utf8(),
+            }
+        }
+        other => other.len_utf8(),
+    };
+    body.get(content..)?
+        .starts_with('\'')
+        .then_some(1 + content + 1)
+}
+
+/// Where a comment may start on `line`: its first comment opener, or the line's
+/// start inside a block comment; `usize::MAX` when none can.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::string_slice,
+        reason = "`at` is a `match_indices` hit of ASCII, one byte wide"
+    )
+)]
+fn comment_start(line: &str, block_opened: bool, grammar: &LanguageEntry) -> usize {
+    if block_opened {
+        return 0;
+    }
+    let attributes = lexicon(grammar) == Lexicon::Rust;
+    COMMENT_OPENERS
+        .iter()
+        .filter_map(|opener| {
+            line.match_indices(opener)
+                .find(|(at, _)| {
+                    *opener != "#" || !attributes || !line[at + 1..].starts_with(['[', '!'])
+                })
+                .map(|(at, _)| at)
+        })
+        .min()
+        .unwrap_or(usize::MAX)
+}
+
+/// The comment lines ([`CodeSyntax::comment_lines`]) of a text no
+/// tree reads, from the places its lines may open a comment: the same
+/// lexical judgment the parse gate makes, so a credential in a comment is
+/// never left readable because the text failed to parse.
+fn lexical_comment_lines(text: &str, grammar: &LanguageEntry, lines: &mut Vec<CommentLine>) {
+    let mut block = BlockState::default();
+    let mut line_start = 0;
+    for line in text.split_inclusive('\n') {
+        let body = line.trim_end_matches(['\n', '\r']);
+        let start = comment_start(body, block.is_open(), grammar);
+        block = block_after(body, block, grammar);
+        if start < body.len() {
+            comment_line_keys(text, line_start + start..line_start + body.len(), lines);
+        }
+        line_start += line.len();
+    }
+}
+
+/// Whether `text` may hold a credential in a comment
+/// ([`CodeSyntax::comment_lines`]): a line with a key holding a credential
+/// word and then `=` or `:`, after a comment opener, or that comes after a block comment
+/// opened in the text. A text without one has no credential in a comment, so
+/// nothing parses for it.
+pub(super) fn has_credential_assignment(text: &str, grammar: &LanguageEntry) -> bool {
+    credential_assignment_scan(text, grammar).0
+}
+
+/// [`has_credential_assignment`] and the bytes its key-character scan looked
+/// at, which stays within a bounded multiple of the text's length.
+pub(super) fn credential_assignment_scan(text: &str, grammar: &LanguageEntry) -> (bool, usize) {
+    let words: Vec<&str> = crate::security::patterns::CREDENTIAL_WORDS
+        .split('|')
+        .collect();
+    let mut visited = 0;
+    let mut block = BlockState::default();
+    let found = text.lines().any(|line| {
+        let lead_end = comment_start(line, block.is_open(), grammar);
+        block = block_after(line, block, grammar);
+        line_assigns_credential(line, lead_end, &words, &mut visited)
+    });
+    (found, visited)
+}
+
+/// Whether `line` holds, from `from` on, a key with a credential word in it
+/// and then `=` or `:`. Each run of key characters is read once, to its end:
+/// a run is a key whatever number of credential words it holds, and the
+/// operator follows it, past blanks and the key's closing quote.
+fn line_assigns_credential(line: &str, from: usize, words: &[&str], visited: &mut usize) -> bool {
+    let bytes = line.as_bytes();
+    let mut at = from;
+    while at < bytes.len() {
+        *visited += 1;
+        if !is_key_char(char::from(bytes[at])) {
+            at += 1;
+            continue;
+        }
+        let run_end = bytes[at..]
+            .iter()
+            .position(|&byte| !is_key_char(char::from(byte)))
+            .map_or(bytes.len(), |len| at + len);
+        let run = &bytes[at..run_end];
+        *visited += run.len() * words.len();
+        let named = words.iter().any(|word| {
+            run.windows(word.len())
+                .any(|window| window.eq_ignore_ascii_case(word.as_bytes()))
+        });
+        if named {
+            let operator = bytes[run_end..]
+                .iter()
+                .find(|&&byte| !matches!(byte, b' ' | b'\t' | b'"' | b'\''));
+            if operator.is_some_and(|&byte| matches!(byte, b'=' | b':')) {
+                return true;
+            }
+        }
+        at = run_end;
+    }
+    false
+}
+
+/// Whether `node` is text rather than code: a string, a comment or a label in
+/// the grammar's own node names, or an error or missing node.
+fn holds_data(node: Node<'_>) -> bool {
+    node.is_error()
+        || node.is_missing()
+        || (node.is_named()
+            && ["string", "comment", "text_block", "template", "label"]
+                .iter()
+                .any(|word| node.kind().contains(word)))
+}
+
+/// Appends the credential-holding lines ([`CodeSyntax::comment_lines`]) of every
+/// comment under `node`, in text order.
+fn collect_comment_lines(text: &str, root: Node<'_>, lines: &mut Vec<CommentLine>) {
+    // A depth-first walk with its own stack: a deeply nested tree must not
+    // overflow the call stack.
+    let mut pending = vec![root];
+    while let Some(node) = pending.pop() {
+        if node.kind().contains("comment") {
+            comment_line_keys(text, node.byte_range(), lines);
+        } else {
+            let mut cursor = node.walk();
+            let children: Vec<Node<'_>> = node.children(&mut cursor).collect();
+            pending.extend(children.into_iter().rev());
+        }
+    }
+}
+
+/// What closes a comment on its last line.
+const COMMENT_CLOSERS: [&str; 2] = ["*/", "-->"];
+
+/// The characters of a word of a key: the word a tail starts at runs over them.
+fn is_key_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')
+}
+
+/// One comment line a credential can start in
+/// ([`CodeSyntax::comment_lines`]).
+pub(super) struct CommentLine {
+    /// The line's text, less the comment's closer.
+    pub(super) range: Range<usize>,
+    /// Where each key that holds a credential word and that an operator
+    /// follows starts, in text order: the key a rule reads for the value
+    /// test, from its start to the value. A path or a list position holds
+    /// several keys before one operator (`secret/data/app/token:`): its last
+    /// is the one listed, the nearest to the value, since a rule reads the
+    /// same value from each and the value test reads the end of the key.
+    pub(super) keys: Vec<Key>,
+}
+
+/// A key of a comment line ([`CommentLine::keys`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Key {
+    /// Where the key starts.
+    pub(super) start: usize,
+    /// Where the operator that ends the key's path is.
+    pub(super) operator: usize,
+    /// Where the value starts: past the operator and the blanks after it. A
+    /// rule's value starts there or at the quote that opens it.
+    pub(super) value: usize,
+}
+
+/// The characters a key can be made of in any rule that reads a key: a
+/// word's own ([`is_key_char`]), a path's `/` and a list position's `[`, `]`.
+fn is_key_span_byte(byte: u8) -> bool {
+    is_key_char(char::from(byte)) || matches!(byte, b'/' | b'[' | b']')
+}
+
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::string_slice,
+        reason = "offsets are line ends and the closer's ASCII bytes, char boundaries of `comment`"
+    )
+)]
+fn comment_line_keys(text: &str, comment: Range<usize>, lines: &mut Vec<CommentLine>) {
+    let mut line_start = comment.start;
+    for line in text[comment].split_inclusive(['\n', '\r']) {
+        let end = line_start + line.trim_end_matches(['\n', '\r']).len();
+        let body = &text[line_start..end];
+        let closed = COMMENT_CLOSERS
+            .iter()
+            .find(|closer| body.trim_end().ends_with(**closer))
+            .map_or(body.len(), |closer| body.trim_end().len() - closer.len());
+        line_keys(&body[..closed], line_start, lines);
+        line_start += line.len();
+    }
+}
+
+/// Appends `body`, one comment line that starts at `offset` in the text, when
+/// it holds a key: a rule that reads a key and its value (`key: value`,
+/// `KEY=value`) reads the key as one run of key characters (a path's `/` and a
+/// list position's `[0]` included) that ends at the operator, past blanks. A
+/// key holding a credential word that no operator follows starts no such
+/// match, so the line is read once, and each run's operator is looked for once
+/// however many credential words the run holds. Each
+/// of the credential words of the span starts a key ([`CommentLine::keys`]).
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::string_slice,
+        reason = "offsets are ASCII key bytes and the line's end: char boundaries of `body`"
+    )
+)]
+fn line_keys(body: &str, offset: usize, lines: &mut Vec<CommentLine>) {
+    let bytes = body.as_bytes();
+    let blank = |byte: &u8| matches!(byte, b' ' | b'\t');
+    let mut keys = Vec::new();
+    let mut at = 0;
+    while at < bytes.len() {
+        if !is_key_span_byte(bytes[at]) {
+            at += 1;
+            continue;
+        }
+        let span_end = bytes[at..]
+            .iter()
+            .position(|&byte| !is_key_span_byte(byte))
+            .map_or(bytes.len(), |len| at + len);
+        let operator = bytes[span_end..]
+            .iter()
+            .position(|byte| !blank(byte))
+            .map(|blanks| span_end + blanks)
+            .filter(|&at| matches!(bytes[at], b'=' | b':'));
+        if let Some(operator) = operator {
+            let value = offset
+                + operator
+                + 1
+                + bytes[operator + 1..]
+                    .iter()
+                    .take_while(|b| blank(b))
+                    .count();
+            let mut run_start = at;
+            while run_start < span_end {
+                if !is_key_char(char::from(bytes[run_start])) {
+                    run_start += 1;
+                    continue;
+                }
+                let run_end = bytes[run_start..span_end]
+                    .iter()
+                    .position(|&byte| !is_key_char(char::from(byte)))
+                    .map_or(span_end, |len| run_start + len);
+                if names_a_credential_word(&body[run_start..run_end]) {
+                    let key = Key {
+                        start: offset + run_start,
+                        operator: offset + operator,
+                        value,
+                    };
+                    keys.push(key);
+                }
+                run_start = run_end;
+            }
+        }
+        at = span_end;
+    }
+    if !keys.is_empty() {
+        lines.push(CommentLine {
+            range: offset..offset + bytes.len(),
+            keys,
+        });
+    }
+}
+
+/// Whether `word` holds a credential word, in any case.
+fn names_a_credential_word(word: &str) -> bool {
+    let lower = word.to_ascii_lowercase();
+    crate::security::patterns::CREDENTIAL_WORDS
+        .split('|')
+        .any(|credential| lower.contains(credential))
+}
+
+#[cfg(test)]
+mod tests;

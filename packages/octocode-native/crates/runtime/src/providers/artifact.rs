@@ -20,13 +20,18 @@ mod versions;
 
 use crate::providers::artifact::query::artifact_search_query;
 use crate::providers::artifact::query::artifact_type;
+#[cfg(test)]
+pub(crate) use http::ArtifactHttpFuture;
 pub use http::{ArtifactHttp, SystemArtifactHttp};
 pub(crate) use http::{ArtifactHttpRequest, JSON, rejection_detail};
 pub(crate) use npm::registry::invalid_registry_url;
 pub(crate) use npmrc::npm_authorization;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 pub(crate) use pins::{Pin, exact_pins};
-pub use release_ref::{CommitCheck, CommitFuture, ReleaseTag, ReleaseTags, TagCommitFuture};
+pub use release_ref::{
+    CheckFailure, CommitCheck, CommitFuture, FailedTags, ReleaseTag, ReleaseTags, TagCommitFuture,
+    TagNamesFuture,
+};
 pub(crate) use types::alias_groups;
 pub use types::{
     Advisory, ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState,

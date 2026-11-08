@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use server::{Server, assert_cli_json_parity, local_search, tool_names};
 use support::Workspace;
 
+mod cancel;
 mod graph_parity;
 #[cfg(unix)]
 mod prewarm;
@@ -29,18 +30,22 @@ fn serves_the_2025_era_over_stdio() {
     let result = &init["result"];
     assert_eq!(result["serverInfo"]["name"], "octocode-mcp");
     assert_eq!(result["capabilities"]["tools"]["listChanged"], false);
-    let instructions = octocode_native::contracts::cli_presentation()
-        .expect("embedded presentation")["instructions"]
-        .as_str()
-        .expect("canonical instructions");
+    let instructions = result["instructions"].as_str().expect("instructions");
     assert!(!instructions.is_empty());
-    assert_eq!(result["instructions"], instructions);
     server.send(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
 
     let list = server.request("tools/list", json!({}));
     let names = tool_names(&list);
     assert!(names.contains(&"localSearch"), "{names:?}");
     assert!(!names.contains(&"run"), "only canonical tools are listed");
+    // initialize serves core's composition for exactly the tools it lists.
+    assert_eq!(
+        instructions,
+        octocode_native::contracts::compose_instructions(
+            octocode_native::contracts::cli_presentation().expect("embedded presentation"),
+            |name| names.contains(&name),
+        )
+    );
     let tool = list["result"]["tools"]
         .as_array()
         .unwrap()

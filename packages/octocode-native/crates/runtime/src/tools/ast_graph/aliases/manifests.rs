@@ -30,6 +30,7 @@ impl Manifest {
     pub(super) fn parse(dir: &str, value: &Value) -> Self {
         let mut manifest = Self {
             dir: dir.to_owned(),
+            self_reference: value.get("exports").is_some(),
             ..Default::default()
         };
         if let Some(exports) = value.get("exports") {

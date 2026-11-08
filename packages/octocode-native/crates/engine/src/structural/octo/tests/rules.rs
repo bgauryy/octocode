@@ -262,27 +262,32 @@ fn an_invalid_rule_is_decoded_once_without_changing_compile_errors() {
     assert_eq!(RULE_DECODE_COUNT.with(std::cell::Cell::get), 1);
 }
 
+/// `inside` + `stopBy: end` must not re-search from the root per ancestor
+/// (`Node::parent()` is O(depth) per call, O(depth²) per candidate). The
+/// ancestors one run reads grow with the depth, not its square: a deterministic
+/// work count, not a clock. Linear work quadruples when the depth does;
+/// quadratic work grows sixteenfold.
 #[test]
 fn inside_stop_by_end_is_linear_in_depth_on_deep_nesting() {
-    // `inside` + `stopBy: end` must not call `Node::parent()` per ancestor,
-    // which re-searches from the root each call (O(depth²) per candidate).
-    // 2,000 nested blocks must finish well inside the deadline with every match.
-    let depth = 2_000;
-    let mut src = String::from("function f() {\n");
-    for level in 0..depth {
-        src.push_str(&format!("{{ id{level};\n"));
-    }
-    src.push_str(&"}".repeat(depth));
-    src.push_str("\n}\n");
     let rule = json!({"kind":"identifier","inside":{"kind":"function_declaration","stopBy":"end"}});
-    let started = Instant::now();
-    let matches = run_rule(&src, "ts", rule);
-    let elapsed = started.elapsed();
-    // `f` itself plus one identifier per nesting level.
-    assert_eq!(matches.len(), depth + 1);
+    let steps_at = |depth: usize| {
+        let mut src = String::from("function f() {\n");
+        for level in 0..depth {
+            src.push_str(&format!("{{ id{level};\n"));
+        }
+        src.push_str(&"}".repeat(depth));
+        src.push_str("\n}\n");
+        ANCESTOR_STEPS.with(|steps| steps.set(0));
+        let matches = run_rule(&src, "ts", rule.clone());
+        // `f` itself plus one identifier per nesting level.
+        assert_eq!(matches.len(), depth + 1);
+        ANCESTOR_STEPS.with(std::cell::Cell::get)
+    };
+    let (shallow, deep) = (steps_at(500), steps_at(2_000));
+    assert!(shallow > 0, "the relation read no ancestors");
     assert!(
-        elapsed < std::time::Duration::from_millis(1_500),
-        "deep inside took {elapsed:?}"
+        deep < shallow * 8,
+        "ancestor reads grew {shallow} -> {deep} for 4x the depth"
     );
 }
 

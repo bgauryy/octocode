@@ -21,6 +21,8 @@ pub(super) use publication::publish;
 #[cfg(test)]
 pub(super) use redact::PASSES as REDACTIONS;
 pub(super) use redact::redact_secrets;
+#[cfg(test)]
+pub(super) use redact::{Fault, inject_redact_fault};
 use settled::settled_inputs;
 use snapshot::{Publish, publish_snapshot};
 
@@ -110,11 +112,16 @@ pub(super) fn ingest_with_registry(
         return snapshot::paused(&built.root, pause);
     }
     let build_ms = crate::num::millis_of(started.elapsed());
-    let projection = match project_graph(&mut built, paths, security, cancel, limits) {
+    let projection = match project_graph(&mut built, options, paths, security, cancel, limits) {
         Ok(projection) => projection,
         Err(output) => {
             let files = built.facts.keys().map(String::as_str);
-            return snapshot::too_broad(&built.root, files, output);
+            return snapshot::too_broad(
+                &built.root,
+                &crate::tools::ast_graph::build_scope::BuildScope::of_options(options),
+                files,
+                output,
+            );
         }
     };
     progress::emit(|| {
@@ -133,9 +140,9 @@ pub(super) fn ingest_with_registry(
         registry.extensions(octocode_engine::text::analysis::AnalysisOperation::GraphFacts);
     let scope_proof = settled_scope_proof(&built.root, &projection.tables, |dir| {
         scope_files(
+            paths,
             &built.root,
-            &options.exclude,
-            &options.language_globs,
+            &crate::tools::ast_graph::build_scope::BuildScope::of_options(options),
             &extensions,
             dir,
         )
@@ -183,6 +190,7 @@ pub(super) fn ingest_with_registry(
 /// move into the tables ([`tables::project`]).
 pub(super) fn project_graph(
     built: &mut super::super::types::BuiltGraph,
+    options: &IngestOptions,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
@@ -235,8 +243,65 @@ pub(super) fn project_graph(
         .values_mut()
         .for_each(super::super::types::FileFacts::release_projected);
     built.nodes.clear();
-    redact_secrets(&mut projection.tables, security);
+    if let Err(unscanned) = redact_secrets(&mut projection.tables, security) {
+        return Err(unredacted(&unscanned, &built.root, options, paths));
+    }
     Ok(projection)
+}
+
+/// The failure of a build whose secret scan unwound: the files whose string
+/// unwound alone, and the same build without them (each anchored at the
+/// scope root, its glob characters escaped) as a related graphBuild call.
+fn unredacted(
+    unscanned: &redact::Unscanned,
+    root: &Path,
+    options: &IngestOptions,
+    paths: &PathPolicy,
+) -> GraphOutput {
+    let panic = &unscanned.panic;
+    let files = &unscanned.files;
+    let on = if files.is_empty() {
+        String::new()
+    } else {
+        format!(" on a string of {}", files.join(", "))
+    };
+    let mut out = GraphOutput::error(
+        ErrorCode::ExecutionFailed,
+        format!(
+            "graph build failed redacting the snapshot: {panic}{on}; no snapshot was published"
+        ),
+    );
+    if let Some(retry) = exclude_retry(files, root, options, paths) {
+        out.value["related"] = json!([retry]);
+    }
+    out
+}
+
+/// The same build without `files` (root-relative), each excluded as that one
+/// file: its [`literal`](octocode_engine::search::glob::literal) glob
+/// anchored at the scope root. `None` without files.
+fn exclude_retry(
+    files: &[String],
+    root: &Path,
+    options: &IngestOptions,
+    paths: &PathPolicy,
+) -> Option<Value> {
+    if files.is_empty() {
+        return None;
+    }
+    let mut scope = crate::tools::ast_graph::build_scope::BuildScope::of_options(options);
+    scope.exclude.extend(
+        files
+            .iter()
+            .map(|file| format!("/{}", octocode_engine::search::glob::literal(file))),
+    );
+    let path = paths
+        .workspace_relative(root)
+        .unwrap_or_else(|| root.display().to_string());
+    let mut row = json!({"path": path});
+    scope.write_row(&mut row);
+    super::query::typed_row::<GraphBuildQuery>(row)
+        .map(|retry| crate::response::result::Continuation::related_query(retry).build())
 }
 
 /// What a build stopped mid-extraction tells its caller.
@@ -270,13 +335,16 @@ pub(super) fn build_for_ingest(
         refresh: options.refresh,
         root: options.path.clone(),
         exclude: options.exclude.clone(),
+        walk: options.walk,
         limits: *ingest.limits,
         language_globs: options.language_globs.clone(),
         cargo: ingest.cargo.map(str::to_owned),
     };
     // The builder upholds map-index invariants with `expect()`; a corrupt or
     // adversarial input tripping one is an error, not a torn-down host.
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    // Each file's extraction and linking contain their own panics; this is
+    // the build's own, named by where it panicked.
+    match octocode_engine::contain::catch(octocode_engine::contain::Phase::Link, || {
         super::super::graph::build_graph_with_registry(
             &scan,
             paths,
@@ -284,9 +352,14 @@ pub(super) fn build_for_ingest(
             cancel,
             ingest.registry,
         )
-    })) {
+    }) {
         Ok(Ok(built)) => Ok(built),
         Ok(Err(mut error)) => {
+            let torn = error.calls.take().and_then(|calls| {
+                calls[super::super::graph::TORN_FILE]
+                    .as_str()
+                    .map(str::to_owned)
+            });
             // Extraction committed before a deadline or a stop is kept:
             // the next build of this scope resumes from it.
             if !options.memory_only
@@ -294,17 +367,28 @@ pub(super) fn build_for_ingest(
             {
                 error.hints.push(RESUME_HINT.to_owned());
             }
+            let mut value = json!({"error": error.message, "errorCode": error.code});
+            crate::response::result::add_hints(&mut value, error.hints);
+            if let Some(retry) =
+                torn.and_then(|file| exclude_retry(&[file], &options.path, options, paths))
+            {
+                value["related"] = json!([retry]);
+            }
             Err(GraphOutput {
                 class: ExitClass::of(error.code),
                 next: Vec::new(),
+                retry: false,
                 #[cfg(test)]
                 validation: Box::default(),
-                value: json!({"error": error.message, "errorCode": error.code, "hints": error.hints}),
+                value,
             })
         }
-        Err(_) => Err(GraphOutput::error(
+        Err(panic) => Err(GraphOutput::error(
             ErrorCode::ExecutionFailed,
-            "graph build panicked",
+            match panic.site {
+                Some(site) => format!("graph build panicked at {site}"),
+                None => "graph build panicked".to_owned(),
+            },
         )),
     }
 }

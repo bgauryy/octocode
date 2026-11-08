@@ -28,6 +28,63 @@ const SCRIPT: &str = concat!(
     "esac\n",
 );
 
+const DIRECTORY_PREFIX: &str = "askpass-";
+
+/// The pid a helper directory name (`askpass-<pid>-<nonce>`) records, when
+/// it is one this tool created.
+fn owner_pid(name: &str) -> Option<u32> {
+    let (pid, nonce) = name.strip_prefix(DIRECTORY_PREFIX)?.split_once('-')?;
+    let hex_nonce = nonce.len() == 32 && nonce.bytes().all(|byte| byte.is_ascii_hexdigit());
+    (hex_nonce && !pid.is_empty() && pid.bytes().all(|byte| byte.is_ascii_digit()))
+        .then(|| pid.parse().ok())
+        .flatten()
+}
+
+/// Whether a process with this pid exists. A pid that is reused by another
+/// process reads as alive, which only keeps a stale directory longer.
+#[cfg(unix)]
+fn process_alive(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return true;
+    };
+    // SAFETY: signal 0 only checks that the pid can be signalled.
+    let reached = unsafe { libc::kill(pid, 0) } == 0;
+    reached || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+}
+
+/// Without a process probe a directory is never judged dead by pid.
+#[cfg(not(unix))]
+fn process_alive(_pid: u32) -> bool {
+    true
+}
+
+/// Removes the helper directories a killed git run left behind: only real
+/// directories named like this tool's, whose recorded owner process is gone
+/// (a live run, in this process or another, is never touched). Directories
+/// whose name records no pid are left alone. Best effort: a
+/// directory that cannot be removed stays for the next run.
+fn sweep_stale(parent: &Path) {
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        let Ok(metadata) = std::fs::symlink_metadata(entry.path()) else {
+            continue;
+        };
+        if !metadata.is_dir() {
+            continue;
+        }
+        let stale =
+            owner_pid(&name).is_some_and(|pid| pid != std::process::id() && !process_alive(pid));
+        if stale {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
 /// An owner-only GIT_ASKPASS helper for one git run, removed on drop. Git
 /// asks it only after the server challenges; it answers with the
 /// `x-access-token` user and the token for the authorized origin, and with
@@ -60,7 +117,12 @@ impl AskPass {
         let scheme = url.scheme();
         let mut nonce = [0_u8; 16];
         getrandom::fill(&mut nonce).map_err(|error| failed(error.to_string()))?;
-        let directory = parent.join(format!("askpass-{}", hex::encode(nonce)));
+        sweep_stale(parent);
+        let directory = parent.join(format!(
+            "{DIRECTORY_PREFIX}{}-{}",
+            std::process::id(),
+            hex::encode(nonce)
+        ));
         let builder = std::fs::DirBuilder::new();
         #[cfg(unix)]
         let builder = {

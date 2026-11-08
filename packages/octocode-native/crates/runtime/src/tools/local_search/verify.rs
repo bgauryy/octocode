@@ -33,7 +33,7 @@ pub(super) use settle::judged_on_this_thread;
 #[cfg(all(test, unix))]
 pub(super) use redaction::read_key_scan_bytes;
 use redaction::redact_key_block_lines;
-pub(super) use redaction::{redact_scan, scan_inspector};
+pub(super) use redaction::{check_key_scans, redact_scan, scan_inspector};
 
 /// What a stored scan's file must still hash to (see `expected_digest`).
 pub(super) type ExpectedDigest<'a> =

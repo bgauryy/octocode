@@ -83,19 +83,46 @@ async fn a_module_pom_without_scm_takes_the_source_of_its_parent() {
         item.repository.as_deref(),
         Some("https://github.com/apache/logging-log4j2")
     );
-    // No tag names 2.14.1 (`rel/2.14.1` follows no rule a declared tag or
-    // the usual shapes give): the declared tag, which exists, is pinned as
-    // the registry's claim, never as a checked release tag.
+    // No shape the declared tag or the usual tags give names 2.14.1, but the
+    // repository's own tag list does (`rel/2.14.1`): that tag is the
+    // release, checked, and the declared release candidate is not pinned.
+    assert_eq!(item.source_ref.as_deref(), Some("rel/2.14.1"));
+    assert!(item.source_tag, "{:?}", item.source_ref);
+    assert!(
+        !item.declared_ref,
+        "a listed release tag is no declared pin"
+    );
+    let seen = tags.seen();
+    assert_eq!(seen[0], "apache/logging-log4j2@log4j-2.14.1", "{seen:?}");
+    assert!(
+        !seen.iter().any(|seen| seen.ends_with("@log4j-2.14.1-rc1")),
+        "the declared release candidate is never asked once a tag names the release: {seen:?}"
+    );
+}
+
+/// The same release when the repository has no tag naming 2.14.1: the
+/// listing read every tag, so the declared release candidate is pinned as
+/// the registry's claim, never as a checked release tag.
+#[tokio::test]
+async fn a_declared_release_candidate_is_pinned_only_when_no_listed_tag_names_the_release() {
+    let parent = "<project><parent><groupId>org.apache.logging</groupId>\
+        <artifactId>logging-parent</artifactId><version>3</version></parent>\
+        <version>2.14.1</version>\
+        <scm><connection>scm:git:https://gitbox.apache.org/repos/asf/logging-log4j2.git</connection>\
+        <tag>log4j-2.14.1-rc1</tag></scm></project>";
+    let http = RouteHttp::new()
+        .bytes(METADATA, METADATA_XML)
+        .bytes(CORE_POM, module(LOG4J_PARENT))
+        .bytes(PARENT_POM, parent);
+    let tags = KnownTags::new(vec![
+        "apache/logging-log4j2@log4j-2.14.1-rc1",
+        "apache/logging-log4j2@rel/2.14.0",
+        "apache/logging-log4j2@rel/12.14.1",
+    ]);
+    let item = resolve(&http, Some(&tags)).await;
     assert_eq!(item.source_ref.as_deref(), Some("log4j-2.14.1-rc1"));
     assert!(!item.source_tag, "{:?}", item.source_ref);
     assert!(item.declared_ref, "the pin is disclosed as declared");
-    let seen = tags.seen();
-    assert_eq!(seen[0], "apache/logging-log4j2@log4j-2.14.1", "{seen:?}");
-    assert_eq!(
-        seen.last().map(String::as_str),
-        Some("apache/logging-log4j2@log4j-2.14.1-rc1"),
-        "the declared tag is asked only after every release candidate: {seen:?}"
-    );
 }
 
 /// A POM with its own `<scm>` still takes the scope its parent manages:
@@ -622,6 +649,32 @@ async fn a_parent_cycle_ends_the_walk() {
         .bytes(CORE_POM, cyclic);
     let item = resolve(&http, None).await;
     assert_eq!(item.repository, None);
+    // The source link needed that parent: the cycle is stated.
+    assert_eq!(item.disclosures.len(), 1, "{:?}", item.disclosures);
+    assert!(
+        item.disclosures[0].contains("parent cycle"),
+        "{:?}",
+        item.disclosures
+    );
+}
+
+/// A parent whose version is a property cannot be read; when the lookup
+/// needed it, that is stated.
+#[tokio::test]
+async fn a_parent_named_by_a_property_is_disclosed_when_needed() {
+    let core = "<project><parent><groupId>g</groupId><artifactId>p</artifactId>\
+        <version>${revision}</version></parent><artifactId>log4j-core</artifactId></project>";
+    let http = RouteHttp::new()
+        .bytes(METADATA, METADATA_XML)
+        .bytes(CORE_POM, core);
+    let item = resolve(&http, None).await;
+    assert_eq!(item.disclosures.len(), 1, "{:?}", item.disclosures);
+    assert!(
+        item.disclosures[0].contains("g:p:${revision}")
+            && item.disclosures[0].contains("version with a property"),
+        "{:?}",
+        item.disclosures
+    );
 }
 
 /// An `<scm><url>` into a module directory names the repository and the
@@ -796,12 +849,79 @@ async fn a_parent_pom_unread_while_resolving_properties_is_disclosed() {
 /// A parent the repository does not have is the end of a chain, not a failure
 /// to disclose.
 #[tokio::test]
-async fn a_parent_pom_the_repository_lacks_is_no_disclosure() {
+async fn a_missing_parent_is_disclosed_only_when_the_lookup_needed_it() {
+    // A module with no `<scm>` needs its parent for the source link.
     let http = RouteHttp::new()
         .bytes(METADATA, METADATA_XML)
         .bytes(CORE_POM, module(LOG4J_PARENT));
     let item = resolve(&http, None).await;
+    assert_eq!(item.disclosures.len(), 1, "{:?}", item.disclosures);
+    assert!(
+        item.disclosures[0].contains("org.apache.logging.log4j:log4j:2.14.1")
+            && item.disclosures[0].contains("not in the Maven repository"),
+        "{:?}",
+        item.disclosures
+    );
+    // A POM with its own `<scm>` and every scope stated needs nothing above.
+    let own = format!(
+        "<project>{LOG4J_PARENT}<artifactId>log4j-core</artifactId><version>2.14.1</version>\
+         <scm><url>https://github.com/apache/logging-log4j2</url></scm></project>"
+    );
+    let http = RouteHttp::new()
+        .bytes(METADATA, METADATA_XML)
+        .bytes(CORE_POM, own);
+    let item = resolve(&http, None).await;
     assert!(item.disclosures.is_empty(), "{:?}", item.disclosures);
+}
+
+/// An unscoped dependency needs its parent's management: a missing parent
+/// leaves its scope unknown, which is stated.
+#[tokio::test]
+async fn an_unscoped_dependency_whose_parent_is_missing_is_disclosed() {
+    let core = format!(
+        "<project>{LOG4J_PARENT}<artifactId>log4j-core</artifactId><version>2.14.1</version>\
+         <scm><url>https://github.com/apache/logging-log4j2</url></scm>\
+         <dependencies><dependency><groupId>d</groupId><artifactId>e</artifactId></dependency>\
+         </dependencies></project>"
+    );
+    let http = RouteHttp::new()
+        .bytes(METADATA, METADATA_XML)
+        .bytes(CORE_POM, core);
+    let item = resolve(&http, None).await;
+    assert_eq!(item.disclosures.len(), 1, "{:?}", item.disclosures);
+    assert!(
+        item.disclosures[0].contains("scope"),
+        "{:?}",
+        item.disclosures
+    );
+}
+
+/// An imported BOM whose parent's version is a property, or whose parent
+/// chain cycles, ends its chain with a statement, not silently.
+#[tokio::test]
+async fn a_bom_parent_named_by_a_property_or_a_cycle_is_disclosed() {
+    let imports = format!("{}{}", import_of("p-bom", "1"), import_of("c-bom", "1"));
+    let http = RouteHttp::new()
+        .bytes(METADATA, METADATA_XML)
+        .bytes(CORE_POM, importing_core(&imports))
+        .bytes(
+            &bom_path("p-bom", "1"),
+            bom_pom(&parent_of("pp", "${r}"), "", ""),
+        )
+        .bytes(
+            &bom_path("c-bom", "1"),
+            bom_pom(&parent_of("c-bom", "1"), "", ""),
+        );
+    let item = resolve(&http, None).await;
+    assert_eq!(item.disclosures.len(), 2, "{:?}", item.disclosures);
+    assert!(
+        item.disclosures[0].contains("x:pp:${r}")
+            && item.disclosures[0].contains("version with a property")
+            && item.disclosures[1].contains("x:c-bom:1")
+            && item.disclosures[1].contains("parent cycle"),
+        "{:?}",
+        item.disclosures
+    );
 }
 
 /// Only the project's own `<dependencies>`, `<properties>` and coordinates

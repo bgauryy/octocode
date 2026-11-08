@@ -89,7 +89,7 @@ pub(super) async fn compare(
     let mut out = json!({"baseSha":base_sha,"headSha":head_sha,
         "aheadBy":usize_at(&raw,"/ahead_by"),"behindBy":usize_at(&raw,"/behind_by")});
     if more {
-        out["isPartial"] = json!(true);
+        crate::response::paging::set_partial(&mut out, true);
     }
     // The changed files lead the row (what the comparison changed), the
     // commit page follows (why): each is paged apart by its own continuation.

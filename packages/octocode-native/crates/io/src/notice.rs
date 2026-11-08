@@ -11,9 +11,11 @@
 //! A notice belongs to the scope the raising code runs in: its future's
 //! ([`Scope::run`]), else its thread's ([`Scope::enter`]). Work handed to
 //! another thread carries its caller's scope there ([`carried`]): the
-//! runtime's row work and row fan-out, and the GitHub budget's blocking
-//! state writes. A notice raised outside every scope cannot name its call,
-//! so every call in flight relays it: a notice is never dropped.
+//! runtime's row work and row fan-out, the clasify and ranked-read workers,
+//! and the GitHub budget's blocking state writes. A notice raised outside
+//! every scope cannot name its call: when it is about the process
+//! ([`kind`]), every call in flight relays it; a notice about a request goes
+//! only to stderr, never into an unrelated call's reply.
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -36,7 +38,23 @@ thread_local! {
     static THREAD: RefCell<Option<Scope>> = const { RefCell::new(None) };
 }
 
-/// The scopes of the calls in flight, for a notice raised outside them.
+/// The notice kinds about the whole process, not one call: each call in
+/// flight relays one raised outside every scope. Every other kind belongs to
+/// the call that raised it.
+pub mod kind {
+    /// The shared GitHub rate-limit record cannot be used; this process
+    /// paces alone.
+    pub const GITHUB_BUDGET_UNSHARED: &str = "github-budget-unshared";
+    /// No GitHub credential and no usable credential store: requests run
+    /// unauthenticated.
+    pub const GITHUB_ANONYMOUS: &str = "github-anonymous";
+
+    /// Every process-level kind.
+    pub(super) const PROCESS: &[&str] = &[GITHUB_BUDGET_UNSHARED, GITHUB_ANONYMOUS];
+}
+
+/// The scopes of the calls in flight, for a process-level notice raised
+/// outside them.
 static LIVE: Mutex<Vec<Weak<Notices>>> = Mutex::new(Vec::new());
 /// Where progress lines go when the running code is in no [`Scope`]: the
 /// CLI's stderr, installed by [`report_progress_to`].
@@ -181,13 +199,18 @@ impl Drop for Entered {
 }
 
 /// Say `text` on stderr unless this process already said a notice of this
-/// `kind`, and record it in the current [`Scope`] (outside every scope: in
-/// every live one).
+/// `kind`, and record it in the current [`Scope`]. Outside every scope a
+/// [`kind::PROCESS`] kind is recorded in every live one; any other kind has
+/// no call to name and is only said on stderr.
+pub fn raise(kind: &'static str, text: impl Into<String>) {
+    raise_among(kind, text, kind::PROCESS);
+}
+
 #[expect(
     clippy::print_stderr,
     reason = "the notice owner: stderr is where a notice is said"
 )]
-pub fn raise(kind: &'static str, text: impl Into<String>) {
+fn raise_among(kind: &'static str, text: impl Into<String>, process_kinds: &[&str]) {
     let text: String = text.into();
     let text = match SCRUBBER.get() {
         Some(scrub) => scrub(&text),
@@ -195,12 +218,13 @@ pub fn raise(kind: &'static str, text: impl Into<String>) {
     };
     match Scope::current() {
         Some(scope) => record(&scope.0, kind, &text),
-        None => {
+        None if process_kinds.contains(&kind) => {
             let live: Vec<_> = lock(&LIVE).iter().filter_map(Weak::upgrade).collect();
             for notices in live {
                 record(&notices, kind, &text);
             }
         }
+        None => {}
     }
     if lock(&PRINTED).insert(kind) {
         eprintln!("{text}");
@@ -228,7 +252,7 @@ pub fn emit(text: impl Into<String>, scope: Option<&Scope>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Scope, carried, raise};
+    use super::{Scope, carried, raise, raise_among};
     use std::sync::Arc;
 
     #[tokio::test]
@@ -255,8 +279,8 @@ mod tests {
             .collect()
     }
 
-    /// One test: a raise outside every scope reaches every live scope, so
-    /// separate tests running at once would see each other's.
+    /// One test: a process-level raise outside every scope reaches every
+    /// live scope, so separate tests running at once would see each other's.
     #[tokio::test]
     async fn a_notice_belongs_to_the_call_that_raised_it() {
         let (a, b) = (Scope::default(), Scope::default());
@@ -293,10 +317,17 @@ mod tests {
         assert_eq!(of(&a, "notice-test-restored").len(), 1);
         assert!(of(&b, "notice-test-restored").is_empty());
 
-        // Raised outside every scope: every call in flight relays it.
-        std::thread::spawn(|| raise("notice-test-unscoped", "notice-test-unscoped: all"))
-            .join()
-            .expect("thread");
+        // A process-level kind raised outside every scope: every call in
+        // flight relays it.
+        std::thread::spawn(|| {
+            raise_among(
+                "notice-test-unscoped",
+                "notice-test-unscoped: all",
+                &["notice-test-unscoped"],
+            );
+        })
+        .join()
+        .expect("thread");
         assert_eq!(of(&a, "notice-test-unscoped").len(), 1);
         assert_eq!(of(&b, "notice-test-unscoped").len(), 1);
 
@@ -308,6 +339,41 @@ mod tests {
             .run(async { raise("notice-test-task", "notice-test-task: one") })
             .await;
         assert_eq!(of(&later, "notice-test-task"), ["notice-test-task: one"]);
+    }
+
+    /// Two calls in flight: a worker one of them spawns raises in that call
+    /// alone when it carries the scope, and a worker that carries nothing
+    /// cannot name its call, so a notice about a request reaches neither.
+    #[tokio::test]
+    async fn a_spawned_workers_request_notice_never_reaches_the_other_call() {
+        let (a, b) = (Scope::default(), Scope::default());
+        let (carrying, bare) = a
+            .run(async {
+                let carrying = std::thread::spawn(carried(|| {
+                    raise(
+                        "notice-test-worker-carried",
+                        "notice-test-worker-carried: a",
+                    );
+                }));
+                let bare = std::thread::spawn(|| {
+                    raise("notice-test-worker-bare", "notice-test-worker-bare: lost");
+                });
+                (carrying, bare)
+            })
+            .await;
+        carrying.join().expect("carrying worker");
+        bare.join().expect("bare worker");
+        assert_eq!(
+            of(&a, "notice-test-worker-carried"),
+            ["notice-test-worker-carried: a"]
+        );
+        assert!(of(&b, "notice-test-worker-carried").is_empty());
+        for call in [&a, &b] {
+            assert!(
+                of(call, "notice-test-worker-bare").is_empty(),
+                "an unscoped request notice is in no call"
+            );
+        }
     }
 
     /// Progress lines go to the call's listener, else its notices (a warm
@@ -325,7 +391,7 @@ mod tests {
             super::progress_sink().expect("a sink")("waiting 3s");
         }
         assert_eq!(*heard.lock().expect("lines"), ["waiting 3s"]);
-        // Another test's notice raised outside every scope reaches these too.
+        // Another test's process-level notice reaches these too.
         let own = |scope: &Scope| {
             let mut notices = scope.notices();
             notices.retain(|notice| !notice.starts_with("notice-test-"));

@@ -33,8 +33,10 @@ pub struct HostOptions {
     pub env: Option<BTreeMap<String, String>>,
     #[serde(default)]
     pub surface: RuntimeSurface,
-    /// Override the per-request execution timeout in seconds (default:
-    /// [`crate::execution::DEFAULT_TIMEOUT`], the budget of every surface).
+    /// The caller's per-request budget in seconds; a call past it answers an
+    /// honest partial. Default: none, as on every surface (CLI, warm server,
+    /// MCP): no deadline, and each layer's own limit and a cancel end the
+    /// work ([`crate::execution::RequestLimits::timeout`]).
     #[serde(default)]
     pub timeout_secs: Option<u64>,
     /// The config files this process already read for this directory, so a
@@ -99,6 +101,9 @@ pub struct ToolRuntime {
     availability: Arc<crate::execution::availability::ToolAvailability>,
     /// Provider settings and selection availability, resolved once.
     evaluator: crate::tools::judgment::Evaluator,
+    /// Candidate pages selection judged, kept in memory so a replayed cursor
+    /// bills no second judgment.
+    selection_pages: Arc<crate::tools::selection::SavedPlans>,
     selection_available: bool,
     lsp_execution_config: Arc<crate::tools::lsp_search::LspExecutionConfig>,
     lsp_answers: Arc<crate::tools::lsp_search::ContinuationAnswers>,
@@ -139,6 +144,7 @@ impl ToolRuntime {
         self.section_sessions.clear_memory();
         self.lsp_answers.clear_memory();
         self.graph_rows.clear_memory();
+        self.selection_pages.clear_memory();
     }
     pub fn inspect_config(&self) -> config::ConfigInspectorData {
         config::inspector_data(&self.input, &self.config)
@@ -253,7 +259,7 @@ impl CancellationCheck for ExecutionContext {
         Self::check(self).map_err(|error| error.to_string())
     }
     fn deadline(&self) -> Option<std::time::Instant> {
-        Some(self.deadline)
+        self.deadline
     }
     fn signal(&self) -> Option<&octocode_io::cancellation::Cancellation> {
         Some(&self.cancellation)

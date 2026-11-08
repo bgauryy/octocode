@@ -194,6 +194,7 @@ export const ADVANCED_GRAPH = {
     fs.writeFileSync(path.join(ctx.cwd, 'graph-formatted.ts'), compactArgumentSource.replaceAll(' ', '\n'));
     prepareGraphLookup(ctx.cwd);
     prepareGraphImpact(ctx.cwd);
+    prepareGroupedViews(ctx.cwd);
     const snapshot = data(await ctx.cliCall('graphBuild', input({ keep: 10 })));
     const files = data(await ctx.cliCall('graphQuery', input({ operation: 'find', target: '.ts', kind: 'file' })));
     const symbols = data(await ctx.cliCall('graphQuery', input({ operation: 'find', target: 'greet', kind: 'symbol' })));
@@ -238,16 +239,51 @@ export const ADVANCED_GRAPH = {
   },
 };
 
+// Grouped views count walked edges, not reached nodes. `right/b.ts` imports and calls `shared/s.ts` both
+// directly and through `mid/m.ts`, so two edges reach one node: every depth-2 walk below has one edge more
+// than it has rows.
+const VIEWS = 'graph-views';
+function prepareGroupedViews(cwd) {
+  const files = {
+    'shared/s.ts': 'export function shared() { return 1; }\n',
+    'left/a.ts': "import { shared } from '../shared/s';\nexport function useA() { return shared(); }\n",
+    'mid/m.ts': "import { shared } from '../shared/s';\nexport function useM() { return shared(); }\n",
+    'right/b.ts': "import { shared } from '../shared/s';\nimport { useM } from '../mid/m';\nexport function useB() { return shared() + useM(); }\n",
+  };
+  for (const [file, text] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(cwd, VIEWS, file)), { recursive: true });
+    fs.writeFileSync(path.join(cwd, VIEWS, file), text);
+  }
+}
+
+// The fixture's walked edges as `from>to` file pairs: importer or caller first.
+const inward = ['left/a.ts>shared/s.ts', 'mid/m.ts>shared/s.ts', 'right/b.ts>shared/s.ts', 'right/b.ts>mid/m.ts'];
+const GROUPED = [
+  { operation: 'deps', target: `${VIEWS}/right/b.ts`, reached: 'to', edges: ['right/b.ts>shared/s.ts', 'right/b.ts>mid/m.ts', 'mid/m.ts>shared/s.ts'] },
+  { operation: 'dependents', target: `${VIEWS}/shared/s.ts`, reached: 'from', edges: inward },
+  { operation: 'callers', target: `${VIEWS}/shared/s.ts#shared`, reached: 'from', edges: inward },
+];
+const tally = keys => keys.reduce((counts, key) => ({ ...counts, [key]: (counts[key] ?? 0) + 1 }), {});
+const dir = file => `${VIEWS}/${path.posix.dirname(file)}`;
+const counted = (rows, key) => Object.fromEntries(rows.map(row => [key(row), row.edges]));
+const same = (a, b) => JSON.stringify(Object.entries(a).sort()) === JSON.stringify(Object.entries(b).sort());
+
 async function groupedViews(ctx, graph, checks) {
-  for (const surface of ctx.surfaces) for (const [operation, target, expectedFile] of [
-    ['callers', 'graph-evidence.ts#evidenceTarget', 'graph-evidence.ts'],
-    ['dependents', 'graph-argument-import.ts', 'graph-arguments.ts'],
-  ]) {
-    const base = { operation, graph, target, limit: 1 };
-    const plain = await scenario(ctx, 'graphQuery', surface, { label: `graph.${operation}.ungrouped`, query: base, checks, responseChars: 400 });
-    const grouped = await scenario(ctx, 'graphQuery', surface, { label: `graph.${operation}.files`, query: { ...base, view: 'files' }, checks, responseChars: 400 });
-    const edges = plain.data.flatMap(row => row.rows ?? []), rows = grouped.data.flatMap(row => row.rows ?? []);
-    checks.push([`graph.${operation}.file-counts.${surface}`, edges.length > 0 && rows.length === 1
-      && rows[0].file === expectedFile && rows[0].edges === edges.length, JSON.stringify({ edges, rows })]);
+  for (const surface of ctx.surfaces) for (const { operation, target, reached, edges } of GROUPED) {
+    const base = { operation, graph, target, depth: 2, limit: 1 };
+    const walk = (view, label) => scenario(ctx, 'graphQuery', surface, { label: `graph.${operation}.${label}`, query: view ? { ...base, view } : base, checks, responseChars: 400 })
+      .then(result => result.data.flatMap(row => row.rows ?? []));
+    const plain = await walk(undefined, 'ungrouped');
+    const pairs = edges.map(edge => edge.split('>'));
+    const files = tally(pairs.map(([from, to]) => `${VIEWS}/${reached === 'to' ? to : from}`));
+    const modules = tally(pairs.map(([from, to]) => `${dir(from)}>${dir(to)}`));
+    const grouped = await walk('files', 'files');
+    const fileCounts = counted(grouped, row => row.file);
+    checks.push([`graph.${operation}.file-counts.${surface}`, plain.length === edges.length - 1
+      && grouped.length === Object.keys(files).length && same(fileCounts, files), JSON.stringify({ plain: plain.length, expected: files, rows: grouped })]);
+    const paired = await walk('modules', 'modules');
+    const moduleCounts = counted(paired, row => `${row.from}>${row.to}`);
+    checks.push([`graph.${operation}.module-counts.${surface}`, paired.length === Object.keys(modules).length
+      && same(moduleCounts, modules), JSON.stringify({ expected: modules, rows: paired })]);
   }
 }

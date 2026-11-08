@@ -261,11 +261,18 @@ pub fn route_problems(
     problems
 }
 
+/// One entry's launch, and the command the entry spells (what resolution
+/// was asked for, before it chose a program).
+pub(super) struct UserServer {
+    pub(super) config: LspLanguageServerConfig,
+    pub(super) command: String,
+}
+
 pub(super) fn user_server_for_extension(
     extension: &str,
     workspace_root: &str,
     options: &LspDiscoveryOptions,
-) -> Option<LspLanguageServerConfig> {
+) -> Option<UserServer> {
     for (config_path, source) in user_config_paths(workspace_root, options) {
         let Ok(content) = std::fs::read_to_string(config_path) else {
             continue;
@@ -299,15 +306,18 @@ pub(super) fn user_server_for_extension(
             trust_workspace,
             options.invocation_dir.as_deref(),
         );
-        return Some(LspLanguageServerConfig {
-            command,
-            args: Some(args),
-            workspace_root: workspace_root.to_owned(),
-            language_id: Some(language_id),
-            initialization_options: server.initialization_options.clone(),
-            env: server.env.clone(),
-            max_memory_mb: server.max_memory_mb,
-            source,
+        return Some(UserServer {
+            config: LspLanguageServerConfig {
+                command,
+                args: Some(args),
+                workspace_root: workspace_root.to_owned(),
+                language_id: Some(language_id),
+                initialization_options: server.initialization_options.clone(),
+                env: server.env.clone(),
+                max_memory_mb: server.max_memory_mb,
+                source,
+            },
+            command: server.command.clone(),
         });
     }
     None
@@ -334,7 +344,7 @@ const PROJECT_CONFIG: &str = ".octocode/lsp-servers.json";
 
 /// The `lsp-servers.json` files consulted, in order, each with the source
 /// its entries report.
-fn user_config_paths(
+pub(super) fn user_config_paths(
     workspace_root: &str,
     options: &LspDiscoveryOptions,
 ) -> Vec<(PathBuf, ServerSource)> {

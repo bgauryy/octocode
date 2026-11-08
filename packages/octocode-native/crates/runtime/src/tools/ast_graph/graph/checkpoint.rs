@@ -23,8 +23,40 @@ const JOB_VERSION: u32 = 3;
 /// graph source is within what the scanner admits
 /// ([`octocode_engine::fact_scan::MAX_GRAPH_SOURCE_BYTES`]); a larger text
 /// would be refused as a secret, so nothing unscanned is ever written.
-fn holds_secret(security: &ContentSecurity, source: &str) -> bool {
-    security.sanitize_text(source, None).has_secrets
+/// `Err` when the scan panicked, even if the sanitizer recovered: whether
+/// the source holds a secret is then unknown.
+fn holds_secret(
+    security: &ContentSecurity,
+    source: &str,
+) -> Result<bool, octocode_engine::contain::Contained> {
+    octocode_engine::contain::contain(octocode_engine::contain::Phase::SecretScan, || {
+        #[cfg(test)]
+        secret_scan_fault(source);
+        security.sanitize_text(source, None).has_secrets
+    })
+}
+
+/// Sources holding one of these markers panic their secret scan (tests).
+#[cfg(test)]
+static SECRET_SCAN_FAULTS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+/// Makes the secret scan of every source holding `marker` panic.
+#[cfg(test)]
+pub(in crate::tools::ast_graph) fn inject_secret_scan_fault(marker: &str) {
+    SECRET_SCAN_FAULTS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .push(marker.to_owned());
+}
+
+#[cfg(test)]
+fn secret_scan_fault(source: &str) {
+    let faulted = SECRET_SCAN_FAULTS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .any(|marker| source.contains(marker.as_str()));
+    assert!(!faulted, "injected secret scan fault");
 }
 
 pub(super) struct Job<'a> {
@@ -126,12 +158,15 @@ impl Job<'_> {
     /// digest + pinned identity + complete payload), so it is written
     /// without a sync: a torn or lost write fails verification on the next
     /// build and is extracted again; only stage transitions are durable.
-    /// Returns the kept facts and their artifact's encoded bytes.
+    /// Returns the kept facts and their artifact's encoded bytes, or the
+    /// panic of the file's secret scan: then nothing of the file is kept or
+    /// written (it fails closed).
     pub(super) fn keep(
         &self,
         view: &GraphFactsView<'_>,
         source: capture::CapturedSource,
-    ) -> Result<(super::scan::Kept, usize), ToolError> {
+    ) -> Result<Result<(super::scan::Kept, usize), octocode_engine::contain::Contained>, ToolError>
+    {
         // Reused from its own verified artifact: that artifact already holds
         // these facts, so it is kept, not encoded, scanned and written again.
         if view.reused {
@@ -147,12 +182,19 @@ impl Job<'_> {
                 state.committed.insert(view.relative_path.into());
                 drop(state);
                 let storage = Storage::Disk(self.target(view.relative_path));
-                return Ok((self.retain(view, source, size, storage), to_usize(size)));
+                return Ok(Ok((
+                    self.retain(view, source, size, storage),
+                    to_usize(size),
+                )));
             }
         }
         let bytes = encode(&self.manifest.namespace, view)?;
         let size = bytes.len() as u64;
-        let storage = if holds_secret(self.security, view.content) {
+        let holds_secret = match holds_secret(self.security, view.content) {
+            Ok(holds) => holds,
+            Err(unscanned) => return Ok(Err(unscanned)),
+        };
+        let storage = if holds_secret {
             let previous = {
                 let mut state = self.state();
                 if state.memory_bytes.saturating_add(size) > self.limits.memory_only_bytes {
@@ -160,7 +202,7 @@ impl Job<'_> {
                     // from its decoded facts like an uncheckpointed build's:
                     // nothing is refused, only this file's resumption.
                     drop(state);
-                    return Ok((decoded(view, source), bytes.len()));
+                    return Ok(Ok((decoded(view, source), bytes.len())));
                 }
                 state.memory_bytes += size;
                 state.memory_files += 1;
@@ -191,7 +233,7 @@ impl Job<'_> {
                     // Past the disk budget the file is linked from its
                     // decoded facts, as past the memory-only budget.
                     drop(state);
-                    return Ok((decoded(view, source), bytes.len()));
+                    return Ok(Ok((decoded(view, source), bytes.len())));
                 }
                 state.bytes = next_bytes;
                 state.artifacts.insert(view.relative_path.into(), size);
@@ -215,7 +257,10 @@ impl Job<'_> {
             state.committed.insert(view.relative_path.into());
             Storage::Disk(target)
         };
-        Ok((self.retain(view, source, size, storage), to_usize(size)))
+        Ok(Ok((
+            self.retain(view, source, size, storage),
+            to_usize(size),
+        )))
     }
 
     /// The file's facts kept decoded when `size` more encoded bytes fit the

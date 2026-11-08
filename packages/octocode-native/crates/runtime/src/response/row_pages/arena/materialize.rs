@@ -17,7 +17,7 @@ impl FragmentArena {
                 source,
                 pointer,
                 self.collection_routes,
-                &self.page_context.required,
+                &|member| self.page_context.requires(member),
             );
         }
         value

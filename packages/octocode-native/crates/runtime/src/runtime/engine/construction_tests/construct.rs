@@ -268,7 +268,7 @@ async fn sections_runtime_checks_paths_and_sanitizes_before_inference() {
     assert!(!result.to_string().contains(&secret));
     let mut context = ExecutionContext {
         cancellation: octocode_io::cancellation::Cancellation::new(),
-        deadline: std::time::Instant::now() - std::time::Duration::from_secs(1),
+        deadline: Some(std::time::Instant::now() - std::time::Duration::from_secs(1)),
         response_window: None,
         github_credential: None,
     };
@@ -280,7 +280,7 @@ async fn sections_runtime_checks_paths_and_sanitizes_before_inference() {
             .code,
         ErrorCode::Timeout
     );
-    context.deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    context.deadline = Some(std::time::Instant::now() + std::time::Duration::from_secs(30));
     context.cancellation.cancel();
     assert_eq!(
         runtime

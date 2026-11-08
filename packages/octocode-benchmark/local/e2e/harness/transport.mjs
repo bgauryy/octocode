@@ -6,6 +6,8 @@ import path from 'node:path';
 import { hermeticEnv } from '../../../../../test-utils/hermetic-env.ts';
 import { checks, spawnCli, startServer } from './mcp-client.mjs';
 import { nextHints, sourceLines } from './responses.mjs';
+import { snapshotBuild } from './build-snapshot.mjs';
+snapshotBuild();
 
 const { check, summary } = checks('transport');
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-transport-'));
@@ -81,19 +83,23 @@ try {
     check(`${surface} opaque cursors preserve every Unicode source line exactly once`, seen.size > 1, `${actual.size} lines, ${seen.size} replays`);
     const cursor = [...seen][0];
     const foreign = surface === 'cli' ? await client.raw('localFetch', { cursor }) : await cli('localFetch', { cursor });
-    assert.ok(foreign.text.includes('responseSnapshotExpired'), foreign.text);
-    check(`${surface} cursor is bound to its issuing surface`, true);
+    const resumed = surface === 'cli' ? !foreign.isError : foreign.code === 0;
+    assert.ok(resumed && !foreign.text.includes('responseSnapshotExpired'), foreign.text);
+    const foreignLines = new Map();
+    captureSource(surface === 'cli' ? foreign.sc : foreign.output, foreignLines);
+    check(`${surface} cursor resumes on the other surface with its page`, foreignLines.size > 0, foreign.text);
     const mutation = { cursor, queries: [{ path: 'source.txt' }] };
     const shell = await cli('localFetch', mutation);
     const mcp = await client.raw('localFetch', mutation);
     check('resume rejects caller-supplied request mutations', shell.code === 2 && mcp.isError);
-    // A cursor keeps the page size it was issued with: the caller cannot resize it.
-    const alone = await execute({ cursor });
-    const resized = await execute({ cursor, responseChars: 4000 });
+    // A cursor keeps the page size it was issued with: a size beside it is refused, never ignored.
+    const resize = { cursor, responseChars: 4000 };
+    const resizedShell = await cli('localFetch', resize);
+    const resizedMcp = await client.raw('localFetch', resize);
     check(
-      `${surface} resume ignores responseChars: the same page and next cursor as the cursor alone`,
-      JSON.stringify(resized.results) === JSON.stringify(alone.results) && JSON.stringify(nextHints(resized)) === JSON.stringify(nextHints(alone)),
-      JSON.stringify({ alone: alone.results, resized: resized.results }),
+      'resume refuses responseChars beside the cursor and says to send the cursor alone',
+      resizedShell.code === 2 && resizedMcp.isError && [resizedShell, resizedMcp].every(result => result.text.includes('alone')),
+      JSON.stringify({ shell: resizedShell.text, mcp: resizedMcp.text }),
     );
   }
 } finally {

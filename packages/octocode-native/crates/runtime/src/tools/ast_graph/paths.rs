@@ -38,10 +38,17 @@ pub(crate) fn climb(mut parts: Vec<String>, path: &str) -> Option<Vec<String>> {
     Some(parts)
 }
 
+/// [`normalize`] of a typed JS specifier (a package manifest's export or
+/// entry target): manifests are written on every platform, so a `\` in one
+/// reads as a separator. Walked paths keep theirs: on Unix it is a name byte.
+pub(crate) fn normalize_specifier(p: &str) -> String {
+    normalize(&p.replace('\\', "/"))
+}
+
 /// `p` as a root-relative slash path with `.` and `..` folded by the one
 /// lexical fold; a leading root is dropped.
 pub(crate) fn normalize(p: &str) -> String {
-    let folded = slash_path(&lexical(Path::new(&p.replace('\\', "/"))));
+    let folded = slash_path(&lexical(Path::new(p)));
     folded.trim_start_matches('/').to_owned()
 }
 

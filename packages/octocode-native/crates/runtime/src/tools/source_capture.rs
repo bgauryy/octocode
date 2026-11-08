@@ -32,7 +32,12 @@ use std::path::{Path, PathBuf};
 /// implements it, so a capture (and clasify, which captures) never names the
 /// dispatcher that runs it.
 pub(crate) trait SourceReader: Sync {
+    /// The policy a capture reads under: what goes to a provider, so credential
+    /// file names stay withheld whatever the setting.
     fn paths(&self) -> &PathPolicy;
+    /// The user's own policy, which a direct read runs under: it decides only
+    /// the route a refused capture names, never what a capture reads.
+    fn read_paths(&self) -> &PathPolicy;
     fn security(&self) -> &ContentSecurity;
     fn config(&self) -> &ConfigOutput;
     fn limits(&self) -> &RuntimeLimits;
@@ -106,23 +111,47 @@ pub(crate) fn too_large(max_chars: usize, what: &str, in_parts: &str) -> Classif
 
 /// The refusal of a GitHub source whose name the classification egress
 /// withholds: the code a local capture meets, before any fetch, so no copy is
-/// cached. Only the provider is refused: its read, without classification,
-/// sends nothing to one and stays the route to the file.
-pub(crate) fn withheld_github_source(query: &Value) -> Option<ClassificationError> {
+/// cached. The egress rule stays strict whatever the setting, since redaction
+/// recognizes known secret formats only and a provider must never receive a
+/// credential file (graph snapshots and local classification hold the same
+/// line). Its route follows `reads`, the user's own policy a direct read runs
+/// under: only where that opens the file is the plain read offered, as a lead.
+pub(crate) fn withheld_github_source(
+    query: &Value,
+    reads: &PathPolicy,
+) -> Option<ClassificationError> {
     let path = query["path"].as_str()?;
-    crate::policy::discovery::is_sensitive_repository_file(path).then(|| ClassificationError {
-        leads: vec![(
-            "read".to_owned(),
-            read_lead(ToolId::GhGetFileContent, query, None),
-        )],
-        ..ClassificationError::new(
-            ErrorCode::PathPolicyDenied,
-            format!(
-                "Path '{path}' is withheld from classification by the security path policy (a credential file name or directory): nothing was fetched or sent to the provider, and no flag or config setting lifts it."
-            ),
-            "A ghGetFileContent read without classification returns this file redacted and sends nothing to a provider.",
-        )
-    })
+    if !crate::policy::discovery::is_sensitive_repository_file(path) {
+        return None;
+    }
+    let message = format!(
+        "Path '{path}' is withheld from classification by the security path policy (a credential file name or directory): nothing was fetched or sent to the provider, and no flag or config setting lifts it."
+    );
+    if !reads.withholds_repository_file(path) {
+        return Some(ClassificationError {
+            leads: vec![(
+                "read".to_owned(),
+                read_lead(ToolId::GhGetFileContent, query, None),
+            )],
+            ..ClassificationError::new(
+                ErrorCode::PathPolicyDenied,
+                message,
+                "A ghGetFileContent read without classification returns this file with its values redacted, keeps it in memory only and sends nothing to a provider.",
+            )
+        });
+    }
+    let hint = if crate::policy::discovery::is_in_sensitive_directory(
+        &crate::policy::discovery::repository_path(path),
+    ) {
+        "No read returns it: a file in a sensitive directory is withheld from every read, whatever the configuration."
+    } else {
+        "A plain ghGetFileContent read is refused too; only the user's home .octocoderc setting security.credentialFiles: allow opens it, redacted and in memory."
+    };
+    Some(ClassificationError::new(
+        ErrorCode::PathPolicyDenied,
+        message,
+        hint,
+    ))
 }
 
 /// Capture `source` (`{tool, query}` or `{url}`) completely, up to

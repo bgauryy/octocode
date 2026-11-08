@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+
 use regex::Regex;
 use serde::Deserialize;
 use tree_sitter::Node;
@@ -14,6 +17,8 @@ mod relation;
 
 #[cfg(test)]
 pub(super) use decode::RULE_DECODE_COUNT;
+#[cfg(test)]
+pub(super) use relation::ANCESTOR_STEPS;
 use decode::check_kinds;
 pub(in crate::structural) use decode::decode_rule;
 use relation::Relation;
@@ -26,7 +31,7 @@ pub(in crate::structural) struct RawRule {
     nth_child: Option<RawOrdinal>,
     range: Option<ExactRange>,
     pub(in crate::structural) pattern: Option<RawPattern>,
-    regex: Option<String>,
+    pub(in crate::structural) regex: Option<String>,
     pub(in crate::structural) has: Option<Box<Self>>,
     pub(in crate::structural) inside: Option<Box<Self>>,
     precedes: Option<Box<Self>>,
@@ -211,6 +216,21 @@ impl CompiledRule {
         self.candidate_plan.matches(candidate)
     }
 
+    /// Whether this rule's answer for a node depends on nothing but the node
+    /// and the document: no capture is bound or compared (a named
+    /// metavariable), and no ordinal reads the environment.
+    pub(super) fn is_capture_free(&self) -> bool {
+        self.nth_child.is_none()
+            && self
+                .pattern
+                .as_ref()
+                .is_none_or(CompiledPattern::binds_nothing)
+            && self.relations.iter().all(Relation::is_capture_free)
+            && self.all.iter().all(Self::is_capture_free)
+            && self.any.iter().all(Self::is_capture_free)
+            && self.not.as_deref().is_none_or(Self::is_capture_free)
+    }
+
     /// `ancestors` is the candidate's ancestor chain (root first, parent
     /// last) when the caller already has it; `None` recomputes it once from
     /// the document root, and only if an `inside` matcher needs it.
@@ -221,6 +241,8 @@ impl CompiledRule {
         document: &Document<'_, 't>,
         captures: &mut CaptureEnv,
     ) -> Result<bool, ExecutionError> {
+        #[cfg(test)]
+        EVALUATIONS.with(|count| count.set(count.get() + 1));
         ExecutionError::check(document.deadline)?;
         if !self.matches_candidate(candidate) {
             return Ok(false);
@@ -299,7 +321,55 @@ impl CompiledRule {
     }
 }
 
+/// What `has` and `inside` relations that look through every level (`stopBy:
+/// end`) already settled for one file's tree: a nested node starts its own
+/// walk through the levels below (or above) it, so without this a chain of
+/// n nodes is walked n times. Only a relation whose rules read and bind no
+/// capture is kept ([`CompiledRule::is_capture_free`]): its answer for a node
+/// is then the same whoever asks, and the first walk settles every node it
+/// passed.
+pub(super) struct RelationMemo {
+    /// The file tree's root; a macro body parsed from it has its own tree,
+    /// whose node addresses may repeat after it drops, so it is never kept.
+    root: usize,
+    /// By relation (its address, which lives as long as the compiled rule)
+    /// and node, whether the relation holds for that node.
+    answers: RefCell<HashMap<(usize, usize), bool>>,
+}
+
+impl RelationMemo {
+    pub(super) fn of(root: Node<'_>) -> Self {
+        Self {
+            root: root.id(),
+            answers: RefCell::default(),
+        }
+    }
+
+    fn covers(&self, root: Node<'_>) -> bool {
+        self.root == root.id()
+    }
+
+    fn get(&self, relation: usize, node: Node<'_>) -> Option<bool> {
+        self.answers.borrow().get(&(relation, node.id())).copied()
+    }
+
+    fn set(&self, relation: usize, node: Node<'_>, holds: bool) {
+        self.answers
+            .borrow_mut()
+            .insert((relation, node.id()), holds);
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Rule evaluations ([`CompiledRule::matches`]) this thread ran, for
+    /// tests that measure the work of a walk.
+    pub(super) static EVALUATIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 pub(super) struct Document<'a, 't> {
+    /// `None` keeps nothing: every relation walks.
+    pub(super) memo: Option<&'a RelationMemo>,
     pub(super) content: &'a str,
     pub(super) deadline: super::Deadline,
     pub(super) root: Node<'t>,

@@ -23,6 +23,8 @@ fn scope_of(root: &Path) -> Scope {
 async fn ignored_files_are_scanned_per_request_and_include_every_name() {
     let (_dir, root) = fixture();
     write(&root.join(".gitignore"), "gen/\n");
+    // An ignore input written inside the settle window: no scan is kept.
+    super::super::tests::date_ahead(&root.join(".gitignore"));
     write(
         &root.join("a.ts"),
         "export function f() {}\nexport function g() {}\n",

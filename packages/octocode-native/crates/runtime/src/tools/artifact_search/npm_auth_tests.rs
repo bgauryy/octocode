@@ -202,7 +202,16 @@ async fn an_npm_git_head_missing_upstream_is_no_release_lead() {
             sha,
             "{data}"
         );
-        assert!(data.get("warnings").is_none(), "{data}");
+        match refs.commit_check_failure() {
+            // A check that failed is stated, with its cause, not silent: the
+            // commit stays what the registry named.
+            Some(failure) => {
+                let warnings = data["warnings"].to_string();
+                assert!(warnings.contains("could not be checked"), "{data}");
+                assert!(warnings.contains(&failure.describe()), "{data}");
+            }
+            None => assert!(data.get("warnings").is_none(), "{data}"),
+        }
     }
 
     // A release tag naming the recorded commit proves it; one naming another

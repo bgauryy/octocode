@@ -13,7 +13,21 @@ pub(super) struct Walk<'f> {
     /// Inward from a file, also step to the files that use its exports
     /// through a re-exporting module.
     pub(super) reexports: bool,
+    pub(super) lists: WalkRows,
     pub(super) window: std::ops::Range<usize>,
+}
+
+/// What a [`walk`] lists.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum WalkRows {
+    /// Each reached node once, in discovery order.
+    Nodes,
+    /// Each walked edge as the file of the node it reaches (`file`), for
+    /// `view:"files"`.
+    Files,
+    /// Each walked edge as the directories it joins (`from`, `to`), for
+    /// `view:"modules"`.
+    Modules,
 }
 
 /// Breadth-first expansion from `seeds`; rows are in discovery order.
@@ -30,6 +44,7 @@ pub(super) fn walk(
         kind,
         include_seeds,
         reexports,
+        lists,
         ref window,
     } = *how;
     let mut seen = vec![false; g.t.nodes.len()];
@@ -58,10 +73,15 @@ pub(super) fn walk(
                 seen[next as usize] = true;
                 queue.push_back((next, level + 1));
             }
+            // A seed the answer leaves unlisted is never listed. Grouped
+            // views count every edge, also one into a node an earlier edge
+            // reached; node rows list each node once.
             if emitted[next as usize] {
                 continue;
             }
-            emitted[next as usize] = true;
+            if lists == WalkRows::Nodes {
+                emitted[next as usize] = true;
+            }
             if kind.is_some_and(|k| g.t.nodes[next as usize].kind != k) {
                 continue;
             }
@@ -69,6 +89,17 @@ pub(super) fn walk(
             total += 1;
             if !window.contains(&position) {
                 continue;
+            }
+            match lists {
+                WalkRows::Files => {
+                    rows.push(json!({"file": g.key(g.file_of(next))}));
+                    continue;
+                }
+                WalkRows::Modules => {
+                    rows.push(json!({"from": g.module(edge.src), "to": g.module(edge.dst)}));
+                    continue;
+                }
+                WalkRows::Nodes => {}
             }
             let mut row = g.node_json(next, cancel)?;
             row.insert("depth".into(), json!(level + 1));

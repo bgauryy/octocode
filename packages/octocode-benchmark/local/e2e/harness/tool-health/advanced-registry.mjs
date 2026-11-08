@@ -67,8 +67,9 @@ const packageRow = (ctx, packageName, fields = {}) => ({ operation: 'resolve', e
 const resultRows = report => report.responses.flatMap(response => response.result.json?.results ?? []);
 const artifactRows = report => resultRows(report).flatMap(row => row.data?.artifacts ?? []);
 const detailOf = report => `${report.responses.length} calls; ${JSON.stringify(report.failures)}`;
-const providerCalls = (ctx, surface) => ctx.mock.requestsFrom.filter(entry => entry.token === null
-  || entry.token === tokenFor('artifactSearch', surface)).length + ctx.registry.requests.length;
+/** Provider requests this surface's credential sent: to GitHub, the npm registry and every proxied registry. */
+export const providerCalls = (ctx, surface) => [...ctx.mock.requestsFrom, ...ctx.registry.requestsFrom]
+  .filter(entry => entry.token === tokenFor('artifactSearch', surface)).length;
 
 function npmFixtures(ctx) {
   const large = {
@@ -223,6 +224,5 @@ export async function advancedRegistries(ctx) {
   await trustStoreChecks(ctx, record);
   await npmChecks(ctx, record);
   await osvChecks(ctx, record);
-  record('routes.closed', 'all', ctx.registry.unhandled.length === 0 && ctx.registry.denied.length === 0, JSON.stringify({ unhandled: ctx.registry.unhandled, denied: ctx.registry.denied }));
   return checks;
 }

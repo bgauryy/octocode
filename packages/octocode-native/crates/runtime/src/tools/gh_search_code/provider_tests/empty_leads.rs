@@ -50,9 +50,15 @@ async fn run_empty(row: serde_json::Value) -> crate::response::result::ToolData 
         .await;
     let provider = one_shot_provider(&server);
     let query: GhSearchCodeQuery = serde_json::from_value(row).expect("query");
-    execute(&provider, &query, &default_context(), &Passthrough)
-        .await
-        .expect("empty search")
+    execute(
+        &provider,
+        &query,
+        &default_context(),
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("empty search")
 }
 
 /// The related ghSearchCode call whose rows search exactly `variants`.

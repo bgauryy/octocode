@@ -124,3 +124,9 @@ fn tree_walk_and_kill_reach_a_setsid_grandchild() {
         "the setsid grandchild must die with the tree"
     );
 }
+
+#[test]
+fn parent_pid_of_this_process_is_a_positive_pid() {
+    let parent = parent_pid(std::process::id());
+    assert!(parent.is_some_and(|pid| pid > 0), "{parent:?}");
+}

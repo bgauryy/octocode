@@ -69,6 +69,8 @@ impl Query<'_> {
         let mut keep = |row: &dyn Fn() -> Result<Value, GraphOutput>| -> Result<(), GraphOutput> {
             window.try_push(row)
         };
+        // Matching call witnesses the confidence filter leaves out.
+        let mut filtered_by_confidence = 0usize;
         if self.options.op == "witnesses" {
             let filter = self.filter(&EdgeKind::ALL);
             for witness in &self.g.t.witnesses {
@@ -78,9 +80,13 @@ impl Query<'_> {
                 let edge = &witness.edge;
                 if !self.within_evidence_scope(edge.src, source)
                     || !self.within_evidence_scope(edge.dst, destination)
-                    || !filter.admits(edge)
+                    || !filter.admits_kind(edge)
                     || !self.admits_name(self.g.t.nodes[edge.dst as usize].name, &mut names)?
                 {
+                    continue;
+                }
+                if filter.below_confidence(edge) {
+                    filtered_by_confidence += 1;
                     continue;
                 }
                 keep(&|| {
@@ -178,6 +184,9 @@ impl Query<'_> {
         }
         let mut extra = Map::new();
         extra.insert("evidence".into(), json!("syntax"));
+        if filtered_by_confidence > 0 {
+            extra.insert("filteredByConfidence".into(), json!(filtered_by_confidence));
+        }
         // One source scopes coverage to its language; several, or none, the snapshot.
         let scope = match source {
             [only] => Some(*only),

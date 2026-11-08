@@ -32,16 +32,22 @@ use octocode_contract_types::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem};
 use code_selection::finish_code_selection;
 use search_page::{SearchPage, search_page};
 
+/// Whether the path policy withholds a repository file under the current
+/// settings ([`crate::policy::path::PathPolicy::withholds_repository_file`]):
+/// such a row lists its path only, with no line read or fragment.
+pub(crate) type Withholds<'a> = &'a (dyn Fn(&str) -> bool + Sync);
+
 /// Run one ghSearchCode row.
 pub async fn run(
     provider: &GitHubProvider,
     query: &GhSearchCodeQuery,
     request: Result<&RequestContext, ProviderError>,
     security: &(impl ContentScan + Sync),
+    withholds: Withholds<'_>,
 ) -> Result<ToolData, GhFailure> {
     let context = request.as_ref().ok().copied();
     let result = match request {
-        Ok(context) => execute(provider, query, context, security).await,
+        Ok(context) => execute(provider, query, context, security, withholds).await,
         Err(error) => Err(error),
     };
     let error = match result {
@@ -105,11 +111,9 @@ pub async fn run(
             {
                 GhFailure {
                     message: crate::tools::gh_shared::owner_not_found_message(&query.owner),
-                    hints: vec![
-                        "Check the owner spelling: a user or organization login.".to_owned(),
-                    ],
                     ..failure
                 }
+                .hint("Check the owner spelling: a user or organization login.")
             }
             None => failure,
         }
@@ -134,6 +138,7 @@ pub(crate) async fn execute(
     query: &GhSearchCodeQuery,
     context: &RequestContext,
     security: &(impl ContentScan + Sync),
+    withholds: Withholds<'_>,
 ) -> Result<ToolData, ProviderError> {
     let current = saturating_usize(query.page.get());
     let per = limit(query);
@@ -153,7 +158,7 @@ pub(crate) async fn execute(
         && search_may_be_renamed(&data, |page| page.fetched == 0 && page.total == 0)
     {
         let rerun = |renamed: GhSearchCodeQuery| async move {
-            Box::pin(execute(provider, &renamed, context, security)).await
+            Box::pin(execute(provider, &renamed, context, security, withholds)).await
         };
         match rerun_renamed(provider, query, &query.owner, repo, context, rerun).await? {
             Rerun::Renamed(output) => return Ok(output),
@@ -174,6 +179,7 @@ pub(crate) async fn execute(
         commit,
         context,
         security,
+        withholds,
     )
     .await?;
     let resolved_sha = resolution
@@ -185,11 +191,30 @@ pub(crate) async fn execute(
     if resolution.is_none() {
         code_output::index_commits(&mut items, &data.items, query);
     }
-    let reads = code_output::shape_files(&mut items, query, resolution);
+    let reads = code_output::shape_files(&mut items, query, withholds, resolution);
     if reads.redacted > 0 {
         crate::response::paging::push_warnings(
             &mut value,
             [crate::security::redacted_content_warning(reads.redacted)],
+        );
+    }
+    if reads.withheld > 0 {
+        crate::response::paging::push_warnings(
+            &mut value,
+            [format!(
+                "{} file(s) on this page are withheld by the security path policy (a credential file name or a sensitive directory): their rows list the path only, with no lines, and nothing of them was read. No query field lifts it.",
+                reads.withheld
+            )],
+        );
+    }
+    if reads.oversized > 0 {
+        crate::response::paging::push_warnings(
+            &mut value,
+            [format!(
+                "{} file(s) on this page are larger than the line-scan read bound ({} bytes: the scan limit, or the request's smaller response budget), so their lines were not resolved (`lineResolved:false`): read them with ghGetFileContent at the commit.",
+                reads.oversized,
+                lines::read_bound(context).budget.max_body_bytes
+            )],
         );
     }
     if content_reads > 0 {

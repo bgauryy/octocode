@@ -86,12 +86,12 @@ pub(super) fn promote_pr_continuations(out: &mut Value, q: &HistoryItemRequest) 
             continuation(nq)
         };
         if let Some(call) = call {
-            entry["next"][Axis::next_name()] = call;
+            crate::response::result::set_next(entry, Axis::next_name(), call);
         }
     }
     strip_cursors(pages);
     if unreached {
-        out["isPartial"] = json!(true);
+        crate::response::paging::set_partial(out, true);
     }
 }
 
@@ -190,12 +190,12 @@ pub(super) fn promote_issue_continuations(
             remove_key(&mut nq, Cursor::Offset.query_key());
         }
         if let Some(call) = continuation(nq) {
-            entry["next"][Axis::next_name()] = call;
+            crate::response::result::set_next(entry, Axis::next_name(), call);
         }
     }
     strip_cursors(pages);
     if unreached {
-        out["isPartial"] = json!(true);
+        crate::response::paging::set_partial(out, true);
     }
 }
 

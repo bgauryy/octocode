@@ -1,4 +1,6 @@
-use super::{mark_partial, next_page_call, push_warnings, terminal_limit};
+use super::{
+    mark_partial, next_candidate_page_call, next_page_call, push_warnings, terminal_limit,
+};
 
 /// A static notice is written once; a later page is told by its
 /// cursors, never by the tool.
@@ -55,6 +57,19 @@ fn next_page_call_advances_one_cursor_past_any_size() {
         assert_eq!(row["path"], "a.rs", "{call}");
     }
     assert!(next_page_call(ToolId::LspSearch, json!(1), "page", 2, &[]).is_none());
+}
+
+/// A cursor is not always a number: a candidate-page token continues the
+/// same query through the same builder.
+#[test]
+fn next_page_call_carries_a_token_cursor() {
+    let query = json!({"path": "src", "matchString": ["x"]});
+    let call = next_page_call(ToolId::LocalSearch, query, "selection", "token-1", &[])
+        .expect("an object query");
+    assert_eq!(
+        call["input"]["queries"][0]["selection"], "token-1",
+        "{call}"
+    );
 }
 
 /// The partial owners write a row or its object alike: a reason is
@@ -143,4 +158,37 @@ fn no_cursor_field_declares_a_maximum() {
         checked > 0,
         "the cursor invariant must inspect declared positions"
     );
+}
+
+/// The candidate page of a replayed scan restarts its private progress and
+/// carries the selection token and the scan's snapshot.
+#[test]
+fn next_candidate_page_call_restarts_progress_and_names_the_selection() {
+    let query = json!({"path": "src", "matchString": ["x"], "matchPage": 3, "snapshot": "old"});
+    let call = next_candidate_page_call(ToolId::LocalSearch, query, "token-1", Some("snap-2"))
+        .expect("an object query");
+    let row = &call["input"]["queries"][0];
+    assert_eq!(row["selection"], "token-1", "{call}");
+    assert_eq!(row["snapshot"], "snap-2", "{call}");
+    assert!(row.get("matchPage").is_none(), "{call}");
+    assert_eq!(row["path"], "src", "{call}");
+}
+
+/// A candidate page keeps its query's snapshot pin unless the caller
+/// passes a newer one; only private progress is dropped.
+#[test]
+fn candidate_page_keeps_the_query_snapshot_and_drops_progress() {
+    let query = json!({"path": "src", "matchString": ["x"], "matchPage": 3, "snapshot": "pinned"});
+    let call = next_candidate_page_call(ToolId::LocalSearch, query, "token-1", None)
+        .expect("an object query");
+    let row = &call["input"]["queries"][0];
+    assert_eq!(row["snapshot"], "pinned", "{call}");
+    assert!(row.get("matchPage").is_none(), "{call}");
+    let local_fetch = json!({"path": "a.rs", "snapshot": "pinned", "readProgress": {"unit": "lines", "offset": 3}});
+    let page = crate::response::result::with_changes(
+        local_fetch,
+        &super::candidate_page_changes(ToolId::LocalFetch, "token-1", None),
+    );
+    assert_eq!(page["snapshot"], "pinned", "{page}");
+    assert!(page.get("readProgress").is_none(), "{page}");
 }

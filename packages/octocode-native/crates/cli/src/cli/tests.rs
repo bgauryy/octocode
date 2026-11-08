@@ -234,11 +234,14 @@ fn tool_input_reads_a_file_and_rejects_bad_json() {
     );
 }
 
+/// B75: no surface sets a request budget, so a cold language-server request
+/// (worst path `MAX_COLD_LSP_EXECUTION_BUDGET_MS`) always reaches its base;
+/// only a caller's own budget can end it sooner.
 #[test]
-fn execution_deadline_exceeds_the_worst_cold_lsp_budget() {
-    assert!(
-        octocode_native::execution::DEFAULT_TIMEOUT.as_millis()
-            > u128::from(octocode_engine::lsp::MAX_COLD_LSP_EXECUTION_BUDGET_MS)
+fn no_surface_budget_cuts_a_cold_lsp_request() {
+    assert_eq!(
+        octocode_native::execution::RequestLimits::default().timeout,
+        None
     );
 }
 

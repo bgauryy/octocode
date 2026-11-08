@@ -148,6 +148,7 @@ async fn a_shared_reservation_does_its_file_io_off_the_async_worker() {
         .reserve_shared(
             Instant::now() + Duration::from_secs(5),
             &octocode_io::cancellation::Cancellation::new(),
+            &crate::budget::ClientWaits::default(),
             |_| (),
         )
         .await
@@ -349,4 +350,30 @@ fn an_unchanged_view_is_not_rewritten() {
     assert_eq!(inode(), first, "same view, no rewrite");
     state.cool_down(now_ms() + 30_000);
     assert_ne!(inode(), first, "a new cooldown is written");
+}
+
+/// An owner's listing route reaches the next process; a route forgotten
+/// after a 404 leaves the file, while a newer one a peer wrote stays.
+#[test]
+fn owner_routes_reach_the_next_process_and_a_forgotten_one_leaves_the_file() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let key = LimiterKey::new("ghe.example", Some("tok"));
+    let earlier = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+    earlier.learn_owner_route("Me", "viewer");
+    earlier.learn_owner_route("acme", "organization");
+    let next = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+    assert_eq!(next.owner_route("me").as_deref(), Some("viewer"));
+    assert_eq!(next.owner_route("acme").as_deref(), Some("organization"));
+
+    next.forget_owner_route("acme");
+    let after = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+    assert_eq!(after.owner_route("acme"), None);
+    assert_eq!(after.owner_route("me").as_deref(), Some("viewer"));
+
+    // A peer learned a new route before this process forgot the old one.
+    let peer = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+    peer.learn_owner_route("me", "user");
+    earlier.forget_owner_route("me");
+    let last = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+    assert_eq!(last.owner_route("me").as_deref(), Some("user"));
 }

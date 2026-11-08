@@ -47,3 +47,55 @@ pub(super) fn mapped_outcome<T>(
 /// The skip code of a file whose source correspondence outgrows the
 /// per-file budget, whichever stage measured it.
 pub const SOURCE_BUDGET_EXCEEDED: &str = "graph.scan.sourceBudgetExceeded";
+
+/// The skip code of a file whose work panicked, whichever phase did.
+pub const PANICKED: &str = "graph.scan.panicked";
+
+/// The skip of a file whose work panicked: named with its phase and the
+/// panic's location, never its message, and unassessed.
+#[must_use]
+pub fn panicked(
+    relative_path: String,
+    contained: &crate::contain::Contained,
+) -> GraphFactsScanDiagnostic {
+    GraphFactsScanDiagnostic {
+        relative_path,
+        code: PANICKED.to_owned(),
+        message: format!("{contained}; the file is unassessed: none of its facts are in the graph"),
+    }
+}
+
+/// A contained panic of one file's work as its named skip.
+pub(super) fn contained<T>(
+    relative_path: String,
+    contained: &crate::contain::Contained,
+) -> Result<Option<GraphFactsScanOutcome<T>>, GraphScanError> {
+    Ok(Some(GraphFactsScanOutcome::Skipped(panicked(
+        relative_path,
+        contained,
+    ))))
+}
+
+/// An error of `phase` that belongs to the file (its source or the map its
+/// facts carry is invalid) is that file's named skip; any other error
+/// (cancellation, a deadline, a budget) ends the scan.
+pub(super) fn failed<T>(
+    relative_path: String,
+    phase: crate::contain::Phase,
+    error: GraphScanError,
+) -> Result<Option<GraphFactsScanOutcome<T>>, GraphScanError> {
+    use crate::text::analysis::SourceError;
+    match error {
+        GraphScanError::Source(SourceError::InvalidMap(_) | SourceError::Refused(_)) => {
+            Ok(Some(skipped(
+                relative_path,
+                "graph.scan.extractFailed",
+                &format!(
+                    "{} phase failed: {error}; the file is unassessed: none of its facts are in the graph",
+                    phase.label()
+                ),
+            )))
+        }
+        error => Err(error),
+    }
+}

@@ -116,9 +116,9 @@ pub enum PartialReason {
     FileTooLarge,
     #[serde(rename = "securitySelectedViewSizeLimit")]
     SecuritySelectedView,
-    /// A regex scan stopped at its in-process match limit: the selection is a
-    /// prefix of the matches.
-    RegexMatchLimit,
+    /// A regex scan stopped at the memory budget for its match spans: the
+    /// selection is a prefix of the matches.
+    ScanBudget,
 }
 
 /// A declaration a `block:true` read widened a hit to: its name, name line
@@ -222,11 +222,14 @@ impl ByteOrigin {
 }
 
 /// Byte spans one regex selected, in source order. `truncated` says the scan
-/// stopped at its match limit with further matches unseen.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// stopped because the memory budget had no room for more spans, with further
+/// matches unseen. `held` is what the spans hold of that budget until the
+/// value drops.
+#[derive(Debug, Default)]
 pub struct RegexSpans {
     pub spans: Vec<(usize, usize)>,
     pub truncated: bool,
+    pub held: Option<octocode_io::memo::Reservation<'static>>,
 }
 
 /// A failed view selection: the row's `errorCode` and the reason the

@@ -66,15 +66,7 @@ impl Network<'_> {
         host: &Host<String>,
         addresses: Vec<SocketAddr>,
     ) -> Result<Reply, ClassificationError> {
-        let policy = ClientPolicy {
-            proxy: Proxy::Direct,
-            resolve: match host {
-                Host::Domain(name) => Some((name.clone(), addresses)),
-                _ => None,
-            },
-            user_agent: Some(concat!("octocode-native/", env!("CARGO_PKG_VERSION"))),
-            ..ClientPolicy::default()
-        };
+        let policy = page_policy(host, addresses);
         let client = octocode_io::http::client(&policy).map_err(|_| {
             ClassificationError::new(
                 ErrorCode::ClassificationContextFailed,
@@ -176,6 +168,21 @@ fn stopped(stop: BudgetStop) -> ClassificationError {
             "The call stopped before its page was fetched.",
             crate::response::rows::CANCELLED_HINT,
         ),
+    }
+}
+
+/// The client policy of a page fetch: direct to `host`'s validated
+/// `addresses`, and, as a request may have no deadline, ended only by a page
+/// that stops sending ([`ClientPolicy::without_deadline`]).
+fn page_policy(host: &Host<String>, addresses: Vec<SocketAddr>) -> ClientPolicy {
+    ClientPolicy {
+        proxy: Proxy::Direct,
+        resolve: match host {
+            Host::Domain(name) => Some((name.clone(), addresses)),
+            _ => None,
+        },
+        user_agent: Some(concat!("octocode-native/", env!("CARGO_PKG_VERSION"))),
+        ..ClientPolicy::without_deadline()
     }
 }
 

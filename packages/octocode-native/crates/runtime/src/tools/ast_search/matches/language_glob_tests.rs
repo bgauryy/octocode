@@ -48,7 +48,7 @@ fn parser_repair_drops_private_progress_but_preserves_match_scope() {
 
     let query: AstSearchQueryMatch0 = serde_json::from_value(json!({
         "operation":"match","path":"src","rule":{"kind":"call_expression"},
-        "page":3,"matchPage":2,"scanOffset":11,"snapshot":"saved",
+        "page":3,"scanOffset":11,"snapshot":"saved",
         "include":["**/*.ts"],"exclude":["vendor/**"],"includeHidden":true
     }))
     .expect("saved match request");

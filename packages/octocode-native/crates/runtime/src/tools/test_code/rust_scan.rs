@@ -18,6 +18,10 @@ use tokens::{Lexeme, Token, Tokens};
 pub(super) struct Scanned {
     pub(super) test_lines: Vec<[u32; 2]>,
     pub(super) modules: Vec<GraphFactRustModule>,
+    /// The text is not well formed (an unclosed literal, comment or
+    /// delimiter, or a stray closer): what the parse recovers from it is
+    /// its own, so a verdict that must equal the parse's asks the parse.
+    pub(super) malformed: bool,
 }
 
 impl Scanned {
@@ -34,6 +38,7 @@ impl Scanned {
                         + module.scope.iter().map(String::capacity).sum::<usize>()
                         + module.path.as_ref().map_or(0, String::capacity)
                         + module.test_path.as_ref().map_or(0, String::capacity)
+                        + module.plain_path.as_ref().map_or(0, String::capacity)
                 })
                 .sum::<usize>()
     }
@@ -55,6 +60,7 @@ pub(super) fn scan(content: &str) -> Scanned {
         out: Scanned {
             test_lines: Vec::new(),
             modules: Vec::new(),
+            malformed: false,
         },
     };
     pass.run();
@@ -73,6 +79,7 @@ struct Pending {
     attributes_from: Option<u32>,
     path: Option<String>,
     test_path: Option<String>,
+    plain_path: Option<String>,
 }
 
 /// One open delimiter.
@@ -83,6 +90,9 @@ struct Frame {
     module: bool,
     /// What it holds are items (a module, or an item-level macro's body).
     items: bool,
+    /// It lies inside a macro's body: only its item-level tokens are items
+    /// to the parse, not a block nested in it.
+    in_macro: bool,
     /// A macro body the parse does not read as items: its tokens mean nothing.
     opaque: bool,
     outer_pending: Pending,
@@ -135,6 +145,7 @@ impl<'t> Pass<'t> {
             }
             self.last_end = self.last_end.max(lexeme.end_line);
         }
+        self.out.malformed |= self.tokens.unterminated || !self.stack.is_empty();
         if let Some(span) = self.span.take() {
             self.out.test_lines.push([span.start, self.last_end]);
         }
@@ -259,7 +270,13 @@ impl<'t> Pass<'t> {
     }
 
     fn word(&mut self, word: &'t str, lexeme: Lexeme<'t>) {
-        if word == "mod" && !self.opaque() {
+        if word == "mod"
+            && !self.opaque()
+            && self
+                .stack
+                .last()
+                .is_none_or(|frame| !frame.in_macro || frame.items)
+        {
             self.module();
             return;
         }
@@ -287,6 +304,7 @@ impl<'t> Pass<'t> {
             self.open(opener, lexeme, !items);
             if let Some(frame) = self.stack.last_mut() {
                 frame.items = items;
+                frame.in_macro = true;
                 frame.line = body.line;
             }
         }
@@ -310,6 +328,7 @@ impl<'t> Pass<'t> {
             inline,
             path: self.pending.path.take(),
             test_path: self.pending.test_path.take(),
+            plain_path: self.pending.plain_path.take(),
             unsupported: false,
         });
         self.inline_name = inline.then(|| name.to_owned());
@@ -329,6 +348,7 @@ impl<'t> Pass<'t> {
             line: lexeme.line,
             module,
             items: module,
+            in_macro: self.stack.last().is_some_and(|frame| frame.in_macro),
             opaque: opaque || self.opaque(),
             outer_pending: std::mem::take(&mut self.pending),
             outer_node_line: self.node_line.take(),
@@ -337,6 +357,7 @@ impl<'t> Pass<'t> {
 
     fn close(&mut self, closer: u8, lexeme: Lexeme<'t>) {
         let Some(at) = self.stack.iter().rposition(|frame| frame.closer == closer) else {
+            self.out.malformed = true;
             return;
         };
         let before = self.last_end;

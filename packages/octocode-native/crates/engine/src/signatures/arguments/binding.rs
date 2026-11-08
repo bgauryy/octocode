@@ -295,7 +295,8 @@ fn local_definition_barrier<'a>(
     source: &str,
     scopes: Scopes<'a>,
 ) -> Option<Node<'a>> {
-    let declaration = crate::signatures::nodes::declaration_under(node, scopes.parent, source);
+    let declaration =
+        crate::signatures::nodes::declaration_in(node, scopes.parent.as_slice(), source);
     let boundary = declaration.is_some_and(|(kind, _)| {
         matches!(
             kind,

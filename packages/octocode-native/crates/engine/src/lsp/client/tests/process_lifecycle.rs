@@ -246,7 +246,7 @@ async fn hard_kill_reaps_a_setsid_grandchild() {
         .trim()
         .parse()
         .unwrap();
-    cleanup_failed_start(&mut child, None).await;
+    cleanup_failed_start(&mut child, None, None).await;
     assert!(child.id().is_none(), "the direct child must also be reaped");
     let deadline = std::time::Instant::now() + Duration::from_secs(2);
     // SAFETY: signal 0 only probes the fixture child's existence.

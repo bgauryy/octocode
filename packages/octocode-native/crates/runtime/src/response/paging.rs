@@ -9,24 +9,68 @@ use serde_json::{Map, Value, json};
 
 use crate::id::ToolId;
 
-/// The continuation call that reads cursor `field` at `next`: `query` (the
+/// The continuation call that reads cursor `field` (a page number or a
+/// token) at `next`: `query` (the
 /// complete query row the continuation repeats) with `field` set and each
 /// of `set` written after it (`snapshot`, an outer cursor's reset), built
 /// as an exact replay of `tool`. The one next-page builder; `None` only
 /// when `query` is not an object.
 pub(crate) fn next_page_call(
     tool: ToolId,
-    mut query: Value,
+    query: Value,
     field: &str,
-    next: usize,
+    next: impl Into<Value>,
     set: &[(&str, Value)],
 ) -> Option<Value> {
-    let row = query.as_object_mut()?;
-    row.insert(field.into(), json!(next));
+    let mut changes = Map::new();
+    changes.insert(field.into(), next.into());
     for (field, value) in set {
-        row.insert((*field).into(), value.clone());
+        changes.insert((*field).into(), value.clone());
     }
-    Some(crate::response::result::Continuation::continued(tool, query).build())
+    query.is_object().then(|| {
+        let row = crate::response::result::with_changes(query, &Value::Object(changes));
+        crate::response::result::Continuation::continued(tool, row).build()
+    })
+}
+
+/// What a candidate page changes in its query: private progress dropped
+/// (never the scan's `snapshot` pin, which the page keeps), the
+/// `selection` token set, and a newer `snapshot` when the caller has one.
+pub(crate) fn candidate_page_changes(
+    tool: ToolId,
+    selection: &str,
+    snapshot: Option<&str>,
+) -> Value {
+    let mut changes = Map::new();
+    for field in crate::contracts::state_fields(tool)
+        .iter()
+        .filter(|field| *field != "snapshot")
+    {
+        changes.insert(field.clone(), Value::Null);
+    }
+    if let Some(snapshot) = snapshot {
+        changes.insert("snapshot".into(), json!(snapshot));
+    }
+    changes.insert("selection".into(), json!(selection));
+    Value::Object(changes)
+}
+
+/// The continuation that judges the candidates a page left unjudged: `query`
+/// with [`candidate_page_changes`], replayed as `tool`. `None` only when
+/// `query` is not an object.
+pub(crate) fn next_candidate_page_call(
+    tool: ToolId,
+    query: Value,
+    selection: &str,
+    snapshot: Option<&str>,
+) -> Option<Value> {
+    query.is_object().then(|| {
+        let row = crate::response::result::with_changes(
+            query,
+            &candidate_page_changes(tool, selection, snapshot),
+        );
+        crate::response::result::Continuation::continued(tool, row).build()
+    })
 }
 
 /// A row the partial owners write: a JSON row, or its object a tool is
@@ -74,6 +118,15 @@ fn append_once<'a>(
                 list.push(json!(value));
             }
         }
+    }
+}
+
+/// The one writer of `isPartial`: sets it to `partial`. A row that holds
+/// more than its page shows, or stopped for no declared reason, is marked
+/// with it alone; [`mark_partial`] adds the reason.
+pub(crate) fn set_partial(row: &mut impl RowFields, partial: bool) {
+    if let Some(object) = row.fields() {
+        object.insert("isPartial".into(), json!(partial));
     }
 }
 

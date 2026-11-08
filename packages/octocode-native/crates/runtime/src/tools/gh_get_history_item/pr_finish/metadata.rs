@@ -1,7 +1,7 @@
 //! The pull-request metadata row, and the slim header of a section read.
 use crate::response::result::remove_nulls;
 use crate::tools::gh_get_history_item::HistoryItemRequest;
-use crate::tools::gh_get_history_item::util::{nonzero, str_at, string};
+use crate::tools::gh_get_history_item::util::{clean_char_cut, nonzero, str_at, string};
 use crate::tools::gh_shared::dates::{utc_date, utc_value};
 use serde_json::{Value, json};
 
@@ -18,7 +18,9 @@ fn body_preview(body: &str) -> Option<String> {
     if flat.chars().count() <= BODY_PREVIEW_CHARS {
         return Some(flat);
     }
-    let mut preview = flat.chars().take(BODY_PREVIEW_CHARS).collect::<String>();
+    // Never inside a redaction marker: it is whole or left out.
+    let end = clean_char_cut(&flat, 0, BODY_PREVIEW_CHARS);
+    let mut preview = flat.chars().take(end).collect::<String>();
     preview.push('…');
     Some(preview)
 }

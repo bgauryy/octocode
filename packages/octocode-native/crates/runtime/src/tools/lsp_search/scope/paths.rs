@@ -58,6 +58,79 @@ pub(super) fn has_project_boundary(anchor: &Path) -> bool {
     })
 }
 
+/// The project directories (canonical, sorted) in the parent of `root`: its
+/// children, other than `root`, that hold a project marker themselves and a
+/// file of the language family `include` names (a sibling of another language
+/// is no project the anchor's server could have loaded). One directory is
+/// listed, and only what the read policy authorizes. `stopped` ends the walks
+/// early (the request's cancellation or deadline); the list is then incomplete.
+pub(super) fn sibling_projects(
+    root: &Path,
+    policy: &PathPolicy,
+    include: &[String],
+    stopped: &dyn Fn() -> bool,
+) -> Vec<String> {
+    let authorized = |dir: &Path| {
+        policy
+            .validate(dir)
+            .ok()
+            .filter(|valid| valid.canonical.is_dir())
+            .map(|valid| valid.canonical)
+    };
+    let Some(parent) = root.parent().and_then(authorized) else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(&parent) else {
+        return Vec::new();
+    };
+    let mut found = entries
+        .filter_map(Result::ok)
+        .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
+        .map(|entry| entry.path())
+        .filter(|path| path != root && path.is_dir())
+        .filter(|path| {
+            octocode_engine::lsp::workspace::project_root_of_dir(path).as_deref() == Some(path)
+        })
+        .filter_map(|path| authorized(&path))
+        .filter(|path| !stopped() && holds_file_of(path, include, stopped))
+        .map(|path| path.to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+    found.sort();
+    found
+}
+
+/// Whether `dir` holds, under the ignore rules the text scans honor, a file
+/// matching one of the `include` globs; the walk stops at the first. No glob
+/// means no language to ask: every project qualifies.
+fn holds_file_of(dir: &Path, include: &[String], stopped: &dyn Fn() -> bool) -> bool {
+    if include.is_empty() {
+        return true;
+    }
+    let mut globs = globset::GlobSetBuilder::new();
+    for glob in include {
+        match globset::Glob::new(glob) {
+            Ok(glob) => {
+                globs.add(glob);
+            }
+            Err(_) => return true,
+        }
+    }
+    let Ok(globs) = globs.build() else {
+        return true;
+    };
+    ignore::WalkBuilder::new(dir)
+        .build()
+        .take_while(|_| !stopped())
+        .filter_map(Result::ok)
+        .any(|entry| {
+            entry.file_type().is_some_and(|kind| kind.is_file())
+                && entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| globs.is_match(name))
+        })
+}
+
 /// The scope root: VCS root, else outermost workspace manifest, else the
 /// server root; clamped to the policy, never the process cwd.
 pub(super) fn search_root(anchor: &Path, server_root: &str, policy: &PathPolicy) -> String {
@@ -184,10 +257,44 @@ impl super::Scope {
             family_include(language_id, anchor_path),
         );
         scope.unbounded = explicit.is_none() && !paths::has_project_boundary(anchor_path);
+        if scope.unbounded {
+            // The projects beside the root are looked for only when a note
+            // names them ([`Self::resolve_siblings`]).
+            scope.policy = Some(policy.clone());
+        }
         scope.narrowed =
             explicit.is_some_and(|root| root != wide && Path::new(&root).starts_with(&wide));
         scope.markup = markup_include(language_id);
         scope.server_root = std::fs::canonicalize(server_root).ok();
         scope
+    }
+
+    /// Find the projects beside an unbounded scope's root, once: the walk
+    /// runs here, when a note names them, not for every request. A walk
+    /// `stopped` ends is not kept, so a later call finds them whole.
+    pub(in super::super) fn resolve_siblings(&self, stopped: &dyn Fn() -> bool) {
+        let Some(policy) = self.policy.as_ref().filter(|_| self.unbounded) else {
+            return;
+        };
+        if self.siblings.get().is_some() {
+            return;
+        }
+        let found = sibling_projects(Path::new(&self.root), policy, &self.include, stopped);
+        if !stopped() {
+            let _ = self.siblings.set(found);
+        }
+    }
+
+    /// Whether a walk for the projects beside the root finished: a walk the
+    /// request stopped is not kept, so an empty [`Self::siblings`] proves no
+    /// absence until this holds.
+    pub(in super::super) fn siblings_searched(&self) -> bool {
+        self.siblings.get().is_some()
+    }
+
+    /// The projects beside the root ([`Self::resolve_siblings`]); empty until
+    /// they are found.
+    pub(in super::super) fn siblings(&self) -> &[String] {
+        self.siblings.get().map_or(&[], Vec::as_slice)
     }
 }

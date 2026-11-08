@@ -296,3 +296,12 @@ fn a_loopback_or_private_host_is_refused_before_connecting() {
         );
     }
 }
+
+/// B75: a page fetch may run without a deadline, so only a page that stops
+/// sending ends it ([`octocode_io::http::READ_STALL`]), never a total.
+#[test]
+fn a_page_fetch_is_bounded_only_by_its_read_stall() {
+    let policy = page_policy(&Host::Domain("docs.example.org".to_owned()), Vec::new());
+    assert_eq!(policy.read_timeout, Some(octocode_io::http::READ_STALL));
+    assert_eq!(policy.timeout, None);
+}

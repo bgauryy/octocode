@@ -35,16 +35,23 @@ fn grouped_pages_join_small_declarations_and_keep_exact_coverage() {
     assert_eq!(offset, source.len());
     assert_eq!(pages[0].kind, grouped::GROUP_KIND);
     assert_eq!(pages[0].context, single[0].context);
-    let names = pages
-        .iter()
-        .flat_map(|page| page.name.as_deref().unwrap_or_default().split(", "))
-        .collect::<Vec<_>>();
-    assert_eq!(
-        names,
-        (0..40)
-            .map(|index| format!("Item{index}"))
-            .collect::<Vec<_>>()
-    );
+    // A merged page is named by its first and last member and how many it
+    // joins, not by every member: short, and distinct per page (B51 11a).
+    let mut first = 0;
+    let mut names = std::collections::HashSet::new();
+    for page in &pages {
+        let members = source[page.target.clone()].lines().count();
+        let last = first + members - 1;
+        let expected = match members {
+            1 => format!("Item{first}"),
+            2 => format!("Item{first}, Item{last}"),
+            _ => format!("Item{first} … Item{last} ({members} declarations)"),
+        };
+        assert_eq!(page.name.as_deref(), Some(expected.as_str()));
+        assert!(names.insert(expected), "page names are distinct");
+        first = last + 1;
+    }
+    assert_eq!(first, 40);
 }
 
 #[test]

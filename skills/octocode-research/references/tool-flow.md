@@ -120,7 +120,7 @@ flowchart TD
   S{Unread material}
   S -- a fact with a fixed spelling --> X[Exact search or read: no model]
   S -- counts, identity, absence --> X2[Exact tools: AST, LSP, unfiltered search]
-  S -- many hits or lines to judge by meaning --> I["classification on localSearch, localFetch, ghSearchCode, ghGetFileContent"]
+  S -- many hits or lines to judge by meaning --> I["classification on the search, read or listing call"]
   S -- one large source, a named fact --> E["clasify evaluate + source"]
   S -- which regions across sources --> SE["clasify sections + resources"]
   S -- a screenshot, chart or image --> IM["clasify evaluate + assets"]
@@ -238,7 +238,7 @@ Measured 2026-11-02 on an optimized build over MCP, under other work on the mach
 | Question | Use | Instead of |
 |---|---|---|
 | One method in a large file | `matchString` + `block:true`: 1,063 | whole file: 195,566 |
-| Markdown outline (291 lines) | `symbols`: 1,464 | whole file: 33,621 |
+| Markdown outline (a tool reference doc, re-measured 2026-11-08) | `symbols`: 1,396 | whole file: 37,504 |
 | Large code outline | `astSearch` symbols + kinds: 6,353 | `symbols`: 54,014; `documentSymbols`: 123,412 |
 | Find a declaration | `astSearch` `symbolFilter`: 375 | `workspaceSymbol`: 2,051 |
 | Which files use a term | `view:"files"`: 809 | content: 9,204 |
@@ -249,7 +249,7 @@ Measured 2026-11-02 on an optimized build over MCP, under other work on the mach
 | GitHub code paths | `fields:["path"]`: 403 | default: 2,945 |
 | One file in a repo tree | `include`: 494 | `maxDepth:2`: 3,233 |
 | One file's patch in a PR | `patches` + `include`: 2,076 | all `patches`: 4,390 |
-| A fact in an unread 33 KB doc | `clasify` source: 600, plus 8,116 provider tokens | whole doc: 33,621 |
+| A fact in an unread 33 KB doc (paid call, measured 2026-11-02, not repeated) | `clasify` source: 600, plus 8,116 provider tokens | whole doc: 33,621 |
 | Hits narrowed by meaning | `classification`: 1,970, one model call per unit | all hits: 18,643 |
 | A literal in one file | exact read: 354, no tokens | `clasify`: 284, plus 3,159 tokens |
 

@@ -5,6 +5,8 @@ import path from 'node:path';
 import { ROOT } from './paths.mjs';
 import { checks, startServer, writeResults, LIVE } from './mcp-client.mjs';
 import { rowData, sourceLines } from './responses.mjs';
+import { snapshotBuild } from './build-snapshot.mjs';
+snapshotBuild();
 
 if (!LIVE) throw new Error('real LSP integration requires OCTOCODE_LIVE=1');
 const { check, summary } = checks('lsp-importers');

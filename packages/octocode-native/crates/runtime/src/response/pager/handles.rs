@@ -73,7 +73,7 @@ mod tests {
     #[test]
     fn handles_read_as_the_placeholder_and_are_restored() {
         let call =
-            |byte| json!({"kind":"continue","tool":"localSearch","input":{"cursor":handle(byte)}});
+            |byte| crate::response::result::Continuation::cursor("localSearch", handle(byte));
         let envelope = |byte| {
             json!({"results":[{"index":0,"data":{
                 "next":{"nextPage":call(byte)},

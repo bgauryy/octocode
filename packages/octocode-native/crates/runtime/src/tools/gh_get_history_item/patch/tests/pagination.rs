@@ -195,6 +195,44 @@ fn patch_rows_report_per_file_offsets_and_the_page_cursor_separately() {
     assert_eq!(page.cursor, Some(10));
 }
 
+/// A file whose patch spans pages names itself by `path` on every page; its
+/// change `stat` and rename `previousPath` are evidence the page that starts
+/// its patch carries once, so a later page repeats neither.
+#[test]
+fn a_later_patch_page_names_its_file_by_path_only() {
+    let files = vec![json!({"filename":"new.rs","previous_filename":"old.rs",
+        "status":"renamed","additions":20,"deletions":0,"patch":"n".repeat(40)})];
+    let mut offset = 0;
+    let mut pages = 0;
+    loop {
+        let page = shape_patch_page(
+            files.clone(),
+            &with_budget(window(json!({ "offset": offset })), 25),
+        )
+        .compact();
+        let row = &page.rows[0];
+        assert_eq!(row["path"], "new.rs", "page {pages}: {row}");
+        crate::tools::test_support::assert_row_contract(
+            crate::id::ToolId::GhGetHistoryItem,
+            &json!({"pullRequests":[{"number":1,"title":"t","state":"open",
+                "author":"a","createdAt":"2026-11-07T10:00:00Z","files":[row]}]}),
+        );
+        if row["patchPagination"]["offset"] == 0 {
+            assert_eq!(row["stat"], "R +20 -0", "{row}");
+            assert_eq!(row["previousPath"], "old.rs", "{row}");
+        } else {
+            assert!(row.get("stat").is_none(), "page {pages}: {row}");
+            assert!(row.get("previousPath").is_none(), "page {pages}: {row}");
+        }
+        pages += 1;
+        match page.cursor {
+            Some(next) => offset = next,
+            None => break,
+        }
+    }
+    assert!(pages > 1, "the patch spans pages");
+}
+
 /// At an automatic page of 1000 the patch window shrinks with the page,
 /// so a page of patches still fits one automatic response page.
 #[test]

@@ -333,3 +333,180 @@ async fn pull_request_comment_and_review_bodies_rejoin_exactly_once() {
         assert_eq!(got_review, redacted(review), "review");
     }
 }
+
+/// A `matchString` read whose `contextLines` reach past the hunk widens it
+/// from the file's head text; that text is source text too, so a dotenv
+/// credential line it brings in is redacted with the file's path before the
+/// view numbers it, like the patch itself. By default the policy withholds the
+/// file, so its head text is not read at all and the clipped runs are flagged.
+#[tokio::test]
+async fn head_text_widening_skips_a_withheld_file_by_default() {
+    let (out, reads) = widen_dotenv(false, &ContentSecurity::new()).await;
+    let shown = out.to_string();
+    assert_eq!(reads, 0, "a withheld head file is not read: {out}");
+    assert!(!shown.contains("SETTING_2=on"), "no head text: {out}");
+    assert!(shown.contains("DEBUG=true"), "the patch stays: {out}");
+    assert!(shown.contains("\"contextClipped\":true"), "{out}");
+}
+
+/// Refuses the head text of the widened file (the only text holding
+/// `SETTING_1=`), as the scanner refuses an oversized text; scans the rest.
+struct RefusingHead(ContentSecurity);
+
+impl crate::security::scan::ContentScan for RefusingHead {
+    fn sanitize(
+        &self,
+        text: &str,
+        path: &std::path::Path,
+    ) -> Result<(String, Vec<String>), (octocode_contract_types::ErrorCode, String)> {
+        if text.contains("SETTING_1=") {
+            return Err((
+                octocode_contract_types::ErrorCode::ContentSecurityLimit,
+                "refused".into(),
+            ));
+        }
+        self.0.sanitize(text, path)
+    }
+}
+
+#[tokio::test]
+async fn head_text_the_scanner_refuses_counts_as_unread() {
+    let (out, reads) = widen_dotenv(true, &RefusingHead(ContentSecurity::new())).await;
+    let shown = out.to_string();
+    assert_eq!(reads, 1, "{out}");
+    assert!(!shown.contains("SETTING_2=on"), "{out}");
+    assert!(shown.contains("\"contextClipped\":true"), "{out}");
+}
+
+/// A pull request whose `.env` patch hunk a `matchString` read widens from
+/// the head text, read under a policy that opens credential names (`allow`)
+/// or not, scanned by `security`: the row, and the head file reads it made.
+async fn widen_dotenv(
+    allow: bool,
+    security: &(impl crate::security::scan::ContentScan + Sync),
+) -> (Value, usize) {
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/pulls/1",
+        200,
+        json!({"number":1,"title":"Debug","state":"open","user":{"login":"ada"},
+            "head":{"sha":HEAD,"ref":"fix"},"base":{"sha":BASE,"ref":"main"},
+            "changed_files":1,"additions":1,"deletions":1,
+            "created_at":"2024-01-01T00:00:00Z","comments":0}),
+    )
+    .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/pulls/1/files",
+        200,
+        json!([{"filename":".env","status":"modified","additions":1,"deletions":1,
+            "patch":"@@ -10,2 +10,2 @@\n APP_NAME=demo\n-DEBUG=false\n+DEBUG=true"}]),
+    )
+    .await;
+    let head: String = (1..=20)
+        .map(|line| match line {
+            3 => "DB_PASS=CowSaysMoo\n".to_owned(),
+            10 => "APP_NAME=demo\n".to_owned(),
+            11 => "DEBUG=true\n".to_owned(),
+            18 => "API_TOKEN=Moo12\n".to_owned(),
+            _ => format!("SETTING_{line}=on\n"),
+        })
+        .collect();
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/contents/.env",
+        200,
+        json!({"type":"file","encoding":"base64",
+            "content":base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &head)}),
+    )
+    .await;
+    let mut request = HistoryItemRequest::from_row(json!({"operation":"pullRequest","owner":"o",
+        "repo":"r","number":1,"sections":["patches"],"matchString":["DEBUG"],
+        "contextLines":{"before":9,"after":9}}))
+    .expect("valid row");
+    let root = tempfile::tempdir().expect("root");
+    let policy = crate::policy::path::PathPolicy::new(crate::policy::path::PathPolicyConfig {
+        workspace_root: Some(root.path().to_path_buf()),
+        allow_credential_files: allow,
+        ..Default::default()
+    })
+    .expect("policy");
+    request.paths = Some(std::sync::Arc::new(policy));
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let context = fixture_context(Duration::from_secs(10), 4 << 20);
+    let out = execute(&provider, &request, &context, security)
+        .await
+        .expect("history item")
+        .data;
+    let reads = server
+        .received_requests()
+        .await
+        .expect("recorded")
+        .iter()
+        .filter(|request| {
+            let path = request.url.path();
+            path.contains("/contents/") || path.contains("/git/blobs/")
+        })
+        .count();
+    (out, reads)
+}
+
+#[tokio::test]
+async fn head_text_widening_a_dotenv_patch_hides_credential_values() {
+    let (out, reads) = widen_dotenv(true, &ContentSecurity::new()).await;
+    assert_eq!(reads, 1, "the opt-in reads the head file: {out}");
+    let shown = out.to_string();
+    assert!(
+        shown.contains("SETTING_2=on"),
+        "head text widened the hunk: {out}"
+    );
+    assert!(shown.contains("DEBUG=true"), "{out}");
+    for secret in ["CowSaysMoo", "Moo12"] {
+        assert!(!shown.contains(secret), "{secret} leaked: {out}");
+    }
+    for kept in ["DB_PASS=", "API_TOKEN="] {
+        assert!(shown.contains(kept), "{kept} lost: {out}");
+    }
+}
+
+/// A summary's `bodyPreview` is cut from the redacted body: a token near
+/// the preview's edge never shows raw, nor does the preview end inside a
+/// redaction marker, whichever character the cut falls on.
+///
+/// The raw-token check guards the order (fetch-time redaction, then the cut):
+/// it fails only if a body reaches `body_preview` unredacted. The marker
+/// check is the one that failed before `clean_char_cut` (at `before` 277).
+#[tokio::test]
+async fn a_body_preview_shows_no_raw_token_and_no_partial_marker() {
+    for before in 270..300 {
+        let body = format!("{} {} tail words", "a".repeat(before), secret());
+        let server = MockServer::builder().start().await;
+        mount_json(
+            &server,
+            "/api/v3/repos/o/r/pulls/1",
+            200,
+            json!({"number":1,"title":"Fix","state":"open","user":{"login":"ada"},
+                "head":{"sha":HEAD,"ref":"fix"},"base":{"sha":BASE,"ref":"main"},
+                "changed_files":0,"additions":0,"deletions":0,"body":body,
+                "created_at":"2024-01-01T00:00:00Z"}),
+        )
+        .await;
+        let out = read_secure(
+            &server,
+            json!({"operation":"pullRequest","owner":"o","repo":"r","number":1}),
+        )
+        .await;
+        let preview = out["pullRequests"][0]["bodyPreview"]
+            .as_str()
+            .unwrap_or_else(|| panic!("no preview: {out}"));
+        assert!(!leaks(preview), "before {before}: {preview}");
+        let text = preview.trim_end_matches('…');
+        assert!(
+            text.rfind("[REDACTED")
+                .map(|open| text[open..].contains(']'))
+                != Some(false),
+            "before {before}: the preview ends inside a marker: {preview}"
+        );
+    }
+}

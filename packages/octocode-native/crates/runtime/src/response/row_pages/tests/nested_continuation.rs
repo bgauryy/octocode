@@ -41,24 +41,37 @@ pub(super) fn continued_elements(marker: &Value) -> Vec<(String, usize)> {
     elements
 }
 
+/// What a joiner knows of one later part: the elements its marker continues
+/// (`rowPart.continues`), the string it appends to (`rowPart.text`), and the
+/// row's declared collections (the contract's `collectionPaths`, as concrete
+/// pointers of the unsplit row), whose items a part appends.
+pub(super) struct Join<'a> {
+    pub(super) continued: &'a [(String, usize)],
+    pub(super) text: Option<&'a str>,
+    pub(super) collections: &'a [String],
+}
+
+/// The concrete pointers of the declared collections in `data` (a row's
+/// `data`), from the contract's collection routes alone.
+pub(super) fn declared_collections(tool: ToolId, data: &Value) -> Vec<String> {
+    let routes = &crate::contracts::output_fields::page_context_fields(tool).collection_routes;
+    super::super::collections::collection_paths(&json!({ "data": data }), routes)
+}
+
 /// Concatenate `part` onto `joined` at pointer `at`: a continued array's
 /// first item merges into the element the marker names, which must be the
-/// last one joined so far; any other item is appended; the string
-/// `rowPart.text` names (`text`) is appended to; repeated context scalars
-/// must agree.
-pub(super) fn merge(
-    joined: &mut Value,
-    part: Value,
-    at: &str,
-    continued: &[(String, usize)],
-    text: Option<&str>,
-) {
+/// last one joined so far; a declared collection's other items are
+/// appended; the string `rowPart.text` names is appended to; an empty
+/// string or list adds nothing (required evidence a later part carries only
+/// to validate); any other repeated value (a scalar, a bounded string, a
+/// list or record the schema forbids empty) must agree and is kept once.
+pub(super) fn merge(joined: &mut Value, part: Value, at: &str, join: &Join<'_>) {
     match (joined, part) {
         (Value::Object(joined), Value::Object(part)) => {
             for (key, value) in part {
-                let pointer = format!("{at}/{key}");
+                let pointer = format!("{at}/{}", crate::json_pointer::escape(&key));
                 match joined.get_mut(&key) {
-                    Some(slot) => merge(slot, value, &pointer, continued, text),
+                    Some(slot) => merge(slot, value, &pointer, join),
                     None => {
                         joined.insert(key, value);
                     }
@@ -67,24 +80,25 @@ pub(super) fn merge(
         }
         (Value::Array(joined), Value::Array(part)) => {
             let mut items = part.into_iter();
-            if let Some((_, index)) = continued.iter().find(|(array, _)| array == at) {
+            if let Some((_, index)) = join.continued.iter().find(|(array, _)| array == at) {
                 assert_eq!(
                     *index + 1,
                     joined.len(),
                     "{at}: the marker names the last element"
                 );
                 let first = items.next().expect("a continued array resumes its element");
-                merge(
-                    &mut joined[*index],
-                    first,
-                    &format!("{at}/{index}"),
-                    continued,
-                    text,
-                );
+                merge(&mut joined[*index], first, &format!("{at}/{index}"), join);
+            } else if items.len() > 0 && !join.collections.iter().any(|path| path == at) {
+                let repeated = items.collect::<Vec<_>>();
+                assert_eq!(*joined, repeated, "{at}: a repeated list changed");
+                return;
             }
             joined.extend(items);
         }
-        (Value::String(joined), Value::String(part)) if text == Some(at) => joined.push_str(&part),
+        (Value::String(joined), Value::String(part)) if join.text == Some(at) => {
+            joined.push_str(&part);
+        }
+        (Value::String(_), Value::String(part)) if part.is_empty() => {}
         (joined, part) => assert_eq!(*joined, part, "{at}: repeated context changed"),
     }
 }
@@ -92,11 +106,11 @@ pub(super) fn merge(
 #[test]
 fn parts_split_several_levels_deep_join_back_exactly_once() {
     let data = symbols_row();
+    let collections = declared_collections(ToolId::AstSearch, &data);
     let mut nested = false;
     for budget in (60..=400).step_by(5) {
         let plan = PreparedRows::new(
             vec![json!({"index":0,"data":data.clone()})],
-            &[None],
             ToolId::AstSearch,
         )
         .plan(budget, &Cancellation::new())
@@ -118,8 +132,11 @@ fn parts_split_several_levels_deep_join_back_exactly_once() {
                         joined,
                         row["data"].clone(),
                         "/data",
-                        &continued,
-                        row["rowPart"]["text"].as_str(),
+                        &Join {
+                            continued: &continued,
+                            text: row["rowPart"]["text"].as_str(),
+                            collections: &collections,
+                        },
                     ),
                 }
             }

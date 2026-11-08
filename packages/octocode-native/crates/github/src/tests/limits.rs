@@ -3,6 +3,7 @@
 use super::*;
 
 mod circuit;
+mod client_waits;
 mod code_search_quota;
 mod primary;
 mod quota_pacing;

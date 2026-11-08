@@ -5,7 +5,7 @@ use octocode_io::cancellation::Cancellation;
 
 fn pages(tool: ToolId, data: Value) -> Vec<Value> {
     assert_row_contract(tool, &data);
-    let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], &[None], tool)
+    let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], tool)
         .plan(700, &Cancellation::new())
         .expect("valid plan");
     assert!(plan.total_pages > 1);

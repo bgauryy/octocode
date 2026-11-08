@@ -171,7 +171,9 @@ fn another_match_read_of_the_same_bytes_gets_its_own_hits() {
 /// pass is not kept for one.
 #[test]
 fn a_nul_past_a_regex_limit_keeps_plain_reads_refused() {
-    let hits = crate::tools::source_view::extraction::MAX_REGEX_MATCHES + 5;
+    let budget = crate::tools::page_memo::test_budget!(16 * 1024);
+    let _scope = crate::tools::source_view::extraction::SpanBudgetOverride::of(budget);
+    let hits = budget.limit() / std::mem::size_of::<(usize, usize)>() + 5;
     let mut bytes = "hit\n".repeat(hits).into_bytes();
     bytes.extend(std::iter::repeat_n(b'.', 4 * 1024 * 1024));
     bytes.extend_from_slice(b"\n\0\n");

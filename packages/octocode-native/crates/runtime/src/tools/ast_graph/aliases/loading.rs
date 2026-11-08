@@ -185,6 +185,7 @@ impl ResolveContext {
                 continue;
             };
             self.local_packages.extend(local_dependencies(&value));
+            self.load_workspace_members(reader, dir, &value);
             let manifest = Arc::new(Manifest::parse(dir, &value));
             if let Some(name) = value.get("name").and_then(Value::as_str) {
                 self.packages.insert(name.to_owned(), Arc::clone(&manifest));

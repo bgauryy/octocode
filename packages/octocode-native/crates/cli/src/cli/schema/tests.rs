@@ -49,24 +49,22 @@ fn catalog_lists_only_enabled_tools() {
 #[test]
 fn full_catalog_serves_the_core_instructions_then_the_cli_notes() {
     let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
-    let shared = presentation["instructions"].as_str().expect("instructions");
-    let block = |name: &str| {
-        super::tools(presentation)
-            .find(|tool| tool["name"] == name)
-            .and_then(|tool| tool["instructions"].as_str())
-            .expect("a block")
-    };
-    let (scout, cves) = (block("clasify"), block("securityCheck"));
-    for (off, expected) in [
-        (vec![], format!("{shared}{scout}{cves}")),
-        (vec!["ghSearchHistory"], format!("{shared}{scout}{cves}")),
-        (vec!["securityCheck"], format!("{shared}{scout}")),
-        (
-            vec!["clasify", "ghSearchHistory"],
-            format!("{shared}{cves}"),
-        ),
-        (vec!["clasify", "securityCheck"], shared.to_owned()),
+    let all = super::tools(presentation)
+        .filter_map(|tool| tool["name"].as_str())
+        .collect::<Vec<_>>();
+    // Core's composition for the tools this machine enables: a disabled tool's
+    // routes and block never show (byte equality with core is the runtime's
+    // `compose_instructions` test).
+    for off in [
+        vec![],
+        vec!["ghSearchHistory"],
+        vec!["securityCheck"],
+        vec!["clasify", "ghSearchHistory"],
+        vec!["clasify", "securityCheck"],
     ] {
+        let expected = octocode_native::contracts::compose_instructions(presentation, |name| {
+            all.contains(&name) && !off.contains(&name)
+        });
         let value = catalog(&machine(&off), Some("full")).expect("catalog");
         assert_eq!(
             value["instructions"].as_str().expect("instructions"),

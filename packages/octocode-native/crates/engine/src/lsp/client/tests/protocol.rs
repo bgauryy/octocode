@@ -142,6 +142,31 @@ fn initialize_declares_only_what_the_client_handles() {
     );
 }
 
+/// A server picks kinds from the set the client advertises, and falls back to
+/// the first LSP 1.0 kinds when none is sent: a struct then reads as a class
+/// and an enum member as an enum. Every kind the protocol defines is advertised
+/// for both symbol requests.
+#[test]
+fn symbol_kinds_are_advertised_for_document_and_workspace_symbols() {
+    let params = initialize_params(&ts_config()).expect("initialize params");
+    for pointer in [
+        "/capabilities/textDocument/documentSymbol/symbolKind/valueSet",
+        "/capabilities/workspace/symbol/symbolKind/valueSet",
+    ] {
+        let kinds = params
+            .pointer(pointer)
+            .and_then(Value::as_array)
+            .unwrap_or_else(|| panic!("{pointer} is sent"));
+        // Struct (23) and EnumMember (22) are newer than the LSP 1.0 set.
+        for kind in [22, 23] {
+            assert!(
+                kinds.contains(&json!(kind)),
+                "{pointer}: {kind} in {kinds:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn rust_analyzer_client_starts_headless_unless_the_caller_overrides() {
     let mut config = ts_config();

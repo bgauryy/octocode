@@ -25,6 +25,33 @@ pub(super) async fn check(
     sources: &mut SourceCache<'_>,
     result: &Value,
 ) -> Result<(), Exit> {
+    let (query, target, scope, paths, cancel) = (
+        request.query,
+        request.target,
+        request.scope,
+        request.paths,
+        request.cancel,
+    );
+    scan_visible(request, sources, result).await?;
+    // Importer recovery judges the ignored files of TypeScript and the C family
+    // itself; for the rest this is the one place ignored files are judged, the
+    // way the visible ones are.
+    let language_id = target.config.language_id.as_deref();
+    if let Some(name) =
+        lsp_search_query::symbol_name(query).filter(|_| needs_text_scan(query, result))
+        && (server_coverage::lacks_signal(language_id) || language_id == Some("rust"))
+    {
+        scope.check_ignored_spellings(name, paths, cancel).await?;
+    }
+    Ok(())
+}
+
+/// [`check`] over the files the ignore rules let a text scan see.
+async fn scan_visible(
+    request: Request<'_>,
+    sources: &mut SourceCache<'_>,
+    result: &Value,
+) -> Result<(), Exit> {
     let Request {
         query,
         target,
@@ -69,9 +96,11 @@ pub(super) async fn check(
     }
     scope.check_code_uses(name, cancel).await?;
     // Ask the server what each file's spelling names: only one it cannot place
-    // elsewhere can be a use it missed.
-    if (lacks_signal || language_id == Some("rust"))
-        && !lists_uses
+    // elsewhere can be a use it missed. A Rust answer listing uses is asked too:
+    // a file of its own project that spells the name may name another symbol
+    // (two types with a method of one name), which no file-level reason, such
+    // as a package's unloaded build-script output, may be blamed for.
+    if (lacks_signal && !lists_uses || language_id == Some("rust"))
         && !target.root_only
         && scope
             .text_only_files(name)

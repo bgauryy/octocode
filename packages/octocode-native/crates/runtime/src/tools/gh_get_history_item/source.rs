@@ -40,13 +40,23 @@ impl<'a> Source<'a> {
     }
 
     /// Every `body` string under `value` (an item, or a list of them) redacted
-    /// whole, by the scanner that guards the response.
+    /// whole, by the scanner that guards the response, and every changed
+    /// file's raw `patch` redacted as that file's text (its `filename` is the
+    /// path, so the file's own rules apply) before any view numbers its lines:
+    /// redaction reads source text, never formatted text.
     pub(super) fn redact_bodies(&self, value: &mut Value) -> Result<(), ProviderError> {
         match value {
             Value::Object(fields) => {
+                let filename = fields
+                    .get("filename")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned);
                 for (key, child) in fields.iter_mut() {
                     match child {
-                        Value::String(text) if key == "body" => self.redact(text)?,
+                        Value::String(text) if key == "body" => self.redact(text, SCAN_PATH)?,
+                        Value::String(text) if key == "patch" => {
+                            self.redact(text, filename.as_deref().unwrap_or(SCAN_PATH))?;
+                        }
                         Value::Object(_) | Value::Array(_) => self.redact_bodies(child)?,
                         _ => {}
                     }
@@ -62,8 +72,11 @@ impl<'a> Source<'a> {
         Ok(())
     }
 
-    fn redact(&self, text: &mut String) -> Result<(), ProviderError> {
-        let clean = sanitize_provider_text(self.scan, text, Path::new(SCAN_PATH))?;
+    /// `text`, the source text of `path`, redacted in place by the scanner
+    /// that guards the response, with that path's rules; each placeholder it
+    /// adds counts toward [`Self::redacted`].
+    pub(super) fn redact(&self, text: &mut String, path: &str) -> Result<(), ProviderError> {
+        let clean = sanitize_provider_text(self.scan, text, Path::new(path))?;
         if clean != *text {
             let added = crate::security::placeholders(&clean)
                 .saturating_sub(crate::security::placeholders(text));

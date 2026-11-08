@@ -2,8 +2,9 @@
 
 use super::*;
 
-/// `(local, imported)` pairs of every load's bindings, in load order, each
-/// checked against the declaration the outline emitted for `local`.
+/// `(local, imported)` pairs of every load's bindings, in load order. A
+/// module binding (no `scope`) is checked against the top-level declaration
+/// the outline emitted for `local`; a scoped one holds only over its scope.
 fn bindings(facts: &Value) -> Vec<Vec<(String, Option<String>)>> {
     facts["commonJs"]
         .as_array()
@@ -16,11 +17,13 @@ fn bindings(facts: &Value) -> Vec<Vec<(String, Option<String>)>> {
                 .flatten()
                 .map(|binding| {
                     let local = binding["local"].as_str().unwrap().to_owned();
-                    assert_eq!(
-                        binding["declarationId"],
-                        declaration(facts, &local)["id"],
-                        "{binding}"
-                    );
+                    if binding.get("scope").is_none() {
+                        assert_eq!(
+                            binding["declarationId"],
+                            declaration(facts, &local)["id"],
+                            "{binding}"
+                        );
+                    }
                     (local, binding["imported"].as_str().map(str::to_owned))
                 })
                 .collect()
@@ -88,7 +91,6 @@ fn commonjs_bindings_reject_unprovable_identities_but_keep_the_load() {
         "const {a, ...r} = require('./m');",
         "const {['a']: e} = require('./m');",
         "const {a: {b}} = require('./m');",
-        "function f() { const z = require('./z'); }",
         "const p = require('./p'); function g(p) { p.f(); }",
         "const p = require('./p'); function g() { const p = 1; return p; }",
         "var q = require('./q'); var q = require('./r');",
@@ -106,6 +108,21 @@ fn commonjs_bindings_reject_unprovable_identities_but_keep_the_load() {
             "{source}: {facts}"
         );
     }
+}
+
+/// A `require` declared directly in a function binds there and carries the
+/// function's extent, so the graph links it only inside that scope.
+#[test]
+fn commonjs_bindings_in_a_function_hold_over_that_scope() {
+    let source = "function f() { const z = require('./z'); }";
+    let facts = graph(source, "entry.js");
+    assert_eq!(bindings(&facts), vec![vec![("z".to_owned(), None)]]);
+    let binding = &facts["commonJs"][0]["bindings"][0];
+    assert_eq!(
+        binding["scope"]["range"],
+        serde_json::json!({"start_byte": 0, "end_byte": source.len()}),
+        "{binding}"
+    );
 }
 
 #[test]
@@ -319,4 +336,45 @@ fn names(facts: &Value) -> Vec<String> {
         .iter()
         .map(|d| d["name"].as_str().unwrap().to_owned())
         .collect()
+}
+
+/// `module.exports = require('./impl')` hands the whole module on: the file
+/// forwards every export of the target, as `export * from './impl'` does.
+/// A require that cannot be proven (reassigned, a non-literal specifier) or
+/// a value that is not a bare load forwards nothing.
+#[test]
+fn a_whole_export_of_a_require_forwards_the_target_module() {
+    let forwards = |src: &str| -> Vec<String> {
+        graph(src, "lib/index.js")["exports"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|export| export["name"] == "*")
+            .map(|export| export["source"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(
+        forwards("module.exports = require('./impl');\n"),
+        ["./impl"]
+    );
+    assert_eq!(
+        forwards("exports = module.exports = require('./impl');\n"),
+        ["./impl"]
+    );
+    assert!(forwards("module.exports = require(name);\n").is_empty());
+    assert!(forwards("module.exports = require('./impl').work;\n").is_empty());
+    assert!(forwards("function require() {}\nmodule.exports = require('./impl');\n").is_empty());
+    assert!(forwards("const x = require('./impl');\nmodule.exports = x;\n").is_empty());
+    // Only the one program-level write of a proven load forwards: a choice,
+    // a later write, a call of the module or a write inside a function names
+    // no module the file is.
+    assert!(forwards("module.exports = ok ? require('./a') : require('./b');\n").is_empty());
+    assert!(
+        forwards("module.exports = require('./impl');\nmodule.exports = require('./other');\n")
+            .is_empty()
+    );
+    assert!(forwards("module.exports = require('./impl')();\n").is_empty());
+    assert!(forwards("function load() {\n  module.exports = require('./impl');\n}\n").is_empty());
+    // A package forwards by its specifier, as `export * from 'pkg'` does.
+    assert_eq!(forwards("module.exports = require('pkg');\n"), ["pkg"]);
 }

@@ -39,11 +39,13 @@ pub(super) async fn off_worker<R: Send + 'static>(
 /// Exclusive advisory lock on the `<state>.lock` sidecar, polled so that the
 /// wait yields to the runtime and ends at the `deadline` or on cancellation.
 /// `Ok(None)` when the file cannot be opened or the filesystem does not
-/// support locking.
+/// support locking. Each poll behind a peer's lock is recorded in `waits`
+/// as `spacing`: the request waits for its turn at the shared slots.
 pub(super) async fn lock_file(
     path: &Path,
     deadline: Instant,
     cancellation: &Cancellation,
+    waits: &crate::budget::ClientWaits,
 ) -> Result<Option<octocode_io::lock::LockedFile>, ProviderError> {
     let Some(mut file) = open_lock_file(path) else {
         return Ok(None);
@@ -53,7 +55,12 @@ pub(super) async fn lock_file(
             Ok(TryLock::Locked(lock)) => return Ok(Some(lock)),
             Ok(TryLock::Busy(busy)) => {
                 file = busy;
-                pause(octocode_io::lock::LOCK_POLL, deadline, cancellation).await?;
+                waits
+                    .timed(
+                        octocode_contract_types::ClientWaitKind::Spacing,
+                        pause(octocode_io::lock::LOCK_POLL, deadline, cancellation),
+                    )
+                    .await?;
             }
             Err(error) => {
                 warn_unshared("lock", path, &error);

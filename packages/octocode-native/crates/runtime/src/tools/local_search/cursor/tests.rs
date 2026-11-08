@@ -46,13 +46,19 @@ fn scan() -> (Vec<TextSearchFile>, TextSearchStats) {
 
 /// The snapshot binds every collected field of every row, each file's
 /// source digest and the totals, and nothing else: a source's size and
-/// time alone (its bytes unchanged) keep it. It is a v8 snapshot a
+/// time alone (its bytes unchanged) keep it. It is a snapshot of this build, which a
 /// later call accepts as well formed.
 #[test]
 fn the_snapshot_binds_every_row_field_and_no_stamp() {
     let (files, stats) = scan();
     let base = fingerprint("key", &files, &stats);
-    assert!(base.starts_with("lexical-live-v8:"), "{base}");
+    assert!(
+        base.starts_with(&format!(
+            "lexical-live-{}:",
+            crate::build_identity::BUILD_IDENTITY
+        )),
+        "{base}"
+    );
     assert_eq!(fingerprint("key", &files, &stats), base);
     let snapshot = serde_json::json!({"path": ".", "matchString": ["x"], "snapshot": base});
     let query: LocalSearchQuery = serde_json::from_value(snapshot).expect("query");
@@ -114,4 +120,37 @@ fn the_snapshot_binds_every_row_field_and_no_stamp() {
     let mut zero = stats.clone();
     zero.error_count = Some(0);
     assert_eq!(fingerprint("key", &files, &zero), base);
+}
+
+fn refused(snapshot: &str) -> bool {
+    let query: LocalSearchQuery = serde_json::from_value(
+        serde_json::json!({"path": ".", "matchString": ["x"], "snapshot": snapshot}),
+    )
+    .expect("query");
+    malformed_snapshot(&query).is_some()
+}
+
+/// Only a snapshot a search could have issued (`lexical-live-<hex build>:<64
+/// lowercase hex>`) is well formed; anything else is input to correct, not a
+/// stale cursor to restart.
+#[test]
+fn malformed_snapshot_accepts_only_the_issued_form() {
+    let digest = "a1".repeat(32);
+    assert!(!refused(&format!("{SNAPSHOT_SCHEME}0123abcd:{digest}")));
+    assert!(!refused(&format!(
+        "{SNAPSHOT_SCHEME}{}:{digest}",
+        crate::build_identity::BUILD_IDENTITY
+    )));
+    for junk in [
+        "junk".to_string(),
+        format!("0123abcd:{digest}"),
+        format!("{SNAPSHOT_SCHEME}{digest}"),
+        format!("{SNAPSHOT_SCHEME}:{digest}"),
+        format!("{SNAPSHOT_SCHEME}xyz:{digest}"),
+        format!("{SNAPSHOT_SCHEME}0123abcd:{}", &digest[1..]),
+        format!("{SNAPSHOT_SCHEME}0123abcd:{}", digest.to_uppercase()),
+        format!("{SNAPSHOT_SCHEME}0123abcd:{}g", &digest[1..]),
+    ] {
+        assert!(refused(&junk), "{junk:?} must be refused");
+    }
 }

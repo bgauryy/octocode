@@ -159,3 +159,35 @@ fn a_toolchain_matched_rustup_component_wins_over_the_managed_install() {
     rustup.lacks_component();
     assert_eq!(resolve().source, ServerSource::Managed);
 }
+
+/// Discovery reads `PATH` through `process_env`, the source its routes key on:
+/// no engine source looks a program up with `which::which`, which reads the
+/// process environment behind it (`commands::which_on_path` is the one lookup).
+#[test]
+fn no_engine_source_looks_a_program_up_in_the_process_environment() {
+    let mut dirs = vec![std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];
+    let mut offenders = Vec::new();
+    // Spelled in parts, so this file is not an offender.
+    let global = [
+        format!("which::{}(", "which"),
+        format!("which::{}(", "which_all"),
+        format!("use which::{};", "which"),
+    ];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).expect("src dir").flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "rs") {
+                let text = std::fs::read_to_string(&path).expect("source");
+                for (number, line) in text.lines().enumerate() {
+                    let code = !line.trim_start().starts_with("//");
+                    if code && global.iter().any(|call| line.contains(call)) {
+                        offenders.push(format!("{}:{}", path.display(), number + 1));
+                    }
+                }
+            }
+        }
+    }
+    assert!(offenders.is_empty(), "{offenders:?}");
+}

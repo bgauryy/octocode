@@ -1,12 +1,12 @@
 //! The language server's OS process: spawn program, environment, CPU clock,
 //! memory watchdog, and teardown.
 
+use super::stderr::StderrDrain;
 use crate::error::{Error, Result};
 use crate::lsp::spawn_limits;
 use crate::lsp::transport::{CpuClock, JsonRpcConnection};
 use std::sync::{Arc, atomic::AtomicU64};
 use tokio::process::Child;
-use tokio::task::JoinHandle;
 use tokio::time::{Duration, timeout};
 
 /// Bound on how long `stop()` waits for the server to exit on its own after
@@ -240,12 +240,24 @@ pub(super) fn memory_watchdog_for(
     None
 }
 
-pub(super) async fn cleanup_failed_start(child: &mut Child, stderr_task: Option<JoinHandle<()>>) {
+pub(super) async fn cleanup_failed_start(
+    child: &mut Child,
+    job: Option<&mut crate::process::Job>,
+    stderr: Option<StderrDrain>,
+) {
     if let Some(pid) = child.id() {
         crate::process::kill_tree_blocking(pid).await;
     }
     let _ = child.kill().await;
-    if let Some(task) = stderr_task {
-        task.abort();
+    // Windows: closing the job ends every process of the tree, so no writer
+    // keeps the pipe open.
+    if let Some(job) = job {
+        job.terminate();
+    }
+    // The server has exited: the drain keeps the lines it wrote, which a
+    // failed start's error then reports, without waiting on a process it
+    // left holding the pipe.
+    if let Some(stderr) = stderr {
+        stderr.finish().await;
     }
 }

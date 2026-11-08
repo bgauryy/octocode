@@ -172,9 +172,11 @@ pub(crate) fn run_on_deep_stack<T: Send + Default + 'static>(
     let cancel = Arc::new(AtomicBool::new(false));
     let (tx, rx) = std::sync::mpsc::sync_channel::<T>(1);
     let job_cancel = Arc::clone(&cancel);
+    // A panic the job contains is recorded where the caller contains its own.
+    let scope = crate::contain::current();
     pool.spawn(move || {
         // If the caller already stopped, the send fails harmlessly.
-        let _ = tx.send(run_job(&job_cancel, f));
+        let _ = tx.send(crate::contain::adopt(scope, || run_job(&job_cancel, f)));
     });
     loop {
         match rx.recv_timeout(STOP_POLL) {
@@ -186,6 +188,24 @@ pub(crate) fn run_on_deep_stack<T: Send + Default + 'static>(
             }
         }
     }
+}
+
+/// Run `f`, which borrows from its caller, on the large-stack pool and wait
+/// for it: work whose recursion follows its input (structural pattern
+/// compile and match) and must not take the caller's stack. The caller holds
+/// the borrows, so it always waits for `f` rather than abandoning it like a
+/// [`run_on_deep_stack`] job: `f` bounds its own work (a deadline). A panic
+/// in `f` is recorded in the caller's containment scope and resumes on the
+/// caller. A call from a pool thread runs inline, on the large stack it is
+/// on. `None` when no pool could be built: nothing ran.
+pub(crate) fn run_borrowing_on_deep_stack<T: Send>(f: impl FnOnce() -> T + Send) -> Option<T> {
+    let pool = pool()?;
+    Some(if on_pool_thread(pool) {
+        f()
+    } else {
+        let scope = crate::contain::current();
+        pool.install(move || crate::contain::adopt(scope, f))
+    })
 }
 
 /// Run `f` as if it were a pool job whose caller already stopped.

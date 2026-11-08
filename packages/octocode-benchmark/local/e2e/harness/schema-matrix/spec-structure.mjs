@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { structureFiles } from '../responses.mjs';
 import { isTestFile, visibleFiles } from './world-local.mjs';
+import { classificationBase, longContextProblem } from './classification-rows.mjs';
 
 const TEST_DIRS = new Set(['tests']);
 const PERMISSION_FILES = ['open.txt', 'locked.txt', 'frozen.txt', 'tool.sh'];
@@ -122,6 +123,7 @@ export const structureSearch = {
     path: `matrix-world/${rootOf({ ...assignment, ...row })}`,
     ...((row.operation ?? 'tree') === 'tree' && { maxDepth: 2 }),
     ...(assignment.page === 'tiny' && { limit: 1 }),
+    ...classificationBase(row, assignment),
   }),
   normalize: testCase => {
     testCase.assignment.root ??= 'plain';
@@ -129,8 +131,9 @@ export const structureSearch = {
   },
   truth,
   observed,
-  check,
+  check: (ctx, testCase, pages) => longContextProblem(ctx, testCase.query, truth(ctx, testCase).length > 0) ?? check(ctx, testCase, pages),
   indistinct: {
+    'classification.longContext': 'changes the provider request, judged by check; evidence is kept whole',
     sort: 'order, judged against file metadata; the selected set must not change',
     view: 'selects the same entries; `check` judges the metadata each view carries',
     operation: 'one value per form; the form itself owns depth and filters',

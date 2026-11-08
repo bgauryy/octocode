@@ -72,32 +72,9 @@ pub(crate) fn runs<T: LineNumber>(lines: impl IntoIterator<Item = T>) -> Vec<(T,
     out
 }
 
-/// The first `max_lines` of sorted, distinct `lines`, and how many more
-/// there are: a file with thousands of scattered hits costs a bounded
-/// hint, and the match pages still hold the rest.
-pub(crate) fn more_lines(lines: &[u32], max_lines: usize) -> (Vec<u32>, Option<u32>) {
-    let mut distinct = lines.to_vec();
-    distinct.sort_unstable();
-    distinct.dedup();
-    let unlisted = distinct.len().saturating_sub(max_lines);
-    distinct.truncate(max_lines);
-    (distinct, (unlisted > 0).then(|| saturating_u32(unlisted)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn more_lines_list_the_first_lines_and_count_the_rest() {
-        assert_eq!(more_lines(&[2], 24), (vec![2], None));
-        assert_eq!(
-            more_lines(&[717, 711, 712, 711, 802], 24),
-            (vec![711, 712, 717, 802], None)
-        );
-        let scattered = (1..=100).map(|n| n * 10).collect::<Vec<_>>();
-        assert_eq!(more_lines(&scattered, 3), (vec![10, 20, 30], Some(97)));
-    }
 
     #[test]
     fn spans_merge_when_overlapping_or_adjacent() {

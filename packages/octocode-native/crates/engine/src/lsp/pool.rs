@@ -88,9 +88,10 @@ impl LspClientPool {
         config: LspLanguageServerConfig,
     ) -> Result<Option<NativeLspClient>> {
         let key = canonical_lsp_key(&config)?;
+        let family = canonical_lsp_family(&config)?;
         let options = self.inner.options.client;
         self.inner
-            .acquire(key, || start_client(config, options))
+            .acquire(key, family, || start_client(config, options))
             .await
             .map_err(Arc::unwrap_or_clone)
     }
@@ -103,10 +104,12 @@ impl LspClientPool {
         config: LspLanguageServerConfig,
     ) -> Result<Option<(NativeLspClient, LspLease)>> {
         let key = canonical_lsp_key(&config)?;
+        let family = canonical_lsp_family(&config)?;
         let options = self.inner.options.client;
         self.inner
             .acquire_leased(
                 key,
+                family,
                 || start_client(config.clone(), options),
                 NativeLspClient::lease,
             )
@@ -168,6 +171,20 @@ fn pool_language(language_id: Option<&str>) -> Option<&str> {
     } else {
         language_id
     }
+}
+
+/// Sibling-family key of a pool entry: the workspace root, server binary and
+/// pooled language, without the initialization options, arguments or
+/// environment that make up the full [`canonical_lsp_key`]. Starting a server
+/// retires the idle entries that share its family, so an option change leaves
+/// one server per workspace instead of two until the idle timeout.
+pub fn canonical_lsp_family(config: &LspLanguageServerConfig) -> Result<String> {
+    serde_json::to_string(&serde_json::json!({
+        "workspaceRoot": normalize_workspace_root(&config.workspace_root)?,
+        "command": config.command,
+        "languageId": pool_language(config.language_id.as_deref()),
+    }))
+    .map_err(|error| Error::new(format!("Failed to serialize LSP pool family: {error}")))
 }
 
 pub fn canonical_lsp_key(config: &LspLanguageServerConfig) -> Result<String> {

@@ -27,6 +27,19 @@ sign-in command over storing a token in `octocode.githubToken`. The extension
 writes the signed-in token as `GH_TOKEN` into the Octocode entry's `env` block of
 each configured client (files are written owner-only), and removes it on sign-out.
 
+## IDE bridge
+
+While `octocode.ideBridge.enabled` is on (the default), the extension lets
+Octocode's native language-intelligence tools (`lspSearch`) ask this editor's
+own language providers for definitions, references, hover, symbols, call and
+type hierarchy, and diagnostics, instead of starting a separate language
+server. It listens on `127.0.0.1` only, requires a random bearer token, and
+publishes the port and token in an owner-only file,
+`~/.octocode/ide/<pid>.json` (`OCTOCODE_HOME` moves it), which it removes when
+the editor stops the extension or you turn the setting off. It runs no
+research tools and no repository code. Turn the setting off to disable it;
+errors appear in the `Octocode MCP` output channel.
+
 ## Development
 
 From the repository root:

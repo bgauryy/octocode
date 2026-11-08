@@ -354,3 +354,58 @@ fn call_site_hits_keep_window_when_a_declaration_hit_exists() {
     );
     assert_eq!(windows, vec![LineRange { start: 8, end: 11 }]);
 }
+
+/// A hit on an attribute line, on the name line and on the item's first
+/// line all read the declaration as written: docs, attributes and body.
+#[test]
+fn a_hit_on_an_attribute_line_reads_the_whole_declaration() {
+    let source = "/// Doc.\n#[inline]\n#[must_use]\nfn target() {\n    body();\n}\n";
+    let mut warnings = vec![];
+    for hit in [2, 3, 4] {
+        let windows = widen_matches(
+            source,
+            "m.rs",
+            &[hit],
+            vec![LineRange {
+                start: hit,
+                end: hit,
+            }],
+            &mut warnings,
+            &mut vec![],
+            &mut vec![],
+        );
+        assert_eq!(
+            windows,
+            vec![LineRange { start: 1, end: 6 }],
+            "hit {hit}: {warnings:?}"
+        );
+    }
+}
+
+/// A one-line attributed member is a two-line declaration: a hit on its
+/// attribute line or its body reads both lines, and call sites elsewhere in
+/// the read keep their windows.
+#[test]
+fn a_hit_on_a_one_line_attributed_member_reads_its_header_and_body() {
+    let source = "struct S;\nimpl S {\n    #[inline]\n    fn f() {}\n    fn g() { S::f(); }\n}\n";
+    let mut warnings = vec![];
+    for hit in [3, 4] {
+        let windows = widen_matches(
+            source,
+            "m.rs",
+            &[hit],
+            vec![LineRange {
+                start: hit,
+                end: hit,
+            }],
+            &mut warnings,
+            &mut vec![],
+            &mut vec![],
+        );
+        assert_eq!(
+            windows,
+            vec![LineRange { start: 3, end: 4 }],
+            "hit {hit}: {warnings:?}"
+        );
+    }
+}

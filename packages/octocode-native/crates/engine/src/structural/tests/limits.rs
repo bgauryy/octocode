@@ -2,10 +2,77 @@
 
 use super::*;
 
+/// B126: matching runs on the engine's deep-stack pool, not the caller's
+/// stack, so a pattern nested 4000 levels (far past what a 2 MiB thread
+/// holds) matches from a caller with that stack, whole. The pattern is
+/// rooted at the one declaration, so the run measures depth, not how many
+/// nested arrays could each start a match.
+#[test]
+fn a_deep_pattern_matches_from_a_small_caller_stack() {
+    let depth = 4000;
+    let nested = format!("{}probe(){}", "[".repeat(depth), "]".repeat(depth));
+    let source = format!("const x = {nested};");
+    let pattern = format!("const x = {nested}");
+    let result = std::thread::Builder::new()
+        .stack_size(2 * 1024 * 1024)
+        .spawn(move || evaluate_source(&source, "deep.ts", "ts", Some(&pattern), None))
+        .expect("thread")
+        .join()
+        .expect("no overflow, no panic");
+    let codes = result
+        .diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic.code.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(result.status, "ok", "{codes:?}");
+    assert_eq!(result.matches.len(), 1);
+}
+
+/// The limit is what the pool's stack holds, so a pattern whose deepest
+/// level is exactly [`octo::MAX_STRUCTURAL_DEPTH`] runs on it whole (no
+/// overflow, no refusal) and one level more is refused: the boundary is
+/// exact in both directions.
+#[test]
+fn a_pattern_at_exactly_the_depth_limit_matches_on_the_pool() {
+    let run = |levels: usize| {
+        let nested = format!("{}probe(){}", "[".repeat(levels), "]".repeat(levels));
+        let source = format!("const x = {nested};");
+        // Rooted at the declaration, so only one candidate starts a match.
+        let pattern = format!("const x = {nested}");
+        evaluate_source(&source, "deep.ts", "ts", Some(&pattern), None)
+    };
+    // The largest nesting that is not refused; the pattern's own root sits a
+    // few levels below the matcher's first, so the search finds the edge.
+    let (mut fits, mut refused) = (1, octo::MAX_STRUCTURAL_DEPTH + 1);
+    while refused - fits > 1 {
+        let middle = fits + (refused - fits) / 2;
+        if run(middle).status == "ok" {
+            fits = middle;
+        } else {
+            refused = middle;
+        }
+    }
+    let edge = run(fits);
+    assert_eq!(edge.matches.len(), 1);
+    let past = run(refused);
+    assert_eq!(past.status, "truncated");
+    assert_eq!(past.diagnostics[0].code, "structural.match.depthLimit");
+    let overhead = octo::MAX_STRUCTURAL_DEPTH - fits;
+    assert!(
+        overhead < 16,
+        "{fits} levels fit but the limit is {}",
+        octo::MAX_STRUCTURAL_DEPTH
+    );
+}
+
+/// A pattern nested past what the large stack holds is refused explicitly,
+/// never a crash.
 #[test]
 fn structural_review_pattern_depth_is_explicitly_incomplete() {
-    let source = format!("const x = {}probe(){};", "[".repeat(600), "]".repeat(600));
-    let pattern = format!("{}probe(){}", "[".repeat(600), "]".repeat(600));
+    let depth = octo::MAX_STRUCTURAL_DEPTH + 1;
+    let nested = format!("{}probe(){}", "[".repeat(depth), "]".repeat(depth));
+    let source = format!("const x = {nested};");
+    let pattern = nested;
     let result = evaluate_source(&source, "deep.ts", "ts", Some(&pattern), None);
     assert_eq!(result.status, "truncated");
     assert!(result.matches.is_empty());

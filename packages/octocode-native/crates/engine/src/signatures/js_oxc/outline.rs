@@ -61,11 +61,7 @@ fn attach_doc_lines(content: &str, declarations: &mut [GraphFactDeclaration]) {
         if job_cancelled() {
             return;
         }
-        declaration.doc_line = crate::signatures::leading_doc_line(
-            &lines,
-            declaration.range.start.line as usize,
-            "ts",
-        );
+        declaration.doc_line = crate::signatures::declaration_doc_line(&lines, declaration, "ts");
     }
 }
 
@@ -73,6 +69,37 @@ fn attach_doc_lines(content: &str, declarations: &mut [GraphFactDeclaration]) {
 /// base type name as written (`Base`, `ns.Base`). Syntax only: `to` is not a
 /// resolved declaration. A clause whose declaring name has no outline
 /// declaration (a class nested in a function body) is dropped.
+/// Each declared type keyed by its declaration's name token and kind, as the
+/// declaration id it belongs to.
+pub(super) fn declared_types_of(
+    declarations: &[GraphFactDeclaration],
+    declared: Vec<crate::signatures::js_oxc_receiver::declared::DeclaredAt>,
+) -> Vec<crate::graph::GraphFactDeclaredType> {
+    let by_name_start: std::collections::HashMap<(u32, u32, &str), &str> = declarations
+        .iter()
+        .map(|declaration| {
+            (
+                (
+                    declaration.selection_range.start.line,
+                    declaration.selection_range.start.character,
+                    declaration.kind.as_str(),
+                ),
+                declaration.id.as_str(),
+            )
+        })
+        .collect();
+    declared
+        .into_iter()
+        .filter_map(|item| {
+            let key = (item.name_start.line, item.name_start.character, item.kind);
+            Some(crate::graph::GraphFactDeclaredType {
+                declaration_id: (*by_name_start.get(&key)?).to_owned(),
+                ty: item.ty,
+            })
+        })
+        .collect()
+}
+
 pub(super) fn push_heritage_edges(
     declarations: &[GraphFactDeclaration],
     heritage: Vec<crate::signatures::js_oxc_calls::GraphHeritage>,

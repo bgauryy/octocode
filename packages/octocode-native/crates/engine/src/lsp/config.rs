@@ -1,7 +1,9 @@
 mod catalog;
 mod defaults;
 mod invocation;
+mod kept;
 mod probe;
+mod route;
 mod types;
 mod user_config;
 mod workspace_root;
@@ -18,7 +20,7 @@ pub use catalog::{
 };
 pub use defaults::{
     allow_build_wrappers, rust_analyzer_headless_options, serves_requests_concurrently,
-    workspace_symbol_limit,
+    workspace_symbol_cap_advice, workspace_symbol_limit,
 };
 pub(crate) use defaults::{apply_server_default_options, project_config_files};
 pub(super) use invocation::current_node_command;

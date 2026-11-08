@@ -6,7 +6,7 @@
 //! the row already pins, and the repository confirming the link's first
 //! segment as a whole ref. With none of them the row has no directory and says so.
 use super::http::RegistryClient;
-use super::release_ref::{CommitCheck, commit_check};
+use super::release_ref::{CheckFailure, CommitCheck, commit_check};
 use super::types::LinkBelowRef;
 use super::{ArtifactError, ArtifactItem};
 use octocode_contract_types::ErrorCode;
@@ -54,55 +54,51 @@ pub(crate) async fn settle(
             .map(|(repository, first)| commit_check(repository, first, client)),
     )
     .await;
-    let unchecked = if answers.iter().any(Option::is_none) {
-        Some(unchecked_reason(client)?)
-    } else {
-        None
-    };
     for (index, repository, below) in &unplaced {
         let first = below.segments[0].as_str();
-        let position = asked
-            .iter()
-            .position(|key| *key == (repository.as_str(), first));
-        let answer = position.and_then(|position| answers[position]);
+        // Every unplaced row's key was asked above.
+        let Some(answer) = asked.iter().zip(&answers).find_map(|(key, answer)| {
+            (*key == (repository.as_str(), first)).then(|| answer.clone())
+        }) else {
+            continue;
+        };
         let artifact = &mut artifacts[*index];
         match answer {
-            Some(check @ (CommitCheck::Found | CommitCheck::FoundAfterRedirect)) => {
+            Ok(check @ (CommitCheck::Found | CommitCheck::FoundAfterRedirect { .. })) => {
                 artifact.repository_directory = Some(below.segments[1..].join("/"));
                 artifact.note_repository(check);
             }
-            Some(CommitCheck::RepositoryMissing) => {
+            Ok(CommitCheck::RepositoryMissing) => {
                 artifact.note_repository(CommitCheck::RepositoryMissing);
             }
-            Some(CommitCheck::Missing) => artifact.disclosures.push(format!(
+            Ok(CommitCheck::Missing) => artifact.disclosures.push(format!(
                 "{}: the source link {} points below a ref that may contain a slash, and the repository does not confirm {first} as the whole ref, so its directory is not derived.",
                 artifact.package_name, below.link
             )),
-            None => artifact.disclosures.push(format!(
+            Err(failure) => artifact.disclosures.push(format!(
                 "{}: the source link {} points below a ref that may contain a slash, and {first} could not be checked as the whole ref ({}), so its directory is not derived.",
                 artifact.package_name,
                 below.link,
-                unchecked.as_deref().unwrap_or("no check ran")
+                unchecked_reason(failure, client)?
             )),
         }
     }
     Ok(())
 }
 
-/// Why a repository check gave no answer. A cancelled call fails instead.
-fn unchecked_reason(client: &RegistryClient<'_>) -> Result<String, ArtifactError> {
-    if client.tags.is_none() {
-        return Ok("GitHub is not available to this call".to_owned());
-    }
+/// Why a repository check gave no answer: the call's own end when its
+/// budget is spent, else the check's cause. A cancelled call fails instead.
+fn unchecked_reason(
+    failure: CheckFailure,
+    client: &RegistryClient<'_>,
+) -> Result<String, ArtifactError> {
     match client.budget.check() {
         Err(BudgetStop::Cancelled) => Err(ArtifactError::new(
             ErrorCode::Cancelled,
             "Artifact registry request was cancelled.",
         )),
         Err(BudgetStop::Deadline) => Ok("the call's deadline passed".to_owned()),
-        Ok(()) => Ok(
-            "GitHub gave no answer: a rate limit, an authorization or a network failure".to_owned(),
-        ),
+        Ok(()) => Ok(failure.describe()),
     }
 }
 

@@ -3,7 +3,7 @@ use super::checkout::{fresh_clone, reuse_checkout};
 use super::validate::{repository_url, validate_query, web_root};
 use super::{
     CloneContext, CloneError, CloneLocation, CloneResult, GhCloneRepoQuery, Sparse, check_control,
-    history_depth, policy_denied, storage,
+    control, history_depth, policy_denied, storage,
 };
 use crate::policy::PolicyErrorCode;
 use octocode_contract_types::ErrorCode;
@@ -65,12 +65,36 @@ impl Plan<'_> {
     }
 }
 
+/// A clone with its commit pinned: [`prepare_clone`], then
+/// [`execute_prepared`].
+#[cfg(test)]
 pub(super) fn execute_clone(
     query: &GhCloneRepoQuery,
     context: &CloneContext<'_>,
 ) -> Result<CloneResult, CloneError> {
     check_control(context)?;
     super::require_persistent_storage(context.config.persistent)?;
+    validate_query(query)?;
+    prepare_clone(context)?;
+    execute_prepared(query, context)
+}
+
+/// What a clone needs whatever commit it checks out: the clones root
+/// passes the path policy and exists, and git runs. None of it reads the
+/// pin, so `run` does it while the API still answers the pin.
+pub(super) fn prepare_clone(context: &CloneContext<'_>) -> Result<(), CloneError> {
+    check_control(context)?;
+    super::require_persistent_storage(context.config.persistent)?;
+    authorize_home(context)?;
+    context.git.assert_available(&control(context))
+}
+
+/// The clone of a pinned `query` once [`prepare_clone`] succeeded.
+pub(super) fn execute_prepared(
+    query: &GhCloneRepoQuery,
+    context: &CloneContext<'_>,
+) -> Result<CloneResult, CloneError> {
+    check_control(context)?;
     validate_query(query)?;
     let sparse = Sparse::of(query);
     let root = web_root(context.endpoint)?;
@@ -83,7 +107,6 @@ pub(super) fn execute_clone(
         sparse,
         depth: history_depth(query),
     };
-    authorize_home(context)?;
     // `run` pins every row to a commit before it gets here.
     let Some(reference) = query
         .ref_
@@ -166,7 +189,9 @@ fn explore_next(clone_dir: &Path, sparse_paths: Option<&[String]>) -> serde_json
     } else {
         root.as_ref().try_into().ok().map(|path| {
             Continuation::related_query(StructureSearchQueryTree {
+                classification: None,
                 default_excludes: None,
+                selection: None,
                 entry_type: None,
                 exclude: Vec::new(),
                 extensions: Vec::new(),

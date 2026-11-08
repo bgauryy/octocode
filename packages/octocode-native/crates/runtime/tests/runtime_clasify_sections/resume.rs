@@ -193,3 +193,80 @@ async fn simultaneous_section_resume_in_independent_runtimes_replays_one_transac
     first_runtime.close().await;
     second_runtime.close().await;
 }
+
+/// Every page of a first walk is that page's first delivery, however the
+/// response pager splits a batch: no row of it says `replayed`. Sending a
+/// page's cursor again is a replay, and says so.
+#[tokio::test]
+async fn a_split_batch_is_first_delivered_unreplayed_and_a_repeat_is_replayed() {
+    let provider = provider().await;
+    let workspace = Workspace::new();
+    workspace.write("many.rs", super::separate_functions(70));
+    let runtime = clasify_runtime(&workspace, &provider, &[]);
+    let row = |path: &str| json!({"operation":"sections","resources":{"file":{"tool":"localFetch","query":{"path":path}}},"questions":{"q":{"type":"noul","instructions":"Does this section say to restart?"}}});
+    let mut page = runtime
+        .run(
+            "split-first".into(),
+            "clasify".into(),
+            json!({"queries":[row("many.rs"), row("many.rs")],"responseChars":2_500}),
+        )
+        .await
+        .expect("first page")
+        .structured_content
+        .into_value();
+    let mut cursors = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    loop {
+        assert!(cursors.len() <= 400, "the walk makes bounded progress");
+        for result in page["results"].as_array().expect("rows") {
+            assert!(
+                result["data"].get("replayed").is_none(),
+                "a first delivery is no replay (page {}): {result:#}",
+                cursors.len()
+            );
+            let index = result["index"].as_u64().expect("index");
+            for section in result["data"]["resources"]["file"]["sections"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                let id = section["id"].as_str().expect("section id").to_owned();
+                assert!(seen.insert((index, id)), "a section is delivered once");
+            }
+        }
+        let Some(next) = crate::support::next_input(&page) else {
+            break;
+        };
+        cursors.push(next.clone());
+        page = runtime
+            .run(
+                format!("split-{}", cursors.len()),
+                "clasify".into(),
+                next,
+            )
+            .await
+            .expect("next page")
+            .structured_content
+            .into_value();
+    }
+    assert!(cursors.len() > 2, "the batches split over response pages");
+    assert_eq!(seen.len(), 140, "every section of both rows is reached");
+    let calls = provider_calls(&provider).await;
+    for cursor in cursors {
+        let repeat = runtime
+            .run("split-repeat".into(), "clasify".into(), cursor)
+            .await
+            .expect("repeat")
+            .structured_content
+            .into_value();
+        let replayed = repeat["responsePagination"]["replayed"] == true
+            || repeat["results"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|row| row["data"]["replayed"] == true);
+        assert!(replayed, "a repeat says it is a replay: {repeat:#}");
+    }
+    assert_eq!(provider_calls(&provider).await, calls, "a repeat bills nothing");
+    runtime.close().await;
+}

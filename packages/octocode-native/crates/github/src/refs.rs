@@ -107,10 +107,12 @@ impl GitHubTransport {
         })
     }
 
-    /// Every tag name of a repository, from its git refs (one listing,
-    /// following any next link): the whole set a caller orders itself,
-    /// which GitHub's tag pages (reverse-lexicographic) cannot give. A
-    /// repository with no commits has none.
+    /// Every tag name of a repository, from its git refs, read page by page
+    /// (`per_page=100`, by our own page number, whatever origin a forwarded
+    /// `Link` names) until GitHub links no next page, bounded by the
+    /// request's deadline: the whole set a caller orders itself, which
+    /// GitHub's tag pages (reverse-lexicographic) cannot give. A repository
+    /// with no commits has none.
     pub async fn repository_tag_names(
         &self,
         owner: &str,
@@ -122,16 +124,15 @@ impl GitHubTransport {
             #[serde(rename = "ref")]
             name: String,
         }
-        let mut url =
-            Some(
-                self.endpoint()
-                    .rest(&["repos", owner, repo, "git", "matching-refs", "tags"])?,
-            );
         let mut names = Vec::new();
-        // GitHub answers the whole listing at once; a linked page is still
-        // read, bounded by the request's deadline.
-        while let Some(at) = url.take() {
-            let response = match self.execute(RequestSpec::get(at), context).await {
+        for page in 1_usize.. {
+            let mut url =
+                self.endpoint()
+                    .rest(&["repos", owner, repo, "git", "matching-refs", "tags"])?;
+            url.query_pairs_mut()
+                .append_pair("per_page", "100")
+                .append_pair("page", &page.to_string());
+            let response = match self.execute(RequestSpec::get(url), context).await {
                 Ok(response) => response,
                 // GitHub answers an empty repository's refs with 409.
                 Err(error) if error.status == Some(409) => return Ok(names),
@@ -147,7 +148,9 @@ impl GitHubTransport {
                 rows.into_iter()
                     .filter_map(|row| row.name.strip_prefix("refs/tags/").map(str::to_owned)),
             );
-            url = response.next;
+            if response.next.is_none() {
+                break;
+            }
         }
         Ok(names)
     }

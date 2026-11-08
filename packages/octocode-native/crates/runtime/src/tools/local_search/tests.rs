@@ -214,14 +214,17 @@ fn row_ids(body: &serde_json::Value) -> Vec<String> {
 }
 
 mod binaries;
+mod build_identity;
 mod changed;
 mod empty_pages;
 mod limit;
 mod match_list;
 mod pages;
+mod recovery;
 mod regex_reading;
 mod scope;
 mod secrets;
+mod seek;
 #[cfg(unix)]
 mod special_files;
 mod stored;

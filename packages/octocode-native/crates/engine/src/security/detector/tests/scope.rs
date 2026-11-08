@@ -6,11 +6,62 @@ use super::*;
 fn multiline_redaction_keeps_source_line_positions() {
     let regex = regex::Regex::new("BEGIN[\\s\\S]*?END").unwrap();
     let original = "before\nBEGIN\nsecret\nEND\nafter";
-    let (redacted, replaced) = replace_secrets(&regex, original, "[REDACTED]", |_, _| true);
+    let (redacted, replaced) = replace_secrets(&regex, original, "[REDACTED]", |_, _, _| true);
     assert_eq!(replaced, vec![(7..23, "[REDACTED]\n\n".len())]);
     assert_eq!(redacted, "before\n[REDACTED]\n\n\nafter");
     assert_eq!(redacted.lines().count(), original.lines().count());
     assert!(!redacted.contains("secret"));
+}
+
+/// A leaf judged whole ([`Scope::Judged`]) is never judged by fewer patterns
+/// than the leaf net: every pattern the leaf net applies is applied by the
+/// whole-source pass or by the judged leaf's own pass, for every pattern,
+/// leaf path, source path and text that can trigger a file context.
+#[test]
+fn the_whole_source_pass_and_the_judged_leaf_apply_every_leaf_pattern() {
+    let paths = [
+        "src/a.rs",
+        "/w/src/a.rs",
+        "app/.env",
+        ".env.local",
+        "config/values.yaml",
+        "docker-compose.yml",
+        "settings.py",
+        "notes.txt",
+    ];
+    let texts = [
+        "",
+        "plain text",
+        ".env config settings secrets",
+        "values.yaml docker-compose.yml wandb mollie postmark",
+        "apiVersion: v1\nkind: Secret\n",
+    ];
+    let mut checked = 0;
+    for (idx, pattern) in PATTERNS.iter().enumerate() {
+        for leaf in paths.iter().copied().map(Some).chain([None]) {
+            for source in paths {
+                for text in texts {
+                    let whole = should_apply(idx, Scope::File(source), text);
+                    let judged = should_apply(idx, Scope::Judged { leaf, source }, text);
+                    let name = pattern.name;
+                    assert!(
+                        !(whole && judged),
+                        "{name} runs twice: leaf {leaf:?}, source {source}, text {text:?}"
+                    );
+                    if !should_apply(idx, Scope::of_leaf(leaf), text) {
+                        assert!(!judged, "{name} runs past the leaf net: {leaf:?} {text:?}");
+                        continue;
+                    }
+                    checked += 1;
+                    assert!(
+                        whole || judged,
+                        "{name}: leaf {leaf:?}, source {source}, text {text:?}"
+                    );
+                }
+            }
+        }
+    }
+    assert!(checked > PATTERNS.len());
 }
 
 #[test]
@@ -97,9 +148,19 @@ fn yaml_secret_value_skips_source_code_paths() {
 fn leaf_of_source_file_skips_config_syntax_but_keeps_every_credential() {
     use super::Scope::{Leaf, Pathless};
     let member = "interface Cfg {\n  password: hunter2hunter2hunter2;\n}\n";
-    for path in ["src/a.ts", "lib/b.rs", "pkg/c.py"] {
-        let result = detect_in(member, Leaf(path));
-        assert_eq!(result.sanitized, member, "{path}");
+    for (path, code) in [
+        ("src/a.ts", member),
+        (
+            "lib/b.rs",
+            "struct Cfg {\n    password: hunter2hunter2hunter2,\n}\n",
+        ),
+        (
+            "pkg/c.py",
+            "class Cfg:\n    password: hunter2hunter2hunter2\n",
+        ),
+    ] {
+        let result = detect_in(code, Leaf(path));
+        assert_eq!(result.sanitized, code, "{path}");
     }
     for scope in [
         Leaf("config/app.yaml"),

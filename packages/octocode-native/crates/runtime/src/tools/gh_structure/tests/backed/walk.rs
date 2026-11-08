@@ -86,6 +86,52 @@ async fn tree_pattern_finds_paths_by_name_at_any_depth() {
     assert_eq!(invalid.kind, ProviderErrorKind::Validation);
 }
 
+/// An `include` glob written relative to the listed `path` matches nothing,
+/// since globs match from the repository root also with `path` set: the
+/// empty listing says so and leads first with the same globs under `path`.
+#[tokio::test]
+async fn a_path_relative_include_leads_to_the_root_relative_globs() {
+    let server = MockServer::builder().start().await;
+    mount_ref(&server, "main").await;
+    Mock::given(method("GET"))
+        .and(wiremock::matchers::path_regex(format!(
+            "/git/trees/{TREE_SHA}(:|%3A)starlette$"
+        )))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha":"e".repeat(40),"truncated":false,"tree":[
+                {"path":"routing.py","type":"blob","size":3},
+                {"path":"sub","type":"tree"},
+                {"path":"sub/a.py","type":"blob","size":3}
+            ]
+        })))
+        .mount(&server)
+        .await;
+    let out = run(
+        &server,
+        json!({"operation":"tree","owner":"a","repo":"b","ref":"main",
+            "path":"starlette","include":["routing.py","**/nope.py","sub/*.py"]}),
+    )
+    .await
+    .expect("empty listing");
+    assert_eq!(out.status, Some("empty"), "{}", out.data);
+    let broaden =
+        crate::tools::test_support::checks::related_call(&out.data, "ghStructure", |_| true);
+    assert_eq!(
+        broaden["input"]["queries"][0]["include"],
+        json!(["starlette/routing.py", "**/nope.py", "starlette/sub/*.py"]),
+        "{}",
+        out.data
+    );
+    crate::contracts::validate("ghStructure", broaden["input"].clone())
+        .expect("canonical rebased listing");
+    let hints = out.data["hints"].to_string();
+    assert!(
+        hints.contains("repository root") && hints.contains("starlette/"),
+        "the hint says globs match from the repository root: {}",
+        out.data
+    );
+}
+
 /// ghStructure: a recursive listing fetches its tree once, by the
 /// resolved commit SHA. GitHub's tree response carries the tree
 /// object's SHA, never the commit's, so a tree fetched by ref name

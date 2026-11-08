@@ -35,7 +35,7 @@ pub(super) async fn page(
     }
     let hints = code_output::empty_hints(query, default_branch);
     if value.get("hints").is_none() && !hints.is_empty() {
-        value["hints"] = json!(hints);
+        crate::response::result::add_hints(value, hints);
         if value["calls"].get("read").is_none()
             && code_output::unsearched_ref(query, default_branch).is_some()
             && let Some(read) = leads::unsearched_ref_read(query)
@@ -47,9 +47,9 @@ pub(super) async fn page(
         crate::tools::leads::broaden::set_broadened(value, &query_row(query, &[]), broader);
     }
     if let Some(split) = leads::or_split(query) {
-        crate::tools::leads::push_hint(
+        crate::response::result::add_hints(
             value,
-            "keywords hold OR, which code search does not support: run the related[] ghSearchCode request, one row per alternative.",
+            ["keywords hold OR, which code search does not support: run the related[] ghSearchCode request, one row per alternative."],
         );
         value["calls"]["repair"] = split;
     }

@@ -1,32 +1,63 @@
 //! OSV (`api.osv.dev`), this tool's source of known vulnerabilities.
 //!
 //! OSV's server decides what a version matches; this module never orders
-//! versions. No answer is kept: OSV states no lifetime and no validator. Every
-//! request carries only what its caller names, with no credential.
+//! versions. Package and commit queries go through `/v1/querybatch` (ids only,
+//! [`batch`]) and each listed record is read once by `/v1/vulns/{id}`
+//! ([`hydrate`]); only a record under its own `(id, modified)` is kept, since
+//! OSV states no lifetime for anything else. Every request carries only what its
+//! caller names, with no credential.
 use super::Net;
+use super::ecosystem::{self, Ecosystem, osv_name};
 use super::record::{Selection, rows};
-use super::source::{Source, SourceResult, Target};
+use super::source::{Confirmed, Source, SourceResult, Target};
 use crate::providers::artifact::{ArtifactError, ArtifactHttpRequest, JSON, rejection_detail};
-use octocode_contract_types::{ArtifactType, ErrorCode};
+use octocode_contract_types::ErrorCode;
 use octocode_github::ProviderErrorKind;
-use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use url::Url;
 
-const API: &str = "https://api.osv.dev/v1";
+/// Records read at once: how politely one call asks the public API, not a limit
+/// on how many it reads.
+pub(super) const CONCURRENT_READS: usize = 8;
 
-/// What one `/v1/query` asks about.
+/// What one OSV query asks about.
 enum Ask<'a> {
     Package {
-        kind: ArtifactType,
+        ecosystem: Ecosystem,
+        release: Option<&'a str>,
         name: &'a str,
         version: Option<&'a str>,
+        /// The Go package path inside `name`, when `name` is its module.
+        import: Option<&'a str>,
+        /// OSV cannot order this ecosystem's versions: it is asked by name and
+        /// `version` is compared here against each record's ranges.
+        by_name: bool,
     },
     Commit(&'a str),
 }
 
 impl Ask<'_> {
+    /// The Go package path the records are narrowed to.
+    fn import(&self) -> Option<String> {
+        match self {
+            Self::Package { import, .. } => import.map(str::to_owned),
+            Self::Commit(_) => None,
+        }
+    }
+
+    /// The version compared here, when OSV cannot order the ecosystem's.
+    fn compared(&self) -> Option<&str> {
+        match self {
+            Self::Package {
+                by_name: true,
+                version,
+                ..
+            } => *version,
+            _ => None,
+        }
+    }
+
     /// As a message states it.
     fn target(&self) -> String {
         match self {
@@ -41,16 +72,20 @@ impl Ask<'_> {
     }
 
     /// The whole query: nothing but the package and version, or the commit
-    /// alone (OSV refuses a version beside it), and the token.
+    /// alone (OSV refuses a version beside it), and the page token.
     fn body(&self, token: Option<&str>) -> Value {
         let mut body = match self {
             Self::Package {
-                kind,
+                ecosystem,
+                release,
                 name,
                 version,
+                by_name,
+                ..
             } => {
-                let mut body = json!({"package": {"name": name, "ecosystem": ecosystem(*kind)}});
-                if let Some(version) = version {
+                let mut body =
+                    json!({"package": {"name": name, "ecosystem": osv_name(*ecosystem, *release)}});
+                if let Some(version) = version.filter(|_| !by_name) {
                     body["version"] = json!(version);
                 }
                 body
@@ -72,11 +107,14 @@ pub(super) async fn ask(target: &Target, net: &Net<'_>) -> Result<SourceResult, 
             walk(
                 net,
                 &Ask::Package {
-                    kind: confirmed.kind,
+                    ecosystem: confirmed.ecosystem,
+                    release: confirmed.release.as_deref(),
                     name: &confirmed.name,
                     version: confirmed.version.as_deref(),
+                    import: confirmed.import.as_deref(),
+                    by_name: !ecosystem::osv_orders_versions(confirmed.ecosystem)?,
                 },
-                &Selection::Named(confirmed.kind, &names),
+                &Selection::Named(confirmed.ecosystem, &names, confirmed.release.as_deref()),
                 confirmed.resume.as_deref(),
             )
             .await
@@ -94,12 +132,12 @@ pub(super) async fn ask(target: &Target, net: &Net<'_>) -> Result<SourceResult, 
     }
 }
 
-/// Every `/v1/query` page from `start` until no token follows. A page with no
-/// `vulns` and a token is not empty: only the end of the walk says so. A later
-/// page lost to time or a transient failure saves what was read with the token
-/// that reaches the rest, so the row lists its advisories once the walk finished
-/// or not at all; anything else fails whole, so a record is never dropped and a
-/// failure never reads as clean.
+/// Every page of the query from `start` until no token follows, and every record
+/// it lists. A page with no `vulns` and a token is not empty: only the end of
+/// the walk says so. A later page or record lost to time or a transient failure
+/// saves what was read with the state that reaches the rest, so the row lists
+/// its advisories once the walk finished or not at all; anything else fails
+/// whole, so a record is never dropped and a failure never reads as clean.
 async fn walk(
     net: &Net<'_>,
     ask: &Ask<'_>,
@@ -107,60 +145,65 @@ async fn walk(
     start: Option<&str>,
 ) -> Result<SourceResult, ArtifactError> {
     let target = ask.target();
-    let (first, mut read, mut seen) = match walk_state(start)? {
-        Some(saved) => (Some(saved.token), saved.read, saved.seen),
-        None => (None, Vec::new(), BTreeSet::new()),
-    };
-    seen.extend(first.iter().cloned());
-    let mut token = first.clone();
-    loop {
-        let (records, next) = match query_page(net, ask, token.as_deref()).await {
-            Ok(page) => page,
-            Err(error) => {
-                return match token {
-                    Some(token) if can_resume(&error) && first.as_ref() != Some(&token) => {
-                        let saved = json!({"token": token, "read": read, "seen": seen}).to_string();
-                        Ok(SourceResult::new(Source::Osv).stopped(saved, error.message))
-                    }
-                    _ => Err(error),
-                };
-            }
-        };
-        read.extend(records);
-        match next {
-            Some(next) => {
-                if !seen.insert(next.clone()) {
-                    return Err(malformed("the same page token twice", &target));
-                }
-                token = Some(next);
-            }
-            None => {
-                let mut result = SourceResult::new(Source::Osv);
-                result.advisories = rows(&read, selection, &target)?;
-                return Ok(result);
-            }
-        }
+    let walked = walk::walk_one(net, ask, start).await?;
+    if let Some(stopped) = walked.stopped {
+        return Ok(SourceResult::new(Source::Osv).stopped(stopped.saved, stopped.reason));
     }
+    let mut result = SourceResult::new(Source::Osv);
+    let (kept, apart) = imports::split(walked.read, walked.import.as_deref(), selection);
+    let kept = match ask.compared() {
+        Some(version) => {
+            let narrowed = versions::narrow(kept, selection, version);
+            result.compared_here = true;
+            result.unmatched = narrowed.unmatched;
+            narrowed.kept
+        }
+        None => kept,
+    };
+    result.advisories = rows(&kept, selection, &target)?;
+    result.module_only = rows(&apart, selection, &target)?;
+    Ok(result)
 }
 
-/// A saved walk: OSV's token and the records read before it. Only this tool
-/// issues one. Seen tokens travel with the walk so a transient failure cannot
-/// hide a cycle across calls. Deserialization owns the records without copying
-/// their JSON tree into a second array.
-#[derive(Deserialize)]
-struct SavedWalk {
-    token: String,
-    read: Vec<Value>,
-    seen: BTreeSet<String>,
-}
-
-fn walk_state(start: Option<&str>) -> Result<Option<SavedWalk>, ArtifactError> {
-    start
-        .map(|start| {
-            serde_json::from_str(start)
-                .map_err(|_| ArtifactError::new(ErrorCode::InvalidInput, "Invalid saved OSV walk."))
-        })
-        .transpose()
+/// Whether OSV lists the package in the release at all, whatever the version.
+/// OSV answers a version of a release it does not name, and one no advisory
+/// covers, with the same nothing; any record of the package in that release
+/// says it names the release. A package with no version asked is already asked by name.
+pub(super) async fn names_release(
+    confirmed: &Confirmed,
+    net: &Net<'_>,
+) -> Result<bool, ArtifactError> {
+    let ask = Ask::Package {
+        ecosystem: confirmed.ecosystem,
+        release: confirmed.release.as_deref(),
+        name: &confirmed.name,
+        version: None,
+        import: None,
+        by_name: false,
+    };
+    let target = ask.target();
+    let mut seen = BTreeSet::new();
+    let mut token: Option<String> = None;
+    loop {
+        let query = batch::PageQuery {
+            ask: &ask,
+            token: token.as_deref(),
+        };
+        let page = batch::pages(net, &[query])
+            .await
+            .pop()
+            .unwrap_or_else(|| Err(malformed("no answer", &target)))?;
+        if !page.refs.is_empty() {
+            return Ok(true);
+        }
+        let Some(next) = page.next else {
+            return Ok(false);
+        };
+        if !seen.insert(next.clone()) {
+            return Err(malformed("the same page token twice", &target));
+        }
+        token = Some(next);
+    }
 }
 
 /// One record by id, withdrawn ones included. An id OSV does not have is not
@@ -178,22 +221,6 @@ async fn check_advisory(net: &Net<'_>, id: &str) -> Result<SourceResult, Artifac
     Ok(result)
 }
 
-/// The OSV name of each registry, exactly as OSV spells it: its requests are
-/// case-sensitive. No wildcard: a new registry does not compile until someone
-/// decides what OSV calls it.
-pub(super) fn ecosystem(kind: ArtifactType) -> &'static str {
-    match kind {
-        ArtifactType::Npm => "npm",
-        ArtifactType::Pypi => "PyPI",
-        ArtifactType::Crates => "crates.io",
-        ArtifactType::Maven => "Maven",
-        ArtifactType::Nuget => "NuGet",
-        ArtifactType::Go => "Go",
-        ArtifactType::Packagist => "Packagist",
-        ArtifactType::Rubygems => "RubyGems",
-    }
-}
-
 /// Whether the rest of a walk stays reachable after `error`: time ran out, or
 /// OSV failed in a way a later call may not. A rejected request or a cancelled
 /// call does not resume.
@@ -205,8 +232,8 @@ fn can_resume(error: &ArtifactError) -> bool {
     }
 }
 
-fn request(path: &str) -> Result<ArtifactHttpRequest, ArtifactError> {
-    let url = Url::parse(&format!("{API}/{path}"))
+fn request(net: &Net<'_>, path: &str) -> Result<ArtifactHttpRequest, ArtifactError> {
+    let url = Url::parse(&format!("{}/{path}", net.osv_api))
         .map_err(|_| ArtifactError::new(ErrorCode::InvalidInput, "Invalid OSV request."))?;
     Ok(ArtifactHttpRequest {
         url,
@@ -258,7 +285,11 @@ async fn post(
 ) -> Result<Vec<u8>, ArtifactError> {
     let response = net
         .http
-        .post(request(path)?, body.to_string().into_bytes(), net.budget)
+        .post(
+            request(net, path)?,
+            body.to_string().into_bytes(),
+            net.budget,
+        )
         .await
         .map_err(|error| transport_failure(error, target))?;
     if (200..300).contains(&response.status) {
@@ -267,47 +298,12 @@ async fn post(
     Err(status_failure(response.status, &response.body, target))
 }
 
-/// One `/v1/query` page: its records and next token. `{}` is a finished, empty
-/// page; a page with no `vulns` and a token is not empty, only unfinished.
-async fn query_page(
-    net: &Net<'_>,
-    ask: &Ask<'_>,
-    token: Option<&str>,
-) -> Result<(Vec<Value>, Option<String>), ArtifactError> {
-    let target = ask.target();
-    let body = post(net, "query", &ask.body(token), &target).await?;
-    parsed(&body).map_err(|reason| malformed(&reason, &target))
-}
-
-fn parsed(body: &[u8]) -> Result<(Vec<Value>, Option<String>), String> {
-    let value =
-        serde_json::from_slice::<Value>(body).map_err(|_| "a body that is not JSON".to_owned())?;
-    let Value::Object(mut page) = value else {
-        return Err("a body that is not an object".to_owned());
-    };
-    let records = match page.remove("vulns") {
-        None => Vec::new(),
-        Some(Value::Array(records)) => records,
-        Some(_) => return Err("vulns that is not a list".to_owned()),
-    };
-    Ok((records, token_of(page.get("next_page_token"))?))
-}
-
-fn token_of(value: Option<&Value>) -> Result<Option<String>, String> {
-    match value {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(token)) if token.is_empty() => Ok(None),
-        Some(Value::String(token)) => Ok(Some(token.clone())),
-        Some(_) => Err("a next_page_token that is not text".to_owned()),
-    }
-}
-
 /// One record by id, withdrawn ones included; `None` when OSV has no such id.
-async fn by_id(net: &Net<'_>, id: &str) -> Result<Option<Value>, ArtifactError> {
+pub(super) async fn by_id(net: &Net<'_>, id: &str) -> Result<Option<Value>, ArtifactError> {
     let encoded: String = url::form_urlencoded::byte_serialize(id.as_bytes()).collect();
     let response = net
         .http
-        .get(request(&format!("vulns/{encoded}"))?, net.budget)
+        .get(request(net, &format!("vulns/{encoded}"))?, net.budget)
         .await
         .map_err(|error| transport_failure(error, id))?;
     match response.status {
@@ -318,6 +314,12 @@ async fn by_id(net: &Net<'_>, id: &str) -> Result<Option<Value>, ArtifactError> 
         status => Err(status_failure(status, &response.body, id)),
     }
 }
+
+mod batch;
+mod hydrate;
+mod imports;
+mod versions;
+mod walk;
 
 #[cfg(test)]
 mod tests;

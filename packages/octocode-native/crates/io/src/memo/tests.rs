@@ -323,3 +323,31 @@ fn concurrent_charges_keep_totals_exact() {
     assert_eq!(memo.contents().1, 1 + 3 * charged);
     assert_eq!(budget.used(), 1 + 3 * charged);
 }
+
+#[test]
+fn a_reservation_counts_against_the_budget_and_returns_on_drop() {
+    let budget = budget!(10);
+    let mut held = budget.reserve(4).expect("fits");
+    assert_eq!(budget.used(), 4);
+    assert!(held.grow(6), "the budget's last bytes are granted");
+    assert_eq!(budget.used(), 10);
+    assert!(!held.grow(1), "past the limit is refused");
+    assert_eq!(budget.used(), 10, "a refusal holds nothing");
+    drop(held);
+    assert_eq!(budget.used(), 0);
+}
+
+#[test]
+fn a_reservation_evicts_memo_entries_to_fit_but_never_past_the_limit() {
+    let budget = budget!(10);
+    let memo = Memo::<&str, u8>::new(budget);
+    memo.insert("old", 1, 6, None);
+    let held = budget.reserve(8).expect("evicting the memo makes room");
+    assert!(memo.get("old").is_none());
+    assert_eq!(budget.used(), 8);
+    assert!(budget.reserve(3).is_none(), "nothing left to evict");
+    assert_eq!(budget.used(), 8);
+    drop(held);
+    assert!(budget.reserve(budget.limit() + 1).is_none());
+    assert_eq!(budget.used(), 0);
+}

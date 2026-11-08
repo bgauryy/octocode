@@ -192,6 +192,16 @@ async fn gh_history_item_not_found_names_the_item() {
     // An existing repository: `main` resolves, `no-such-head` does not (422),
     // and the comparison of an unknown base is GitHub's bare 404.
     Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "full_name": "a/b",
+            "default_branch": "main",
+            "private": false,
+            "archived": false
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/main"))
         .respond_with(ResponseTemplate::new(200).set_body_string(HISTORY_A_HEAD))
         .mount(&server)
@@ -243,6 +253,31 @@ async fn gh_history_item_not_found_names_the_item() {
             assert_eq!(lead["input"]["queries"][0]["operation"], "refs", "{data}");
         }
     }
+    runtime.close().await;
+}
+
+/// When the repository read 404s too, the item is not what is missing: the
+/// row names the repository and leads to a repository search for its name.
+#[tokio::test]
+async fn gh_history_item_in_a_missing_repository_leads_to_a_repository_search() {
+    let server = MockServer::builder().start().await;
+    Mock::given(wiremock::matchers::any())
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let query = json!({"operation":"pullRequest","owner":"a","repo":"b","number":987654});
+    let outcome = call(&runtime, "ghGetHistoryItem", query.clone())
+        .await
+        .expect("error row");
+    let data = row_data(&outcome);
+    let error = data["error"].as_str().unwrap_or_default();
+    assert!(error.contains("Repository a/b not found"), "{data}");
+    let lead = crate::support::checks::find_related_call(data, "ghSearchRepo", |input| {
+        input["queries"][0]["keywords"] == json!(["b"])
+    });
+    assert!(lead.is_some(), "a repository search for its name: {data}");
     runtime.close().await;
 }
 

@@ -8,11 +8,13 @@ import {
   GITHUB_AUTH_PROVIDER_ID,
 } from './githubAuth';
 import { errorMessage } from './errors';
+import { IdeBridgeController } from './ideBridgeController';
 import { readJsonFile } from './jsonUtils';
 import { McpInstaller } from './mcpInstaller';
 import { McpProcess } from './mcpProcess';
 
 let mcpProcess: McpProcess;
+let ideBridge: IdeBridgeController | undefined;
 let mcpInstaller: McpInstaller;
 let outputChannel: vscode.OutputChannel;
 let statusBarItem: vscode.StatusBarItem;
@@ -134,6 +136,43 @@ function updateStatusBar(
   }
 }
 
+async function autoInstallForEditor(
+  config: vscode.WorkspaceConfiguration,
+  editorInfo: ReturnType<typeof getEditorInfo>
+): Promise<void> {
+  try {
+    const autoInstall = config.get<boolean>('autoInstallMcp', true);
+    if (autoInstall && editorInfo.mcpConfigPath) {
+      let needsInstall = true;
+
+      const existingConfig = await readJsonFile<
+        Record<string, Record<string, unknown>>
+      >(editorInfo.mcpConfigPath);
+      if (existingConfig?.[editorInfo.configKey]?.octocode) {
+        needsInstall = false;
+      }
+
+      if (needsInstall) {
+        const wasInstalled = await mcpInstaller.install(
+          {
+            name: editorInfo.name,
+            path: editorInfo.mcpConfigPath,
+            configKey: editorInfo.configKey,
+          },
+          false
+        );
+        if (wasInstalled === 'installed') {
+          vscode.window.showInformationMessage(
+            `Octocode MCP server has been configured. Restart ${editorInfo.name} to enable it.`
+          );
+        }
+      }
+    }
+  } catch (autoInstallErr) {
+    outputChannel.appendLine(`Auto-install failed: ${autoInstallErr}`);
+  }
+}
+
 export async function activate(
   context: vscode.ExtensionContext
 ): Promise<void> {
@@ -169,6 +208,10 @@ export async function activate(
       },
     });
     context.subscriptions.push({ dispose: () => mcpProcess.stop() });
+
+    ideBridge = new IdeBridgeController({ output: log });
+    context.subscriptions.push(ideBridge);
+    await ideBridge.activate();
 
     const initialAuthStatus = await checkGitHubAuthStatus(log);
     isAuthenticated = initialAuthStatus.authenticated;
@@ -304,37 +347,7 @@ export async function activate(
       )
     );
 
-    try {
-      const autoInstall = config.get<boolean>('autoInstallMcp', true);
-      if (autoInstall && editorInfo.mcpConfigPath) {
-        let needsInstall = true;
-
-        const existingConfig = await readJsonFile<
-          Record<string, Record<string, unknown>>
-        >(editorInfo.mcpConfigPath);
-        if (existingConfig?.[editorInfo.configKey]?.octocode) {
-          needsInstall = false;
-        }
-
-        if (needsInstall) {
-          const wasInstalled = await mcpInstaller.install(
-            {
-              name: editorInfo.name,
-              path: editorInfo.mcpConfigPath,
-              configKey: editorInfo.configKey,
-            },
-            false
-          );
-          if (wasInstalled === 'installed') {
-            vscode.window.showInformationMessage(
-              `Octocode MCP server has been configured. Restart ${editorInfo.name} to enable it.`
-            );
-          }
-        }
-      }
-    } catch (autoInstallErr) {
-      outputChannel.appendLine(`Auto-install failed: ${autoInstallErr}`);
-    }
+    await autoInstallForEditor(config, editorInfo);
 
     outputChannel.appendLine('Octocode MCP extension ready.');
   } catch (activationError) {
@@ -347,6 +360,7 @@ export async function activate(
   }
 }
 
-export function deactivate(): void {
+export async function deactivate(): Promise<void> {
   mcpProcess?.stop();
+  await ideBridge?.stop();
 }

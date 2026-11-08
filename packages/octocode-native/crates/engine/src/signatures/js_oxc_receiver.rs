@@ -7,7 +7,11 @@
 //! `constructor(private f: T)`, or `this.f = new T(..)` / a typed
 //! constructor parameter), or the property a destructuring pattern takes
 //! from an annotated parameter or from the object the file's own function
-//! returns (`const { s } = make()`). Bindings are
+//! returns (`const { s } = make()`). A receiver the file types only through
+//! a declared type it may not declare itself (`x.f.m()` with `x: T`, a
+//! parameter of `const f: Alias = (p) => …`, `p: T["k"]`, a property
+//! destructured from such a value) carries that type and its steps for the
+//! linker ([`declared`]). Bindings are
 //! lexically scoped (functions, arrows, blocks, loops, catch clauses); an
 //! unannotated binding reassigned to anything else, any other destructured
 //! name, or a field assigned two different ways is unknown and emits nothing.
@@ -21,9 +25,12 @@ use super::js_oxc_shared::property_key_name;
 
 mod aliases;
 mod class_fields;
+pub(super) mod declared;
 mod object_types;
+mod paths;
 mod return_shapes;
 
+use crate::graph::GraphDeclaredType;
 use crate::signatures::receiver_fields::Fields;
 use class_fields::class_fields;
 use object_types::ObjectTypes;
@@ -31,6 +38,9 @@ use return_shapes::ReturnShapes;
 
 struct Binding {
     ty: Option<String>,
+    /// A declared type with steps the file cannot name as one type: the
+    /// linker follows it.
+    path: Option<GraphDeclaredType>,
     /// Written with a type annotation: reassignment cannot change it.
     declared: bool,
     /// `const f = ns.g`: what a call of the name calls.
@@ -50,6 +60,12 @@ pub(super) struct ReceiverScopes {
     object_types: ObjectTypes,
     /// The objects the file's own functions return, for destructured calls.
     return_shapes: ReturnShapes,
+    /// Per enclosing function, the type its annotated declarator gives it
+    /// (`const f: A = (p) => …`) and the index of its next parameter.
+    contexts: Vec<Option<(GraphDeclaredType, u32)>>,
+    /// The function an annotated declarator is about to walk: its span start
+    /// and the annotation.
+    pending_context: Option<(u32, GraphDeclaredType)>,
 }
 
 impl Default for ReceiverScopes {
@@ -61,6 +77,8 @@ impl Default for ReceiverScopes {
             in_const: false,
             object_types: ObjectTypes::default(),
             return_shapes: ReturnShapes::default(),
+            contexts: Vec::new(),
+            pending_context: None,
         }
     }
 }
@@ -130,6 +148,15 @@ impl ReceiverScopes {
             self.bind_object_pattern(object, &fields);
             return;
         }
+        if let (BindingPattern::ObjectPattern(object), None, Some(Expression::Identifier(value))) = (
+            &it.id,
+            &it.type_annotation,
+            it.init.as_ref().map(unwrap_expr),
+        ) && let Some(base) = self.lookup_declared(value.name.as_str())
+        {
+            self.bind_declared_object(object, &base);
+            return;
+        }
         let declared = it
             .type_annotation
             .as_ref()
@@ -145,6 +172,18 @@ impl ReceiverScopes {
     }
 
     pub(super) fn bind_parameter(&mut self, it: &FormalParameter) {
+        let context = self.next_context_parameter();
+        if it.type_annotation.is_none()
+            && let Some(context) = context
+        {
+            match &it.pattern {
+                BindingPattern::ObjectPattern(object) => {
+                    self.bind_declared_object(object, &context)
+                }
+                pattern => self.bind_path(pattern, context),
+            }
+            return;
+        }
         if let (BindingPattern::ObjectPattern(object), Some(annotation)) =
             (&it.pattern, &it.type_annotation)
             && let Some(fields) = self.object_types.fields_of(&annotation.type_annotation)
@@ -156,6 +195,16 @@ impl ReceiverScopes {
             .type_annotation
             .as_ref()
             .and_then(|a| ts_type(&a.type_annotation));
+        if ty.is_none()
+            && let Some(path) = it
+                .type_annotation
+                .as_ref()
+                .and_then(|a| declared::declared_type(&a.type_annotation, &[]))
+                .filter(declared::has_steps)
+        {
+            self.bind_path(&it.pattern, path);
+            return;
+        }
         self.bind_pattern(&it.pattern, ty, true);
     }
 
@@ -278,6 +327,7 @@ impl ReceiverScopes {
                 identifier.name.as_str().to_owned(),
                 Binding {
                     ty,
+                    path: None,
                     declared,
                     alias: None,
                 },
@@ -291,6 +341,7 @@ impl ReceiverScopes {
                 name,
                 Binding {
                     ty: None,
+                    path: None,
                     declared: true,
                     alias: None,
                 },

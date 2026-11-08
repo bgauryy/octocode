@@ -49,6 +49,26 @@ async fn project_load_waits_are_reported_to_the_calls_that_overlapped_them() {
     drop(server.await);
 }
 
+/// Concurrent calls wait on the same load, each logging its own interval; a
+/// call reports the time the load took, not the sum of the overlapping logs.
+#[tokio::test(start_paused = true)]
+async fn overlapping_waits_are_reported_once() {
+    let client = NativeLspClient::new(ts_config());
+    let before = Instant::now();
+    let first = Instant::now();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let second = Instant::now();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    client.record_wait(super::super::waits::WaitKind::Indexing, first);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    client.record_wait(super::super::waits::WaitKind::Indexing, second);
+    assert_eq!(
+        client.waits_since(before).indexing,
+        Some(Duration::from_millis(500)),
+        "the union of [0, 400] and [100, 500]"
+    );
+}
+
 /// Starting the server process is a wait of its own, kept apart from the
 /// project load that follows.
 #[test]

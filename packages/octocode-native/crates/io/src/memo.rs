@@ -16,7 +16,7 @@
 //! `get`-then-`insert`.
 mod budget;
 
-pub use budget::MemoryBudget;
+pub use budget::{MemoryBudget, Reservation};
 use budget::{Held, next_use};
 use lru::LruCache;
 use std::borrow::Borrow;

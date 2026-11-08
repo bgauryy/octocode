@@ -148,8 +148,8 @@ impl NamePrices {
 
 /// A fresh scan offered for storage, with what its page derived from it.
 pub struct Fresh {
-    /// The scan as the walk returned it, before any page shaped it; it is
-    /// deflated only when stored.
+    /// The scan as its page encoded it (see [`Encoded`]); it is deflated
+    /// only when stored.
     pub value: Encoded,
     /// The query key its snapshot was derived from (see `cursor::query_key`).
     pub query_key: String,
@@ -162,9 +162,18 @@ pub struct Fresh {
     pub(super) learned: Arc<Learned>,
 }
 
+/// A stored scan as a continuation reads it.
+pub enum StoredValue {
+    /// Decoded whole: the page is cut from it again.
+    Whole(Box<TextSearchResult>),
+    /// Read by page: only the page's frames are decoded (see
+    /// [`super::page_view::PageView::stored`]).
+    Seek(Arc<Packed>),
+}
+
 /// A stored scan whose walk is unchanged since it was stored.
 pub struct Stored {
-    pub value: TextSearchResult,
+    pub value: StoredValue,
     /// Digest of each matched file when stored, keyed by its scanned path.
     /// A page may show a file's values only while it still hashes to this,
     /// and its secret checks must read those bytes.
@@ -230,7 +239,11 @@ pub fn get_checked(snapshot: &str, policy: &str, cancelled: &dyn Fn() -> bool) -
         },
         |(value, sources, query_key, redaction, skipped, learned)| {
             Some(Stored {
-                value: value.unpack_checked(cancelled)?,
+                value: if value.index().is_some() {
+                    StoredValue::Seek(value)
+                } else {
+                    StoredValue::Whole(Box::new(value.unpack_checked(cancelled)?))
+                },
                 digests: sources
                     .iter()
                     .map(|source| (PathBuf::from(&source.path), source.digest))
@@ -264,14 +277,15 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
     if walked.untracked || walked.oversize {
         return;
     }
-    let Some(scan) = value.decode_checked(cancelled) else {
+    // Each file's path and source only; its hits stay in the encoding.
+    let Some(files) = value.sourced_files(cancelled) else {
         return;
     };
     // One file at a time, each at most what the budget could keep; the
     // request's cancellation bounds the whole pass.
     let max_file = u64::try_from(octocode_engine::memory::MEMORY.limit()).unwrap_or(u64::MAX);
-    let mut sources = Vec::with_capacity(scan.files.len());
-    for file in scan.files {
+    let mut sources = Vec::with_capacity(files.len());
+    for file in files {
         if cancelled() {
             return;
         }
@@ -299,15 +313,14 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
         };
         sources.push(source);
     }
-    // The redaction replays on a later page only when every key-block scan
-    // it made read the stored bytes; otherwise each page redacts afresh.
-    let redaction = redaction
-        .key_files
-        .iter()
-        .all(|(index, read)| {
+    // A whole scan's redaction replays on a later page only when every
+    // key-block scan it made read the stored bytes; otherwise each page
+    // redacts afresh. A seekable scan's frames hold what it redacted.
+    let redaction = (!value.seekable()
+        && redaction.key_files.iter().all(|(index, read)| {
             read.is_some() && sources.get(*index).map(|source| source.digest) == *read
-        })
-        .then_some(redaction);
+        }))
+    .then_some(redaction);
     // Verdicts a later page learns grow the stored scan: each is charged to
     // it when learned, as what is learned up to here is weighed below.
     {

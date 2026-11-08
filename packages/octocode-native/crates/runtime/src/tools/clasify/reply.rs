@@ -30,7 +30,7 @@ pub(super) fn answered(
         },
     });
     if let Some(notice) = usage.long_context_notice() {
-        out["hints"] = json!([notice]);
+        crate::response::result::add_hints(&mut out, [notice]);
     }
     if let Some(assets) = assets {
         out["assets"] = assets;
@@ -56,9 +56,7 @@ pub(super) fn failed(row: &Row, error: &ClassificationError, captured: Option<&C
         "errorCode": error.code,
         "error": error.message,
     });
-    if !error.hints.is_empty() {
-        failure["hints"] = json!(error.hints);
-    }
+    crate::response::result::add_hints(&mut failure, error.hints.clone());
     // Every request sent counts, a refused one included: whether the provider
     // bills it is not documented, and its source left this machine.
     if error.provider_calls > 0 {

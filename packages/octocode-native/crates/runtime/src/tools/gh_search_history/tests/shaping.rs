@@ -250,7 +250,7 @@ fn fields_keep_the_row_id_then_the_picked_keys_in_request_order() {
 #[test]
 fn rows_filtered_on_the_created_window_keep_created_at() {
     let window = parse(
-        r#"{"operation":"pullRequest","owner":"a","repo":"b","filters":{"isMerged":true,"createdAt":{"include":[{"from":"2026-09-01T00:00:00Z"}]}}}"#,
+        r#"{"operation":"pullRequest","owner":"a","repo":"b","filters":{"isMerged":true,"createdAt":{"from":"2026-09-01T00:00:00Z"}}}"#,
     );
     assert!(super::shape::keeps_created(
         &search(&window).expect("query")
@@ -261,7 +261,7 @@ fn rows_filtered_on_the_created_window_keep_created_at() {
         &search(&plain).expect("query")
     ));
     let qualifier = parse(
-        r#"{"operation":"pullRequest","owner":"a","repo":"b","filters":{"createdAt":{"include":[{"from":"2026-01-02T00:00:00Z"}]}}}"#,
+        r#"{"operation":"pullRequest","owner":"a","repo":"b","filters":{"createdAt":{"from":"2026-01-02T00:00:00Z"}}}"#,
     );
     assert!(super::shape::keeps_created(
         &search(&qualifier).expect("query")

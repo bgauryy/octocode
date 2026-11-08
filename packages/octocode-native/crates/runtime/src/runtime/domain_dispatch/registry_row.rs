@@ -15,21 +15,25 @@ impl DomainDispatcher {
             Ok(query) => query,
             Err(row) => return Ok(*row),
         };
-        // Release tags are checked through the GitHub transport; without
-        // usable GitHub services a lookup reads no tags.
-        let services = self.github_services().ok();
-        let tags = services.map(|services| services.release_tags(context, &self.github_access));
+        // Release tags are checked through the GitHub transport; when its
+        // services cannot be built (a malformed API URL), every check says so
+        // on its row instead of being skipped.
+        let tags: Box<dyn crate::providers::artifact::ReleaseTags + '_> =
+            match self.github_services() {
+                Ok(services) => Box::new(services.release_tags(context, &self.github_access)),
+                Err(error) => Box::new(crate::providers::artifact::FailedTags(
+                    crate::providers::artifact::CheckFailure::Services(error.message.to_string()),
+                )),
+            };
         let env = self.config.credential_env();
         let call = crate::tools::artifact_search::ArtifactCall {
-            deadline: context.deadline,
+            deadline: crate::execution::cancel::deadline_of(context),
             cancellation: context.cancellation.clone(),
             allow_private_registry: self.config.resolved.network.allow_private_registry,
             timeout: self.limits.network_timeout,
             max_retries: self.limits.max_retries,
             answers: Some(&*self.provider_answers),
-            tags: tags
-                .as_ref()
-                .map(|tags| tags as &dyn crate::providers::artifact::ReleaseTags),
+            tags: Some(&*tags),
             env: &env,
         };
         self.handle.block_on(async {
@@ -51,13 +55,25 @@ impl DomainDispatcher {
             Ok(query) => query,
             Err(row) => return Ok(*row),
         };
+        // The repository operation reads GitHub with the row's own credential; when its
+        // services cannot be built, the row says so instead of reading nothing.
+        let reader: Box<dyn crate::tools::security_check::RepositoryRead + '_> =
+            match self.github_services() {
+                Ok(services) => Box::new(services.repository_reader(context, &self.github_access)),
+                Err(error) => Box::new(crate::tools::security_check::FailedRepository(format!(
+                    "GitHub could not be read: its transport could not be built ({}).",
+                    error.message
+                ))),
+            };
         let call = crate::tools::security_check::SecurityCall {
-            deadline: context.deadline,
+            deadline: crate::execution::cancel::deadline_of(context),
             cancellation: context.cancellation.clone(),
             timeout: self.limits.network_timeout,
             max_retries: self.limits.max_retries,
             answers: Some(&*self.provider_answers),
             config: &self.config.resolved,
+            github: Some(&*reader),
+            osv_api: self.limits.osv_api,
         };
         self.handle.block_on(async {
             Ok(registry_row(

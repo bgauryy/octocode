@@ -1,5 +1,5 @@
 //! Build-output mapping and declaration suffixes shared by graph resolution and roots.
-use super::paths::{join, join_within_root, normalize};
+use super::paths::{join, join_within_root, normalize_specifier};
 use std::collections::{BTreeSet, HashMap};
 
 /// Package-relative build-output roots mapped back to sources.
@@ -61,7 +61,7 @@ pub(super) fn source_equivalent(
     target: &str,
     known: &BTreeSet<String>,
 ) -> Option<String> {
-    let target = normalize(target);
+    let target = normalize_specifier(target);
     let segments = target.split('/').collect::<Vec<_>>();
     if !segments
         .first()

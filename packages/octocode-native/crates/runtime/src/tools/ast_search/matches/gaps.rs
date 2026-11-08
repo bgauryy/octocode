@@ -80,7 +80,7 @@ pub(super) fn skipped_walk(
     states_absence: bool,
     cancel: &dyn CancellationCheck,
 ) -> Option<SkippedWalk> {
-    let later = q.page() > 1 || q.match_page() > 1 || q.scan_offset() > 0;
+    let later = q.page() > 1 || q.scan_offset() > 0;
     if later && !states_absence {
         return None;
     }

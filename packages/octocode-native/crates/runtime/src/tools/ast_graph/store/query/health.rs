@@ -2,6 +2,7 @@
 //! re-ingest call.
 use super::*;
 use crate::response::result::Continuation;
+use crate::tools::ast_graph::build_scope::BuildScope;
 use octocode_contract_types::GraphBuildQuery;
 
 pub(super) fn diagnostics(g: &Graph, filter: Option<&str>) -> Page {
@@ -53,7 +54,7 @@ pub(super) fn unlinked_path_imports(g: &Graph, file: u32) -> Vec<Value> {
 
 /// The related graphBuild call that rebuilds the snapshot of `manifest`
 /// with its own scan options: its root (workspace-relative), excluded
-/// directories and parser globs.
+/// directories, parser globs and walk scope (`scan.walk`).
 pub(super) fn reingest_call(manifest: &Value) -> Option<Value> {
     let scan = &manifest["scan"];
     let root = manifest["root"].as_str().unwrap_or_default();
@@ -71,17 +72,9 @@ pub(super) fn reingest_call(manifest: &Value) -> Option<Value> {
                 }
             },
         );
-    let mut row = Map::from_iter([("path".to_owned(), json!(path))]);
-    if let Some(exclude) = scan["exclude"].as_array().filter(|globs| !globs.is_empty()) {
-        row.insert("exclude".into(), json!(exclude));
-    }
-    if let Some(globs) = scan["languageGlobs"]
-        .as_object()
-        .filter(|globs| !globs.is_empty())
-    {
-        row.insert("parserGlobs".into(), json!(globs));
-    }
-    let build: GraphBuildQuery = typed_row(Value::Object(row))?;
+    let mut row = json!({"path": path});
+    BuildScope::of_manifest(scan).write_row(&mut row);
+    let build: GraphBuildQuery = typed_row(row)?;
     Some(Continuation::related_query(build).build())
 }
 

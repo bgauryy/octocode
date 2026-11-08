@@ -122,7 +122,7 @@ pub(super) fn finish_pr(
     }
     promote_pr_continuations(&mut out, query);
     if !commit_file_pages.is_empty() {
-        out["isPartial"] = json!(true);
+        crate::response::paging::set_partial(&mut out, true);
         ensure_calls(&mut out);
         if let Some(next) = out["calls"].as_object_mut() {
             next.extend(commit_file_pages);

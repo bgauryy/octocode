@@ -41,7 +41,29 @@ pub(crate) mod receiver_fields;
 /// the object it returns (`const { s } = make()`). v18: the JS/TS tree-sitter
 /// lane says it is the fallback, reads `import type`, re-exports, written
 /// `export`s and module-level variables, and leaves other load unknown.
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 19;
+/// v20: CommonJS `require` bindings in a function or block, and inline
+/// `require(x).k()` receivers, carry the scope extent they hold over.
+/// v21: an inline receiver's extent is its callee `require(x).k`, not the
+/// whole call, so a call in its arguments is never under it.
+/// v22: a module `cfg_attr(not(test), path = ..)` records `plain_path`, so its
+/// own-name file is known to compile only under test.
+/// v23: a declaration's range and source range start at the outer annotations
+/// written before it (Rust `#[…]` attributes), and its doc line is read above
+/// or between them.
+/// v24: `module.exports = require('./impl')` exports `*` from `./impl`, as
+/// `export * from` does.
+/// v25: a Go function declares the type of its first result (`return_type`),
+/// and a Go member call carries the call whose value its receiver is
+/// (`receiver_call`), as Rust's already do.
+/// v26: a Go result named by a type parameter declares no `return_type`, and
+/// a Go receiver bound to a call keeps that call (`receiver_call`) beside a
+/// constructor-name `receiver_type`, which the callee's declared result
+/// outranks.
+/// v27: JS/TS facts list the declared types of the file's classes,
+/// interfaces and type aliases (`declared_types`), and a member call whose
+/// receiver only such a type reaches (`x.f.m()` with `x: T`, a parameter of
+/// `const f: Alias = (p) => …`, `T["k"]`) carries it (`receiver_declared`).
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 27;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking
@@ -142,26 +164,46 @@ fn tree_sitter_graph_facts(content: &str, file_path: &str) -> Option<GraphFactsE
     graph_facts::extract_graph_facts_with_metadata_with_extension(content, file_path, grammar)
 }
 
-/// 0-based line where the comment block directly above a declaration
-/// starting at `start` (0-based) begins, if any. Blank lines end the block;
-/// Rust `#[...]` attributes between the comment and the item are skipped.
-/// Comments follow the grammar's [`CommentStyle`] (so C/C++ `#include` and
-/// `#define` are code), and a `*` continuation run must reach its `/*` opener.
+/// The doc line of `declaration`: the doc comment above its header (the
+/// first row of its range: decorators, attributes), else, for a header that
+/// comments can sit inside (Rust `#[allow] /// doc`), the one above its item.
+pub(crate) fn declaration_doc_line(
+    lines: &[&str],
+    declaration: &crate::graph::GraphFactDeclaration,
+    ext: &str,
+) -> Option<u32> {
+    leading_doc_line(lines, declaration.range.start.line as usize, ext).or_else(|| {
+        let item = (declaration.line as usize).saturating_sub(1);
+        (item > declaration.range.start.line as usize)
+            .then(|| leading_doc_line(lines, item, ext))
+            .flatten()
+    })
+}
+
+/// 0-based line where the doc comment above a declaration starting at
+/// `start` (0-based) begins, if any: the topmost comment of the run of
+/// comment lines and, for Rust, `#[...]` attribute lines directly above it,
+/// in any order (`/// doc` above or between attributes). Blank lines end the
+/// run. Comments follow the grammar's [`CommentStyle`] (so C/C++ `#include`
+/// and `#define` are code), and a `*` continuation run must reach its `/*`
+/// opener.
 pub(crate) fn leading_doc_line(lines: &[&str], start: usize, ext: &str) -> Option<u32> {
     let style = languages::find_entry(ext).map_or(CommentStyle::C, |entry| entry.comment_style);
     let is_comment = |line: &str| renderer::is_pure_comment(line, style);
     let mut top = start.min(lines.len());
-    while ext == "rs" && top > 0 && lines[top - 1].trim_start().starts_with("#[") {
+    let mut doc = None;
+    while top > 0 {
+        let line = lines[top - 1];
+        if is_comment(line) {
+            doc = Some(top - 1);
+        } else if !(ext == "rs" && line.trim_start().starts_with("#[")) {
+            break;
+        }
         top -= 1;
     }
-    let mut doc = top;
-    while doc > 0 && is_comment(lines[doc - 1]) {
-        doc -= 1;
-    }
     // A block's continuation line alone (` * …`) is not where it starts.
-    if doc == top || (style != CommentStyle::Hash && lines[doc].trim_start().starts_with('*')) {
-        return None;
-    }
+    let doc = doc
+        .filter(|&row| style == CommentStyle::Hash || !lines[row].trim_start().starts_with('*'))?;
     u32::try_from(doc).ok()
 }
 

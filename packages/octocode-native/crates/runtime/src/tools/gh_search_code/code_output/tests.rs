@@ -41,7 +41,12 @@ fn shaped_files_retain_repository_and_commit_identity() {
                     })
                     .collect(),
             });
-            shape_files(&mut items, &query, resolution);
+            shape_files(
+                &mut items,
+                &query,
+                &crate::policy::discovery::is_sensitive_repository_file,
+                resolution,
+            );
             for (row, path) in items.iter().zip(["a.rs", "b.rs"]) {
                 assert_eq!(row["owner"], "o");
                 assert_eq!(row["repo"], "r");

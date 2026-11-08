@@ -145,6 +145,8 @@ type RowIds = fn(&Value) -> Vec<String>;
 #[test]
 fn deep_scope_pages_measure_row_paths_as_delivered() {
     const FILES: usize = 300;
+    // Only the scan's own budget may cut it, never a loaded machine's clock.
+    let _frozen = octocode_engine::scan_budget::freeze_walk_clock();
     let root = Fixture::new();
     let dir = deep_dir("deep", 5);
     sources(&root, &format!("{dir}/src"), FILES, 1);

@@ -283,3 +283,26 @@ fn resolved_symbol_receipt_shows_only_a_moved_anchor() {
         Some(serde_json::json!({"foundAtCharacter": 5, "foundAtLine": 4, "lineDeviation": 1}))
     );
 }
+
+/// A row stating each defaulted field at its default digests like the row
+/// that omits it, for every variant the contract declares: the digest pins
+/// pages and continuations, so a stated default must not change it.
+#[test]
+fn a_row_stating_its_defaults_digests_like_its_omission() {
+    use crate::response::result::canonical_tests::{Sampled, variants};
+    let found = variants(ToolId::LspSearch);
+    assert!(found.skipped.is_empty(), "{:?}", found.skipped);
+    assert!(!found.rows.is_empty());
+    let items = [serde_json::json!({"uri":"file:///tmp/a.rs"})];
+    let mut stated_a_default = 0;
+    for Sampled { stated, omitted } in found.rows {
+        let digest = |row: &serde_json::Value| {
+            let query: LspSearchQuery = serde_json::from_value(row.clone())
+                .unwrap_or_else(|error| panic!("{row} is not a typed query: {error}"));
+            semantic_snapshot(&query, "references", &items)
+        };
+        assert_eq!(digest(&stated), digest(&omitted), "{stated} vs {omitted}");
+        stated_a_default += usize::from(stated != omitted);
+    }
+    assert!(stated_a_default > 0, "no variant states a default");
+}

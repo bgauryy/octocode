@@ -67,8 +67,14 @@ fn merged_patch_reads_offer_the_changed_source_at_the_merge_commit() {
         read["input"],
         json!({"queries":[{"owner":"cli","repo":"cli","ref":"8fcd6a6",
             "path":"pkg/cmd/pr/merge/merge.go",
-            "matchString":["crossRepoPR:        pr.IsCrossRepository,"],
-            "view":"content"}]})
+            "matchString":["crossRepoPR:        pr.IsCrossRepository,"]}]})
+    );
+    assert_eq!(
+        crate::response::result::read_view(
+            crate::id::ToolId::GhGetFileContent,
+            &read["input"]["queries"][0]
+        ),
+        octocode_contract_types::ReadView::Content
     );
     // An `include` read offers only a file it selected.
     let view = |file: &Value| file["filename"] == "pkg/cmd/pr/view.go";
@@ -136,12 +142,21 @@ fn change_reads_number_each_side_from_its_own_hunk_side() {
     assert_eq!(names, ["readAtCommit", "readParent"]);
     assert_eq!(
         reads[0].1["input"],
-        json!({"queries":[{"owner":"o","repo":"r","path":"src/lib.rs","ref":"c0ffee","ranges":[{"startLine": 50, "endLine": 73}],"view":"content"}]})
+        json!({"queries":[{"owner":"o","repo":"r","path":"src/lib.rs","ref":"c0ffee","ranges":[{"startLine": 50, "endLine": 73}]}]})
     );
     assert_eq!(
         reads[1].1["input"],
-        json!({"queries":[{"owner":"o","repo":"r","path":"src/lib.rs","ref":"parent1","ranges":[{"startLine": 30, "endLine": 52}],"view":"content"}]})
+        json!({"queries":[{"owner":"o","repo":"r","path":"src/lib.rs","ref":"parent1","ranges":[{"startLine": 30, "endLine": 52}]}]})
     );
+    for (_, read) in &reads {
+        assert_eq!(
+            crate::response::result::read_view(
+                crate::id::ToolId::GhGetFileContent,
+                &read["input"]["queries"][0]
+            ),
+            octocode_contract_types::ReadView::Content
+        );
+    }
     // A rename reads its parent under the old path; an added file has
     // no parent side, a removed one no new side.
     let mut renamed = modified.clone();

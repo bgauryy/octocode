@@ -17,6 +17,7 @@ mod code_page;
 mod code_page_failures;
 mod plan_binding;
 mod plan_token;
+mod row_pages;
 
 struct FailedJudge;
 impl SelectionJudge for FailedJudge {

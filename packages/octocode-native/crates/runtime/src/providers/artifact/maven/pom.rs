@@ -66,6 +66,24 @@ enum Fetched {
 
 /// What happened to an [`Fetched::Unsafe`] POM, as an `unread` line says it.
 const UNSAFE: &str = "was not read: its XML declares a DOCTYPE or entity";
+/// What happened to a [`Fetched::Missing`] POM.
+const MISSING: &str = "is not in the Maven repository";
+/// A parent whose `<version>` is a `${…}`: no POM to ask for.
+const PROPERTY_VERSION: &str = "names its version with a property, so it was not read";
+/// A parent already in the chain it would extend.
+const CYCLE: &str = "is already in this chain (a parent cycle), so it was not read again";
+
+/// Why a parent `next` ends a chain without being read, if it does: its
+/// version is a property, or `chain` (the keys read) holds it.
+fn unreadable(next: &Parent, chain: &[String]) -> Option<&'static str> {
+    if next.version.contains("${") {
+        Some(PROPERTY_VERSION)
+    } else if chain.contains(&next.key()) {
+        Some(CYCLE)
+    } else {
+        None
+    }
+}
 
 /// What one POM states about where its source lives.
 #[derive(Default)]
@@ -204,43 +222,47 @@ async fn fetch_pom(
 }
 
 /// Reads the POM `at` names as its parent and makes it `at`, returning its
-/// key and text; `None` ends the chain: no parent, a parent whose version is
-/// a property, one the chain already read, one the repository does not have,
-/// or one that could not or would not be read, which `unread` then states. A
-/// cancelled call is not a parent that failed to read: it fails the lookup.
+/// key and text; `None` ends the chain. It is asked only when the lookup
+/// needs that parent (no `<scm>` yet, an unresolved property or an unmanaged
+/// scope), so every end but "no parent" is stated in `unread`: a version
+/// that is a property, a cycle, a POM the repository lacks, or one that
+/// could not or would not be read. A cancelled call is not a parent that
+/// failed to read: it fails the lookup.
 async fn read_parent(
     at: &mut Located,
     visited: &mut Vec<String>,
     unread: &mut Vec<String>,
     client: &RegistryClient<'_>,
 ) -> Result<Option<(String, String)>, ArtifactError> {
-    let Some(parent) = at.parent.take().filter(|p| !p.version.contains("${")) else {
+    let Some(parent) = at.parent.take() else {
         return Ok(None);
     };
     let key = parent.key();
-    if visited.contains(&key) {
-        return Ok(None);
-    }
-    visited.push(key.clone());
-    let what = match fetch_pom(
-        &super::group_path(&parent.group),
-        &parent.artifact,
-        &parent.version,
-        client,
-    )
-    .await
-    {
-        Ok(Fetched::Pom(xml)) => {
-            *at = located(&xml);
-            return Ok(Some((key, xml)));
+    let what = match unreadable(&parent, visited) {
+        Some(what) => what.to_owned(),
+        None => {
+            visited.push(key.clone());
+            match fetch_pom(
+                &super::group_path(&parent.group),
+                &parent.artifact,
+                &parent.version,
+                client,
+            )
+            .await
+            {
+                Ok(Fetched::Pom(xml)) => {
+                    *at = located(&xml);
+                    return Ok(Some((key, xml)));
+                }
+                Ok(Fetched::Missing) => MISSING.to_owned(),
+                Ok(Fetched::Unsafe) => UNSAFE.to_owned(),
+                Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
+                Err(error) => format!(
+                    "could not be read ({})",
+                    error.message.trim_end_matches('.')
+                ),
+            }
         }
-        Ok(Fetched::Missing) => return Ok(None),
-        Ok(Fetched::Unsafe) => UNSAFE.to_owned(),
-        Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
-        Err(error) => format!(
-            "could not be read ({})",
-            error.message.trim_end_matches('.')
-        ),
     };
     unread.push(format!(
         "Parent POM {} {what}: a source link, property or dependency scope it defines is unknown, not absent.",
@@ -251,9 +273,9 @@ async fn read_parent(
 
 /// The versioned POM's facts. The source link is the nearest `<scm>` up the
 /// `<parent>` chain (a module POM seldom repeats it), read one POM at a time
-/// until one names it; a parent that is missing, whose version is a property,
-/// or that the chain already read ends the walk without a link, and so does
-/// one that fails to read, which the result states in `unread`.
+/// until one names it. A parent that is missing, whose version is a
+/// property, that the chain already read, or that fails to read ends the walk
+/// without a link, and the result states it in `unread`.
 pub(super) async fn read_pom(
     group_path: &str,
     name: &str,

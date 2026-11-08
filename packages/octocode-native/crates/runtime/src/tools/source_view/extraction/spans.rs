@@ -2,10 +2,13 @@
 //! and the lines they touch.
 use super::super::types::{ExtractionError, RegexSpans, local_fetch_query};
 use octocode_contract_types::{ErrorCode, LocalFetchQuery};
+use octocode_engine::search::span_sink::SpanSink;
 use octocode_engine::text::case_fold::Folded;
+use octocode_io::memo::{MemoryBudget, Reservation};
 
 /// Byte spans of every pattern (a list matches any of its entries), in
-/// source order. `truncated` is set when any regex scan hit its match limit.
+/// source order. `truncated` is set when the memory budget had no room for
+/// every match of a scan.
 pub(super) fn match_spans(
     q: &LocalFetchQuery,
     content: &str,
@@ -17,12 +20,13 @@ pub(super) fn match_spans(
     for (index, pattern) in patterns.iter().enumerate() {
         let sensitive = local_fetch_query::case_sensitive_for(q, pattern);
         let name = |error| failing_item(error, index, pattern, patterns.len());
-        let one = if local_fetch_query::is_pcre2(q) {
+        let mut one = if local_fetch_query::is_pcre2(q) {
             pcre2_ranges(pattern, sensitive, content).map_err(name)?
         } else if local_fetch_query::is_regex(q) {
             rust_ranges(pattern, sensitive, content).map_err(name)?
         } else {
             RegexSpans {
+                held: None,
                 spans: if sensitive {
                     sensitive_ranges(content, pattern)
                 } else {
@@ -37,17 +41,57 @@ pub(super) fn match_spans(
             }
         };
         found.truncated |= one.truncated;
-        found
-            .spans
-            .extend(one.spans.into_iter().filter(|&(start, end)| {
-                !local_fetch_query::whole_word(q) || is_whole_word(content, start, end)
-            }));
+        if local_fetch_query::whole_word(q) {
+            one.spans
+                .retain(|&(start, end)| is_whole_word(content, start, end));
+        }
+        if found.spans.is_empty() && one.held.is_some() {
+            // The scan already holds its vector: the spans themselves become
+            // the result, held once, with no copy beside them.
+            found.spans = std::mem::take(&mut one.spans);
+            found.held = one.held.take();
+        } else if !append_held(&mut found, &one.spans) {
+            found.truncated = true;
+            break;
+        }
+        // `one`'s own hold ends with it: what `found` holds stays held.
     }
     if patterns.len() > 1 {
         found.spans.sort_unstable();
         found.spans.dedup();
     }
     Ok(found)
+}
+
+/// Copy `spans` onto `found`'s, holding the copy through `found`'s own
+/// reservation before it is allocated (the source copy is still alive, so
+/// both are counted). The hold is what the vector allocates: exactly the room
+/// the copy needs ([`Vec::reserve_exact`], not `extend`'s rounding and
+/// doubling), the new block held on top of the old one while it is copied,
+/// then the old block's share given back. `false`, with nothing copied, when
+/// the budget has no room for it: the caller reports a partial read.
+fn append_held(found: &mut RegexSpans, spans: &[(usize, usize)]) -> bool {
+    if found.held.is_none() {
+        found.held = span_budget().reserve(0);
+    }
+    let size = std::mem::size_of::<(usize, usize)>();
+    let old = found.spans.capacity();
+    let needed = found.spans.len() + spans.len();
+    if needed > old {
+        if !found
+            .held
+            .as_mut()
+            .is_some_and(|held| held.grow(needed * size))
+        {
+            return false;
+        }
+        found.spans.reserve_exact(spans.len());
+        if let Some(held) = found.held.as_mut() {
+            held.shrink((old + needed).saturating_sub(found.spans.capacity()) * size);
+        }
+    }
+    found.spans.extend_from_slice(spans);
+    true
 }
 
 /// Whether the span `[start, end)` stands alone as a word: no word character
@@ -79,11 +123,107 @@ fn failing_item(
     error
 }
 
-/// Most matches one regex read records (`regex:"rust"` and `"pcre2"`). A
-/// scan that finds more stops here and says so: the read is partial and
-/// its `findText` lead (delivered as `hints.findText`) pages every match
-/// through localSearch.
-pub(crate) const MAX_REGEX_MATCHES: usize = 100_000;
+/// The budget a regex read's match spans are held against: the process
+/// memory budget ([`octocode_engine::memory::MEMORY`]), which also holds
+/// every retained store. A scan whose spans no longer fit stops and says so:
+/// the read is partial and its `findText` lead (delivered as
+/// `hints.findText`) pages every match through localSearch.
+pub(crate) fn span_budget() -> &'static MemoryBudget {
+    #[cfg(test)]
+    if let Some(budget) = SPAN_BUDGET.with(std::cell::Cell::get) {
+        return budget;
+    }
+    &octocode_engine::memory::MEMORY
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The budget this thread's regex reads hold their spans against, in
+    /// place of the process one.
+    static SPAN_BUDGET: std::cell::Cell<Option<&'static MemoryBudget>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Holds a test's budget in place of the process one for this thread's
+/// regex reads until it drops, then restores the one before it.
+#[cfg(test)]
+pub(crate) struct SpanBudgetOverride(Option<&'static MemoryBudget>);
+
+#[cfg(test)]
+impl SpanBudgetOverride {
+    pub(crate) fn of(budget: &'static MemoryBudget) -> Self {
+        Self(SPAN_BUDGET.with(|cell| cell.replace(Some(budget))))
+    }
+}
+
+#[cfg(test)]
+impl Drop for SpanBudgetOverride {
+    fn drop(&mut self) {
+        SPAN_BUDGET.with(|cell| cell.set(self.0));
+    }
+}
+
+/// A scan's matches, held against a budget as the vector grows. A match
+/// the budget cannot hold stops the scan: the spans so far are the prefix
+/// the read reports.
+struct HeldSpans {
+    spans: Vec<(usize, usize)>,
+    /// `None` when the budget had no room to start.
+    held: Option<Reservation<'static>>,
+    refused: bool,
+}
+
+impl HeldSpans {
+    fn new(budget: &'static MemoryBudget) -> Self {
+        Self {
+            spans: Vec::new(),
+            held: budget.reserve(0),
+            refused: false,
+        }
+    }
+
+    fn into_spans(self) -> RegexSpans {
+        RegexSpans {
+            spans: self.spans,
+            truncated: self.refused,
+            held: self.held,
+        }
+    }
+}
+
+impl SpanSink for HeldSpans {
+    fn accept(&mut self, span: (usize, usize)) -> bool {
+        self.accept_observed(span, || {})
+    }
+}
+
+impl HeldSpans {
+    /// [`SpanSink::accept`], calling `at_realloc` once the vector's new block
+    /// is held and before it is allocated: the peak a test measures.
+    fn accept_observed(&mut self, span: (usize, usize), at_realloc: impl FnOnce()) -> bool {
+        if self.spans.len() == self.spans.capacity() {
+            // The vector doubles. A realloc may hold the old block and the new
+            // one at once, so the whole new block is held before it exists
+            // (on top of the old one already held), and the old block's
+            // share is returned once the copy is done.
+            let old = self.spans.capacity();
+            let new = old.max(1) * 2;
+            let size = std::mem::size_of::<(usize, usize)>();
+            let granted = self.held.as_mut().is_some_and(|held| held.grow(new * size));
+            if !granted {
+                self.refused = true;
+                return false;
+            }
+            at_realloc();
+            self.spans.reserve_exact(new - old);
+            if let Some(held) = self.held.as_mut() {
+                held.shrink((old + new).saturating_sub(self.spans.capacity()) * size);
+            }
+        }
+        self.spans.push(span);
+        true
+    }
+}
 
 /// `regex:"rust"` spans: the Rust regex engine `localSearch` runs, so a
 /// pattern has one verdict and one reason in both tools, whatever the
@@ -94,19 +234,19 @@ fn rust_ranges(
     content: &str,
 ) -> Result<RegexSpans, ExtractionError> {
     use octocode_engine::search::rust_ranges::RustRangesError;
-    use octocode_engine::search::rust_ranges::rust_find_ranges;
+    use octocode_engine::search::rust_ranges::rust_scan_ranges;
     #[cfg(test)]
     RUST_REGEX_RUNS.with(|runs| runs.set(runs.get() + 1));
-    // One probe past the limit tells a capped prefix from the whole set.
-    let probe = MAX_REGEX_MATCHES + 1;
-    let mut spans = rust_find_ranges(pattern, !case_sensitive, content, probe).map_err(
-        |RustRangesError::InvalidPattern(reason)| {
-            ExtractionError::new(ErrorCode::InvalidPattern, reason)
-        },
-    )?;
-    let truncated = spans.len() > MAX_REGEX_MATCHES;
-    spans.truncate(MAX_REGEX_MATCHES);
-    Ok(RegexSpans { spans, truncated })
+    rust_scan_ranges(
+        pattern,
+        !case_sensitive,
+        content,
+        HeldSpans::new(span_budget()),
+    )
+    .map(HeldSpans::into_spans)
+    .map_err(|RustRangesError::InvalidPattern(reason)| {
+        ExtractionError::new(ErrorCode::InvalidPattern, reason)
+    })
 }
 
 #[cfg(test)]
@@ -124,22 +264,22 @@ fn pcre2_ranges(
     content: &str,
 ) -> Result<RegexSpans, ExtractionError> {
     use octocode_engine::search::pcre2_ranges::Pcre2RangesError;
-    use octocode_engine::search::pcre2_ranges::pcre2_find_ranges;
-    // One probe past the limit tells a capped prefix from the whole set.
-    let probe = MAX_REGEX_MATCHES + 1;
-    let mut spans = pcre2_find_ranges(pattern, !case_sensitive, content, probe).map_err(
-        |error| match error {
-            Pcre2RangesError::InvalidPattern(message) => {
-                ExtractionError::new(ErrorCode::InvalidPattern, message)
-            }
-            Pcre2RangesError::Unavailable(message) => {
-                ExtractionError::new(ErrorCode::ExecutionFailed, message)
-            }
-        },
-    )?;
-    let truncated = spans.len() > MAX_REGEX_MATCHES;
-    spans.truncate(MAX_REGEX_MATCHES);
-    Ok(RegexSpans { spans, truncated })
+    use octocode_engine::search::pcre2_ranges::pcre2_scan_ranges;
+    pcre2_scan_ranges(
+        pattern,
+        !case_sensitive,
+        content,
+        HeldSpans::new(span_budget()),
+    )
+    .map(HeldSpans::into_spans)
+    .map_err(|error| match error {
+        Pcre2RangesError::InvalidPattern(message) => {
+            ExtractionError::new(ErrorCode::InvalidPattern, message)
+        }
+        Pcre2RangesError::Unavailable(message) => {
+            ExtractionError::new(ErrorCode::ExecutionFailed, message)
+        }
+    })
 }
 
 /// 1-based lines any span touches: every line of a multiline match, not
@@ -184,4 +324,128 @@ fn sensitive_ranges(content: &str, pattern: &str) -> Vec<(usize, usize)> {
         .match_indices(pattern)
         .map(|(start, matched)| (start, start + matched.len()))
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::page_memo::{sized_test_budget, test_budget};
+
+    const SPAN: usize = std::mem::size_of::<(usize, usize)>();
+
+    /// Whenever the vector reallocates, the budget already holds the old
+    /// block and the new one together.
+    #[test]
+    fn a_growing_span_vector_is_reserved_before_it_is_allocated() {
+        let budget = test_budget!(1 << 20);
+        let mut sink = HeldSpans::new(budget);
+        let mut reallocs = 0;
+        for n in 0..200 {
+            let before = sink.spans.capacity();
+            let mut observed = None;
+            assert!(sink.accept_observed((n, n + 1), || observed = Some(budget.used())));
+            if let Some(used) = observed {
+                reallocs += 1;
+                assert!(
+                    used >= (before + sink.spans.capacity()) * SPAN,
+                    "reserved {used} while {before} + {} spans are allocated",
+                    sink.spans.capacity()
+                );
+            }
+            assert!(budget.used() >= sink.spans.capacity() * SPAN);
+        }
+        assert!(reallocs > 1);
+    }
+
+    /// What the copy holds is what `extend` allocated: the vector's capacity
+    /// (it rounds a small first block up and doubles a full one), seen
+    /// through the budget, however many appends built it.
+    #[test]
+    fn an_appended_copy_holds_the_capacity_it_allocated() {
+        let budget = test_budget!(1 << 20);
+        let _scope = SpanBudgetOverride::of(budget);
+        let mut found = RegexSpans::default();
+        for round in 1..40 {
+            let batch: Vec<_> = (0..round).map(|n| (n, n + 1)).collect();
+            assert!(append_held(&mut found, &batch));
+            assert_eq!(
+                budget.used(),
+                found.spans.capacity() * SPAN,
+                "{} spans held after {round} appends",
+                found.spans.len()
+            );
+        }
+        drop(found);
+        assert_eq!(budget.used(), 0);
+    }
+
+    fn literal(word: &str) -> LocalFetchQuery {
+        serde_json::from_value(serde_json::json!({"path":"f.txt","matchString":[word]}))
+            .expect("query")
+    }
+
+    /// The copy a literal scan makes into the result is held: a budget that
+    /// cannot hold it refuses the copy and the read says it is partial.
+    #[test]
+    fn a_span_copy_past_the_budget_is_refused_and_disclosed() {
+        let content = "x ".repeat(10);
+        let budget = test_budget!(SPAN * 3);
+        let _scope = SpanBudgetOverride::of(budget);
+        let found = match_spans(&literal("x"), &content, &["x"]).expect("scan");
+        assert!(found.truncated);
+        assert!(found.spans.is_empty());
+        assert!(budget.used() <= budget.limit());
+    }
+
+    fn regex(engine: &str) -> LocalFetchQuery {
+        serde_json::from_value(serde_json::json!({
+            "path": "f.txt", "matchString": ["x"], "regexEngine": engine
+        }))
+        .expect("query")
+    }
+
+    /// One pattern's spans are held once: under the least budget its scan
+    /// completes in, the read returns every span, holding what the vector
+    /// allocated. Holding a copy beside the scan's own spans needed more
+    /// than half the budget twice, and refused the read.
+    #[test]
+    fn one_patterns_spans_are_held_once() {
+        let content = "x ".repeat(10);
+        for engine in ["rust", "pcre2"] {
+            let scan = |budget: &'static MemoryBudget| {
+                let _scope = SpanBudgetOverride::of(budget);
+                let spans = if engine == "rust" {
+                    rust_ranges("x", true, &content)
+                } else {
+                    pcre2_ranges("x", true, &content)
+                };
+                !spans.expect("scan").truncated
+            };
+            let least = (1..)
+                .map(|spans| spans * SPAN)
+                .find(|bytes| scan(sized_test_budget(*bytes)))
+                .expect("a budget the scan completes in");
+            let budget = sized_test_budget(least);
+            let _scope = SpanBudgetOverride::of(budget);
+            let found = match_spans(&regex(engine), &content, &["x"]).expect("read");
+            assert!(!found.truncated, "{engine}: refused under {least} bytes");
+            assert_eq!(found.spans.len(), 10, "{engine}");
+            assert_eq!(budget.used(), found.spans.capacity() * SPAN, "{engine}");
+            drop(found);
+            assert_eq!(budget.used(), 0, "{engine}");
+        }
+    }
+
+    #[test]
+    fn a_span_copy_within_the_budget_is_held_until_the_result_drops() {
+        let content = "x ".repeat(10);
+        let budget = test_budget!(SPAN * 64);
+        let _scope = SpanBudgetOverride::of(budget);
+        let found = match_spans(&literal("x"), &content, &["x"]).expect("scan");
+        assert!(!found.truncated);
+        assert_eq!(found.spans.len(), 10);
+        assert!(budget.used() >= found.spans.len() * SPAN);
+        drop(found);
+        assert_eq!(budget.used(), 0);
+    }
 }

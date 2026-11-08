@@ -132,6 +132,98 @@ async fn redact_emails_masks_github_rows() {
     assert!(redacted.contains("mail "), "the row stays: {redacted}");
 }
 
+/// A GitHub read of a credential-named file follows the local rule: refused
+/// with `pathPolicyDenied` before any request by default; `security.
+/// credentialFiles: allow` opens it with its values redacted and nothing of
+/// it written under the home. A sensitive directory never opens.
+#[tokio::test]
+async fn credential_files_setting_governs_github_file_reads() {
+    use base64::Engine as _;
+    let server = MockServer::builder().start().await;
+    let sha = "2222222222222222222222222222222222222222";
+    let token = format!("ghp_{}", "a1B2c3D4e5".repeat(4));
+    let text = format!("TOKEN={token}\nDB_PASS=CowSaysMoo\nneedle_line=1\n");
+    for file in [".env", ".ssh/id_rsa"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/o/r/contents/{file}")))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "type":"file","encoding":"base64","sha":"3333333333333333333333333333333333333333",
+                "content":base64::engine::general_purpose::STANDARD.encode(&text)})))
+            .mount(&server)
+            .await;
+    }
+    let home = tempfile::tempdir().expect("home");
+    let cwd = tempfile::tempdir().expect("cwd");
+    let api = format!("{}/api/v3", server.uri());
+    let read = |allow: bool, file: &'static str| {
+        let mut rc = json!({"github":{"apiUrl":api}});
+        if allow {
+            rc["security"] = json!({"credentialFiles":"allow"});
+        }
+        let runtime = runtime(home.path(), cwd.path(), &rc);
+        async move {
+            let outcome = call(
+                &runtime,
+                "ghGetFileContent",
+                json!({"owner":"o","repo":"r","path":file,"ref":sha}),
+            )
+            .await;
+            data(&outcome).clone()
+        }
+    };
+    for file in [".env", ".ssh/id_rsa"] {
+        let refused = read(false, file).await;
+        assert_eq!(refused["errorCode"], "pathPolicyDenied", "{refused}");
+        assert!(
+            refused
+                .to_string()
+                .contains("withheld by the security path policy"),
+            "{refused}"
+        );
+    }
+    assert_eq!(
+        server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter(|request| request.url.path().contains("/contents/"))
+            .count(),
+        0,
+        "refused before any request"
+    );
+    let opened = read(true, ".env").await;
+    let shown = opened.to_string();
+    assert!(shown.contains("needle_line=1"), "{opened}");
+    for secret in [token.as_str(), "CowSaysMoo"] {
+        assert!(!shown.contains(secret), "{secret} leaked: {opened}");
+    }
+    let still = read(true, ".ssh/id_rsa").await;
+    assert_eq!(still["errorCode"], "pathPolicyDenied", "{still}");
+    let on_disk = walkdir_text(home.path());
+    assert!(
+        !on_disk.contains("needle_line=1"),
+        "an opened credential file is kept in memory only"
+    );
+}
+
+/// Every regular file's text under `root`, concatenated (lossy).
+fn walkdir_text(root: &Path) -> String {
+    let mut text = String::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if let Ok(bytes) = std::fs::read(&path) {
+                text.push_str(&String::from_utf8_lossy(&bytes));
+            }
+        }
+    }
+    text
+}
+
 /// A provider rate limit that ends inside the call's deadline is waited out
 /// (the retry answers); no fixed wait cap turns it into `rateLimited`.
 #[tokio::test]

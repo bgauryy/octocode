@@ -72,9 +72,9 @@ fn a_scan_keeps_only_what_its_view_shows() {
     assert!(totals.iter().all(|total| *total == totals[0]), "{totals:?}");
 }
 
-/// Every file page and match page of a priced scan carries the rows, sizes
-/// and page facts the same scan holding every match would: the page rebuilt
-/// from the file is the page the held matches cut.
+/// Every page of a priced scan carries the rows, sizes and page cut the same
+/// scan holding every match would: the page rebuilt from the file is the page
+/// the held matches cut.
 #[test]
 fn a_priced_scan_pages_exactly_as_a_held_scan() {
     let root = nested();
@@ -117,65 +117,65 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
                 }
             })
             .collect::<Vec<_>>();
-        let pages = file_page(
+        let pages = stream::stream_page(
             q,
-            &group_files(q, &priced.files, budget, row_paths, &NeverCancel)
+            &group_files(q, &priced.files, row_paths, &NeverCancel)
                 .expect("grouped")
                 .groups,
             budget,
-        );
-        let file_pages = match pages.pagination["totalPages"].as_u64() {
-            Some(total) => total as u32,
-            None => 1,
-        };
-        for page in 1..=file_pages {
-            for match_page in 1..=4 {
-                let mut cursor = row.clone();
-                cursor["page"] = json!(page);
-                cursor["matchPage"] = json!(match_page);
-                let query = typed(cursor);
-                let q = matched(&query);
-                let mut from_prices =
-                    group_files(q, &priced.files, budget, row_paths, &NeverCancel)
-                        .expect("grouped");
-                let expected =
-                    group_files(q, &held, budget, row_paths, &NeverCancel).expect("grouped");
-                let window = file_page(q, &from_prices.groups, budget).window;
-                assert_eq!(window, file_page(q, &expected.groups, budget).window);
+        )
+        .pages;
+        assert!(budget > 2_000 || pages > 1, "budget {budget} cuts pages");
+        for page in 1..=pages {
+            let mut cursor = row.clone();
+            cursor["page"] = json!(page);
+            let query = typed(cursor);
+            let q = matched(&query);
+            let mut from_prices =
+                group_files(q, &priced.files, row_paths, &NeverCancel).expect("grouped");
+            let mut expected = group_files(q, &held, row_paths, &NeverCancel).expect("grouped");
+            let cut = stream::stream_page(q, &from_prices.groups, budget);
+            let held_cut = stream::stream_page(q, &expected.groups, budget);
+            assert_eq!(
+                (&cut.window, &cut.slices, &cut.pagination),
+                (&held_cut.window, &held_cut.slices, &held_cut.pagination)
+            );
+            for (groups, files) in [
+                (&mut from_prices.groups, &priced.files),
+                (&mut expected.groups, &held),
+            ] {
                 assert!(
-                    rebuild_page(
+                    fill_page(
                         q,
                         &scope,
-                        &priced.files,
-                        &mut from_prices.groups[window.clone()],
-                        budget,
+                        files,
+                        (&mut groups[cut.window.clone()], &cut.slices),
                         row_paths,
                         None,
                         &NeverCancel,
                     )
                     .is_ok_and(|incomplete| incomplete.is_empty())
                 );
-                let shown = |groups: &[Group]| {
-                    groups
-                        .iter()
-                        .map(|group| {
-                            (
-                                group.row.clone(),
-                                group.chars,
-                                group.out_of_range,
-                                group.more_matches,
-                                group.truncated_captures,
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                };
-                assert_eq!(
-                    shown(&from_prices.groups[window.clone()]),
-                    shown(&expected.groups[window]),
-                    "budget {budget} page {page} matchPage {match_page}"
-                );
-                assert_eq!(from_prices.total_matches, expected.total_matches);
             }
+            let shown = |groups: &[Group]| {
+                groups
+                    .iter()
+                    .map(|group| {
+                        (
+                            group.row.clone(),
+                            group.chars,
+                            group.sizes.clone(),
+                            group.truncated_captures,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                shown(&from_prices.groups[cut.window.clone()]),
+                shown(&expected.groups[cut.window]),
+                "budget {budget} page {page}"
+            );
+            assert_eq!(from_prices.total_matches, expected.total_matches);
         }
     }
 }
@@ -192,18 +192,16 @@ fn a_priced_file_edited_after_its_scan_rebuilds_no_page() {
     let (scope, scan) = scan_of(q, &paths);
     let budget = 100_000;
     let row_paths = RowPaths::new(&paths, &scope.canonical, scope.is_file);
-    let mut grouped =
-        group_files(q, &scan.files, budget, row_paths, &NeverCancel).expect("grouped");
-    let window = file_page(q, &grouped.groups, budget).window;
+    let mut grouped = group_files(q, &scan.files, row_paths, &NeverCancel).expect("grouped");
+    let cut = stream::stream_page(q, &grouped.groups, budget);
     std::fs::write(root.0.join("src/f0.rs"), "fn z() {}\n").expect("edit");
-    let groups = &mut grouped.groups[window];
+    let groups = &mut grouped.groups[cut.window];
     assert!(
-        rebuild_page(
+        fill_page(
             q,
             &scope,
             &scan.files,
-            groups,
-            budget,
+            (groups, &cut.slices),
             row_paths,
             None,
             &NeverCancel
@@ -243,16 +241,15 @@ fn a_priced_file_whose_match_does_not_finish_is_shown_unevaluated() {
     std::fs::copy(&source, &renamed).expect("same bytes");
     scan.files[0].source = Some((renamed, digest));
     let row_paths = RowPaths::new(&paths, &scope.canonical, scope.is_file);
-    let mut grouped =
-        group_files(q, &scan.files, budget, row_paths, &NeverCancel).expect("grouped");
-    let window = file_page(q, &grouped.groups, budget).window;
+    let mut grouped = group_files(q, &scan.files, row_paths, &NeverCancel).expect("grouped");
+    let cut = stream::stream_page(q, &grouped.groups, budget);
+    let window = cut.window.clone();
     assert!(window.contains(&0) && window.len() > 1, "{window:?}");
-    let Ok(incomplete) = rebuild_page(
+    let Ok(incomplete) = fill_page(
         q,
         &scope,
         &scan.files,
-        &mut grouped.groups[window.clone()],
-        budget,
+        (&mut grouped.groups[window.clone()], &cut.slices),
         row_paths,
         None,
         &NeverCancel,
@@ -263,7 +260,7 @@ fn a_priced_file_whose_match_does_not_finish_is_shown_unevaluated() {
     assert_eq!(incomplete[0][0].code, "structural.language.unsupported");
     let unevaluated = &grouped.groups[0];
     assert_eq!(unevaluated.row, json!({"path":scan.files[0].path}));
-    assert!(unevaluated.priced.is_none() && !unevaluated.more_matches);
+    assert!(unevaluated.priced.is_none() && !unevaluated.sizes.is_empty());
     assert!(
         grouped.groups[1..window.end]
             .iter()

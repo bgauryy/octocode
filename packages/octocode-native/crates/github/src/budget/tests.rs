@@ -129,7 +129,13 @@ async fn admit(
     deadline: Instant,
 ) -> Result<Admission, ProviderError> {
     state
-        .admit(Some(group), budget.config(), deadline, &Cancellation::new())
+        .admit(
+            Some(group),
+            budget.config(),
+            deadline,
+            &Cancellation::new(),
+            &ClientWaits::default(),
+        )
         .await
 }
 

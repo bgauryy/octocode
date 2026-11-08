@@ -2,7 +2,7 @@ use super::{ChannelRun, execute_ordinary_queries};
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::response::result::FailureKind;
 use crate::response::rows;
-use crate::security::Sanitized;
+use crate::security::{JudgedLeaves, Sanitized};
 use serde_json::{Value, json};
 
 impl ChannelRun {
@@ -14,7 +14,13 @@ impl ChannelRun {
         mut rejected: Vec<(usize, Value)>,
         context: &ExecutionContext,
     ) -> Result<ShapedRows, ExecutionError> {
-        let EvaluatedRows { mut rows, failure } = self.evaluate_rows(context)?;
+        let EvaluatedRows {
+            mut rows,
+            judged,
+            failure,
+        } = self.evaluate_rows(context)?;
+        let mut judged: std::collections::HashMap<usize, JudgedLeaves> =
+            self.row_indices.iter().copied().zip(judged).collect();
         let rejected_at: Vec<usize> = rejected.iter().map(|(index, _)| *index).collect();
         for ((row, index), query) in rows.iter_mut().zip(&self.row_indices).zip(&self.queries) {
             if row["status"] == "error" {
@@ -28,7 +34,18 @@ impl ChannelRun {
         }
         rows.extend(rejected.into_iter().map(|(_, row)| row));
         rows.sort_by_key(|row| row["index"].as_u64());
-        let (structured, response_query) = self.envelope_of(rows, context)?;
+        // Each evaluated row's marks, at the place its data takes in the
+        // envelope ([`rows::envelope`]).
+        let mut marks = JudgedLeaves::default();
+        for (at, row) in rows.iter().enumerate() {
+            let index = row["index"]
+                .as_u64()
+                .and_then(|index| usize::try_from(index).ok());
+            if let Some(leaves) = index.and_then(|index| judged.remove(&index)) {
+                marks.extend(leaves.under(&format!("/results/{at}/data")));
+            }
+        }
+        let (structured, response_query) = self.envelope_of(rows, &marks, context)?;
         Ok(ShapedRows {
             structured,
             response_query,
@@ -43,12 +60,14 @@ impl ChannelRun {
     fn envelope_of(
         &self,
         rows: Vec<Value>,
+        judged: &JudgedLeaves,
         context: &ExecutionContext,
     ) -> Result<(Sanitized, Value), ExecutionError> {
         let envelope = rows::envelope(self.id, rows);
         let before = rows::placeholders_per_row(&envelope);
-        let mut structured = self.dispatcher.security.seal_output(
+        let mut structured = self.dispatcher.security.seal_judged(
             envelope,
+            judged,
             self.output.redact_emails && self.id.is_github(),
             || context.check(),
         )?;
@@ -88,6 +107,7 @@ impl ChannelRun {
                 },
             )?;
             return Ok(EvaluatedRows {
+                judged: Vec::new(),
                 rows: receipts.rows,
                 failure: receipts.failure,
             });
@@ -101,6 +121,7 @@ impl ChannelRun {
         let evaluated =
             execute_ordinary_queries(id, queries, Some(response_page), dispatcher, context)?;
         let mut rows = Vec::with_capacity(queries.len());
+        let mut judged = Vec::with_capacity(queries.len());
         let mut failure = None;
         let mut evaluated = evaluated.into_iter();
         for index in 0..queries.len() {
@@ -108,6 +129,7 @@ impl ChannelRun {
             let result = evaluated.next().ok_or(ExecutionError::WorkerFailed)?;
             context.check()?;
             failure = failure.or(result.failure);
+            judged.push(result.judged);
             let row = rows::finish_row(
                 index,
                 result.data,
@@ -118,7 +140,11 @@ impl ChannelRun {
             );
             rows.push(row);
         }
-        Ok(EvaluatedRows { rows, failure })
+        Ok(EvaluatedRows {
+            rows,
+            judged,
+            failure,
+        })
     }
 }
 
@@ -134,5 +160,7 @@ pub(super) struct ShapedRows {
 /// Shaped result rows of one call, with the batch's failure kind.
 struct EvaluatedRows {
     rows: Vec<Value>,
+    /// Each row's judged leaves, by row, relative to its `data`.
+    judged: Vec<JudgedLeaves>,
     failure: Option<FailureKind>,
 }

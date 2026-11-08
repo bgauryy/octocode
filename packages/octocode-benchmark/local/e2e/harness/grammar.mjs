@@ -11,6 +11,8 @@ import { transportPagesProblem } from './tool-health/compare.mjs';
 import { GRAMMAR_FIXTURES } from './grammar-fixtures.mjs';
 import { configureGrammarLsp } from './grammar-lsp.mjs';
 import { runGrammarCase } from './grammar-cases.mjs';
+import { snapshotBuild } from './build-snapshot.mjs';
+snapshotBuild();
 
 const report = { at: new Date().toISOString(), node: process.version, results: [], cases: [], calls: [],
   scope: 'Native grammar and transport behavior; LSP uses a strict protocol fixture, not semantic language servers.',

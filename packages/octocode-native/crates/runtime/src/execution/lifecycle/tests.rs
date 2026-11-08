@@ -167,7 +167,7 @@ async fn a_cancel_by_request_id_stops_running_work_at_its_next_check() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn timeout_is_observed_before_return_and_worker_panic_releases_slot() {
     let runtime = RequestRuntime::new(RequestLimits {
-        timeout: Duration::from_millis(20),
+        timeout: Some(Duration::from_millis(20)),
         ..RequestLimits::default()
     })
     .expect("valid limits");
@@ -192,13 +192,67 @@ async fn timeout_is_observed_before_return_and_worker_panic_releases_slot() {
     assert_eq!(runtime.active_requests(), 0);
 }
 
+/// B75: without a caller budget no constant deadline cuts a request. It runs
+/// past the old 300 s surface budget, and past the longest budget a caller
+/// may set, and still answers. The clock is tokio's paused one, not a real
+/// wait.
+#[tokio::test(start_paused = true)]
+async fn without_a_caller_budget_no_constant_deadline_cuts_the_request() {
+    let runtime = RequestRuntime::new(RequestLimits::default()).expect("valid limits");
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let job = {
+        let runtime = runtime.clone();
+        tokio::spawn(async move {
+            run(&runtime, "long", move |context| {
+                released.recv().expect("released");
+                context.check()?;
+                Ok("answered")
+            })
+            .await
+        })
+    };
+    tokio::task::yield_now().await;
+    tokio::time::advance(MAX_TIMEOUT + Duration::from_secs(1)).await;
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    release.send(()).expect("the work still waits");
+    assert_eq!(job.await.expect("join"), Ok("answered"));
+    assert_eq!(runtime.active_requests(), 0);
+}
+
+/// B75: only a caller budget reaches tools as a deadline. Without one,
+/// resumable work (graph extraction, localSearch windows) has no share to
+/// stop at and runs whole; with one it stops at half the time left and
+/// answers an honest partial with its continuation.
+#[test]
+fn only_a_caller_budget_reaches_tools_as_a_deadline() {
+    use crate::execution::cancel::{CancellationCheck, halfway};
+    let unbudgeted = RequestRuntime::new(RequestLimits::default()).expect("valid limits");
+    let admission = unbudgeted.admit("open".into()).expect("admitted");
+    assert_eq!(admission.context.deadline(), None);
+    assert_eq!(halfway(&admission.context), None);
+    let budget = Duration::from_secs(60);
+    let budgeted = RequestRuntime::new(RequestLimits {
+        timeout: Some(budget),
+        ..RequestLimits::default()
+    })
+    .expect("valid limits");
+    let before = Instant::now();
+    let admission = budgeted.admit("bounded".into()).expect("admitted");
+    let deadline = admission.context.deadline().expect("the caller's budget");
+    assert!(deadline >= before + budget && deadline <= Instant::now() + budget);
+    let share = halfway(&admission.context).expect("a resumable share");
+    assert!(share < deadline);
+}
+
 /// M4: a host timeout too large for a deadline is an invalid limit at
 /// construction, never a panic when a request is admitted.
 #[test]
 fn unrepresentable_timeout_is_rejected_not_a_panic_at_admission() {
-    for secs in [u64::MAX, u64::MAX / 2, MAX_TIMEOUT.as_secs() + 1] {
+    for secs in [0, u64::MAX, u64::MAX / 2, MAX_TIMEOUT.as_secs() + 1] {
         let built = RequestRuntime::new(RequestLimits {
-            timeout: Duration::from_secs(secs),
+            timeout: Some(Duration::from_secs(secs)),
             ..RequestLimits::default()
         });
         assert!(
@@ -207,7 +261,7 @@ fn unrepresentable_timeout_is_rejected_not_a_panic_at_admission() {
         );
     }
     let longest = RequestRuntime::new(RequestLimits {
-        timeout: MAX_TIMEOUT,
+        timeout: Some(MAX_TIMEOUT),
         ..RequestLimits::default()
     })
     .expect("the longest timeout is valid");
@@ -223,7 +277,7 @@ async fn every_admitted_request_runs_at_once() {
     const CALLS: usize = 16;
     let runtime = RequestRuntime::new(RequestLimits {
         pending: CALLS,
-        timeout: Duration::from_secs(20),
+        timeout: Some(Duration::from_secs(20)),
     })
     .expect("valid limits");
     let started = Arc::new(std::sync::atomic::AtomicUsize::new(0));

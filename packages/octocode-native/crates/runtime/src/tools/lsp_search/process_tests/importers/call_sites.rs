@@ -122,7 +122,7 @@ fn ledger_row(ledger: &str, site: &str, symbols: &str) -> serde_json::Value {
 }
 
 /// The callers in `row` as `(caller, sites)`.
-fn callers_of(row: &serde_json::Value) -> Vec<(String, serde_json::Value)> {
+pub(super) fn callers_of(row: &serde_json::Value) -> Vec<(String, serde_json::Value)> {
     row["files"]
         .as_array()
         .into_iter()

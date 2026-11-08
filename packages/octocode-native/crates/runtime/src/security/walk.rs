@@ -54,6 +54,22 @@ pub(crate) fn sanitize_json<E, R: Rewrite>(
     value: &mut Value,
     sanitize: &mut impl FnMut(&str, Option<&str>) -> Result<R, E>,
 ) -> Result<bool, E> {
+    sanitize_judged_json(
+        value,
+        &super::JudgedLeaves::default(),
+        &mut |text, path, _| sanitize(text, path),
+    )
+}
+
+/// [`sanitize_json`] where `sanitize` also gets, for a leaf `judged` marks
+/// (and whose text still has the marked digest), the path its whole source
+/// was judged at. Marks are resolved after the structured pass, which may
+/// replace a leaf; each is taken once, as the walk reaches its leaf.
+pub(crate) fn sanitize_judged_json<E, R: Rewrite>(
+    value: &mut Value,
+    judged: &super::JudgedLeaves,
+    sanitize: &mut impl FnMut(&str, Option<&str>, Option<&str>) -> Result<R, E>,
+) -> Result<bool, E> {
     let mut redacted = Vec::new();
     let mut changed;
     match octocode_engine::security::sanitizer::sanitize_structure(value) {
@@ -68,11 +84,17 @@ pub(crate) fn sanitize_json<E, R: Rewrite>(
             return Ok(true);
         }
     }
+    let mut marks = if judged.is_empty() {
+        HashMap::new()
+    } else {
+        judged.resolve(value)
+    };
     walk(value, None, &mut KeyChanges::new(), &mut |text: &str,
                                                     path: Option<
         &str,
     >| {
-        let clean = sanitize(text, path)?.change(text);
+        let source = marks.remove(&(text.as_ptr() as usize));
+        let clean = sanitize(text, path, source)?.change(text);
         if let Some(clean) = &clean {
             changed = true;
             redacted_values(text, clean, &mut redacted);

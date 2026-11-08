@@ -40,7 +40,8 @@ impl Form {
     }
 }
 
-/// `text` with each of `ranges` replaced by `placeholder`, keeping its line count.
+/// `text` with each of `ranges` replaced by `placeholder`, keeping its lines and
+/// their line ends.
 /// A range inside another goes with it; one holding only blanks hides nothing.
 fn replace_ranges(
     text: &str,
@@ -62,8 +63,7 @@ fn replace_ranges(
             out.push_str(placeholder);
         }
         let hidden = &text[start..range.end];
-        let line_breaks = hidden.bytes().filter(|byte| *byte == b'\n').count();
-        out.extend(std::iter::repeat_n('\n', line_breaks));
+        out.push_str(&super::kept_line_breaks(hidden));
         replaced.push((start..range.end, out.len() - shown_from));
         from = range.end;
     }

@@ -3,6 +3,28 @@ use super::*;
 use octocode_contract_types::ErrorCode;
 use serde_json::json;
 
+/// A comparison pinned to resolved commits reads head text under the same path
+/// policy as the row it continues: the opt-in that opens a credential name stays
+/// open, and a sensitive directory stays withheld.
+#[test]
+fn a_pinned_comparison_keeps_the_rows_path_policy() {
+    let root = tempfile::tempdir().expect("root");
+    let opt_in = crate::policy::path::PathPolicy::new(crate::policy::path::PathPolicyConfig {
+        workspace_root: Some(root.path().to_path_buf()),
+        allow_credential_files: true,
+        ..Default::default()
+    })
+    .expect("policy");
+    let mut row = HistoryItemRequest::from_row(json!({
+        "operation":"compare", "owner":"o", "repo":"r", "baseRef":"main", "headRef":"dev"}))
+    .expect("compare row");
+    row.paths = Some(std::sync::Arc::new(opt_in));
+    assert!(!row.withholds_file(".env"));
+    let pinned = row.with_compare_refs("a1", "b2").expect("pinned");
+    assert!(!pinned.withholds_file(".env"), "the opt-in is lost");
+    assert!(pinned.withholds_file(".ssh/config"));
+}
+
 /// A read with no section named is the summary: it selects none.
 #[test]
 fn a_summary_read_selects_no_section() {

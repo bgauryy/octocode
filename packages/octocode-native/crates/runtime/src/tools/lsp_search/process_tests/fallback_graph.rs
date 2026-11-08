@@ -126,16 +126,13 @@ fn fallback_graph_walk(
         );
     let script = match &delayed {
         Some(delayed) => {
-            use std::os::unix::fs::PermissionsExt;
             let named = root.join(delayed.name);
-            std::fs::write(&named, &server).expect("named server");
-            std::fs::set_permissions(&named, std::fs::Permissions::from_mode(0o755))
-                .expect("chmod");
+            crate::tools::lsp_search::tests::write_executable(&named, server.as_bytes());
             named
         }
         None => script,
     };
-    std::fs::write(&script, server).expect("fixture server");
+    crate::tools::lsp_search::tests::write_executable(&script, &server);
     let peak = root.join("peak.log");
     let mut config = config(&root, &script, None);
     config.env = Some(
@@ -175,7 +172,7 @@ fn fallback_graph_walk(
                 let (path, line, character) = query_anchor(&wire);
                 let row = Operation { client: &client, query: &query, sources: &mut sources, snippet_policy: &policy,
                     cancel: &NeverCancel, path: &path, scope: &scope, root_only: false, line, character,
-                    language_id:Some("typescript"), budget:16_000 }.run().await.expect("fallback hierarchy");
+                    language_id:Some("typescript"), budget:16_000, security:&crate::security::ContentSecurity::new() }.run().await.expect("fallback hierarchy");
                 let row = crate::tools::lsp_search::failure::with_next(&query, row);
                 if let Some(next) = row.pointer("/next/nextPage/input/queries/0") {
                     let continued: LspSearchQuery = serde_json::from_value(next.clone()).expect("executable nextPage");

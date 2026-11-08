@@ -198,3 +198,38 @@ fn only_a_read_named_by_a_full_sha_is_pinned() {
         }
     }
 }
+
+/// A read that never follows its `Link` keeps an answer with no next page;
+/// an identical read that does follow it must not be answered by that one.
+#[tokio::test]
+async fn a_first_page_only_answer_never_stands_in_for_a_page_following_read() {
+    let server = MockServer::start().await;
+    let next = format!("{}/api/v3/items?page=2", server.uri());
+    Mock::given(path("/api/v3/items"))
+        .respond_with(move |request: &Request| {
+            let answer = if request.headers.contains_key("if-none-match") {
+                ResponseTemplate::new(304)
+            } else {
+                ResponseTemplate::new(200).set_body_string("[1]")
+            };
+            answer
+                .insert_header("etag", "\"i1\"")
+                .insert_header("link", format!("<{next}>; rel=\"next\""))
+        })
+        .mount(&server)
+        .await;
+    let (transport, endpoint, _) = keeping(&server);
+    let spec = || RequestSpec::get(endpoint.rest(&["items"]).unwrap());
+    let first = transport
+        .execute(spec().reading_first_page_only(), &request("t"))
+        .await
+        .unwrap();
+    assert!(first.next.is_none(), "the link was not read");
+    let following = transport.execute(spec(), &request("t")).await.unwrap();
+    assert!(
+        following.next.is_some(),
+        "a page-following read sees the next page"
+    );
+    let repeat = transport.execute(spec(), &request("t")).await.unwrap();
+    assert!(repeat.next.is_some(), "and so does its own repeat");
+}

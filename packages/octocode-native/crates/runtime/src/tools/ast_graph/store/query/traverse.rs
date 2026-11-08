@@ -45,11 +45,28 @@ impl Query<'_> {
         }
     }
 
+    /// What a traversal starts from: one node, or for `deps` and
+    /// `dependents` a directory that names no node, as every file under it.
+    fn traversal_target(&self) -> Result<TraversalTarget, GraphOutput> {
+        let directory = matches!(self.options.op.as_str(), "deps" | "dependents")
+            && self.flags.kind.is_none_or(|kind| kind == NodeKind::File);
+        if directory
+            && let Some(reference) = self.options.target.as_deref()
+            && let Some((path, files)) = self.g.directory(reference)
+        {
+            return Ok(TraversalTarget::Directory { path, files });
+        }
+        Ok(TraversalTarget::Node(self.target("a node reference")?))
+    }
+
     /// `deps`, `dependents`, `callers`, `callees`, `walk`.
     pub(super) fn traversal(&self) -> Result<GraphOutput, GraphOutput> {
         let (g, op) = (self.g, self.options.op.as_str());
-        let root = self.target("a node reference")?;
-        let node_kind = g.t.nodes[root as usize].kind;
+        let target = self.traversal_target()?;
+        let (roots, node_kind) = match &target {
+            TraversalTarget::Node(root) => (vec![*root], g.t.nodes[*root as usize].kind),
+            TraversalTarget::Directory { files, .. } => (files.clone(), NodeKind::File),
+        };
         let natural = if node_kind == NodeKind::Symbol {
             EdgeKind::Calls
         } else {
@@ -64,9 +81,12 @@ impl Query<'_> {
         };
         // A file's callers/callees are those of every symbol it declares.
         let seeds = if matches!(op, "callers" | "callees") && node_kind == NodeKind::File {
-            descendants(g, root)
+            roots
+                .iter()
+                .flat_map(|root| descendants(g, *root))
+                .collect()
         } else {
-            vec![root]
+            roots.clone()
         };
         let filter = self.filter(&default_edges);
         // A file's default dependents include the files that use its exports
@@ -74,7 +94,8 @@ impl Query<'_> {
         // edges.
         let reexports =
             op == "dependents" && node_kind == NodeKind::File && self.flags.edge_kinds.is_empty();
-        let grouped = self.options.view.as_deref() == Some("files");
+        let view = self.options.view.as_deref();
+        let grouped = matches!(view, Some("files" | "modules"));
         let offset = self.options.offset.unwrap_or(0);
         let limit = self.options.limit.unwrap_or_else(default_limit);
         // Grouping counts every edge before paging; the grouped rows page.
@@ -93,25 +114,43 @@ impl Query<'_> {
                 kind: self.flags.kind,
                 include_seeds: matches!(op, "callers" | "callees"),
                 reexports,
+                lists: match view {
+                    Some("files") => WalkRows::Files,
+                    Some("modules") => WalkRows::Modules,
+                    _ => WalkRows::Nodes,
+                },
                 window,
             },
             self.cancel,
         )?;
-        let page = if grouped { per_file(page) } else { page };
+        let page = match view {
+            Some("files") => per_file(page),
+            Some("modules") => per_module(page),
+            _ => page,
+        };
         let mut extra = Map::new();
-        extra.insert(
-            "target".into(),
-            Value::Object(g.node_json(root, self.cancel)?),
-        );
+        let target_json = match &target {
+            TraversalTarget::Node(root) => Value::Object(g.node_json(*root, self.cancel)?),
+            // A directory is no node: its root-relative path and its kind.
+            TraversalTarget::Directory { path, .. } => json!({"id": path, "kind": "directory"}),
+        };
+        extra.insert("target".into(), target_json);
         extra.extend(edges_extra(&filter));
         if op == "dependents" && filter.kinds.contains(&EdgeKind::Imports) {
-            let unlinked = unlinked_path_imports(g, root);
+            let unlinked = roots
+                .iter()
+                .flat_map(|root| unlinked_path_imports(g, *root))
+                .collect::<Vec<_>>();
             if !unlinked.is_empty() {
                 extra.insert("summary".into(), json!({"unlinkedPathImports": unlinked}));
             }
         }
         if filter.kinds.contains(&EdgeKind::Calls) {
-            extra.insert("coverage".into(), g.coverage(root));
+            let coverage = match &target {
+                TraversalTarget::Node(root) => g.coverage(*root),
+                TraversalTarget::Directory { files, .. } => g.files_coverage(files),
+            };
+            extra.insert("coverage".into(), coverage);
         }
         Ok(run_page(self.options, g, extra, page))
     }
@@ -168,14 +207,38 @@ impl Query<'_> {
     }
 }
 
-/// `view:"files"`: one row per file with the number of traversal rows
-/// (edges) it holds, in key order; the counts sum to the edge total. A
-/// symbol's key is `<file>#<name>`.
+/// A traversal's start: one node, or a directory as the files under it.
+enum TraversalTarget {
+    Node(u32),
+    Directory { path: String, files: Vec<u32> },
+}
+
+/// `view:"modules"`: one row per pair of directories the walked edges join
+/// (`from` the importing or calling side, `to` the imported or called one)
+/// with its edge count, in key order; the counts sum to the walked edges.
+fn per_module(page: Page) -> Page {
+    let mut pairs = BTreeMap::<(String, String), u64>::new();
+    for row in &page.rows {
+        let side = |field: &str| row[field].as_str().unwrap_or_default().to_owned();
+        *pairs.entry((side("from"), side("to"))).or_default() += 1;
+    }
+    let rows = pairs
+        .into_iter()
+        .map(|((from, to), edges)| json!({"from": from, "to": to, "edges": edges}))
+        .collect::<Vec<_>>();
+    Page {
+        total: rows.len(),
+        rows,
+        start: 0,
+    }
+}
+
+/// `view:"files"`: one row per file with the number of walked edges that
+/// reach it or its symbols, in key order; the counts sum to the walked edges.
 fn per_file(page: Page) -> Page {
     let mut files = BTreeMap::<String, u64>::new();
     for row in &page.rows {
-        let key = row["id"].as_str().unwrap_or_default();
-        let file = key.split_once('#').map_or(key, |(file, _)| file);
+        let file = row["file"].as_str().unwrap_or_default();
         *files.entry(file.to_owned()).or_default() += 1;
     }
     let rows = files

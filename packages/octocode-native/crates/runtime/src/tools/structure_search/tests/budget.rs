@@ -34,6 +34,9 @@ fn within_checked(
 ) -> Value {
     let (paths, security) = simple_policy(root);
     let query: StructureSearchQuery = serde_json::from_value(query).expect("typed row");
+    // Only `Slow` spends the budget: real time, which a loaded machine
+    // stretches, does not move the walk clock.
+    let _frozen = octocode_engine::scan_budget::freeze_walk_clock();
     execute_structure_within(&query, &paths, &security, cancel, None, budget).expect("listing")
 }
 

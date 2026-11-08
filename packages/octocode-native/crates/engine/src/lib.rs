@@ -18,6 +18,7 @@
     )
 )]
 
+pub mod contain;
 pub mod cpu;
 pub mod deep_stack;
 pub mod digest;

@@ -72,8 +72,9 @@ pub(super) fn render_tree_page(
     let page = ast_search_query_syntax_tree::page(q);
     let complete = r.status == "ok" && !*more;
     let pagination = facts.to_value();
-    let mut out = json!({"operation":"syntaxTree","path":display_path,"nodes":nodes,"snapshot":snapshot,"isPartial":!complete,
+    let mut out = json!({"operation":"syntaxTree","path":display_path,"nodes":nodes,"snapshot":snapshot,
         "pagination":pagination});
+    crate::response::paging::set_partial(&mut out, !complete);
     if !diagnostics.is_empty() {
         out["diagnostics"] = json!(diagnostics);
     }

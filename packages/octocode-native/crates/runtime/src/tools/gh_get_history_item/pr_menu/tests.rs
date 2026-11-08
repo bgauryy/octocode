@@ -33,14 +33,20 @@ fn change_reads_prefer_the_first_unpatched_text_file() {
         [
             (
                 "readAtCommit",
-                json!({"owner":"o","repo":"r","path":"src/huge.rs","ref":"head","view":"content"})
+                json!({"owner":"o","repo":"r","path":"src/huge.rs","ref":"head"})
             ),
             (
                 "readParent",
-                json!({"owner":"o","repo":"r","path":"src/huge.rs","ref":"base","view":"content"})
+                json!({"owner":"o","repo":"r","path":"src/huge.rs","ref":"base"})
             ),
         ]
     );
+    for (_, row) in &paths {
+        assert_eq!(
+            crate::response::result::read_view(crate::id::ToolId::GhGetFileContent, row),
+            octocode_contract_types::ReadView::Content
+        );
+    }
     // Without an unpatched text file the top patched file is read.
     let reads = change_reads("o", "r", &files[..2], &sides, |_| true);
     assert_eq!(reads[0].1["input"]["queries"][0]["path"], "src/big.rs");

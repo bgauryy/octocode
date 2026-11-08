@@ -365,6 +365,7 @@ mod type_text;
 use crate::signatures::receiver_fields::{Fields, merge};
 use bindings::{bind_pattern, push};
 use cpp::cpp_declarator_name;
+pub(super) use go::go_return_type;
 pub(super) use rust::rust_return_types;
 #[cfg(feature = "tree-sitter-scala")]
 pub(super) use scala::ScalaTerms;

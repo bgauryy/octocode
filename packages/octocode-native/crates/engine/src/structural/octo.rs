@@ -13,6 +13,8 @@ mod pattern;
 mod position;
 mod recovery;
 mod rule;
+mod stack;
+pub(super) use stack::on_deep_stack;
 mod selector;
 
 pub(super) use error::CompileError;
@@ -24,6 +26,8 @@ pub(super) use rule::{RawPattern, RawRule, decode_rule};
 
 #[cfg(test)]
 pub(super) use matching::INTERRUPT_NEXT_COMPILE_PARSE;
+#[cfg(test)]
+pub(super) use stack::MAX_STRUCTURAL_DEPTH;
 
 use super::query::Prefilter;
 use crate::text::LineIndex;
@@ -37,12 +41,12 @@ use pattern::CompiledPattern;
 pub use pattern::{PatternDeclaration, QualifiedPattern, Separator};
 use recovery::Recovery;
 pub use rule::RULE_INVALID;
-use rule::{CompiledRule, Document};
+use rule::{CompiledRule, Document, RelationMemo};
 
 #[cfg(test)]
 use matching::{SECONDARY_CAPTURE, parse_tree, visit_named};
 #[cfg(test)]
-use rule::RULE_DECODE_COUNT;
+use rule::{ANCESTOR_STEPS, RULE_DECODE_COUNT};
 
 #[cfg(test)]
 use super::types::StructuralMatch;
@@ -78,18 +82,40 @@ pub(super) fn pattern_declaration(lang: &AgLanguage, pattern: &str) -> Option<Pa
     CompiledPattern::new(lang, pattern).ok()?.declaration()
 }
 
+/// The kind of node `pattern` parses as in `lang`.
+pub(super) fn pattern_kind(lang: &AgLanguage, pattern: &str) -> Option<String> {
+    CompiledPattern::new(lang, pattern).ok()?.root_kind()
+}
+
 /// The longer spelling of `pattern` in `lang` ([`CompiledPattern::qualifier`]).
 pub(super) fn pattern_qualifier(
     lang: &AgLanguage,
     pattern: &str,
     separator: Separator,
 ) -> Option<QualifiedPattern> {
-    CompiledPattern::new(lang, pattern)
-        .ok()?
-        .qualifier(lang, pattern, separator)
+    stack::on_deep_stack(|| {
+        CompiledPattern::new(lang, pattern)
+            .ok()?
+            .qualifier(lang, pattern, separator)
+    })
+    .flatten()
 }
 
+/// Compile `query` into a matcher that runs on the large stack
+/// ([`stack`]): matching recurses once per pattern level, whatever the
+/// caller's stack holds.
 pub(super) fn compile_matcher(
+    lang: &AgLanguage,
+    query: &StructuralQuery<'_>,
+) -> Result<OctoCompiledMatcher, CompileError> {
+    let run = stack::compile_on_deep_stack(|| compile_matcher_here(lang, query))?;
+    Ok(Box::new(move |content, found| {
+        stack::on_deep_stack(|| run(content, found))
+            .unwrap_or_else(|| Err(stack::stack_unavailable()))
+    }))
+}
+
+fn compile_matcher_here(
     lang: &AgLanguage,
     query: &StructuralQuery<'_>,
 ) -> Result<OctoCompiledMatcher, CompileError> {
@@ -185,6 +211,7 @@ pub(super) fn compile_matcher(
                     found.mark_recovered();
                 }
                 let line_index = LineIndex::tree_sitter(content);
+                let memo = RelationMemo::of(tree.root_node());
                 visit_named_expanding_macros(
                     tree.root_node(),
                     content,
@@ -196,6 +223,7 @@ pub(super) fn compile_matcher(
                             return Ok(());
                         }
                         let document = Document {
+                            memo: Some(&memo),
                             content,
                             deadline,
                             root,

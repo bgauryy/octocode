@@ -116,6 +116,7 @@ async fn reference_pages_reach_every_location_once_and_preserve_the_saved_reques
                 "referencesProvider",
                 found.clone(),
                 budget,
+                &crate::security::ContentSecurity::new(),
             )
             .await;
             pages += 1;

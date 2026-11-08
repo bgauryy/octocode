@@ -10,13 +10,20 @@ pub const JS_TS_EXTENSIONS: &[&str] = &["ts", "tsx", "mts", "cts", "js", "jsx", 
 /// extensions the JavaScript grammar parses.
 pub const JS_EXTENSIONS: &[&str] = &["js", "jsx", "mjs", "cjs"];
 
-/// The extension of the path's basename (after the last `/` or `\\`), the
+/// The final component of `path`: after the last path separator of the
+/// platform (`/` everywhere, `\\` too on Windows). On Unix `\\` is a legal
+/// file-name byte, so `f\\g.rs` is one name.
+pub fn basename(path: &str) -> &str {
+    path.rsplit(std::path::is_separator).next().unwrap_or(path)
+}
+
+/// The extension of the path's basename ([`basename`]), the
 /// one extension helper for the crate. A dotfile names its own extension
 /// (`.bashrc` → `bashrc`); a dot in a directory name is never read; a name
 /// without a dot gives `fallback`. `lowercase` folds case so `.TS` matches
 /// `ts`.
 pub fn extension_of(file_path: &str, lowercase: bool, fallback: &str) -> String {
-    let basename = file_path.rsplit(['/', '\\']).next().unwrap_or(file_path);
+    let basename = basename(file_path);
 
     let ext = if let Some(dotfile_ext) = basename.strip_prefix('.') {
         if dotfile_ext.contains('.') {
@@ -127,6 +134,20 @@ mod tests {
         assert_eq!(grammar_extension("// @flow\n", "js"), "tsx");
         assert_eq!(grammar_extension("const a = 1;\n", "js"), "js");
         assert_eq!(grammar_extension("int f(void);\n", "h"), "h");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_backslash_in_a_unix_file_name_is_part_of_the_name() {
+        assert_eq!(basename("d/f\\g.rs"), "f\\g.rs");
+        assert_eq!(extension_of("f\\g.rs", false, ""), "rs");
+        assert_eq!(extension_of("f\\g", false, "none"), "none");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_backslash_separates_windows_components() {
+        assert_eq!(basename("d\\g.rs"), "g.rs");
     }
 
     #[test]

@@ -4,6 +4,7 @@ pub(crate) mod file_extension;
 mod ident;
 mod source;
 pub use source::analysis;
+pub mod support_paths;
 pub mod test_paths;
 pub(crate) mod utf8_offsets;
 mod words;
@@ -12,7 +13,7 @@ mod words;
 /// hit, identifier-boundary rule, line index, leading-BOM rule, bounded
 /// source read, regular-file open, and binary sniff.
 pub use clip::clip_around;
-pub use file_extension::{JS_EXTENSIONS, JS_TS_EXTENSIONS, extension_of};
+pub use file_extension::{JS_EXTENSIONS, JS_TS_EXTENSIONS, basename, extension_of};
 pub use ident::{is_ident_char, is_whole_word, whole_word_starts, word_pattern};
 pub use source::{
     BinaryVerdict, Decoded, Decoding, ReadError, Refusal, Source, admit, decode, has_utf16_bom,
@@ -36,9 +37,15 @@ where
 }
 
 /// `path` as a string with `/` separators on every platform: the one form
-/// a path takes in rows, keys and globs.
+/// a path takes in rows, keys and globs. Only Windows rewrites `\`: on Unix
+/// it is a legal file-name byte, and rewriting it would name another path.
 pub fn slash_path(path: &std::path::Path) -> String {
-    path.to_string_lossy().replace('\\', "/")
+    let text = path.to_string_lossy();
+    if cfg!(windows) {
+        text.replace('\\', "/")
+    } else {
+        text.into_owned()
+    }
 }
 
 /// `path` with `.` and `..` folded lexically, without touching the file
@@ -63,9 +70,15 @@ mod slash_path_tests {
     #[test]
     fn a_path_reads_with_forward_slashes() {
         assert_eq!(super::slash_path(std::path::Path::new("a/b.rs")), "a/b.rs");
+        #[cfg(windows)]
         assert_eq!(
             super::slash_path(std::path::Path::new("a\\b\\c.rs")),
             "a/b/c.rs"
+        );
+        #[cfg(not(windows))]
+        assert_eq!(
+            super::slash_path(std::path::Path::new("a\\b\\c.rs")),
+            "a\\b\\c.rs"
         );
         assert_eq!(super::slash_path(std::path::Path::new("")), "");
     }

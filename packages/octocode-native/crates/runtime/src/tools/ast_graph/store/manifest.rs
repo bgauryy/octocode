@@ -1,9 +1,13 @@
 //! The snapshot manifest written beside `graph.bin`.
 use super::super::ANALYSIS_VERSION;
 use super::*;
+use octocode_engine::signatures::GRAPH_FACTS_SCHEMA_VERSION;
 
+/// The snapshot was extracted, bound and projected by this binary's
+/// representations: same fact schema, analysis and package version.
 pub(super) fn analysis_current(manifest: &Value) -> bool {
     manifest["analysisVersion"] == ANALYSIS_VERSION
+        && manifest["factsSchemaVersion"] == GRAPH_FACTS_SCHEMA_VERSION
         && manifest["octocodeVersion"] == env!("CARGO_PKG_VERSION")
 }
 
@@ -47,6 +51,7 @@ pub(super) struct ManifestInput<'a> {
     pub(super) bytes: usize,
     pub(super) digest: &'a str,
     pub(super) exclude: &'a [String],
+    pub(super) walk: super::super::walk_scope::WalkScope,
     pub(super) language_globs: &'a BTreeMap<String, Vec<String>>,
     pub(super) inputs: &'a BTreeMap<String, String>,
     pub(super) input_proof: Option<&'a str>,
@@ -96,6 +101,7 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
         "kind": MANIFEST_KIND,
         "formatVersion": format::FORMAT_VERSION,
         "analysisVersion": ANALYSIS_VERSION,
+        "factsSchemaVersion": GRAPH_FACTS_SCHEMA_VERSION,
         "registryIdentity": input.registry_identity,
         "buildIdentity": input.build_identity,
         "registryExtensions": input.registry.extensions(octocode_engine::text::analysis::AnalysisOperation::GraphFacts),
@@ -160,6 +166,9 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
     }
     if !input.language_globs.is_empty() {
         manifest["scan"]["languageGlobs"] = json!(input.language_globs);
+    }
+    if let Some(walk) = input.walk.disclosure() {
+        manifest["scan"]["walk"] = walk;
     }
     manifest
 }

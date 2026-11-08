@@ -59,8 +59,11 @@ pub(super) enum FileHits {
     Unmatched,
     /// The path does not exist at the resolved ref.
     Missing,
-    /// The blob could not be read or scanned (binary, over [`MAX_SCAN_BYTES`],
-    /// transient). The row says so with `lineResolved: false`.
+    /// The blob is over [`MAX_SCAN_BYTES`], so it was not scanned: the row says
+    /// so with `lineResolved: false` and the page names the bound.
+    Oversized,
+    /// The blob could not be read or scanned (binary, transient). The row says
+    /// so with `lineResolved: false`.
     Unavailable,
 }
 
@@ -121,7 +124,11 @@ pub(super) async fn resolve_files(
                 {
                     out[*at] = FileHits::Missing;
                 }
-                // Over the read bound, or a transient failure.
+                // Over the read bound: the body was never downloaded whole.
+                Err(error) if error.kind == ProviderErrorKind::ResponseTooLarge => {
+                    out[*at] = FileHits::Oversized;
+                }
+                // A transient failure.
                 Err(_) => {}
             }
         }
@@ -143,7 +150,7 @@ pub(super) async fn resolve_files(
 
 /// `context` for a hit's read: its body limit never exceeds what the scan
 /// accepts, so a file the scan would refuse is not downloaded whole.
-fn read_bound(context: &RequestContext) -> RequestContext {
+pub(super) fn read_bound(context: &RequestContext) -> RequestContext {
     let mut bounded = context.clone();
     bounded.budget.max_body_bytes = bounded.budget.max_body_bytes.min(MAX_SCAN_BYTES);
     bounded
@@ -191,7 +198,7 @@ pub(super) fn scan(
     security: &impl ContentScan,
 ) -> FileHits {
     if bytes.len() > MAX_SCAN_BYTES {
-        return FileHits::Unavailable;
+        return FileHits::Oversized;
     }
     let Ok(text) = file_text(bytes) else {
         return FileHits::Unavailable;

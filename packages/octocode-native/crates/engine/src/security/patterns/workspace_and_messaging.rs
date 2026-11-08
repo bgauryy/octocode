@@ -20,7 +20,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "shippoApiToken",
         file_context: None,
-        regex: r###"\bshippo_(?:live|test)_[a-fA-F0-9]{40}\b"###,
+        regex: r###"shippo_(?:live|test)_[a-fA-F0-9]{40}"###,
     },
     SecretPattern {
         name: "easypostApiToken",
@@ -35,12 +35,12 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "duffelApiToken",
         file_context: None,
-        regex: r###"(?i)\bduffel_(?:test|live)_[a-z0-9_\-=]{43}\b"###,
+        regex: r###"(?i)duffel_(?:test|live)_[a-z0-9_\-=]{43}"###,
     },
     SecretPattern {
         name: "frameioApiToken",
         file_context: None,
-        regex: r###"(?i)\bfio-u-[a-z0-9\-_=]{64}\b"###,
+        regex: r###"(?i)fio-u-[a-z0-9\-_=]{64}"###,
     },
     SecretPattern {
         name: "maxmindLicenseKey",
@@ -70,37 +70,37 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "settlemintApplicationAccessToken",
         file_context: None,
-        regex: r###"\bsm_aat_[a-zA-Z0-9]{16}\b"###,
+        regex: r###"sm_aat_[a-zA-Z0-9]{16}"###,
     },
     SecretPattern {
         name: "settlemintPersonalAccessToken",
         file_context: None,
-        regex: r###"\bsm_pat_[a-zA-Z0-9]{16}\b"###,
+        regex: r###"sm_pat_[a-zA-Z0-9]{16}"###,
     },
     SecretPattern {
         name: "settlemintServiceAccessToken",
         file_context: None,
-        regex: r###"\bsm_sat_[a-zA-Z0-9]{16}\b"###,
+        regex: r###"sm_sat_[a-zA-Z0-9]{16}"###,
     },
     SecretPattern {
         name: "slackBotToken",
         file_context: None,
-        regex: r###"\bxoxb-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*\b"###,
+        regex: r###"xoxb-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*\b"###,
     },
     SecretPattern {
         name: "slackUserToken",
         file_context: None,
-        regex: r###"\bxoxp-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*\b"###,
+        regex: r###"xoxp-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*\b"###,
     },
     SecretPattern {
         name: "slackWorkspaceToken",
         file_context: None,
-        regex: r###"\bxoxa-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*\b"###,
+        regex: r###"xoxa-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*\b"###,
     },
     SecretPattern {
         name: "slackRefreshToken",
         file_context: None,
-        regex: r###"\bxoxr-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*\b"###,
+        regex: r###"xoxr-[0-9]{10,13}-[0-9]{10,13}[a-zA-Z0-9-]*\b"###,
     },
     SecretPattern {
         name: "slackWebhookUrl",
@@ -115,12 +115,12 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "slackAppToken",
         file_context: None,
-        regex: r###"(?i)\bxapp-\d-[A-Z0-9]+-\d+-[a-z0-9]+\b"###,
+        regex: r###"(?i)xapp-\d-[A-Z0-9]+-\d+-[a-z0-9]+\b"###,
     },
     SecretPattern {
         name: "slackConfigAccessToken",
         file_context: None,
-        regex: r###"(?i)\bxoxe\.xox[bp]-\d-[A-Z0-9]{163,166}\b"###,
+        regex: r###"(?i)xoxe\.xox[bp]-\d-[A-Z0-9]{163,166}"###,
     },
     SecretPattern {
         name: "sendbirdAccessToken",
@@ -150,7 +150,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "sendinblueApiToken",
         file_context: None,
-        regex: r###"\bxkeysib-[a-f0-9]{64}-[a-z0-9]{16}\b"###,
+        regex: r###"xkeysib-[a-f0-9]{64}-[a-z0-9]{16}"###,
     },
     SecretPattern {
         name: "pusherAppSecret",
@@ -210,7 +210,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "pinterestAccessToken",
         file_context: None,
-        regex: r###"\bpina_[a-zA-Z0-9]{32}\b"###,
+        regex: r###"pina_[a-zA-Z0-9]{32}"###,
     },
     SecretPattern {
         name: "linkedinApiToken",

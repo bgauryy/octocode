@@ -9,7 +9,7 @@ use serde_json::json;
 /// complete rescan that differs stays stale.
 #[test]
 fn a_deadline_cut_rescan_is_a_retryable_timeout() {
-    let query: AstSearchQueryMatch0 = serde_json::from_value(json!({"operation":"match","path":"/repo/a.min.js","rule":{"pattern":"f($A)"},"matchPage":9,"snapshot":"earlier"}))
+    let query: AstSearchQueryMatch0 = serde_json::from_value(json!({"operation":"match","path":"/repo/a.min.js","rule":{"pattern":"f($A)"},"page":9,"snapshot":"earlier"}))
     .expect("typed row");
     let q = MatchQuery::Content(&query);
     let file = |diagnostics, status: &str| ScannedFile {
@@ -40,7 +40,7 @@ fn a_deadline_cut_rescan_is_a_retryable_timeout() {
     let calls = error.calls.expect("retry");
     assert_eq!(calls["retry"]["kind"], "continue");
     let retry = &calls["retry"]["input"]["queries"][0];
-    assert_eq!(retry["matchPage"], 9);
+    assert_eq!(retry["page"], 9);
     assert_eq!(retry["snapshot"], "earlier");
     let changed = Scan {
         files: vec![file(vec![], "ok")],

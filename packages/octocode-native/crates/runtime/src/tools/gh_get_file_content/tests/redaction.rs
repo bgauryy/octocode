@@ -217,7 +217,7 @@ async fn a_repeated_range_reuses_its_scan_under_its_own_path() {
     )
     .await;
     let body = format!(
-        "# shared gh bytes\ndb:\n  password: hunter2hunter2hunter2\n{}",
+        "// shared gh bytes\nconst db: Db = Db {{\n  password: hunter2hunter2hunter2,\n}};\n{}",
         "const FILLER: u8 = 0;\n".repeat(5_000)
     );
     for file in ["src%2Fa.rs", "conf%2Fa.yaml"] {

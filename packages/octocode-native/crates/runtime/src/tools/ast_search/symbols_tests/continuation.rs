@@ -329,6 +329,8 @@ fn an_outline_with_no_test_code_filter_keeps_its_stored_set() {
 /// any response window: the row sizes the set keeps are the delivered ones.
 #[test]
 fn stored_pages_equal_fresh_pages_at_every_window() {
+    // Only the scan's own budget may cut it, never a loaded machine's clock.
+    let _frozen = octocode_engine::scan_budget::freeze_walk_clock();
     for window in [2_048, 16_384] {
         for directory in [false, true] {
             let root = Fixture::new();
@@ -352,7 +354,11 @@ fn stored_pages_equal_fresh_pages_at_every_window() {
             let fresh = std::thread::scope(|threads| {
                 let (root, row) = (&root.0, row.clone());
                 threads
-                    .spawn(move || walk_within(root, row, symbol_rows, window))
+                    .spawn(move || {
+                        // The walk clock is per thread: freeze this one's too.
+                        let _frozen = octocode_engine::scan_budget::freeze_walk_clock();
+                        walk_within(root, row, symbol_rows, window)
+                    })
                     .join()
                     .expect("fresh walk")
             });

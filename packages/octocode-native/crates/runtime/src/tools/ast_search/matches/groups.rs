@@ -1,5 +1,6 @@
-//! Files grouped into match pages: each file's match rows (held, priced
-//! and rebuilt when shown, or listed), cut into its match pages.
+//! Files grouped for the match stream: each file's match sizes (held rows,
+//! or prices whose rows are rebuilt when a page shows them), or its listed
+//! row; a page fills the slices of the files it shows ([`fill_page`]).
 use super::super::RowPaths;
 use super::page_rows::PageRows;
 use super::query::MatchQuery;
@@ -17,7 +18,6 @@ use serde_json::json;
 pub(super) fn group_files(
     q: MatchQuery<'_>,
     files: &[ScannedFile],
-    budget: usize,
     row_paths: RowPaths<'_>,
     cancel: &dyn CancellationCheck,
 ) -> Result<Grouped, ToolError> {
@@ -70,10 +70,16 @@ pub(super) fn group_files(
                         .iter()
                         .map(|value| super::match_row(q, value, cancel))
                         .collect::<Result<Vec<_>, _>>()?;
-                    match_group(q, path.clone(), &rows, budget, row_paths)
+                    let sizes = rows.iter().map(row_chars).collect();
+                    let mut group = matched_group(path.clone(), sizes, row_paths);
+                    group.held = Some(rows);
+                    group
                 }
                 FileMatches::Priced(prices) if !file_list => {
-                    priced_group(q, path.clone(), prices, budget, row_paths, index)
+                    let sizes = prices.iter().map(|price| *price as usize).collect();
+                    let mut group = matched_group(path.clone(), sizes, row_paths);
+                    group.priced = Some(index);
+                    group
                 }
                 // A file view lists the file with its count; only a file
                 // view's scan counts without pricing.
@@ -117,81 +123,26 @@ pub(super) fn listed_file(
     Group {
         source_descriptors: Vec::new(),
         chars,
-        rows: 1,
+        sizes: Vec::new(),
+        held: None,
         row,
-        out_of_range: false,
-        more_matches: false,
         truncated_captures: false,
         priced: None,
     }
 }
 
-/// One file's match pages, cut from the sizes of its rows: the match page
-/// asked for ([`crate::response::page_windows::select`]) and what the file
-/// adds to a file page.
-pub(super) struct MatchPages {
-    pub(super) cut: crate::response::page_windows::PageCut,
-    /// What the file adds to a file page: its first match page.
-    pub(super) first_chars: usize,
-    /// What the file counts against `limit` on a file page ([`Group::rows`]).
-    pub(super) rows: usize,
-}
-
-impl MatchPages {
-    /// The match page asked for lies past the file's last one.
-    pub(super) fn out_of_range(&self) -> bool {
-        self.cut.facts.past_end().is_some()
-    }
-}
-
-pub(super) fn match_pages(
-    q: MatchQuery<'_>,
-    path: &str,
-    sizes: &[usize],
-    budget: usize,
-    row_paths: RowPaths<'_>,
-) -> MatchPages {
-    let paging = crate::response::page_windows::Paging::of(q.limit(), budget);
-    // The file's place on a file page is its first match page, whichever
-    // match page is asked for, so the file pages never move.
-    let first = crate::response::page_windows::select(paging, sizes, 1);
-    let rows = if first.more {
-        sizes.len()
-    } else {
-        first.range.len()
-    };
-    MatchPages {
-        cut: crate::response::page_windows::select(paging, sizes, q.match_page() as usize),
-        first_chars: sizes[first.range].iter().sum::<usize>() + row_paths.chars(path) + 32,
-        rows,
-    }
-}
-
-/// A priced file's place on the file pages, cut from its prices exactly as
-/// [`match_group`] cuts it from its rows; its rows are built only when its
-/// file page is shown ([`rebuild_page`]).
-pub(super) fn priced_group(
-    q: MatchQuery<'_>,
-    path: String,
-    prices: &[u32],
-    budget: usize,
-    row_paths: RowPaths<'_>,
-    index: usize,
-) -> Group {
-    let sizes = prices
-        .iter()
-        .map(|price| *price as usize)
-        .collect::<Vec<_>>();
-    let pages = match_pages(q, &path, &sizes, budget, row_paths);
+/// A file with matches of `sizes` (each row's size, held or priced): its
+/// header is what it adds to each page its matches are on, sized with its
+/// path as delivered.
+fn matched_group(path: String, sizes: Vec<usize>, row_paths: RowPaths<'_>) -> Group {
     Group {
         source_descriptors: Vec::new(),
+        chars: row_paths.chars(&path) + 32,
+        sizes,
+        held: None,
         row: json!({"path": path}),
-        chars: pages.first_chars,
-        rows: pages.rows,
-        out_of_range: pages.out_of_range(),
-        more_matches: pages.cut.more,
         truncated_captures: false,
-        priced: Some(index),
+        priced: None,
     }
 }
 
@@ -203,62 +154,66 @@ pub(super) enum RebuildError {
     Evidence(ToolError),
 }
 
-/// Build the rows of the priced files on the file page `groups` shows,
-/// from each file's scanned bytes (see
-/// [`octocode_engine::structural::file_matches`]); every rebuilt row must
-/// cost what the scan priced it at. A file whose scanned bytes did not
-/// finish matching this time (an execution limit) is shown without rows,
-/// as the scan shows a file its limit cut: each such file's diagnostics
-/// are returned. The files parse in parallel (one parse per shown file was
-/// the page's slowest serial step) and are applied in page order. A file whose
-/// matches span match pages parses once for them all ([`PageRows`]).
-pub(super) fn rebuild_page(
+/// Show the matches `slices` names of each file a page shows (`groups`, in
+/// order): a held file's rows, or a priced file's rows rebuilt from its
+/// scanned bytes (see [`octocode_engine::structural::file_matches`]); every
+/// rebuilt row must cost what the scan priced it at. A file whose scanned
+/// bytes did not finish matching this time (an execution limit) is shown
+/// without rows, as the scan shows a file its limit cut: each such file's
+/// diagnostics are returned. The files parse in parallel (one parse per
+/// shown file was the page's slowest serial step) and are applied in page
+/// order. A file whose matches span pages parses once for them all
+/// ([`PageRows`]). The file views (no slices) show their rows as listed.
+pub(super) fn fill_page(
     q: MatchQuery<'_>,
     scope: &Scope,
     files: &[ScannedFile],
-    groups: &mut [Group],
-    budget: usize,
+    (groups, slices): (&mut [Group], &[std::ops::Range<usize>]),
     row_paths: RowPaths<'_>,
     page_rows: Option<PageRows<'_>>,
     cancel: &dyn CancellationCheck,
 ) -> Result<Vec<Vec<StructuralDiagnostic>>, RebuildError> {
+    for (group, slice) in groups.iter_mut().zip(slices) {
+        if let Some(held) = group.held.take() {
+            show(group, &held[slice.clone()]);
+        }
+    }
     let mut priced = groups
         .iter()
+        .zip(slices)
         .enumerate()
-        .filter_map(|(slot, group)| group.priced.map(|index| (slot, index)))
+        .filter_map(|(slot, (group, slice))| group.priced.map(|index| (slot, index, slice.clone())))
         .collect::<Vec<_>>();
     // The scan priced only the matches on the scope's side of the
     // test-code line; the rebuild keeps the same ones (it counts nothing).
     let scoped = crate::tools::test_code::Scoped::of(q.test_code(), row_paths.paths);
     let workers = crate::tools::workers::workers(priced.len(), None);
     let rebuilt =
-        crate::tools::workers::each_parallel(
-            &mut priced,
-            workers,
-            |&mut (_, index)| match page_rows.and_then(|rows| rows.get(&files[index].path)) {
+        crate::tools::workers::each_parallel(&mut priced, workers, |&mut (_, index, _)| {
+            match page_rows.and_then(|rows| rows.get(&files[index].path)) {
                 Some(rows) => Ok(RebuiltFile::Kept(rows)),
                 None => rebuild_file(q, scope, &files[index], (scoped.as_ref(), cancel)),
-            },
-        );
+            }
+        });
     let mut incomplete = Vec::new();
-    for ((slot, index), outcome) in priced.into_iter().zip(rebuilt) {
-        let path = files[index].path.clone();
-        groups[slot] = match outcome? {
-            RebuiltFile::Kept(rows) => match_group(q, path, &rows, budget, row_paths),
+    for ((slot, index, slice), outcome) in priced.into_iter().zip(rebuilt) {
+        let group = &mut groups[slot];
+        group.priced = None;
+        match outcome? {
+            RebuiltFile::Kept(rows) => show(group, &rows[slice]),
             RebuiltFile::Rows(rows) => {
-                let group = match_group(q, path.clone(), &rows, budget, row_paths);
-                if group.more_matches
+                show(group, &rows[slice.clone()]);
+                // Another page shows the file's other matches.
+                if slice.len() < rows.len()
                     && let Some(page_rows) = page_rows
                 {
-                    page_rows.keep(&path, rows);
+                    page_rows.keep(&files[index].path, rows);
                 }
-                group
             }
-            RebuiltFile::Incomplete(diagnostics) => {
-                incomplete.push(diagnostics);
-                unevaluated_group(path)
-            }
-        };
+            // Shown with its path alone, as the scan shows a file its limit
+            // cut; its sizes stay, so the page cut does not move.
+            RebuiltFile::Incomplete(diagnostics) => incomplete.push(diagnostics),
+        }
     }
     Ok(incomplete)
 }
@@ -322,69 +277,25 @@ fn rebuild_file(
     Ok(RebuiltFile::Rows(rows))
 }
 
-/// A shown file whose matches were not evaluated on this page: its path,
-/// no rows and no match pages to continue.
-pub(super) fn unevaluated_group(path: String) -> Group {
-    Group {
-        source_descriptors: Vec::new(),
-        row: json!({"path": path}),
-        chars: 0,
-        rows: 1,
-        out_of_range: false,
-        more_matches: false,
-        truncated_captures: false,
-        priced: None,
-    }
-}
-
-/// One file's match page, with per-file pagination when it is a subset.
-pub(super) fn match_group(
-    q: MatchQuery<'_>,
-    path: String,
-    rows: &[MatchRow],
-    budget: usize,
-    row_paths: RowPaths<'_>,
-) -> Group {
-    let sizes = rows.iter().map(row_chars).collect::<Vec<_>>();
-    let pages = match_pages(q, &path, &sizes, budget, row_paths);
-    let (out_of_range, more_matches) = (pages.out_of_range(), pages.cut.more);
-    let (first_chars, first_rows) = (pages.first_chars, pages.rows);
-    let window = pages.cut.range.clone();
-    let page_rows = &rows[window];
+/// `group`'s row with the matches `rows` a page shows of its file.
+fn show(group: &mut Group, rows: &[MatchRow]) {
     // Rows whose text was cut to a header or that hide capture text:
     // `includeCaptures:true` (next.expandCaptures) returns them whole.
-    let truncated_captures = page_rows.iter().any(|row| row.withheld);
-    let selected = page_rows
-        .iter()
-        .map(|row| row.value.clone())
-        .collect::<Vec<_>>();
-    let mut source_descriptors = Vec::new();
-    for descriptor in page_rows
+    group.truncated_captures = rows.iter().any(|row| row.withheld);
+    group.row["matches"] = rows.iter().map(|row| row.value.clone()).collect();
+    group.source_descriptors.clear();
+    for descriptor in rows
         .iter()
         .filter_map(|row| row.source_descriptors.as_ref())
     {
-        if !source_descriptors
+        if !group
+            .source_descriptors
             .iter()
             .any(|known| std::sync::Arc::ptr_eq(known, descriptor))
         {
-            source_descriptors.push(std::sync::Arc::clone(descriptor));
+            group
+                .source_descriptors
+                .push(std::sync::Arc::clone(descriptor));
         }
-    }
-    let mut row = json!({"path":path,"matches":selected});
-    // A file whose matches span match pages states its page facts (the
-    // page stage counts the matches left from them); the row's
-    // `next.nextPage` is the continuation, so the facts do not restate it.
-    if pages.cut.pages > 1 || out_of_range {
-        row["pagination"] = pages.cut.facts.to_value();
-    }
-    Group {
-        source_descriptors,
-        chars: first_chars,
-        rows: first_rows,
-        row,
-        out_of_range,
-        more_matches,
-        truncated_captures,
-        priced: None,
     }
 }

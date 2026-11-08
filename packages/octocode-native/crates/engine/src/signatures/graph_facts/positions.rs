@@ -32,14 +32,14 @@ impl<'a> NodePositions<'a> {
     /// owns its line terminator (C `#define`, every `preproc_*`) would
     /// otherwise end at column 0 of the next line, which a line-based
     /// reader takes as the next declaration's line.
-    pub(super) fn declaration_range(&self, node: Node<'_>) -> GraphRange {
+    pub(super) fn declaration_range(&self, node: Node<'_>, header: Option<usize>) -> GraphRange {
         let start = node.start_byte();
         let trimmed = self.content.as_bytes()[start..node.end_byte()]
             .iter()
             .rposition(|byte| !matches!(byte, b'\n' | b'\r'))
             .map_or(start, |last| start + last + 1);
         GraphRange {
-            start: self.position(start),
+            start: self.position(header.map_or(start, |at| at.min(start))),
             end: self.position(trimmed),
         }
     }
@@ -50,6 +50,30 @@ impl<'a> NodePositions<'a> {
             .byte_to_position(self.content, crate::num::saturating_u32(byte_offset));
         GraphPosition { line, character }
     }
+}
+
+/// For each of a parent's `children`, the start byte of the outer annotation
+/// run written just before it, in one pass over the siblings (never a
+/// per-node sibling search). Rust puts `#[…]` attributes beside the item, not
+/// inside it, so they join the item's header as a Python decorator or a Java
+/// annotation does. Comments between them do not end the run, and the file's
+/// inner `#![…]` attributes belong to the file, not to an item.
+pub(super) fn leading_annotation_starts(children: &[Node<'_>]) -> Vec<Option<usize>> {
+    use crate::signatures::node_kinds::{is_annotation_kind, is_comment_kind};
+    let mut run: Option<usize> = None;
+    children
+        .iter()
+        .map(|child| {
+            let leading = run;
+            let kind = child.kind();
+            if is_annotation_kind(kind) && kind != "inner_attribute_item" {
+                run.get_or_insert(child.start_byte());
+            } else if !is_comment_kind(kind) {
+                run = None;
+            }
+            leading
+        })
+        .collect()
 }
 
 /// Error spans past this many collapse to the whole file.

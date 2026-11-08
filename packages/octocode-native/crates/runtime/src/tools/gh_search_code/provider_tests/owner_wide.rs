@@ -23,9 +23,15 @@ async fn run_owner_wide(server: &MockServer) -> crate::response::result::ToolDat
     let query: GhSearchCodeQuery =
         serde_json::from_value(json!({"owner":"o","keywords":["HTTPAdapter"]})).expect("query");
     let context = default_context();
-    execute(&provider, &query, &context, &Passthrough)
-        .await
-        .expect("search")
+    execute(
+        &provider,
+        &query,
+        &context,
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("search")
 }
 
 /// Owner-wide rows are read at the commit each hit was indexed at
@@ -124,9 +130,15 @@ async fn a_repo_scoped_row_is_path_and_numbered_lines_at_one_commit() {
         serde_json::from_value(json!({"owner":"a","repo":"b","keywords":["wrap_app"]}))
             .expect("query");
     let context = default_context();
-    let out = execute(&provider, &query, &context, &Passthrough)
-        .await
-        .expect("search");
+    let out = execute(
+        &provider,
+        &query,
+        &context,
+        &Passthrough,
+        &crate::policy::discovery::is_sensitive_repository_file,
+    )
+    .await
+    .expect("search");
     assert_eq!(out.data["files"][0]["commitSha"], SHA, "{}", out.data);
     assert_eq!(out.data["files"][0]["owner"], "a", "{}", out.data);
     assert_eq!(out.data["files"][0]["repo"], "b", "{}", out.data);

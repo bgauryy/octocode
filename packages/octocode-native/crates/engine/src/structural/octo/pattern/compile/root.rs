@@ -8,7 +8,7 @@ use crate::structural::language::{Expando, WRAP_MARKER};
 use crate::structural::octo::matching::{children, named_children, node_text};
 use crate::structural::octo::metavars::{MetaVar, meta_from_node};
 
-use super::super::unsaid::is_longer_form;
+use super::super::unsaid::{adds_a_leading_word, is_longer_form};
 
 /// The first error node under `root` that spells more than a capture.
 pub(super) fn stray_error<'tree>(
@@ -75,6 +75,19 @@ pub(super) fn longer_forms(root: Node<'_>) -> Vec<String> {
         .filter_map(|id| language.node_kind_for_id(id))
         .filter(|kind| is_longer_form(root, kind))
         .map(str::to_owned)
+        .collect()
+}
+
+/// The grammar's named kinds that are `kind` with one more leading word.
+pub(super) fn kinds_with_a_leading_word(language: &tree_sitter::Language, kind: &str) -> Vec<u16> {
+    (0..language.node_kind_count())
+        .filter_map(|id| u16::try_from(id).ok())
+        .filter(|id| language.node_kind_is_named(*id))
+        .filter(|id| {
+            language
+                .node_kind_for_id(*id)
+                .is_some_and(|longer| adds_a_leading_word(kind, longer))
+        })
         .collect()
 }
 

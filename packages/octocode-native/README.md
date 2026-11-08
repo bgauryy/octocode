@@ -215,8 +215,10 @@ starts the server, detached, behind a socket in `<temp dir>/octocode-<uid>`
   the server.
 - **In process instead** with `storage.mode = memory`
   (`OCTOCODE_STORAGE_MODE=memory`), on Windows, or for `ghCloneRepo`. A server that cannot be reached, refuses a call, or fails
-  mid-call is named on stderr and the call runs in process; a server that
-  sends no reply within the request budget answers `timeout`.
+  mid-call is named on stderr and the call runs in process. The client waits
+  for the reply as long as the server's request budget allows; the CLI sets
+  none, so it waits until the reply, the server closing, or Ctrl-C. With a
+  budget, a server that sends no reply within it answers `timeout`.
 - **Bounded by demand.** There is no cap on servers per user, and a starting
   server never stops another: a server exits after `IDLE_EXIT` without a
   request (a connection that sends none does not count), and its language

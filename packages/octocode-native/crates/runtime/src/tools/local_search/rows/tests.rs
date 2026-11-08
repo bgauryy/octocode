@@ -62,7 +62,12 @@ fn a_window_beside_a_left_out_line_is_numbered_at_its_own_lines() {
 
 /// Hit `line`'s window, holding source lines `first..=last`.
 fn w(line: u32, first: u32, last: u32) -> HitWindow {
-    HitWindow { line, first, last }
+    HitWindow {
+        line,
+        matched_last: line,
+        first,
+        last,
+    }
 }
 
 /// Every numbered line of `rows`, checked: each number once, each inside the
@@ -328,4 +333,260 @@ fn wide_overlapping_windows_merge_without_repeating_source_lines() {
         .join("\n");
     assert_eq!(merged[0].value, numbered);
     assert_eq!(merged[0].match_lines, Some(vec![5, 7, 9]));
+}
+
+/// A match spanning lines 3–4 and a hit on line 7, each with three lines of
+/// context: the lines their windows share (4–7) belong to one row each, on
+/// one page and when the rows are paged apart.
+#[test]
+fn a_multiline_hit_and_a_nearby_hit_show_each_line_once() {
+    let context = SearchContext::symmetric(3);
+    let windows = [(3, 1, 7), (7, 4, 10)];
+    let mut spanned = row(1, 3, "l1\nl2\nl3\nl4\nl5\nl6\nl7");
+    spanned.match_lines = Some(vec![3, 4]);
+    let nearby = row(4, 7, "l4\nl5\nl6\nl7\nl8\nl9\nl10");
+    let hits = [w(3, 1, 7), w(7, 4, 10)];
+    let expected = (1..=10).collect::<Vec<_>>();
+    let together = merge_context_windows(vec![spanned.clone(), nearby.clone()], context, &hits);
+    let shown = shown_once(&together, &windows, &expected);
+    assert!(
+        shown.iter().all(|(n, text)| *text == format!("l{n}")),
+        "{shown:?}"
+    );
+    let mut paged = merge_context_windows(vec![spanned], context, &hits);
+    paged.extend(merge_context_windows(vec![nearby], context, &hits));
+    shown_once(&paged, &windows, &expected);
+}
+
+/// The lines a match covers are its hit's even when a nearer hit's window
+/// holds them: a match over lines 3–6 and a hit on line 7 share the window
+/// lines 4–9, and the match keeps all of 3–6.
+#[test]
+fn a_hit_beside_a_long_match_never_takes_its_covered_lines() {
+    let context = SearchContext::symmetric(3);
+    let windows = [(3, 1, 9), (7, 4, 10)];
+    let mut spanned = row(1, 3, "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9");
+    spanned.match_lines = Some(vec![3, 4, 5, 6]);
+    let nearby = row(4, 7, "l4\nl5\nl6\nl7\nl8\nl9\nl10");
+    let hits = [
+        HitWindow {
+            line: 3,
+            matched_last: 6,
+            first: 1,
+            last: 9,
+        },
+        w(7, 4, 10),
+    ];
+    let merged = merge_context_windows(vec![spanned, nearby], context, &hits);
+    shown_once(&merged, &windows, &(1..=10).collect::<Vec<_>>());
+    assert_eq!(merged[0].match_lines, Some(vec![3, 4, 5, 6]));
+}
+
+/// Runs a localSearch over `text` and returns every row it shows.
+fn search_rows(text: &str, query: serde_json::Value) -> Vec<SearchMatch> {
+    let root = tempfile::tempdir().expect("fixture");
+    let path = root.path().join("a.txt");
+    std::fs::write(&path, text).expect("fixture");
+    let mut query = query;
+    query["path"] = serde_json::json!(path);
+    let query: octocode_contract_types::LocalSearchQuery =
+        serde_json::from_value(query).expect("query");
+    let result = crate::tools::local_search::execute_local_search(
+        &query,
+        &crate::tools::test_support::workspace_policy(root.path()),
+        &crate::security::ContentSecurity::new(),
+        &crate::execution::cancel::NeverCancel,
+        None,
+        None,
+    )
+    .expect("search");
+    result
+        .files
+        .iter()
+        .flat_map(|file| file.matches.clone().unwrap_or_default())
+        .collect()
+}
+
+/// A one-line match and a multiline match starting on the same line, and a
+/// hit on line 6, with two lines of context: every line shows once and the
+/// lines the multiline match covers stay with it.
+#[test]
+fn a_single_and_a_multiline_match_on_one_line_keep_the_covered_lines() {
+    let text = "l1\nl2\nx foo(\n  bar)\nl5\ny\nl7\nl8\nl9\n";
+    let rows = search_rows(
+        text,
+        serde_json::json!({
+            "matchString": ["x|foo\\(\\n  bar\\)|y"], "regexEngine": "rust",
+            "multiline": "on", "view": "content",
+            "contextLines": {"before": 2, "after": 2}
+        }),
+    );
+    let mut shown = std::collections::BTreeSet::new();
+    for row in &rows {
+        for numbered in row.value.split('\n') {
+            let (number, _) = numbered.split_once('\t').expect("numbered");
+            let number: u32 = number.parse().expect("number");
+            assert!(shown.insert(number), "line {number} twice: {rows:?}");
+        }
+    }
+    assert_eq!(
+        shown.into_iter().collect::<Vec<_>>(),
+        (1..=8).collect::<Vec<_>>(),
+        "{rows:?}"
+    );
+    assert!(
+        rows.iter()
+            .any(|row| row.match_lines == Some(vec![3, 4]) && row.value.contains("4\t  bar)")),
+        "{rows:?}"
+    );
+}
+
+/// Two multiline matches whose windows share lines: the lines between them
+/// belong to the nearer one, each shown once, both matches whole.
+#[test]
+fn two_adjacent_multiline_hits_share_a_window_without_repeating_a_line() {
+    let context = SearchContext::symmetric(3);
+    let mut first = row(1, 3, "l1\nl2\nl3\nl4\nl5\nl6\nl7");
+    first.match_lines = Some(vec![3, 4]);
+    let mut second = row(4, 7, "l4\nl5\nl6\nl7\nl8\nl9\nl10\nl11");
+    second.match_lines = Some(vec![7, 8]);
+    let hits = [
+        HitWindow {
+            line: 3,
+            matched_last: 4,
+            first: 1,
+            last: 7,
+        },
+        HitWindow {
+            line: 7,
+            matched_last: 8,
+            first: 4,
+            last: 11,
+        },
+    ];
+    let merged = merge_context_windows(vec![first, second], context, &hits);
+    let windows = [(3, 1, 7), (7, 4, 11)];
+    shown_once(&merged, &windows, &(1..=11).collect::<Vec<_>>());
+    assert_eq!(merged[0].match_lines, Some(vec![3, 4]));
+    assert_eq!(merged[1].match_lines, Some(vec![7, 8]));
+}
+
+/// A redacted multiline row stays whole (it numbers no line) beside a
+/// neighbour that is trimmed.
+#[test]
+fn a_redacted_multiline_row_stays_whole_beside_a_trimmed_neighbour() {
+    let context = SearchContext::symmetric(3);
+    let mut redacted = row(1, 3, "[REDACTED: secret]");
+    redacted.match_lines = Some(vec![3, 4]);
+    let nearby = row(4, 7, "l4\nl5\nl6\nl7\nl8\nl9\nl10");
+    let hits = [
+        HitWindow {
+            line: 3,
+            matched_last: 4,
+            first: 3,
+            last: 4,
+        },
+        w(7, 4, 10),
+    ];
+    let merged = merge_context_windows(vec![redacted, nearby], context, &hits);
+    assert_eq!(merged[0].value, "[REDACTED: secret]");
+    assert_eq!(merged[0].match_lines, Some(vec![3, 4]));
+    assert!(merged[1].value.starts_with("5\tl5"), "{:?}", merged[1]);
+}
+
+/// A hit of `line` with `rank` whose complete value is `value`.
+fn ranked_hit(
+    line: u32,
+    rank: Option<u32>,
+    value: &str,
+) -> octocode_engine::types::TextSearchMatch {
+    octocode_engine::types::TextSearchMatch {
+        deferred: None,
+        line,
+        first_line: line,
+        last_line: None,
+        column: 0,
+        byte_offset: 0,
+        value: value.into(),
+        value_digest: octocode_engine::types::TextSearchMatch::digest_of(value),
+        count: None,
+        rank,
+    }
+}
+
+/// The ranking as it was specified: rows by rank, stable; then each value's
+/// first row before every repeat, each group in that order.
+fn ranked_by_spec(lines: &[(u32, Option<u32>, &str)]) -> Vec<u32> {
+    let mut rows = lines.to_vec();
+    rows.sort_by_key(|(_, rank, _)| std::cmp::Reverse(rank.unwrap_or(1)));
+    let mut seen = std::collections::HashSet::new();
+    let (distinct, repeats): (Vec<_>, Vec<_>) = rows
+        .into_iter()
+        .partition(|(_, _, value)| seen.insert(*value));
+    distinct
+        .into_iter()
+        .chain(repeats)
+        .map(|(line, ..)| line)
+        .collect()
+}
+
+/// Ranking a file's rows reorders them where they are: no second copy of
+/// the rows is made, so a file of millions of rows costs no more memory to
+/// rank than it holds. The order is the specified one.
+#[test]
+fn ranking_a_files_rows_reorders_them_in_place() {
+    let spec = [
+        (1, Some(1), "a"),
+        (2, Some(3), "b"),
+        (3, None, "a"),
+        (4, Some(2), "c"),
+        (5, Some(3), "b"),
+        (6, Some(3), "d"),
+        (7, Some(1), "c"),
+        (8, Some(2), "a"),
+        (9, Some(1), "e"),
+    ];
+    let mut matches = spec
+        .iter()
+        .map(|(line, rank, value)| ranked_hit(*line, *rank, value))
+        .collect::<Vec<_>>();
+    let (buffer, capacity) = (matches.as_ptr(), matches.capacity());
+    rank_file_rows(&mut matches);
+    assert_eq!(
+        (matches.as_ptr(), matches.capacity()),
+        (buffer, capacity),
+        "ranking moved the rows into a new buffer"
+    );
+    assert_eq!(
+        matches.iter().map(|hit| hit.line).collect::<Vec<_>>(),
+        ranked_by_spec(&spec)
+    );
+}
+
+/// The specified order holds for rows of every rank and repeat pattern,
+/// including none, one and all-equal rows.
+#[test]
+fn ranking_matches_the_specified_order_for_every_shape() {
+    let values = ["a", "b", "c"];
+    for len in 0..40u32 {
+        let spec = (0..len)
+            .map(|line| {
+                let rank = match (line * 7 + len) % 4 {
+                    0 => None,
+                    n => Some(n),
+                };
+                (line + 1, rank, values[((line * 5 + len) % 3) as usize])
+            })
+            .collect::<Vec<_>>();
+        let mut matches = spec
+            .iter()
+            .map(|(line, rank, value)| ranked_hit(*line, *rank, value))
+            .collect::<Vec<_>>();
+        rank_file_rows(&mut matches);
+        assert_eq!(
+            matches.iter().map(|hit| hit.line).collect::<Vec<_>>(),
+            ranked_by_spec(&spec),
+            "{len} rows"
+        );
+    }
 }

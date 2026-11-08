@@ -40,6 +40,178 @@ fn scans_supported_files_and_counts_export_references() {
     assert!(!result.truncated);
 }
 
+/// A panic in any per-file step, here the caller's `keep` prefilter outside
+/// extraction, is that file's named skip: files panicking at once on
+/// several workers each get theirs, and the scan returns with the rest.
+/// On Unix `\` is a file-name byte: `f\g.ts` is its own file beside
+/// `f/g.ts`, in entries and in skip rows alike.
+#[cfg(unix)]
+#[test]
+fn a_backslash_in_a_unix_file_name_stays_in_its_rows() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let root = fixture.path().to_path_buf();
+    fs::create_dir_all(root.join("f")).expect("create fixture");
+    fs::write(root.join("f/g.ts"), "export const a = 1;").expect("write fixture");
+    fs::write(root.join("f\\g.ts"), "x".repeat(64)).expect("write fixture");
+    let result = scan_graph_facts(GraphFactsScanOptions {
+        path: path_string(&root),
+        max_file_bytes: Some(48),
+        ..Default::default()
+    })
+    .expect("scan graph facts");
+    assert_eq!(result.entries.len(), 1);
+    assert_eq!(result.entries[0].relative_path, "f/g.ts");
+    assert_eq!(result.skipped.len(), 1);
+    assert_eq!(result.skipped[0].relative_path, "f\\g.ts");
+}
+
+#[test]
+fn panics_on_many_files_at_once_are_each_that_files_named_skip() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let root = fixture.path().to_path_buf();
+    fs::create_dir_all(&root).expect("create fixture");
+    for index in 0..48 {
+        let marker = if index % 2 == 0 {
+            "keep-panics"
+        } else {
+            "fine"
+        };
+        fs::write(
+            root.join(format!("f{index:02}.ts")),
+            format!("// {marker}\nexport const value{index} = {index};"),
+        )
+        .expect("write fixture file");
+    }
+    let scan = scan_with_budget(
+        GraphFactsScanOptions {
+            path: path_string(&root),
+            ..Default::default()
+        },
+        &|_, _| true,
+        &|source| {
+            assert!(!source.contains("keep-panics"), "injected keep panic");
+            true
+        },
+        &|view| Some(view.to_entry()),
+        &|| false,
+        None,
+    )
+    .expect("the scan returns");
+    assert_eq!(scan.kept.len(), 24);
+    assert_eq!(scan.files_skipped, 24);
+    let mut named = scan
+        .skipped
+        .iter()
+        .map(|skip| {
+            assert_eq!(skip.code, PANICKED, "{skip:?}");
+            assert!(skip.message.contains("keep phase panicked"), "{skip:?}");
+            assert!(!skip.message.contains("injected"), "{skip:?}");
+            skip.relative_path.clone()
+        })
+        .collect::<Vec<_>>();
+    named.sort_unstable();
+    let expected = (0..48)
+        .step_by(2)
+        .map(|index| format!("f{index:02}.ts"))
+        .collect::<Vec<_>>();
+    assert_eq!(named, expected);
+}
+
+/// The one named skip of each file of `scan` that panicked, with the phase
+/// its message names.
+fn panicked_files<T>(scan: &GraphFactsMappedScan<T>) -> Vec<(String, String)> {
+    scan.skipped
+        .iter()
+        .map(|skip| {
+            assert_eq!(skip.code, PANICKED, "{skip:?}");
+            assert!(!skip.message.contains("injected"), "{skip:?}");
+            let phase = skip
+                .message
+                .split(" phase panicked")
+                .next()
+                .unwrap_or_default()
+                .to_owned();
+            (skip.relative_path.clone(), phase)
+        })
+        .collect()
+}
+
+/// A panic weighing what the caller kept of a file is that file's named
+/// skip in the weigh phase: the file is not kept, the others are.
+#[test]
+fn a_weigh_panic_is_that_files_skip_in_the_weigh_phase() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let root = fixture.path().to_path_buf();
+    for name in ["a.ts", "heavy.ts", "z.ts"] {
+        fs::write(root.join(name), "export const value = 1;\n").expect("write fixture");
+    }
+    let options = GraphFactsScanOptions {
+        path: path_string(&root),
+        ..Default::default()
+    };
+    let walked = walk_graph_fact_files(&options, &|_, _| true, &|| false).expect("walk");
+    let weigh = |path: &String| {
+        assert!(path != "heavy.ts", "injected weigh panic");
+        1
+    };
+    let scan = scan_walked_graph_facts_within(
+        options,
+        walked,
+        FactsSource::Graph,
+        &|_| true,
+        &|view| Some(view.relative_path.to_owned()),
+        &|| false,
+        &ScanHold {
+            limit: usize::MAX,
+            weigh: &weigh,
+        },
+    )
+    .expect("the scan returns");
+    assert_eq!(
+        panicked_files(&scan),
+        [("heavy.ts".to_owned(), "weigh".to_owned())]
+    );
+    let kept = scan
+        .kept
+        .iter()
+        .map(|(path, _)| path.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(kept, ["a.ts", "z.ts"]);
+}
+
+/// A panic admitting a file's bytes as text is that file's named skip in
+/// the decode phase.
+#[test]
+fn a_decode_panic_is_that_files_skip_in_the_decode_phase() {
+    const MARKER: &str = "decode-panics-b94";
+    let fixture = tempfile::tempdir().expect("fixture");
+    let root = fixture.path().to_path_buf();
+    for name in ["a.ts".to_owned(), format!("{MARKER}.ts")] {
+        fs::write(root.join(name), "export const value = 1;\n").expect("write fixture");
+    }
+    super::super::evaluate::DECODE_FAULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(MARKER);
+    let scan = scan_with_budget(
+        GraphFactsScanOptions {
+            path: path_string(&root),
+            ..Default::default()
+        },
+        &|_, _| true,
+        &|_| true,
+        &|view| Some(view.relative_path.to_owned()),
+        &|| false,
+        None,
+    )
+    .expect("the scan returns");
+    assert_eq!(
+        panicked_files(&scan),
+        [(format!("{MARKER}.ts"), "decode".to_owned())]
+    );
+    assert_eq!(scan.kept.len(), 1);
+}
+
 #[cfg(feature = "tree-sitter-cpp")]
 #[test]
 fn path_scoped_cpp_header_override_changes_only_matching_headers() {

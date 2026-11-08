@@ -142,7 +142,7 @@ pub(in crate::tools::gh_search_code) async fn empty_scope(
     // instead of the generic default-branch note.
     if let Some(hint) = hint {
         diagnostics.hint(&hint);
-        value["hints"] = json!([hint]);
+        crate::response::result::add_hints(value, [hint]);
     }
     value["calls"][name] = Continuation::related(tool, next_query).build();
     Ok(default_branch)

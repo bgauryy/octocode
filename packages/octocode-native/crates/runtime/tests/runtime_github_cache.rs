@@ -147,7 +147,7 @@ async fn a_repeated_search_spends_no_quota_and_discloses_when_it_was_observed() 
     let first = workspace.runtime(&settings);
     let fresh = call(&first, "ghSearchRepo", query.clone()).await.unwrap();
     assert!(
-        row_data(&fresh).get("hints").is_none(),
+        row_data(&fresh).get("observedAt").is_none(),
         "{}",
         fresh.structured_content
     );
@@ -162,9 +162,12 @@ async fn a_repeated_search_spends_no_quota_and_discloses_when_it_was_observed() 
         row_data(&fresh)["repositories"],
         "{observed_from}"
     );
-    let hint = row_data(&reused)["hints"][0].as_str().unwrap_or_default();
-    assert!(hint.contains("observed"), "{}", reused.structured_content);
-    assert!(hint.contains("20"), "names the time: {hint}");
+    let observed = row_data(&reused)["observedAt"].as_str().unwrap_or_default();
+    assert!(
+        observed.starts_with("20") && observed.ends_with('Z'),
+        "names the time: {}",
+        reused.structured_content
+    );
     second.close().await;
     server.verify().await;
 }

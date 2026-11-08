@@ -44,12 +44,16 @@ impl<'a> VisitJs<'a> for CallCollector<'_, '_> {
 
     fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
         let rebound_this = self.receivers.enter_function();
+        self.receivers.enter_parameters(it.span.start);
         self.visit_function_owned(it, flags);
+        self.receivers.exit_parameters();
         self.receivers.exit_function(rebound_this);
     }
 
     fn visit_arrow_function_expression(&mut self, it: &ArrowFunctionExpression<'a>) {
+        self.receivers.enter_parameters(it.span.start);
         self.scoped(|this| walk_js::walk_arrow_function_expression(this, it));
+        self.receivers.exit_parameters();
     }
 
     fn visit_block_statement(&mut self, it: &BlockStatement<'a>) {
@@ -94,6 +98,7 @@ impl<'a> VisitJs<'a> for CallCollector<'_, '_> {
     }
 
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        self.receivers.annotate_init(it);
         self.visit_variable_declarator_owned(it);
         self.receivers.bind_declarator(it);
     }
@@ -197,9 +202,9 @@ impl<'a> VisitJs<'a> for CallCollector<'_, '_> {
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
         if let Some(name) = callee_name(&it.callee) {
-            let receiver_type = self.receivers.receiver_type(&it.callee);
+            let receiver = self.receivers.receiver(&it.callee);
             let name = self.receivers.call_alias(&it.callee).unwrap_or(name);
-            self.push_with_receiver(name, it.span, "calls", receiver_type);
+            self.push_with_receiver(name, it.span, "calls", receiver);
         }
         walk_js::walk_call_expression(self, it);
     }

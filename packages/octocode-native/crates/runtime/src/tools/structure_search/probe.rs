@@ -250,7 +250,7 @@ pub(super) fn broaden_empty<Q: Listing>(
         if count == 1 { "it" } else { "them" },
     );
     out["calls"]["broadenSearch"] = lead;
-    crate::tools::leads::push_hint(out, hint);
+    crate::response::result::add_hints(out, [hint]);
     Ok(())
 }
 
@@ -305,7 +305,7 @@ pub(super) fn deepen_empty<Q: Listing>(
     );
     let named: StructureSearchQuery = deeper.into();
     out["calls"]["broadenSearch"] = Continuation::related_query(named).build();
-    crate::tools::leads::push_hint(out, hint);
+    crate::response::result::add_hints(out, [hint]);
     Ok(())
 }
 

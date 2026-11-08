@@ -1,5 +1,7 @@
 use crate::error::{Error, Result};
-use crate::lsp::commands::{has_path_separator, is_executable_path, is_rejected_shell};
+use crate::lsp::commands::{
+    has_path_separator, is_executable_path, is_rejected_shell, which_on_path,
+};
 use crate::lsp::config::install_hint;
 use std::path::Path;
 
@@ -38,7 +40,7 @@ pub fn validate_lsp_server_path(command: String, base: Option<&Path>) -> Result<
         return absolute_string(command_path);
     }
 
-    let resolved = which::which(&command).map_err(|err| {
+    let resolved = which_on_path(&command).map_err(|err| {
         Error::new(format!(
             "Language server command not found: {command}: {err}{}",
             lookup_note(&command)

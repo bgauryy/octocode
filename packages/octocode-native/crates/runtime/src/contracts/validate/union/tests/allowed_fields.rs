@@ -108,3 +108,24 @@ fn the_row_s_other_fields_narrow_the_allowed_forms() {
         ["outline", "path", "view"]
     );
 }
+
+/// A suggestion never names a field the object already carries: `cursor2`
+/// beside `cursor` is not "use 'cursor'", and with no other candidate left
+/// the message gives no suggestion.
+#[test]
+fn an_unknown_field_is_never_corrected_to_a_field_already_sent() {
+    let error = prepare_many_and_validate("localSearch", json!({"cursor": "x", "cursor2": "y"}))
+        .expect_err("unknown field");
+    let message =
+        crate::contracts::validate::format_input_error("localSearch", &error, &[])["error"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned();
+    assert!(!message.contains("use 'cursor'"), "{message}");
+    assert!(message.contains("cursor2"), "{message}");
+    let row = unknown_field_error(
+        "localSearch",
+        json!({"path": ".", "matchString": ["a"], "path2": "x", "pth": "y"}),
+    );
+    assert!(!row.contains("use 'path'"), "{row}");
+}

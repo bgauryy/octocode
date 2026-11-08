@@ -78,7 +78,7 @@ pub enum CacheClass {
 }
 
 impl CacheClass {
-    fn ttl(self) -> Option<Duration> {
+    pub(crate) fn ttl(self) -> Option<Duration> {
         match self {
             Self::Volatile { ttl } | Self::Idle { ttl } => Some(ttl),
             Self::Immutable => None,

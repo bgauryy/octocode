@@ -25,6 +25,23 @@ pub(crate) fn wire_query<Q: DeserializeOwned>(row: Value) -> Option<Q> {
     }
 }
 
+/// The view a localFetch or ghGetFileContent lead `row` reads, decoded
+/// through the tool's generated query type: an omitted `view` is its
+/// contract default, as the call that runs the row reads it.
+#[cfg(test)]
+#[track_caller]
+pub(crate) fn read_view(tool: crate::id::ToolId, row: &Value) -> octocode_contract_types::ReadView {
+    use crate::id::ToolId;
+    let local = match tool {
+        ToolId::LocalFetch => wire_query(row.clone()),
+        ToolId::GhGetFileContent => wire_query(row.clone())
+            .and_then(|query| crate::tools::gh_get_file_content::local_query(&query).ok()),
+        other => panic!("{} rows read no source view", other.as_str()),
+    };
+    let local = local.unwrap_or_else(|| panic!("{} row {row} is not a read", tool.as_str()));
+    crate::tools::source_view::local_fetch_query::view(&local)
+}
+
 /// `row` with `changes` applied: each change sets its field, and a `null`
 /// change drops it.
 pub(crate) fn with_changes(mut row: Value, changes: &Value) -> Value {

@@ -1,6 +1,7 @@
 //! The commits a page's hits are read at, and the line hits read there.
 use super::{reads_lines, withheld_row};
 use crate::security::scan::ContentScan;
+use crate::tools::gh_search_code::Withholds;
 use octocode_contract_types::GhSearchCodeQuery;
 use octocode_github::{CodeSearchItem, ProviderError};
 use octocode_github::{ProviderErrorKind, RequestContext};
@@ -115,12 +116,13 @@ pub(in crate::tools::gh_search_code) async fn resolve_lines(
     commit: Option<Result<String, ProviderError>>,
     context: &RequestContext,
     security: &(impl ContentScan + Sync),
+    withholds: Withholds<'_>,
 ) -> Result<Option<Resolution>, ProviderError> {
     if items.is_empty() || !reads_lines(query) {
         return Ok(None);
     }
     let Some(reference) = requested_ref(query).filter(|_| query.repo.is_some()) else {
-        return indexed_lines(provider, query, items, found, context, security).await;
+        return indexed_lines(provider, query, items, found, context, security, withholds).await;
     };
     let Some(commit) = commit else {
         return Ok(None);
@@ -133,7 +135,7 @@ pub(in crate::tools::gh_search_code) async fn resolve_lines(
     let reads = items
         .iter()
         .enumerate()
-        .filter(|(_, row)| !withheld_row(query, row))
+        .filter(|(_, row)| !withheld_row(query, withholds, row))
         .filter_map(|(index, row)| Some((index, row.get("path")?.as_str()?.to_owned(), None)))
         .collect::<Vec<_>>();
     let (owner, repo) = (
@@ -167,6 +169,7 @@ async fn indexed_lines(
     found: &[CodeSearchItem],
     context: &RequestContext,
     security: &(impl ContentScan + Sync),
+    withholds: Withholds<'_>,
 ) -> Result<Option<Resolution>, ProviderError> {
     // (repository, path) -> (indexed commit, blob SHA).
     let indexed: HashMap<(String, &str), (Option<String>, &str)> = found
@@ -198,7 +201,7 @@ async fn indexed_lines(
     };
     let mut groups: Vec<(RepoCommit, Vec<Read>)> = Vec::new();
     for (index, row) in items.iter().enumerate() {
-        if withheld_row(query, row) {
+        if withheld_row(query, withholds, row) {
             continue;
         }
         let (owner, repo, path, commit, blob) = match located(row) {

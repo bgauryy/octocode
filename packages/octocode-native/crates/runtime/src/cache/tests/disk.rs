@@ -223,6 +223,10 @@ fn prune_removes_expired_entries_before_any_live_one() {
 
 #[test]
 fn confirmed_retention_requires_capacity_and_every_configured_tier() {
+    // A refused write raises a notice; outside a scope it reaches every live
+    // scope, other tests' calls included.
+    let call = octocode_io::notice::Scope::default();
+    let _in_call = call.enter();
     let config = CacheConfig { disk_bytes: 4096 };
     let memory = Store::<String>::new(config.clone(), None);
     assert!(

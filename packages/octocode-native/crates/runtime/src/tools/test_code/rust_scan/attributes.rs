@@ -9,6 +9,7 @@ pub(super) struct Meaning {
     test: bool,
     path: Option<String>,
     test_path: Option<String>,
+    plain_path: Option<String>,
 }
 
 impl<'t> Pass<'t> {
@@ -58,7 +59,14 @@ impl<'t> Pass<'t> {
             }
         }
         self.last_end = end.end_line;
-        if self.opaque() || !matches!(name, Some(Token::Word("cfg" | "path" | "cfg_attr"))) {
+        // An outer attribute gates the node that follows it: one after the
+        // node's first token (`if #[cfg(test)] { .. }` in a macro body) is
+        // tokens the parse reads no meaning into.
+        let mid_node = !inner && self.node_line.is_some();
+        if self.opaque()
+            || mid_node
+            || !matches!(name, Some(Token::Word("cfg" | "path" | "cfg_attr")))
+        {
             return true;
         }
         // The accepted ASCII '#' and ']' tokens bound the entire attribute.
@@ -78,6 +86,9 @@ impl<'t> Pass<'t> {
             }
             if meaning.test_path.is_some() {
                 self.pending.test_path = meaning.test_path;
+            }
+            if meaning.plain_path.is_some() {
+                self.pending.plain_path = meaning.plain_path;
             }
         }
         true
@@ -99,6 +110,10 @@ impl<'t> Pass<'t> {
                             .modules
                             .first()
                             .and_then(|module| module.test_path.clone()),
+                        plain_path: document
+                            .modules
+                            .first()
+                            .and_then(|module| module.plain_path.clone()),
                     })
                     .unwrap_or_default()
             })

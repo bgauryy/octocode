@@ -19,7 +19,7 @@ fn section_pages_preserve_source_input_arrays() {
         "status":"ready","source":source,"snapshot":"fixed",
         "sections":sections
     }}}});
-    let plan = PreparedRows::new(vec![row], &[None], crate::id::ToolId::Clasify)
+    let plan = PreparedRows::new(vec![row], crate::id::ToolId::Clasify)
         .plan(700, &Cancellation::new())
         .expect("valid plan");
     assert!(plan.total_pages > 1);

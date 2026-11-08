@@ -63,7 +63,7 @@ pub(crate) fn capture(
         handle: dispatcher.handle(),
         accept: fetch::ACCEPTED,
         budget: octocode_io::budget::RequestBudget::new(
-            context.deadline,
+            crate::execution::cancel::deadline_of(context),
             context.cancellation.clone(),
             dispatcher.text_capture_limit(),
         ),
@@ -89,7 +89,7 @@ pub(super) fn image(
     let network = fetch::Network {
         handle: dispatcher.handle(),
         budget: octocode_io::budget::RequestBudget::new(
-            context.deadline,
+            crate::execution::cancel::deadline_of(context),
             context.cancellation.clone(),
             max_bytes,
         ),

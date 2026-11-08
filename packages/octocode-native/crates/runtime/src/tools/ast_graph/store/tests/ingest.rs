@@ -199,7 +199,7 @@ fn stored_languages_are_the_registry_selectors() {
         ("a.unknown", "raw", "raw"),
     ] {
         assert_eq!(
-            super::super::tables::canonical_language(file, raw),
+            crate::tools::ast_graph::languages::canonical_language(file, raw),
             label,
             "{file}"
         );
@@ -349,6 +349,51 @@ fn a_malformed_language_glob_is_an_invalid_glob_error() {
     assert_eq!(out.class, ExitClass::InvalidInput, "{}", out.value);
 }
 
+/// `stats` names each language once, by the id every per-language count
+/// uses (`linkageByLanguage`): `.ts`, `.mts` and `.cts` are all TypeScript.
+#[test]
+fn stats_languages_use_the_per_language_count_ids() {
+    let dir = git_app(&[
+        ("a.ts", "export function a() { return 1; }\n"),
+        (
+            "b.ts",
+            "import { a } from './a';\nexport const b = () => a();\n",
+        ),
+        ("c.mts", "export const c = 1;\n"),
+        ("d.cts", "export const d = 1;\n"),
+        ("e.js", "export const e = 1;\n"),
+    ]);
+    assert_eq!(ingest_fixture(&dir.0, None).class, ExitClass::Success);
+    let stats = ask(&dir.0, "stats", None, |_| {});
+    let languages = stats.value["languages"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{}", stats.value))
+        .iter()
+        .map(|row| (row["language"].to_string(), row["files"].clone()))
+        .collect::<BTreeMap<_, _>>();
+    assert_eq!(
+        languages,
+        BTreeMap::from([
+            (json!("javascript").to_string(), json!(1)),
+            (json!("typescript").to_string(), json!(4)),
+        ]),
+        "{}",
+        stats.value
+    );
+    for language in stats.value["linkageByLanguage"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(language, _)| json!(language).to_string())
+    {
+        assert!(
+            languages.contains_key(&language),
+            "{language}: {}",
+            stats.value
+        );
+    }
+}
+
 #[test]
 fn a_published_graph_discards_extraction_before_changed_builds() {
     let dir = git_app(&[(
@@ -373,4 +418,84 @@ fn a_published_graph_discards_extraction_before_changed_builds() {
     assert_eq!(rebuilt.value["extraction"]["reusedFiles"], 0);
     assert_eq!(rebuilt.value["extraction"]["resumedFiles"], 0);
     assert!(!job.exists());
+}
+
+/// `includeIgnored`, `includeHidden` and `defaultExcludes:false` widen the
+/// build's walk: the files they admit are scanned, the manifest records the
+/// walk, and a snapshot of another walk is never reused for the request.
+#[test]
+fn the_walk_flags_widen_the_scan_and_are_part_of_the_snapshot_identity() {
+    use crate::tools::ast_graph::walk_scope::WalkScope;
+    use octocode_engine::types::IgnorePolicy;
+    let dir = git_app(&[
+        ("src/main.ts", "export const main = 1;\n"),
+        (".gitignore", "generated/\n"),
+        ("generated/api.ts", "export const api = 1;\n"),
+        (".hidden/tool.ts", "export const tool = 1;\n"),
+    ]);
+    let root = dir.0.as_path();
+    let build_in = |root: &Path, walk: WalkScope| {
+        let out = ingest(
+            &IngestOptions {
+                path: root.join("app"),
+                workspace: Some(root.to_path_buf()),
+                walk,
+                ..Default::default()
+            },
+            &workspace_policy(root),
+            &ContentSecurity::new(),
+            &NeverCancel,
+            None,
+        );
+        assert_eq!(out.class, ExitClass::Success, "{}", out.value);
+        out.value
+    };
+    let build = |walk: WalkScope| build_in(root, walk);
+    let scanned = |out: &Value| out["scan"]["filesScanned"].as_u64().expect("count");
+    let plain = build(WalkScope::default());
+    let ignored = WalkScope {
+        ignore: IgnorePolicy {
+            include_ignored: true,
+            include_hidden: false,
+        },
+        ..WalkScope::default()
+    };
+    let with_ignored = build(ignored);
+    assert_eq!(
+        scanned(&with_ignored),
+        scanned(&plain) + 1,
+        "{with_ignored}"
+    );
+    assert_ne!(with_ignored["id"], plain["id"]);
+    let hidden = build(WalkScope {
+        ignore: IgnorePolicy {
+            include_ignored: false,
+            include_hidden: true,
+        },
+        ..WalkScope::default()
+    });
+    assert_eq!(scanned(&hidden), scanned(&plain) + 1, "{hidden}");
+    // Outside a git work tree the default prune drops `node_modules`.
+    let loose = Fixture::new();
+    write_under(
+        &loose,
+        "app",
+        &[
+            ("src/main.ts", "export const main = 1;\n"),
+            ("node_modules/dep/index.ts", "export const dep = 1;\n"),
+        ],
+    );
+    let pruned = build_in(loose.0.as_path(), WalkScope::default());
+    let unpruned = build_in(
+        loose.0.as_path(),
+        WalkScope {
+            default_excludes: false,
+            ..WalkScope::default()
+        },
+    );
+    assert_eq!(scanned(&unpruned), scanned(&pruned) + 1, "{unpruned}");
+    // Reuse answers the newest snapshot only: the same walk twice in a row.
+    let first = build(ignored);
+    let again = build(ignored);
+    assert_eq!(again["id"], first["id"], "same walk reuses: {again}");
 }

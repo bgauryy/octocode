@@ -46,7 +46,7 @@ async fn request_line_is_read_only_up_to_its_limit() {
 async fn exchange_plain(
     client: &mut tokio::net::UnixStream,
     request: &Request<'_>,
-    deadline: Duration,
+    deadline: Option<Duration>,
 ) -> Result<Printed, Failed> {
     exchange_reply(client, request, deadline)
         .await
@@ -56,7 +56,7 @@ async fn exchange_plain(
 pub(super) async fn exchange_reply(
     client: &mut tokio::net::UnixStream,
     request: &Request<'_>,
-    deadline: Duration,
+    deadline: Option<Duration>,
 ) -> Result<Reply, Failed> {
     exchange(
         client,
@@ -87,7 +87,7 @@ async fn client_reads_one_reply_line_and_treats_a_silent_close_as_no_reply() {
     });
     let input = json!({"q": 1});
     let request = request(&input, Path::new("/work/here"));
-    let reply = exchange_plain(&mut client, &request, REPLY_DEADLINE).await;
+    let reply = exchange_plain(&mut client, &request, reply_deadline()).await;
     assert_eq!(
         reply,
         Ok(Printed {
@@ -114,7 +114,7 @@ async fn client_reads_one_reply_line_and_treats_a_silent_close_as_no_reply() {
     let (mut client, server) = tokio::net::UnixStream::pair().expect("pair");
     drop(server);
     assert!(matches!(
-        exchange_plain(&mut client, &request, REPLY_DEADLINE).await,
+        exchange_plain(&mut client, &request, reply_deadline()).await,
         Err(Failed::Fallback(_))
     ));
 }
@@ -139,7 +139,7 @@ async fn a_refusal_falls_back_and_a_silent_server_ends_at_the_deadline() {
             .expect("reply");
     });
     assert_eq!(
-        exchange_plain(&mut client, &request, REPLY_DEADLINE).await,
+        exchange_plain(&mut client, &request, reply_deadline()).await,
         Err(Failed::Fallback(
             "it runs under another configuration".into()
         ))
@@ -148,11 +148,16 @@ async fn a_refusal_falls_back_and_a_silent_server_ends_at_the_deadline() {
 
     let (mut client, _silent) = tokio::net::UnixStream::pair().expect("pair");
     assert_eq!(
-        exchange_plain(&mut client, &request, Duration::from_millis(50)).await,
+        exchange_plain(&mut client, &request, Some(Duration::from_millis(50))).await,
         Err(Failed::Deadline)
     );
-    // The deadline outlasts the server's own request budget.
-    assert!(REPLY_DEADLINE > octocode_native::execution::DEFAULT_TIMEOUT);
+    // B75: the deadline follows the server's request budget, past it when
+    // the server has one; the CLI's servers have none, so neither does the
+    // client.
+    let budget = Duration::from_secs(60);
+    assert!(reply_deadline_for(Some(budget)).is_some_and(|wait| wait > budget));
+    assert_eq!(reply_deadline_for(None), None);
+    assert_eq!(reply_deadline(), None);
 }
 
 /// Ctrl-C on the client closes its side, which the server reads as a
@@ -177,7 +182,7 @@ async fn ctrl_c_closes_the_request_side_and_drains_the_server() {
     let drained = exchange(
         &mut client,
         &request,
-        REPLY_DEADLINE,
+        reply_deadline(),
         std::future::ready(()),
         std::future::pending::<()>(),
         || noticed.set(true),
@@ -198,7 +203,7 @@ async fn ctrl_c_closes_the_request_side_and_drains_the_server() {
     let forced = exchange(
         &mut client,
         &request,
-        REPLY_DEADLINE,
+        reply_deadline(),
         std::future::ready(()),
         std::future::ready(()),
         || {},
@@ -207,6 +212,35 @@ async fn ctrl_c_closes_the_request_side_and_drains_the_server() {
     .await;
     assert_eq!(
         forced,
+        Err(Failed::Interrupted(
+            crate::cli::tool_call::Interrupted::Forced
+        ))
+    );
+}
+
+/// B75: with no reply deadline, a silent server is still left at Ctrl-C:
+/// the first closes the request side, the second stops waiting.
+#[tokio::test]
+async fn ctrl_c_ends_a_reply_wait_that_has_no_deadline() {
+    let input = json!({});
+    let request = request(&input, Path::new("/w"));
+    let (mut client, _silent) = tokio::net::UnixStream::pair().expect("pair");
+    let ended = tokio::time::timeout(
+        Duration::from_secs(5),
+        exchange(
+            &mut client,
+            &request,
+            None,
+            std::future::ready(()),
+            tokio::time::sleep(Duration::from_millis(50)),
+            || {},
+            |_| {},
+        ),
+    )
+    .await
+    .expect("Ctrl-C ends the wait");
+    assert_eq!(
+        ended,
         Err(Failed::Interrupted(
             crate::cli::tool_call::Interrupted::Forced
         ))

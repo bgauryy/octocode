@@ -253,6 +253,7 @@ async fn handle_progress(mut params: Value, shared: &Shared, progress: &Progress
     {
         Some("begin") => progress.on_begin(token).await,
         Some("end") => progress.on_end(&token).await,
+        Some("report") => progress.on_report(),
         _ => {}
     }
 }

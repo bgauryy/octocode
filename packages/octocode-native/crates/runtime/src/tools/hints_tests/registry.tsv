@@ -14,6 +14,11 @@ shared	policy/discovery/withheld.rs	{} (submodule or worktree pointers)
 shared	policy/discovery/withheld.rs	{} not followed
 shared	policy/discovery/withheld.rs	{} outside the allowed roots or unresolvable
 shared	policy/discovery/withheld.rs	{} withheld by path policy: {}.
+shared	policy/include.rs	Nothing searched: include/exclude matched no file. A glob with `/` matches from `path`, not the workspace root, so `src/*.rs` is `path`/src/*.rs: start it with `**/` to match at any depth. The related[] structureSearch request lists the names to fix the globs.
+shared	providers/artifact/go/search.rs	Follow an earlier page's nextPage to continue with its exact registry token (one request each).
+shared	providers/artifact/release_ref/listing.rs	{} (commit {})
+shared	providers/artifact/release_ref/listing.rs	{}: tags {tags} each name version {version} at different commits, so none is taken as its release tag.
+shared	providers/artifact/types.rs	{}: {what} could not be checked on GitHub ({}), so what it shows is unknown, not confirmed.
 shared	providers/classification/transport.rs	Check OCTOCODE_CLASSIFICATION_API_HOST.
 shared	providers/classification/transport.rs	Remove paths, credentials, query strings, and fragments from the configured API root.
 shared	providers/classification/transport.rs	Replace the configured key.
@@ -31,7 +36,6 @@ shared	providers/classification/transport/errors.rs	Retry later; the evidence st
 shared	providers/classification/transport/errors.rs	Split it: narrower ranges, one row per part, or operation:"sections" with the source under resources.
 shared	providers/classification/transport/request.rs	Reduce the supplied state or question count.
 shared	providers/github/auth/resolver.rs	[octocode] warning: no GitHub credential for {host} and the secure credential store is unavailable; GitHub tools run unauthenticated (60 requests/hour). Set GITHUB_TOKEN or run octocode auth login for a higher limit.
-shared	providers/saved_answers.rs	Answer observed {}: its origin was not asked again, so later changes are not shown.
 shared	response/notices.rs	{code}: {meaning}
 shared	response/output.rs	Outside allowed roots (the workspace is WORKSPACE_ROOT, else the directory octocode started in): run from inside that project or set WORKSPACE_ROOT to it, or add the dir to ALLOWED_PATHS (comma list) in the env or ~/.octocode/.env, not a workspace file.
 shared	response/output.rs	Path did not open as a file: list it with structureSearch operation:"files", then retry with one exact listed file.
@@ -94,16 +98,21 @@ artifactSearch	tools/artifact_search/leads.rs	Check the exact packageName spelli
 artifactSearch	tools/artifact_search/pages.rs	{artifact_type} matched {total} results; paging reaches only the first {reach} (through page {last}).
 shared	tools/ast_graph/graph/scope.rs	Build a narrower directory (files per directory, largest first), or exclude generated or vendored trees:
 shared	tools/ast_graph/graph/scope.rs	Build a narrower directory, or exclude generated or vendored trees.
-shared	tools/ast_graph/graph/scope.rs	graphBuild {}  # {}
+shared	tools/ast_graph/graph/scope.rs	graphBuild {call}  # {}
 shared	tools/ast_graph/store/detect/reach.rs	exports of {files} production file(s) not judged ({languages}): only languages with named-import linking ({}) are checked; confirm with lspSearch references
 shared	tools/ast_graph/store/detect/reach.rs	{language}: {}
 shared	tools/ast_graph/store/ingest.rs	extraction committed so far is kept; build this scope again to resume from it
+shared	tools/ast_graph/store/tools.rs	A file changed while the graph was being built, so no snapshot was published. This is not a tool failure: run the same graphBuild again once the edits settle.
 shared	tools/ast_graph/store/tools.rs	Repeat the query with graph {successor}, or omit graph for the newest snapshot of this path. Offsets and pages of {id} do not carry over to a rebuilt snapshot.
+shared	tools/ast_graph/store/tools.rs	Snapshots of this path exist under {others}: the snapshot home is <workspace>/.octocode/graph, and the workspace follows where Octocode runs. Run Octocode from the directory holding that .octocode, or build here.
 shared	tools/ast_graph/store/tools.rs	Use an existing snapshot ID, or run graphBuild for this path and use its returned ID.
+shared	tools/ast_graph/store/tools/skipped.rs	graph source file
+shared	tools/ast_graph/store/tools/skipped.rs	graph source files
 shared	tools/ast_rule.rs	Make each pattern one parseable node and each rule a rule object; astSearch operation:"syntaxTree" shows the shape.
 astSearch	tools/ast_search/language.rs	set parser:"cpp" (parserGlobs for a directory).
 astSearch	tools/ast_search/language.rs	{} parses as C with {c} syntax error(s) and as C++ with {cpp}; {repair}
 astSearch	tools/ast_search/language.rs	{} spells C++ `{keyword}`, which the C parser reads as a name; {repair}
+astSearch	tools/ast_search/matches/continuations.rs	The includeCaptures lead reads the whole scope: this page's withheld rows are in more files than include holds, or in a name no glob spells. It returns every match of the scope, those rows among them.
 astSearch	tools/ast_search/matches/exact_miss.rs	The pattern spells a {} without the parts of a {fuller}, so it matches only the former. Spell the missing part (a body, `{{ $$$ }}`) or use rule {{"kind":"{fuller}"}}.
 astSearch	tools/ast_search/matches/render.rs	No{language} file under this path was parsed.
 astSearch	tools/ast_search/matches/render.rs	{matches} matches in {} fill {pages} pages; to read fewer, narrow the rule (pattern, has, inside, not) or the scope (include, exclude, a deeper path).
@@ -136,7 +145,12 @@ clasify	tools/clasify/sections/capture.rs	Use its pinned raw reader or assess a 
 clasify	tools/clasify/sections/capture.rs	Use raw readers or a smaller resource set.
 clasify	tools/clasify/sections/capture.rs	Use the pinned raw reader or a smaller resource selection.
 clasify	tools/clasify/sections/capture.rs	Use the resource's read call to inspect the sanitized source; for a new evaluation, select complete lines.
+ghCloneRepo	tools/gh_clone_repo/checkout.rs	Move your edits out of this managed checkout, restore it to clean, then retry; cloning never discards local files.
 ghCloneRepo	tools/gh_clone_repo/checkout.rs	Verify the path with ghStructure, or omit path for a full clone.
+ghCloneRepo	tools/gh_clone_repo/pin.rs	Verify the branch, tag, or SHA (ghStructure lists a ref), or omit ref for the default branch.
+ghCloneRepo	tools/gh_clone_repo/process.rs	Resolve the reported Git process or resource failure before retrying.
+ghGetFileContent	tools/gh_get_file_content/timestamp.rs	lastModified is absent: the last-change read failed ({})
+ghSearchCode	tools/gh_search_code.rs	Check the owner spelling: a user or organization login.
 ghSearchCode	tools/gh_search_code.rs	GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 `{branch}`
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 with `path:"{}"`
@@ -171,30 +185,32 @@ ghStructure	tools/gh_structure/listing.rs	One or more repository subdirectories 
 ghStructure	tools/gh_structure/materialize/writer.rs	{} binary file(s) are in location.skipped: not text, so not written.
 ghStructure	tools/gh_structure/materialize/writer.rs	{} credential-named file(s) are in location.skipped: withheld, so neither read nor written.
 ghStructure	tools/gh_structure/traverse/entries.rs	{path} ({label})
+ghStructure	tools/gh_structure/tree.rs	include globs match paths from the repository root, also with path set: the first related[] request asks them under {root}/.
 shared	tools/judgment.rs	Set OCTOCODE_CLASSIFICATION_API.
 shared	tools/judgment.rs	Set a model identifier without credentials.
 shared	tools/judgment/batch.rs	Inspect the current clasify query schema.
 shared	tools/judgment/batch.rs	Not retried in the provider's {}-token long-context window: this request cannot be shown to fit it.
 shared	tools/judgment/batch.rs	Split the source with ranges or resources, send fewer images, or shorten the questions.
-shared	tools/judgment/stats.rs	{retried} refused in the default window retried in the long-context window (slower, less accurate): at least {tokens} input tokens billed; {unknown} of them reported no usage. longContext:false refuses instead.
-shared	tools/judgment/stats.rs	{retried} refused in the default window retried in the long-context window (slower, less accurate): input tokens billed unknown (the provider reported no usage). longContext:false refuses instead.
-shared	tools/judgment/stats.rs	{retried} refused in the default window retried in the long-context window (slower, less accurate): {tokens} input tokens billed. longContext:false refuses instead.
+shared	tools/judgment/stats.rs	 by the original read
+shared	tools/judgment/stats.rs	{retried} refused in the default window retried in the long-context window (slower, less accurate): at least {tokens} input tokens billed{origin}; {unknown} of them reported no usage. longContext:false refuses instead.
+shared	tools/judgment/stats.rs	{retried} refused in the default window retried in the long-context window (slower, less accurate): input tokens billed unknown{origin} (the provider reported no usage). longContext:false refuses instead.
+shared	tools/judgment/stats.rs	{retried} refused in the default window retried in the long-context window (slower, less accurate): {tokens} input tokens billed{origin}. longContext:false refuses instead.
 shared	tools/leads/broaden.rs	No match with these filters: each related[] request drops one; run it only if the wider scope still answers the question.
 shared	tools/leads/broaden.rs	No match: search terms are ANDed, so every word must match; try one distinctive word, or a different spelling.
 shared	tools/leads/skipped.rs	At least 
 shared	tools/leads/skipped.rs	Skipped paths ({}) were not checked within the probe budget, so absence there is unproven. {WALKS_ALL_SKIPPED}
 shared	tools/leads/skipped.rs	{text} {WALKS_ALL_SKIPPED}
 shared	tools/leads/skipped.rs	{}{} {} behind skipped paths ({why}).
+localFetch	tools/local_fetch/executor.rs	Convert a copy to UTF-8 or split the source into smaller text files; line ranges do not lift this decoding limit.
 localFetch	tools/local_fetch/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and next reads on: first the rest of those lines, then the other ranges after them.
 localFetch	tools/local_fetch/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and their later pages read that range alone.
 localFetch	tools/local_fetch/large_source/ranges.rs	This page ends inside lines {start}-{end}, whose rest no page reads (see the warnings); next reads the other ranges after them.
 localFetch	tools/local_fetch/large_source/window.rs	redactedContent: this source names a Kubernetes Secret or a JSON Web Key, and its nesting outgrew the memory budget before the walk that places their values finished, so every value on this page is hidden, secret or not. Split the source to read it.
 localSearch	tools/local_search/coverage.rs	No matches where searched; the withheld entries in skippedPaths may hold it (unproven).
-localSearch	tools/local_search/coverage.rs	Nothing searched: include/exclude matched no file; the related[] structureSearch request lists the names to fix the globs.
 localSearch	tools/local_search/coverage.rs	Nothing searched: no file under path; check the path, or set includeHidden/includeIgnored when the files are dot or ignored entries.
-localSearch	tools/local_search/coverage.rs	Nothing searched: the target file was skipped ({}). Read it with localFetch.
+localSearch	tools/local_search/coverage.rs	Nothing searched: the target file was skipped ({reasons}). Read it with localFetch.
+localSearch	tools/local_search/coverage.rs	Nothing searched: the target file was skipped ({reasons}); it is past every local reader's size ceiling.
 localSearch	tools/local_search/coverage.rs	The target file is binary (NUL byte found); it was not searched past that point.
-localSearch	tools/local_search/coverage.rs	{} unreadable
 localSearch	tools/local_search/executor/scanned.rs	Nothing was shown: run the related[] localFetch call (it pages the file whole) or narrow the pattern.
 localSearch	tools/local_search/executor/scanned.rs	Nothing was shown: {leads}narrow path, include or the pattern.
 localSearch	tools/local_search/executor/scanned.rs	run the related[] localSearch call for per-file counts or the structureSearch listing to split the scope, or 
@@ -231,6 +247,7 @@ lspSearch	tools/lsp_search/importers/coverage.rs	{count} import it
 lspSearch	tools/lsp_search/importers/coverage.rs	{count} nested repositories
 lspSearch	tools/lsp_search/importers/coverage.rs	{} could not be checked for an import (unreadable, larger than {} MiB, or unparsable)
 lspSearch	tools/lsp_search/inferred_project/compile_database.rs	Generate compile_commands.json for clangd (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON), or use astSearch/localSearch.
+lspSearch	tools/lsp_search/level.rs	No {name} server answered: {hint}.
 lspSearch	tools/lsp_search/ops/diagnostics.rs	Proc-macros and build scripts are off by default (they run repository code), so rust-analyzer reports unexpanded macros; pass rustContext {buildScripts:true, procMacros:true} to expand them once lsp.allowBuildScripts is on (home .octocoderc, or OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS=true in the process environment or the home .env); until then such a query is refused.
 lspSearch	tools/lsp_search/ops/hierarchy.rs	{} implementation(s) are source:"{SCAN_SOURCE}" (matched by name).
 lspSearch	tools/lsp_search/ops/lookups.rs	workspaceRoot-only search found no {searched} source file to load a project; pass path for a file in the symbol's project.
@@ -245,12 +262,14 @@ lspSearch	tools/lsp_search/output.rs	Retry once if retryable; else confirm in so
 lspSearch	tools/lsp_search/output.rs	Retry once: the first call initialises the language server (~60 s cold start); else astSearch/localSearch + localFetch.
 lspSearch	tools/lsp_search/output.rs	This server cannot prove type hierarchy; inspect declarations with astSearch and confirm exact source.
 lspSearch	tools/lsp_search/output.rs	Use astSearch symbols/match or localSearch for candidates, then localFetch exact source.
-lspSearch	tools/lsp_search/output.rs	Use localSearch or astSearch to locate a bounded region, then read that exact source range.
 lspSearch	tools/lsp_search/output.rs	Use the advertised LSP operations, or fall back to astSearch/localSearch and exact source reads.
 lspSearch	tools/lsp_search/output.rs	Use the related source read or text search; semantic results remain unavailable. Retry LSP only after configuring a server for this file.
 lspSearch	tools/lsp_search/server_coverage.rs	Files that import the name are missing from the answer: the server did not resolve their import here.
-lspSearch	tools/lsp_search/server_coverage.rs	No .git or workspace file says where this project ends, so only the server's root was searched; a module beside it may use this name. Pass workspaceRoot with the folder that holds them.
+lspSearch	tools/lsp_search/server_coverage.rs	No .git or workspace file says where this project ends, so only the server's root was searched
 lspSearch	tools/lsp_search/server_coverage.rs	workspace/symbol has no completeness marker: declarations the server did not index or return are unknown, and no page of this list completes it; confirm with a localSearch of the name.
+lspSearch	tools/lsp_search/server_coverage.rs	{base}; no project beside it was found. If the repository holds more, widen workspaceRoot to the folder that holds it.
+lspSearch	tools/lsp_search/server_coverage.rs	{base}; projects beside it may use this name: {names}. Widen (not narrow) workspaceRoot to {} to search them, or search them with the related text search.
+lspSearch	tools/lsp_search/server_coverage.rs	{base}; the projects beside it were not looked for, as the request stopped first. Widen workspaceRoot to the folder that holds the repository to include them.
 lspSearch	tools/lsp_search/session/waits.rs	This call waited {} for the {server} language server to load the project; later calls reuse the loaded server without that wait.
 lspSearch	tools/lsp_search/session/waits.rs	This call waited {} for the {server} language server to start; later calls reuse the running server without that wait.
 lspSearch	tools/lsp_search/walk/outcome.rs	{out_of_policy} hierarchy items the path policy does not let this tool read were omitted.
@@ -265,12 +284,17 @@ shared	tools/selection.rs	classification could not classify this page ({code}: {
 shared	tools/selection.rs	classification could not classify this read ({code}: {message}); its content is shown unfiltered.
 shared	tools/selection.rs	classification could not classify this search ({code}: {message}); its hits are shown unfiltered.
 shared	tools/selection.rs	classification kept {} of {} that pass the classifiers
+shared	tools/selection/judge.rs	Inspect the provider response and retry.
 shared	tools/selection/provider_page.rs	Not judged: the classification egress withholds credential-named files, so nothing of these was read or sent to the provider: {}.
-shared	tools/source_capture.rs	A ghGetFileContent read without classification returns this file redacted and sends nothing to a provider.
+shared	tools/selection/row_units.rs	; #{} counts {}
+shared	tools/selection/row_units.rs	classification judged nothing: it judges only {}, and this read returned none{counts}; add sections:{} to judge them.
+shared	tools/source_capture.rs	A ghGetFileContent read without classification returns this file with its values redacted, keeps it in memory only and sends nothing to a provider.
+shared	tools/source_capture.rs	A plain ghGetFileContent read is refused too; only the user's home .octocoderc setting security.credentialFiles: allow opens it, redacted and in memory.
 shared	tools/source_capture.rs	Correct the source query; it is the reader's own row.
 shared	tools/source_capture.rs	Enable the reader, or supply the data as content.
 shared	tools/source_capture.rs	Judge it in parts: narrower ranges, one query row per part, or operation:"sections" with the source under resources.
 shared	tools/source_capture.rs	Name localFetch or ghGetFileContent, or supply the data as content.
+shared	tools/source_capture.rs	No read returns it: a file in a sensitive directory is withheld from every read, whatever the configuration.
 shared	tools/source_capture.rs	Read an allowed path.
 shared	tools/source_capture/assets.rs	Check the file path and permissions.
 shared	tools/source_capture/assets.rs	Enable the referenced reader before classifying its images.

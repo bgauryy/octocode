@@ -111,6 +111,17 @@ pub struct ArtifactItem {
     /// reached through a redirect (renamed). The response warns with it.
     #[serde(skip)]
     pub repository_status: Option<RepositoryStatus>,
+    /// Where the project moved, as `owner/repo`: the repository GitHub
+    /// redirects the registry's link to (`Moved`), or, when GitHub has no
+    /// repository for this row (`Missing`), the one the registry's latest
+    /// release names. The response warns with it.
+    #[serde(skip)]
+    pub successor_repository: Option<String>,
+    /// Why the repository's tag list could not be read when no candidate tag
+    /// shape named the release: a tag may still name it, so the response
+    /// scopes its "no tag" claim to the shapes checked and states this cause.
+    #[serde(skip)]
+    pub tags_unlisted: Option<String>,
     /// `${…}` properties the declared dependencies name that the release's
     /// own metadata does not define (a Maven parent POM's): the response
     /// states them.
@@ -174,11 +185,28 @@ impl ArtifactItem {
                 self.source_ref = None;
                 self.source_tag = false;
             }
-            CommitCheck::FoundAfterRedirect => {
+            CommitCheck::FoundAfterRedirect { to } => {
                 self.repository_status = Some(RepositoryStatus::Moved);
+                self.successor_repository = to;
             }
             CommitCheck::Found | CommitCheck::Missing => {}
         }
+    }
+
+    /// States a GitHub check of `what` that gave no answer, so the row's
+    /// state is unknown, not fine. A link to no GitHub repository and a call
+    /// without GitHub access are the lookup's own scope, not a failure to
+    /// report on every row.
+    pub(crate) fn note_unchecked(&mut self, what: &str, failure: super::release_ref::CheckFailure) {
+        use super::release_ref::CheckFailure;
+        if matches!(failure, CheckFailure::NotGitHub | CheckFailure::Unavailable) {
+            return;
+        }
+        self.disclosures.push(format!(
+            "{}: {what} could not be checked on GitHub ({}), so what it shows is unknown, not confirmed.",
+            self.package_name,
+            failure.describe()
+        ));
     }
 
     /// Takes the source link a registry gives (a repository, or a page of
@@ -229,6 +257,8 @@ impl ArtifactItem {
             tag_differs: None,
             missing_ref: None,
             repository_status: None,
+            successor_repository: None,
+            tags_unlisted: None,
             unresolved_properties: Vec::new(),
             only_prerelease: false,
             retraction: None,

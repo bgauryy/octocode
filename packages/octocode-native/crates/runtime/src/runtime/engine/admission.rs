@@ -24,7 +24,15 @@ fn rejected_row(
         .get("details")
         .filter(|details| details.as_array().is_some_and(|items| !items.is_empty()))
     {
-        data["hints"] = details.clone();
+        crate::response::result::set_hints(
+            &mut data,
+            details
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned),
+        );
     }
     (index, rows::result_row(index, data, Some("error")))
 }

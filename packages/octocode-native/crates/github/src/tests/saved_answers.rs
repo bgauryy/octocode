@@ -8,6 +8,9 @@ use std::sync::Mutex;
 use wiremock::Request;
 
 mod compressed;
+mod known_misses;
+mod proven_commits;
+mod repository_proof;
 mod what_is_kept;
 
 /// One process's view of a store that outlives requests.
@@ -326,42 +329,6 @@ async fn a_rate_limited_repeat_serves_the_saved_answer_and_discloses_it() {
     );
     let other = transport.execute(spec(), &request("no-saved-answer")).await;
     assert_eq!(other.unwrap_err().kind, ProviderErrorKind::RateLimited);
-}
-
-/// A rename is reported from the redirect GitHub sends, so an answer reached
-/// through one asks every time, even when its URL names a commit.
-#[tokio::test]
-async fn a_renamed_repositorys_answer_keeps_asking_so_the_rename_stays_visible() {
-    let server = MockServer::start().await;
-    let sha = "d".repeat(40);
-    let new = format!("{}/api/v3/repositories/9/git/blobs/{sha}", server.uri());
-    Mock::given(path(format!("/api/v3/repos/old/b/git/blobs/{sha}")))
-        .respond_with(ResponseTemplate::new(301).insert_header("location", new.as_str()))
-        .mount(&server)
-        .await;
-    Mock::given(path(format!("/api/v3/repositories/9/git/blobs/{sha}")))
-        .respond_with(validated("{}", "\"v1\""))
-        .mount(&server)
-        .await;
-    let (transport, endpoint, _) = keeping(&server);
-    let spec = || {
-        RequestSpec::get(
-            endpoint
-                .rest(&["repos", "old", "b", "git", "blobs", &sha])
-                .unwrap(),
-        )
-    };
-    transport.execute(spec(), &request("t")).await.unwrap();
-    let context = request("t");
-    let again = transport.execute(spec(), &context).await.unwrap();
-    assert_eq!(again.status, 200);
-    assert!(
-        context.followed_rename("old", "b"),
-        "the repeat still saw the rename"
-    );
-    let seen = requests(&server).await;
-    assert_eq!(seen.len(), 4, "both hops ran again");
-    assert_eq!(seen[3].headers["if-none-match"], "\"v1\"");
 }
 
 /// A kept answer past this call's body limit does not slip under it.

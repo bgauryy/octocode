@@ -131,6 +131,58 @@ fn a_declared_tag_pin_is_a_registry_ref_and_names_the_tag() {
     );
 }
 
+/// A tag list that could not be read scopes the "no tag" claim to the
+/// shapes checked and names why, on a declared pin and on a default-branch
+/// row alike.
+#[test]
+fn an_unread_tag_list_scopes_the_no_tag_claim_and_names_its_cause() {
+    let mut row = item(
+        ArtifactType::Maven,
+        "https://github.com/apache/logging-log4j2",
+    );
+    row.package_name = "org.apache.logging.log4j:log4j-core".into();
+    row.version = Some("2.14.1".into());
+    row.source_ref = Some("log4j-2.14.1-rc1".into());
+    row.declared_ref = true;
+    row.tags_unlisted = Some("GitHub's rate limit stopped it".into());
+    label_release_source(&mut row, true);
+    assert_eq!(
+        source_warning(&row).as_deref(),
+        Some(
+            "org.apache.logging.log4j:log4j-core 2.14.1: no tag of the shapes checked names this version, and its tag list could not be read (GitHub's rate limit stopped it); ref log4j-2.14.1-rc1 is the tag its metadata declares, unchecked against the release."
+        )
+    );
+    let mut unpinned = item(ArtifactType::Npm, "https://github.com/o/r");
+    unpinned.version = Some("1.0.0".into());
+    unpinned.tags_unlisted = Some("GitHub's rate limit stopped it".into());
+    label_release_source(&mut unpinned, true);
+    assert_eq!(
+        source_warning(&unpinned).as_deref(),
+        Some(
+            "x 1.0.0: the registry names no release ref, and no tag of the shapes checked names this version; its tag list could not be read (GitHub's rate limit stopped it), so a tag may still name it; its source on the default branch may be another version."
+        )
+    );
+}
+
+/// A moved repository's warning names where GitHub redirects it, when known.
+#[test]
+fn a_moved_repository_warning_names_the_redirect_target() {
+    use crate::providers::artifact::RepositoryStatus;
+    let mut row = item(ArtifactType::Npm, "https://github.com/a/b");
+    row.version = Some("1.0.0".into());
+    row.source_ref = Some("abc".into());
+    row.repository_status = Some(RepositoryStatus::Moved);
+    label_release_source(&mut row, true);
+    let unnamed = source_warning(&row).expect("warning");
+    assert!(
+        unnamed.contains("redirects a/b to another name"),
+        "{unnamed}"
+    );
+    row.successor_repository = Some("c/d".into());
+    let named = source_warning(&row).expect("warning");
+    assert!(named.contains("redirects a/b to c/d (renamed"), "{named}");
+}
+
 /// The row is the one source of the label; a discovery row
 /// without a ref gets none, and a rubygems tag URL is a registry ref.
 #[test]
@@ -214,6 +266,34 @@ fn an_exact_row_leads_to_its_advisories() {
     assert_eq!(lead["tool"], "securityCheck", "{lead}");
     assert_eq!(
         lead["input"]["queries"][0],
-        json!({"operation":"package","ecosystem":"pypi","packageName":"x","version":"1.2.3"})
+        json!({"operation":"package","ecosystem":"PyPI","packageName":"x","version":"1.2.3"})
     );
+}
+
+/// The lead names OSV's case-sensitive ecosystem, never the registry's
+/// spelling: every registry's lead is a valid `securityCheck` query
+/// (building it asserts the contract in debug builds).
+#[test]
+fn every_registry_leads_with_an_osv_ecosystem() {
+    for kind in [
+        ArtifactType::Npm,
+        ArtifactType::Pypi,
+        ArtifactType::Crates,
+        ArtifactType::Maven,
+        ArtifactType::Nuget,
+        ArtifactType::Go,
+        ArtifactType::Packagist,
+        ArtifactType::Rubygems,
+    ] {
+        let mut row = item(kind, "https://github.com/o/r");
+        row.version = Some("1.2.3".into());
+        let lead = advisory_lead(&row).expect("lead");
+        let ecosystem = lead["input"]["queries"][0]["ecosystem"]
+            .as_str()
+            .expect("ecosystem");
+        assert_eq!(
+            ecosystem,
+            crate::providers::artifact::query::artifact_type::osv_ecosystem(kind).to_string()
+        );
+    }
 }

@@ -172,6 +172,30 @@ fn files_past_the_scan_window_continue_to_every_entry() {
     assert_eq!(resumed, [json!(maximum)], "one window boundary");
 }
 
+/// The last page of a listing that ran past one window still states its
+/// pagination: it is a later window's page, not one complete first page.
+#[test]
+fn the_last_window_of_a_long_listing_keeps_its_pagination() {
+    let root = Fixture::new();
+    let maximum = super::super::max_entries();
+    let per_dir = maximum.div_ceil(10);
+    let total = maximum + per_dir;
+    for file in 0..total {
+        root.write(&format!("d{:02}/f{file:05}.ts", file / per_dir), "");
+    }
+    let pages = walk_pages(
+        &root.0,
+        json!({"operation":"files","path":root.0,"extensions":["ts"]}),
+    );
+    let last = crate::tools::test_support::published(
+        crate::id::ToolId::StructureSearch,
+        pages.last().expect("a page"),
+    );
+    let block = &last["results"][0]["data"]["pagination"];
+    assert_eq!(block["hasMore"], false, "{last}");
+    assert_eq!(block["countScope"], "loaded", "{last}");
+}
+
 /// A ranked listing (sorted by size) walks its whole scope, so its sort
 /// ranks every entry, and a window cut at `limit` continues with the
 /// next window of the same ranking: the walk visits every entry, and the

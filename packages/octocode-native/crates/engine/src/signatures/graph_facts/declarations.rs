@@ -10,7 +10,8 @@ use crate::graph::{GraphFactDeclaration, GraphFactEdge, GraphFactExport};
 
 use crate::signatures::languages::SCRIPT_BEARING_MARKUP;
 use crate::signatures::nodes::{
-    declaration_extent_from_parents, declaration_label, declaration_under,
+    declaration_extent_from_parents, declaration_in, declaration_label, instance_attribute_init,
+    member_field,
 };
 use crate::text::{JS_TS_EXTENSIONS, extension_of};
 
@@ -59,9 +60,7 @@ pub(super) fn declaration_fact(
     acc: &mut GraphAccumulator,
     active_decl: Option<&str>,
 ) -> Option<GraphFactDeclaration> {
-    // The walk carries the parent; only its own root may sit inside a tree.
-    let parent = ancestors.last().copied().or_else(|| node.parent());
-    declaration_under(node, parent, content)
+    let declared = declaration_in(node, ancestors, content)
         .or_else(|| {
             acc.js_fallback
                 .then(|| super::js_fallback::variable(node, ancestors))
@@ -78,7 +77,31 @@ pub(super) fn declaration_fact(
                 acc,
                 active_decl,
             )
-        })
+        })?;
+    let Some(init) = (acc.ext == "py")
+        .then(|| instance_attribute_init(node, ancestors.iter().rev().copied(), content))
+        .flatten()
+    else {
+        return Some(declared);
+    };
+    // A Python instance attribute: its first assignment in `__init__`
+    // declares it, as a member of the class that `__init__` belongs to.
+    if !acc
+        .instance_attributes
+        .insert((init.id(), declared.name.clone()))
+    {
+        return None;
+    }
+    let class = acc
+        .declarations
+        .iter()
+        .rev()
+        .find(|method| Some(method.id.as_str()) == active_decl)
+        .and_then(|method| method.parent.clone());
+    Some(GraphFactDeclaration {
+        parent: class,
+        ..declared
+    })
 }
 
 /// The declaration fact of `node` as `kind`, named by `name_token`.
@@ -106,7 +129,13 @@ pub(super) fn named_declaration(
         .filter(|name| !is_recovered_keyword_declaration(node, name, &acc.file_path))
         .map(|name| {
             let extent = declaration_extent_from_parents(node, ancestors.iter().rev().copied());
-            let range = line_index.declaration_range(extent);
+            // Annotations beside the node belong to its header only when the
+            // node is its own extent: a wrapper already spans its header.
+            let header = acc
+                .leading_start
+                .filter(|(id, _)| *id == extent.id())
+                .map(|(_, start)| start);
+            let range = line_index.declaration_range(extent, header);
             // `line` stays where the declaration node itself starts; the
             // range also holds its template or decorator header.
             let line = line_index.range(node).start.line + 1;
@@ -119,8 +148,10 @@ pub(super) fn named_declaration(
                 node.start_byte(),
                 kind
             );
+            // A data member's visibility is written on its field declaration.
+            let written = member_field(node, ancestors.iter().rev().copied()).unwrap_or(node);
             let exported = acc.visibility_adapter.exported(
-                node,
+                written,
                 ancestors,
                 content,
                 &name,
@@ -128,10 +159,10 @@ pub(super) fn named_declaration(
                 active_decl.is_some_and(|parent| acc.public_namespace_scopes.contains(parent)),
             );
             let parent = active_decl.map(str::to_owned);
-            let (return_type, try_type) = if acc.ext == "rs" {
-                super::receiver::rust_return_types(node, ancestors, content)
-            } else {
-                (None, None)
+            let (return_type, try_type) = match acc.ext.as_str() {
+                "rs" => super::receiver::rust_return_types(node, ancestors, content),
+                "go" => (super::receiver::go_return_type(node, content), None),
+                _ => (None, None),
             };
             acc.non_reference_tokens.insert(name_token.start_byte());
             GraphFactDeclaration {
@@ -141,7 +172,7 @@ pub(super) fn named_declaration(
                 line,
                 range,
                 selection_range: line_index.range(name_token),
-                source_range: Some(super::validity::byte_range(extent)),
+                source_range: Some(super::validity::header_byte_range(extent, header)),
                 selection_byte_range: Some(super::validity::byte_range(name_token)),
                 parse_assessment: super::validity::assess(node, ancestors, line_index),
                 test_identity,

@@ -96,7 +96,11 @@ pub(super) fn link_file(
     } else {
         p.language.clone()
     };
-    count_language(b, &language, lang.label());
+    count_language(
+        b,
+        &super::super::languages::canonical_language(&file, &language),
+        lang.label(),
+    );
     if p.diagnostics
         .iter()
         .any(|diagnostic| diagnostic.code == GraphFactCode::ParserFallback)
@@ -128,6 +132,7 @@ pub(super) fn link_file(
         language,
         test_lines: p.test_lines.clone(),
         go_package: p.go_package.clone(),
+        declared_types: p.declared_types,
         ..Default::default()
     };
     let mut linker = FileLink {

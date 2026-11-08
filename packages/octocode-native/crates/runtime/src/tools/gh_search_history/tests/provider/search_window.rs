@@ -209,31 +209,31 @@ async fn a_capped_search_names_one_narrowing_lead() {
         }
     };
     // Newest first: the window continues before the page's last row.
-    let row = lead(json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["fix"],"sort":{"by":"createdAt","order":"desc"},"page":3,"filters":{"createdAt":{"include":[{"from":"2025-01-01T00:00:00Z"}]}}}))
+    let row = lead(json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["fix"],"sort":{"by":"createdAt","order":"desc"},"page":3,"filters":{"createdAt":{"from":"2025-01-01T00:00:00Z"}}}))
     .await;
     assert_eq!(
-        row["filters"]["createdAt"]["include"][0]["to"], "2026-03-01T07:30:00Z",
+        row["filters"]["createdAt"]["to"], "2026-03-01T07:30:00Z",
         "{row}"
     );
     assert_eq!(
-        row["filters"]["createdAt"]["include"][0]["from"], "2025-01-01T00:00:00Z",
+        row["filters"]["createdAt"]["from"], "2025-01-01T00:00:00Z",
         "{row}"
     );
     assert!(row.get("page").is_none(), "{row}");
     let row = lead(json!({"operation":"commit","owner":"o","repo":"r","keywords":["fix"]})).await;
     assert_eq!(
-        row["filters"]["committedAt"]["include"][0]["to"], "2026-02-01T12:00:00Z",
+        row["filters"]["committedAt"]["to"], "2026-02-01T12:00:00Z",
         "{row}"
     );
     // Oldest first: the window continues after the page's last row.
-    let row = lead(json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["fix"],"sort":{"by":"createdAt","order":"asc"},"filters":{"createdAt":{"include":[{"to":"2027-01-01T23:59:59Z"}]}}}))
+    let row = lead(json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["fix"],"sort":{"by":"createdAt","order":"asc"},"filters":{"createdAt":{"to":"2027-01-01T23:59:59Z"}}}))
     .await;
     assert_eq!(
-        row["filters"]["createdAt"]["include"][0]["from"], "2026-03-01T07:30:00Z",
+        row["filters"]["createdAt"]["from"], "2026-03-01T07:30:00Z",
         "{row}"
     );
     assert_eq!(
-        row["filters"]["createdAt"]["include"][0]["to"], "2027-01-01T23:59:59Z",
+        row["filters"]["createdAt"]["to"], "2027-01-01T23:59:59Z",
         "{row}"
     );
     assert_eq!(
@@ -242,10 +242,10 @@ async fn a_capped_search_names_one_narrowing_lead() {
         "{row}"
     );
     // Update order: an `updated:` bound beside the query's own qualifiers.
-    let row = lead(json!({"operation":"issue","owner":"o","repo":"r","keywords":["fix"],"sort":{"by":"updatedAt","order":"desc"},"filters":{"labels":{"include":["bug"]}}}))
+    let row = lead(json!({"operation":"issue","owner":"o","repo":"r","keywords":["fix"],"sort":{"by":"updatedAt","order":"desc"},"filters":{"labels":["bug"]}}))
     .await;
     assert_eq!(
-        row["filters"]["updatedAt"]["include"][0]["to"], "2026-04-01T08:00:00Z",
+        row["filters"]["updatedAt"]["to"], "2026-04-01T08:00:00Z",
         "{row}"
     );
     assert_eq!(
@@ -256,7 +256,7 @@ async fn a_capped_search_names_one_narrowing_lead() {
     let row = lead(json!({"operation":"issue","owner":"o","repo":"r","keywords":["fix"],"sort":{"by":"updatedAt","order":"asc"}}))
     .await;
     assert_eq!(
-        row["filters"]["updatedAt"]["include"][0]["from"], "2026-04-01T08:00:00Z",
+        row["filters"]["updatedAt"]["from"], "2026-04-01T08:00:00Z",
         "{row}"
     );
     // Best match, or an update order its own `updated:` qualifier bounds:

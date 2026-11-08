@@ -14,6 +14,47 @@ pub(super) async fn run_live(
     file: Option<&str>,
     json: bool,
 ) -> u8 {
+    let (report, failed) = match live_report(discovery, file).await {
+        Ok(checked) => checked,
+        Err(code) => return code,
+    };
+    if json {
+        return super::super::write_json(&report) | u8::from(failed);
+    }
+    let rows = report["live"].as_array().cloned().unwrap_or_default();
+    println!("LSP live check");
+    for row in &rows {
+        if row["ok"] == true {
+            println!(
+                "  ok    {} {} ({} ms): {}",
+                row["target"].as_str().unwrap_or_default(),
+                row["command"].as_str().unwrap_or_default(),
+                row["ms"],
+                row["capabilities"]
+            );
+        } else {
+            println!(
+                "  FAIL  {} {}: {}",
+                row["target"].as_str().unwrap_or_default(),
+                row["command"].as_str().unwrap_or_default(),
+                row["error"].as_str().unwrap_or_default()
+            );
+        }
+    }
+    if rows.is_empty() {
+        println!("  no server resolves");
+    }
+    u8::from(failed)
+}
+
+/// The live check's `{"live": rows}` report, through the output gate (a
+/// failed start's error carries what the server wrote to stderr, which may
+/// hold a secret), and whether a server failed to start. `Err` is the exit
+/// code of a refused check.
+pub(super) async fn live_report(
+    discovery: &LspDiscoveryOptions,
+    file: Option<&str>,
+) -> Result<(serde_json::Value, bool), u8> {
     let scratch = tempfile::tempdir().ok();
     let mut targets = Vec::new();
     if let Some(path) = file {
@@ -23,7 +64,7 @@ pub(super) async fn run_live(
                 .unwrap_or_else(|_| ".".to_owned());
         if discovery.opens_fetched_code(&absolute, &workspace) {
             eprintln!("{}", octocode_engine::lsp::config::FETCHED_CODE_REFUSAL);
-            return 1;
+            return Err(1);
         }
         targets.extend(
             default_server_for_file(&absolute, &workspace, discovery)
@@ -69,32 +110,10 @@ pub(super) async fn run_live(
         };
         rows.push(row);
     }
-    if json {
-        return super::super::write_json(&serde_json::json!({ "live": rows })) | u8::from(failed);
-    }
-    println!("LSP live check");
-    for row in &rows {
-        if row["ok"] == true {
-            println!(
-                "  ok    {} {} ({} ms): {}",
-                row["target"].as_str().unwrap_or_default(),
-                row["command"].as_str().unwrap_or_default(),
-                row["ms"],
-                row["capabilities"]
-            );
-        } else {
-            println!(
-                "  FAIL  {} {}: {}",
-                row["target"].as_str().unwrap_or_default(),
-                row["command"].as_str().unwrap_or_default(),
-                row["error"].as_str().unwrap_or_default()
-            );
-        }
-    }
-    if rows.is_empty() {
-        println!("  no server resolves");
-    }
-    u8::from(failed)
+    let report =
+        octocode_native::security::Sanitized::scrubbed(serde_json::json!({ "live": rows }))
+            .into_value();
+    Ok((report, failed))
 }
 
 /// The capabilities `lspSearch` operations need.

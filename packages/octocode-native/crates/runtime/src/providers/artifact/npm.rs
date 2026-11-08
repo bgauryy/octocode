@@ -1,10 +1,11 @@
 //! npm: exact package versions (manifest, release facts, provenance or
 //! release-tag source ref) and keyword search, on the configured registry.
 use super::http::{DnsPin, JSON, NPM_INSTALL_JSON, RegistryClient};
-use super::util::{commit_sha, encode_component, object_for, required, string};
+use super::util::{commit_sha, encode_component, github_slug, object_for, required, string};
 use super::versions::{VersionSpec, npm_resolve, version_not_found};
 use super::{
-    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ResolvedNpmRegistry,
+    ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, RepositoryStatus,
+    ResolvedNpmRegistry,
 };
 use crate::providers::artifact::query::artifact_search_query;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
@@ -87,35 +88,49 @@ async fn exact(
     let row = object_for(&response, ArtifactType::Npm)?;
     let (mut artifact, version) = manifest_row(name, row, registry)?;
     if let Some(attested) =
-        attested_commit(&artifact, &version, row, registry, client, dns_pin).await
+        attested_commit(&artifact, &version, row, registry, client, dns_pin.clone()).await
     {
         artifact.source_ref = Some(attested);
         artifact.source_attested = true;
     } else if let (Some(repository), Some(head)) =
         (artifact.repository.clone(), artifact.source_ref.clone())
-        && let Some(check) = super::release_ref::commit_check(&repository, &head, client).await
     {
-        if check == super::release_ref::CommitCheck::Missing {
-            // A `gitHead` GitHub does not have pins no lead: the default
-            // branch is read instead, and the response names the dead ref.
-            artifact.source_ref = None;
-            artifact.missing_ref = Some(head);
+        match super::release_ref::commit_check(&repository, &head, client).await {
+            Ok(check) => {
+                if check == super::release_ref::CommitCheck::Missing {
+                    // A `gitHead` GitHub does not have pins no lead: the default
+                    // branch is read instead, and the response names the dead ref.
+                    artifact.source_ref = None;
+                    artifact.missing_ref = Some(head);
+                }
+                // A repository that is gone or moved is said on the row as well.
+                artifact.note_repository(check);
+            }
+            Err(failure) => {
+                artifact.note_unchecked(&format!("the recorded commit {head}"), failure);
+            }
         }
-        // A repository that is gone or moved is said on the row as well.
-        artifact.note_repository(check);
     }
     // Without an attested or recorded commit, the upstream release tag pins
     // the source, as for every registry that names no commit; a recorded
     // commit is checked against that tag.
-    let name = artifact.package_name.clone();
-    super::release_ref::pin_release_tag(&mut artifact, &name, &version, None, client).await;
+    let package = artifact.package_name.clone();
+    super::release_ref::pin_release_tag(&mut artifact, &package, &version, None, client).await;
+    // Both checks that can find the repository gone (the recorded commit's
+    // above, the release-tag path's check of `HEAD`) have run: a gone
+    // repository names where the latest release says the project lives. A
+    // lookup of `latest` itself already read that release.
+    if artifact.repository_status == Some(RepositoryStatus::Missing) && spec != "latest" {
+        artifact.successor_repository =
+            current_repository(name, &encoded, &artifact, registry, client, dns_pin).await;
+    }
     if !artifact.source_attested
         && !artifact.source_tag
         && let Some(commit) = artifact.source_ref.clone()
     {
         super::release_ref::check_commit_against_tag(
             &mut artifact,
-            &name,
+            &package,
             &version,
             &commit,
             client,
@@ -212,6 +227,35 @@ fn manifest_row(
     }
     release_facts(&mut artifact, row);
     Ok((artifact, version))
+}
+
+/// Where the registry's latest release says the package's source lives, when
+/// that is a GitHub repository other than the one `artifact` names (which
+/// GitHub no longer has). A lookup that fails or names nothing gives no hint.
+async fn current_repository(
+    name: &str,
+    encoded: &str,
+    artifact: &ArtifactItem,
+    registry: &ResolvedNpmRegistry,
+    client: &RegistryClient<'_>,
+    dns_pin: Option<DnsPin>,
+) -> Option<String> {
+    let url = registry_url(&registry.base, &format!("{encoded}/latest")).ok()?;
+    let authorization = registry.authorization_for(&url);
+    let response = client
+        .json(ArtifactType::Npm, url, true, authorization, dns_pin, JSON)
+        .await
+        .ok()??;
+    let (latest, _) = manifest_row(
+        name,
+        object_for(&response, ArtifactType::Npm).ok()?,
+        registry,
+    )
+    .ok()?;
+    let (owner, repo) = github_slug(latest.repository.as_deref()?)?;
+    let stale = github_slug(artifact.repository.as_deref()?)?;
+    (!owner.eq_ignore_ascii_case(&stale.0) || !repo.eq_ignore_ascii_case(&stale.1))
+        .then(|| format!("{owner}/{repo}"))
 }
 
 fn not_found_page(registry: &ResolvedNpmRegistry) -> ArtifactProviderPage {

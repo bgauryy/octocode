@@ -1,7 +1,7 @@
-use super::defaults::{apply_rust_analyzer_defaults, apply_server_default_options};
 use super::types::{LspDiscoveryOptions, ServerSpec};
 use crate::lsp::bundled_tsgo::bundled_tsgo;
 use crate::lsp::commands::{command_resolves_to_executable, is_executable_path};
+use super::route::Route;
 use crate::lsp::module_path::install_anchor;
 use crate::lsp::types::{LspLanguageServerConfig, ServerSource};
 use std::ffi::OsStr;
@@ -14,7 +14,7 @@ pub(in crate::lsp) use typescript_cli::current_node_command;
 #[cfg(all(test, unix))]
 pub(super) use typescript_cli::workspace_is_invocation_root;
 pub(super) use typescript_cli::{
-    TypeScriptServerSearch, is_node_executable, resolve_typescript_server_cli,
+    TypeScriptServerSearch, is_node_executable, is_typescript_server_command, resolve_typescript_server_cli,
     typescript_cli_from_command,
 };
 
@@ -31,38 +31,37 @@ pub(super) fn pin_tsserver(config: &mut LspLanguageServerConfig, options: &LspDi
     typescript_cli::pin_tsserver(config, trusted);
 }
 
-pub(super) fn config_from_spec(
-    spec: ServerSpec,
+/// The built-in route of `spec` for `workspace_root`: its launch before the
+/// per-server defaults ([`Route::finished`]).
+pub(super) fn route_from_spec(
+    spec: &ServerSpec,
     workspace_root: &str,
     options: &LspDiscoveryOptions,
     anchor: Option<&Path>,
     native_typescript: bool,
-) -> LspLanguageServerConfig {
-    let (command, args, source) =
-        resolve_spec_invocation(&spec, workspace_root, options, anchor, native_typescript);
-    let mut config = LspLanguageServerConfig {
-        command,
-        args: Some(args),
+) -> Route {
+    let resolved =
+        resolve_spec_invocation(spec, workspace_root, options, anchor, native_typescript);
+    let config = LspLanguageServerConfig {
+        command: resolved.command,
+        args: Some(resolved.args),
         workspace_root: workspace_root.to_owned(),
         language_id: Some(spec.language_id.to_owned()),
         initialization_options: None,
         env: None,
         max_memory_mb: None,
-        source,
+        source: resolved.source,
     };
-    // The built-in Rust route is rust-analyzer even from a managed install
-    // whose file name differs.
-    if spec.language_id == "rust" {
-        apply_rust_analyzer_defaults(&mut config);
-    } else {
-        apply_server_default_options(
-            &mut config,
-            options.octocode_home.as_deref(),
-            options.index_home(),
-        );
-        pin_tsserver(&mut config, options);
-    }
-    config
+    Route::built_in(spec, config, resolved.answered)
+}
+
+/// A launch resolved for a spec, and whether every question resolving it
+/// asked was answered.
+struct Resolved {
+    command: String,
+    args: Vec<String>,
+    source: ServerSource,
+    answered: bool,
 }
 
 /// Resolve a spec's command + args, and where they came from: a rustup
@@ -76,7 +75,7 @@ fn resolve_spec_invocation(
     options: &LspDiscoveryOptions,
     anchor: Option<&Path>,
     native_typescript: bool,
-) -> (String, Vec<String>, ServerSource) {
+) -> Resolved {
     let trust_workspace = options.trusts_project();
     if spec.language_id == "python" {
         let path_var = crate::process_env::var_os("PATH");
@@ -85,7 +84,12 @@ fn resolve_spec_invocation(
             path_var.as_deref(),
             std::env::home_dir().as_deref(),
         ) {
-            return (command, args, ServerSource::Path);
+            return Resolved {
+                command,
+                args,
+                source: ServerSource::Path,
+                answered: true,
+            };
         }
     }
 
@@ -104,11 +108,12 @@ fn resolve_spec_invocation(
                     .map(|tsgo| (tsgo, ServerSource::Bundled))
             })
     {
-        return (
-            tsgo.to_string_lossy().into_owned(),
-            TSGO_ARGS.iter().map(|arg| (*arg).to_owned()).collect(),
+        return Resolved {
+            command: tsgo.to_string_lossy().into_owned(),
+            args: TSGO_ARGS.iter().map(|arg| (*arg).to_owned()).collect(),
             source,
-        );
+            answered: true,
+        };
     }
 
     // A toolchain-matched rustup component is an official build for this
@@ -119,7 +124,10 @@ fn resolve_spec_invocation(
         Path::new(workspace_root),
         spec.command,
     );
+    let answered = toolchain_component.is_ok();
     let managed = toolchain_component
+        .ok()
+        .flatten()
         .is_none()
         .then(|| options.managed_server(spec.command))
         .flatten();
@@ -139,7 +147,12 @@ fn resolve_spec_invocation(
     } else {
         source
     };
-    (command, args, source)
+    Resolved {
+        command,
+        args,
+        source,
+        answered,
+    }
 }
 
 /// Arguments that start the native TypeScript server in LSP mode.
@@ -167,7 +180,7 @@ fn workspace_tsgo(workspace_root: &str) -> Option<PathBuf> {
 /// Python servers in preference order. basedpyright and pyright implement
 /// callHierarchy, workspace/symbol, and implementation; pylsp (the fallback)
 /// implements none of them.
-const PYRIGHT_FAMILY: &[&str] = &["basedpyright-langserver", "pyright-langserver"];
+pub(super) const PYRIGHT_FAMILY: &[&str] = &["basedpyright-langserver", "pyright-langserver"];
 
 /// The first pyright-family server installed on `path_var` or in the user's
 /// Python script directories under `home` (`pip install --user` lands outside
@@ -302,23 +315,25 @@ fn find_python_user_script(script_name: &str) -> Option<String> {
     find_python_user_script_under(&std::env::home_dir()?, script_name)
 }
 
-/// `script_name` in `home`'s Python user script directories (`~/.local/bin`,
-/// `~/Library/Python/*/bin`).
-fn find_python_user_script_under(home: &Path, script_name: &str) -> Option<String> {
-    let candidate = home.join(".local/bin").join(script_name);
-    if candidate.exists() {
-        return Some(candidate.to_string_lossy().into_owned());
-    }
+/// `home`'s Python user script directories, in search order: `~/.local/bin`,
+/// then each `~/Library/Python/*/bin`.
+pub(super) fn python_user_script_dirs(home: &Path) -> Vec<PathBuf> {
+    let mut dirs = vec![home.join(".local/bin")];
+    dirs.extend(
+        std::fs::read_dir(home.join("Library/Python"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path().join("bin")),
+    );
+    dirs
+}
 
-    let python_dir = home.join("Library/Python");
-    let Ok(entries) = std::fs::read_dir(python_dir) else {
-        return None;
-    };
-    for entry in entries.flatten() {
-        let candidate = entry.path().join("bin").join(script_name);
-        if candidate.exists() {
-            return Some(candidate.to_string_lossy().into_owned());
-        }
-    }
-    None
+/// `script_name` in `home`'s Python user script directories.
+fn find_python_user_script_under(home: &Path, script_name: &str) -> Option<String> {
+    python_user_script_dirs(home)
+        .into_iter()
+        .map(|dir| dir.join(script_name))
+        .find(|candidate| candidate.exists())
+        .map(|candidate| candidate.to_string_lossy().into_owned())
 }

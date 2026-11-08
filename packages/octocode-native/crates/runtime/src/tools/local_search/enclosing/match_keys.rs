@@ -5,18 +5,17 @@ use super::{row_lines, shown_bytes};
 use crate::security::ContentSecurity;
 
 /// Set `matchKeys` on each shown JSON or TOML file with hit rows: the key
-/// path of every hit line, read from the file's current bytes, in page
-/// order while the page stays within `page_budget`. Returns the note for
-/// files whose keys did not fit, never dropped silently.
+/// path of every hit line, read from the file's current bytes, in line
+/// order. Every key path of a shown hit is kept: a page larger than its
+/// window is cut by the response pager, which routes `files[].matchKeys` as
+/// an evidence collection and leads to the rest, so no key path is dropped
+/// to fit a size.
 pub(in super::super) fn annotate_match_keys(
     files: &mut [SearchFile],
     output_root: &std::path::Path,
-    page_budget: usize,
     expected: &dyn Fn(&std::path::Path) -> super::super::sources::Expected,
     security: &ContentSecurity,
-) -> Option<String> {
-    let mut used = octocode_engine::json_size::bytes(&*files).unwrap_or(usize::MAX);
-    let mut over_budget = 0usize;
+) {
     for file in files.iter_mut() {
         let source = output_root.join(&file.path);
         let Some(rows) = file.matches.as_ref().filter(|rows| !rows.is_empty()) else {
@@ -44,24 +43,6 @@ pub(in super::super) fn annotate_match_keys(
         if keys.is_empty() {
             continue;
         }
-        let added =
-            octocode_engine::json_size::bytes(&crate::tools::match_keys::MatchKeyRows(&keys))
-                .unwrap_or(usize::MAX)
-                .saturating_add(MATCH_KEYS_FIELD_CHARS);
-        if over_budget == 0 && used.saturating_add(added) <= page_budget {
-            used += added;
-            file.match_keys = keys;
-        } else {
-            over_budget += 1;
-        }
+        file.match_keys = keys;
     }
-    (over_budget > 0).then(|| {
-        let noun = if over_budget == 1 { "file" } else { "files" };
-        format!(
-            "Key paths (matchKeys) omitted on {over_budget} later {noun} to keep the page within its size budget."
-        )
-    })
 }
-
-/// Serialized chars around a file's key map.
-const MATCH_KEYS_FIELD_CHARS: usize = ",\"matchKeys\":".len();

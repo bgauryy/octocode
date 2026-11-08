@@ -87,20 +87,82 @@ pub(super) fn admitted<'a>(
     )
 }
 
-/// The terminal row of a source larger than a whole read admits; a
-/// searched literal (a symbol name, a pattern without metavariables) leads
-/// to a text search of it in the same file.
-pub(super) fn source_limit(path: &str, literal: Option<&str>) -> Value {
-    let mut row = serde_json::json!({"status":"error","path":path,"errorCode":ErrorCode::FileTooLarge,"error":"Source exceeds the byte limit of a whole read."});
+const TOO_LARGE: &str = "Source exceeds the byte limit of a whole read.";
+
+/// The terminal row of a source larger than a whole read admits, with its
+/// recovery ([`too_large_recovery`]).
+pub(super) fn source_limit(
+    canonical: &std::path::Path,
+    path: &str,
+    literal: Option<&str>,
+) -> Value {
+    let mut row = serde_json::json!({"status":"error","path":path,"errorCode":ErrorCode::FileTooLarge,"error":TOO_LARGE});
     crate::response::paging::terminal_limit(
         &mut row,
         crate::response::paging::PartialReason::FileTooLarge,
         &[],
     );
-    if let Some(lead) = literal.and_then(|literal| text_search(path, literal)) {
-        row["calls"] = serde_json::json!({ "findText": lead });
+    let (hints, calls) = too_large_recovery(canonical, path, literal);
+    crate::response::result::set_hints(&mut row, hints);
+    if let Some(calls) = calls {
+        row["calls"] = calls;
     }
     row
+}
+
+/// The error of a source larger than a whole read admits, with its
+/// recovery ([`too_large_recovery`]).
+pub(super) fn too_large_error(
+    canonical: &std::path::Path,
+    path: &str,
+    literal: Option<&str>,
+) -> ToolError {
+    let mut error = ToolError::new(ErrorCode::FileTooLarge, TOO_LARGE);
+    let (hints, calls) = too_large_recovery(canonical, path, literal);
+    error.hints = hints;
+    error.calls = calls.map(Box::new);
+    error
+}
+
+/// What recovers a source past the whole-read limit, offered only where the
+/// next tool serves the file at its length: within the text-search line
+/// ceiling, the shared large-source hint and a search of a searched literal
+/// (a symbol name, a pattern without metavariables) in the same file;
+/// otherwise, within the streaming ceiling, a windowed read of it. Past both,
+/// nothing: every local reader would refuse it too.
+fn too_large_recovery(
+    canonical: &std::path::Path,
+    path: &str,
+    literal: Option<&str>,
+) -> (Vec<String>, Option<Value>) {
+    let len = std::fs::metadata(canonical).map_or(u64::MAX, |meta| meta.len());
+    let searchable =
+        len <= octocode_engine::search::text_search::DEFAULT_MAX_LINE_SEARCH_FILE_BYTES;
+    let readable = len <= crate::tools::source_view::prepare::MAX_STREAM_SOURCE_BYTES;
+    let hints = if searchable {
+        vec![crate::response::rows::LARGE_SOURCE_HINT.to_owned()]
+    } else {
+        Vec::new()
+    };
+    let lead = literal
+        .filter(|_| searchable)
+        .and_then(|literal| text_search(path, literal))
+        .map(|lead| ("findText", lead))
+        .or_else(|| {
+            readable
+                .then(|| window_read(path))
+                .flatten()
+                .map(|lead| ("read", lead))
+        });
+    let calls = lead.map(|(name, lead)| serde_json::json!({ name: lead }));
+    (hints, calls)
+}
+
+/// A localFetch read of `path` from its first window.
+fn window_read(path: &str) -> Option<Value> {
+    let query: octocode_contract_types::LocalFetchQuery =
+        serde_json::from_value(serde_json::json!({ "path": path })).ok()?;
+    Some(crate::response::result::Continuation::related_query(query).build())
 }
 
 pub(super) fn text_search(path: &str, literal: &str) -> Option<Value> {
@@ -117,3 +179,6 @@ pub(super) fn text_search(path: &str, literal: &str) -> Option<Value> {
 pub(super) fn pattern_literal(pattern: &str) -> Option<&str> {
     (!pattern.contains('$')).then_some(pattern)
 }
+
+#[cfg(test)]
+mod tests;

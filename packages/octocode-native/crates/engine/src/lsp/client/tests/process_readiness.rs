@@ -52,14 +52,12 @@ process.stdin.on('data', (d) => {
 #[test]
 #[ignore = "opt-in process integration: Node server and wall-clock indexing"]
 fn first_open_waits_for_the_project_load_the_open_triggers() {
-    use std::os::unix::fs::PermissionsExt;
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         let tmp = TmpDir::new();
         let root = tmp.0.join("octocode-engine-deferred-load");
         std::fs::create_dir_all(&root).unwrap();
         let script = root.join("fake-lsp.js");
-        std::fs::write(&script, DEFERRED_PROJECT_LOAD_SERVER).unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_executable(&script, DEFERRED_PROJECT_LOAD_SERVER);
         let source = root.join("a.ts");
         std::fs::write(&source, "function foo() {}\nfoo();\n").unwrap();
         let root_path = root.canonicalize().unwrap();

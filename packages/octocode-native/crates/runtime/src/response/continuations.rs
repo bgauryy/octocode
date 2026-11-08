@@ -169,7 +169,7 @@ pub(crate) fn hoist(structured: &mut Value, walks: &[Vec<String>], tool: ToolId,
     }
     structured["responsePagination"] = serde_json::json!({
         "hasMore": true,
-        "next": {"kind": "continue", "tool": tool.as_str(), "input": {"cursor": handle}},
+        "next": crate::response::result::Continuation::cursor(tool.as_str(), handle),
     });
 }
 

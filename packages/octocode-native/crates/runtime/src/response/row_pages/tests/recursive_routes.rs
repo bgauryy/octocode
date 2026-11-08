@@ -95,7 +95,7 @@ fn only_optional_declared_empty_siblings_are_omitted() {
         &source,
         "/data/owners/0/items",
         &routes,
-        &BTreeSet::from(["required".into()]),
+        &|member| member == "/data/owners/0/required",
     );
     let owner = &row["data"]["owners"][0];
     assert!(owner.get("optional").is_none());
@@ -112,7 +112,7 @@ fn only_optional_declared_empty_siblings_are_omitted() {
         &original_empty,
         "/data/owners/0/items",
         &routes,
-        &BTreeSet::new(),
+        &|_| false,
     );
     assert_eq!(
         later["data"]["owners"][0]["optional"],

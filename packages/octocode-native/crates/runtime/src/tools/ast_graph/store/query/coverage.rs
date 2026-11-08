@@ -23,6 +23,22 @@ impl Graph {
         self.language_coverage(language)
     }
 
+    /// The call coverage of a set of files: their language's when they share
+    /// one; otherwise no single language's linkage applies, so it is stated as
+    /// not assessed.
+    pub(super) fn files_coverage(&self, files: &[u32]) -> Value {
+        let mut languages = files
+            .iter()
+            .map(|file| self.t.str(self.t.nodes[*file as usize].detail))
+            .collect::<Vec<_>>();
+        languages.sort_unstable();
+        languages.dedup();
+        match languages.as_slice() {
+            [one] => self.language_coverage(one),
+            _ => self.language_coverage(""),
+        }
+    }
+
     fn language_coverage(&self, language: &str) -> Value {
         let linkage = self.manifest["linkageByLanguage"]
             .get(language)

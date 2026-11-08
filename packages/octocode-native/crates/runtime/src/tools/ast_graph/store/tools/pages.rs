@@ -65,13 +65,8 @@ pub(super) fn convert(out: &mut GraphOutput, row: &Value) {
             .collect::<Vec<_>>();
         data["related"] = json!(related);
     }
-    let calls = out
-        .next
-        .iter()
-        .map(|(channel, resume)| (channel.name(), next(row, &id, resume)))
-        .collect::<Map<_, _>>();
-    if !calls.is_empty() {
-        out.value["next"] = Value::Object(calls);
+    for (channel, resume) in &out.next {
+        crate::response::result::set_next(&mut out.value, &channel.name(), next(row, &id, resume));
     }
 }
 

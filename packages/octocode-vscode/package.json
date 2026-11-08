@@ -67,6 +67,11 @@
           "default": true,
           "description": "Automatically configure Octocode MCP server in supported editors (Cursor, Windsurf, Trae, Antigravity)."
         },
+        "octocode.ideBridge.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let Octocode's native language-intelligence tools ask this editor's own language providers (definitions, references, hover, symbols, call and type hierarchy, diagnostics) over an authenticated loopback-only connection. Publishes an owner-only lock file in ~/.octocode/ide while enabled."
+        },
         "octocode.githubToken": {
           "type": "string",
           "default": "",
@@ -76,6 +81,7 @@
     }
   },
   "devDependencies": {
+    "@octocodeai/config": "workspace:*",
     "@types/node": "^24.19.2",
     "@types/vscode": "1.107.0",
     "@vitest/coverage-v8": "^5.0.4",

@@ -75,6 +75,10 @@ pub struct RequestSpec {
     /// answer stands for the lifetime GitHub states for that pull request's REST
     /// read ([`GitHubTransport::reuse_window`]).
     reads_pull_request: bool,
+    /// The caller reads this page only and never follows its `Link`: a
+    /// pagination link to another origin (a proxy forwarding GitHub's own)
+    /// is not an error for it.
+    first_page_only: bool,
 }
 impl RequestSpec {
     pub fn get(url: Url) -> Self {
@@ -86,6 +90,7 @@ impl RequestSpec {
             pinned: false,
             file: None,
             reads_pull_request: false,
+            first_page_only: false,
         }
     }
     pub(crate) fn graphql(url: Url, body: Value) -> Self {
@@ -97,13 +102,26 @@ impl RequestSpec {
             pinned: false,
             file: None,
             reads_pull_request: false,
+            first_page_only: false,
         }
+    }
+
+    /// This read uses the first page alone: its `Link` is neither parsed
+    /// nor followed.
+    pub(crate) fn reading_first_page_only(mut self) -> Self {
+        self.first_page_only = true;
+        self
     }
 
     /// This query reads one pull request.
     pub(crate) fn reading_pull_request(mut self) -> Self {
         self.reads_pull_request = true;
         self
+    }
+
+    /// Whether the caller reads this page alone, never its `Link`.
+    pub(crate) fn is_first_page_only(&self) -> bool {
+        self.first_page_only
     }
 
     /// Whether a GraphQL answer to this request can be kept: something later
@@ -146,17 +164,26 @@ impl RequestSpec {
 /// Whether a REST `url` names one immutable git object or a comparison of two:
 /// file contents at a commit (`contents/…?ref=<sha>`), a tree (`git/trees/<sha>`
 /// or `<sha>:<path>`), a blob, a commit (`commits/<sha>`, not the mutable lists
-/// under it such as `commits/<sha>/pulls`) or `compare/<sha>...<sha>`.
+/// under it such as `commits/<sha>/pulls`) or `compare/<sha>...<sha>`, under
+/// `repos/{owner}/{repo}` or `repositories/{id}` (where a rename leads).
 fn names_commit(url: &Url) -> bool {
     let Some(segments) = url.path_segments() else {
         return false;
     };
     let segments = segments.collect::<Vec<_>>();
-    let Some(at) = segments.iter().position(|segment| *segment == "repos") else {
+    let Some(rest) = segments
+        .iter()
+        .enumerate()
+        .find_map(|(at, segment)| match *segment {
+            "repos" => segments.get(at + 3..),
+            "repositories" => segments.get(at + 2..),
+            _ => None,
+        })
+    else {
         return false;
     };
     let is_sha = |value: &str| crate::is_full_sha(value);
-    match segments.get(at + 3..).unwrap_or_default() {
+    match rest {
         ["contents", ..] => url
             .query_pairs()
             .any(|(key, value)| key == "ref" && is_sha(&value)),
@@ -310,6 +337,12 @@ impl GitHubTransport {
     /// Mirror blocking rate-limit facts under `dir` so separate processes
     /// (one CLI process per call) honor each other's limits. `None` keeps
     /// the state in memory only (non-persistent storage mode).
+    /// Clone admission on this transport's budget and rate-limit state.
+    #[must_use]
+    pub fn git_limiter(&self) -> crate::GitLimiter {
+        crate::GitLimiter::new(Arc::clone(&self.budget), self.state_dir.clone())
+    }
+
     pub fn set_rate_limit_state_dir(&mut self, dir: Option<PathBuf>) {
         self.state_dir = dir;
     }
@@ -337,7 +370,10 @@ impl GitHubTransport {
     }
 
     /// Limiter state for this transport's host and the request credential.
-    fn key_state(&self, credential: Option<&ResolvedCredential>) -> Arc<super::budget::KeyState> {
+    pub(crate) fn key_state(
+        &self,
+        credential: Option<&ResolvedCredential>,
+    ) -> Arc<super::budget::KeyState> {
         let key = LimiterKey::for_url(
             &self
                 .endpoint
@@ -379,8 +415,11 @@ pub use context::RequestContext;
 pub use evidence::{AnswerBody, ProviderAnswer, ProviderEvidence, requested_file};
 #[cfg(test)]
 pub(crate) use execute::SEARCH_REUSE_WINDOW;
+#[cfg(test)]
+pub(crate) use route::RENAME_ROUTE_WINDOW;
 mod response;
 #[cfg(test)]
 mod response_error_tests;
+mod route;
 mod saved;
 pub use saved::{Reuse, SavedAnswer, SavedAnswers, worth_keeping};

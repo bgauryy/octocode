@@ -162,6 +162,8 @@ fn symbol_pages_fill_the_window_and_walk_every_symbol_once() {
 /// as a single file's pages do.
 #[test]
 fn directory_symbol_pages_measure_rows_as_delivered() {
+    // Only the scan's own budget may cut it, never a loaded machine's clock.
+    let _frozen = octocode_engine::scan_budget::freeze_walk_clock();
     let root = Fixture::new();
     for index in 0..300 {
         root.write(

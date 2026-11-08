@@ -176,13 +176,9 @@ async fn since_until_reach_the_request_of_every_operation() {
         let mut row = row;
         let range = json!({"from":"2026-10-01T00:00:00Z","to":"2026-10-03T23:59:59Z"});
         row["filters"] = if row["operation"] == "commit" {
-            if row.get("keywords").is_some() {
-                json!({"committedAt":{"include":[range]}})
-            } else {
-                json!({"committedAt":range})
-            }
+            json!({"committedAt":range})
         } else {
-            json!({"createdAt":{"include":[range]}})
+            json!({"createdAt":range})
         };
         let query = serde_json::from_value(row.clone()).expect("query");
         let data = execute(&provider, &query, &default_context(), &Passthrough)

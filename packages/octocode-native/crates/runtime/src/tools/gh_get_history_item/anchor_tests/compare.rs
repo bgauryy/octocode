@@ -267,11 +267,16 @@ async fn compare_unpatched_file_read_survives_the_comparison_pages() {
             json!(["!tooLarge crates/flags/defs.rs"]),
             "{out}"
         );
+        let search = &out["next"]["searchUnpatchedFile"]["input"]["queries"][0];
         assert_eq!(
-            out["next"]["searchUnpatchedFile"]["input"]["queries"][0],
+            *search,
             json!({"owner":"o","repo":"r","path":"crates/flags/defs.rs","ref":HEAD,
-                "matchString":["smart_case"],"view":"content"}),
+                "matchString":["smart_case"]}),
             "{sections:?}: {out}"
+        );
+        assert_eq!(
+            crate::response::result::read_view(crate::id::ToolId::GhGetFileContent, search),
+            octocode_contract_types::ReadView::Content
         );
         assert!(
             out["contentPagination"]["commits"]["next"]["nextPage"].is_object(),

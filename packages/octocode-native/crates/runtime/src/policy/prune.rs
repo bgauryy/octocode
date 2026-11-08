@@ -124,9 +124,19 @@ pub(crate) struct OwnWalk {
 
 impl OwnWalk {
     pub(crate) fn new(root: &std::path::Path, extra: impl IntoIterator<Item = String>) -> Self {
+        Self::with_defaults(root, true, extra)
+    }
+
+    /// [`OwnWalk::new`] with the default prune lifted when `defaults` is
+    /// false (`defaultExcludes:false`); the credential stores stay pruned.
+    pub(crate) fn with_defaults(
+        root: &std::path::Path,
+        defaults: bool,
+        extra: impl IntoIterator<Item = String>,
+    ) -> Self {
         Self {
             root: root.to_path_buf(),
-            defaults: rooted(root, true, &[]),
+            defaults: rooted(root, defaults, &[]),
             names: octocode_engine::search::walk::Prune::new(
                 CREDENTIAL_DIRECTORY_NAMES
                     .iter()

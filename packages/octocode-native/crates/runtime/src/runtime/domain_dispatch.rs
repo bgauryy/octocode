@@ -1,5 +1,4 @@
 //! One domain execution path for public tools and Jev's bounded read context.
-mod finalize;
 mod lsp_row;
 mod panic_site;
 mod registry_row;
@@ -48,6 +47,8 @@ pub(crate) struct DomainDispatcher {
     /// public clasify tool's availability.
     pub(crate) selection_available: bool,
     pub(crate) evaluator: crate::tools::judgment::Evaluator,
+    /// The candidate pages selection judged in this runtime.
+    pub(crate) selection_pages: Arc<crate::tools::selection::SavedPlans>,
 }
 
 #[cfg(test)]
@@ -89,6 +90,7 @@ impl DomainDispatcher {
             limits: self.limits.selection,
             available: self.selection_available,
             judge: Arc::new(self.evaluator.clone()),
+            saved: self.selection_pages.clone(),
             handle: self.handle.clone(),
             context: context.clone(),
         }
@@ -115,8 +117,42 @@ impl DomainDispatcher {
         tool: ToolId,
         query: &CheckedQuery,
         context: &ExecutionContext,
+        warm: Option<&github::BatchWarm>,
     ) -> Result<DomainResult, ExecutionError> {
-        self.execute_row_under(tool, query, context, false)
+        self.execute_row_under(tool, query, context, false, warm)
+    }
+
+    /// Warms what the rows of one batch share before they run, or `None`
+    /// when no row has anything to warm. Run [`Self::run_warm`] beside the
+    /// rows; they wait for it only where they read what it warms.
+    pub(crate) fn plan_warm(
+        &self,
+        tool: ToolId,
+        queries: &[CheckedQuery],
+    ) -> Option<github::BatchWarm> {
+        github::BatchWarm::plan(tool, queries, &self.paths)
+    }
+
+    /// The warm-up of [`Self::plan_warm`], to completion.
+    pub(crate) fn run_warm(&self, warm: &github::BatchWarm, context: &ExecutionContext) {
+        let _enter = self.handle.enter();
+        let _settle = warm.settling();
+        let Ok(services) = self.github_services() else {
+            return;
+        };
+        // The warm-up only saves requests: a panic in it leaves each row to
+        // ask for itself (the guard above releases any row waiting on it).
+        if let Err(site) = panic_site::contain(|| {
+            services.warm(warm, context, &self.handle, &self.github_access);
+        }) {
+            octocode_io::notice::raise(
+                "gitHubWarmUp",
+                format!(
+                    "The batch's GitHub warm-up failed at {}; each row asked for itself.",
+                    site.as_deref().unwrap_or("an unknown site")
+                ),
+            );
+        }
     }
 
     /// [`Self::execute`]; `egress` when the row's text leaves the local read.
@@ -126,11 +162,12 @@ impl DomainDispatcher {
         query: &CheckedQuery,
         context: &ExecutionContext,
         egress: bool,
+        warm: Option<&github::BatchWarm>,
     ) -> Result<DomainResult, ExecutionError> {
         let _enter = self.handle.enter();
         context.check()?;
         let mut result = execute_row(|| match tool.family() {
-            ToolFamily::GitHub => self.execute_github(tool, query, context, egress),
+            ToolFamily::GitHub => self.execute_github(tool, query, context, egress, warm),
             ToolFamily::Local if tool == ToolId::LspSearch => {
                 self.execute_lsp(query, context, egress)
             }
@@ -154,10 +191,11 @@ impl DomainDispatcher {
         query: &Value,
         context: &ExecutionContext,
         egress: bool,
+        warm: Option<&github::BatchWarm>,
     ) -> Result<DomainResult, ExecutionError> {
         if tool == ToolId::GhGetFileContent
             && goes_to_provider(query, egress)
-            && let Some(withheld) = source_reader::withheld_github_read(query)
+            && let Some(withheld) = source_reader::withheld_github_read(query, &self.paths)
         {
             return Ok(withheld);
         }
@@ -170,6 +208,7 @@ impl DomainDispatcher {
                     context,
                     handle: &self.handle,
                     access: &self.github_access,
+                    warm,
                 },
                 &self.security,
                 &self.paths,
@@ -260,15 +299,16 @@ fn goes_to_provider(query: &Value, egress: bool) -> bool {
 
 /// Runs language-server work for the request `context` admits. A starved
 /// server may use the time the request still has: its waits extend while it
-/// progresses, up to the request deadline. Cancelling the request (the
-/// caller's cancel, or the runtime at the deadline) drops `work` at once,
+/// progresses, up to the caller's deadline (with none, for as long as it
+/// progresses). Cancelling the request (the caller's cancel, or the runtime
+/// at the deadline) drops `work` at once,
 /// which cancels its pending server requests, instead of holding the worker
 /// until the wait ends.
 async fn within_request<F: Future>(
     context: &ExecutionContext,
     work: F,
 ) -> Result<F::Output, ExecutionError> {
-    let deadline = tokio::time::Instant::from_std(context.deadline);
+    let deadline = context.deadline.map(tokio::time::Instant::from_std);
     tokio::select! {
         biased;
         () = context.cancellation.cancelled() => {

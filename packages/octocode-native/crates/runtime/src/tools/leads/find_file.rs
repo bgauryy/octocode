@@ -4,6 +4,7 @@
 use super::files_listing::files_listing;
 use crate::response::result::Continuation;
 use octocode_contract_types::{StructureSearchQuery, StructureSearchQueryFiles};
+use octocode_engine::search::glob;
 use serde_json::Value;
 use std::path::Path;
 
@@ -14,12 +15,10 @@ use std::path::Path;
 pub(crate) fn find_file(root: &str, requested: &str) -> Option<Value> {
     let name = Path::new(requested).file_name()?.to_string_lossy();
     let include = match name.split_once('.') {
-        Some((stem, _)) if !stem.is_empty() => format!("{}.*", escape_glob(stem)),
-        _ => escape_glob(&name),
+        Some((stem, _)) if !stem.is_empty() => format!("{}.*", glob::name(stem)),
+        _ if name.is_empty() => return None,
+        _ => glob::name(&name),
     };
-    if include.is_empty() {
-        return None;
-    }
     let listing = StructureSearchQueryFiles {
         include: vec![include],
         ..files_listing(root)?
@@ -78,16 +77,6 @@ pub(crate) fn closest_name(
     best.filter(|_| !tied).map(|(_, name)| name)
 }
 
-/// `text` as a glob that matches only itself.
-fn escape_glob(text: &str) -> String {
-    text.chars()
-        .flat_map(|c| match c {
-            '*' | '?' | '[' | ']' | '{' | '}' => vec!['[', c, ']'],
-            _ => vec![c],
-        })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,6 +97,9 @@ mod tests {
             "id.tsx",
             "Make[ab]",
             "Makea",
+            "!bang.ts",
+            "bang.ts",
+            "#hash.ts",
         ] {
             std::fs::write(root.0.join("pkg").join(name), "").unwrap();
         }
@@ -118,6 +110,10 @@ mod tests {
             ("Makefile", vec!["pkg/Makefile"]),
             ("[id].tsx", vec!["pkg/[id].tsx"]),
             ("Make[ab]", vec!["pkg/Make[ab]"]),
+            // A leading `!` or `#` is part of the name, never a gitignore
+            // negation or comment.
+            ("!bang.rs", vec!["pkg/!bang.ts"]),
+            ("#hash.rs", vec!["pkg/#hash.ts"]),
         ] {
             let lead = find_file("pkg", requested).expect("related request");
             assert_eq!(lead["kind"], "related");

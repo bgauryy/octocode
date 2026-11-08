@@ -17,7 +17,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { CLI, ROOT, FIXTURES } from './paths.mjs';
+import { CLI, MCP_ENTRY, FIXTURES } from './paths.mjs';
 import { spawnCli, startServer } from './mcp-client.mjs';
 import { contract } from './contract.mjs';
 import { createAjv } from './query-defaults.mjs';
@@ -38,7 +38,7 @@ let mcpEntry, cliBin, cliArgv;
 /** Output schemas to validate against: only the local build's contract declares them. */
 const outputContract = SIDE === 'local' ? contract : null;
 if (SIDE === 'local') {
-  mcpEntry = path.join(ROOT, 'packages/octocode-mcp/dist/index.js');
+  mcpEntry = MCP_ENTRY;
   cliBin = CLI;
   cliArgv = (tool, query) => [tool, JSON.stringify({ queries: [query] }), '--json'];
 } else {

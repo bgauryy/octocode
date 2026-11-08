@@ -34,7 +34,7 @@ impl ScanPacer {
     /// `budget: None` never stops the scan.
     pub(crate) fn new(budget: Option<std::time::Duration>) -> Self {
         Self {
-            started: std::time::Instant::now(),
+            started: walk_now(),
             budget,
             evaluated: 0,
         }
@@ -42,15 +42,17 @@ impl ScanPacer {
 
     /// Whether the budget is spent; never before the first chunk ran.
     pub(crate) fn spent(&self) -> bool {
-        self.evaluated > 0
-            && self
-                .budget
-                .is_some_and(|budget| self.started.elapsed() >= budget)
+        self.evaluated > 0 && self.budget.is_some_and(|budget| self.elapsed() >= budget)
+    }
+
+    /// Time since the scan began, on the walk clock ([`walk_now`]).
+    fn elapsed(&self) -> std::time::Duration {
+        walk_now().saturating_duration_since(self.started)
     }
 
     /// Candidates the next chunk evaluates.
     pub(crate) fn next_chunk(&self) -> usize {
-        chunk_files(self.budget, self.evaluated, self.started.elapsed())
+        chunk_files(self.budget, self.evaluated, self.elapsed())
     }
 
     /// Count `files` more candidates as evaluated.
@@ -87,16 +89,41 @@ fn chunk_files(
 thread_local! {
     static CLOCK_AHEAD: std::cell::Cell<std::time::Duration> =
         const { std::cell::Cell::new(std::time::Duration::ZERO) };
+    static CLOCK_FROZEN_AT: std::cell::Cell<Option<std::time::Instant>> =
+        const { std::cell::Cell::new(None) };
 }
 
-/// The time a walk's budget is read by on this thread: the monotonic clock,
-/// ahead by whatever a test advanced it ([`advance_walk_clock`]).
+/// The time a walk's budget is read by on this thread: the monotonic clock
+/// (or the instant a test froze it at, [`freeze_walk_clock`]), ahead by
+/// whatever a test advanced it ([`advance_walk_clock`]).
 #[must_use]
 pub fn walk_now() -> std::time::Instant {
     let now = std::time::Instant::now();
     #[cfg(any(test, feature = "test-hooks"))]
-    let now = now + CLOCK_AHEAD.with(std::cell::Cell::get);
+    let now = CLOCK_FROZEN_AT.with(std::cell::Cell::get).unwrap_or(now)
+        + CLOCK_AHEAD.with(std::cell::Cell::get);
     now
+}
+
+/// Stops this thread's walk clock until the guard drops: from then on only
+/// [`advance_walk_clock`] moves it, so a budget a test sets is spent at the
+/// same entry however slowly a loaded machine runs the walk.
+#[cfg(any(test, feature = "test-hooks"))]
+#[must_use = "the clock runs again when the guard drops"]
+pub fn freeze_walk_clock() -> FrozenWalkClock {
+    let at = walk_now() - CLOCK_AHEAD.with(std::cell::Cell::get);
+    FrozenWalkClock(CLOCK_FROZEN_AT.replace(Some(at)))
+}
+
+/// Restores the walk clock [`freeze_walk_clock`] stopped.
+#[cfg(any(test, feature = "test-hooks"))]
+pub struct FrozenWalkClock(Option<std::time::Instant>);
+
+#[cfg(any(test, feature = "test-hooks"))]
+impl Drop for FrozenWalkClock {
+    fn drop(&mut self) {
+        CLOCK_FROZEN_AT.set(self.0);
+    }
 }
 
 /// Advances this thread's walk clock by `by`, so a test spends a walk
@@ -111,6 +138,19 @@ pub fn advance_walk_clock(by: std::time::Duration) {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    /// The budget is read on the walk clock: frozen, no real time spends it;
+    /// advanced past it, the pacer stops after the first chunk ran.
+    #[test]
+    fn the_pacer_spends_its_budget_on_the_walk_clock() {
+        let _frozen = freeze_walk_clock();
+        let mut pacer = ScanPacer::new(Some(SCAN_TIME_BUDGET));
+        assert!(!pacer.spent(), "never before the first chunk ran");
+        pacer.record(pacer.next_chunk());
+        assert!(!pacer.spent(), "a frozen clock spends nothing");
+        advance_walk_clock(SCAN_TIME_BUDGET);
+        assert!(pacer.spent());
+    }
 
     #[test]
     fn chunks_follow_the_measured_throughput() {

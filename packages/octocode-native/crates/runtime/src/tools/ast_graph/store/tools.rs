@@ -32,9 +32,10 @@ fn scope(path: &str, paths: &PathPolicy) -> Result<(PathBuf, PathBuf), GraphOutp
     let workspace = resolve(".")?;
     let root = resolve(path)?;
     if !root.is_dir() || !root.starts_with(&workspace) {
-        return Err(failure(
-            "path must be a directory inside the current workspace",
-        ));
+        return Err(failure(format!(
+            "path must be a directory inside the current workspace ({}): graph snapshots live in the workspace. Start Octocode inside that directory, or use astSearch and localSearch at it",
+            workspace.display()
+        )));
     }
     let home = paths
         .validate_output(workspace.join(".octocode/graph"))
@@ -46,11 +47,43 @@ fn scope(path: &str, paths: &PathPolicy) -> Result<(PathBuf, PathBuf), GraphOutp
     Ok((workspace, root))
 }
 
-fn missing_snapshot(message: &str, root: &Path) -> GraphOutput {
-    let mut out = GraphOutput::error(ErrorCode::NotFound, message);
-    out.value["hints"] = json!([
-        "Use an existing snapshot ID, or run graphBuild for this path and use its returned ID."
-    ]);
+/// Graph homes other than `home` that hold a snapshot of `root`: the
+/// `.octocode/graph` of each allowed ancestor of `root`, where a build run
+/// from that workspace put it (the home follows the workspace).
+fn other_homes(home: &Path, root: &Path, paths: &PathPolicy) -> Vec<PathBuf> {
+    let scanned = root.to_string_lossy();
+    root.ancestors()
+        .map(|dir| dir.join(".octocode").join("graph"))
+        .filter(|candidate| candidate != home && paths.validate(candidate).is_ok())
+        .filter(|candidate| {
+            list_snapshots(candidate).iter().any(|id| {
+                read_manifest(&candidate.join(id))
+                    .is_some_and(|manifest| manifest["root"] == scanned.as_ref())
+            })
+        })
+        .collect()
+}
+
+fn missing_snapshot(message: &str, root: &Path, home: &Path, paths: &PathPolicy) -> GraphOutput {
+    let mut out = GraphOutput::error(
+        ErrorCode::NotFound,
+        format!("{message} (searched {})", home.display()),
+    );
+    let others = other_homes(home, root, paths);
+    let mut hints = vec![String::from(
+        "Use an existing snapshot ID, or run graphBuild for this path and use its returned ID.",
+    )];
+    if !others.is_empty() {
+        let others = others
+            .iter()
+            .map(|other| other.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        hints.push(format!(
+            "Snapshots of this path exist under {others}: the snapshot home is <workspace>/.octocode/graph, and the workspace follows where Octocode runs. Run Octocode from the directory holding that .octocode, or build here."
+        ));
+    }
+    crate::response::result::set_hints(&mut out.value, hints);
     if let Some(build) = super::query::typed_row::<GraphBuildQuery>(json!({"path": root})) {
         out.value["related"] = json!([Continuation::related_query(build).build()]);
     }
@@ -80,9 +113,12 @@ fn superseded_snapshot(id: &str, successor: &str, path: &str) -> GraphOutput {
         ErrorCode::NotFound,
         format!("snapshot {id} was replaced by a newer graphBuild of this path: {successor}"),
     );
-    out.value["hints"] = json!([format!(
-        "Repeat the query with graph {successor}, or omit graph for the newest snapshot of this path. Offsets and pages of {id} do not carry over to a rebuilt snapshot."
-    )]);
+    crate::response::result::set_hints(
+        &mut out.value,
+        [format!(
+            "Repeat the query with graph {successor}, or omit graph for the newest snapshot of this path. Offsets and pages of {id} do not carry over to a rebuilt snapshot."
+        )],
+    );
     if let Some(lead) = stats_lead(successor, path) {
         out.value["related"] = json!([lead]);
     }
@@ -91,6 +127,7 @@ fn superseded_snapshot(id: &str, successor: &str, path: &str) -> GraphOutput {
 
 /// Where graph IDs of one requested scope resolve.
 struct Snapshots<'a> {
+    paths: &'a PathPolicy,
     home: &'a Path,
     workspace: &'a Path,
     /// The canonical scope root.
@@ -113,7 +150,14 @@ impl Snapshots<'_> {
             .then(|| successor(self.home, self.workspace, self.root, id))
             .flatten()
             .map_or_else(
-                || missing_snapshot("snapshot ID does not exist in this workspace", self.root),
+                || {
+                    missing_snapshot(
+                        "snapshot ID does not exist in this workspace",
+                        self.root,
+                        self.home,
+                        self.paths,
+                    )
+                },
                 |newer| superseded_snapshot(id, &newer, self.path),
             ))
     }
@@ -131,9 +175,12 @@ fn options(row: &Value, paths: &PathPolicy) -> Result<QueryOptions, GraphOutput>
                 read_manifest(&home.join(id))
                     .is_some_and(|m| m["root"] == root.to_string_lossy().as_ref())
             })
-            .ok_or_else(|| missing_snapshot("no snapshot for this exact path", &root))?,
+            .ok_or_else(|| {
+                missing_snapshot("no snapshot for this exact path", &root, &home, paths)
+            })?,
     };
     let snapshots = Snapshots {
+        paths,
         home: &home,
         workspace: &workspace,
         root: &root,
@@ -219,7 +266,7 @@ fn build(
     let options = IngestOptions {
         memory_only,
         workspace: Some(workspace),
-        ..IngestOptions::of_query(query, root)
+        ..IngestOptions::of_query(query, root.clone())
     };
     let mut out = ingest(&options, paths, security, context, cargo);
     if let Some(object) = out.value.as_object_mut() {
@@ -246,8 +293,26 @@ fn build(
     {
         out.value["related"] = json!([lead]);
     }
+    skipped::note_skipped(query, &root, paths, context, &mut out.value);
     resume_paused(&mut out, query);
+    retry_after_change(&mut out, query);
     out
+}
+
+/// A build that lost a race with an edit: the hint says the failure is
+/// transient and `related` is the same build, runnable as written.
+fn retry_after_change(out: &mut GraphOutput, query: &GraphBuildQuery) {
+    if !out.retry {
+        return;
+    }
+    crate::response::result::set_hints(
+        &mut out.value,
+        [
+            "A file changed while the graph was being built, so no snapshot was published. This is not a tool failure: run the same graphBuild again once the edits settle."
+                .to_owned(),
+        ],
+    );
+    out.value["related"] = json!([Continuation::related_query(query.clone()).build()]);
 }
 
 /// A paused build's `next.expandScan`: the same request, never a refresh,
@@ -258,7 +323,11 @@ fn resume_paused(out: &mut GraphOutput, query: &GraphBuildQuery) {
             refresh: false,
             ..query.clone()
         };
-        out.value["next"] = json!({"expandScan": Continuation::continued_query(resume).build()});
+        crate::response::result::set_next(
+            &mut out.value,
+            "expandScan",
+            Continuation::continued_query(resume).build(),
+        );
     }
 }
 
@@ -298,10 +367,7 @@ pub(crate) fn execute_query(
                 context,
             );
             if let Some(hint) = unrecorded {
-                match out.value["hints"].as_array_mut() {
-                    Some(hints) => hints.push(json!(hint)),
-                    None => out.value["hints"] = json!([hint]),
-                }
+                crate::response::result::add_hints(&mut out.value, [hint]);
             }
             out
         }
@@ -343,5 +409,7 @@ fn result(out: GraphOutput) -> DomainResult {
 }
 
 mod pages;
+
+mod skipped;
 #[cfg(test)]
 mod tests;

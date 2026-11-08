@@ -7,12 +7,9 @@
 use super::super::super::ArtifactError;
 use super::super::super::http::RegistryClient;
 use super::dependencies::{chain_properties, imports};
-use super::{Fetched, Parent, fetch_pom, located};
+use super::{Fetched, MISSING, Parent, fetch_pom, located, unreadable};
 use octocode_contract_types::ErrorCode;
 use std::collections::{HashMap, HashSet};
-
-/// What happened to a POM that was not read, as the `unread` line says it.
-const MISSING: &str = "is not in the Maven repository";
 
 /// One imported BOM.
 struct Node {
@@ -194,10 +191,18 @@ impl Walk {
         match text {
             Ok(xml) => {
                 node.chain.push(next_key);
-                node.next = located(xml)
-                    .parent
-                    .filter(|parent| !parent.version.contains("${"))
-                    .filter(|parent| !node.chain.contains(&parent.key()));
+                node.next = located(xml).parent;
+                // A parent that cannot be read ends the chain, stated.
+                if let Some(parent) = &node.next
+                    && let Some(what) = unreadable(parent, &node.chain)
+                {
+                    unread.push(format!(
+                        "Parent POM {} of imported BOM {} {what}: a dependency scope it manages is unknown, not absent.",
+                        parent.named(),
+                        node.bom.named()
+                    ));
+                    node.next = None;
+                }
             }
             Err(what) if node.chain.is_empty() => {
                 unread.push(format!(

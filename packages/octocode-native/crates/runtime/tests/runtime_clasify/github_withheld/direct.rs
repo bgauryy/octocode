@@ -2,8 +2,8 @@
 //! same row, yet what it fetched of a credential-named file stays in this
 //! process: nothing of it on disk, and its pages still walk losslessly.
 
-use super::{MARKER, RAW_FILE, SHA, files_holding, github};
-use crate::support::{self, Run as _, Workspace, github_api};
+use super::{MARKER, RAW_FILE, SHA, files_holding, github, opted_in};
+use crate::support::{self, Run as _, Workspace};
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path, path_regex};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -15,7 +15,7 @@ fn read(file: &str) -> Value {
 #[tokio::test]
 async fn a_direct_read_of_a_credential_file_leaves_no_copy_and_the_same_row() {
     let github = github().await;
-    let settings = github_api(&github);
+    let settings = opted_in(&github);
 
     // The control: any other name is kept, so this scan does see a copy.
     let kept = Workspace::new();
@@ -29,7 +29,20 @@ async fn a_direct_read_of_a_credential_file_leaves_no_copy_and_the_same_row() {
         "the control must leave a copy"
     );
 
-    for file in [".env", ".Env.Prod", "KEY.PEM", "a/.ssh/config", "./.env"] {
+    // A sensitive directory opens to no setting: refused before any read.
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&settings);
+    let row = support::run(&runtime, "ghGetFileContent", read("a/.ssh/config")).await;
+    runtime.close().await;
+    assert_eq!(
+        row.data()["errorCode"],
+        "pathPolicyDenied",
+        "{}",
+        row.data()
+    );
+    assert_eq!(files_holding(&workspace.home, MARKER), Vec::<String>::new());
+
+    for file in [".env", ".Env.Prod", "KEY.PEM", "./.env"] {
         let workspace = Workspace::new();
         let runtime = workspace.runtime(&settings);
         let row = support::run(&runtime, "ghGetFileContent", read(file)).await;
@@ -69,20 +82,30 @@ async fn a_walk_over_a_credential_file_stays_lossless_with_nothing_on_disk() {
         .with_priority(1)
         .mount(&github)
         .await;
-    let settings = github_api(&github);
+    let settings = opted_in(&github);
     for restart_each_page in [false, true] {
         let workspace = Workspace::new();
         let mut runtime = workspace.runtime(&settings);
         let mut input = json!({"queries":[read(".env")]});
-        let (mut lines, mut pages) = (Vec::new(), 0);
+        let (mut lines, mut pages, mut refused) = (Vec::new(), 0, false);
         loop {
             pages += 1;
             assert!(pages < 200, "the walk must end");
-            let out = runtime
+            let result = runtime
                 .run("walk".into(), "ghGetFileContent".into(), input.clone())
-                .await
-                .expect("page")
-                .structured_content;
+                .await;
+            // The opt-in keeps saved work in memory: a new runtime refuses
+            // the cursor honestly rather than resuming from disk.
+            if restart_each_page && pages > 1 {
+                let error = result.expect_err("saved work ends with its runtime");
+                assert!(
+                    format!("{error:?}").contains("ResponseSnapshotExpired"),
+                    "{error:?}"
+                );
+                refused = true;
+                break;
+            }
+            let out = result.expect("page").structured_content;
             let data = &out["results"][0]["data"];
             assert_ne!(out["results"][0]["status"], "error", "{out}");
             let content = data["content"].as_str().expect("content");
@@ -99,6 +122,11 @@ async fn a_walk_over_a_credential_file_stays_lossless_with_nothing_on_disk() {
         }
         runtime.close().await;
         assert!(pages > 1, "the fixture must take several pages");
+        assert_eq!(refused, restart_each_page);
+        if refused {
+            assert_eq!(files_holding(&workspace.home, MARKER), Vec::<String>::new());
+            continue;
+        }
         let expected = (1..=3000)
             .map(|n| format!("{n}\tline {n:04} {MARKER}"))
             .collect::<Vec<_>>();
@@ -196,7 +224,7 @@ async fn a_blob_read_of_a_credential_file_leaves_no_copy_and_the_same_row() {
         .collect::<String>();
     for too_large in [true, false] {
         let github = past_the_contents_limit(too_large, &body).await;
-        let settings = github_api(&github);
+        let settings = opted_in(&github);
 
         // The control: any other name is kept, so this scan does see a copy.
         let kept = Workspace::new();

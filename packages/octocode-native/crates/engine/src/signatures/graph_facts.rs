@@ -19,6 +19,8 @@ mod js_fallback;
 mod python;
 mod receiver;
 mod rust;
+#[cfg(test)]
+pub(in crate::signatures) use rust::folded_attributes;
 mod rust_cfg;
 mod rust_macro_args;
 mod scala;
@@ -127,6 +129,9 @@ struct GraphAccumulator {
     /// While such a body of a recovered declaration is read: that
     /// assessment, stamped on its calls and argument sites.
     macro_recovered: Option<crate::graph::GraphParseAssessment>,
+    /// Start byte of the outer annotations written just before the node the
+    /// walk is entering, keyed by that node's id (see `positions::leading_annotation_starts`).
+    leading_start: Option<(usize, usize)>,
     /// Byte span of each entry of `declarations`, in the same order.
     declaration_spans: Vec<(usize, usize)>,
     /// Name tokens the main walk passed, for `count_name_references`;
@@ -142,6 +147,9 @@ struct GraphAccumulator {
     typing: python::TypingBindings,
     /// C++ `namespace al = a::b;` seen so far: alias → what it names.
     namespace_aliases: std::collections::HashMap<String, String>,
+    /// Python instance attributes declared so far, by the `__init__` node
+    /// that assigns them and the name: a later assignment declares nothing.
+    instance_attributes: std::collections::HashSet<(usize, String)>,
 }
 
 /// A token `count_name_references` reads: a name leaf, or (`format`) a Rust
@@ -179,8 +187,10 @@ impl GraphAccumulator {
             public_namespace_scopes: std::collections::HashSet::new(),
             macro_bodies: Vec::new(),
             namespace_aliases: std::collections::HashMap::new(),
+            instance_attributes: std::collections::HashSet::new(),
             macro_chain: None,
             macro_recovered: None,
+            leading_start: None,
             declaration_spans: Vec::new(),
             name_tokens: None,
             declarations_only: false,
@@ -240,7 +250,9 @@ pub(super) fn extract_facts_before(
     } else {
         crate::text::analysis::AnalysisOperation::GraphFacts
     })?;
-    let tree = super::extractor::parse_before(content, &entry.language, deadline);
+    let tree = crate::contain::within(crate::contain::Phase::Parse, || {
+        super::extractor::parse_before(content, &entry.language, deadline)
+    });
     facts_from_tree(
         content,
         file_path,

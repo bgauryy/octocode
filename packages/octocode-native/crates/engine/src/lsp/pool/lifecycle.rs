@@ -5,7 +5,7 @@ use super::pool_client::PoolClient;
 use super::start_guards::StartCancellationGuard;
 use super::state::{
     Entry, IdleTimerGuard, InFlight, SharedResult, StartBackoff, evict_overflow,
-    inflight_is_current, remove_lru, restart_backoff_delay,
+    inflight_is_current, remove_lru, restart_backoff_delay, retire_idle_siblings,
 };
 use std::future::Future;
 use std::sync::Arc;
@@ -17,6 +17,7 @@ impl<C: PoolClient> GenericPool<C> {
     pub(super) async fn finish_start<Fut>(
         &self,
         key: String,
+        family: String,
         inflight: Arc<InFlight<C>>,
         future: Fut,
     ) -> SharedResult<C>
@@ -33,6 +34,7 @@ impl<C: PoolClient> GenericPool<C> {
             Ok(Some(client)) => {
                 cancellation.track_client(client.clone());
                 let mut evicted = Vec::new();
+                let mut retired = Vec::new();
                 let installed = {
                     let mut state = self.state.lock().await;
                     if !inflight_is_current(&state, &key, &inflight) {
@@ -50,6 +52,7 @@ impl<C: PoolClient> GenericPool<C> {
                             key.clone(),
                             Entry {
                                 client: client.clone(),
+                                family: family.clone(),
                                 id: entry_id,
                                 last_used: now,
                                 idle_timer: IdleTimerGuard(Some(timer)),
@@ -58,6 +61,10 @@ impl<C: PoolClient> GenericPool<C> {
                         state.backoff.remove(&key);
                         remove_lru(&mut state.lru, &key);
                         state.lru.push_back(key.clone());
+                        // The new server replaces its workspace's idle
+                        // siblings only once it is installed: a failed start
+                        // keeps the working sibling.
+                        retired = retire_idle_siblings(&mut state, &family, &key);
                         evicted = evict_overflow(&mut state, &self.options, &key);
                         self.count.store(state.entries.len(), Ordering::SeqCst);
                         state.inflight.remove(&key);
@@ -68,7 +75,7 @@ impl<C: PoolClient> GenericPool<C> {
                 if installed {
                     cancellation.disarm();
                 }
-                for stale in evicted {
+                for stale in retired.into_iter().chain(evicted) {
                     stale.stop().await;
                 }
                 if installed {

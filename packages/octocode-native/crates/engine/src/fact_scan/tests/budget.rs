@@ -2,14 +2,24 @@
 
 use super::*;
 
-/// A just-written file scans with no stamp: its digest stays the proof. On
-/// the settle clock of a thread that settled it, the scan stamps it.
+/// A file inside its settle window (dated ahead) scans with no stamp: its
+/// digest stays the proof. On the settle clock of a thread that settled it,
+/// the scan stamps it.
 #[test]
 fn a_scan_stamps_only_settled_files() {
     let fixture = tempfile::tempdir().expect("fixture");
     let root = fixture.path().to_path_buf();
     fs::create_dir_all(&root).expect("create fixture");
     fs::write(root.join("a.ts"), "export const a = 1;").expect("write fixture");
+    let date = |at: std::time::SystemTime| {
+        fs::File::options()
+            .write(true)
+            .open(root.join("a.ts"))
+            .expect("open fixture")
+            .set_modified(at)
+            .expect("date fixture");
+    };
+    date(std::time::SystemTime::now() + std::time::Duration::from_secs(3600));
     let scan = || {
         scan_graph_facts(GraphFactsScanOptions {
             path: path_string(&root),
@@ -22,6 +32,7 @@ fn a_scan_stamps_only_settled_files() {
     let result = scan();
     assert_eq!(result.entries.len(), 1);
     assert_eq!(result.entries[0].source_stamp, None);
+    date(std::time::SystemTime::now());
     crate::stamp::settle_written_so_far();
     let result = scan();
     assert_eq!(result.entries[0].source_stamp.map(|s| s.size), Some(19));

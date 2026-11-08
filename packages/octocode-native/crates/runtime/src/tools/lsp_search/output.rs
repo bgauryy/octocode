@@ -58,9 +58,6 @@ fn failure_hint(code: ErrorCode, query: &Value) -> Option<&'static str> {
             "Use the advertised LSP operations, or fall back to astSearch/localSearch and exact source reads."
         }
         ErrorCode::Timeout => TIMEOUT_TIP,
-        ErrorCode::FileTooLarge => {
-            "Use localSearch or astSearch to locate a bounded region, then read that exact source range."
-        }
         // The row's `related` calls locate the name; a guessed identity would
         // answer for a different symbol.
         ErrorCode::AnchorUnresolved => {

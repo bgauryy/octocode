@@ -6,11 +6,169 @@
 
 use super::SecretPattern;
 
+/// A read that a fallback literal backs up: a dotted, indexed or called path
+/// (`process.env.NAME`, `os.environ["NAME"]`, `os.getenv("NAME")`).
+macro_rules! env_read {
+    () => {
+        r###"[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z0-9_$]+|\[[^\]\r\n]*\]|\([^()\r\n]*\))*"###
+    };
+}
+
+/// The characters of a literal's body: an escape, or anything but its own
+/// closing quote.
+macro_rules! body {
+    (dq) => {
+        r###"(?:\\[^\r\n]|[^"\\\r\n])*"###
+    };
+    (sq) => {
+        r###"(?:\\[^\r\n]|[^'\\\r\n])*"###
+    };
+    (bt) => {
+        r###"(?:\\[^\r\n]|[^`\\\r\n])*"###
+    };
+}
+
+/// A whole literal of any quote type, in a piece list.
+macro_rules! any_piece {
+    () => {
+        concat!(
+            r###"(?:""###,
+            body!(dq),
+            r###"""###,
+            r###"|'"###,
+            body!(sq),
+            r###"'"###,
+            r###"|`"###,
+            body!(bt),
+            r###"`)"###
+        )
+    };
+}
+
+/// What sits between two pieces of one literal: a `+`, or only blanks
+/// (`"a" "b"` is one string in Python and C).
+/// What follows a literal's last piece: not another piece. Alternatives are
+/// tried in order, so without it the one that stops at a shorter chain
+/// (`'a' "b"` before `'a' "b" 'c'`) would win and leave the rest readable.
+macro_rules! piece_end {
+    () => {
+        r###"(?:[ \t]*[^ \t"'`+]|[ \t]*\+[ \t]*[^ \t\r\n"'`]|[ \t]*\z)"###
+    };
+}
+
+macro_rules! piece_seam {
+    () => {
+        r###"(?:\s*\+\s*|[ \t]*)"###
+    };
+}
+
+/// One alternative of the split literals: the pieces from an opening quote
+/// `$open` (first body `$first`, closed by `$q1`) to the last piece (opened
+/// by `$q2`, body `$last`, closed by `$close`), in a group `$name` that holds
+/// the text between the first opening quote and the last closing one.
+macro_rules! split_literal {
+    ($open:literal, $first:expr, $q1:literal, $name:literal, $q2:literal, $last:expr, $close:literal) => {
+        concat!(
+            $open,
+            "(?P<",
+            $name,
+            ">",
+            $first,
+            $q1,
+            piece_seam!(),
+            "(?:",
+            any_piece!(),
+            piece_seam!(),
+            ")*",
+            $q2,
+            $last,
+            ")",
+            $close,
+            piece_end!()
+        )
+    };
+}
+
+/// The string literals a credential assignment may end in, the secret in a
+/// `secret…` group: double-quoted, single-quoted or backtick, each with an
+/// optional prefix (`r#"…"#`, `b"…"`) and, for the pieces of one literal
+/// joined with `+` or only written side by side (`"Fake0" + 'Moo9Zed'`,
+/// `"Fake0" "Moo9Zed"`), the pieces, of any quote types, as one secret. A
+/// single literal is eight characters or more; a joined one is judged on its
+/// joined value (`ValueTest::Quoted`).
+macro_rules! literals {
+    () => {
+        concat!(
+            r###"(?:"###,
+            split_literal!(
+                r###"[A-Za-z]{0,2}#*""###,
+                body!(dq),
+                r###"""###,
+                "secret_split_dd",
+                r###"""###,
+                body!(dq),
+                r###"""###
+            ),
+            "|",
+            split_literal!(
+                r###"[A-Za-z]{0,2}#*""###,
+                body!(dq),
+                r###"""###,
+                "secret_split_ds",
+                "'",
+                body!(sq),
+                "'"
+            ),
+            "|",
+            split_literal!(
+                r###"[A-Za-z]{0,2}#*""###,
+                body!(dq),
+                r###"""###,
+                "secret_split_db",
+                "`",
+                body!(bt),
+                "`"
+            ),
+            "|",
+            split_literal!(
+                "'",
+                body!(sq),
+                "'",
+                "secret_split_sd",
+                r###"""###,
+                body!(dq),
+                r###"""###
+            ),
+            "|",
+            split_literal!("'", body!(sq), "'", "secret_split_ss", "'", body!(sq), "'"),
+            "|",
+            split_literal!("'", body!(sq), "'", "secret_split_sb", "`", body!(bt), "`"),
+            "|",
+            split_literal!(
+                "`",
+                body!(bt),
+                "`",
+                "secret_split_bd",
+                r###"""###,
+                body!(dq),
+                r###"""###
+            ),
+            "|",
+            split_literal!("`", body!(bt), "`", "secret_split_bs", "'", body!(sq), "'"),
+            "|",
+            split_literal!("`", body!(bt), "`", "secret_split_bb", "`", body!(bt), "`"),
+            r###"|[A-Za-z]{0,2}#*"(?P<secret>(?:\\[^\r\n]|[^"\\\r\n]){8,})""###,
+            r###"|'(?P<secret_single>(?:\\[^\r\n]|[^'\\\r\n]){8,})'"###,
+            r###"|`(?P<secret_backtick>(?:\\[^\r\n]|[^`\\\r\n]){8,})`)"###
+        )
+    };
+}
+
 pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "npmAccessToken",
         file_context: None,
-        regex: r###"\bnpm_[a-zA-Z0-9]{36}\b"###,
+        regex: r###"npm_[a-zA-Z0-9]{36}"###,
     },
     SecretPattern {
         name: "nugetApiKey",
@@ -45,17 +203,17 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "sourcegraphApiKey",
         file_context: None,
-        regex: r###"\bsgp_[a-zA-Z0-9]{32}\b"###,
+        regex: r###"sgp_[a-zA-Z0-9]{32}"###,
     },
     SecretPattern {
         name: "linearApiKey",
         file_context: None,
-        regex: r###"\blin_api_[0-9A-Za-z]{40}\b"###,
+        regex: r###"lin_api_[0-9A-Za-z]{40}"###,
     },
     SecretPattern {
         name: "notionIntegrationToken",
         file_context: None,
-        regex: r###"\bntn_[a-zA-Z0-9_-]{43}\b"###,
+        regex: r###"ntn_[a-zA-Z0-9_-]{43}"###,
     },
     SecretPattern {
         name: "notionIntegrationTokenLegacy",
@@ -85,27 +243,27 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "postmanApiToken",
         file_context: None,
-        regex: r###"(?i)\bPMAK-[a-f0-9]{24}-[a-f0-9]{34}\b"###,
+        regex: r###"(?i)PMAK-[a-f0-9]{24}-[a-f0-9]{34}"###,
     },
     SecretPattern {
         name: "prefectApiToken",
         file_context: None,
-        regex: r###"\bpnu_[a-zA-Z0-9]{36}\b"###,
+        regex: r###"pnu_[a-zA-Z0-9]{36}"###,
     },
     SecretPattern {
         name: "readmeApiToken",
         file_context: None,
-        regex: r###"\brdme_[a-z0-9]{70}\b"###,
+        regex: r###"rdme_[a-z0-9]{70}"###,
     },
     SecretPattern {
         name: "rubygemsApiToken",
         file_context: None,
-        regex: r###"\brubygems_[a-f0-9]{48}\b"###,
+        regex: r###"rubygems_[a-f0-9]{48}"###,
     },
     SecretPattern {
         name: "clojarsApiToken",
         file_context: None,
-        regex: r###"(?i)\bCLOJARS_[a-z0-9]{60}\b"###,
+        regex: r###"(?i)CLOJARS_[a-z0-9]{60}"###,
     },
     SecretPattern {
         name: "snykApiToken",
@@ -115,7 +273,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "sonarqubeToken",
         file_context: None,
-        regex: r###"(?i)\b(?:squ_|sqp_|sqa_)[a-z0-9=_-]{40}\b"###,
+        regex: r###"(?i)(?:squ_|sqp_|sqa_)[a-z0-9=_-]{40}"###,
     },
     SecretPattern {
         name: "travisciAccessToken",
@@ -145,7 +303,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "buildkiteAgentToken",
         file_context: None,
-        regex: r###"\bbkagent_[a-f0-9]{40}\b"###,
+        regex: r###"bkagent_[a-f0-9]{40}"###,
     },
     SecretPattern {
         name: "launchdarklyAccessToken",
@@ -190,7 +348,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "depotToken",
         file_context: None,
-        regex: r###"\bdpt_[a-zA-Z0-9]{40,}\b"###,
+        regex: r###"dpt_[a-zA-Z0-9]{40,}\b"###,
     },
     SecretPattern {
         name: "grafbaseApiKey",
@@ -200,7 +358,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "shopifyStorefrontAccessToken",
         file_context: None,
-        regex: r###"\bshpatf_[0-9a-f]{32}\b"###,
+        regex: r###"shpatf_[0-9a-f]{32}"###,
     },
     SecretPattern {
         name: "woocommerceConsumerKey",
@@ -215,7 +373,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "contentfulAccessToken",
         file_context: None,
-        regex: r###"\bCFPAT-[0-9a-zA-Z]{20}\b"###,
+        regex: r###"CFPAT-[0-9a-zA-Z]{20}"###,
     },
     SecretPattern {
         name: "mailchimpEcommerceApiKey",
@@ -225,7 +383,9 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "credentialsInUrl",
         file_context: None,
-        regex: r###"\b[a-zA-Z]{3,10}:\/\/[^\\/\s:@]{3,20}:(?P<secret>[^\\/\s:@]{3,20})@[^\s'"]+\b"###,
+        // Any scheme's userinfo password, whatever the user: empty
+        // (`redis://:pw@host`) or short (`amqp://u:pw@host`).
+        regex: r###"\b[a-zA-Z]{3,10}:\/\/[^\\/\s:@]{0,64}:(?P<secret>[^\\/\s:@]{1,128})@[^\s'"]+\b"###,
     },
     SecretPattern {
         name: "envVarSecrets",
@@ -233,8 +393,31 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         // A quoted value assigned to a credential-named identifier: snake,
         // kebab or dotted (`API_KEY`, `client-secret`, `db.password`) or
         // camelCase (`awsSecret`, `clientSecretKey`), optionally quoted as a
-        // JSON/YAML key, with `=`, `:=`, `:` or `=>`.
-        regex: r###"(?:\b(?:[A-Za-z0-9]+[_.-])*(?i:secret|password|passwd|passphrase|key|token|credential)s?(?:[_.-][A-Za-z0-9]+)*|\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Key|Token|Credential)s?(?:[A-Z][a-z0-9]*)*)["']?\s*(?:=>|:=|=|:)\s*(?:"(?P<secret>(?:\\[^\r\n]|[^"\\\r\n]){16,})"|'(?P<secret_single>(?:\\[^\r\n]|[^'\\\r\n]){16,})')"###,
+        // JSON/YAML key, with `=`, `:=`, `:` or `=>`. Which values count, by
+        // length and key, is the quoted value test's (`ValueTest::Quoted`). A
+        // literal is double-quoted, single-quoted or a backtick string; the
+        // name may carry a type (`PASSWORD: &str = "…"`), and a fallback
+        // operator (`env.DB_PASSWORD || "…"`, `??`) assigns like `=`.
+        regex: concat!(
+            r###"(?:(?:\b(?:[A-Za-z0-9]+[_.-])*(?i:secret|password|passwd|passphrase|key|token|credential)s?(?:[_.-][A-Za-z0-9]+)*|\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Key|Token|Credential)s?(?:[A-Z][a-z0-9]*)*)["']?\s*(?::[ \t]*[^\s=:"'`,;(){}][^=\r\n"'`;(){}]*?\s*)?"###,
+            // After the name: an assignment operator, the same followed by a read
+            // the literal backs up (`= process.env.X || "…"`, `= env() or "…"`), or
+            // a fallback operator right after a name.
+            r###"(?:(?:=>|:=|=|:)\s*"###,
+            env_read!(),
+            r###"\s*(?:\|\||\?\?|\bor\b)|=>|:=|=|:|\|\||\?\?)"###,
+            r###"|\b(?:process\.env|import\.meta\.env)(?:\.[A-Za-z0-9_]*(?i:"###,
+            credential_words!(),
+            r###")[A-Za-z0-9_]*|\[\s*["'][A-Za-z0-9_]*(?i:"###,
+            credential_words!(),
+            r###")[A-Za-z0-9_]*["']\s*\])\s*(?:\|\||\?\?)|\b(?:os\.environ\.get|os\.getenv|getenv|environ\.get|env\.get)\(\s*["'][A-Za-z0-9_]*(?i:"###,
+            credential_words!(),
+            r###")[A-Za-z0-9_]*["']\s*(?:,|\)\s*or\b))\s*"###,
+            // A constructor call may wrap the literal (`Some("…")`,
+            // `String::from("…")`): the name still holds its value.
+            r###"(?:[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*\(\s*)?"###,
+            literals!()
+        ),
     },
     SecretPattern {
         name: "base64EncodedSecrets",
@@ -250,29 +433,56 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         // An unquoted dotenv/INI/shell line `NAME=value` whose name holds a
         // credential word. The value must run to the end of the line (or a
         // comment), so code such as `SECRET = os.environ["X"]` is left alone.
-        // Outside a dotenv file (see `dotenvFileCredential`) a short value is
-        // too like any setting to call a credential: it has 12+ characters.
-        regex: r###"(?m)^[ \t]*(?:export[ \t]+)?(?:[A-Za-z0-9]+[_.])*(?i:secret|password|passwd|passphrase|pass|pwd|key|token|credential)s?(?:[_.][A-Za-z0-9]+)*[ \t]*=[ \t]*(?P<secret>[^\s"'$#(){}\[\]:][^\s"'(){}\[\]:]{11,})[ \t]*(?:#.*)?$"###,
+        // A list item (`- NAME=value`, a compose or Kubernetes `environment:`
+        // entry) is judged as its bare `NAME=value` form: the marker only
+        // moves where the line starts. Outside a dotenv or properties file
+        // (see `dotenvFileCredential` and `propertiesFileCredential`) a short
+        // value is too like any setting to call a credential: it has 12+
+        // characters.
+        // A diff line (`+` or `-` prefix, inside a hunk) is read as the line
+        // itself: see the detector's `DiffLines`.
+        regex: concat!(
+            r###"(?m)^(?P<diff>[+\-])?[ \t]*"###,
+            comment_lead!(),
+            r###"(?:-[ \t]+["']?)?(?:export[ \t]+)?(?:[A-Za-z0-9]+[_.])*(?i:"###,
+            credential_words!(),
+            r###")s?(?:[_.][A-Za-z0-9]+)*[ \t]*=[ \t]*(?P<secret>[^\s"'$#(){}\[\]:][^\s"'(){}\[\]:]{11,})["']?[ \t]*(?:#[^\r\n]*)?\r?$"###
+        ),
     },
     SecretPattern {
         name: "dotenvFileCredential",
         // A dotenv file (`.env`, `.env.*`, `*.env`) holds credentials, so a
         // credential name there says its value is one, however short.
-        file_context: Some(r###"(?i)(?:^|[/\\])(?:\.env(?:\.[^/\\]+)?|[^/\\]+\.env)$"###),
-        // `NAME=value` whose variable name ends in a credential word
-        // (`TLS_KEYSTORE_PASS`, not `PASSWORD_MIN_LENGTH` or `BYPASS_CACHE`),
-        // with a literal value: double-quoted (escapes allowed), single-quoted
-        // (literal, `$` included) or bare to the end of the line or a
-        // comment. A value that starts with `$` reads another variable, and
-        // one that starts with `[` is a redaction marker already.
-        regex: r###"(?m)^[ \t]*(?:export[ \t]+)?(?:[A-Za-z0-9]+_)*(?i:secret|password|passwd|passphrase|pass|pwd|key|token|credential)s?[ \t]*=[ \t]*(?:"(?P<secret>(?:\\[^\r\n]|[^"\\$\[\r\n])(?:\\[^\r\n]|[^"\\\r\n])*)"|'(?P<secret_single>[^'\[\r\n][^'\r\n]*)'|(?P<secret_bare>[^\s"'$#(){}\[\]=>][^\s(){}\[\]]*))[ \t]*(?:#.*)?$"###,
+        file_context: Some(super::DOTENV_FILE_CONTEXT),
+        // `NAME=value` (a diff line inside a hunk too) whose name
+        // holds a credential word; which names count, and which values stay
+        // readable, is the file-class value test's (`ValueTest::FileClass`).
+        // The value is what a dotenv parser reads: double-quoted (escapes, line
+        // breaks), single-quoted (literal, line breaks), a quoted value with
+        // text after its closing quote (all of it), or bare up to a ` #`
+        // comment, spaces and brackets included.
+        regex: concat!(
+            r###"(?m)^(?P<diff>[+\-])?[ \t]*"###,
+            comment_lead!(),
+            r###"(?:-[ \t]+)?(?:export[ \t]+)?[A-Za-z0-9_.\-]*?(?i:"###,
+            credential_words!(),
+            r###")[A-Za-z0-9_.\-]*[ \t]*=(?:[ \t]+(?P<secret_empty>)#[^\r\n]*\r?$|[ \t]*(?:"(?P<secret>(?:\\[\s\S]|[^"\\])*)"[ \t]*(?:#[^\r\n]*)?\r?$|'(?P<secret_single>[^']*)'[ \t]*(?:#[^\r\n]*)?\r?$|(?P<secret_tail>["'][^\r\n]*?)(?:[ \t]+#[^\r\n]*)?[ \t]*\r?$|(?P<secret_bare>[^\r\n]*?)(?:[ \t]+#[^\r\n]*)?[ \t]*\r?$))"###
+        ),
     },
     SecretPattern {
         name: "yamlSecretValue",
         file_context: None,
-        // An unquoted YAML scalar under a credential-named key, which may sit
-        // under a slash-separated path (`secret/data/app/api_token:`). A bare
-        // `key:` is too common in YAML (label selectors, tolerations) to count.
-        regex: r###"(?m)^[ \t]*(?:-[ \t]+)?(?:[A-Za-z0-9_.-]+/)*(?:(?:[A-Za-z0-9]+[_.-])*(?i:secret|password|passwd|passphrase|token|api[_-]?key|access[_-]?key|private[_-]?key|auth[_-]?key|credential)s?(?:[_.-][A-Za-z0-9]+)*|[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Token|ApiKey|AccessKey|PrivateKey|AuthKey|Credential)s?(?:[A-Z][a-z0-9]*)*)[ \t]*:[ \t]+(?P<secret>[^\s"'#$&*!|>{}\[\]:%@`][^\s"'#:]{11,})[ \t]*(?:#.*)?$"###,
+        // A YAML scalar of any length under a credential-named key: quoted, or
+        // plain, which runs to the end of the line less a trailing comment
+        // (`password: correct horse 9`). The key may sit under a slash-separated path
+        // (`secret/data/app/api_token:`). A bare `key:` is too common in YAML
+        // (label selectors, tolerations) to count, and the key's credential
+        // word ends its name (`secretName:` is no credential). Which values
+        // count is the value test's (`ValueTest::Scalar`).
+        regex: concat!(
+            r###"(?m)^[ \t]*"###,
+            comment_lead!(),
+            r###"(?:-[ \t]+)?(?:[A-Za-z0-9_.-]+/)*(?:(?:[A-Za-z0-9]+[_.-])*(?i:secret|password|passwd|passphrase|token|api[_-]?key|access[_-]?key|private[_-]?key|auth[_-]?key|credential)s?(?:[_.-][A-Za-z0-9]+)*|[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Token|ApiKey|AccessKey|PrivateKey|AuthKey|Credential)s?(?:[A-Z][a-z0-9]*)*)[ \t]*:[ \t]+(?:"(?P<secret>[^"\\\s$\{](?:\\[^\r\n]|[^"\\\r\n])*)"|'(?P<secret_single>[^'\s$\{][^'\r\n]*)'|(?P<secret_bare>[^\s"'#$&*!|>{}\[\]:%@`][^\r\n:#]*?))[ \t]*(?:#.*)?\r?$"###
+        ),
     },
 ];

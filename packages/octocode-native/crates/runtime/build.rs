@@ -6,12 +6,17 @@
 use serde_json::{Map, Value};
 use std::error::Error;
 use std::io::{Error as IoError, ErrorKind};
-use std::path::{Path, PathBuf};
+
+use inputs::config_path;
 
 #[path = "build/config_gen.rs"]
 mod config_gen;
 #[path = "build/embed.rs"]
 mod embed;
+#[path = "build/identity.rs"]
+mod identity;
+#[path = "build/inputs.rs"]
+mod inputs;
 #[path = "build/schema_defaults.rs"]
 mod schema_defaults;
 #[path = "build/tool_gen.rs"]
@@ -130,11 +135,8 @@ fn rust_enum_variant(value: &str) -> Result<String, Box<dyn Error>> {
     Ok(to_pascal(value))
 }
 
-fn config_path(manifest_dir: &Path, name: &str) -> PathBuf {
-    manifest_dir.join(format!("../../../../packages/octocode-config/{name}"))
-}
-
 fn main() -> Result<(), Box<dyn Error>> {
+    identity::emit_build_identity()?;
     config_gen::generate_config_contract()?;
     embed::embed_tool_contract()?;
 

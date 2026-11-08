@@ -28,6 +28,7 @@ use scanner::named_paths;
 /// placed here.
 const LAYERS: &[&[&str]] = &[
     &[
+        "build_identity",
         "civil_date",
         "digest",
         "id",
@@ -54,6 +55,7 @@ const LAYERS: &[&[&str]] = &[
 /// language-server pool, structural matching and fact scans that compose them.
 const ENGINE_LAYERS: &[&[&str]] = &[
     &[
+        "contain",
         "cpu",
         "deep_stack",
         "host",

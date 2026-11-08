@@ -89,15 +89,13 @@ async fn a_repeat_inside_the_stated_lifetime_sends_nothing_and_says_so() {
         .expect("repeat");
     assert_eq!(graphql_sent(&server).await, 1, "the repeat asked again");
     let mut shown = row_data(&repeat).clone();
-    let hints = shown
+    let observed = shown
         .as_object_mut()
         .unwrap()
-        .remove("hints")
+        .remove("observedAt")
         .expect("disclosed");
-    assert!(hints.to_string().contains("observed"), "{hints}");
-    let mut original = row_data(&first).clone();
-    original.as_object_mut().unwrap().remove("hints");
-    assert_eq!(shown, original);
+    assert!(observed.is_string(), "{observed}");
+    assert_eq!(shown, row_data(&first).clone());
     // Another read of the same pull request asks for itself.
     let other = json!({"operation":"pullRequest","owner":"a","repo":"b","number":7,"sections":["body","commits"]});
     call(&runtime, "ghGetHistoryItem", other)
@@ -137,7 +135,7 @@ async fn a_repeat_past_the_stated_lifetime_asks_again() {
         .await
         .expect("late");
     assert_eq!(graphql_sent(&server).await, 2);
-    assert!(!row_data(&late).to_string().contains("observed"));
+    assert!(row_data(&late).get("observedAt").is_none());
     runtime.close().await;
 }
 
@@ -155,7 +153,7 @@ async fn with_no_stated_lifetime_a_repeat_stands_for_the_chosen_window() {
         .await
         .expect("repeat");
     assert_eq!(graphql_sent(&unseen).await, 1, "the repeat asked again");
-    assert!(row_data(&repeat).to_string().contains("observed"));
+    assert!(row_data(&repeat)["observedAt"].is_string());
     runtime.close().await;
 
     let refused = server(graphql_answer(), "no-cache").await;

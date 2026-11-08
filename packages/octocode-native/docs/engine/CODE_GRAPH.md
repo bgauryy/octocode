@@ -59,9 +59,17 @@ the contract embedded in the installed binary. Query alternatives reject
 missing required inputs and options that do not apply to the chosen operation.
 
 A build writes only under the current workspace's `.octocode/graph`, refusing
-scopes or storage symlinks that escape it. Every build extracts its selected inputs
-and publishes its computed snapshot, including when the inputs are unchanged.
-Queries can keep reading an explicit published snapshot. The manifest's
+scopes or storage symlinks that escape it. A build of an unchanged scope answers with
+its newest snapshot instead of rebuilding (`store/ingest/unchanged.rs`): the snapshot
+must carry the same build identity (format, fact schema and analysis versions, package
+version, parser registry, `exclude`, the walk flags, language globs and Cargo setting), and the
+freshness check queries report as `fresh` must find no change. The reuse points
+`latest` at that snapshot and renews its read lease; any doubt rebuilds, and `refresh`
+always rebuilds. A query that names no snapshot in another workspace's home is told
+the home it searched and every allowed `.octocode/graph` above the scope holding a
+snapshot of it, because the home follows the workspace the runtime starts in.
+Retention never removes a snapshot a reader used within the continuation lease,
+whatever its format. Queries can keep reading an explicit published snapshot. The manifest's
 `analysisVersion` identifies older linking rules independently of the binary format.
 It also records the installed registry identity and discovery extensions.
 Builds of different scopes run in parallel: an OS lock serializes only
@@ -72,6 +80,25 @@ from it; `refresh` discards interrupted extraction and starts fresh. Cancellatio
 releases both locks. `keep` defaults to three snapshots per
 scope, with a maximum of 100 for retained baselines. Builds redact stored text and
 return location, digest, counts, coverage, diagnostics and elapsed milliseconds.
+
+A build walks as the local tools do by default: ignore rules honored, dot entries
+hidden, the default excludes pruned. `includeIgnored`, `includeHidden` and
+`defaultExcludes:false` lift those (`ast_graph/walk_scope.rs`: one `WalkScope`
+shared by extraction, the scope proof, the build identity and the retry leads); a
+non-default walk is recorded as the manifest's `scan.walk`, so a snapshot of
+another walk is never reused. When it scans no file, a hint counts the graph
+source files behind the paths the walk still skips and why, and `related` holds the
+same `graphBuild` with exactly those flags lifted. A build that lost a race with a
+concurrent edit is not a tool failure: its hint and `related` lead run the same
+build again (`GraphOutput.retry`). The `unresolved-import` issue groups each file's
+sites by message with every line (`sites: [{message, lines}]`); `count` stays the
+total. A file whose own step panics is a `graph.scan.panicked`
+skip naming the step: `read`, `decode`, `keep`, `parse`, `extract`, `map` or
+`weigh`. A secret scan that unwinds fails the build with no snapshot; the error
+names the files whose string unwinds when scanned alone. A file whose linking
+panics fails it the same way, naming that file. In both, `related` retries the
+build with each named file excluded as that one file (`/<file>`, its glob
+characters matched literally).
 
 Queries select the newest snapshot of exactly `path`, or an exact `graph` ID of
 that scope. **Use the build's path even when supplying its ID**; omitting path
@@ -146,7 +173,28 @@ scope and snapshot. This applies to destination and change-seed references too.
 qualified symbol suffix, then file suffix. It trims whitespace and leading `./`;
 continuations resolve against the recorded snapshot without consulting mutable
 filesystem aliases. A reference no tier matches fails with up to five
-`suggestions`: the first `find` rows for the same text.
+`suggestions`: the first `find` rows for the same text. A path-shaped miss
+(`config/fmt`) suggests only nodes under its deepest directory that holds
+snapshot files, never same-word nodes elsewhere; an absolute or
+workspace-relative spelling gets the leads of its root-relative form.
+
+For `deps` and `dependents`, a reference that spells no node key but names a
+directory with files under it (root-relative, workspace-relative or absolute;
+`.` is the root; `/`, `./` and a blank reference name nothing and fail
+`notFound` without suggestions) walks from every file under it: rows are
+the usual file pairs, files inside the directory are seeds and are not listed,
+and `target` is `{id, kind: "directory"}` with the directory's root-relative
+path. `view: "files"` counts the walked edges per file they reach;
+`view: "modules"` counts them per pair of directories they join (`from` the
+importing or calling side, `to` the imported or called one, a package being
+its own module). Both count every walked edge, also several edges into one
+node, so their counts sum to the edges walked and can exceed the plain
+answer's `totalItems`, which counts reached nodes. Both group before paging,
+and the grouped rows page. `witnesses` states
+`filteredByConfidence`, the matching call witnesses below the query's
+confidence, when there are any. Every listed symbol row carries `verify`: an
+`lspSearch` references call at its declaration line, its path
+workspace-relative, to confirm the syntax candidate.
 
 `find` ranks every node whose name or key matches, in three tiers. `exact`: the
 whole text equals a key or name, key first. `words`: the text and every name and
@@ -221,7 +269,11 @@ lspSearch steps name workspace-relative paths.
   imports never do.
 - Test edges (from test files, or Rust `#[cfg(test)]` items such as `mod
   tests`) never count toward production detectors, `cycles` or `hubs`;
-  traversals (`deps`, `walk`, `impact`) still follow them. A snapshot from an
+  traversals (`deps`, `walk`, `impact`) still follow them. A file is a test
+  file by the one rule the `testCode` filter uses (its path, or a Rust
+  `#[cfg(test)]` mount). Examples, benchmarks, stories, `testing/` helpers and
+  test setup files are not tests by that rule: they carry the `support` role,
+  and their imports, like test imports, are no production dependency. A snapshot from an
   older format asks for a rebuild.
 - `dir-cycle` ignores a Rust module and its own child directory (`tree.rs` or
   `tree/mod.rs` with `tree/child.rs`, and a crate root with its modules): one
@@ -288,7 +340,10 @@ owns the coordinate, branch, atomic-paging and limit rules. Queries preserve the
 captured mapping after source changes or deletion. Structural projections without
 an exact observed span explicitly return `null`. Each occurrence carries a
 `derivation` rule and persisted version
-combining the graph analysis and fact schema versions. Witness rules name the
+combining the graph analysis and fact schema versions. The snapshot manifest
+records both, with the format version, and its build identity hashes them: a
+snapshot built under any other one is stale and an ingest rebuilds it, even over
+an unchanged tree. Witness rules name the
 edge family and actual resolver/projection detail; unresolved rules name the
 edge family and failed-resolution reason. Rows are lean by default
 (`includeProvenance: false`): an origin
@@ -421,10 +476,17 @@ Freshness has one owner (`ast_graph/freshness.rs`). It covers every source and t
 resolution (tsconfig/jsconfig, `package.json`, `Cargo.toml`, `go.mod`, and the
 like). Query freshness and the `stale` operation use it: `stale` rescans the
 scoped file list, so it reports `changed`, `missing`, `added` and `excluded`
-sources and changed configs. A snapshot truncated at its file limit is never
+sources and changed configs. The rescan walks what the build walked: the
+snapshot's walk flags and one admission (`walk_scope::build_admission`), so a
+source the path policy withholds (`.env.py`, a credential store) under
+`includeHidden` is no `added` file. Every rebuild lead (`reingest`, the narrower
+scopes of `scopeTooBroad`, the exclude retry, the missing-manifest note) carries
+the snapshot's whole build scope through `build_scope::BuildScope`: walk flags,
+`exclude` and `parserGlobs`, their root-relative globs rebased onto the lead's
+root. A snapshot truncated at its file limit is never
 reported fresh.
 
-`graph.bin` (format v12) is a sectioned, varint-coded file:
+`graph.bin` (format v19) is a sectioned, varint-coded file:
 
 - **Header:** magic `OCGRAPH\0`, format version, section count, and the
   SHA-256 of the section directory. This root is also recorded in the manifest.
@@ -457,7 +519,7 @@ reported fresh.
   message, and the file node a diagnostic is about, when that is another
   file), per-file digests, components, and entrypoints.
 - **`FSTM`** (optional): per-file size, mtime, ctime and inode, recorded only
-  for files untouched for 2 seconds (`stamp::SourceStamp::SETTLE`) before the scan. Query freshness
+  for files untouched for their settle window (`stamp::SourceStamp::settle_for`: twice the granularity of the write time, at least twice a 20 ms clock tick, so 2 seconds on a whole-second file system) before the scan. Query freshness
   compares these stamps before hashing a source; a file without a stamp, or with
   a different one, is hashed.
 - **Adjacency:** topology operations rebuild both CSR directions in O(V + E).
@@ -517,7 +579,17 @@ The file's names for the constant are followed (`import typing as t`,
 `and`, `or` and the `else` of a negated guard. A Go method is `Type.Method`:
 `x.M()` reads the method set of `x`'s type across its package, then the
 shallowest methods promoted through embedded fields or interfaces (`embeds`
-heritage); an unresolved embedded type keeps a found method medium. Go import
+heritage); an unresolved embedded type keeps a found method medium. A `:=` or
+`var` binding of a call takes the first result type of the callee (facts schema 25):
+a bare result type binds only in the caller's own package, through the caller's
+import qualifier when the callee is another package's, and stays unbound for a
+qualified result type, a result named by a type parameter (`func F[T any]() T`,
+or the receiver's `Box[T]`) or another package's method (`resolve/rust_returns.rs`,
+`in_caller_scope`). The declared result type wins whenever a declaration is
+found: `NewT()` declared `-> Iface` is an `Iface`, and a found declaration with
+no single named result leaves the value untyped; the name rule (`NewT()` is a
+`T`) applies only when no declaration is found (`Received` in
+`resolve/rust_returns.rs`). Go import
 aliases bind the package under the alias, dot imports bind like a wildcard and
 blank imports bind nothing; a plain import binds the name in the target's
 `package` clause, not the path's last segment. A file under a `//go:build`
@@ -532,12 +604,23 @@ confidence.
 CommonJS links the same way. A module-scope `require('./m')` binding (whole module,
 destructured key or `.key`) counts as an import only when oxc semantics prove it
 holds the loaded module; a guarded form such as `root.x || require('./m')` keeps
-its file edge but links no call. A module exports only what unconditional
+its file edge but links no call. A `require` binding inside a function or block
+(`function f() { const m = require('./m'); m.k() }`) holds only over that scope:
+it must be declared directly in the scope that holds it, never written, and not
+declared again in a nested scope; calls inside the scope link at medium
+confidence, since a lazy load runs only when its scope does. An inline
+`require('./m').k()` links that one call the same way. A specifier built at
+runtime (`require(p)`, `require('./' + p)`) links nothing and is disclosed as an
+`unsupported-linking` diagnostic with reason `non-literal-specifier`. An ESM
+import of a CommonJS module reaches `module.exports` through its default import
+and each proven export key (`exports.k = ...`) through a named import. A module
+exports only what unconditional
 Program-level writes to `module.exports`, `exports` or `module.exports.k` prove.
 A function, arrow or class written straight into such an export
 (`exports.k = function () {}`, `module.exports = { k() {} }`,
 `module.exports = function name() {}`) is a declaration named as callers write
-it, and owns the calls inside it. An export inside an IIFE, a UMD wrapper or a
+it, and owns the calls inside it. A barrel `module.exports = require('./impl')` forwards every export of its
+target, as `export * from` does (a spread `{ ...require('./impl') }` is not read). An export inside an IIFE, a UMD wrapper or a
 conditional proves nothing, so calls into it stay unresolved.
 
 ES modules bind the way TypeScript does. A bare call never names a class or
@@ -736,9 +819,9 @@ rather than linked by a name guess.
 
 | Language | Not linked |
 |---|---|
-| TypeScript, TSX, JavaScript | Cross-file property types (`app.scene`), contextually typed parameters and generic callback types; members of `await import()`; UMD exports; guarded loaders (`root._ \|\| require(..)`); `module.exports = require('./impl')`; `require` inside a function body |
-| Python | `cls()`; `__all__` is not read; a constructor call links to the class, not `__init__`; `self` inside a nested function |
-| Go | an explicit type argument applied to one value (`F[T]` with a single argument, which the grammar reads as a type conversion); function values, type switches and method-chain return types. A `NewT()` result is typed `T` from the constructor's name, which is wrong when it returns an interface |
+| TypeScript, TSX, JavaScript | Cross-file property types (`app.scene`), contextually typed parameters and generic callback types; members of `await import()`; UMD exports; guarded loaders (`root._ \|\| require(..)`); a scope `require` whose name a nested scope declares again |
+| Python | The standard-library module list is generated (`skills-dev/octocode-graph-dev/scripts/gen-python-stdlib.mjs` → `aliases/python_stdlib.txt`: the interpreter's `sys.stdlib_module_names` at a pinned Python line plus typeshed `VERSIONS` entries with an upper bound at a pinned typeshed commit; the file header names both), so a private stdlib module (`_socket`) is never bound to another tree; `cls()`; `__all__` is not read; a constructor call links to the class, not `__init__`; `self` inside a nested function |
+| Go | an explicit type argument applied to one value (`F[T]` with a single argument, which the grammar reads as a type conversion); function values, type switches and method-chain return types. A `NewT()` result is typed `T` from the constructor's name only when no declaration of `NewT` is found; a declared result type (an interface included) wins |
 | Rust | calls inside macros; untyped closure parameters. A trait default method is matched to its implementing type by name |
 | Java | method references (`Foo::bar`); untyped lambda parameters; `this(..)` and `super(..)` delegation (`constructor-binding-not-assessed`); record accessors and anonymous-class bodies |
 | C# | extension methods and literal receivers; `: base(..)` initializers; a `global using` declared in another file |
@@ -845,19 +928,34 @@ binary; the 2026-10-30 text-oracle figure in brackets where it differs):
 | Scala | cats (`core`) | `tailRecM` | 0.94 (0.69) | 1.00 |
 | TSX | excalidraw (`packages`) | `mutateElement` | 0.56 | 1.00 |
 | JavaScript | lodash (excl. `vendor/**`) | `isObject` | 0.50 (0.25) | 1.00 |
+| JavaScript (CommonJS) | next.js (`scripts`) | `getGitHubToken` | 1.00 | 1.00 |
 
 The oracle still matches text, not bindings:
 
 - **Assembly + C:** the one "extra" file (`fuzz/decompress_libjpeg.cc`) calls
   the function through an `extern "C"` include, so it is a real caller.
 - **C#:** the one miss is a `recovered-declaration` site.
-- **Go:** the two misses are `ambiguous` sites.
+- **Go:** the two misses are `ambiguous` sites (119 sites in two test files).
+- **TSX:** the 22 missed files (57 sites, 2026-11-08 run) are all
+  `member-unknown-receiver-in-repo`: (a) `const {scene} = app` or `app.scene.*`, where
+  the field's type is the indexed-access type `App["scene"]` of another file
+  (GRF-G2); (b) parameters of callbacks typed by a contextual generic alias
+  (`DragInputCallbackType`); (c) the test global `h.scene`. Direct typed
+  parameters and `this.field` already link. Each needs cross-file type
+  inference; none has a precision-safe cheap rule, so they stay classified misses.
 - **Scala:** the two misses are member calls on untyped receivers
   (`monadInstance.tailRecM`, `fn1.tailRecM`).
-- **JavaScript:** the three misses are `member-unknown-receiver-in-repo`:
-  `lib/common/minify.js` binds `_ = require('lodash')`, which resolves to the
-  `node_modules` package (a correct non-link), and the two test files reach
-  lodash through runtime bindings (`root._ || require(..)`).
+- **JavaScript:** the three missed files hold 32 sites, all
+  `member-unknown-receiver-in-repo`: `lib/common/minify.js` binds
+  `_ = require('lodash')`, the npm package (a correct non-link), and the two
+  test files reach lodash through guarded loaders (`root._ || require(..)`,
+  `interopRequire(filePath)`). `isObject` itself is exported only through
+  lodash's UMD wrapper (`lodash.isObject = isObject` inside `runInContext`),
+  which proves no CommonJS export (Known limits). Re-run 2026-11-07 after
+  scope and inline `require` linking: unchanged, as lodash has no such load.
+- **JavaScript (CommonJS):** the probe is the exported name with the most
+  caller files among modules two or more files load by relative `require`,
+  picked before measuring; its callers use module-scope destructured requires.
 - **TSX:** all 23 misses are `member-unknown-receiver-in-repo` receivers typed
   in other files (Known limits). One oracle hit is a type position
   (`typeof h.app.scene.mutateElement<T>`), not a call. Receivers destructured

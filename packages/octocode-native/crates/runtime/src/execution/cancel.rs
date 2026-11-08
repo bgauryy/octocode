@@ -15,8 +15,9 @@ pub trait CancellationCheck: Sync {
     }
 }
 
-/// The instant work under `cancel` must stop: its request's deadline, else
-/// the longest any request may run.
+/// The instant one wait under `cancel` must end: its request's deadline,
+/// else the longest single wait from now (a request without a caller budget
+/// has no deadline; a cancel ends its waits).
 pub(crate) fn deadline_of(cancel: &dyn CancellationCheck) -> std::time::Instant {
     cancel
         .deadline()

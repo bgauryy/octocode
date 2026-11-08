@@ -96,13 +96,15 @@ pub(crate) const JDTLS_HEADLESS_ARGS: &[&str] =
 
 /// jdtls settings (sent as `initializationOptions.settings`): no automatic
 /// workspace build, and Eclipse metadata (`.project`, `.classpath`,
-/// `.settings/`) kept in the `-data` directory, not the project root.
+/// `.settings/`) kept in the `-data` directory, not the project root;
+/// methods listed by `workspace/symbol`, which returns types only otherwise.
 pub(crate) fn jdtls_headless_options() -> Value {
     json!({
         "settings": {
             "java": {
                 "autobuild": { "enabled": false },
-                "import": { "generatesMetadataFilesAtProjectRoot": false }
+                "import": { "generatesMetadataFilesAtProjectRoot": false },
+                "symbols": { "includeSourceMethodDeclarations": true }
             }
         }
     })
@@ -160,13 +162,73 @@ pub fn serves_requests_concurrently(config: &LspLanguageServerConfig) -> bool {
 }
 
 /// Most `workspace/symbol` results the server returns for one query, for a
-/// server that drops the rest without saying so: tsgo answers
-/// `min(n, 256)` (typescript-go `internal/ls/symbols.go`).
+/// server that drops the rest without saying so:
+/// - tsgo answers `min(n, 256)` (typescript-go `internal/ls/symbols.go`);
+/// - gopls answers at most `maxSymbols` = 100
+///   (`gopls/internal/golang/workspace_symbol.go`);
+/// - rust-analyzer answers `workspace.symbol.search.limit`, 128 by default;
+/// - clangd answers `--limit-results`, 100 by default, 0 for no limit.
+///
+/// `None` for a server with no such limit, or one configured without it.
 pub fn workspace_symbol_limit(config: &LspLanguageServerConfig) -> Option<usize> {
-    (server_stem(&config.command).as_deref() == Some("tsgo")).then_some(TSGO_WORKSPACE_SYMBOL_LIMIT)
+    match server_stem(&config.command).as_deref()? {
+        "tsgo" => Some(TSGO_WORKSPACE_SYMBOL_LIMIT),
+        "gopls" => Some(GOPLS_WORKSPACE_SYMBOL_LIMIT),
+        "rust-analyzer" => Some(
+            config
+                .initialization_options
+                .as_ref()
+                .and_then(|options| options.pointer("/workspace/symbol/search/limit"))
+                .and_then(Value::as_u64)
+                .and_then(|limit| usize::try_from(limit).ok())
+                .unwrap_or(RUST_ANALYZER_WORKSPACE_SYMBOL_LIMIT),
+        ),
+        "clangd" => Some(clangd_result_limit(
+            config.args.as_deref().unwrap_or_default(),
+        ))
+        .filter(|limit| *limit > 0),
+        _ => None,
+    }
+}
+
+/// What to do about a capped `workspace/symbol` answer: narrow the query, and
+/// for tsgo also route `.ts` to `typescript-language-server`, which an
+/// `lsp-servers.json` entry always wins ([`workspace_symbol_limit`]).
+pub fn workspace_symbol_cap_advice(config: &LspLanguageServerConfig) -> &'static str {
+    if server_stem(&config.command).as_deref() == Some("tsgo") {
+        "narrow symbolQuery, or route .ts to typescript-language-server in lsp-servers.json"
+    } else {
+        "narrow symbolQuery"
+    }
 }
 
 const TSGO_WORKSPACE_SYMBOL_LIMIT: usize = 256;
+const GOPLS_WORKSPACE_SYMBOL_LIMIT: usize = 100;
+const RUST_ANALYZER_WORKSPACE_SYMBOL_LIMIT: usize = 128;
+const CLANGD_RESULT_LIMIT: usize = 100;
+
+/// clangd's `--limit-results` among `args`: LLVM's command line takes one or two
+/// dashes, and the value after `=` or as the next argument; the last one wins,
+/// as in clangd.
+fn clangd_result_limit(args: &[String]) -> usize {
+    let mut limit = CLANGD_RESULT_LIMIT;
+    let mut args = args.iter();
+    while let Some(arg) = args.next() {
+        let value = match arg
+            .strip_prefix("--")
+            .or_else(|| arg.strip_prefix('-'))
+            .and_then(|flag| flag.strip_prefix("limit-results"))
+        {
+            Some("") => args.next().map(String::as_str),
+            Some(rest) => rest.strip_prefix('='),
+            None => None,
+        };
+        if let Some(parsed) = value.and_then(|value| value.parse().ok()) {
+            limit = parsed;
+        }
+    }
+    limit
+}
 
 /// Apply per-server safe defaults to a resolved launch configuration, on
 /// every launch path (discovery, runtime). rust-analyzer runs no

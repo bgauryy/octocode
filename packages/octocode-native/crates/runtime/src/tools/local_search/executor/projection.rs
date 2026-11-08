@@ -3,12 +3,12 @@
 use crate::tools::local_search::local_search_query::View;
 use octocode_contract_types::CaseMode;
 use octocode_contract_types::RegexEngine;
-use octocode_engine::num::saturating_u32;
 use octocode_engine::types::SearchSort;
 
 use super::super::enclosing::{annotate_enclosing, annotate_match_keys};
 use super::super::handoff::Definition;
 use super::super::layout::{Layout, file_pagination};
+use super::super::page_view::EntryFacts;
 use super::super::rows::{HitWindow, merge_context_windows, project_match};
 use super::super::types::SearchFile;
 use super::super::verify::{Outlines, PageScope, Redacted};
@@ -33,10 +33,9 @@ pub(super) struct Annotated<'q> {
 pub(super) fn annotate_rows<'q>(
     scope: &PageScope<'q, impl CancellationCheck>,
     layout: &Layout,
-    scanned: Vec<octocode_engine::types::TextSearchFile>,
+    (scanned, facts): (Vec<octocode_engine::types::TextSearchFile>, &[EntryFacts]),
     redacted: &Redacted,
     outlines: Outlines,
-    page_budget: usize,
 ) -> Annotated<'q> {
     let PageScope {
         query,
@@ -45,18 +44,10 @@ pub(super) fn annotate_rows<'q>(
         security,
         ..
     } = *scope;
-    let (mut files, shown_redacted) = project_files(query, layout, scanned, redacted);
+    let (mut files, shown_redacted) = project_files(query, layout, (scanned, facts), redacted);
     let symbol = searched_symbol(query, layout);
-    // Rows render with the root's prefix, which the page cut charged.
-    let keys_budget = page_budget.saturating_sub(layout.prefix_chars.saturating_mul(files.len()));
     let mut notes = Vec::new();
-    notes.extend(annotate_match_keys(
-        &mut files,
-        output_root,
-        keys_budget,
-        expected_digest,
-        security,
-    ));
+    annotate_match_keys(&mut files, output_root, expected_digest, security);
     // A matchOnly row is the hit's text and place; content rows name its owner.
     let (definition, enclosing_note) = if local_search_query::view(query) == View::MatchOnly {
         (None, None)
@@ -145,10 +136,12 @@ pub(crate) fn order_files(
 }
 
 /// The page's file entries, and how many shown values were redacted.
+/// `scanned` are the page's files ([`super::super::page_view::PageView`]),
+/// `facts` what each entry knows of its rows on other pages.
 fn project_files(
     query: &LocalSearchQuery,
     layout: &Layout,
-    scanned: Vec<octocode_engine::types::TextSearchFile>,
+    (scanned, facts): (Vec<octocode_engine::types::TextSearchFile>, &[EntryFacts]),
     redacted: &Redacted,
 ) -> (Vec<SearchFile>, usize) {
     let match_only = local_search_query::view(query) == View::MatchOnly;
@@ -158,11 +151,16 @@ fn project_files(
     let files = layout
         .shown
         .iter()
-        .filter_map(|(index, rows)| Some((slots.get_mut(*index)?.take()?, rows.clone())))
-        .map(|(f, rows)| {
+        .filter_map(|(index, rows)| {
+            Some((
+                slots.get_mut(*index)?.take()?,
+                rows.clone(),
+                facts.get(*index)?,
+            ))
+        })
+        .map(|(f, rows, facts)| {
             // One key per file, its line and column set per row.
             let mut key = (f.path.clone(), 0, 0);
-            let total = saturating_u32(f.matches.len());
             let end = rows.end.min(f.matches.len());
             let start = rows.start.min(end);
             let mut page_rows = f.matches[start..end].iter().collect::<Vec<_>>();
@@ -183,26 +181,34 @@ fn project_files(
                     row
                 })
                 .collect::<Vec<_>>();
-            // Rows on later pages, named by line so a reader can fetch them
-            // directly instead of paging.
-            let mut later = f.matches[end..].iter().map(|m| m.line).collect::<Vec<_>>();
-            later.sort_unstable();
-            later.dedup();
             let shown = match layout.merge_context {
                 Some(context) => {
-                    // Every hit's window, on any page: the lines it holds.
-                    let mut hits = f
-                        .matches
+                    // The shown hits' windows as this page verified them,
+                    // and the windows of the file's other hits that border
+                    // them: the lines each holds.
+                    let mut hits = f.matches[start..end]
                         .iter()
                         .map(|m| HitWindow::of(m, context))
+                        .chain(facts.neighbours.iter().copied())
                         .collect::<Vec<_>>();
-                    hits.sort_unstable_by_key(|hit| (hit.line, hit.first, hit.last));
+                    // One window per start line: the one covering most lines,
+                    // so a neighbour never trims a line a match covers.
+                    hits.sort_unstable_by_key(|hit| {
+                        (
+                            hit.line,
+                            std::cmp::Reverse(hit.matched_last),
+                            hit.first,
+                            hit.last,
+                        )
+                    });
                     hits.dedup_by_key(|hit| hit.line);
                     merge_context_windows(shown, context, &hits)
                 }
                 None => shown,
             };
-            let span = (start, end, shown.len());
+            // Rows on later pages are named by line so a reader can fetch
+            // them directly instead of paging.
+            let span = (facts.start as usize, facts.end as usize, shown.len());
             SearchFile {
                 declarations: Vec::new(),
                 matches: (!layout.list).then_some(shown),
@@ -212,7 +218,13 @@ fn project_files(
                     .then_some(f.match_count),
                 term_counts: (is_count_view(query) && !f.term_counts.is_empty())
                     .then_some(f.term_counts),
-                pagination: file_pagination(layout, total, span, &later, match_page),
+                pagination: file_pagination(
+                    layout,
+                    facts.total,
+                    span,
+                    (&facts.later, facts.unlisted),
+                    match_page,
+                ),
                 path: f.path,
                 match_keys: Vec::new(),
             }

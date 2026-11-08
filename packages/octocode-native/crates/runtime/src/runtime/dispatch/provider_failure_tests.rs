@@ -102,7 +102,7 @@ fn typed_shape_mismatch_is_invalid_input_for_every_local_tool() {
     let security = ContentSecurity::new();
     let context = ExecutionContext {
         cancellation: octocode_io::cancellation::Cancellation::new(),
-        deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
+        deadline: Some(std::time::Instant::now() + std::time::Duration::from_secs(60)),
         response_window: None,
         github_credential: None,
     };
@@ -149,7 +149,7 @@ fn a_non_local_tool_is_a_routing_error() {
     .expect("path policy");
     let context = ExecutionContext {
         cancellation: octocode_io::cancellation::Cancellation::new(),
-        deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
+        deadline: Some(std::time::Instant::now() + std::time::Duration::from_secs(60)),
         response_window: None,
         github_credential: None,
     };

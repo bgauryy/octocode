@@ -1,9 +1,11 @@
 //! The qualified-path note: a pattern matches a path as written, so
-//! `Mutex::new($X)` leaves out `std::sync::Mutex::new(x)`, and a call on a
-//! bare name leaves out the calls that qualify it (`redact_lines($$$A)`
-//! against `crate::security::scan::redact_lines(x)`). A first page counts
-//! those longer spellings in the files its scan evaluated and leads to the
-//! rule that lists them all.
+//! `Mutex::new($X)` leaves out `std::sync::Mutex::new(x)`, a call on a bare
+//! name leaves out the calls that qualify it (`redact_lines($$$A)` against
+//! `crate::security::scan::redact_lines(x)`), and a name inside a larger
+//! pattern leaves out its qualified spelling (`impl ToolOutput for $T {}`
+//! against `impl crate::x::ToolOutput for B {}`). A first page counts those
+//! longer spellings in the files its scan evaluated and leads to the rule
+//! that lists them all.
 use super::exact_miss::{rule_scan, with_rule};
 use super::query::MatchQuery;
 use super::rows::push_diagnostic;
@@ -15,30 +17,36 @@ use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
 use crate::tools::ast_search::RowPaths;
 use octocode_contract_types::AstSearchQueryMatch0;
-use octocode_engine::structural::{Rebuilt, pattern_qualifier};
+use octocode_engine::structural::{
+    QualifiedPattern, Rebuilt, StructuralDetailedMatch, pattern_qualifier,
+};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Longer spellings of a pattern's path the scan's files hold.
+/// Longer spellings of a pattern's names the scan's files hold.
 pub(super) struct QualifiedMiss {
-    head: String,
+    /// The names the longer spellings qualify, in pattern order.
+    names: Vec<String>,
     count: usize,
     files: usize,
-    /// The first longer spelling, as `path:line`.
-    first: String,
-    /// The rule listing the pattern and its longer spelling: one query, or
-    /// one per grammar when the scan's grammars spell the longer pattern
-    /// differently (a pattern compiles in the grammar it is written in).
+    /// The first longer spelling, as `path:line`; `None` when no probed
+    /// file holds one.
+    first: Option<String>,
+    /// The files whose longer spellings are unknown: their count and the
+    /// first one's path.
+    unprobed: Option<(usize, String)>,
+    /// The rule listing the pattern and every longer spelling found: one
+    /// query, or one per grammar when the scan read several (a pattern
+    /// compiles in the grammar it is written in).
     queries: Vec<AstSearchQueryMatch0>,
 }
 
-/// [`QualifiedMiss`] of a first page whose `rule.pattern` is a `::` path
-/// (or a call on one) or a call on a bare name: its longer spelling matched
-/// over every file the scan evaluated. A file the literal prefilter skipped
-/// holds no match of the longer spelling, which spells every literal of the
-/// pattern. `None`
-/// when the pattern has no longer spelling, the scan or a probe did not
-/// finish, or no file holds one.
+/// [`QualifiedMiss`] of a first page whose `rule.pattern` has a literal name
+/// a path can qualify ([`pattern_qualifier`]): its skeleton matched over
+/// every file the scan evaluated, and each match that qualifies some of the
+/// names counted. A file the literal prefilter skipped holds no such match,
+/// which spells every literal of the pattern. `None` when the pattern has no
+/// such name, the scan or a probe did not finish, or no file holds one.
 pub(super) fn qualified_miss(
     q: MatchQuery<'_>,
     scope: &Scope,
@@ -46,7 +54,7 @@ pub(super) fn qualified_miss(
     (paths, row_paths): (&PathPolicy, RowPaths<'_>),
     cancel: &dyn CancellationCheck,
 ) -> Option<QualifiedMiss> {
-    if q.page() != 1 || q.match_page() != 1 || q.scan_offset() != 0 || scan.truncated {
+    if q.page() != 1 || q.scan_offset() != 0 || scan.truncated {
         return None;
     }
     let rule = q.to_value().get("rule")?.as_object()?.clone();
@@ -54,30 +62,49 @@ pub(super) fn qualified_miss(
     if rule.contains_key("any") {
         return None;
     }
-    let found = if scope.is_file {
+    let Probe {
+        grammars,
+        hits,
+        count,
+        unprobed,
+    } = if scope.is_file {
         file_probe(q, scope, &rule, &pattern, paths, cancel)?
     } else {
         directory_probe(scope, scan, &rule, &pattern, cancel)?
     };
-    let Probe {
-        head,
-        spellings,
-        hits,
-        count,
-    } = found;
-    let (path, line) = hits
+    if hits.is_empty() && unprobed.is_empty() {
+        return None;
+    }
+    let first = hits
         .first_key_value()
-        .map(|(path, line)| (path.clone(), *line))?;
-    let pinned = spellings.len() > 1;
-    let queries = spellings
+        .map(|(path, line)| format!("{}:{line}", row_paths.delivered(path)));
+    let unprobed = unprobed
+        .first()
+        .map(|path| (unprobed.len(), row_paths.delivered(path)));
+    let mut names = Vec::new();
+    for (qualified, found) in grammars.values() {
+        let spelled = qualified.names();
+        for index in found.iter().flatten() {
+            if let Some(name) = spelled.get(*index)
+                && !names.iter().any(|known| known == name)
+            {
+                names.push((*name).to_owned());
+            }
+        }
+    }
+    let pinned = grammars.len() > 1;
+    let queries = grammars
         .iter()
-        .map(|(grammar, broader)| {
+        .map(|(grammar, (qualified, found))| {
+            let mut found = found.iter().collect::<Vec<_>>();
+            found.sort_by(|a, b| (a.len(), a).cmp(&(b.len(), b)));
+            let spellings = std::iter::once(pattern.clone())
+                .chain(found.into_iter().map(|names| qualified.spelling(names)))
+                .map(|spelled| json!({"pattern": spelled}))
+                .collect::<Vec<_>>();
             let mut lead = rule.clone();
             lead.remove("pattern");
-            lead.insert(
-                "any".into(),
-                json!([{"pattern": pattern}, {"pattern": broader}]),
-            );
+            lead.insert("any".into(), Value::Array(spellings));
             let mut query = serde_json::to_value(with_rule(q, scope, Value::Object(lead))?).ok()?;
             if pinned {
                 query["parser"] = json!(grammar);
@@ -86,10 +113,11 @@ pub(super) fn qualified_miss(
         })
         .collect::<Option<Vec<_>>>()?;
     Some(QualifiedMiss {
-        head,
+        names,
         count,
         files: hits.len(),
-        first: format!("{}:{line}", row_paths.delivered(&path)),
+        first,
+        unprobed,
         queries,
     })
 }
@@ -103,25 +131,111 @@ fn extension_grammar(extension: &str) -> String {
 
 /// What the longer spellings matched.
 struct Probe {
-    /// The name the pattern's longer spellings qualify.
-    head: String,
-    /// Each distinct longer spelling the scan's grammars gave the pattern,
-    /// with the grammar that spells it.
-    spellings: Vec<(String, String)>,
+    /// Per grammar (parser ID) that read a longer spelling: the pattern's
+    /// longer spellings there, and each set of names a match qualified.
+    grammars: BTreeMap<String, (QualifiedPattern, BTreeSet<Vec<usize>>)>,
     /// The first line per file (by path).
     hits: BTreeMap<String, u64>,
     /// The match count.
     count: usize,
+    /// The files whose probe did not finish (changed since the scan, or cut
+    /// by a limit), by path: their longer spellings are unknown.
+    unprobed: Vec<String>,
 }
 
-/// `rule` with its pattern spelled longer.
-fn probe_rule(rule: &Map<String, Value>, broader: &str) -> Value {
+impl Probe {
+    fn new() -> Self {
+        Self {
+            grammars: BTreeMap::new(),
+            unprobed: Vec::new(),
+            hits: BTreeMap::new(),
+            count: 0,
+        }
+    }
+
+    /// One file's longer spellings (`found`, in match order), read with
+    /// `qualified` in the grammar `extension` names.
+    fn add(
+        &mut self,
+        path: &str,
+        extension: &str,
+        qualified: &QualifiedPattern,
+        found: Vec<(u64, Vec<usize>)>,
+    ) {
+        let Some(line) = found.iter().map(|(line, _)| *line).min() else {
+            return;
+        };
+        self.hits.insert(path.to_owned(), line);
+        self.count += found.len();
+        self.grammars
+            .entry(extension_grammar(extension))
+            .or_insert_with(|| (qualified.clone(), BTreeSet::new()))
+            .1
+            .extend(found.into_iter().map(|(_, names)| names));
+    }
+}
+
+/// The skeleton's matches that qualify some of the pattern's names: each
+/// one's line and the names it qualifies.
+///
+/// The captures only name candidates (a capture can hold `&m::Foo`, which
+/// ends like a path but is another type), so each candidate counts only
+/// when the spellings of the names it qualifies match it too: the note
+/// counts exactly what its lead returns. `spelled` runs a rule over the same
+/// file and gives its matches' spans; `None` when that run did not finish.
+fn longer_spellings(
+    rule: &Map<String, Value>,
+    qualified: &QualifiedPattern,
+    matches: &[StructuralDetailedMatch],
+    spelled: impl FnOnce(Value) -> Option<BTreeSet<Span>>,
+) -> Option<Vec<(u64, Vec<usize>)>> {
+    let candidates = matches
+        .iter()
+        .filter_map(|found| Some((span(found), qualified.qualified_names(&found.metavars)?)))
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        return Some(Vec::new());
+    }
+    let spellings = candidates
+        .iter()
+        .map(|(_, names)| names)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|names| json!({"pattern": qualified.spelling(names)}))
+        .collect();
+    let mut any = rule.clone();
+    any.remove("pattern");
+    any.insert("any".into(), Value::Array(spellings));
+    let spans = spelled(Value::Object(any))?;
+    Some(
+        candidates
+            .into_iter()
+            .filter(|(at, _)| spans.contains(at))
+            .map(|(at, names)| (u64::from(at.0), names))
+            .collect(),
+    )
+}
+
+/// Where a match sits: start line and column, end line and column.
+type Span = (u32, u32, u32, u32);
+
+fn span(found: &StructuralDetailedMatch) -> Span {
+    (
+        found.start_line,
+        found.start_col,
+        found.end_line,
+        found.end_col,
+    )
+}
+
+/// `rule` with `pattern` in place of its own.
+fn probe_rule(rule: &Map<String, Value>, pattern: &str) -> Value {
     let mut probe = rule.clone();
-    probe.insert("pattern".into(), json!(broader));
+    probe.insert("pattern".into(), json!(pattern));
     Value::Object(probe)
 }
 
-/// A file scope: the file scanned once more with the longer spelling.
+/// A file scope: the file scanned once more with the skeleton.
 fn file_probe(
     q: MatchQuery<'_>,
     scope: &Scope,
@@ -132,24 +246,28 @@ fn file_probe(
 ) -> Option<Probe> {
     let extension = scope_extension(scope)?;
     let qualified = pattern_qualifier(pattern, &extension)?;
-    let query = with_rule(q, scope, probe_rule(rule, &qualified.broader))?;
-    let scan = rule_scan(&query, paths, cancel)?;
-    let file = scan.files.first().filter(|file| file.status == "ok")?;
-    let matches = file.matches.held();
-    let line = matches.first().map(|found| u64::from(found.start_line))?;
-    Some(Probe {
-        head: qualified.head,
-        spellings: vec![(extension_grammar(&extension), qualified.broader)],
-        hits: BTreeMap::from([(file.path.clone(), line)]),
-        count: matches.len(),
-    })
+    let query = with_rule(q, scope, probe_rule(rule, qualified.skeleton()))?;
+    let mut probe = Probe::new();
+    let found = rule_scan(&query, paths, cancel).and_then(|scan| {
+        let file = scan.files.into_iter().find(|file| file.status == "ok")?;
+        longer_spellings(rule, &qualified, file.matches.held(), |any| {
+            let spelled = rule_scan(&with_rule(q, scope, any)?, paths, cancel)?;
+            let file = spelled.files.first().filter(|file| file.status == "ok")?;
+            Some(file.matches.held().iter().map(span).collect())
+        })
+    });
+    let path = scope.canonical.to_string_lossy();
+    match found {
+        Some(found) => probe.add(&path, &extension, &qualified, found),
+        None => probe.unprobed.push(path.into_owned()),
+    }
+    Some(probe)
 }
 
-/// A directory scope: each file the scan parsed, matched again from the
-/// bytes it scanned under the grammar it was read with and the longer
-/// spelling that grammar gives the pattern. The grammars must agree on the
-/// name they qualify; a file that changed or did not finish matching voids
-/// the count.
+/// A directory scope: each file the scan parsed that spells a name after a
+/// separator, matched again from the bytes it scanned under the grammar it
+/// was read with and that grammar's skeleton of the pattern. A file that
+/// changed or did not finish matching voids the count.
 fn directory_probe(
     scope: &Scope,
     scan: &Scan,
@@ -157,70 +275,65 @@ fn directory_probe(
     pattern: &str,
     cancel: &dyn CancellationCheck,
 ) -> Option<Probe> {
-    let mut spellings = BTreeMap::new();
+    let mut probe = Probe::new();
+    let mut grammars = BTreeMap::new();
     let mut probed = Vec::new();
     for file in scan.files.iter().filter(|file| file.status == "ok") {
         let Some((source, digest)) = &file.source else {
-            return None;
+            probe.unprobed.push(file.path.clone());
+            continue;
         };
         let extension = parser_extension(scope, source);
-        let qualified = spellings
+        let qualified = grammars
             .entry(extension.clone())
             .or_insert_with(|| pattern_qualifier(pattern, &extension));
-        if let Some(qualified) = qualified {
-            probed.push((file, source, digest, extension, qualified.broader.clone()));
+        if qualified.is_some() {
+            probed.push((file, source, digest, extension));
         }
     }
-    let spelled = spellings
-        .into_iter()
-        .filter_map(|(extension, qualified)| Some((extension, qualified?)))
-        .collect::<Vec<_>>();
-    let head = spelled.first()?.1.head.clone();
-    if spelled.iter().any(|(_, qualified)| qualified.head != head) {
-        return None;
-    }
-    let spellings = spelled
-        .into_iter()
-        .map(|(extension, qualified)| (extension_grammar(&extension), qualified.broader))
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect();
     let workers = crate::tools::workers::workers(probed.len(), None);
     let stop = || cancel.check().is_err();
     let found = crate::tools::workers::each_parallel(
         &mut probed,
         workers,
-        |(_, source, digest, extension, broader)| match octocode_engine::structural::file_matches(
-            source,
-            extension,
-            None,
-            Some(&probe_rule(rule, broader)),
-            digest,
-            crate::security::SourceLimits::REAL.whole_source as u64,
-            &stop,
-        ) {
-            Ok(Rebuilt::Matches(matches)) => Some(
-                matches
-                    .first()
-                    .map(|m| (u64::from(m.start_line), matches.len())),
-            ),
-            _ => None,
+        |(_, source, digest, extension)| {
+            let qualified = grammars.get(extension.as_str())?.as_ref()?;
+            // Reading the bytes is far cheaper than parsing them: a file
+            // that spells no name after a separator holds no longer
+            // spelling. One that no longer reads is matched, which says so.
+            let limit = crate::security::SourceLimits::REAL.whole_source as u64;
+            if let Ok(read) = octocode_engine::text::read_source(source, limit)
+                && !qualified.may_qualify(&String::from_utf8_lossy(&read.bytes))
+            {
+                return Some(Vec::new());
+            }
+            let matches = |rule: &Value| match octocode_engine::structural::file_matches(
+                source,
+                extension,
+                None,
+                Some(rule),
+                digest,
+                limit,
+                &stop,
+            ) {
+                Ok(Rebuilt::Matches(matches)) => Some(matches),
+                _ => None,
+            };
+            let skeleton = matches(&probe_rule(rule, qualified.skeleton()))?;
+            longer_spellings(rule, qualified, &skeleton, |any| {
+                Some(matches(&any)?.iter().map(span).collect())
+            })
         },
     );
-    let mut hits = BTreeMap::new();
-    let mut count = 0;
-    for ((file, ..), outcome) in probed.iter().zip(found) {
-        if let Some((line, matches)) = outcome? {
-            hits.insert(file.path.clone(), line);
-            count += matches;
+    for ((file, _, _, extension), outcome) in probed.iter().zip(found) {
+        match (grammars.get(extension.as_str()), outcome) {
+            (Some(Some(qualified)), Some(found)) => {
+                probe.add(&file.path, extension, qualified, found);
+            }
+            _ => probe.unprobed.push(file.path.clone()),
         }
     }
-    Some(Probe {
-        head,
-        spellings,
-        hits,
-        count,
-    })
+    Some(probe)
 }
 
 impl QualifiedMiss {
@@ -228,26 +341,57 @@ impl QualifiedMiss {
     /// lists every spelling.
     pub(super) fn attach(self, out: &mut Value) {
         let Self {
-            head,
+            names,
             count,
             files,
             first,
+            unprobed,
             queries,
         } = self;
+        let unprobed = unprobed
+            .map(|(files, first)| {
+                format!(" Longer spellings in {files} file(s) are unknown: the probe did not finish (first: {first}).")
+            })
+            .unwrap_or_default();
+        let names = names
+            .iter()
+            .map(|name| format!("`{name}`"))
+            .collect::<Vec<_>>()
+            .join(" or ");
         let diagnostic = json!({
             "code": "structural.pattern.qualified",
             "severity": "info",
             "stage": "match",
-            "message": format!(
-                "The pattern matches the path as written: {count} more match(es) in {files} file(s) spell a path or receiver before `{head}` (first: {first})."
-            ),
-            "recovery": "broadenSearch lists every spelling.",
+            "message": match first {
+                Some(first) => format!(
+                    "The pattern matches the path as written: {count} more match(es) in {files} file(s) spell a path or receiver before {names} (first: {first}).{unprobed}"
+                ),
+                None => format!("The pattern matches the path as written.{unprobed}"),
+            },
+            "recovery": "The related astSearch rule with `any` lists every spelling found.",
         });
         push_diagnostic(out, diagnostic);
-        out["calls"]["broadenSearch"] = crate::response::result::Continuation::related_input(
+        if queries.is_empty() {
+            return;
+        }
+        // A lead an empty page's own explanation already offers stays: this
+        // one takes the next numbered `broadenSearch` (`crate::id::numbered`).
+        let mut index = 0;
+        while out["calls"]
+            .get(crate::id::numbered("broadenSearch", index))
+            .is_some()
+        {
+            index += 1;
+        }
+        let key = crate::id::numbered("broadenSearch", index);
+        out["calls"][key] = crate::response::result::Continuation::related_input(
             ToolId::AstSearch,
             json!({"queries": queries}),
         )
         .build();
     }
 }
+
+#[cfg(test)]
+#[path = "qualified_tests.rs"]
+mod tests;

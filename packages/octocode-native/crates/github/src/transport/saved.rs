@@ -78,6 +78,12 @@ impl SavedAnswer {
         Reuse::Spent
     }
 
+    /// The conditional header that asks the origin to confirm this answer,
+    /// whatever lifetime it stated: what proves it still stands now.
+    pub(super) fn revalidation(&self) -> Option<(HeaderName, String)> {
+        validator(&self.answer.headers)
+    }
+
     /// The origin confirmed this answer at `now_ms` with `headers` (a 304):
     /// they replace what freshness reads (RFC 9111 section 3.2); the rest of
     /// the answer stays whole.

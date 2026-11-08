@@ -85,7 +85,7 @@ impl Serialize for MatchKeys<'_> {
     }
 }
 
-/// localSearch's `matchKeys` on the wire: `[{"line": <line>, "key": "<key path>"}]` in line order.
+/// localSearch's `matchKeys` on the wire: `[{"line": <line>, "keyPath": "<key path>"}]` in line order.
 pub(crate) struct MatchKeyRows<'a>(pub(crate) &'a [(usize, String)]);
 
 impl Serialize for MatchKeyRows<'_> {
@@ -93,16 +93,20 @@ impl Serialize for MatchKeyRows<'_> {
         use serde::ser::SerializeSeq;
         let mut rows = serializer.serialize_seq(Some(self.0.len()))?;
         for (line, key) in self.0 {
-            rows.serialize_element(&MatchKeyRow { line: *line, key })?;
+            rows.serialize_element(&MatchKeyRow {
+                line: *line,
+                key_path: key,
+            })?;
         }
         rows.end()
     }
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct MatchKeyRow<'a> {
     line: usize,
-    key: &'a str,
+    key_path: &'a str,
 }
 
 /// `serialize_with` form of [`MatchKeyRows`].
@@ -122,7 +126,7 @@ mod tests {
         let keys = vec![(12, "a.b".to_owned()), (100, "c".to_owned())];
         assert_eq!(
             serde_json::to_value(MatchKeyRows(&keys)).expect("serializable"),
-            serde_json::json!([{"line": 12, "key": "a.b"}, {"line": 100, "key": "c"}])
+            serde_json::json!([{"line": 12, "keyPath": "a.b"}, {"line": 100, "keyPath": "c"}])
         );
     }
 

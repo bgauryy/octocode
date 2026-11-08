@@ -108,8 +108,9 @@ fn usings_and_namespaces_bind_types() {
             to("src/Util/Strings.cs#Strings.Pad", "type-qualified"),
         ]
     );
+    // A field initializer's call is the field's own.
     assert_eq!(
-        callees(root, "src/App/Use.cs#Use"),
+        callees(root, "src/App/Use.cs#Use.helper"),
         [to(other, "constructs:import")]
     );
     let util = "src/Util/Helper.cs#Helper";

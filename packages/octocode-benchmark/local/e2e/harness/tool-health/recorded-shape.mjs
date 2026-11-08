@@ -82,6 +82,9 @@ const repositoryMarker = value => {
 const dateMarker = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}(?:T|$)/i.test(value)
   ? `\u001edate:${value.slice(0, 10)}\u001e` : null;
 
+/** Output fields that state when the tool looked, not a date the provider gave. */
+const TOOL_CLOCK = new Set(['observedAt']);
+
 /** Every text and number an output holds, folded for comparison. */
 export function outputText(output) {
   const parts = [];
@@ -94,8 +97,12 @@ export function outputText(output) {
           ? `https://github.com/${value.owner}/${value.repo}` : null;
       const marker = repositoryMarker(repository);
       if (marker) parts.push(marker);
-      const day = dateMarker(value.publishedAt);
-      if (day) parts.push(day);
+      // A date a tool shows is a day: any `...At` field of the output, whatever it is
+      // named, except the tool's own clock: today's day proves no provider date.
+      for (const [key, field] of Object.entries(value)) {
+        const day = key.endsWith('At') && !TOOL_CLOCK.has(key) ? dateMarker(field) : null;
+        if (day) parts.push(day);
+      }
       if (value.verification === 'tag' && typeof value.ref === 'string') parts.push(`refs/tags/${value.ref}`);
       Object.values(value).forEach(visit);
     }
@@ -207,8 +214,132 @@ function holds(value, named, depth = 3) {
   return depth > 0 && !!value && typeof value === 'object' && Object.values(value).some(child => holds(child, named, depth - 1));
 }
 
-/** The items to keep: first, last, any holding a named version, and each that adds a path or type. */
-function covering(entries, named, maps) {
+/** Every text and number in `value`, and every key that names data, at any depth. */
+function leaves(value, found = new Set()) {
+  if (typeof value === 'string' || typeof value === 'number') found.add(String(value));
+  else if (value && typeof value === 'object') for (const [key, child] of Object.entries(value)) {
+    if (!Array.isArray(value) && !FIELD_KEY.test(key)) found.add(key);
+    leaves(child, found);
+  }
+  return found;
+}
+
+/** Where a value splits into the parts a request may carry one of: URL, query and text punctuation. */
+const SEPARATORS = /[\s/?#&=:+@,;|"'`<>()[\]{}\\]+/;
+const tokensOf = text => text.split(SEPARATORS).filter(Boolean);
+/** One URL component decoded, `+` as a space; a malformed escape leaves only that component as sent. */
+const decodedPart = (part, query) => { const text = query ? part.replaceAll('+', ' ') : part; try { return decodeURIComponent(text); } catch { return text; } };
+
+/**
+ * A request ({ url, body }) as its case-folded text, the whole tokens it carries,
+ * and its path tails (`repos/o/r`, `o/r`): the joined segments a value may hold
+ * inside a longer one, as a repository URL holds the owner/repo a request names.
+ */
+function requestParts({ url, body }) {
+  const parts = [];
+  let parsed;
+  try { parsed = new URL(url); } catch { parsed = null; }
+  const segments = parsed ? parsed.pathname.split('/').map(segment => decodedPart(segment, false).toLowerCase()).filter(Boolean) : [];
+  if (parsed) {
+    parts.push(decodedPart(`${parsed.origin}${parsed.pathname}`, false), parsed.host, ...segments);
+    for (const pair of parsed.search.slice(1).split('&')) parts.push(...pair.split('=').map(part => decodedPart(part, true)));
+  } else parts.push(String(url));
+  if (body !== undefined) parts.push(...leaves(typeof body === 'string' ? { body } : body));
+  const folded = parts.filter(Boolean).map(part => part.toLowerCase());
+  const tails = segments.slice(0, -1).map((_, at) => segments.slice(at).join('/')).filter(tail => tail.length >= MIN_EVIDENCE);
+  return { text: folded.join('\n'), tokens: new Set(folded.flatMap(part => [part, ...tokensOf(part)])), tails };
+}
+
+/**
+ * What a value can route by, case-folded: each whole token of it (`t:`), which a
+ * request must carry as a whole token, and the value itself (`v:`), which a
+ * request may also carry inside a longer part, as a service URL is the start
+ * of the URL called.
+ */
+const unitsOf = value => {
+  const folded = String(value).toLowerCase();
+  return [`v:${folded}`, ...[folded, ...tokensOf(folded)].map(token => `t:${token}`)];
+};
+
+const NAME_CHAR = /[a-z0-9_-]/;
+/** Whether `text` holds `tail` as whole segments: no name character runs on at either end. */
+function holdsTail(text, tail) {
+  for (let at = text.indexOf(tail); at >= 0; at = text.indexOf(tail, at + 1)) {
+    if (!NAME_CHAR.test(text[at - 1] ?? '') && !NAME_CHAR.test(text[at + tail.length] ?? '')) return true;
+  }
+  return false;
+}
+
+/** Whether request `part` carries `unit`: a whole token, a value inside its text, or one of its path tails. */
+function carries(part, unit) {
+  const value = unit.slice(2);
+  if (unit.startsWith('t:')) return part.tokens.has(value);
+  if (unit.startsWith('p:')) return part.tails.includes(value);
+  return value.length >= MIN_EVIDENCE && part.text.includes(value);
+}
+
+/**
+ * What the other requests of a call (`requests`, { url, body }) carry of an
+ * answer, given `own`, the request it answers: the tool sent that before the
+ * answer came, so nothing in it was taken from the answer.
+ * - `text(unit)`: a unit of a long text routes when another request carries it
+ *   and `own` does not; prose repeats the words the tool asked with.
+ * - `unitsOf(value, key)`: the units an item holds, without the values that only
+ *   echo `own` whole. A value the answer extends (`lodash/lodash` for an asked
+ *   `lodash`) keeps every unit, and each path tail it holds.
+ * - `each`: per other request, whether it carries a unit.
+ * A false match keeps more, never less.
+ */
+function requested(requests, own) {
+  const parts = requests.map(requestParts);
+  const sent = own ? requestParts(own) : { text: '', tokens: new Set(), tails: [] };
+  const tails = [...new Set(parts.flatMap(part => part.tails))];
+  const echoes = folded => sent.tokens.has(folded) || (folded.length >= MIN_EVIDENCE && sent.text.includes(folded));
+  const itemUnits = (value, key) => [...leaves(value, typeof key === 'string' ? new Set([key]) : new Set())].flatMap(leaf => {
+    const folded = leaf.toLowerCase();
+    return echoes(folded) ? [] : [...unitsOf(folded), ...tails.filter(tail => holdsTail(folded, tail)).map(tail => `p:${tail}`)];
+  });
+  return {
+    text: unit => parts.some(part => carries(part, unit)) && !carries(sent, unit),
+    unitsOf: itemUnits,
+    each: parts.map(part => unit => carries(part, unit)),
+  };
+}
+
+/**
+ * The indices to keep beside `kept`. Per request, the item holding the most of
+ * what it carries, unless a kept item holds as much: a request built from two
+ * values of one item needs that item, not one holder of each. Then each unit a
+ * request carries, rarest first, gets one holder unless a kept item holds it,
+ * the holder that routes the most. A unit every item holds routes to none.
+ */
+function routedIndices(held, each, kept) {
+  const keep = new Set(kept);
+  const counts = new Map();
+  for (const units of held) for (const unit of units) counts.set(unit, (counts.get(unit) ?? 0) + 1);
+  const distinct = unit => counts.get(unit) < held.length;
+  const routing = held.map(units => new Set([...units].filter(unit => distinct(unit) && each.some(carried => carried(unit)))));
+  const most = (indices, score) => indices.reduce((best, index) => (score(index) > score(best) ? index : best));
+  for (const carried of each) {
+    const covered = routing.map(units => [...units].filter(carried).length);
+    const best = Math.max(0, ...covered);
+    if (best === 0 || [...keep].some(index => covered[index] === best)) continue;
+    keep.add(most(covered.flatMap((count, index) => (count === best ? [index] : [])), index => routing[index].size));
+  }
+  const holders = new Map();
+  routing.forEach((units, index) => { for (const unit of units) holders.set(unit, [...(holders.get(unit) ?? []), index]); });
+  for (const [, at] of [...holders].toSorted((a, b) => a[1].length - b[1].length)) {
+    if (!at.some(index => keep.has(index))) keep.add(most(at, index => routing[index].size));
+  }
+  return keep;
+}
+
+/**
+ * The items to keep: first, last, any holding a named version, each that adds
+ * a path or type, and what the call's other requests were built from.
+ */
+function covering(entries, named, maps, routes) {
+  const held = entries.map(([key, value]) => new Set(routes.unitsOf(value, key)));
   const seen = new Set();
   const adds = value => {
     let added = false;
@@ -218,26 +349,50 @@ function covering(entries, named, maps) {
     }
     return added;
   };
-  return entries.filter(([key, value], index) => {
+  const base = entries.flatMap(([key, value], index) => {
     const adding = adds(value);
-    return index === 0 || index === entries.length - 1 || named.has(key) || holds(value, named) || adding;
+    return index === 0 || index === entries.length - 1 || named.has(key) || holds(value, named) || adding ? [index] : [];
   });
+  const keep = routedIndices(held, routes.each, base);
+  return entries.filter((_, index) => keep.has(index));
+}
+
+/**
+ * Where a long text may be cut: just past the last place a routing unit of it
+ * occurs, never before LONG_TEXT. All of it when the text itself routes.
+ */
+function cutAt(text, routes) {
+  const folded = text.toLowerCase();
+  if (routes(`v:${folded}`)) return text.length;
+  let end = LONG_TEXT;
+  for (const token of new Set([folded, ...tokensOf(folded)])) {
+    if (routes(`t:${token}`)) end = Math.max(end, folded.lastIndexOf(token) + token.length);
+  }
+  // Case folding that changes a text's length moves its offsets: keep what the folded offset may reach.
+  return folded.length === text.length || end === LONG_TEXT ? end : text.length;
 }
 
 /**
  * `answer`, smaller, with every path and type of shapeOf kept: long lists and
  * maps keep the items that add a path, and long text its start. An `encoding`d
- * text stays whole, since cutting it would break its decoding, and so do the
- * lists in `whole`, where each row routes a request.
+ * text stays whole, since cutting it would break its decoding. Nothing another
+ * request of the same call carries goes: `requests` ({ url, body }) are those
+ * requests and `own` the one this answer answers. A value routes when one of
+ * them carries it, case-folded, as a whole token of a URL component or body
+ * text, inside one when the value is at least MIN_EVIDENCE long, or as a path
+ * tail the value holds. A list or map keeps, per request, an item holding the
+ * most of what it carries, then a holder of each routing value; values that
+ * only echo `own` route nothing. A long text is cut just past its last routing
+ * value that `own` did not already carry.
  */
-export function trimmed(answer, { maps = [], pinned = [], whole = [] } = {}) {
+export function trimmed(answer, { maps = [], pinned = [], requests = [], own } = {}) {
   const named = new Set([...pinned, ...ownVersions(answer)]);
   const isMap = matcher(maps);
-  const keepAll = matcher(whole);
+  const routes = requested(requests, own);
   const cut = (value, path) => {
-    if (typeof value === 'string') return value.length > LONG_TEXT ? value.slice(0, LONG_TEXT) : value;
+    if (typeof value === 'string') return value.length > LONG_TEXT ? value.slice(0, cutAt(value, routes.text)) : value;
     if (Array.isArray(value)) {
-      const kept = value.length > KEEP_WHOLE && !keepAll(path) ? covering(value.map((item, index) => [index, item]), named, maps).map(([, item]) => item) : value;
+      const kept = value.length > KEEP_WHOLE ? covering(value.map((item, index) => [index, item]), named, maps, routes).map(([, item]) => item) : value;
       return kept.map(item => cut(item, `${path}[*]`));
     }
     if (!value || typeof value !== 'object') return value;
@@ -245,7 +400,7 @@ export function trimmed(answer, { maps = [], pinned = [], whole = [] } = {}) {
     // Only a key that names data can go: a field's key is itself a path.
     const dataKeyOf = ([key]) => isMap(path) || !FIELD_KEY.test(key);
     const dataEntries = entries.filter(dataKeyOf);
-    const keptData = new Set(dataEntries.length > KEEP_WHOLE ? covering(dataEntries, named, maps).map(([key]) => key) : dataEntries.map(([key]) => key));
+    const keptData = new Set(dataEntries.length > KEEP_WHOLE ? covering(dataEntries, named, maps, routes).map(([key]) => key) : dataEntries.map(([key]) => key));
     const kept = entries.filter(entry => !dataKeyOf(entry) || keptData.has(entry[0]));
     const encoded = typeof value.encoding === 'string';
     return Object.fromEntries(kept.map(([key, child]) => [key, encoded && typeof child === 'string' ? child : cut(child, join(path, dataKeyOf([key]) ? '*' : key))]));

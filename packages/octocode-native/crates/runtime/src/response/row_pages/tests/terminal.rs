@@ -3,7 +3,7 @@ use super::*;
 use crate::id::ToolId;
 
 fn pages(data: Value, tool: ToolId, ordinary: usize, terminal: Option<usize>) -> Vec<Value> {
-    let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], &[None], tool)
+    let plan = PreparedRows::new(vec![json!({"index":0,"data":data})], tool)
         .plan_with_terminal(
             PageBudget {
                 rows: ordinary,

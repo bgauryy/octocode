@@ -123,6 +123,7 @@ async fn capture(server: &MockServer, query: &Value, runtime: &Runtime) -> Value
         &typed,
         &default_context(),
         &TestRedaction,
+        &crate::policy::discovery::is_sensitive_repository_file,
     )
     .await
     .expect("mocked GitHub search");

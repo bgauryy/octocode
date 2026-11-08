@@ -15,6 +15,10 @@ const MAX_ACTIVE_PROGRESS_TOKENS: usize = 512;
 /// `\0` prefix keeps it from colliding with any real `$/progress` token.
 const SERVER_STATUS_TOKEN: &str = "\0octocode/serverStatus";
 
+/// rust-analyzer's cache priming token: it indexes every crate in the
+/// background so later queries run warm, and answers need none of it.
+pub(crate) const CACHE_PRIMING_TOKEN: &str = "rustAnalyzer/cachePriming";
+
 /// How `wait_until_idle` concluded — a readiness signal the LSP tool uses to
 /// tell "server confirmed indexing is done" apart from "server never told us,
 /// we only waited a fixed window" apart from "server is still busy".
@@ -112,8 +116,29 @@ pub(crate) struct ProgressTracker {
     ever_active: AtomicBool,
     /// Tokens that began, counted once per start of a token not already open.
     begins: AtomicU64,
+    /// Work-done notices so far (`begin`, `report`, `end`, rust-analyzer's
+    /// status): a change between two reads means the server said something
+    /// about its work in between, which an open token alone does not.
+    reports: AtomicU64,
     count_tx: watch::Sender<usize>,
     count_rx: watch::Receiver<usize>,
+}
+
+/// How many open tokens are work an answer waits for. Cache priming is not
+/// ([`CACHE_PRIMING_TOKEN`]), and while it is open the server's own
+/// `quiescent:false` status means that priming, so it is no work either; the
+/// status alone, or beside any other token, is.
+fn open_work(active: &HashSet<String>) -> usize {
+    let priming = active.contains(CACHE_PRIMING_TOKEN);
+    let work = active
+        .iter()
+        .filter(|token| token.as_str() != CACHE_PRIMING_TOKEN)
+        .count();
+    if priming && work == usize::from(active.contains(SERVER_STATUS_TOKEN)) {
+        0
+    } else {
+        work
+    }
 }
 
 impl ProgressTracker {
@@ -124,12 +149,14 @@ impl ProgressTracker {
             health: StdMutex::new(None),
             ever_active: AtomicBool::new(false),
             begins: AtomicU64::new(0),
+            reports: AtomicU64::new(0),
             count_tx,
             count_rx,
         })
     }
 
     pub(crate) async fn on_begin(&self, token: String) {
+        self.on_report();
         let mut active = self.active.lock().await;
         // Cap the active set so a server emitting an unbounded stream of distinct
         // `begin` tokens (never matched by `end`) cannot grow memory or wedge
@@ -142,13 +169,26 @@ impl ProgressTracker {
             self.begins.fetch_add(1, Ordering::AcqRel);
         }
         self.ever_active.store(true, Ordering::Release);
-        let _ = self.count_tx.send(active.len());
+        let _ = self.count_tx.send(open_work(&active));
     }
 
     pub(crate) async fn on_end(&self, token: &str) {
+        self.on_report();
         let mut active = self.active.lock().await;
         active.remove(token);
-        let _ = self.count_tx.send(active.len());
+        let _ = self.count_tx.send(open_work(&active));
+    }
+
+    /// One work-done notice from the server: a `report` on an open token, or
+    /// (through [`Self::on_begin`] and [`Self::on_end`]) a token's start or end.
+    pub(crate) fn on_report(&self) {
+        self.reports.fetch_add(1, Ordering::AcqRel);
+    }
+
+    /// How many work-done notices the server has sent so far; see
+    /// [`Self::on_report`].
+    pub(crate) fn reports(&self) -> u64 {
+        self.reports.load(Ordering::Acquire)
     }
 
     /// How many tokens have begun so far: a change between two reads means

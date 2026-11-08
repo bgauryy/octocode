@@ -65,6 +65,10 @@ pub(super) struct KeyFacts {
     /// seconds; 0 when it stated none. A shorter view wins: it is the safe one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) pull_request_max_age: Option<u64>,
+    /// Listing route found for an owner (lower case): a later request on
+    /// this key, in this process or the next, skips the organization probe.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(super) owner_routes: BTreeMap<String, String>,
     #[serde(skip)]
     pub(super) circuit_failures: u32,
     #[serde(skip)]

@@ -123,9 +123,11 @@ async fn run_tree(
                 Some(ProviderErrorReason::PathIsFile | ProviderErrorReason::Submodule)
             ) || missing_path(&error, Some(path))
         }),
+        error,
         context,
     )
     .await;
+    let error = scope.error;
     let renamed = scope
         .canonical
         .as_ref()

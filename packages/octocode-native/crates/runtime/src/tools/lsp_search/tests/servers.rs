@@ -29,9 +29,7 @@ fn user_server(
 /// An executable stand-in server: never started by these tests.
 #[cfg(unix)]
 fn executable(path: &std::path::Path) -> String {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::write(path, "#!/bin/sh\n").expect("server");
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    crate::tools::lsp_search::tests::write_executable(path, b"#!/bin/sh\n");
     path.to_string_lossy().into_owned()
 }
 
@@ -185,12 +183,14 @@ async fn a_server_that_fails_to_start_names_its_invocation() {
             "symbolName": "a", "line": 1
         })
     };
+    // A file with a grammar falls to the syntax rung, which keeps the
+    // receipt of the server that did not start and why it did not.
     let failed = run_row(hover("a.ts"), &paths, &execution).await;
-    assert_eq!(failed["errorCode"], "serverUnavailable", "{failed}");
+    assert_eq!(failed["lsp"]["level"], "syntax", "{failed}");
+    assert_eq!(failed["lsp"]["fellBackFrom"]["level"], "server", "{failed}");
     assert_eq!(
-        failed["lsp"],
-        serde_json::json!({"serverAvailable": false,
-            "receipt": {"command": command, "argv": ["--stdio"], "source": "user"}}),
+        failed["lsp"]["receipt"],
+        serde_json::json!({"command": command, "argv": ["--stdio"], "source": "user"}),
         "{failed}"
     );
     let undiscovered = run_row(hover("a.unknown"), &paths, &execution).await;
@@ -198,6 +198,7 @@ async fn a_server_that_fails_to_start_names_its_invocation() {
         undiscovered["errorCode"], "serverUnavailable",
         "{undiscovered}"
     );
+    assert_eq!(undiscovered["lsp"]["level"], "text", "{undiscovered}");
     assert!(
         undiscovered["lsp"].get("receipt").is_none(),
         "{undiscovered}"

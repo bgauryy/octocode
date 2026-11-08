@@ -3,6 +3,7 @@
 use super::*;
 use crate::id::ToolId;
 use crate::response::result::Continuation;
+use crate::tools::ast_graph::build_scope::BuildScope;
 use crate::tools::ast_graph::store::detect::VerifyStep;
 
 mod changed;
@@ -150,6 +151,7 @@ impl Query<'_> {
             g.manifest["workspace"].as_str(),
             g.t.components.is_empty(),
             &detectors,
+            &g.manifest["scan"],
         ) && let Some(notes) = summary["notes"].as_array_mut()
         {
             notes.push(note);
@@ -306,6 +308,7 @@ fn manifest_above(
     workspace: Option<&str>,
     no_components: bool,
     detectors: &[String],
+    scan: &Value,
 ) -> Option<Value> {
     let judged = detectors.is_empty()
         || detectors.iter().any(|detector| {
@@ -334,11 +337,20 @@ fn manifest_above(
         .map(|relative| relative.to_string_lossy().into_owned())
         .filter(|relative| !relative.is_empty())
         .unwrap_or_else(|| ".".into());
+    // The wider build keeps the snapshot's scope: its walk, `exclude` and
+    // `parserGlobs`, rebased onto the directory above.
+    let mut row = json!({"path": shown});
+    BuildScope::of_manifest(scan)
+        .above(root.strip_prefix(dir).ok()?)
+        .write_row(&mut row);
+    let Value::Object(row) = row else {
+        return None;
+    };
     Some(json!({
         "detector": "unreachable-file",
         "skipped": format!(
             "the snapshot root holds no package manifest, so entrypoints came from file conventions only; {shown} holds {manifest}: build it with {} so its entries count",
-            super::paging::call(crate::id::ToolId::GraphBuild.as_str(), Map::from_iter([("path".to_owned(), json!(shown))]))
+            super::paging::call(crate::id::ToolId::GraphBuild.as_str(), row)
         ),
     }))
 }

@@ -1,7 +1,7 @@
 //! Where the `typescript-language-server` CLI is found when it is not on
 //! `PATH`, and the node that runs it.
 
-use crate::lsp::commands::is_executable_path;
+use crate::lsp::commands::{is_executable_path, which_on_path};
 use crate::lsp::types::{LspLanguageServerConfig, ServerSource};
 use std::path::{Path, PathBuf};
 
@@ -136,7 +136,7 @@ fn server_cli(config: &LspLanguageServerConfig) -> Option<PathBuf> {
     let cli = if is_node_executable(command) {
         PathBuf::from(config.args.as_ref()?.first()?)
     } else if is_typescript_server_command(&config.command) {
-        which::which(command).ok()?
+        which_on_path(command).ok()?
     } else {
         return None;
     };
@@ -146,7 +146,7 @@ fn server_cli(config: &LspLanguageServerConfig) -> Option<PathBuf> {
         .then_some(cli)
 }
 
-fn is_typescript_server_command(command: &str) -> bool {
+pub(in crate::lsp::config) fn is_typescript_server_command(command: &str) -> bool {
     let path = Path::new(command);
     let file_name = path.file_name().and_then(|name| name.to_str());
     matches!(file_name, Some("typescript-language-server" | "cli.mjs"))
@@ -183,7 +183,7 @@ pub(in crate::lsp) fn current_node_command() -> Option<String> {
     std::env::current_exe()
         .ok()
         .filter(|path| is_executable_path(path) && is_node_executable(path))
-        .or_else(|| which::which("node").ok())
+        .or_else(|| which_on_path("node").ok())
         .filter(|path| is_executable_path(path))
         .map(|path| std::fs::canonicalize(&path).unwrap_or(path))
         .map(|path| path.to_string_lossy().into_owned())

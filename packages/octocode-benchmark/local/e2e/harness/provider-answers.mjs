@@ -25,6 +25,8 @@ import { hermeticEnv } from './tool-health/surfaces.mjs';
 import { casePath, hasCase, hostsOf, readCase, replayer, requestKey, served, writeCase } from './tool-health/recorded-answers.mjs';
 import { declaredUnread, fieldsOf, outputText, shapeDrift, shapeOf, trimmed, uncarried, uncarriedExchanges } from './tool-health/recorded-shape.mjs';
 import { EXTRA_HOSTS, PLAN } from './tool-health/recorded-plan.mjs';
+import { snapshotBuild } from './build-snapshot.mjs';
+snapshotBuild();
 
 const args = process.argv.slice(2);
 const ACCEPT = args.includes('--accept-unread');
@@ -75,8 +77,14 @@ async function runCall(entry, { hosts, answer, token }) {
 /** The provider's next page, from a Link header. */
 const nextFrom = link => /<([^>]+)>;\s*rel="next"/.exec(link ?? '')?.[1];
 const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g;
-/** Public, but a person's: the shape stays and the address goes. */
-const withoutAddresses = text => text.replace(EMAIL, 'person@example.test');
+// `scheme://user:password@host`: a password in a URL's user information.
+const URL_PASSWORD = /(\b[a-z][a-z0-9+.-]*:\/\/[^\s:@/"'`\\]+):[^\s@/"'`\\]+@/gi;
+/**
+ * Public, but not stored as written: a person's address goes, and a password in a
+ * URL's user information goes (an advisory's own example of one), so the store never
+ * holds what the engine's secret detector redacts. The shape stays.
+ */
+const scrubbed = text => text.replace(EMAIL, 'person@example.test').replace(URL_PASSWORD, '$1@');
 
 /** A real answer with nothing kept but what a parser reads: no cookie, no request header. */
 async function liveAnswer(request, sentHeaders = {}) {
@@ -88,7 +96,7 @@ async function liveAnswer(request, sentHeaders = {}) {
   const common = { status: response.status, headers, ...(next && { next }), digest: `sha256:${createHash('sha256').update(bytes).digest('hex')}` };
   let text;
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return { ...common, base64: bytes.toString('base64') }; }
-  try { return { ...common, body: JSON.parse(withoutAddresses(text)) }; } catch { return { ...common, body: withoutAddresses(text) }; }
+  try { return { ...common, body: JSON.parse(scrubbed(text)) }; } catch { return { ...common, body: scrubbed(text) }; }
 }
 
 const parsedBody = body => { if (!body) return undefined; try { return JSON.parse(body); } catch { return body; } };
@@ -114,9 +122,16 @@ async function liveRun(entry, token) {
   return { ...run, exchanges: [...exchanges.values()], failures };
 }
 
-const shapeKept = (entry, exchange, pinned) => {
-  const fields = exchange.body;
-  return fields && typeof fields === 'object' ? trimmed(fields, { maps: entry.maps, pinned, whole: entry.whole }) : fields;
+/**
+ * The stored body of `exchanges[index]`: `trimmed` keeps what any other request
+ * of the call carries, since any of them may be built from this answer. Every
+ * other request, not only the ones stored after it: a request asked again keeps
+ * its first place in the store.
+ */
+const shapeKept = (entry, exchanges, index, pinned) => {
+  const fields = exchanges[index].body;
+  const requests = exchanges.filter((exchange, other) => other !== index && !exchange.alternate).map(exchange => exchange.request);
+  return fields && typeof fields === 'object' ? trimmed(fields, { maps: entry.maps, pinned, requests, own: exchanges[index].request }) : fields;
 };
 
 const sensitive = (exchange, token) => {
@@ -130,9 +145,9 @@ async function record(entry, token) {
   const unsafe = run.exchanges.map(exchange => sensitive(exchange, token)).find(Boolean);
   const failed = run.exchanges.filter(exchange => exchange.status >= 500 || exchange.status === 429 || exchange.status === 401 || exchange.status === 403);
   const pinned = [entry.query.version].filter(Boolean);
-  const lost = run.exchanges.flatMap(exchange => {
+  const lost = run.exchanges.flatMap((exchange, index) => {
     if (!exchange.body || typeof exchange.body !== 'object') return [];
-    const kept = shapeDrift(shapeOf(exchange.body, entry.maps), shapeOf(shapeKept(entry, exchange, pinned), entry.maps));
+    const kept = shapeDrift(shapeOf(exchange.body, entry.maps), shapeOf(shapeKept(entry, run.exchanges, index, pinned), entry.maps));
     return kept.failures.map(text => `trimming lost ${text}: ${exchange.request.url}`);
   });
   if (lost.length) { check(`${entry.id}.recorded`, false, lost[0]); return; }
@@ -145,7 +160,7 @@ async function record(entry, token) {
     case: entry.id, tool: entry.tool, query: entry.query, recordedAt: new Date().toISOString().slice(0, 10),
     // What the tool does not show survives a refresh: a new field still needs its decision.
     unread: hasCase(entry.id) ? readCase(entry.id).unread : [],
-    exchanges: run.exchanges.map(exchange => ({ ...exchange, ...annotations.get(requestKey(exchange.request)), ...(exchange.body !== undefined && { body: shapeKept(entry, exchange, pinned) }) })),
+    exchanges: run.exchanges.map((exchange, index) => ({ ...exchange, ...annotations.get(requestKey(exchange.request)), ...(exchange.body !== undefined && { body: shapeKept(entry, run.exchanges, index, pinned) }) })),
   });
   await replaysAsAsked(entry, run, before);
 }
@@ -157,7 +172,11 @@ async function replaysAsAsked(entry, run, before) {
   await runCall(entry, { hosts: [...new Set([...REGISTRY_HOSTS, ...EXTRA_HOSTS, ...hostsOf(recording)])], answer, token: 'recorded-answers-fake-token' });
   const live = run.exchanges.filter(exchange => !exchange.alternate).map(exchange => requestKey(exchange.request));
   const differs = [...live.filter(key => !asked.has(key)), ...unrecorded];
-  if (check(`${entry.id}.replays`, !differs.length, differs[0]?.slice(0, 200) ?? '')) return;
+  if (check(`${entry.id}.replays`, !differs.length, differs[0]?.slice(0, 200) ?? '')) {
+    // Growth shows in review: what the store holds for this case now, beside what it held.
+    note(`${entry.id}: stored ${fs.statSync(casePath(entry.id)).size} bytes (was ${before === null ? 'none' : Buffer.byteLength(before)})`);
+    return;
+  }
   if (before === null) fs.rmSync(casePath(entry.id));
   else fs.writeFileSync(casePath(entry.id), before);
 }

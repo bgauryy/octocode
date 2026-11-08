@@ -210,11 +210,7 @@ impl Registry {
                 return Err(ExecutionError::WorkerFailed);
             }
             // A clasify cursor names a plan kept that long: it must not die first.
-            let retention = if member.tool == ToolId::Clasify.as_str() {
-                crate::tools::clasify::sections::PLAN_RETENTION
-            } else {
-                crate::cache::CONTINUATION_RETENTION
-            };
+            let retention = super::page_replay::retention_of(&member.tool);
             let issued = Issued {
                 access: pending.access,
                 github_identity: pending.github_identity.clone(),
@@ -223,7 +219,13 @@ impl Registry {
             let bytes = octocode_engine::json_size::bytes(&issued).unwrap_or(usize::MAX);
             if !self
                 .store
-                .put_until(context.deadline, key, issued, bytes, retention)
+                .put_until(
+                    crate::execution::cancel::deadline_of(context),
+                    key,
+                    issued,
+                    bytes,
+                    retention,
+                )
                 .1
             {
                 return Err(ExecutionError::WorkerFailed);
@@ -236,10 +238,11 @@ impl Registry {
         &self,
         context: &ExecutionContext,
     ) -> Result<octocode_io::lock::Turn<'_>, ExecutionError> {
-        self.mutation
-            .take(context.deadline, octocode_io::lock::LOCK_POLL, || {
-                context.check()
-            })
+        self.mutation.take(
+            crate::execution::cancel::deadline_of(context),
+            octocode_io::lock::LOCK_POLL,
+            || context.check(),
+        )
     }
 
     fn process_lock(
@@ -256,8 +259,7 @@ impl Registry {
         // One stable sidecar bounds lock files and serializes short merges.
         loop {
             context.check()?;
-            let wait = context
-                .deadline
+            let wait = crate::execution::cancel::deadline_of(context)
                 .saturating_duration_since(Instant::now())
                 .min(Duration::from_millis(100));
             match octocode_io::lock::lock_within(

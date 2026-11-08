@@ -133,11 +133,10 @@ fn regex_read_past_the_match_limit_is_partial_with_a_search_lead() {
     use octocode_contract_types::RegexEngine;
     let t = Fixture::new();
     let p = t.0.join("dense.txt");
-    let mut source = String::new();
-    for _ in 0..(crate::tools::source_view::extraction::MAX_REGEX_MATCHES / 1_000 + 1) {
-        source.push_str(&"x".repeat(1_000));
-        source.push('\n');
-    }
+    let budget = crate::tools::page_memo::test_budget!(4096);
+    let _scope = crate::tools::source_view::extraction::SpanBudgetOverride::of(budget);
+    let span = std::mem::size_of::<(usize, usize)>();
+    let source = "x\n".repeat(budget.limit() / span + 1);
     fs::write(&p, &source).expect("fixture");
     for engine in [RegexEngine::Rust, RegexEngine::Pcre2] {
         let mut request = q(&p);
@@ -151,15 +150,19 @@ fn regex_read_past_the_match_limit_is_partial_with_a_search_lead() {
             serde_json::json!({"contextLines":{"before":0,"after":0}}),
         );
         let result = fetch(&request, &Paths(t.0.clone()));
+        assert_eq!(budget.used(), 0, "{engine:?}: the spans are released");
         assert_eq!(result.error, None, "{engine:?}");
         assert_eq!(result.is_partial, Some(true), "{engine:?}");
         assert_eq!(
             result.partial_reasons,
-            vec![PartialReason::RegexMatchLimit],
+            vec![PartialReason::ScanBudget],
             "{engine:?}"
         );
         assert!(
-            result.warnings.iter().any(|w| w.contains("match limit")),
+            result
+                .warnings
+                .iter()
+                .any(|w| w.contains("match limit") && w.contains("memory budget")),
             "{engine:?}: {:?}",
             result.warnings
         );
@@ -173,6 +176,76 @@ fn regex_read_past_the_match_limit_is_partial_with_a_search_lead() {
         assert_eq!(row["matchString"], serde_json::json!(["x"]), "{lead}");
         // The lead names the file as the row does: relative to the root.
         assert_eq!(row["path"], "dense.txt", "{lead}");
+        // The row the runtime hands to MCP and CLI (its serialization, as
+        // dispatch sends it) carries the same disclosure under its wire names.
+        let wire = serde_json::to_value(&result).expect("row");
+        assert_eq!(wire["isPartial"], true, "{engine:?}: {wire}");
+        assert_eq!(
+            wire["partialReasons"][0], "scanBudget",
+            "{engine:?}: {wire}"
+        );
+        assert_eq!(wire["related"][0], lead, "{engine:?}: {wire}");
+    }
+}
+
+/// The match limit is the memory budget's, not a fixed count: a read of
+/// 300,000 matches selects every one, in both engines, with no partial reason.
+#[test]
+fn a_regex_read_of_many_matches_selects_every_one() {
+    use octocode_contract_types::RegexEngine;
+    let t = Fixture::new();
+    let p = t.0.join("many.txt");
+    let hits = 300_000;
+    let source: String = (1..=hits).map(|n| format!("hit {n}\n")).collect();
+    fs::write(&p, &source).expect("fixture");
+    for engine in [RegexEngine::Rust, RegexEngine::Pcre2] {
+        let mut request = q(&p);
+        amend(&mut request, serde_json::json!({"matchString":["hit"]}));
+        amend(
+            &mut request,
+            serde_json::json!({"regexEngine":Some(engine)}),
+        );
+        amend(
+            &mut request,
+            serde_json::json!({"contextLines":{"before":0,"after":0}}),
+        );
+        let result = fetch(&request, &Paths(t.0.clone()));
+        assert_eq!(result.error, None, "{engine:?}");
+        assert!(result.partial_reasons.is_empty(), "{engine:?}");
+        assert_eq!(result.selected_match_count, Some(hits), "{engine:?}");
+    }
+}
+
+/// A budget with no room for even one span stops the scan before its first
+/// match: the read says so instead of reporting that nothing matched.
+#[test]
+fn a_budget_with_no_room_for_a_span_is_a_partial_read_not_a_miss() {
+    use octocode_contract_types::RegexEngine;
+    let t = Fixture::new();
+    let p = t.0.join("some.txt");
+    fs::write(&p, "x\n".repeat(10)).expect("fixture");
+    let budget = crate::tools::page_memo::test_budget!(std::mem::size_of::<(usize, usize)>() - 1);
+    let _scope = crate::tools::source_view::extraction::SpanBudgetOverride::of(budget);
+    for engine in [RegexEngine::Rust, RegexEngine::Pcre2] {
+        let request = qj(
+            &p,
+            serde_json::json!({"matchString":["x"],"regexEngine":Some(engine)}),
+        );
+        let result = fetch(&request, &Paths(t.0.clone()));
+        assert_eq!(result.is_partial, Some(true), "{engine:?}: {result:?}");
+        assert_eq!(
+            result.partial_reasons,
+            vec![PartialReason::ScanBudget],
+            "{engine:?}"
+        );
+        assert!(
+            result
+                .next
+                .as_ref()
+                .is_some_and(|n| n.text_search.is_some()),
+            "{engine:?}: {result:?}"
+        );
+        assert_eq!(budget.used(), 0, "{engine:?}");
     }
 }
 
@@ -183,8 +256,11 @@ fn paged_regex_read_past_the_match_limit_keeps_its_search_lead() {
     use octocode_contract_types::RegexEngine;
     let t = Fixture::new();
     let p = t.0.join("hits.txt");
-    let source: String = (1..=crate::tools::source_view::extraction::MAX_REGEX_MATCHES + 5)
-        .map(|n| format!("hit {n}\n"))
+    let budget = crate::tools::page_memo::test_budget!(64 * 1024);
+    let _scope = crate::tools::source_view::extraction::SpanBudgetOverride::of(budget);
+    let span = std::mem::size_of::<(usize, usize)>();
+    let source: String = (1..=budget.limit() / span + 5)
+        .map(|n| format!("hit {n} {}\n", "-".repeat(64)))
         .collect();
     fs::write(&p, &source).expect("fixture");
     let mut request = q(&p);

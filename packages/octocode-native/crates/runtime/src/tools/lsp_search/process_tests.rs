@@ -77,12 +77,10 @@ process.stdin.on('data', (d) => {
 /// A canonical workspace holding the fake server script and `a.ts`; the
 /// directory goes when the [`Fixture`] drops.
 fn fixture() -> (Fixture, PathBuf, PathBuf) {
-    use std::os::unix::fs::PermissionsExt;
     let dir = Fixture::new();
     let root = dir.0.canonicalize().expect("canonical root");
     let script = root.join("fake-lsp.js");
-    std::fs::write(&script, FAKE_SERVER).expect("script");
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    crate::tools::lsp_search::tests::write_executable(&script, FAKE_SERVER.as_bytes());
     std::fs::write(root.join("a.ts"), "const a = 1;\n").expect("source");
     (dir, root, script)
 }

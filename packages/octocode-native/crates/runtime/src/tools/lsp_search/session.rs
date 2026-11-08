@@ -15,51 +15,8 @@ pub(super) fn discover_server(
     let fail =
         |code: ErrorCode, message: &str| Exit::Row(failure(query, &uri, code, message, false));
     let root_only = Path::new(&path).is_dir();
-    let workspace_candidate = lsp_search_query::workspace_root(query)
-        .map(str::to_owned)
-        .or_else(|| resolve_workspace_root_for_file(path.clone()).ok())
-        .unwrap_or_else(|| {
-            Path::new(&path)
-                .parent()
-                .map(|parent| parent.to_string_lossy().into_owned())
-                .unwrap_or_else(|| ".".into())
-        });
-    let mut root_note = None;
-    let workspace = match paths.validate(&workspace_candidate) {
-        Ok(validated) if validated.canonical.is_dir() => {
-            validated.canonical.to_string_lossy().into_owned()
-        }
-        _ if lsp_search_query::workspace_root(query).is_some() => {
-            return Err(fail(
-                ErrorCode::WorkspaceRootInvalid,
-                "workspaceRoot is not an authorized directory.",
-            ));
-        }
-        // An inferred root above the allowed roots (a member crate opened
-        // from inside its Cargo workspace): the caller named no root, so the
-        // server runs at the widest allowed directory on the file's path.
-        _ => {
-            let inferred = paths.redact(&workspace_candidate);
-            let start = if root_only {
-                Path::new(&path)
-            } else {
-                Path::new(&path).parent().unwrap_or(Path::new(&path))
-            };
-            let Some(allowed) = scope::widest_authorized_dir(start, paths) else {
-                return Err(fail(
-                    ErrorCode::WorkspaceRootInvalid,
-                    &format!(
-                        "The project root inferred for this file ({inferred}) is not an authorized directory, and no directory on the file's path is."
-                    ),
-                ));
-            };
-            root_note = Some(format!(
-                "The project root inferred for this file ({inferred}) is outside the allowed roots, so the language server runs at {} instead; pass an authorized workspaceRoot to choose another.",
-                paths.redact(&allowed)
-            ));
-            allowed
-        }
-    };
+    let (workspace, root_note) = resolve_workspace(query, &path, paths)
+        .map_err(|message| fail(ErrorCode::WorkspaceRootInvalid, &message))?;
     let discovery = execution_config.discovery().for_one_request();
     if discovery.opens_fetched_code(&path, &workspace) {
         return Err(fail(
@@ -122,6 +79,57 @@ pub(super) fn discover_server(
         config_notes,
         allow_build_scripts: execution_config.allow_build_scripts,
     })
+}
+
+/// The authorized directory a request on `path` runs at: the query's
+/// `workspaceRoot`, else the project root inferred for the file, else its
+/// directory; with the note a row carries when the inferred root lies
+/// outside the allowed roots and the widest allowed directory stands in.
+/// `Err` is the message of a root that cannot be authorized.
+pub(super) fn resolve_workspace(
+    query: &LspSearchQuery,
+    path: &str,
+    paths: &PathPolicy,
+) -> Result<(String, Option<String>), String> {
+    let root_only = Path::new(path).is_dir();
+    let workspace_candidate = lsp_search_query::workspace_root(query)
+        .map(str::to_owned)
+        .or_else(|| resolve_workspace_root_for_file(path.to_owned()).ok())
+        .unwrap_or_else(|| {
+            Path::new(path)
+                .parent()
+                .map(|parent| parent.to_string_lossy().into_owned())
+                .unwrap_or_else(|| ".".into())
+        });
+    match paths.validate(&workspace_candidate) {
+        Ok(validated) if validated.canonical.is_dir() => {
+            Ok((validated.canonical.to_string_lossy().into_owned(), None))
+        }
+        _ if lsp_search_query::workspace_root(query).is_some() => {
+            Err("workspaceRoot is not an authorized directory.".to_owned())
+        }
+        // An inferred root above the allowed roots (a member crate opened
+        // from inside its Cargo workspace): the caller named no root, so the
+        // server runs at the widest allowed directory on the file's path.
+        _ => {
+            let inferred = paths.redact(&workspace_candidate);
+            let start = if root_only {
+                Path::new(path)
+            } else {
+                Path::new(path).parent().unwrap_or(Path::new(path))
+            };
+            let Some(allowed) = scope::widest_authorized_dir(start, paths) else {
+                return Err(format!(
+                    "The project root inferred for this file ({inferred}) is not an authorized directory, and no directory on the file's path is."
+                ));
+            };
+            let note = format!(
+                "The project root inferred for this file ({inferred}) is outside the allowed roots, so the language server runs at {} instead; pass an authorized workspaceRoot to choose another.",
+                paths.redact(&allowed)
+            );
+            Ok((allowed, Some(note)))
+        }
+    }
 }
 
 /// Read the anchor once; its digest verifies the source of a saved continuation.

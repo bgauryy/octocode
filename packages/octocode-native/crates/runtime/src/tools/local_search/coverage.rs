@@ -83,8 +83,7 @@ impl Coverage {
         let cap_has = |reason: CapReason| stats.cap_reasons.contains(&reason);
         // A file named alone and binary from its leading bytes never gets
         // here: [`super::executor`] refuses it as `binaryFileUnsupported`.
-        let skip_hint =
-            skipped_target_hint(root.is_file(), stats.files_searched, &stats.cap_reasons);
+        let skip_hint = skipped_target_hint(root, stats.files_searched, &stats.cap_reasons);
         Self {
             error_count: stats.error_count.unwrap_or(0),
             pattern_error_count: scanned.pattern_error_count.unwrap_or(0),
@@ -140,12 +139,26 @@ impl Coverage {
         self.error_count > 0 || self.binary_cut
     }
 
+    /// The declared reasons of the gaps no cap names: unreadable files
+    /// (`filesSkipped`) and files the regex hit its matching limit in
+    /// (`regexMatchLimit`), so a partial row states why.
+    pub(super) fn partial_reasons(&self) -> Vec<crate::response::paging::PartialReason> {
+        use crate::response::paging::PartialReason;
+        let unreadable = self.error_count.saturating_sub(self.pattern_error_count) > 0;
+        [
+            (unreadable, PartialReason::FilesSkipped),
+            (self.pattern_error_count > 0, PartialReason::RegexMatchLimit),
+        ]
+        .into_iter()
+        .filter_map(|(gap, reason)| gap.then_some(reason))
+        .collect()
+    }
+
     pub(super) fn warnings(
         &self,
         layout: &Layout,
         shown_redacted: usize,
         unverified: bool,
-        empty: bool,
     ) -> Vec<String> {
         let mut warnings = vec![];
         warnings.extend(self.parent_glob.clone());
@@ -187,11 +200,14 @@ impl Coverage {
                 crate::response::pages::counted(u64::from(self.pattern_error_count), "file", "files")
             ));
         }
-        let unreadable = self.error_count - self.pattern_error_count.min(self.error_count);
-        if unreadable > 0 && empty {
-            warnings.push(unreadable_hint(unreadable));
-        }
         warnings
+    }
+
+    /// Nothing this scan skipped explains an empty page: the same search
+    /// over a wider path would read what this one read, and more. A skipped
+    /// target (over a size ceiling, binary) would be skipped there again.
+    pub(super) fn plain_miss(&self) -> bool {
+        self.skip_hint.is_none()
     }
 
     /// A scope miss stands only while no skipped path may hold a match: then
@@ -231,20 +247,22 @@ impl Coverage {
 const NOTHING_WALKED_HINT: &str = "Nothing searched: no file under path; check the path, or set includeHidden/includeIgnored when the files are dot or ignored entries.";
 
 /// The empty row's fact when include/exclude left the walk no file.
-const SCOPE_MISS_HINT: &str = "Nothing searched: include/exclude matched no file; the related[] structureSearch request lists the names to fix the globs.";
+const SCOPE_MISS_HINT: &str = crate::policy::include::GLOB_MISS_HINT;
 
 /// A query that explicitly targets a single file which the engine then skips
 /// (e.g. over the per-file byte ceiling, surfaced as `capReason:"fileTooLarge"`
 /// with `filesScanned:0`) is a silent false negative without an explanation:
-/// nothing was searched, so "no matches" would be misleading.
+/// nothing was searched, so "no matches" would be misleading. The hint
+/// names localFetch only while its streamed windows read the file.
 pub(super) fn skipped_target_hint(
-    single_file: bool,
+    root: &std::path::Path,
     files_searched: u32,
     cap_reasons: &[CapReason],
 ) -> Option<String> {
     if cap_reasons.is_empty() {
         return None;
     }
+    let single_file = root.is_file();
     if single_file && cap_reasons.contains(&CapReason::BinaryQuit) {
         return Some(
             "The target file is binary (NUL byte found); it was not searched past that point."
@@ -252,20 +270,20 @@ pub(super) fn skipped_target_hint(
         );
     }
     (single_file && files_searched == 0).then(|| {
-        format!(
-            "Nothing searched: the target file was skipped ({}). Read it with localFetch.",
-            cap_reasons
-                .iter()
-                .map(|reason| reason.name())
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
+        let reasons = cap_reasons
+            .iter()
+            .map(|reason| reason.name())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let readable = std::fs::metadata(root).is_ok_and(|meta| {
+            meta.len() <= crate::tools::source_view::prepare::MAX_STREAM_SOURCE_BYTES
+        });
+        if readable {
+            format!("Nothing searched: the target file was skipped ({reasons}). Read it with localFetch.")
+        } else {
+            format!(
+                "Nothing searched: the target file was skipped ({reasons}); it is past every local reader's size ceiling."
+            )
+        }
     })
-}
-
-pub(super) fn unreadable_hint(count: u32) -> String {
-    format!(
-        "{} unreadable",
-        crate::response::pages::counted(u64::from(count), "path", "paths")
-    )
 }

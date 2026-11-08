@@ -23,7 +23,10 @@ async fn provider(exclude_first: bool) -> MockServer {
 /// outcome above the threshold).
 async fn unsure_after_third() -> MockServer {
     judging(|content| {
-        if ["line-1 ", "line-2 ", "line-3 "].iter().any(|head| content.starts_with(head)) {
+        if ["line-1 ", "line-2 ", "line-3 "]
+            .iter()
+            .any(|head| content.starts_with(head))
+        {
             json!({"0":0,"1":0,"2":1})
         } else {
             json!({"0":0.3,"1":0.4,"2":0.3})
@@ -42,19 +45,34 @@ async fn judging(distribution: impl Fn(&str) -> Value + Send + Sync + 'static) -
             let body: Value = request.body_json().expect("provider request");
             let probabilities = distribution(body["state"]["content"].as_str().unwrap_or_default());
             let score = (0..3)
-                .map(|level| f64::from(level) * probabilities[level.to_string()].as_f64().unwrap_or(0.0))
+                .map(|level| {
+                    f64::from(level) * probabilities[level.to_string()].as_f64().unwrap_or(0.0)
+                })
                 .sum::<f64>();
-            let answers = body["questions"].as_object().expect("questions").iter()
+            let answers = body["questions"]
+                .as_object()
+                .expect("questions")
+                .iter()
                 .map(|(id, question)| {
-                    let legend = question["criteria"].as_array().expect("criteria").iter()
-                        .enumerate().map(|(i, criterion)| (i.to_string(), criterion.clone()))
+                    let legend = question["criteria"]
+                        .as_array()
+                        .expect("criteria")
+                        .iter()
+                        .enumerate()
+                        .map(|(i, criterion)| (i.to_string(), criterion.clone()))
                         .collect::<serde_json::Map<_, _>>();
-                    (id.clone(), json!({"type":"score","score":score,"confidence":1,
-                        "legend":legend,"probabilities":probabilities}))
-                }).collect::<serde_json::Map<_, _>>();
+                    (
+                        id.clone(),
+                        json!({"type":"score","score":score,"confidence":1,
+                        "legend":legend,"probabilities":probabilities}),
+                    )
+                })
+                .collect::<serde_json::Map<_, _>>();
             ResponseTemplate::new(200).set_body_json(json!({"model":"fixture","answers":answers,
                 "usage":{"input_tokens":10,"output_tokens":2}}))
-        }).mount(&server).await;
+        })
+        .mount(&server)
+        .await;
     server
 }
 
@@ -182,6 +200,53 @@ async fn github_selected_public_cursors_return_each_line_once() {
     selected_pages("ghGetFileContent").await;
 }
 
+async fn provider_calls(server: &MockServer) -> usize {
+    server
+        .received_requests()
+        .await
+        .expect("requests")
+        .iter()
+        .filter(|request| request.method == "POST")
+        .count()
+}
+
+/// A repeated `nextCandidatePage` cursor replays what it judged: the same
+/// page, and no provider call billed again.
+async fn assert_candidate_replay_is_free(runtime: &ToolRuntime, server: &MockServer, next: &Value) {
+    support::assert_cursor_only(next);
+    let first = support::call(runtime, "localFetch", next.clone())
+        .await
+        .expect("candidate page");
+    let judged = provider_calls(server).await;
+    let replay = support::call(runtime, "localFetch", next.clone())
+        .await
+        .expect("candidate replay");
+    assert_eq!(
+        provider_calls(server).await,
+        judged,
+        "a candidate page replay does not judge again"
+    );
+    // The replay is the same page; only the counters of what it billed differ,
+    // and it keeps what prices the rest of the walk.
+    let (mut first, mut replay) = (
+        support::row_data(&first).clone(),
+        support::row_data(&replay).clone(),
+    );
+    assert_eq!(replay["selection"]["usage"]["calls"], 0, "{replay}");
+    for page in [&mut first, &mut replay] {
+        for billed in [
+            "calls",
+            "inputTokens",
+            "outputTokens",
+            "knownUsageCalls",
+            "unknownUsageCalls",
+        ] {
+            page["selection"]["usage"][billed] = Value::Null;
+        }
+    }
+    assert_eq!(first, replay);
+}
+
 async fn local_fixture(server: MockServer) -> (Workspace, MockServer, ToolRuntime, Value) {
     let workspace = Workspace::new();
     let path = workspace.write("pages.txt", source());
@@ -209,7 +274,9 @@ async fn display_paging_preserves_raw_recovery_replay_and_source_snapshot() {
     // pages, so no undecided view is offered.
     let data = support::row_data(&first);
     assert!(
-        data["selection"]["unknownItems"].as_u64().is_some_and(|n| n > 0),
+        data["selection"]["unknownItems"]
+            .as_u64()
+            .is_some_and(|n| n > 0),
         "{data}"
     );
     assert!(next.get("unfilteredUnknown").is_none(), "{data}");
@@ -222,7 +289,10 @@ async fn display_paging_preserves_raw_recovery_replay_and_source_snapshot() {
         .enumerate()
         .map(|(i, line)| format!("{}\t{line}", i + 1))
         .collect::<Vec<_>>();
-    assert_eq!(actual, expected, "unfiltered preserves exact original evidence");
+    assert_eq!(
+        actual, expected,
+        "unfiltered preserves exact original evidence"
+    );
     saved.push(input);
     let display = next["nextPage"]["input"].clone();
     support::assert_cursor_only(&display);
@@ -236,13 +306,7 @@ async fn display_paging_preserves_raw_recovery_replay_and_source_snapshot() {
         support::row_data(&second)["content"],
         support::row_data(&replay)["content"]
     );
-    let provider_calls = server
-        .received_requests()
-        .await
-        .expect("requests")
-        .iter()
-        .filter(|request| request.method == "POST")
-        .count();
+    let provider_calls = provider_calls(&server).await;
     assert_eq!(
         provider_calls, 1,
         "raw recovery and display replay do not judge again"
@@ -341,6 +405,7 @@ async fn display_paging_preserves_the_unknown_recovery_and_source_snapshot() {
         support::row_data(&second)["content"],
         support::row_data(&replay)["content"]
     );
+    assert_candidate_replay_is_free(&runtime, &server, &next["nextCandidatePage"]["input"]).await;
     workspace.write("pages.txt", "changed source\n");
     for input in [unknown, display] {
         let stale = support::call(&runtime, "localFetch", input)
@@ -375,6 +440,52 @@ async fn empty_selected_display_still_advances_pending_candidates() {
     assert_eq!(
         actual, expected,
         "later candidates survive an empty selected page"
+    );
+    runtime.close().await;
+}
+
+#[tokio::test]
+async fn candidate_page_replay_reuses_its_judgments() {
+    let (_workspace, server, runtime, input) = local_fixture(provider(false).await).await;
+    let mut input = input;
+    let next = loop {
+        let page = support::call(&runtime, "localFetch", input.clone())
+            .await
+            .expect("page");
+        let data = support::row_data(&page);
+        if let Some(call) = data["next"].get("nextCandidatePage") {
+            break call["input"].clone();
+        }
+        input = data["next"]["nextPage"]["input"].clone();
+    };
+    assert_candidate_replay_is_free(&runtime, &server, &next).await;
+    let priced = support::call(&runtime, "localFetch", next.clone())
+        .await
+        .expect("replay");
+    let usage = &support::row_data(&priced)["selection"]["usage"];
+    assert!(
+        usage["remainingInputTokensEstimate"]
+            .as_u64()
+            .is_some_and(|n| n > 0),
+        "a replayed page still prices the rest of the walk: {usage}"
+    );
+    assert!(
+        usage["models"].as_array().is_some_and(|m| !m.is_empty()),
+        "{usage}"
+    );
+    // A cursor over an edited source never serves the page saved for the old one.
+    let judged = provider_calls(&server).await;
+    _workspace.write("pages.txt", "changed source\n");
+    let stale = support::call(&runtime, "localFetch", next)
+        .await
+        .expect("stale row");
+    let data = support::row_data(&stale);
+    assert_eq!(data["errorCode"], "staleSnapshot", "{data}");
+    assert!(data.get("content").is_none(), "{data}");
+    assert_eq!(
+        provider_calls(&server).await,
+        judged,
+        "stale judges nothing"
     );
     runtime.close().await;
 }
