@@ -22,10 +22,10 @@ pub(super) fn skipped<T>(
 
 /// What mapping one file kept: the caller's map result (`None`: the map
 /// filtered it out), or nothing because the file's source correspondence
-/// outgrew what one file may hold.
+/// outgrew what one file may hold ([`crate::text::analysis::MapBudget::exceeded`]).
 pub(super) enum Mapped<T> {
     Kept(Option<T>),
-    OverBudget,
+    OverBudget(String),
 }
 
 /// A mapped file's outcome: an over-budget file is a named gap, never a
@@ -36,12 +36,20 @@ pub(super) fn mapped_outcome<T>(
 ) -> Result<Option<GraphFactsScanOutcome<T>>, GraphScanError> {
     Ok(Some(match mapped {
         Mapped::Kept(kept) => GraphFactsScanOutcome::Entry(relative_path, kept),
-        Mapped::OverBudget => skipped(
+        Mapped::OverBudget(exceeded) => skipped(
             relative_path,
             SOURCE_BUDGET_EXCEEDED,
-            "file's source correspondence exceeds the per-file budget",
+            &over_budget_message(&exceeded),
         ),
     }))
+}
+
+/// The skip message of a file whose source correspondence passed a limit
+/// ([`crate::text::analysis::MapBudget::exceeded`]), whichever stage
+/// measured it.
+#[must_use]
+pub fn over_budget_message(exceeded: &str) -> String {
+    format!("file's source correspondence {exceeded}; none of its facts are in the graph")
 }
 
 /// The skip code of a file whose source correspondence outgrows the

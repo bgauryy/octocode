@@ -159,7 +159,7 @@ fn a_paused_build_resumes_through_expand_scan_without_refresh() {
     let dir = Fixture::new();
     dir.write("app/a.ts", "export const a = () => 1;\n");
     let paths = workspace_policy(&dir.0);
-    let (workspace, root) = scope("app", &paths).expect("scope");
+    let (workspace, root, _) = scope("app", &paths, None).expect("scope");
     let query: GraphBuildQuery =
         serde_json::from_value(json!({"path": "app", "refresh": true})).expect("query");
     let options = IngestOptions {

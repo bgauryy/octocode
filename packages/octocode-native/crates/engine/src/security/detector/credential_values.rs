@@ -208,7 +208,7 @@ fn assigns_a_credential(key: &impl KeyFacts, secret: &str) -> bool {
         && !reads_a_name(key, secret)
         && !is_type_expression(secret)
         && !is_plain_phrase(key, secret)
-        && !is_constant_name(secret)
+        && !(is_constant_name(secret) && !key.names_a_chosen_credential())
         && !is_armor_line(secret)
         && !is_timestamp(secret)
         && !(is_word_label(secret) && !key.names_a_chosen_credential())
@@ -265,7 +265,8 @@ fn control_escape_len(text: &str) -> Option<usize> {
 /// words joined by `_`, each a name word ([`is_name_segment`]). A name that
 /// holds a credential is spelled so, as a camelCase name is
 /// ([`is_identifier_name`]); a token of capitals holds digits or
-/// unpronounceable runs.
+/// unpronounceable runs. A chosen password may be capital words so joined
+/// (`CORRECT_HORSE_BATTERY_STAPLE`), so a key naming one keeps it.
 fn is_constant_name(secret: &str) -> bool {
     secret.split('_').filter(|word| !word.is_empty()).count() >= 2
         && secret
@@ -289,13 +290,19 @@ fn is_timestamp(secret: &str) -> bool {
 }
 
 /// Whether `secret` is a label of two or more lowercase words joined by `-`
-/// or `_` (`new-login-refresh`), each a pronounceable word. Under a key
-/// naming an opaque string (`token`) such a value names something; a chosen
-/// password may be words so joined, so a key naming one keeps it.
+/// or `_` (`new-login-refresh`), each a pronounceable word and none a
+/// credential word. Under a key naming an opaque string (`token`) such a
+/// value names something; a chosen password may be words so joined, so a key
+/// naming one keeps it. A label that names what it is (`unrelated-secret`,
+/// `deploy-bot-token`) is how a person spells a static credential.
 fn is_word_label(secret: &str) -> bool {
     secret.split(['-', '_']).count() >= 2
         && secret.split(['-', '_']).all(|word| {
-            word.bytes().all(|b| b.is_ascii_lowercase()) && pronounceable_word(word.as_bytes())
+            word.bytes().all(|b| b.is_ascii_lowercase())
+                && pronounceable_word(word.as_bytes())
+                && !CREDENTIAL_WORDS
+                    .split('|')
+                    .any(|credential| credential == word)
         })
 }
 

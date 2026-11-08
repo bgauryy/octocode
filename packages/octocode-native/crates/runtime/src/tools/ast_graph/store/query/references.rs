@@ -354,6 +354,7 @@ impl Query<'_> {
                 target: Some(matches.normalized),
                 kind: kind.map(|kind| kind.as_str().to_owned()),
                 workspace: self.options.workspace.clone(),
+                home: self.options.home.clone(),
                 graph: self.options.graph.clone(),
                 offset: Some(shown),
                 ..Default::default()

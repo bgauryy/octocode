@@ -146,8 +146,12 @@ fn a_scan_past_the_build_budget_stops_early_and_names_narrower_scopes() {
             &crate::execution::cancel::NeverCancel,
         )
     };
-    // Each file charges more than one byte: the first one kept passes it.
-    let error = build(1).expect_err("past the build budget");
+    // A budget under one declaration's charge but over each source: every
+    // file is read (only a source larger than the whole budget is a skip),
+    // and the first one kept passes it.
+    let budget = crate::tools::ast_graph::limits::build_charge(0, 1, 0) - 1;
+    assert!(std::fs::metadata(root.join("big/m0.ts")).unwrap().len() < budget as u64);
+    let error = build(budget).expect_err("past the build budget");
     assert_eq!(
         error.code,
         octocode_contract_types::ErrorCode::ScopeTooBroad
@@ -198,11 +202,12 @@ fn summed_source_correspondence_never_refuses_a_scope() {
     assert_eq!(built.facts.len(), 6);
 }
 
-/// A file whose source correspondence outgrows the per-file budget is a scan
-/// gap, like a file past the byte limit: the build keeps every other file and
-/// names the skipped one, never failing the scan or dropping it silently.
+/// A file whose source correspondence alone outgrows the build's memory
+/// budget is a scan gap, like a file past the byte limit: the build keeps
+/// every other file and names the skipped one with the limit, its use and
+/// its ceiling, never failing the scan or dropping it silently.
 #[test]
-fn a_file_past_the_per_file_source_budget_is_a_named_scan_gap() {
+fn a_file_past_the_build_budget_in_source_correspondence_is_a_named_scan_gap() {
     let dir = crate::tools::test_support::Fixture::new();
     let dense = (0..14_000)
         .map(|id| {
@@ -212,22 +217,40 @@ fn a_file_past_the_per_file_source_budget_is_a_named_scan_gap() {
             )
         })
         .collect::<String>();
+    // Over the source's own size (so it is read) and every small file's
+    // charge, under what the dense file's correspondence needs.
+    let build_bytes = 8 * dense.len();
     dir.write("dense.ts", dense);
     dir.write("small.ts", "export const small = () => 1;\n");
-    let built = fixture_graph(dir.0.as_path(), &[]);
+    let root = dir.0.as_path();
+    let built = super::build_graph(
+        &super::GraphScan {
+            root: root.to_path_buf(),
+            limits: crate::tools::ast_graph::limits::Limits {
+                build_bytes,
+                ..*crate::tools::ast_graph::limits::LIMITS
+            },
+            ..Default::default()
+        },
+        &crate::tools::test_support::workspace_policy(root),
+        &crate::security::ContentSecurity::new(),
+        &crate::execution::cancel::NeverCancel,
+    )
+    .expect("one declined file never fails the build");
     assert!(built.facts.contains_key("small.ts"));
     assert!(!built.facts.contains_key("dense.ts"));
+    let skip = built
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.file == "dense.ts")
+        .unwrap_or_else(|| panic!("{:?}", built.diagnostics));
+    assert_eq!(skip.code, DiagnosticCode::ScanSkip);
     assert!(
-        built
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.file == "dense.ts"
-                && diagnostic.code == DiagnosticCode::ScanSkip
-                && diagnostic
-                    .message
-                    .contains("graph.scan.sourceBudgetExceeded")),
-        "{:?}",
-        built.diagnostics
+        skip.message.contains("graph.scan.sourceBudgetExceeded")
+            && skip.message.contains("build memory budget")
+            && skip.message.contains(&build_bytes.to_string()),
+        "{}",
+        skip.message
     );
 }
 

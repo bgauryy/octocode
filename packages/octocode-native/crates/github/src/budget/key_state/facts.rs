@@ -114,30 +114,31 @@ impl KeyState {
             .cloned()
     }
 
-    /// Remember `owner`'s listing route, mirrored so the next process skips
-    /// the organization probe too.
-    pub(crate) fn learn_owner_route(self: &Arc<Self>, owner: &str, route: &str) {
+    /// Remember `owner`'s listing route, on disk before the request ends, so
+    /// the next process skips the organization probe too.
+    pub(crate) async fn learn_owner_route(self: &Arc<Self>, owner: &str, route: &str) {
         let known = self
             .facts()
             .owner_routes
             .insert(owner.to_ascii_lowercase(), route.to_owned());
         if known.as_deref() != Some(route) {
-            self.persist();
+            self.persist_awaited(|_| {}).await;
         }
     }
 
     /// An owner that no longer answers its route (renamed, converted): gone
     /// from memory and from the mirror, unless a newer route replaced it there.
-    pub(crate) fn forget_owner_route(self: &Arc<Self>, owner: &str) {
+    pub(crate) async fn forget_owner_route(self: &Arc<Self>, owner: &str) {
         let owner = owner.to_ascii_lowercase();
         let Some(stale) = self.facts().owner_routes.remove(&owner) else {
             return;
         };
-        self.persist_detached(move |view| {
+        self.persist_awaited(move |view| {
             if view.owner_routes.get(&owner) == Some(&stale) {
                 view.owner_routes.remove(&owner);
             }
-        });
+        })
+        .await;
     }
 
     /// Mark a resource exhausted until `reset` (epoch seconds).

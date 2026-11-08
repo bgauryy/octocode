@@ -311,3 +311,87 @@ async fn a_redirected_repository_names_the_repository_github_redirects_to() {
     );
     runtime.close().await;
 }
+
+/// A listed `other-v1.3.0` is another package's tag only when the
+/// repository's git tree at its commit holds a package `other`; read through
+/// GitHub's tree API, with no package there it is this package's release.
+#[tokio::test]
+async fn a_stem_tag_is_another_packages_only_when_githubs_tree_holds_it() {
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+    for (files, pinned) in [
+        (
+            json!([{"path": "packages/other/package.json", "type": "blob"}]),
+            false,
+        ),
+        (
+            json!([{"path": "docs/other/index.md", "type": "blob"}]),
+            true,
+        ),
+    ] {
+        let server = MockServer::builder().start().await;
+        Mock::given(method("GET"))
+            .and(path("/left-pad/1.3.0"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "name": "left-pad",
+                "version": "1.3.0",
+                "repository": {"type": "git", "url": "https://github.com/a/b"}
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/a/b/git/matching-refs/tags"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([{
+                "ref": "refs/tags/other-v1.3.0",
+                "object": {"sha": SHA, "type": "commit"}
+            }])))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/git/trees/{SHA}")))
+            .and(wiremock::matchers::query_param("recursive", "1"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"sha": SHA, "truncated": false, "tree": files})),
+            )
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/a/b/commits/HEAD"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
+            .mount(&server)
+            .await;
+        let workspace = Workspace::new();
+        let mut env = support::github_api(&server).to_vec();
+        env.push(("OCTOCODE_ALLOW_PRIVATE_REGISTRY", "true".to_string()));
+        let runtime = workspace.runtime(&env);
+        let outcome = call(
+            &runtime,
+            "artifactSearch",
+            json!({
+                "operation": "resolve", "ecosystem": "npm",
+                "packageName": "left-pad", "version": "1.3.0",
+                "registryUrl": server.uri()
+            }),
+        )
+        .await
+        .expect("artifactSearch");
+        let data = row_data(&outcome);
+        let row = &data["artifacts"][0];
+        let warnings = data["warnings"].to_string();
+        if pinned {
+            assert_eq!(row["ref"], "other-v1.3.0", "{data}");
+            assert_eq!(row["verification"], "tag", "{data}");
+            assert!(
+                warnings.contains("has no directory named other holding a package manifest"),
+                "{data}"
+            );
+        } else {
+            assert!(row.get("ref").is_none(), "{data}");
+            assert!(
+                warnings.contains("only tags of other packages (other-v1.3.0) name this version"),
+                "{data}"
+            );
+        }
+        runtime.close().await;
+    }
+}

@@ -1,5 +1,5 @@
-//! Materialized trees: the layout Octocode owns, provider bytes reacquired
-//! on every materialize, and no dating request.
+//! Materialized trees: the layout Octocode owns, the snapshot as the only
+//! store of each body, and no dating request.
 use super::*;
 
 /// octocode-mcp 19.x rewrites `tmp/tree/<owner>/<repo>/<sha>/`; a
@@ -76,11 +76,12 @@ async fn materialize_never_trusts_a_foreign_directory() {
     runtime.close().await;
 }
 
-/// A repeated materialize reuses nothing on disk: it reads every file from
-/// the provider again, so a same-size edit on disk is overwritten with the
-/// commit's bytes and an untouched file still holds them.
+/// A repeated materialize restores every file: the snapshot is the only
+/// store of a body, so a copy that still matches its manifest identity is
+/// kept untouched and not read, and a same-size edit on disk is read from
+/// the provider again and overwritten with the commit's bytes.
 #[tokio::test]
-async fn a_second_materialize_restores_every_file_from_its_kept_answer() {
+async fn a_second_materialize_restores_every_file_reading_only_the_changed_one() {
     let server = MockServer::builder().start().await;
     mount_head_at_sha(&server).await;
     Mock::given(method("GET"))
@@ -92,7 +93,10 @@ async fn a_second_materialize_restores_every_file_from_its_kept_answer() {
         ])))
         .mount(&server)
         .await;
-    for name in ["one.rs", "two.rs"] {
+    // one.rs stays intact on disk, so only the first materialize reads it;
+    // two.rs is edited on disk, and no saved answer keeps its body, so the
+    // second materialize reads it again.
+    for (name, reads) in [("one.rs", 1), ("two.rs", 2)] {
         Mock::given(method("GET"))
             .and(path(format!("/api/v3/repos/a/b/contents/{name}")))
             .and(query_param("ref", SHA))
@@ -104,9 +108,7 @@ async fn a_second_materialize_restores_every_file_from_its_kept_answer() {
                 "sha": "a".repeat(40),
                 "path": name
             })))
-            // A commit's file never changes: the second materialization restores
-            // it from the kept answer.
-            .expect(1)
+            .expect(reads)
             .mount(&server)
             .await;
     }

@@ -33,7 +33,7 @@ fn a_query_from_another_workspace_names_both_homes() {
     ] {
         let row = crate::contracts::validate_built_query(ToolId::GraphQuery.as_str(), row)
             .expect("input contract");
-        let missing = execute_query(&row, &policy(&app, &dir.0), &context(), None)
+        let missing = execute_query(&row, &policy(&app, &dir.0), &context(), None, None)
             .expect("execute")
             .data;
         assert_eq!(missing["errorCode"], "notFound", "{missing}");
@@ -59,7 +59,7 @@ fn a_home_outside_the_allowed_roots_is_never_named() {
         json!({"operation":"stats","path":"."}),
     )
     .expect("input contract");
-    let missing = execute_query(&row, &policy(&app, &app), &context(), None)
+    let missing = execute_query(&row, &policy(&app, &app), &context(), None, None)
         .expect("execute")
         .data;
     assert_eq!(missing["errorCode"], "notFound", "{missing}");
@@ -85,7 +85,7 @@ fn a_path_outside_the_workspace_names_a_route() {
         &ContentSecurity::new(),
         &context(),
         None,
-        false,
+        &Store::default(),
     )
     .expect("execute");
     let text = refused.data.to_string();

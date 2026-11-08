@@ -116,3 +116,24 @@ fn a_withheld_github_source_is_refused_and_names_only_a_route_the_policy_opens()
         assert!(withheld_github_source(&normal, &reads).is_none());
     }
 }
+
+/// A fresh read reruns the capture in any later runtime: a GitHub read at the
+/// commit the capture resolved, whatever ref was asked, and a local read by
+/// path, never with a snapshot this runtime ends with (CLS-C9).
+#[test]
+fn a_fresh_read_keeps_the_captured_commit_and_no_local_snapshot() {
+    const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+    let remote = json!({"owner":"octo","repo":"demo","path":"a.rs","ref":"main"});
+    let read = fresh_read(ToolId::GhGetFileContent, &remote, Some(SHA));
+    assert_eq!(read["kind"], "related", "{read:#}");
+    assert_eq!(read["input"]["queries"][0]["ref"], SHA, "{read:#}");
+    let unpinned = fresh_read(ToolId::GhGetFileContent, &remote, None);
+    assert_eq!(
+        unpinned["input"]["queries"][0]["ref"], "main",
+        "{unpinned:#}"
+    );
+    let local = fresh_read(ToolId::LocalFetch, &json!({"path":"a.rs"}), Some("digest"));
+    let row = &local["input"]["queries"][0];
+    assert_eq!(row["path"], "a.rs", "{local:#}");
+    assert!(row.get("snapshot").is_none(), "{local:#}");
+}

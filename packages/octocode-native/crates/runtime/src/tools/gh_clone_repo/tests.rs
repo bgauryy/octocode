@@ -305,6 +305,26 @@ fn setup<'a>(
     }
 }
 
+/// [`setup`] owned, as [`run`] takes it: git and cancellation shared.
+fn owned_setup(
+    runner: Arc<dyn GitRunner>,
+    config: &CloneConfig,
+    endpoint: &GitHubEndpoint,
+    policy: &PathPolicy,
+    credential: Option<&ResolvedCredential>,
+) -> Arc<CloneSetup> {
+    Arc::new(CloneSetup {
+        config: config.clone(),
+        endpoint: endpoint.clone(),
+        git_limiter: test_git_limiter(config),
+        credential: credential.cloned(),
+        cancellation: Arc::new(NeverCancel),
+        deadline: Instant::now() + Duration::from_secs(30),
+        path_policy: policy.clone(),
+        git: runner,
+    })
+}
+
 /// A runner that clones the fixture's local bare repository in place of
 /// its GitHub URL.
 fn fixture_runner(fixture: &Fixture) -> RewriteRunner {

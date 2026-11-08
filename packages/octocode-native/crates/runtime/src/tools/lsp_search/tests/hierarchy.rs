@@ -336,3 +336,65 @@ async fn ready_awaits_observe_cancellation_at_completion() {
         7
     );
 }
+
+/// Roots of one symbol in two files (clangd prepares the declaration in a
+/// header and the definition in the source) that call one callee. An
+/// outgoing call's sites lie in its root's file, so each file keeps its own
+/// row with its own sites; two roots in one file are one row.
+#[tokio::test(flavor = "current_thread")]
+async fn one_callee_of_roots_in_two_files_keeps_a_row_per_file() {
+    struct Callees {
+        callee: serde_json::Value,
+    }
+    impl HierarchySource for Callees {
+        async fn expand(
+            &self,
+            _: Expansion,
+            item: serde_json::Value,
+        ) -> Result<serde_json::Value, LspFailure> {
+            // One call per root, on the line after the root's own line.
+            let line = item["range"]["start"]["line"].as_u64().unwrap_or(0) + 1;
+            Ok(serde_json::json!([{
+                "to": self.callee,
+                "fromRanges": [{"start": {"line": line, "character": 2}, "end": {"line": line, "character": 8}}]
+            }]))
+        }
+    }
+    let (_dir, root, paths) = temp_workspace();
+    let uri_of = |name: &str| {
+        let file = root.join(name);
+        std::fs::write(&file, "// c\n").expect("file");
+        octocode_engine::lsp::uri::path_to_uri(&file.to_string_lossy()).expect("uri")
+    };
+    let (header, source, other) = (uri_of("a.h"), uri_of("a.c"), uri_of("b.c"));
+    let roots = [
+        node_at("helper", Some(&header)),
+        node_at("helper", Some(&source)),
+        node_at("helper_inline", Some(&source)),
+    ];
+    let callees = Callees {
+        callee: node_at("callee", Some(&other)),
+    };
+    let walk = walk_hierarchy(
+        &callees,
+        &roots,
+        Expansion::OutgoingCalls,
+        1,
+        &paths,
+        &crate::execution::cancel::NeverCancel,
+    )
+    .await
+    .expect("walk");
+    let mut rows = walk
+        .edges
+        .iter()
+        .map(|edge| public_edge(Expansion::OutgoingCalls, edge, None))
+        .map(|row| {
+            let path = row["callerPath"].as_str().unwrap_or_default().to_owned();
+            let file = path.rsplit('/').next().unwrap_or_default().to_owned();
+            (file, row["fromRanges"].as_array().map_or(0, Vec::len))
+        })
+        .collect::<Vec<_>>();
+    rows.sort();
+    assert_eq!(rows, [("a.c".to_owned(), 2), ("a.h".to_owned(), 1)]);
+}

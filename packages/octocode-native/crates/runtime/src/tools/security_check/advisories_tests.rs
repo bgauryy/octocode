@@ -288,6 +288,12 @@ async fn a_private_repositorys_advisory_ids_are_never_sent_to_osv_and_the_row_sa
         why.contains("not asked") && why.contains("private"),
         "the skipped merge is stated with its reason: {data}"
     );
+    // An `advisory` call sends its id to OSV: none is offered for a
+    // repository not known to be public.
+    assert!(
+        !data["related"].to_string().contains("\"advisory\""),
+        "{data}"
+    );
 }
 
 /// A `RepoFacts` built without a visibility must never read as public: a
@@ -372,6 +378,46 @@ async fn a_public_repositorys_advisories_are_still_merged_with_osv() {
     .expect("row");
     assert!(!http.targets().is_empty(), "{data}");
     assert!(data.get("warnings").is_none(), "{data}");
+    // OSV was asked and answered: the row names it among its sources.
+    assert_eq!(
+        osv_entry(&data),
+        json!({"source": "osv", "status": "found"}),
+        "{data}"
+    );
+}
+
+fn osv_entry(data: &Value) -> Value {
+    data["sources"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|entry| entry["source"] == "osv")
+        .cloned()
+        .unwrap_or(Value::Null)
+}
+
+/// OSV asked for every advisory id and keeping none of them is a source that
+/// was asked: `noneKnown`, never left off the row.
+#[tokio::test]
+async fn osv_asked_for_a_repositorys_advisories_is_a_source_even_when_it_knows_none() {
+    let github = two_pages();
+    let http = RouteHttp::new();
+    let (budget, reused) = (test_budget(), ReusedSince::default());
+    let config = crate::tools::security_check::tests::default_config();
+    let data = crate::tools::security_check::repository::run(
+        "lodash/lodash",
+        None,
+        serde_json::Map::new(),
+        &net(&http, &budget, &reused, &config, &github),
+    )
+    .await
+    .expect("row");
+    assert!(!http.targets().is_empty(), "OSV was asked: {data}");
+    assert_eq!(
+        osv_entry(&data),
+        json!({"source": "osv", "status": "noneKnown"}),
+        "{data}"
+    );
 }
 
 /// A double that counts the requests in flight together: each answers after
@@ -484,5 +530,93 @@ async fn an_osv_failure_for_one_advisory_keeps_github_rows_and_names_the_unread_
     assert!(
         data["partialReasons"].to_string().contains("sourceFailed"),
         "{data}"
+    );
+}
+
+/// What GitHub publishes beyond OSV's shape reaches the row: each CVSS vector
+/// with GitHub's numeric score under `score` (never the vector), EPSS, the
+/// publisher, the credits, and the record's API address as a reference.
+#[test]
+fn a_github_advisory_row_keeps_its_scores_epss_publisher_credits_and_address() {
+    let advisory: RepositoryAdvisory = serde_json::from_value(json!({
+        "ghsa_id": "GHSA-aaaa-bbbb-cccc",
+        "url": "https://api.github.com/repos/o/r/security-advisories/GHSA-aaaa-bbbb-cccc",
+        "html_url": "https://github.com/o/r/security/advisories/GHSA-aaaa-bbbb-cccc",
+        "description": "Whole text.",
+        "publisher": {"login": "maintainer"},
+        "credits": [{"login": "finder", "type": "finder"}],
+        "cvss": {"vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N", "score": 5.4},
+        "cvss_severities": {"cvss_v4": {"vector_string": null, "score": 0.0}},
+        "epss": {"percentage": 0.01965, "percentile": 0.80029},
+        "cwes": [{"cwe_id": "CWE-79", "name": "XSS"}],
+        "vulnerabilities": [{"package": {"ecosystem": "npm", "name": "x"},
+            "vulnerable_version_range": "< 2.0.0", "first_patched_version": "2.0.0"}],
+    }))
+    .expect("advisory");
+    let row = row(&advisory, &Selection::All).expect("row");
+    assert_eq!(
+        row.cvss,
+        [json!({"type": "CVSS_V3",
+            "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N", "score": 5.4})]
+    );
+    assert_eq!(
+        row.epss,
+        Some(json!({"percentage": 0.01965, "percentile": 0.80029}))
+    );
+    assert_eq!(row.publisher.as_deref(), Some("maintainer"));
+    assert_eq!(row.credits, [json!({"login": "finder", "type": "finder"})]);
+    assert_eq!(row.details.as_deref(), Some("Whole text."));
+    assert_eq!(row.cwes, ["CWE-79"]);
+    assert_eq!(row.fixed_in, ["2.0.0"]);
+    assert!(
+        row.references.contains(&json!({"type": "ADVISORY",
+            "url": "https://api.github.com/repos/o/r/security-advisories/GHSA-aaaa-bbbb-cccc"})),
+        "{:?}",
+        row.references
+    );
+    assert_eq!(row.brief()["epss"]["percentile"], 0.80029);
+}
+
+/// A public repository's advisory OSV keeps no record of is one ready
+/// `advisory` call away, with `repo`, so GitHub's own record of it is read
+/// whole (RV-SEC F6).
+#[tokio::test]
+async fn a_repository_row_offers_each_advisory_osv_lacks_with_its_repo() {
+    let github = two_pages();
+    let first = recorded_advisories(1)[0].ghsa_id.clone();
+    let http = RouteHttp::new().json(
+        &format!("/v1/vulns/{first}"),
+        json!({"id": first, "summary": "from OSV", "modified": "2026-01-01T00:00:00Z"}),
+    );
+    let (budget, reused) = (test_budget(), ReusedSince::default());
+    let config = crate::tools::security_check::tests::default_config();
+    let data = crate::tools::security_check::repository::run(
+        "lodash/lodash",
+        None,
+        serde_json::Map::new(),
+        &net(&http, &budget, &reused, &config, &github),
+    )
+    .await
+    .expect("row");
+    let rows = data["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|call| {
+            call["input"]["queries"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+        })
+        .filter(|row| row["operation"] == "advisory")
+        .collect::<Vec<_>>();
+    assert!(!rows.is_empty(), "{data}");
+    assert!(
+        rows.iter().all(|row| row["repo"] == "lodash/lodash"),
+        "{rows:?}"
+    );
+    assert!(
+        rows.iter().all(|row| row["id"] != json!(first)),
+        "OSV's own record needs no repository read: {rows:?}"
     );
 }

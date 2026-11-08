@@ -79,6 +79,9 @@ pub struct RequestSpec {
     /// pagination link to another origin (a proxy forwarding GitHub's own)
     /// is not an error for it.
     first_page_only: bool,
+    /// The caller stores the answer's body itself: no saved answer keeps it
+    /// a second time ([`GitHubTransport::keep`]).
+    kept_by_caller: bool,
 }
 impl RequestSpec {
     pub fn get(url: Url) -> Self {
@@ -91,6 +94,7 @@ impl RequestSpec {
             file: None,
             reads_pull_request: false,
             first_page_only: false,
+            kept_by_caller: false,
         }
     }
     pub(crate) fn graphql(url: Url, body: Value) -> Self {
@@ -103,7 +107,14 @@ impl RequestSpec {
             file: None,
             reads_pull_request: false,
             first_page_only: false,
+            kept_by_caller: false,
         }
+    }
+
+    /// The caller stores this answer's body itself: it is not saved.
+    pub(crate) fn kept_by_caller(mut self) -> Self {
+        self.kept_by_caller = true;
+        self
     }
 
     /// This read uses the first page alone: its `Link` is neither parsed

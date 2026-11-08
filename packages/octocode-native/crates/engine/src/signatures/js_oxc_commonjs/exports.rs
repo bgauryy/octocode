@@ -110,11 +110,12 @@ pub(in crate::signatures) fn collect_common_js_exports<'a>(
         if let Some(whole) = wrapped::wrapped_whole(semantic, program)
             && let Some(held) = value_members(semantic, whole.value)
         {
+            let members_empty = held.members.is_empty();
             let mut members = held.members;
             members.push((held.value, COMMONJS_WHOLE_EXPORT.to_owned()));
             let exports = CommonJsExports {
                 members,
-                conditional: whole.conditional || held.escapes,
+                conditional: whole.conditional || (held.escapes && !members_empty),
                 ..CommonJsExports::default()
             };
             return (exports, None);
@@ -194,8 +195,8 @@ pub(in crate::signatures) fn collect_common_js_exports<'a>(
     if let Held::Local(identifier) = &whole
         && let Some(held) = value_members(semantic, identifier)
     {
+        exports.conditional = held.escapes && !held.members.is_empty();
         exports.members = held.members;
-        exports.conditional = held.escapes;
     }
     admit(COMMONJS_WHOLE_EXPORT.to_owned(), whole);
     if !census.keys_unknown {

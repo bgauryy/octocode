@@ -124,8 +124,8 @@ mod refusal_tests;
 /// How long saved work for `tool` stays reachable after its last read: the
 /// one owner of the lifetime of its cursors, saved pages, the expiry a page
 /// states and the lifetime a refusal names. A clasify cursor names a plan
-/// kept [`crate::tools::clasify::sections::PLAN_RETENTION`], so its pages and cursor live that long and never
-/// die before the plan they continue.
+/// kept [`PLAN_IDLE`] after its last use, so its pages and cursor live that
+/// long and never die before the plan they continue.
 fn idle_lifetime(tool: &str) -> std::time::Duration {
     if tool == ToolId::Clasify.as_str() {
         PLAN_IDLE
@@ -185,7 +185,7 @@ pub(super) fn snapshot_expired(refusal: Refusal, scope: RefusalScope) -> Runtime
             "Malformed cursor: it is not an issued handle (edited, truncated or invented).".into()
         }
         Refusal::NotRetained if scope.persistent => format!(
-            "Unknown or expired cursor: no saved work under it for this tool, configuration and workspace. Saved work expires {lifetime} seconds after its last read and may be evicted; an edited cursor, or one issued under another configuration or workspace, names none here."
+            "Unknown or expired cursor: no saved work under it for this tool, configuration, workspace and Octocode build. Saved work expires {lifetime} seconds after its last read and may be evicted; an edited cursor, or one issued under another configuration, workspace or Octocode build (an upgrade or rebuild), names none here."
         ),
         Refusal::NotRetained => format!(
             "Unknown or expired cursor: no saved work under it in this runtime. storage.mode is memory, or security.credentialFiles is allow, so saved work ends with the runtime that issued it (each CLI call is its own runtime); resuming across CLI calls needs storage.mode persistent with credential files withheld. Saved work also expires {lifetime} seconds after its last read and may be evicted; an edited cursor names none."

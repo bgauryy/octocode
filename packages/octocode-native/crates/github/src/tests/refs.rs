@@ -137,3 +137,45 @@ async fn ref_pages_behind_a_proxy_state_more_and_are_asked_once() {
         "one request per page"
     );
 }
+
+/// A tag ref keeps the commit a lightweight tag names; an annotated tag's
+/// ref names its tag object, so its commit is left to a read of the tag.
+#[tokio::test]
+async fn tag_refs_keep_a_lightweight_tags_commit_only() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/o/r/git/matching-refs/tags"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+            {"ref": "refs/tags/rel/1.0", "object": {"sha": "c0ffee", "type": "commit"}},
+            {"ref": "refs/tags/v1.0", "object": {"sha": "7a9", "type": "tag"}},
+            {"ref": "refs/tags/bare"}
+        ])))
+        .mount(&server)
+        .await;
+    let endpoint = mock_endpoint(&server);
+    let tags = anonymous_transport(&endpoint)
+        .repository_tag_refs(
+            "o",
+            "r",
+            &RequestContext::with_timeout(Duration::from_secs(10), 1 << 20),
+        )
+        .await
+        .expect("tag refs");
+    assert_eq!(
+        tags,
+        [
+            crate::TagRef {
+                name: "rel/1.0".into(),
+                commit: Some("c0ffee".into())
+            },
+            crate::TagRef {
+                name: "v1.0".into(),
+                commit: None
+            },
+            crate::TagRef {
+                name: "bare".into(),
+                commit: None
+            },
+        ]
+    );
+}

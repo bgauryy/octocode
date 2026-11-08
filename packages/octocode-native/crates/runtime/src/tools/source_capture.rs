@@ -90,6 +90,13 @@ pub(crate) struct Captured {
     pub read: Value,
     /// Characters that read returns.
     pub read_chars: usize,
+    /// The read is a fresh one ([`fresh_read`]) of more characters than one
+    /// response of this runtime holds: it pages, and paging needs saved
+    /// continuations, which this runtime keeps for no later call. Raw
+    /// characters are a floor of the rendered read, so this is never a false
+    /// alarm; a read just under it meets the runtime's own refusal, which
+    /// names the same fix.
+    pub read_pages: bool,
     /// Provenance a read lead cannot carry (a URL capture).
     pub source: Option<Value>,
 }
@@ -155,12 +162,15 @@ pub(crate) fn withheld_github_source(
 }
 
 /// Capture `source` (`{tool, query}` or `{url}`) completely, up to
-/// `max_chars` characters of text.
+/// `max_chars` characters of text. `resumable`: this runtime keeps its saved
+/// work for a later call, so the read lead is the pinned handle; otherwise
+/// it is a [`fresh_read`]. A URL capture needs persistent storage either way.
 pub(crate) fn capture(
     source: &Value,
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     max_chars: usize,
+    resumable: bool,
 ) -> Result<Captured, ClassificationError> {
     if let Some(address) = source.get("url").and_then(Value::as_str) {
         return url::capture(address, dispatcher, context, max_chars);
@@ -191,10 +201,16 @@ pub(crate) fn capture(
         max_chars,
         id == ToolId::GhGetFileContent,
     )?;
+    let read_chars = text.chars().count();
     Ok(Captured {
-        read_chars: text.chars().count(),
+        read_chars,
+        read_pages: !resumable && read_chars > dispatcher.limits().auto_page_chars,
         state: json!({ "source": identity(id, &source["query"], pin.as_deref()), "text": text }),
-        read: read_lead(id, &source["query"], pin.as_deref()),
+        read: if resumable {
+            read_lead(id, &source["query"], pin.as_deref())
+        } else {
+            fresh_read(id, &source["query"], pin.as_deref())
+        },
         source: None,
     })
 }
@@ -312,6 +328,26 @@ fn identity(id: ToolId, query: &Value, pin: Option<&str>) -> Value {
 /// The read of exactly the captured selection: same path and ranges (or
 /// whole file), exact text, pinned to the snapshot or commit.
 pub(super) fn read_lead(id: ToolId, query: &Value, pin: Option<&str>) -> Value {
+    let row = read_row(id, query, pin, true);
+    if pin.is_some() {
+        crate::response::result::Continuation::continued(id, row).build()
+    } else {
+        crate::response::result::Continuation::related(id, row).build()
+    }
+}
+
+/// The read a runtime that keeps nothing for a later call offers for its
+/// capture: a related call any later runtime runs, never a handle into this
+/// one. A GitHub read stays at the commit it captured; a local read rereads
+/// the path, since its snapshot ends with this runtime.
+pub(crate) fn fresh_read(id: ToolId, query: &Value, pin: Option<&str>) -> Value {
+    crate::response::result::Continuation::related(id, read_row(id, query, pin, false)).build()
+}
+
+/// The reader row of the captured selection: its path and ranges, and the
+/// commit a GitHub capture resolved. A local `snapshot` pin is added only
+/// when `snapshot` holds (the runtime keeps it).
+fn read_row(id: ToolId, query: &Value, pin: Option<&str>, snapshot: bool) -> Value {
     let mut row = serde_json::Map::new();
     for field in ["owner", "repo", "path", "ranges"] {
         if let Some(value) = query.get(field) {
@@ -327,16 +363,12 @@ pub(super) fn read_lead(id: ToolId, query: &Value, pin: Option<&str>) -> Value {
                 row.insert("ref".into(), reference.clone());
             }
         }
-        (_, Some(snapshot)) => {
-            row.insert("snapshot".into(), json!(snapshot));
+        (_, Some(pin)) if snapshot => {
+            row.insert("snapshot".into(), json!(pin));
         }
-        (_, None) => {}
+        (_, _) => {}
     }
-    if pin.is_some() {
-        crate::response::result::Continuation::continued(id, Value::Object(row)).build()
-    } else {
-        crate::response::result::Continuation::related(id, Value::Object(row)).build()
-    }
+    Value::Object(row)
 }
 
 #[cfg(test)]

@@ -49,12 +49,33 @@ fn an_issue_summary_with_counted_comments_says_nothing_was_judged_and_where_they
     );
     assert!(seen.is_empty(), "nothing judgeable was sent: {seen:?}");
     assert_eq!(data["selection"]["totalItems"], 0, "{data}");
-    assert_eq!(data["selection"]["reason"], "noCandidates", "{data}");
+    assert_eq!(
+        data["selection"]["reason"], "unreadSections",
+        "the receipt says the judged sections were not read, not that none matched: {data}"
+    );
+    assert_eq!(data["selection"]["status"], "complete", "{data}");
     let notes = warnings(&data);
     assert!(
         notes.iter().any(|note| note.contains("judged nothing")
             && note.contains("#2 counts 1 comment")
             && note.contains(r#"sections:["comments"]"#)),
+        "{data}"
+    );
+}
+
+#[test]
+fn an_issue_section_read_that_restates_no_header_names_its_comments_uncounted() {
+    // A section read restates only the number and state, so the row does not
+    // say whether the issue has comments: they may hold judgeable entries.
+    let (data, _) = classified(
+        query("issue", Some(&["body"])),
+        json!({"issues":[{"number":2,"state":"open","body":"needs a prefix"}]}),
+    );
+    let notes = warnings(&data);
+    assert!(
+        notes.iter().any(|note| note.contains("judged nothing")
+            && note.contains(r#"sections:["comments"]"#)
+            && !note.contains("counts")),
         "{data}"
     );
 }
@@ -98,7 +119,7 @@ fn a_read_with_nothing_left_to_judge_adds_no_note() {
     for (query, data) in [
         (
             query("issue", None),
-            json!({"issues":[{"number":2,"body":"b"}]}),
+            json!({"issues":[{"number":2,"title":"t","body":"b"}]}),
         ),
         (
             query("issue", Some(&["comments"])),
@@ -113,6 +134,7 @@ fn a_read_with_nothing_left_to_judge_adds_no_note() {
         ),
     ] {
         let (data, _) = classified(query, data);
+        assert_eq!(data["selection"]["reason"], "noCandidates", "{data}");
         assert!(
             !warnings(&data)
                 .iter()

@@ -76,7 +76,8 @@ fn a_member_inside_a_siblings_span_keeps_the_nesting_after_it() {
              ]}
         ])
     );
-    assert_eq!(top_level_spans(&flat), [0..flat.len()]);
+    let whole_tree = 0..flat.len();
+    assert_eq!(top_level_spans(&flat), vec![whole_tree]);
 }
 
 /// Canonical facts of flat internal rows, as [`flatten_members`]

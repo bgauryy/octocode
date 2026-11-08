@@ -59,7 +59,10 @@ pub(in crate::signatures) fn wrapped_whole<'a>(
                     {
                         Some(assignment)
                     }
-                    AstKind::UpdateExpression(_) | AstKind::UnaryExpression(_) => return None,
+                    AstKind::UpdateExpression(_) => return None,
+                    AstKind::UnaryExpression(unary) if unary.operator == UnaryOperator::Delete => {
+                        return None;
+                    }
                     _ => None,
                 };
                 if member.property.name == "exports" {
@@ -121,7 +124,6 @@ fn wrapper_body<'a>(program: &'a Program<'a>) -> Option<&'a FunctionBody<'a>> {
     };
     match callee {
         Expression::FunctionExpression(function) => function.body.as_deref(),
-        Expression::ArrowFunctionExpression(arrow) => Some(&arrow.body),
         _ => None,
     }
 }

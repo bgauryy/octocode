@@ -56,7 +56,7 @@ The contract has 17 tools. [Configuration](CONFIGURATION.md#tool-availability-cl
 | Package | `artifactSearch` |
 | Semantic assessment | `clasify` |
 
-- `ghCloneRepo` writes a checkout unless it reuses a verified one of the same commit; `graphBuild` writes and prunes derived snapshots under workspace `.octocode/graph`. Their MCP annotations reflect those writes. `graphQuery` reads snapshots. The implementations are shared with the CLI.
+- `ghCloneRepo` writes a checkout unless it reuses a verified one of the same commit; `graphBuild` writes and prunes derived snapshots under workspace `.octocode/graph`, or in its own `octocode-graph/` directory inside `local.graphHome` when set ([settings](CONFIGURATION.md)), touching nothing else there. Their MCP annotations reflect those writes. `graphQuery` reads snapshots. The implementations are shared with the CLI.
 - `clasify` and inline `classification` use a configured provider credential. Questions, source capture and recovery are covered by the [classification guide](OCTOCODE_CLASIFY.md); exposure is covered by the configuration matrix above.
 - Tools take up to 5 `queries` per call; `graphBuild` accepts one. MCP publishes input schemas, titles, and descriptions, not output schemas.
 - Server instructions are one static prompt within the host cut `MCP_INSTRUCTION_CORE_CHARS` in core's `instructions.ts`: cross-tool order, envelope, paging and evidence rules. Tool-specific rules, output (`Returns:`) notes and clasify guidance live in each tool's description, so they arrive only with the listed tool. The CLI adds a `<cli>` line and the grammar inventory; MCP clients get schemas through `tools/list`.

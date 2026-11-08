@@ -38,7 +38,7 @@ mod validity;
 mod walk;
 
 use dialect::{is_oxc_dialect, on_oxc_worker, source_type_for, with_js_program};
-use outline::{declared_types_of, module_outline, push_heritage_edges};
+use outline::{declared_types_of, mark_member_exports, module_outline, push_heritage_edges};
 use validity::assess_recovery;
 use walk::{collect_member_functions, collect_program, push_defined_exports};
 
@@ -140,6 +140,7 @@ fn extract_graph_facts_with_metadata_inner(
             &symbols,
             common_js_names,
         );
+        mark_member_exports(&mut declarations, &common_js_exports.members);
         if job_cancelled() {
             return None;
         }
@@ -235,6 +236,7 @@ fn extract_graph_facts_with_metadata_inner(
             common_js,
             edges,
             declared_types,
+            conditional_exports: common_js_exports.conditional,
             diagnostics: parser_ret
                 .diagnostics
                 .into_iter()

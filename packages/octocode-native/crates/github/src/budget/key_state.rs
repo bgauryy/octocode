@@ -115,6 +115,16 @@ pub(crate) struct Block {
 }
 
 impl Block {
+    /// Whether a request waits this block out: a cooldown, or a spent
+    /// bucket the client paces ([`super::waits_out_spent`]). An open circuit
+    /// or any other spent quota is refused at once.
+    pub(crate) fn waited_out(&self) -> bool {
+        self.circuit.is_none()
+            && self
+                .reset
+                .is_none_or(|_| super::waits_out_spent(&self.resource))
+    }
+
     pub(crate) fn wait(&self, now_ms: u64) -> Duration {
         Duration::from_millis(self.until_ms.saturating_sub(now_ms))
     }

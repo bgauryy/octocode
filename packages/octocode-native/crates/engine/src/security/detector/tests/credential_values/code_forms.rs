@@ -551,3 +551,127 @@ fn a_literal_wrapped_in_a_constructor_call_is_redacted() {
         "fn f() -> C { C {\n    token: Some(lookup(\"name\")),\n    key: Some(\"cache\"),\n} }\n",
     )]);
 }
+
+/// An escaped quote inside a value is the value's own character (B165 round
+/// 10): the value read past it is hidden whole, not up to the escape.
+#[test]
+fn an_escaped_quote_inside_a_value_hides_the_value_past_it() {
+    hidden_in_files(
+        &[
+            (
+                "a.rs",
+                "let c = \"Server=x;Password=Xy7\\\"Zq7xK2mPlanted9;\";\n",
+            ),
+            (
+                "a.ts",
+                "const c = \"Data Source=db;Pwd=Xy7\\\"Zq7xK2mPlanted8;\";\n",
+            ),
+        ],
+        &["Zq7xK2mPlanted9", "Zq7xK2mPlanted8"],
+    );
+}
+
+/// A literal's `\n` or `\t` escape ends a URL's host, so a URL after it is
+/// read on its own and its password hidden (B165 round 10).
+#[test]
+fn a_url_after_an_escaped_line_break_has_its_password_hidden() {
+    hidden_in_files(
+        &[
+            (
+                "a.ts",
+                "const e = \"https://u:Moo16@h.com\\nhttps://u:Zq7xK2mPlanted9@h.com\";\n",
+            ),
+            (
+                "a.ts",
+                "const e = \"https://u:Moo16@h.com\\thttps://u:Zq7xK2mPlanted8@h.com\";\n",
+            ),
+            (
+                "a.rs",
+                "let e = \"REDIS_URL=redis://:Moo16@h:6379\\nAMQP_URL=amqp://u:Zq7xK2mPlanted7@h/vh\\n\";\n",
+            ),
+        ],
+        &[
+            "Moo16",
+            "Zq7xK2mPlanted9",
+            "Zq7xK2mPlanted8",
+            "Zq7xK2mPlanted7",
+        ],
+    );
+}
+
+/// A literal whose backslash escapes nothing (a Rust raw string, a Go raw
+/// string, a C# verbatim string) closes at its own delimiter: a value read in
+/// it ends there, the closer stays, and the lines after it are read as the
+/// source's own code (B165 round 10).
+#[test]
+fn a_raw_literal_keeps_its_closer_and_the_lines_after_it() {
+    for (path, content, closer) in [
+        (
+            "a.rs",
+            concat!(
+                "fn f() {\n",
+                "    let a = r\"Server=x;User Id=u;Password=Pw0rd9q\\\";\n",
+                "    let b = (format!(\"jwt_secret = \\\"{value}\\\";\"), \"jwt_secret = \\\"\");\n",
+                "}\n",
+            ),
+            "\";",
+        ),
+        (
+            "a.rs",
+            concat!(
+                "fn f() {\n",
+                "    let a = r#\"Server=x;User Id=u;Password=Pw0rd9q\\\"#;\n",
+                "    let b = (format!(\"jwt_secret = \\\"{value}\\\";\"), \"jwt_secret = \\\"\");\n",
+                "}\n",
+            ),
+            "\"#;",
+        ),
+        (
+            "a.go",
+            concat!(
+                "package a\n",
+                "var a = `Server=x;User Id=u;Password=Pw0rd9q\\`\n",
+                "var b = []string{\"jwt_secret = \\\"{value}\\\";\", \"jwt_secret = \\\"\"}\n",
+            ),
+            "`",
+        ),
+        (
+            "a.cs",
+            concat!(
+                "class A {\n",
+                "    string a = @\"Server=x;User Id=u;Password=Pw0rd9q\\\";\n",
+                "    string b = \"jwt_secret = \\\"\";\n",
+                "}\n",
+            ),
+            "\";",
+        ),
+    ] {
+        for scope in [Scope::File(path), Scope::Stored(Some(path))] {
+            let redacted = hides(content, scope, &["Pw0rd9q"]);
+            let (lines, kept): (Vec<_>, Vec<_>) =
+                (redacted.lines().collect(), content.lines().collect());
+            assert!(
+                lines[1].ends_with(&format!("]{closer}")),
+                "{scope:?}: closer lost: {redacted}"
+            );
+            assert_eq!(lines[2..], kept[2..], "{scope:?}: {redacted}");
+        }
+    }
+}
+
+/// A key block written in pieces (`concat!` of one literal per line) is one
+/// value across them: the literal close of its first piece does not end it,
+/// and no line of its body is shown (B165 round 10).
+#[test]
+fn a_key_block_written_in_literal_pieces_stays_hidden() {
+    let body = [
+        "MIIEowIBAAKCAQEAq8Zr4LmT2vXw9KpN7sYd3HfJ6gBc1QeRu5WaVo0MiExDzlUtQ8",
+        "Zr4LmT2vXw9KpN7sYd3HfJ6gBc1QeRu5WaVo0MiExDzlUtq8Zr4LmT2vXw9KpN7s",
+        "Yd3HfJ6gBc1QeRu5WaVo0MiExDzlUtQ8Zr4LmT2vXw9KpN7sYd3HfJ6gBc1QeRu5",
+    ];
+    let content = format!(
+        "const KEY: &str = concat!(\n    \"-----BEGIN RSA PRIVATE KEY-----\\n\",\n    \"{}\\n\",\n    \"{}\\n\",\n    \"{}\\n\",\n    \"-----END RSA PRIVATE KEY-----\\n\",\n);\n",
+        body[0], body[1], body[2]
+    );
+    hidden_in_files(&[("a.rs", &content)], &body);
+}

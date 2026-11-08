@@ -563,3 +563,179 @@ fn the_failure_kept_is_the_first_by_ref_order_not_by_arrival() {
         }]
     );
 }
+
+/// GitHub's global advisory as its database publishes it (recorded from
+/// `GET /advisories/GHSA-wcg3-cvx6-7396`, trimmed to the fields read).
+fn global_advisory() -> serde_json::Value {
+    json!({
+        "ghsa_id": "GHSA-wcg3-cvx6-7396",
+        "cve_id": "CVE-2020-26235",
+        "url": "https://api.github.com/advisories/GHSA-wcg3-cvx6-7396",
+        "html_url": "https://github.com/advisories/GHSA-wcg3-cvx6-7396",
+        "type": "reviewed",
+        "epss": {"percentage": 0.01965, "percentile": 0.80029},
+        "cvss": {"vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "score": 6.2},
+        "cvss_severities": {
+            "cvss_v3": {"vector_string": "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "score": 6.2},
+            "cvss_v4": {"vector_string": null, "score": 0.0}
+        },
+        "vulnerabilities": [{
+            "package": {"ecosystem": "rust", "name": "time"},
+            "vulnerable_version_range": ">= 0.2.7, < 0.2.23",
+            "first_patched_version": "0.2.23"
+        }],
+        "references": ["https://rustsec.org/advisories/RUSTSEC-2020-0071.html"],
+        "credits": [{"user": {"login": "kroemeke"}, "type": "reporter"}],
+        "cwes": [{"cwe_id": "CWE-476", "name": "NULL Pointer Dereference"}]
+    })
+}
+
+/// A global advisory keeps everything GitHub states that securityCheck shows:
+/// EPSS, each CVSS with its numeric score, the first patched version, the
+/// references, the credits and the CWE ids; a repository advisory's
+/// publisher, API address and `login` credits read the same way.
+#[test]
+fn an_advisory_keeps_epss_scores_credits_and_its_api_address() {
+    let global: RepositoryAdvisory = serde_json::from_value(global_advisory()).expect("global");
+    let epss = global.epss.expect("epss");
+    assert_eq!((epss.percentage, epss.percentile), (0.01965, 0.80029));
+    let scored = global.cvss_all();
+    assert_eq!(
+        scored,
+        [(
+            "CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H".to_owned(),
+            Some(6.2)
+        )],
+        "a severity with no vector is none, and one vector is listed once"
+    );
+    assert_eq!(
+        global.vulnerabilities[0].first_patched_version.as_deref(),
+        Some("0.2.23")
+    );
+    assert_eq!(global.references.len(), 1);
+    assert_eq!(
+        global.credit_logins(),
+        [("kroemeke".to_owned(), Some("reporter".to_owned()))]
+    );
+    assert_eq!(global.cwe_list(), ["CWE-476"]);
+
+    let repository: RepositoryAdvisory = serde_json::from_value(json!({
+        "ghsa_id": "GHSA-aaaa-bbbb-cccc",
+        "url": "https://api.github.com/repos/o/r/security-advisories/GHSA-aaaa-bbbb-cccc",
+        "publisher": {"login": "maintainer"},
+        "state": "published",
+        "credits": [{"login": "finder", "type": "finder"}],
+        "cwe_ids": ["CWE-79"],
+        "cwes": [{"cwe_id": "CWE-79", "name": "XSS"}],
+        "cvss": {"vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:L/I:L/A:N", "score": 5.4}
+    }))
+    .expect("repository advisory");
+    assert_eq!(
+        repository.url.as_deref(),
+        Some("https://api.github.com/repos/o/r/security-advisories/GHSA-aaaa-bbbb-cccc")
+    );
+    assert_eq!(
+        repository
+            .publisher
+            .as_ref()
+            .and_then(|user| user.login.as_deref()),
+        Some("maintainer")
+    );
+    assert_eq!(repository.state.as_deref(), Some("published"));
+    assert_eq!(
+        repository.credit_logins(),
+        [("finder".to_owned(), Some("finder".to_owned()))]
+    );
+    assert_eq!(repository.cwe_list(), ["CWE-79"], "one id once");
+    assert_eq!(repository.cvss_all()[0].1, Some(5.4));
+}
+
+/// The global database is asked by ecosystem and `name@version`, every page by
+/// GitHub's `after` cursor; one advisory reads by id, globally or as a
+/// repository's own, and an id GitHub does not have is none.
+#[tokio::test]
+async fn global_advisories_are_asked_by_package_version_page_by_page() {
+    let server = MockServer::builder().start().await;
+    let link = |cursor: &str| {
+        format!(
+            "<{}/api/v3/advisories?after={cursor}>; rel=\"next\"",
+            server.uri()
+        )
+    };
+    Mock::given(method("GET"))
+        .and(path("/api/v3/advisories"))
+        .and(query_param("ecosystem", "rust"))
+        .and(query_param("affects", "time@0.2.7"))
+        .and(query_param("after", "c1"))
+        .respond_with(json_ok(json!([global_advisory()])))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/advisories"))
+        .and(query_param("ecosystem", "rust"))
+        .and(query_param("affects", "time@0.2.7"))
+        .and(query_param("per_page", "100"))
+        .respond_with(json_ok(json!([global_advisory()])).insert_header("link", link("c1")))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/advisories/GHSA-wcg3-cvx6-7396"))
+        .respond_with(json_ok(global_advisory()))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/advisories/GHSA-none-none-none"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})))
+        .mount(&server)
+        .await;
+    mount(
+        &server,
+        "security-advisories/GHSA-aaaa-bbbb-cccc",
+        json_ok(json!({"ghsa_id": "GHSA-aaaa-bbbb-cccc", "publisher": {"login": "m"}})),
+    )
+    .await;
+    let github = transport(&server).await;
+    let own = github
+        .repository_advisory("o", "r", "GHSA-aaaa-bbbb-cccc", &context())
+        .await
+        .expect("read")
+        .expect("found");
+    assert_eq!(
+        own.publisher.and_then(|user| user.login).as_deref(),
+        Some("m")
+    );
+    assert!(
+        github
+            .repository_advisory("o", "r", "GHSA-none-none-none", &context())
+            .await
+            .expect("read")
+            .is_none(),
+        "an advisory the repository lacks is none"
+    );
+    let first = github
+        .global_advisories_page("rust", "time@0.2.7", None, &context())
+        .await
+        .expect("first page");
+    assert_eq!(first.next.as_deref(), Some("c1"));
+    let last = github
+        .global_advisories_page("rust", "time@0.2.7", Some("c1"), &context())
+        .await
+        .expect("last page");
+    assert_eq!(last.next, None);
+    assert_eq!(last.advisories[0].ghsa_id, "GHSA-wcg3-cvx6-7396");
+    let one = github
+        .global_advisory("GHSA-wcg3-cvx6-7396", &context())
+        .await
+        .expect("read");
+    assert_eq!(
+        one.map(|advisory| advisory.ghsa_id).as_deref(),
+        Some("GHSA-wcg3-cvx6-7396")
+    );
+    assert!(
+        github
+            .global_advisory("GHSA-none-none-none", &context())
+            .await
+            .expect("read")
+            .is_none()
+    );
+}

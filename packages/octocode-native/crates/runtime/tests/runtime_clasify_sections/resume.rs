@@ -195,8 +195,9 @@ async fn simultaneous_section_resume_in_independent_runtimes_replays_one_transac
 }
 
 /// Every page of a first walk is that page's first delivery, however the
-/// response pager splits a batch: no row of it says `replayed`. Sending a
-/// page's cursor again is a replay, and says so.
+/// response pager splits a batch: no row of it says `replayed`, and a page
+/// says it was read from the saved response exactly when a cursor opened it.
+/// Sending a page's cursor again is a replay, and says so.
 #[tokio::test]
 async fn a_split_batch_is_first_delivered_unreplayed_and_a_repeat_is_replayed() {
     let provider = provider().await;
@@ -214,10 +215,24 @@ async fn a_split_batch_is_first_delivered_unreplayed_and_a_repeat_is_replayed() 
         .expect("first page")
         .structured_content
         .into_value();
-    let mut cursors = Vec::new();
+    let mut cursors: Vec<(Value, bool)> = Vec::new();
     let mut seen = std::collections::HashSet::new();
+    let mut billed = true;
     loop {
         assert!(cursors.len() <= 400, "the walk makes bounded progress");
+        // `responsePagination.replayed` states that the page was read from
+        // the saved response, without acquisition or inference: every saved
+        // page, its first delivery included; a page that judged a batch is
+        // new work (CLS-C26, closed by decision).
+        assert_eq!(
+            page["responsePagination"]["replayed"] == true,
+            !billed,
+            "page {}: {page:#}",
+            cursors.len()
+        );
+        if let Some((_, saved)) = cursors.last_mut() {
+            *saved = !billed;
+        }
         for result in page["results"].as_array().expect("rows") {
             assert!(
                 result["data"].get("replayed").is_none(),
@@ -237,36 +252,47 @@ async fn a_split_batch_is_first_delivered_unreplayed_and_a_repeat_is_replayed() 
         let Some(next) = crate::support::next_input(&page) else {
             break;
         };
-        cursors.push(next.clone());
+        cursors.push((next.clone(), false));
+        let calls = provider_calls(&provider).await;
         page = runtime
-            .run(
-                format!("split-{}", cursors.len()),
-                "clasify".into(),
-                next,
-            )
+            .run(format!("split-{}", cursors.len()), "clasify".into(), next)
             .await
             .expect("next page")
             .structured_content
             .into_value();
+        billed = provider_calls(&provider).await > calls;
     }
+    assert!(
+        cursors.iter().any(|(_, saved)| *saved),
+        "a batch pages over saved response pages"
+    );
     assert!(cursors.len() > 2, "the batches split over response pages");
     assert_eq!(seen.len(), 140, "every section of both rows is reached");
     let calls = provider_calls(&provider).await;
-    for cursor in cursors {
+    for (cursor, saved_page) in cursors {
         let repeat = runtime
             .run("split-repeat".into(), "clasify".into(), cursor)
             .await
             .expect("repeat")
             .structured_content
             .into_value();
-        let replayed = repeat["responsePagination"]["replayed"] == true
-            || repeat["results"]
+        // A saved page read again says so on the page; a batch sent again
+        // says so on its rows.
+        let replayed = if saved_page {
+            repeat["responsePagination"]["replayed"] == true
+        } else {
+            repeat["results"]
                 .as_array()
                 .into_iter()
                 .flatten()
-                .any(|row| row["data"]["replayed"] == true);
+                .any(|row| row["data"]["replayed"] == true)
+        };
         assert!(replayed, "a repeat says it is a replay: {repeat:#}");
     }
-    assert_eq!(provider_calls(&provider).await, calls, "a repeat bills nothing");
+    assert_eq!(
+        provider_calls(&provider).await,
+        calls,
+        "a repeat bills nothing"
+    );
     runtime.close().await;
 }

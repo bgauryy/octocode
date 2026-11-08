@@ -62,36 +62,61 @@ test('section acceptance requires exact UTF-8 source coverage, unique cells, and
   }
 });
 
-test('memory classification refuses source rows before billing and keeps literal siblings', async () => {
+/** The runtime's default response window (core `limits.defaultResponseChars`). */
+const ONE_RESPONSE = 20_000;
+
+/** A memory-mode CLI stub: plans refused, evaluations answered with a fresh read; `defect` breaks one promise. */
+function memoryStub(cwd, defect, sent) {
+  const answer = { evidence: { type: 'noul', noul: 0.9 } };
+  const refuse = query => {
+    if (defect === 'billedRefusal') sent.push(query);
+    return { status: 'error', data: {
+      errorCode: 'classificationContextUnavailable',
+      error: 'This runtime keeps nothing for a later call; no source was read and no classification provider was called.',
+      hints: defect === 'missingGuidance' ? [] : ['Section plans across CLI calls need storage.mode persistent, or one running MCP server.'],
+    } };
+  };
+  const evaluate = query => {
+    if (defect === 'refusedEvaluate') return refuse(query);
+    sent.push(query);
+    const related = [{ kind: 'related', tool: 'localFetch', input: { queries: [{ path: query.source.query.path }] } }];
+    const pages = fs.statSync(query.source.query.path).size > ONE_RESPONSE;
+    const hinted = defect === 'falsePagedHint' || (pages && defect !== 'missingPagedHint');
+    const hints = hinted ? ['This source is larger than one response, so its read in related[] pages: run it with storage.mode persistent, or in one running MCP server.'] : undefined;
+    return { data: { answers: answer, related, ...(hints ? { hints } : {}), ...(defect === 'deadRead' ? { next: { read } } : {}) } };
+  };
+  const row = query => {
+    if (query.operation === 'sections') return refuse(query);
+    if (!Object.hasOwn(query, 'content')) return evaluate(query);
+    if (defect !== 'lostSibling') sent.push(query);
+    return { data: { answers: defect === 'lostSibling' ? {} : answer } };
+  };
+  return async (tool, input, options) => {
+    if (tool === 'localFetch') {
+      assert.equal(options.env.OCTOCODE_STORAGE_MODE, 'memory');
+      // A memory CLI call refuses a read that pages past one response.
+      if (fs.statSync(input.queries[0].path).size > ONE_RESPONSE) return { status: 5, json: { error: 'This answer requires continuations' } };
+      const text = defect === 'staleRead' ? '' : fs.readFileSync(input.queries[0].path, 'utf8').slice(0, 200);
+      return { status: 0, json: { results: [{ index: 0, data: { content: text } }] } };
+    }
+    assert.equal(tool, 'clasify');
+    assert.equal(options.env.OCTOCODE_STORAGE_MODE, 'memory');
+    assert.equal(input.responseChars, 50_000);
+    const rows = input.queries.map((query, index) => ({ index, ...row(query) }));
+    const status = rows.some(outcome => outcome.status) ? 5 : 0;
+    return { status, json: { responsePagination: { hasMore: defect === 'pagedRefusal' }, results: rows } };
+  };
+}
+
+test('memory classification refuses section plans before billing and answers source evaluations with a fresh read', async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-memory-plan-oracle-'));
   try {
-    for (const defect of [null, 'billedRefusal', 'lostSibling', 'deadRead', 'pagedRefusal', 'missingGuidance']) {
+    for (const defect of [null, 'billedRefusal', 'lostSibling', 'deadRead', 'pagedRefusal', 'missingGuidance', 'refusedEvaluate', 'staleRead', 'missingPagedHint', 'falsePagedHint']) {
       const sent = [];
-      const checks = await memorySectionsChecks({
-        cwd, q: query => ({ queries: [query] }),
-        cliCall: async (tool, input, options) => {
-          assert.equal(tool, 'clasify');
-          assert.equal(input.responseChars, 50_000);
-          assert.equal(options.env.OCTOCODE_STORAGE_MODE, 'memory');
-          const rows = input.queries.map((query, index) => {
-            if (Object.hasOwn(query, 'content')) {
-              if (defect !== 'lostSibling') sent.push(query);
-              return { index, data: { answers: defect === 'lostSibling' ? {} : { evidence: { type: 'noul', noul: 0.9 } } } };
-            }
-            if (defect === 'billedRefusal') sent.push(query);
-            return { index, status: 'error', data: {
-              errorCode: 'classificationContextUnavailable',
-              error: 'This runtime cannot retain pinned reads; no source was read and no classification provider was called.',
-              hints: defect === 'missingGuidance' ? [] : ['Use persistent storage or a long-lived MCP runtime.'],
-              ...(defect === 'deadRead' ? { next: { read } } : {}),
-            } };
-          });
-          return { status: 5, json: { responsePagination: { hasMore: defect === 'pagedRefusal' }, results: rows } };
-        },
-      }, 'cli', { sent });
-      assert.equal(checks.length, 5, 'simple and seventy-section source/sections refusals plus mixed literal');
+      const checks = await memorySectionsChecks({ cwd, cliCall: memoryStub(cwd, defect, sent) }, 'cli', { sent });
+      assert.equal(checks.length, 7, 'simple and seventy-section plan refusal, evaluation and fresh read, plus mixed literal');
       if (defect === 'lostSibling') assert.equal(checks.at(-1)[1], false);
-      else assert.equal(checks.every(row => row[1]), defect === null, defect ?? 'valid refusal');
+      else assert.equal(checks.every(row => row[1]), defect === null, `${defect ?? 'valid'}: ${JSON.stringify(checks.map(row => [row[0], row[1]]))}`);
     }
   } finally { fs.rmSync(cwd, { recursive: true, force: true }); }
 });

@@ -1,6 +1,8 @@
 use super::*;
 use crate::tools::ast_graph::store::PackedOrigins;
-use octocode_engine::text::analysis::{MapBudget, MapLimits, ObservedSpan, SourceDescriptors};
+use octocode_engine::text::analysis::{
+    MapBudget, MapLimits, ObservedSpan, SourceDescriptors, SourceError,
+};
 
 type SpanKey = (u32, u32, u32);
 
@@ -30,23 +32,33 @@ pub(crate) fn key(span: ObservedSpan) -> SpanKey {
     (span.unit.0, span.start_byte, span.end_byte)
 }
 
+/// The file's source correspondence, held within `limits`
+/// ([`super::super::limits::Limits::source_map`]). Past one, the error is
+/// `scopeTooBroad` whose message is the file's skip, naming that limit, its
+/// ceiling and its use.
 pub(super) fn capture(
     view: &octocode_engine::fact_scan::GraphFactsView<'_>,
     cancel: &dyn CancellationCheck,
+    limits: MapLimits,
 ) -> Result<CapturedSource, ToolError> {
     let stop = || cancel.check().is_err();
-    let mut budget = MapBudget::new(
-        MapLimits::default(),
-        crate::execution::cancel::deadline_of(cancel),
-        &stop,
-    );
+    let mut budget = MapBudget::new(limits, crate::execution::cancel::deadline_of(cancel), &stop);
+    let failed = |error: SourceError, budget: &MapBudget<'_>| match error {
+        SourceError::LimitExceeded(name) => ToolError::new(
+            ErrorCode::ScopeTooBroad,
+            octocode_engine::fact_scan::over_budget_message(&budget.exceeded(name)),
+        ),
+        error => ToolError::source(error),
+    };
     let mut keys = Vec::new();
     let mut projections = Vec::new();
     let mut spans = BTreeMap::new();
     for span in view.facts.observed_spans() {
-        budget.check().map_err(ToolError::source)?;
+        budget.check().map_err(|error| failed(error, &budget))?;
         if let std::collections::btree_map::Entry::Vacant(entry) = spans.entry(key(span)) {
-            budget.allocate(192).map_err(ToolError::source)?;
+            budget
+                .allocate(192)
+                .map_err(|error| failed(error, &budget))?;
             entry.insert(span);
         }
     }
@@ -55,13 +67,13 @@ pub(super) fn capture(
         projections.push(
             view.source
                 .project(span, &mut budget)
-                .map_err(ToolError::source)?,
+                .map_err(|error| failed(error, &budget))?,
         );
     }
     let mut descriptors = view
         .source
         .descriptors(&projections, &mut budget)
-        .map_err(ToolError::source)?;
+        .map_err(|error| failed(error, &budget))?;
     descriptors.snapshots.sort_by(|a, b| a.id.cmp(&b.id));
     descriptors.representations.sort_by(|a, b| a.id.cmp(&b.id));
     descriptors.units.sort_by(|a, b| a.id.cmp(&b.id));

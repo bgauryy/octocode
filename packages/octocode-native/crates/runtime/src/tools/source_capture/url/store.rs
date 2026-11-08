@@ -31,8 +31,8 @@ impl<'a> Store<'a> {
         if !crate::config::is_persistent_storage_enabled(&dispatcher.config().resolved) {
             return Err(ClassificationError::new(
                 ErrorCode::ClassificationContextUnavailable,
-                "Source captures need persistent storage to save the exact evidence; storage.mode is memory.",
-                "Use persistent storage for unread source captures.",
+                "URL and image captures need persistent storage to save the exact evidence; storage.mode is memory.",
+                "Set storage.mode persistent for URL and image captures; literal content and localFetch or ghGetFileContent sources still work here.",
             ));
         }
         let reader = ToolId::LocalFetch.as_str();
@@ -124,6 +124,8 @@ impl<'a> Store<'a> {
                 .build();
         Ok(Captured {
             read_chars: selection.text.chars().count(),
+            // A URL capture is a saved file this runtime keeps.
+            read_pages: false,
             state: json!({
                 "source": { "url": url, "section": selection.section },
                 "text": selection.text,

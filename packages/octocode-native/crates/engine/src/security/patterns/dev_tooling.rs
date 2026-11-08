@@ -384,8 +384,10 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         name: "credentialsInUrl",
         file_context: None,
         // Any scheme's userinfo password, whatever the user: empty
-        // (`redis://:pw@host`) or short (`amqp://u:pw@host`).
-        regex: r###"\b[a-zA-Z]{3,10}:\/\/[^\\/\s:@]{0,64}:(?P<secret>[^\\/\s:@]{1,128})@[^\s'"]+\b"###,
+        // (`redis://:pw@host`) or short (`amqp://u:pw@host`). A host holds
+        // no backslash: a literal's `\n` or `\t` escape ends it, so the next
+        // URL is a match of its own.
+        regex: r###"\b[a-zA-Z]{3,10}:\/\/[^\\/\s:@]{0,64}:(?P<secret>[^\\/\s:@]{1,128})@[^\s'"\\]+\b"###,
     },
     SecretPattern {
         name: "envVarSecrets",

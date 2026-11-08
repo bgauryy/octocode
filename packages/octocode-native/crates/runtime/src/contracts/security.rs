@@ -117,6 +117,16 @@ impl SecurityContract {
             .map(String::as_str)
     }
 
+    /// GitHub's advisory ecosystem for the OSV ecosystem `osv` (`PyPI` is `pip`); `None` when
+    /// GitHub keeps none for it.
+    pub(crate) fn github_ecosystem_of_osv(&self, osv: &str) -> Option<&str> {
+        self.ecosystems
+            .github_ecosystems
+            .iter()
+            .find(|(_, name)| name.as_str() == osv)
+            .map(|(github, _)| github.as_str())
+    }
+
     /// The level and basis of `rule`; `None` when the contract has no such rule.
     pub(crate) fn rule(&self, rule: &str) -> Option<&CautionRule> {
         self.rules.get(rule)

@@ -58,7 +58,7 @@ pub(super) fn ingest_with_registry(
     limits: &Limits,
 ) -> GraphOutput {
     let started = Instant::now();
-    let home = match graph_home(options.workspace.as_deref()) {
+    let home = match graph_home(options.workspace.as_deref(), options.home.as_deref()) {
         Ok(home) => home,
         Err(message) => return GraphOutput::error(ErrorCode::WorkspaceRootInvalid, message),
     };
@@ -68,10 +68,11 @@ pub(super) fn ingest_with_registry(
             return GraphOutput::error(error.shared_code(), error.message);
         }
     };
-    let workspace = home
-        .parent()
-        .and_then(Path::parent)
-        .map(Path::to_path_buf)
+    // The workspace names the scope, wherever its home is.
+    let workspace = options
+        .workspace
+        .as_deref()
+        .map(|workspace| std::fs::canonicalize(workspace).unwrap_or_else(|_| workspace.into()))
         .unwrap_or_default();
     let registry_identity = match super::super::graph::registry_identity(registry) {
         Ok(identity) => identity,
@@ -327,7 +328,7 @@ pub(super) fn build_for_ingest(
     let scan = GraphScan {
         checkpoint: (!options.memory_only)
             .then(|| {
-                graph_home(options.workspace.as_deref())
+                graph_home(options.workspace.as_deref(), options.home.as_deref())
                     .ok()
                     .map(|home| home.join(".facts"))
             })

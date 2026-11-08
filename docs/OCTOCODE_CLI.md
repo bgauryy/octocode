@@ -35,7 +35,8 @@ The command drains and stops warm CLI servers, then removes saved pages,
 continuations, section assessments, provider answers, materialized files and URL
 captures under the configured home. It also removes retired GitHub, registry, outline and
 judgment result-cache directories. It also removes
-the current workspace's `.octocode/graph/.facts` extraction checkpoints. Repeat
+the current workspace's `.octocode/graph/.facts` extraction checkpoints (with
+`local.graphHome` set, its `octocode-graph/.facts`). Repeat
 from each workspace whose graph checkpoints you want removed. The JSON receipt
 lists removed directories and `restartMcp: true`: separate MCP processes own their
 RAM and must restart to drop it. An active process can otherwise recreate files.

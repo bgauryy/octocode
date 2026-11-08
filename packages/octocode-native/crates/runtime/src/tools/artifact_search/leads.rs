@@ -73,20 +73,14 @@ pub(super) fn source_warning(artifact: &ArtifactItem) -> Option<String> {
         (None, Some(reference)) => {
             format!("release commit {reference} is not in {repository} (unpushed or rewritten)")
         }
-        (None, None) if default_branch => match artifact.tags_unlisted.as_deref() {
-            Some(cause) => format!(
-                "the registry names no release ref, and no tag of the shapes checked names this version; its tag list could not be read ({cause}), so a tag may still name it"
-            ),
-            None => "the registry names no release ref".to_owned(),
-        },
+        (None, None) if default_branch => tag_absence(artifact).map_or_else(
+            || "the registry names no release ref".to_owned(),
+            |absence| format!("the registry names no release ref, and {absence}"),
+        ),
         (None, None) if artifact.declared_ref => {
             let reference = artifact.source_ref.as_deref().unwrap_or_default();
-            let absence = artifact.tags_unlisted.as_deref().map_or_else(
-                || "no tag names this version".to_owned(),
-                |cause| format!(
-                    "no tag of the shapes checked names this version, and its tag list could not be read ({cause})"
-                ),
-            );
+            let absence =
+                tag_absence(artifact).unwrap_or_else(|| "no tag names this version".to_owned());
             format!(
                 "{absence}; ref {reference} is the tag its metadata declares, unchecked against the release"
             )
@@ -110,6 +104,25 @@ pub(super) fn source_warning(artifact: &ArtifactItem) -> Option<String> {
         ""
     };
     Some(format!("{package}: {reason}{source}."))
+}
+
+/// What the lookup could say of the tags naming this version, when it is
+/// less than "no tag names it": only another package's tags do, or the
+/// lookup was cut short and claims only what it checked.
+fn tag_absence(artifact: &ArtifactItem) -> Option<String> {
+    use crate::providers::artifact::TagAbsence;
+    Some(match artifact.tag_absence.as_ref()? {
+        TagAbsence::OtherPackagesOnly(tags) => format!(
+            "only tags of other packages ({}) name this version",
+            tags.join(", ")
+        ),
+        TagAbsence::ListUnread(cause) => format!(
+            "no tag of the shapes checked names this version; its tag list could not be read ({cause}), so a tag may still name it"
+        ),
+        TagAbsence::Unchecked(cause) => {
+            format!("no tag could be checked on GitHub ({cause}), so a tag may name this version")
+        }
+    })
 }
 
 /// The warning of an exact row whose source is not a GitHub repository: the

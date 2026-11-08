@@ -257,7 +257,7 @@ async fn partial_redacted_context_is_unsupported_without_blocking_healthy_sectio
         })
     }));
     let hint_text = hints.iter().filter_map(Value::as_str).collect::<String>();
-    assert!(!hint_text.contains("persistent storage") && !hint_text.contains("expired"));
+    assert!(!hint_text.contains("storage.mode") && !hint_text.contains("expired"));
     assert!(
         !planned[1]["context"]
             .as_array()
@@ -280,5 +280,85 @@ async fn partial_redacted_context_is_unsupported_without_blocking_healthy_sectio
     );
     assert!(!sent.contains("fixture-password"));
     assert!(!out.to_string().contains("fixture-password"));
+    runtime.close().await;
+}
+
+/// RV-CLS F2: `next.quiet` serves the held-back sections of a GitHub plan
+/// only to the GitHub identity that planned it. With the same credential it
+/// replays them unbilled; after the credential changes the issued cursor is
+/// refused before clasify runs, and no saved section is served. (The plan's
+/// own identity check, for a token that reaches `sections::run`, is pinned by
+/// the lib test `quiet_identity`.)
+#[tokio::test]
+async fn next_quiet_of_a_github_plan_checks_the_github_identity_first() {
+    use octocode_native::providers::github::{CredentialStore, StoredCredentials};
+    let provider = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(|request: &wiremock::Request| {
+            let body: Value = serde_json::from_slice(&request.body).expect("provider body");
+            let answers = body["questions"]
+                .as_object()
+                .expect("questions")
+                .keys()
+                .map(|id| (id.clone(), json!({"type":"noul","noul":0.1})))
+                .collect::<serde_json::Map<_, _>>();
+            ResponseTemplate::new(200).set_body_json(json!({
+                "model":"jev-1.13.0","answers":answers,
+                "usage":{"input_tokens":10,"output_tokens":2}
+            }))
+        })
+        .mount(&provider)
+        .await;
+    let github = github_with(&[("guide.md", b"# Guide\n\nRead the logs quietly.\n")]).await;
+    let workspace = Workspace::new();
+    let store = CredentialStore::new(&workspace.home);
+    let save = |token: &str| {
+        let credentials: StoredCredentials = serde_json::from_value(json!({
+            "hostname":"127.0.0.1","username":"fixture","token":{"token":token,"tokenType":"oauth"},
+            "gitProtocol":"https","createdAt":"","updatedAt":""
+        }))
+        .expect("stored credential fixture");
+        store.save(&credentials).expect("save home credential");
+    };
+    save("first-local-token");
+    let mut env = github_api(&github).to_vec();
+    env.push(("GITHUB_TOKEN", String::new()));
+    let runtime = clasify_runtime(&workspace, &provider, &env);
+    let out = sections(&runtime, json!({"guide": github_source("guide.md")})).await;
+    let guide = &out["resources"]["guide"];
+    assert_eq!(guide["status"], "ready", "{out:#}");
+    assert_eq!(guide["coverage"]["quiet"], json!(1), "{out:#}");
+    let quiet = out["next"]["quiet"]["input"].clone();
+    assert!(quiet.is_object(), "next.quiet: {out:#}");
+    let same = runtime
+        .run("quiet-same".into(), "clasify".into(), quiet.clone())
+        .await
+        .expect("the same identity replays")
+        .structured_content
+        .into_value();
+    assert_eq!(
+        same["results"][0]["data"]["resources"]["guide"]["sections"]
+            .as_array()
+            .map(Vec::len),
+        Some(1),
+        "the same identity reads the held section: {same:#}"
+    );
+    let calls = provider_calls(&provider).await;
+    save("switched-local-token");
+    let changed = runtime
+        .run("quiet-switched".into(), "clasify".into(), quiet)
+        .await
+        .expect_err("a changed identity is refused");
+    assert_eq!(
+        changed.code,
+        octocode_contract_types::ErrorCode::ResponseSnapshotExpired,
+        "{changed:?}"
+    );
+    assert!(
+        changed.payload.is_none(),
+        "no saved section is served: {changed:?}"
+    );
+    assert_eq!(provider_calls(&provider).await, calls, "nothing is billed");
     runtime.close().await;
 }

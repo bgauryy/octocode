@@ -56,7 +56,7 @@ impl GitHubTransport {
                 // A route learned by an earlier request may have moved on
                 // (a rename, an owner converted): ask again once.
                 Err(error) if error.status == Some(404) && in_request.is_none() => {
-                    key.forget_owner_route(owner);
+                    key.forget_owner_route(owner).await;
                     self.probe_owner_route(owner, &fetch, &key, context).await?
                 }
                 other => other?,
@@ -122,16 +122,16 @@ impl GitHubTransport {
         key: &std::sync::Arc<crate::budget::KeyState>,
         context: &RequestContext,
     ) -> Result<crate::ResponsePage, ProviderError> {
-        let remember = |source: OwnerSource| {
+        let remember = async |source: OwnerSource| {
             context.record_owner_route(owner, source.name());
-            key.learn_owner_route(owner, source.name());
+            key.learn_owner_route(owner, source.name()).await;
         };
         match self
             .execute(fetch(OwnerSource::Organization)?, context)
             .await
         {
             Ok(response) => {
-                remember(OwnerSource::Organization);
+                remember(OwnerSource::Organization).await;
                 Ok(response)
             }
             Err(error) if error.status == Some(404) => {
@@ -146,7 +146,7 @@ impl GitHubTransport {
                 };
                 let response = self.execute(fetch(source)?, context).await?;
                 if definitive {
-                    remember(source);
+                    remember(source).await;
                 }
                 Ok(response)
             }

@@ -107,6 +107,12 @@ impl Sessions {
             .map(|saved| saved.value.as_ref().clone()))
     }
 
+    /// Count a read of the saved plan under `key` as its use. An expired
+    /// plan stays expired.
+    pub(super) fn refresh(&self, key: &CacheKey) {
+        self.store.refresh(key);
+    }
+
     pub(super) fn remove(&self, key: &CacheKey, context: &ExecutionContext) {
         if let Ok(_storage) = self.process_lock("assessment.lock", context) {
             self.store.remove(key);

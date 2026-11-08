@@ -20,6 +20,7 @@ use plan::execute_clone;
 use plan::{execute_prepared, prepare_clone};
 use serde::Serialize;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use validate::validate_query;
 
@@ -103,6 +104,53 @@ impl CloneConfig {
     pub fn with_network_timeout(mut self, timeout: Duration) -> Self {
         self.network_timeout = timeout;
         self
+    }
+}
+
+/// Everything one clone reads, owned, so [`run`] does the clone's blocking
+/// setup and git work on the blocking pool: the runtime thread meanwhile
+/// sends the pin request and serves other requests. [`Self::context`] is the
+/// borrowed view that setup and git work take.
+pub struct CloneSetup {
+    pub config: CloneConfig,
+    pub endpoint: GitHubEndpoint,
+    /// Network git admission: the API transport's budget, waits on the row.
+    pub git_limiter: octocode_github::GitLimiter,
+    pub credential: Option<ResolvedCredential>,
+    pub cancellation: Arc<dyn CancellationCheck + Send>,
+    pub deadline: Instant,
+    pub path_policy: PathPolicy,
+    pub git: Arc<dyn GitRunner>,
+}
+
+impl CloneSetup {
+    pub fn context(&self) -> CloneContext<'_> {
+        CloneContext {
+            config: &self.config,
+            endpoint: &self.endpoint,
+            git_limiter: self.git_limiter.clone(),
+            credential: self.credential.as_ref(),
+            cancellation: self.cancellation.as_ref(),
+            deadline: self.deadline,
+            path_policy: &self.path_policy,
+            git: self.git.as_ref(),
+        }
+    }
+
+    /// `work` on the context, on the blocking pool, keeping the call's notices.
+    async fn off_runtime<T: Send + 'static>(
+        self: &Arc<Self>,
+        work: impl FnOnce(&CloneContext<'_>) -> Result<T, CloneError> + Send + 'static,
+    ) -> Result<T, CloneError> {
+        let setup = Arc::clone(self);
+        tokio::task::spawn_blocking(octocode_io::notice::carried(move || work(&setup.context())))
+            .await
+            .map_err(|error| {
+                CloneError::new(
+                    ErrorCode::ExecutionFailed,
+                    format!("Clone worker failed: {error}"),
+                )
+            })?
     }
 }
 
@@ -249,22 +297,23 @@ pub async fn run(
     provider: &GitHubProvider,
     query: &GhCloneRepoQuery,
     request: Result<&RequestContext, ProviderError>,
-    context: &CloneContext<'_>,
+    setup: &Arc<CloneSetup>,
 ) -> Result<CloneResult, CloneFailure> {
-    require_persistent_storage(context.config.persistent)?;
+    require_persistent_storage(setup.config.persistent)?;
     let provider = GitHubProvider {
         transport: provider.transport.clone(),
     };
     let provider = &provider;
     let request = request.map_err(CloneFailure::Provider)?;
     validate_query(query).map_err(CloneFailure::Clone)?;
-    // Git and the clones root need no commit: they are set up while the API
-    // answers the pin (the request is sent when `pin` is first polled, so it
-    // is in flight while the blocking setup runs). The pin's failure comes
-    // first, as it did when the setup waited for it.
-    let (pin, prepared) = futures_util::future::join(pin(provider, query, request), async {
-        prepare_clone(context)
-    })
+    // Git and the clones root need no commit: they are set up on the
+    // blocking pool while the runtime thread sends the pin and the API
+    // answers it. The pin's failure comes first, as it did when the setup
+    // waited for it.
+    let (pin, prepared) = futures_util::future::join(
+        pin(provider, query, request),
+        setup.off_runtime(prepare_clone),
+    )
     .await;
     let pin = pin?;
     prepared.map_err(CloneFailure::from)?;
@@ -277,7 +326,12 @@ pub async fn run(
         ref_: Some(pin.commit.parse().map_err(decode)?),
         ..query.clone()
     };
-    let mut result = execute_prepared(&pinned, context).map_err(CloneFailure::from)?;
+    // The clone itself (lock, fetch, checkout, verification) blocks for as
+    // long as git runs: off the runtime thread, so other requests go on.
+    let mut result = setup
+        .off_runtime(move |context| execute_prepared(&pinned, context))
+        .await
+        .map_err(CloneFailure::from)?;
     result.location.resolved_ref = pin.label;
     if pin.renamed {
         result

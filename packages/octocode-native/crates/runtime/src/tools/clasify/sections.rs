@@ -1,8 +1,8 @@
 //! Bounded assessment over a frozen resource/section/question plan.
 use super::Row;
 use crate::execution::ExecutionContext;
-use crate::tools::judgment::ClassificationError;
 use crate::tools::judgment::stats::ClassificationUsage;
+use crate::tools::judgment::{ClassificationError, LongContext};
 use crate::tools::source_capture::SourceReader;
 use octocode_contract_types::ErrorCode;
 use serde::{Deserialize, Serialize};
@@ -16,8 +16,10 @@ mod store;
 
 use assess::assess_and_save;
 pub(super) use budget::Budget;
-use emit::terminal;
-pub(crate) use store::{PLAN_IDLE, PLAN_RETENTION, Sessions};
+use emit::terminal_saved;
+#[cfg(test)]
+pub(crate) use store::PLAN_RETENTION;
+pub(crate) use store::{PLAN_IDLE, Sessions};
 
 #[derive(Clone, Copy)]
 pub(crate) struct Runtime<'a> {
@@ -57,7 +59,10 @@ struct Session {
     keys: Vec<String>,
     model: Option<String>,
     resolved_model: Option<String>,
-    long_context: bool,
+    /// The row's `longContext` ([`LongContext::from_field`]), so every
+    /// batch asks for the long window as the caller chose. A plan saved by
+    /// another build is never read: its key's scope holds the build identity.
+    long_context: LongContext,
     resources: Vec<Resource>,
     github_identity: Option<String>,
     batches: Vec<Value>,
@@ -72,8 +77,47 @@ fn unavailable(message: &str) -> ClassificationError {
     ClassificationError::new(
         ErrorCode::ClassificationContextUnavailable,
         message,
-        "Use persistent storage across CLI calls or a long-lived MCP runtime; start a fresh sections request explicitly if the saved plan expired.",
+        "Section plans across CLI calls need storage.mode persistent, or one running MCP server; start a fresh sections request explicitly if the saved plan expired.",
     )
+}
+
+/// Refresh each plan an `assessment` token in `outputs` continues: every
+/// read of a plan restarts its idle lifetime ([`PLAN_IDLE`]). A plan past it
+/// stays expired.
+pub(crate) fn refresh_continued<'a>(
+    sessions: &Sessions,
+    access: &[u8; 32],
+    outputs: impl IntoIterator<Item = &'a Value>,
+) {
+    let mut ids = std::collections::BTreeSet::new();
+    for output in outputs {
+        continued_plans(output, &mut ids);
+    }
+    for id in ids {
+        sessions.refresh(&sessions.key(access, id));
+    }
+}
+
+/// The plan id of every `assessment` token in `value`.
+fn continued_plans<'a>(value: &'a Value, ids: &mut std::collections::BTreeSet<&'a str>) {
+    match value {
+        Value::Object(fields) => {
+            for (field, value) in fields {
+                match value.as_str().and_then(decode) {
+                    Some((id, _)) if field == "assessment" => {
+                        ids.insert(id);
+                    }
+                    _ => continued_plans(value, ids),
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                continued_plans(item, ids);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// A continuation token that names no next batch: the caller changed it.
@@ -89,12 +133,23 @@ fn token(id: &str, batch: usize) -> String {
     format!("sections-v1:{id}:{batch:x}")
 }
 
-fn decode(value: &str) -> Option<(&str, usize)> {
+/// `next.quiet`: the plan's quiet sections, replayed ([`emit::quiet_replay`]).
+fn quiet_token(id: &str) -> String {
+    format!("sections-v1:{id}:{QUIET}")
+}
+
+const QUIET: &str = "quiet";
+
+/// A token's plan id and its batch ordinal; `None` for the quiet replay.
+fn decode(value: &str) -> Option<(&str, Option<usize>)> {
     let (id, batch) = value.strip_prefix("sections-v1:")?.split_once(':')?;
     if id.len() != 64 || !id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return None;
     }
-    Some((id, usize::from_str_radix(batch, 16).ok()?))
+    if batch == QUIET {
+        return Some((id, None));
+    }
+    Some((id, Some(usize::from_str_radix(batch, 16).ok()?)))
 }
 
 /// An error as a section or resource reports it: its hints, then the failed
@@ -136,6 +191,11 @@ pub(super) fn run(
         let mut session = runtime.sessions.current(&key, context)?.ok_or_else(|| unavailable("The frozen assessment plan is missing, expired, or belongs to another access context; no source or provider was called."))?;
         dispatcher
             .validate_retained_github_identity(session.github_identity.as_deref(), context)?;
+        let Some(ordinal) = ordinal else {
+            return Ok(Outcome {
+                output: emit::quiet_replay(&session),
+            });
+        };
         if let Some(saved) = session.batches.get(ordinal) {
             let mut output = saved.clone();
             output["usage"] = serde_json::to_value(ClassificationUsage::default().output())
@@ -154,32 +214,7 @@ pub(super) fn run(
             ));
         }
         if !session.active.is_empty() {
-            let error = error_value(&unavailable(
-                "A previous process stopped after it could have submitted this assessment batch. Its provider outcome is unknown; this continuation did not retry it.",
-            ));
-            for [resource, unit] in std::mem::take(&mut session.active) {
-                if let Some(unit) = session
-                    .resources
-                    .get_mut(resource)
-                    .and_then(|resource| resource.units.get_mut(unit))
-                {
-                    for cell in &mut unit.cells {
-                        if cell.is_none() {
-                            *cell = Some(json!({"status":"error","error":error}));
-                        }
-                    }
-                }
-            }
-            let outcome = terminal(
-                &mut session,
-                "An interrupted assessment has unknown provider outcomes; remaining work was not attempted.",
-                ClassificationUsage::default(),
-            );
-            session.batches.push(outcome.output.clone());
-            if !runtime.sessions.save(key.clone(), session, context) {
-                runtime.sessions.remove(&key, context);
-            }
-            return Ok(outcome);
+            return Ok(interrupted(&mut session, runtime, context));
         }
         if let Some(withheld) = withheld_saved_source(&session, dispatcher.read_paths()) {
             runtime.sessions.remove(&key, context);
@@ -206,6 +241,38 @@ pub(super) fn run(
     let key = runtime.sessions.key(&runtime.access, &session.id);
     let _process_lock = runtime.sessions.transaction_lock(&key, context)?;
     assess_and_save(&mut session, ordinal, dispatcher, context, runtime, shared)
+}
+
+/// The batch a continuation ends with when the previous process stopped
+/// mid-batch: the cells it had in flight have unknown provider outcomes, so
+/// they are errors, never retried; the rest is settled like any terminal
+/// batch ([`terminal_saved`]), so the sections earlier batches held back
+/// stay reachable through `next.quiet`, or are shown here when no plan is
+/// kept.
+fn interrupted(session: &mut Session, runtime: Runtime<'_>, context: &ExecutionContext) -> Outcome {
+    let error = error_value(&unavailable(
+        "A previous process stopped after it could have submitted this assessment batch. Its provider outcome is unknown; this continuation did not retry it.",
+    ));
+    for [resource, unit] in std::mem::take(&mut session.active) {
+        if let Some(unit) = session
+            .resources
+            .get_mut(resource)
+            .and_then(|resource| resource.units.get_mut(unit))
+        {
+            for cell in &mut unit.cells {
+                if cell.is_none() {
+                    *cell = Some(json!({"status":"error","error":error}));
+                }
+            }
+        }
+    }
+    terminal_saved(
+        session,
+        "An interrupted assessment has unknown provider outcomes; remaining work was not attempted.",
+        ClassificationUsage::default(),
+        runtime,
+        context,
+    )
 }
 
 fn validate_sources(

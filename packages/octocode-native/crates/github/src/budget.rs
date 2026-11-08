@@ -98,6 +98,17 @@ pub(crate) fn rate_limited_error(message: &str, rate_limit: RateLimit) -> Provid
     error
 }
 
+/// Whether a spent `bucket` is waited out before the next send. Only the
+/// buckets the client paces are: search and code search, metered over
+/// GitHub's minute windows, whose resets the search pacing already plans
+/// around. Any other spent quota (core and GraphQL, metered over an hour)
+/// is disclosed at once as `rateLimited` with its reset, so the caller
+/// decides instead of a wait of up to an hour. Secondary-limit cooldowns
+/// and `retry-after` stay waited out: GitHub prescribes those waits.
+pub(crate) fn waits_out_spent(bucket: &str) -> bool {
+    Group::paces_bucket(bucket)
+}
+
 pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -219,6 +230,16 @@ impl GitHubBudget {
         Ok(AuthAdmission {
             _admission: admission,
         })
+    }
+
+    /// Wait until every rate-limit fact written without awaiting (an
+    /// exhausted bucket, a cooldown, an observed quota, a pull request's
+    /// lifetime, a handed-back start) is on disk, in every budget of this
+    /// process. A process that ends right after a call awaits this first:
+    /// tokio drops a blocking write still queued at shutdown, and the next
+    /// process must find the fact.
+    pub async fn flush_detached_writes() {
+        persist::flush_detached().await;
     }
 
     /// State for `key`; attaches (and loads) the on-disk mirror when a

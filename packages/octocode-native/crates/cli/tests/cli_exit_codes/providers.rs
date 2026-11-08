@@ -138,22 +138,49 @@ async fn clasify_exits_by_worst_row_outcome() {
             String::from_utf8_lossy(&output.stdout)
         );
     }
+    // A one-shot memory runtime answers a source evaluation and offers a fresh
+    // read any later runtime can run, never a handle into itself.
     let memory_server = classification_provider(std::time::Duration::ZERO).await;
     let command = clasify_command(workspace.cli(), &memory_server);
     let input = rows(vec![read(&file)]);
     let memory = tokio::task::spawn_blocking(move || run_json(command, "clasify", &input))
         .await
         .unwrap();
-    assert_exit(&memory, 5);
-    let error = json_output(&memory);
+    assert_exit(&memory, 0);
+    let answered = json_output(&memory);
+    let data = &answered["results"][0]["data"];
+    assert_eq!(data["answers"]["q"]["noul"], 0.8, "{answered}");
+    assert_eq!(data["related"][0]["tool"], "localFetch", "{answered}");
+    assert_eq!(
+        data["related"][0]["input"]["queries"][0]["path"], file,
+        "{answered}"
+    );
+    assert!(data.get("next").is_none(), "{answered}");
+    assert!(!answered.to_string().contains("cursor"), "{answered}");
+    let posts = memory_server.received_requests().await.unwrap();
+    let posts = posts
+        .iter()
+        .filter(|request| request.method.as_str() == "POST");
+    assert_eq!(posts.count(), 1, "one provider call answers the row");
+    // A section plan needs its next batch kept, so memory refuses it before
+    // any read or provider request.
+    let plan_server = classification_provider(std::time::Duration::ZERO).await;
+    let command = clasify_command(workspace.cli(), &plan_server);
+    let input = rows(vec![json!({"operation":"sections",
+        "resources":{"local":{"tool":"localFetch","query":{"path":&file}}}})]);
+    let plan = tokio::task::spawn_blocking(move || run_json(command, "clasify", &input))
+        .await
+        .unwrap();
+    assert_exit(&plan, 5);
+    let error = json_output(&plan);
     assert_eq!(
         error["results"][0]["data"]["errorCode"], "classificationContextUnavailable",
         "{error}"
     );
     assert!(!error.to_string().contains("cursor2."), "{error}");
     assert!(
-        memory_server.received_requests().await.unwrap().is_empty(),
-        "memory-only source refusal must precede every provider request"
+        plan_server.received_requests().await.unwrap().is_empty(),
+        "a memory-only section-plan refusal must precede every provider request"
     );
 }
 

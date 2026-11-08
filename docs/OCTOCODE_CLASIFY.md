@@ -246,7 +246,8 @@ flowchart TD
 4. **Assess.** One Jev request per section answers all of its open questions. Sections in a batch
    run concurrently, admitted by a character budget.
 5. **Emit.** Completed sections are returned once, with each resource's coverage and
-   `next.nextPage` while work remains.
+   `next.nextPage` while work remains. Shown sections rank by their highest `noul` answer; a
+   section whose every answer is a `noul` below 0.3 is held back as quiet (see below).
 
 Each cell moves through these states:
 
@@ -275,6 +276,14 @@ stateDiagram-v2
 Coverage counts these states per resource (`answered`, `error`, `unsupported`, `unassessed`),
 plus `totalSections` and `remainingSections`. An absent count is 0.
 
+`coverage.quiet` is not a cell state: it counts the completed sections held back from
+`sections[]` because every answer is a `noul` below 0.3. A section with an error, unsupported or
+unassessed cell, an unsure answer (0.3-0.7) or another question type is always shown. The count is
+cumulative, so it can appear on any batch; the last batch's `next.quiet` lists every quiet section
+once, from the saved plan, with no Jev call (`replayed: true`, zero usage). If that plan cannot be
+kept, the last batch shows the quiet sections instead and offers no `next.quiet`. Quiet is a low
+answer, not absence: read the section before you rely on it.
+
 > [!IMPORTANT]
 > `unassessed` and `error` cells were not judged: they are not a "no". A section hit is a
 > candidate, because sections are judged with preceding context: read its `target.lines`
@@ -287,13 +296,19 @@ resources.<key>
 ├─ status, snapshot           what was read, pinned (`source` on a cursor page, or when it changed)
 ├─ read                       a handle that reads the file at that snapshot
 ├─ coverage                   cell counts (cumulative, never add them up)
-└─ sections[]
+│  └─ quiet                   sections held back: every answer a noul below 0.3
+└─ sections[]                 shown sections, highest noul answer first
    ├─ id, kind, name, target.lines, context
    └─ answers.<question> {status, answer}
+next
+├─ nextPage                   the next batch, while sections remain
+├─ read, read2, …             pinned reads of the yes-sections' lines
+└─ quiet                      last batch only: every quiet section, replayed unbilled
 ```
 
-- Each completed section appears exactly once. A later batch repeats a resource only when it
-  gains sections or its coverage changes, so keep each resource's last reported row.
+- Each completed section appears exactly once: on a batch, or through `next.quiet`. A later
+  batch repeats a resource only when it gains sections or its coverage changes, so keep each
+  resource's last reported row.
 - A resource that cannot be read or judged says so; Octocode never invents answers for it.
 
 ### State: where the data lives
@@ -339,10 +354,12 @@ sequenceDiagram
 - If a process stops while rows are in flight, the next continuation reports those cells as
   errors with an unknown provider outcome. It does not send them again.
 - An answer from a different model than the one the plan started with is refused.
-- With `storage.mode: "memory"`, a one-shot CLI call cannot retain the pinned source reads an
-  answer requires. Source evaluations and sections return `classificationContextUnavailable`
-  before reading sources or calling the provider. Literal content still works. Use persistent
-  storage or a running MCP server for source evaluations and section plans.
+- With `storage.mode: "memory"`, a one-shot CLI call keeps nothing for a later call. A section
+  plan returns `classificationContextUnavailable` before reading sources or calling the provider.
+  A `localFetch` or `ghGetFileContent` source evaluation still answers; its read is a fresh call
+  in `related[]` (a GitHub read stays at the captured commit, a local read rereads the path),
+  not a `next.read` handle. Literal content works too. URL and image captures need persistent
+  storage. Use persistent storage or a running MCP server for section plans.
 
 ## Examples
 
@@ -512,6 +529,7 @@ errors and partial receipts tell source, admission, provider and assessment fail
 | `next.nextPage`, `next.nextCandidatePage` | Run it unchanged: it continues saved work |
 | `next.read` on `evaluate`, `resources.<key>.read` | Run it to read the whole judged selection, pinned (`readChars` on `evaluate`) |
 | `next.read` on `sections` | Run it to read only the lines of the yes-sections, pinned |
+| `coverage.quiet`, `next.quiet` | Sections held back with every `noul` below 0.3; run `next.quiet` (last batch) to list them, unbilled |
 | `classificationStateTooLarge`, `classificationContextTooLarge` | The provider refused the request; it does not document whether a refused over-window request is billed. Run the `sections` call in `related[]`, or split by ranges or rows, each its own call |
 | `related[]` | Optional fresh request; it may widen scope |
 | `unassessed` cells or `terminalReason` | That work was not judged: it is not a "no" |

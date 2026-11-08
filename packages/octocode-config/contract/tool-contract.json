@@ -6,56 +6,225 @@
       "type": "integer"
     },
     "_h1": {
-      "additionalProperties": false,
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/ClassificationContext"
+      "items": {
+        "additionalProperties": {},
+        "properties": {
+          "affected": {
+            "items": {
+              "additionalProperties": {},
+              "properties": {
+                "databaseSpecific": {
+                  "$ref": "#/$defs/_h36"
+                },
+                "ecosystemSpecific": {
+                  "$ref": "#/$defs/_h36"
+                },
+                "packageName": {
+                  "type": "string"
+                },
+                "ranges": {
+                  "items": {
+                    "additionalProperties": {},
+                    "properties": {
+                      "events": {
+                        "items": {
+                          "additionalProperties": {},
+                          "properties": {
+                            "fixed": {
+                              "type": "string"
+                            },
+                            "introduced": {
+                              "type": "string"
+                            },
+                            "last_affected": {
+                              "type": "string"
+                            },
+                            "limit": {
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "repo": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "versions": {
+                  "$ref": "#/$defs/_h24"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "aliases": {
+            "$ref": "#/$defs/_h24"
+          },
+          "alsoAffects": {
+            "$ref": "#/$defs/_h24"
+          },
+          "credits": {
+            "items": {
+              "additionalProperties": {},
+              "properties": {
+                "login": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "login"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "cves": {
+            "$ref": "#/$defs/_h24"
+          },
+          "cvss": {
+            "items": {
+              "additionalProperties": {},
+              "properties": {
+                "score": {
+                  "maximum": 10,
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "vector": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "vector"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "cwes": {
+            "$ref": "#/$defs/_h24"
+          },
+          "details": {
+            "type": "string"
+          },
+          "disputedBy": {
+            "$ref": "#/$defs/_h24"
+          },
+          "epss": {
+            "additionalProperties": {},
+            "properties": {
+              "percentage": {
+                "$ref": "#/$defs/_h200"
+              },
+              "percentile": {
+                "$ref": "#/$defs/_h200"
+              }
+            },
+            "required": [
+              "percentage",
+              "percentile"
+            ],
+            "type": "object"
+          },
+          "fixedIn": {
+            "$ref": "#/$defs/_h24"
+          },
+          "id": {
+            "type": "string"
+          },
+          "link": {
+            "type": "string"
+          },
+          "modified": {
+            "type": "string"
+          },
+          "published": {
+            "type": "string"
+          },
+          "publisher": {
+            "type": "string"
+          },
+          "references": {
+            "items": {
+              "additionalProperties": {},
+              "properties": {
+                "type": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "related": {
+            "$ref": "#/$defs/_h24"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "withdrawn": {
+            "type": "string"
+          }
         },
-        "longContext": {
-          "type": "boolean"
-        },
-        "predicates": {
-          "$ref": "#/$defs/_h67"
-        }
+        "required": [
+          "id",
+          "link"
+        ],
+        "title": "SecurityAdvisory",
+        "type": "object"
       },
-      "required": [
-        "predicates"
-      ],
-      "type": "object"
+      "type": "array"
     },
     "_h10": {
-      "additionalProperties": false,
-      "properties": {
-        "continues": {
-          "additionalProperties": false,
-          "properties": {
-            "array": {
-              "type": "string"
-            },
-            "index": {
-              "$ref": "#/$defs/_h0"
-            }
-          },
-          "required": [
-            "array",
-            "index"
-          ],
-          "type": "object"
+      "$ref": "#/$defs/clasifyNext",
+      "additionalProperties": {
+        "$ref": "#/$defs/_h281"
+      },
+      "patternProperties": {
+        "^(?:nextPage)$": {
+          "$ref": "#/$defs/clasifyContinueCall"
         },
-        "of": {
-          "$ref": "#/$defs/_h33"
+        "^(?:quiet(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/clasifyContinueCall"
         },
-        "part": {
-          "$ref": "#/$defs/_h33"
+        "^(?:read(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/_h207"
         },
-        "text": {
-          "type": "string"
+        "^(?:restart(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/clasifyContinueCall"
+        },
+        "^(?:retry(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/clasifyContinueCall"
         }
       },
-      "required": [
-        "part",
-        "of"
-      ],
+      "propertyNames": {
+        "$ref": "#/$defs/_h273"
+      },
       "type": "object"
     },
     "_h100": {
@@ -230,7 +399,7 @@
           "$ref": "#/$defs/_h0"
         },
         "providerLimit": {
-          "$ref": "#/$defs/_h204"
+          "$ref": "#/$defs/_h205"
         },
         "providerPagesRead": {
           "$ref": "#/$defs/_h0"
@@ -304,7 +473,7 @@
       "additionalProperties": false,
       "properties": {
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "fields": {
           "$ref": "#/$defs/_h19"
@@ -334,7 +503,7 @@
           "$ref": "#/$defs/_h15"
         },
         "ref": {
-          "$ref": "#/$defs/_h37"
+          "$ref": "#/$defs/_h38"
         },
         "repo": {
           "$ref": "#/$defs/_h6"
@@ -373,7 +542,7 @@
           "$ref": "#/$defs/_h15"
         },
         "occurrence": {
-          "$ref": "#/$defs/_h276"
+          "$ref": "#/$defs/_h277"
         },
         "operation": {
           "const": "references"
@@ -425,7 +594,7 @@
           "$ref": "#/$defs/_h250"
         },
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "contextLines": {
           "$ref": "#/$defs/_h34"
@@ -452,7 +621,7 @@
           "$ref": "#/$defs/_h15"
         },
         "ref": {
-          "$ref": "#/$defs/_h37"
+          "$ref": "#/$defs/_h38"
         },
         "regexEngine": {
           "$ref": "#/$defs/_h241"
@@ -488,7 +657,7 @@
           "$ref": "#/$defs/_h250"
         },
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "contextLines": {
           "$ref": "#/$defs/_h34"
@@ -543,8 +712,491 @@
     "_h11": {
       "additionalProperties": false,
       "properties": {
+        "continues": {
+          "additionalProperties": false,
+          "properties": {
+            "array": {
+              "type": "string"
+            },
+            "index": {
+              "$ref": "#/$defs/_h0"
+            }
+          },
+          "required": [
+            "array",
+            "index"
+          ],
+          "type": "object"
+        },
+        "of": {
+          "$ref": "#/$defs/_h33"
+        },
+        "part": {
+          "$ref": "#/$defs/_h33"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "part",
+        "of"
+      ],
+      "type": "object"
+    },
+    "_h110": {
+      "additionalProperties": false,
+      "properties": {
+        "defaultExcludes": {
+          "$ref": "#/$defs/DefaultExcludes"
+        },
+        "exclude": {
+          "$ref": "#/$defs/_h89"
+        },
+        "includeHidden": {
+          "type": "boolean"
+        },
+        "includeIgnored": {
+          "type": "boolean"
+        },
+        "includeProvenance": {
+          "type": "boolean"
+        },
+        "limit": {
+          "$ref": "#/$defs/_h95"
+        },
+        "mainGoal": {
+          "$ref": "#/$defs/_h15"
+        },
+        "operation": {
+          "const": "symbols"
+        },
+        "page": {
+          "$ref": "#/$defs/_h50"
+        },
+        "parser": {
+          "$ref": "#/$defs/AstParser"
+        },
+        "parserGlobs": {
+          "$ref": "#/$defs/AstParserGlobs"
+        },
+        "path": {
+          "$ref": "#/$defs/_h97"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/_h15"
+        },
+        "scanOffset": {
+          "$ref": "#/$defs/_h98"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/_h42"
+        },
+        "symbolFilter": {
+          "$ref": "#/$defs/AstSymbolFilter"
+        },
+        "symbolKinds": {
+          "$ref": "#/$defs/_h19"
+        },
+        "testCode": {
+          "$ref": "#/$defs/TestCode"
+        }
+      },
+      "required": [
+        "path",
+        "operation"
+      ],
+      "type": "object"
+    },
+    "_h111": {
+      "additionalProperties": false,
+      "properties": {
+        "importerPage": {
+          "$ref": "#/$defs/_h98"
+        },
+        "includeDeclaration": {
+          "default": true,
+          "type": "boolean"
+        },
+        "limit": {
+          "$ref": "#/$defs/_h95"
+        },
+        "line": {
+          "$ref": "#/$defs/_h30"
+        },
+        "mainGoal": {
+          "$ref": "#/$defs/_h15"
+        },
+        "occurrence": {
+          "$ref": "#/$defs/_h277"
+        },
+        "operation": {
+          "const": "references"
+        },
+        "page": {
+          "$ref": "#/$defs/_h50"
+        },
+        "path": {
+          "$ref": "#/$defs/_h97"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/_h15"
+        },
+        "rustContext": {
+          "$ref": "#/$defs/LspRustContext"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/_h42"
+        },
+        "symbolName": {
+          "$ref": "#/$defs/_h41"
+        },
+        "testCode": {
+          "$ref": "#/$defs/TestCode"
+        },
+        "view": {
+          "const": "files"
+        },
+        "workspaceRoot": {
+          "$ref": "#/$defs/_h97"
+        }
+      },
+      "required": [
+        "path",
+        "symbolName",
+        "line",
+        "operation",
+        "view"
+      ],
+      "title": "anchored:references:files",
+      "type": "object"
+    },
+    "_h112": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/$defs/_h41"
+        },
+        "errorCode": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "hints": {
+          "$ref": "#/$defs/RowHints"
+        },
+        "next": {
+          "$ref": "#/$defs/_h10"
+        },
+        "related": {
+          "$ref": "#/$defs/_h49"
+        }
+      },
+      "required": [
+        "errorCode",
+        "error"
+      ],
+      "type": "object"
+    },
+    "_h113": {
+      "additionalProperties": {
+        "$ref": "#/$defs/_h0"
+      },
+      "propertyNames": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "_h114": {
+      "additionalProperties": false,
+      "properties": {
+        "baseRef": {
+          "$ref": "#/$defs/_h38"
+        },
+        "fileStatus": {
+          "$ref": "#/$defs/_h54"
+        },
+        "headRef": {
+          "$ref": "#/$defs/_h38"
+        },
+        "include": {
+          "$ref": "#/$defs/_h57"
+        },
+        "mainGoal": {
+          "$ref": "#/$defs/_h15"
+        },
+        "minChanges": {
+          "$ref": "#/$defs/_h153"
+        },
+        "offset": {
+          "$ref": "#/$defs/_h229"
+        },
+        "operation": {
+          "const": "compare"
+        },
+        "owner": {
+          "$ref": "#/$defs/_h6"
+        },
+        "page": {
+          "$ref": "#/$defs/_h98"
+        },
+        "pageSize": {
+          "$ref": "#/$defs/_h228"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/_h15"
+        },
+        "repo": {
+          "$ref": "#/$defs/_h6"
+        },
+        "sections": {
+          "$ref": "#/$defs/_h237"
+        }
+      },
+      "required": [
+        "owner",
+        "repo",
+        "operation",
+        "baseRef",
+        "headRef"
+      ],
+      "type": "object"
+    },
+    "_h115": {
+      "additionalProperties": false,
+      "properties": {
+        "include": {
+          "$ref": "#/$defs/_h265"
+        },
+        "limit": {
+          "default": 300,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "mainGoal": {
+          "$ref": "#/$defs/_h15"
+        },
+        "materialize": {
+          "type": "boolean"
+        },
+        "materializeOffset": {
+          "$ref": "#/$defs/_h229"
+        },
+        "maxDepth": {
+          "$ref": "#/$defs/_h95"
+        },
+        "operation": {
+          "const": "tree"
+        },
+        "owner": {
+          "$ref": "#/$defs/_h6"
+        },
+        "page": {
+          "$ref": "#/$defs/_h98"
+        },
+        "path": {
+          "pattern": "^[^\\x00-\\x1F\\x7F]*$",
+          "type": "string"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/_h15"
+        },
+        "ref": {
+          "$ref": "#/$defs/_h38"
+        },
+        "repo": {
+          "$ref": "#/$defs/_h6"
+        }
+      },
+      "required": [
+        "operation",
+        "owner",
+        "repo"
+      ],
+      "type": "object"
+    },
+    "_h116": {
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/_h36"
+        },
+        "fingerprint": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "context",
+        "fingerprint"
+      ],
+      "type": "object"
+    },
+    "_h117": {
+      "additionalProperties": false,
+      "properties": {
+        "fields": {
+          "$ref": "#/$defs/_h19"
+        },
+        "filters": {
+          "$ref": "#/$defs/_h285"
+        },
+        "limit": {
+          "$ref": "#/$defs/_h224"
+        },
+        "mainGoal": {
+          "$ref": "#/$defs/_h15"
+        },
+        "operation": {
+          "const": "list"
+        },
+        "owner": {
+          "$ref": "#/$defs/_h6"
+        },
+        "page": {
+          "$ref": "#/$defs/_h50"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/_h15"
+        },
+        "sort": {
+          "additionalProperties": false,
+          "default": {
+            "by": "pushedAt",
+            "order": "desc"
+          },
+          "properties": {
+            "by": {
+              "enum": [
+                "pushedAt"
+              ]
+            },
+            "order": {
+              "$ref": "#/$defs/SortOrder"
+            }
+          },
+          "required": [
+            "by",
+            "order"
+          ],
+          "title": "RepositoryListSort",
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "owner"
+      ],
+      "type": "object"
+    },
+    "_h118": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "$ref": "#/$defs/GraphEdgeconfidence"
+        },
+        "edges": {
+          "$ref": "#/$defs/GraphEdgeedges"
+        },
+        "graph": {
+          "$ref": "#/$defs/GraphScopegraph"
+        },
+        "includeProvenance": {
+          "$ref": "#/$defs/GraphScopeincludeProvenance"
+        },
+        "limit": {
+          "$ref": "#/$defs/GraphPagelimit"
+        },
+        "mainGoal": {
+          "$ref": "#/$defs/_h15"
+        },
+        "name": {
+          "$ref": "#/$defs/_h41"
+        },
+        "offset": {
+          "$ref": "#/$defs/GraphPageoffset"
+        },
+        "operation": {
+          "const": "witnesses"
+        },
+        "page": {
+          "$ref": "#/$defs/GraphPagepage"
+        },
+        "path": {
+          "$ref": "#/$defs/GraphScopepath"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/_h15"
+        },
+        "target": {
+          "$ref": "#/$defs/_h246"
+        },
+        "to": {
+          "$ref": "#/$defs/_h41"
+        }
+      },
+      "required": [
+        "operation"
+      ],
+      "title": "GraphQueryWitnesses",
+      "type": "object"
+    },
+    "_h119": {
+      "additionalProperties": false,
+      "properties": {
+        "contextLines": {
+          "$ref": "#/$defs/_h47"
+        },
+        "limit": {
+          "$ref": "#/$defs/_h95"
+        },
+        "line": {
+          "$ref": "#/$defs/_h30"
+        },
+        "mainGoal": {
+          "$ref": "#/$defs/_h15"
+        },
+        "occurrence": {
+          "$ref": "#/$defs/_h277"
+        },
+        "operation": {
+          "$ref": "#/$defs/_h322"
+        },
+        "page": {
+          "$ref": "#/$defs/_h50"
+        },
+        "path": {
+          "$ref": "#/$defs/_h97"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/_h15"
+        },
+        "rustContext": {
+          "$ref": "#/$defs/LspRustContext"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/_h42"
+        },
+        "symbolName": {
+          "$ref": "#/$defs/_h41"
+        },
+        "view": {
+          "$ref": "#/$defs/_h272"
+        },
+        "workspaceRoot": {
+          "$ref": "#/$defs/_h97"
+        }
+      },
+      "required": [
+        "path",
+        "symbolName",
+        "line"
+      ],
+      "title": "anchored:locations",
+      "type": "object"
+    },
+    "_h12": {
+      "additionalProperties": false,
+      "properties": {
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "fields": {
           "$ref": "#/$defs/_h19"
@@ -808,79 +1460,49 @@
         }
       ]
     },
-    "_h110": {
+    "_h120": {
       "additionalProperties": false,
       "properties": {
-        "defaultExcludes": {
-          "$ref": "#/$defs/DefaultExcludes"
-        },
-        "exclude": {
-          "$ref": "#/$defs/_h89"
-        },
-        "includeHidden": {
-          "type": "boolean"
-        },
-        "includeIgnored": {
-          "type": "boolean"
-        },
-        "includeProvenance": {
-          "type": "boolean"
-        },
-        "limit": {
-          "$ref": "#/$defs/_h95"
+        "ecosystem": {
+          "$ref": "#/$defs/_h213"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h15"
         },
         "operation": {
-          "const": "symbols"
+          "const": "package"
         },
-        "page": {
-          "$ref": "#/$defs/_h50"
-        },
-        "parser": {
-          "$ref": "#/$defs/AstParser"
-        },
-        "parserGlobs": {
-          "$ref": "#/$defs/AstParserGlobs"
-        },
-        "path": {
-          "$ref": "#/$defs/_h97"
+        "packageName": {
+          "$ref": "#/$defs/_h41"
         },
         "reasoning": {
           "$ref": "#/$defs/_h15"
         },
-        "scanOffset": {
-          "$ref": "#/$defs/_h98"
+        "release": {
+          "$ref": "#/$defs/_h311"
         },
-        "snapshot": {
+        "resume": {
           "$ref": "#/$defs/_h42"
         },
-        "symbolFilter": {
-          "$ref": "#/$defs/AstSymbolFilter"
-        },
-        "symbolKinds": {
-          "$ref": "#/$defs/_h19"
-        },
-        "testCode": {
-          "$ref": "#/$defs/TestCode"
+        "version": {
+          "$ref": "#/$defs/_h278"
         }
       },
       "required": [
-        "path",
-        "operation"
+        "operation",
+        "ecosystem",
+        "packageName"
       ],
       "type": "object"
     },
-    "_h111": {
+    "_h121": {
       "additionalProperties": false,
       "properties": {
+        "depth": {
+          "$ref": "#/$defs/_h309"
+        },
         "importerPage": {
           "$ref": "#/$defs/_h98"
-        },
-        "includeDeclaration": {
-          "default": true,
-          "type": "boolean"
         },
         "limit": {
           "$ref": "#/$defs/_h95"
@@ -892,10 +1514,10 @@
           "$ref": "#/$defs/_h15"
         },
         "occurrence": {
-          "$ref": "#/$defs/_h276"
+          "$ref": "#/$defs/_h277"
         },
         "operation": {
-          "const": "references"
+          "const": "callers"
         },
         "page": {
           "$ref": "#/$defs/_h50"
@@ -918,9 +1540,6 @@
         "testCode": {
           "$ref": "#/$defs/TestCode"
         },
-        "view": {
-          "const": "files"
-        },
         "workspaceRoot": {
           "$ref": "#/$defs/_h97"
         }
@@ -929,57 +1548,103 @@
         "path",
         "symbolName",
         "line",
-        "operation",
-        "view"
+        "operation"
       ],
-      "title": "anchored:references:files",
+      "title": "anchored:callers",
       "type": "object"
     },
-    "_h112": {
+    "_h122": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "$ref": "#/$defs/_h321"
+            },
+            "order": {
+              "$ref": "#/$defs/SortOrder"
+            }
+          },
+          "required": [
+            "by",
+            "order"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/_h280"
+        }
+      ]
+    },
+    "_h123": {
       "additionalProperties": false,
       "properties": {
-        "error": {
-          "$ref": "#/$defs/_h41"
+        "classification": {
+          "$ref": "#/$defs/_h2"
         },
-        "errorCode": {
-          "$ref": "#/$defs/ErrorCode"
+        "fields": {
+          "$ref": "#/$defs/_h19"
         },
-        "hints": {
-          "$ref": "#/$defs/RowHints"
+        "filters": {
+          "$ref": "#/$defs/_h261"
         },
-        "next": {
-          "$ref": "#/$defs/_h14"
+        "keywords": {
+          "$ref": "#/$defs/_h67"
         },
-        "related": {
-          "$ref": "#/$defs/_h49"
+        "limit": {
+          "$ref": "#/$defs/_h224"
+        },
+        "mainGoal": {
+          "$ref": "#/$defs/_h15"
+        },
+        "operation": {
+          "const": "commit"
+        },
+        "owner": {
+          "$ref": "#/$defs/_h6"
+        },
+        "page": {
+          "$ref": "#/$defs/_h50"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/_h15"
+        },
+        "repo": {
+          "$ref": "#/$defs/_h6"
+        },
+        "selection": {
+          "$ref": "#/$defs/_h42"
         }
       },
       "required": [
-        "errorCode",
-        "error"
+        "operation",
+        "owner",
+        "repo",
+        "keywords"
       ],
       "type": "object"
     },
-    "_h113": {
-      "additionalProperties": {
-        "$ref": "#/$defs/_h0"
-      },
-      "propertyNames": {
-        "type": "string"
-      },
-      "type": "object"
-    },
-    "_h114": {
+    "_h124": {
       "additionalProperties": false,
       "properties": {
-        "baseRef": {
-          "$ref": "#/$defs/_h37"
+        "character": {
+          "$ref": "#/$defs/_h0"
         },
+        "line": {
+          "$ref": "#/$defs/_h0"
+        }
+      },
+      "required": [
+        "line",
+        "character"
+      ],
+      "type": "object"
+    },
+    "_h125": {
+      "additionalProperties": false,
+      "properties": {
         "fileStatus": {
           "$ref": "#/$defs/_h54"
-        },
-        "headRef": {
-          "$ref": "#/$defs/_h37"
         },
         "include": {
           "$ref": "#/$defs/_h57"
@@ -994,7 +1659,7 @@
           "$ref": "#/$defs/_h229"
         },
         "operation": {
-          "const": "compare"
+          "const": "commit"
         },
         "owner": {
           "$ref": "#/$defs/_h6"
@@ -1008,205 +1673,32 @@
         "reasoning": {
           "$ref": "#/$defs/_h15"
         },
+        "ref": {
+          "$ref": "#/$defs/_h38"
+        },
         "repo": {
           "$ref": "#/$defs/_h6"
         },
         "sections": {
-          "$ref": "#/$defs/_h237"
+          "$ref": "#/$defs/_h252"
         }
       },
       "required": [
         "owner",
         "repo",
         "operation",
-        "baseRef",
-        "headRef"
+        "ref"
       ],
       "type": "object"
     },
-    "_h115": {
+    "_h126": {
       "additionalProperties": false,
       "properties": {
-        "include": {
-          "$ref": "#/$defs/_h265"
-        },
-        "limit": {
-          "default": 300,
-          "minimum": 1,
-          "type": "integer"
-        },
-        "mainGoal": {
-          "$ref": "#/$defs/_h15"
-        },
-        "materialize": {
-          "type": "boolean"
-        },
-        "materializeOffset": {
-          "$ref": "#/$defs/_h229"
-        },
-        "maxDepth": {
-          "$ref": "#/$defs/_h95"
-        },
-        "operation": {
-          "const": "tree"
-        },
-        "owner": {
-          "$ref": "#/$defs/_h6"
-        },
-        "page": {
+        "candidatePage": {
           "$ref": "#/$defs/_h98"
         },
-        "path": {
-          "pattern": "^[^\\x00-\\x1F\\x7F]*$",
-          "type": "string"
-        },
-        "reasoning": {
-          "$ref": "#/$defs/_h15"
-        },
-        "ref": {
-          "$ref": "#/$defs/_h37"
-        },
-        "repo": {
-          "$ref": "#/$defs/_h6"
-        }
-      },
-      "required": [
-        "operation",
-        "owner",
-        "repo"
-      ],
-      "type": "object"
-    },
-    "_h116": {
-      "additionalProperties": false,
-      "properties": {
-        "context": {
-          "$ref": "#/$defs/_h36"
-        },
-        "fingerprint": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "context",
-        "fingerprint"
-      ],
-      "type": "object"
-    },
-    "_h117": {
-      "additionalProperties": false,
-      "properties": {
-        "fields": {
-          "$ref": "#/$defs/_h19"
-        },
-        "filters": {
-          "$ref": "#/$defs/_h285"
-        },
-        "limit": {
-          "$ref": "#/$defs/_h224"
-        },
-        "mainGoal": {
-          "$ref": "#/$defs/_h15"
-        },
-        "operation": {
-          "const": "list"
-        },
-        "owner": {
-          "$ref": "#/$defs/_h6"
-        },
-        "page": {
-          "$ref": "#/$defs/_h50"
-        },
-        "reasoning": {
-          "$ref": "#/$defs/_h15"
-        },
-        "sort": {
-          "additionalProperties": false,
-          "default": {
-            "by": "pushedAt",
-            "order": "desc"
-          },
-          "properties": {
-            "by": {
-              "enum": [
-                "pushedAt"
-              ]
-            },
-            "order": {
-              "$ref": "#/$defs/SortOrder"
-            }
-          },
-          "required": [
-            "by",
-            "order"
-          ],
-          "title": "RepositoryListSort",
-          "type": "object"
-        }
-      },
-      "required": [
-        "operation",
-        "owner"
-      ],
-      "type": "object"
-    },
-    "_h118": {
-      "additionalProperties": false,
-      "properties": {
-        "confidence": {
-          "$ref": "#/$defs/GraphEdgeconfidence"
-        },
-        "edges": {
-          "$ref": "#/$defs/GraphEdgeedges"
-        },
-        "graph": {
-          "$ref": "#/$defs/GraphScopegraph"
-        },
-        "includeProvenance": {
-          "$ref": "#/$defs/GraphScopeincludeProvenance"
-        },
-        "limit": {
-          "$ref": "#/$defs/GraphPagelimit"
-        },
-        "mainGoal": {
-          "$ref": "#/$defs/_h15"
-        },
-        "name": {
-          "$ref": "#/$defs/_h41"
-        },
-        "offset": {
-          "$ref": "#/$defs/GraphPageoffset"
-        },
-        "operation": {
-          "const": "witnesses"
-        },
-        "page": {
-          "$ref": "#/$defs/GraphPagepage"
-        },
-        "path": {
-          "$ref": "#/$defs/GraphScopepath"
-        },
-        "reasoning": {
-          "$ref": "#/$defs/_h15"
-        },
-        "target": {
-          "$ref": "#/$defs/_h246"
-        },
-        "to": {
-          "$ref": "#/$defs/_h41"
-        }
-      },
-      "required": [
-        "operation"
-      ],
-      "title": "GraphQueryWitnesses",
-      "type": "object"
-    },
-    "_h119": {
-      "additionalProperties": false,
-      "properties": {
-        "contextLines": {
-          "$ref": "#/$defs/_h47"
+        "depth": {
+          "$ref": "#/$defs/_h309"
         },
         "limit": {
           "$ref": "#/$defs/_h95"
@@ -1218,7 +1710,109 @@
           "$ref": "#/$defs/_h15"
         },
         "occurrence": {
-          "$ref": "#/$defs/_h276"
+          "$ref": "#/$defs/_h277"
+        },
+        "operation": {
+          "const": "subtypes"
+        },
+        "page": {
+          "$ref": "#/$defs/_h50"
+        },
+        "path": {
+          "$ref": "#/$defs/_h97"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/_h15"
+        },
+        "rustContext": {
+          "$ref": "#/$defs/LspRustContext"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/_h42"
+        },
+        "symbolName": {
+          "$ref": "#/$defs/_h41"
+        },
+        "workspaceRoot": {
+          "$ref": "#/$defs/_h97"
+        }
+      },
+      "required": [
+        "path",
+        "symbolName",
+        "line",
+        "operation"
+      ],
+      "title": "anchored:subtypes",
+      "type": "object"
+    },
+    "_h127": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "$ref": "#/$defs/GraphEdgeconfidence"
+        },
+        "direction": {
+          "default": "in",
+          "enum": [
+            "in",
+            "out"
+          ]
+        },
+        "edges": {
+          "$ref": "#/$defs/GraphEdgeedges"
+        },
+        "graph": {
+          "$ref": "#/$defs/GraphScopegraph"
+        },
+        "includeProvenance": {
+          "$ref": "#/$defs/GraphScopeincludeProvenance"
+        },
+        "kind": {
+          "$ref": "#/$defs/_h258"
+        },
+        "limit": {
+          "$ref": "#/$defs/GraphPagelimit"
+        },
+        "mainGoal": {
+          "$ref": "#/$defs/_h15"
+        },
+        "offset": {
+          "$ref": "#/$defs/GraphPageoffset"
+        },
+        "operation": {
+          "const": "hubs"
+        },
+        "page": {
+          "$ref": "#/$defs/GraphPagepage"
+        },
+        "path": {
+          "$ref": "#/$defs/GraphScopepath"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/_h15"
+        }
+      },
+      "required": [
+        "operation"
+      ],
+      "title": "GraphQueryHubs",
+      "type": "object"
+    },
+    "_h128": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "$ref": "#/$defs/_h95"
+        },
+        "line": {
+          "$ref": "#/$defs/_h30"
+        },
+        "mainGoal": {
+          "$ref": "#/$defs/_h15"
+        },
+        "occurrence": {
+          "$ref": "#/$defs/_h277"
         },
         "operation": {
           "$ref": "#/$defs/_h322"
@@ -1242,7 +1836,7 @@
           "$ref": "#/$defs/_h41"
         },
         "view": {
-          "$ref": "#/$defs/_h272"
+          "const": "files"
         },
         "workspaceRoot": {
           "$ref": "#/$defs/_h97"
@@ -1251,12 +1845,20 @@
       "required": [
         "path",
         "symbolName",
-        "line"
+        "line",
+        "view"
       ],
-      "title": "anchored:locations",
+      "title": "anchored:locations:files",
       "type": "object"
     },
-    "_h12": {
+    "_h129": {
+      "items": {
+        "$ref": "#/$defs/OutputDeclaration"
+      },
+      "title": "SymbolRows",
+      "type": "array"
+    },
+    "_h13": {
       "additionalProperties": {},
       "properties": {
         "analysisContext": {
@@ -1368,472 +1970,11 @@
       "title": "LspReceipt",
       "type": "object"
     },
-    "_h120": {
-      "additionalProperties": false,
-      "properties": {
-        "ecosystem": {
-          "$ref": "#/$defs/_h213"
-        },
-        "mainGoal": {
-          "$ref": "#/$defs/_h15"
-        },
-        "operation": {
-          "const": "package"
-        },
-        "packageName": {
-          "$ref": "#/$defs/_h41"
-        },
-        "reasoning": {
-          "$ref": "#/$defs/_h15"
-        },
-        "release": {
-          "$ref": "#/$defs/_h311"
-        },
-        "resume": {
-          "$ref": "#/$defs/_h42"
-        },
-        "version": {
-          "$ref": "#/$defs/_h277"
-        }
-      },
-      "required": [
-        "operation",
-        "ecosystem",
-        "packageName"
-      ],
-      "type": "object"
-    },
-    "_h121": {
-      "additionalProperties": false,
-      "properties": {
-        "depth": {
-          "$ref": "#/$defs/_h309"
-        },
-        "importerPage": {
-          "$ref": "#/$defs/_h98"
-        },
-        "limit": {
-          "$ref": "#/$defs/_h95"
-        },
-        "line": {
-          "$ref": "#/$defs/_h30"
-        },
-        "mainGoal": {
-          "$ref": "#/$defs/_h15"
-        },
-        "occurrence": {
-          "$ref": "#/$defs/_h276"
-        },
-        "operation": {
-          "const": "callers"
-        },
-        "page": {
-          "$ref": "#/$defs/_h50"
-        },
-        "path": {
-          "$ref": "#/$defs/_h97"
-        },
-        "reasoning": {
-          "$ref": "#/$defs/_h15"
-        },
-        "rustContext": {
-          "$ref": "#/$defs/LspRustContext"
-        },
-        "snapshot": {
-          "$ref": "#/$defs/_h42"
-        },
-        "symbolName": {
-          "$ref": "#/$defs/_h41"
-        },
-        "testCode": {
-          "$ref": "#/$defs/TestCode"
-        },
-        "workspaceRoot": {
-          "$ref": "#/$defs/_h97"
-        }
-      },
-      "required": [
-        "path",
-        "symbolName",
-        "line",
-        "operation"
-      ],
-      "title": "anchored:callers",
-      "type": "object"
-    },
-    "_h122": {
-      "anyOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "by": {
-              "$ref": "#/$defs/_h321"
-            },
-            "order": {
-              "$ref": "#/$defs/SortOrder"
-            }
-          },
-          "required": [
-            "by",
-            "order"
-          ],
-          "type": "object"
-        },
-        {
-          "$ref": "#/$defs/_h279"
-        }
-      ]
-    },
-    "_h123": {
-      "additionalProperties": false,
-      "properties": {
-        "classification": {
-          "$ref": "#/$defs/_h1"
-        },
-        "fields": {
-          "$ref": "#/$defs/_h19"
-        },
-        "filters": {
-          "$ref": "#/$defs/_h261"
-        },
-        "keywords": {
-          "$ref": "#/$defs/_h67"
-        },
-        "limit": {
-          "$ref": "#/$defs/_h224"
-        },
-        "mainGoal": {
-          "$ref": "#/$defs/_h15"
-        },
-        "operation": {
-          "const": "commit"
-        },
-        "owner": {
-          "$ref": "#/$defs/_h6"
-        },
-        "page": {
-          "$ref": "#/$defs/_h50"
-        },
-        "reasoning": {
-          "$ref": "#/$defs/_h15"
-        },
-        "repo": {
-          "$ref": "#/$defs/_h6"
-        },
-        "selection": {
-          "$ref": "#/$defs/_h42"
-        }
-      },
-      "required": [
-        "operation",
-        "owner",
-        "repo",
-        "keywords"
-      ],
-      "type": "object"
-    },
-    "_h124": {
-      "additionalProperties": false,
-      "properties": {
-        "character": {
-          "$ref": "#/$defs/_h0"
-        },
-        "line": {
-          "$ref": "#/$defs/_h0"
-        }
-      },
-      "required": [
-        "line",
-        "character"
-      ],
-      "type": "object"
-    },
-    "_h125": {
-      "additionalProperties": false,
-      "properties": {
-        "fileStatus": {
-          "$ref": "#/$defs/_h54"
-        },
-        "include": {
-          "$ref": "#/$defs/_h57"
-        },
-        "mainGoal": {
-          "$ref": "#/$defs/_h15"
-        },
-        "minChanges": {
-          "$ref": "#/$defs/_h153"
-        },
-        "offset": {
-          "$ref": "#/$defs/_h229"
-        },
-        "operation": {
-          "const": "commit"
-        },
-        "owner": {
-          "$ref": "#/$defs/_h6"
-        },
-        "page": {
-          "$ref": "#/$defs/_h98"
-        },
-        "pageSize": {
-          "$ref": "#/$defs/_h228"
-        },
-        "reasoning": {
-          "$ref": "#/$defs/_h15"
-        },
-        "ref": {
-          "$ref": "#/$defs/_h37"
-        },
-        "repo": {
-          "$ref": "#/$defs/_h6"
-        },
-        "sections": {
-          "$ref": "#/$defs/_h252"
-        }
-      },
-      "required": [
-        "owner",
-        "repo",
-        "operation",
-        "ref"
-      ],
-      "type": "object"
-    },
-    "_h126": {
-      "additionalProperties": false,
-      "properties": {
-        "candidatePage": {
-          "$ref": "#/$defs/_h98"
-        },
-        "depth": {
-          "$ref": "#/$defs/_h309"
-        },
-        "limit": {
-          "$ref": "#/$defs/_h95"
-        },
-        "line": {
-          "$ref": "#/$defs/_h30"
-        },
-        "mainGoal": {
-          "$ref": "#/$defs/_h15"
-        },
-        "occurrence": {
-          "$ref": "#/$defs/_h276"
-        },
-        "operation": {
-          "const": "subtypes"
-        },
-        "page": {
-          "$ref": "#/$defs/_h50"
-        },
-        "path": {
-          "$ref": "#/$defs/_h97"
-        },
-        "reasoning": {
-          "$ref": "#/$defs/_h15"
-        },
-        "rustContext": {
-          "$ref": "#/$defs/LspRustContext"
-        },
-        "snapshot": {
-          "$ref": "#/$defs/_h42"
-        },
-        "symbolName": {
-          "$ref": "#/$defs/_h41"
-        },
-        "workspaceRoot": {
-          "$ref": "#/$defs/_h97"
-        }
-      },
-      "required": [
-        "path",
-        "symbolName",
-        "line",
-        "operation"
-      ],
-      "title": "anchored:subtypes",
-      "type": "object"
-    },
-    "_h127": {
-      "additionalProperties": false,
-      "properties": {
-        "confidence": {
-          "$ref": "#/$defs/GraphEdgeconfidence"
-        },
-        "direction": {
-          "default": "in",
-          "enum": [
-            "in",
-            "out"
-          ]
-        },
-        "edges": {
-          "$ref": "#/$defs/GraphEdgeedges"
-        },
-        "graph": {
-          "$ref": "#/$defs/GraphScopegraph"
-        },
-        "includeProvenance": {
-          "$ref": "#/$defs/GraphScopeincludeProvenance"
-        },
-        "kind": {
-          "$ref": "#/$defs/_h258"
-        },
-        "limit": {
-          "$ref": "#/$defs/GraphPagelimit"
-        },
-        "mainGoal": {
-          "$ref": "#/$defs/_h15"
-        },
-        "offset": {
-          "$ref": "#/$defs/GraphPageoffset"
-        },
-        "operation": {
-          "const": "hubs"
-        },
-        "page": {
-          "$ref": "#/$defs/GraphPagepage"
-        },
-        "path": {
-          "$ref": "#/$defs/GraphScopepath"
-        },
-        "reasoning": {
-          "$ref": "#/$defs/_h15"
-        }
-      },
-      "required": [
-        "operation"
-      ],
-      "title": "GraphQueryHubs",
-      "type": "object"
-    },
-    "_h128": {
-      "additionalProperties": false,
-      "properties": {
-        "limit": {
-          "$ref": "#/$defs/_h95"
-        },
-        "line": {
-          "$ref": "#/$defs/_h30"
-        },
-        "mainGoal": {
-          "$ref": "#/$defs/_h15"
-        },
-        "occurrence": {
-          "$ref": "#/$defs/_h276"
-        },
-        "operation": {
-          "$ref": "#/$defs/_h322"
-        },
-        "page": {
-          "$ref": "#/$defs/_h50"
-        },
-        "path": {
-          "$ref": "#/$defs/_h97"
-        },
-        "reasoning": {
-          "$ref": "#/$defs/_h15"
-        },
-        "rustContext": {
-          "$ref": "#/$defs/LspRustContext"
-        },
-        "snapshot": {
-          "$ref": "#/$defs/_h42"
-        },
-        "symbolName": {
-          "$ref": "#/$defs/_h41"
-        },
-        "view": {
-          "const": "files"
-        },
-        "workspaceRoot": {
-          "$ref": "#/$defs/_h97"
-        }
-      },
-      "required": [
-        "path",
-        "symbolName",
-        "line",
-        "view"
-      ],
-      "title": "anchored:locations:files",
-      "type": "object"
-    },
-    "_h129": {
-      "items": {
-        "$ref": "#/$defs/OutputDeclaration"
-      },
-      "title": "SymbolRows",
-      "type": "array"
-    },
-    "_h13": {
-      "additionalProperties": {},
-      "properties": {
-        "content": {
-          "type": "string"
-        },
-        "declarations": {
-          "items": {
-            "$ref": "#/$defs/OutputEnclosing"
-          },
-          "type": "array"
-        },
-        "matchCount": {
-          "$ref": "#/$defs/_h0"
-        },
-        "matchedLineCount": {
-          "$ref": "#/$defs/_h0"
-        },
-        "matches": {
-          "items": {
-            "$ref": "#/$defs/OutputTextMatch"
-          },
-          "type": "array"
-        },
-        "matchKeys": {
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "keyPath": {
-                "type": "string"
-              },
-              "line": {
-                "$ref": "#/$defs/_h44"
-              }
-            },
-            "required": [
-              "line",
-              "keyPath"
-            ],
-            "title": "MatchKey",
-            "type": "object"
-          },
-          "type": "array"
-        },
-        "pagination": {
-          "$ref": "#/$defs/OutputPagination"
-        },
-        "path": {
-          "type": "string"
-        },
-        "symbols": {
-          "$ref": "#/$defs/_h129"
-        },
-        "termCounts": {
-          "$ref": "#/$defs/_h256"
-        }
-      },
-      "required": [
-        "path"
-      ],
-      "title": "SearchFile",
-      "type": "object"
-    },
     "_h130": {
       "additionalProperties": false,
       "properties": {
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h15"
@@ -1942,7 +2083,7 @@
           "$ref": "#/$defs/_h15"
         },
         "occurrence": {
-          "$ref": "#/$defs/_h276"
+          "$ref": "#/$defs/_h277"
         },
         "operation": {
           "enum": [
@@ -2034,16 +2175,16 @@
       "additionalProperties": false,
       "properties": {
         "bottom": {
-          "$ref": "#/$defs/_h207"
+          "$ref": "#/$defs/_h200"
         },
         "left": {
-          "$ref": "#/$defs/_h207"
+          "$ref": "#/$defs/_h200"
         },
         "right": {
-          "$ref": "#/$defs/_h207"
+          "$ref": "#/$defs/_h200"
         },
         "top": {
-          "$ref": "#/$defs/_h207"
+          "$ref": "#/$defs/_h200"
         }
       },
       "required": [
@@ -2250,27 +2391,66 @@
       "type": "object"
     },
     "_h14": {
-      "$ref": "#/$defs/clasifyNext",
-      "additionalProperties": {
-        "$ref": "#/$defs/_h280"
-      },
-      "patternProperties": {
-        "^(?:nextPage)$": {
-          "$ref": "#/$defs/clasifyContinueCall"
+      "additionalProperties": {},
+      "properties": {
+        "content": {
+          "type": "string"
         },
-        "^(?:read(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/_h206"
+        "declarations": {
+          "items": {
+            "$ref": "#/$defs/OutputEnclosing"
+          },
+          "type": "array"
         },
-        "^(?:restart(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/clasifyContinueCall"
+        "matchCount": {
+          "$ref": "#/$defs/_h0"
         },
-        "^(?:retry(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/clasifyContinueCall"
+        "matchedLineCount": {
+          "$ref": "#/$defs/_h0"
+        },
+        "matches": {
+          "items": {
+            "$ref": "#/$defs/OutputTextMatch"
+          },
+          "type": "array"
+        },
+        "matchKeys": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "keyPath": {
+                "type": "string"
+              },
+              "line": {
+                "$ref": "#/$defs/_h44"
+              }
+            },
+            "required": [
+              "line",
+              "keyPath"
+            ],
+            "title": "MatchKey",
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "pagination": {
+          "$ref": "#/$defs/OutputPagination"
+        },
+        "path": {
+          "type": "string"
+        },
+        "symbols": {
+          "$ref": "#/$defs/_h129"
+        },
+        "termCounts": {
+          "$ref": "#/$defs/_h256"
         }
       },
-      "propertyNames": {
-        "$ref": "#/$defs/_h284"
-      },
+      "required": [
+        "path"
+      ],
+      "title": "SearchFile",
       "type": "object"
     },
     "_h140": {
@@ -2504,7 +2684,7 @@
           "$ref": "#/$defs/_h15"
         },
         "occurrence": {
-          "$ref": "#/$defs/_h276"
+          "$ref": "#/$defs/_h277"
         },
         "operation": {
           "const": "hover"
@@ -2672,11 +2852,37 @@
     "_h154": {
       "additionalProperties": false,
       "properties": {
+        "id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "type": "string"
+        },
+        "mainGoal": {
+          "$ref": "#/$defs/_h15"
+        },
+        "operation": {
+          "const": "advisory"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/_h15"
+        },
+        "repo": {
+          "$ref": "#/$defs/_h41"
+        }
+      },
+      "required": [
+        "operation",
+        "id"
+      ],
+      "type": "object"
+    },
+    "_h155": {
+      "additionalProperties": false,
+      "properties": {
         "block": {
           "type": "boolean"
         },
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h15"
@@ -2697,7 +2903,7 @@
           "$ref": "#/$defs/_h15"
         },
         "ref": {
-          "$ref": "#/$defs/_h37"
+          "$ref": "#/$defs/_h38"
         },
         "repo": {
           "$ref": "#/$defs/_h6"
@@ -2717,14 +2923,14 @@
       ],
       "type": "object"
     },
-    "_h155": {
+    "_h156": {
       "additionalProperties": false,
       "properties": {
         "block": {
           "type": "boolean"
         },
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "limit": {
           "$ref": "#/$defs/_h95"
@@ -2760,7 +2966,7 @@
       ],
       "type": "object"
     },
-    "_h156": {
+    "_h157": {
       "items": {
         "anyOf": [
           {
@@ -2816,7 +3022,7 @@
       },
       "type": "array"
     },
-    "_h157": {
+    "_h158": {
       "additionalProperties": false,
       "properties": {
         "graph": {
@@ -2856,7 +3062,7 @@
       "title": "GraphQueryDiagnostics",
       "type": "object"
     },
-    "_h158": {
+    "_h159": {
       "additionalProperties": false,
       "properties": {
         "ecosystem": {
@@ -2890,24 +3096,6 @@
         "ecosystem"
       ],
       "title": "search crates, maven, nuget, go, packagist or rubygems",
-      "type": "object"
-    },
-    "_h159": {
-      "additionalProperties": false,
-      "properties": {
-        "mainGoal": {
-          "$ref": "#/$defs/_h15"
-        },
-        "operation": {
-          "const": "models"
-        },
-        "reasoning": {
-          "$ref": "#/$defs/_h15"
-        }
-      },
-      "required": [
-        "operation"
-      ],
       "type": "object"
     },
     "_h16": {
@@ -2946,6 +3134,24 @@
     "_h160": {
       "additionalProperties": false,
       "properties": {
+        "mainGoal": {
+          "$ref": "#/$defs/_h15"
+        },
+        "operation": {
+          "const": "models"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/_h15"
+        }
+      },
+      "required": [
+        "operation"
+      ],
+      "type": "object"
+    },
+    "_h161": {
+      "additionalProperties": false,
+      "properties": {
         "lowTractionStars": {
           "const": 100
         },
@@ -2959,7 +3165,7 @@
       ],
       "type": "object"
     },
-    "_h161": {
+    "_h162": {
       "additionalProperties": false,
       "properties": {
         "mainGoal": {
@@ -2985,7 +3191,7 @@
       ],
       "type": "object"
     },
-    "_h162": {
+    "_h163": {
       "additionalProperties": false,
       "properties": {
         "assessment": {
@@ -3009,7 +3215,7 @@
       ],
       "type": "object"
     },
-    "_h163": {
+    "_h164": {
       "additionalProperties": false,
       "properties": {
         "limit": {
@@ -3049,29 +3255,6 @@
         "path"
       ],
       "title": "lsp:workspace:path",
-      "type": "object"
-    },
-    "_h164": {
-      "additionalProperties": false,
-      "properties": {
-        "id": {
-          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
-          "type": "string"
-        },
-        "mainGoal": {
-          "$ref": "#/$defs/_h15"
-        },
-        "operation": {
-          "const": "advisory"
-        },
-        "reasoning": {
-          "$ref": "#/$defs/_h15"
-        }
-      },
-      "required": [
-        "operation",
-        "id"
-      ],
       "type": "object"
     },
     "_h165": {
@@ -3168,7 +3351,7 @@
       "additionalProperties": false,
       "properties": {
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h15"
@@ -3186,7 +3369,7 @@
           "$ref": "#/$defs/_h15"
         },
         "ref": {
-          "$ref": "#/$defs/_h37"
+          "$ref": "#/$defs/_h38"
         },
         "repo": {
           "$ref": "#/$defs/_h6"
@@ -3234,7 +3417,7 @@
       "additionalProperties": false,
       "properties": {
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "limit": {
           "$ref": "#/$defs/_h95"
@@ -3440,7 +3623,7 @@
           "$ref": "#/$defs/_h15"
         },
         "ref": {
-          "$ref": "#/$defs/_h37"
+          "$ref": "#/$defs/_h38"
         },
         "repo": {
           "$ref": "#/$defs/_h6"
@@ -3815,7 +3998,7 @@
       "additionalProperties": {},
       "properties": {
         "advisories": {
-          "$ref": "#/$defs/_h3"
+          "$ref": "#/$defs/_h1"
         },
         "note": {
           "type": "string"
@@ -3891,7 +4074,7 @@
           "$ref": "#/$defs/_h15"
         },
         "ref": {
-          "$ref": "#/$defs/_h37"
+          "$ref": "#/$defs/_h38"
         },
         "repo": {
           "$ref": "#/$defs/_h6"
@@ -3923,7 +4106,7 @@
           "$ref": "#/$defs/_h15"
         },
         "ref": {
-          "$ref": "#/$defs/_h37"
+          "$ref": "#/$defs/_h38"
         },
         "repo": {
           "$ref": "#/$defs/_h6"
@@ -3959,7 +4142,7 @@
           "$ref": "#/$defs/_h15"
         },
         "ref": {
-          "$ref": "#/$defs/_h37"
+          "$ref": "#/$defs/_h38"
         },
         "repo": {
           "$ref": "#/$defs/_h6"
@@ -4086,78 +4269,22 @@
       "type": "array"
     },
     "_h2": {
-      "anyOf": [
-        {
-          "additionalProperties": false,
-          "properties": {
-            "query": {
-              "additionalProperties": false,
-              "properties": {
-                "path": {
-                  "$ref": "#/$defs/_h80"
-                },
-                "ranges": {
-                  "$ref": "#/$defs/_h96"
-                }
-              },
-              "required": [
-                "path"
-              ],
-              "type": "object"
-            },
-            "tool": {
-              "const": "localFetch"
-            }
-          },
-          "required": [
-            "tool",
-            "query"
-          ],
-          "type": "object"
+      "additionalProperties": false,
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/ClassificationContext"
         },
-        {
-          "additionalProperties": false,
-          "properties": {
-            "query": {
-              "additionalProperties": false,
-              "properties": {
-                "owner": {
-                  "$ref": "#/$defs/_h6"
-                },
-                "path": {
-                  "$ref": "#/$defs/_h64"
-                },
-                "ranges": {
-                  "$ref": "#/$defs/_h96"
-                },
-                "ref": {
-                  "$ref": "#/$defs/_h37"
-                },
-                "repo": {
-                  "$ref": "#/$defs/_h6"
-                }
-              },
-              "required": [
-                "owner",
-                "repo",
-                "path"
-              ],
-              "type": "object"
-            },
-            "tool": {
-              "const": "ghGetFileContent"
-            }
-          },
-          "required": [
-            "tool",
-            "query"
-          ],
-          "type": "object"
+        "longContext": {
+          "type": "boolean"
         },
-        {
-          "$ref": "#/$defs/_h216"
+        "predicates": {
+          "$ref": "#/$defs/_h67"
         }
-      ]
+      },
+      "required": [
+        "predicates"
+      ],
+      "type": "object"
     },
     "_h20": {
       "items": {
@@ -4214,6 +4341,11 @@
       "type": "array"
     },
     "_h200": {
+      "maximum": 1,
+      "minimum": 0,
+      "type": "number"
+    },
+    "_h201": {
       "additionalProperties": false,
       "properties": {
         "graph": {
@@ -4241,7 +4373,7 @@
       "title": "GraphQueryStats",
       "type": "object"
     },
-    "_h201": {
+    "_h202": {
       "additionalProperties": false,
       "properties": {
         "committedFiles": {
@@ -4257,7 +4389,7 @@
       ],
       "type": "object"
     },
-    "_h202": {
+    "_h203": {
       "anyOf": [
         {
           "$ref": "#/$defs/_h97"
@@ -4278,7 +4410,7 @@
         }
       ]
     },
-    "_h203": {
+    "_h204": {
       "anyOf": [
         {
           "additionalProperties": false,
@@ -4323,7 +4455,7 @@
         }
       ]
     },
-    "_h204": {
+    "_h205": {
       "additionalProperties": {},
       "properties": {
         "changedFilesCount": {
@@ -4341,7 +4473,7 @@
       ],
       "type": "object"
     },
-    "_h205": {
+    "_h206": {
       "additionalProperties": false,
       "properties": {
         "commit": {
@@ -4369,7 +4501,7 @@
       ],
       "type": "object"
     },
-    "_h206": {
+    "_h207": {
       "anyOf": [
         {
           "$ref": "#/$defs/localFetchContinueCall"
@@ -4378,11 +4510,6 @@
           "$ref": "#/$defs/ghGetFileContentContinueCall"
         }
       ]
-    },
-    "_h207": {
-      "maximum": 1,
-      "minimum": 0,
-      "type": "number"
     },
     "_h208": {
       "additionalProperties": {
@@ -4581,7 +4708,7 @@
       "additionalProperties": false,
       "properties": {
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "fields": {
           "$ref": "#/$defs/_h19"
@@ -4790,7 +4917,7 @@
     },
     "_h225": {
       "additionalProperties": {
-        "$ref": "#/$defs/_h207"
+        "$ref": "#/$defs/_h200"
       },
       "propertyNames": {
         "type": "string"
@@ -4845,13 +4972,13 @@
           "$ref": "#/$defs/_h59"
         },
         {
-          "$ref": "#/$defs/_h159"
+          "$ref": "#/$defs/_h160"
         },
         {
           "$ref": "#/$defs/_h55"
         },
         {
-          "$ref": "#/$defs/_h162"
+          "$ref": "#/$defs/_h163"
         }
       ],
       "x-checks": [
@@ -4923,7 +5050,7 @@
             "type": "string"
           },
           {
-            "$ref": "#/$defs/_h13"
+            "$ref": "#/$defs/_h14"
           }
         ]
       },
@@ -5154,7 +5281,7 @@
               ]
             },
             "instructions": {
-              "$ref": "#/$defs/_h202"
+              "$ref": "#/$defs/_h203"
             },
             "type": {
               "const": "noul"
@@ -5178,7 +5305,7 @@
                       "$ref": "#/$defs/_h212"
                     },
                     "true": {
-                      "$ref": "#/$defs/_h202"
+                      "$ref": "#/$defs/_h203"
                     }
                   },
                   "required": [
@@ -5190,7 +5317,7 @@
                   "additionalProperties": false,
                   "properties": {
                     "false": {
-                      "$ref": "#/$defs/_h202"
+                      "$ref": "#/$defs/_h203"
                     },
                     "true": {
                       "$ref": "#/$defs/_h212"
@@ -5557,6 +5684,10 @@
       "default": "content"
     },
     "_h273": {
+      "pattern": "^(?:nextPage|quiet(?:[2-9]|[1-9][0-9]+)?|read(?:[2-9]|[1-9][0-9]+)?|retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
+      "type": "string"
+    },
+    "_h274": {
       "additionalProperties": false,
       "properties": {
         "column": {
@@ -5572,7 +5703,7 @@
       ],
       "type": "object"
     },
-    "_h274": {
+    "_h275": {
       "$ref": "#/$defs/localFetchNext",
       "additionalProperties": {
         "$ref": "#/$defs/localFetchContinueCall"
@@ -5582,7 +5713,7 @@
       },
       "type": "object"
     },
-    "_h275": {
+    "_h276": {
       "additionalProperties": false,
       "properties": {
         "end": {
@@ -5598,18 +5729,18 @@
       ],
       "type": "object"
     },
-    "_h276": {
+    "_h277": {
       "default": 0,
       "minimum": 0,
       "type": "integer"
     },
-    "_h277": {
+    "_h278": {
       "maxLength": 100,
       "minLength": 1,
       "pattern": "\\S",
       "type": "string"
     },
-    "_h278": {
+    "_h279": {
       "additionalProperties": {
         "$ref": "#/$defs/ClasifySectionResource"
       },
@@ -5619,7 +5750,13 @@
       },
       "type": "object"
     },
-    "_h279": {
+    "_h28": {
+      "maxLength": 200,
+      "minLength": 1,
+      "pattern": "^[^\\s\"()]+$",
+      "type": "string"
+    },
+    "_h280": {
       "additionalProperties": false,
       "properties": {
         "by": {
@@ -5639,13 +5776,7 @@
       ],
       "type": "object"
     },
-    "_h28": {
-      "maxLength": 200,
-      "minLength": 1,
-      "pattern": "^[^\\s\"()]+$",
-      "type": "string"
-    },
-    "_h280": {
+    "_h281": {
       "anyOf": [
         {
           "$ref": "#/$defs/clasifyContinueCall"
@@ -5658,7 +5789,7 @@
         }
       ]
     },
-    "_h281": {
+    "_h282": {
       "items": {
         "$ref": "#/$defs/_h335"
       },
@@ -5667,11 +5798,11 @@
       "type": "array",
       "x-listing": "name"
     },
-    "_h282": {
+    "_h283": {
       "pattern": "^(?:nextPage|expandScan(?:[2-9]|[1-9][0-9]+)?|retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
       "type": "string"
     },
-    "_h283": {
+    "_h284": {
       "enum": [
         "external-package",
         "not-declared-in-repo",
@@ -5680,10 +5811,6 @@
         "ambiguous",
         "other"
       ]
-    },
-    "_h284": {
-      "pattern": "^(?:nextPage|read(?:[2-9]|[1-9][0-9]+)?|retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
-      "type": "string"
     },
     "_h285": {
       "additionalProperties": false,
@@ -5795,7 +5922,7 @@
     "_h290": {
       "anyOf": [
         {
-          "$ref": "#/$defs/_h206"
+          "$ref": "#/$defs/_h207"
         },
         {
           "$ref": "#/$defs/localFetchRelatedCall"
@@ -5896,154 +6023,78 @@
       ]
     },
     "_h3": {
-      "items": {
-        "additionalProperties": {},
-        "properties": {
-          "affected": {
-            "items": {
-              "additionalProperties": {},
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "query": {
+              "additionalProperties": false,
               "properties": {
-                "databaseSpecific": {
-                  "$ref": "#/$defs/_h36"
-                },
-                "ecosystemSpecific": {
-                  "$ref": "#/$defs/_h36"
-                },
-                "packageName": {
-                  "type": "string"
+                "path": {
+                  "$ref": "#/$defs/_h80"
                 },
                 "ranges": {
-                  "items": {
-                    "additionalProperties": {},
-                    "properties": {
-                      "events": {
-                        "items": {
-                          "additionalProperties": {},
-                          "properties": {
-                            "fixed": {
-                              "type": "string"
-                            },
-                            "introduced": {
-                              "type": "string"
-                            },
-                            "last_affected": {
-                              "type": "string"
-                            },
-                            "limit": {
-                              "type": "string"
-                            }
-                          },
-                          "type": "object"
-                        },
-                        "type": "array"
-                      },
-                      "repo": {
-                        "type": "string"
-                      },
-                      "type": {
-                        "type": "string"
-                      }
-                    },
-                    "type": "object"
-                  },
-                  "type": "array"
-                },
-                "versions": {
-                  "$ref": "#/$defs/_h24"
-                }
-              },
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "aliases": {
-            "$ref": "#/$defs/_h24"
-          },
-          "alsoAffects": {
-            "$ref": "#/$defs/_h24"
-          },
-          "cves": {
-            "$ref": "#/$defs/_h24"
-          },
-          "cvss": {
-            "items": {
-              "additionalProperties": {},
-              "properties": {
-                "score": {
-                  "type": "string"
-                },
-                "type": {
-                  "type": "string"
+                  "$ref": "#/$defs/_h96"
                 }
               },
               "required": [
-                "type",
-                "score"
+                "path"
               ],
               "type": "object"
             },
-            "type": "array"
+            "tool": {
+              "const": "localFetch"
+            }
           },
-          "cwes": {
-            "$ref": "#/$defs/_h24"
-          },
-          "details": {
-            "type": "string"
-          },
-          "fixedIn": {
-            "$ref": "#/$defs/_h24"
-          },
-          "id": {
-            "type": "string"
-          },
-          "link": {
-            "type": "string"
-          },
-          "modified": {
-            "type": "string"
-          },
-          "published": {
-            "type": "string"
-          },
-          "references": {
-            "items": {
-              "additionalProperties": {},
+          "required": [
+            "tool",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "query": {
+              "additionalProperties": false,
               "properties": {
-                "type": {
-                  "type": "string"
+                "owner": {
+                  "$ref": "#/$defs/_h6"
                 },
-                "url": {
-                  "type": "string"
+                "path": {
+                  "$ref": "#/$defs/_h64"
+                },
+                "ranges": {
+                  "$ref": "#/$defs/_h96"
+                },
+                "ref": {
+                  "$ref": "#/$defs/_h38"
+                },
+                "repo": {
+                  "$ref": "#/$defs/_h6"
                 }
               },
+              "required": [
+                "owner",
+                "repo",
+                "path"
+              ],
               "type": "object"
             },
-            "type": "array"
+            "tool": {
+              "const": "ghGetFileContent"
+            }
           },
-          "related": {
-            "$ref": "#/$defs/_h24"
-          },
-          "severity": {
-            "type": "string"
-          },
-          "source": {
-            "type": "string"
-          },
-          "summary": {
-            "type": "string"
-          },
-          "withdrawn": {
-            "type": "string"
-          }
+          "required": [
+            "tool",
+            "query"
+          ],
+          "type": "object"
         },
-        "required": [
-          "id",
-          "link"
-        ],
-        "title": "SecurityAdvisory",
-        "type": "object"
-      },
-      "type": "array"
+        {
+          "$ref": "#/$defs/_h216"
+        }
+      ]
     },
     "_h30": {
       "maximum": 1000000000,
@@ -6435,7 +6486,7 @@
     "_h320": {
       "anyOf": [
         {
-          "$ref": "#/$defs/_h207"
+          "$ref": "#/$defs/_h200"
         },
         {
           "type": "null"
@@ -6532,7 +6583,7 @@
     },
     "_h331": {
       "items": {
-        "$ref": "#/$defs/_h13"
+        "$ref": "#/$defs/_h14"
       },
       "type": "array"
     },
@@ -6688,7 +6739,7 @@
           "x-listing": "metadata"
         },
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "defaultExcludes": {
           "$ref": "#/$defs/DefaultExcludes",
@@ -6709,7 +6760,7 @@
           "$ref": "#/$defs/_h326"
         },
         "extensions": {
-          "$ref": "#/$defs/_h281"
+          "$ref": "#/$defs/_h282"
         },
         "include": {
           "$ref": "#/$defs/_h328"
@@ -6864,11 +6915,6 @@
       "type": "object"
     },
     "_h37": {
-      "minLength": 1,
-      "pattern": "^[^\\s\\x00-\\x1F\\x7F]+$",
-      "type": "string"
-    },
-    "_h38": {
       "items": {
         "additionalProperties": {},
         "properties": {
@@ -6880,6 +6926,9 @@
             "properties": {
               "exists": {
                 "type": "boolean"
+              },
+              "globalAdvisories": {
+                "$ref": "#/$defs/_h24"
               },
               "heads": {
                 "$ref": "#/$defs/_h24"
@@ -6951,6 +7000,11 @@
         "type": "object"
       },
       "type": "array"
+    },
+    "_h38": {
+      "minLength": 1,
+      "pattern": "^[^\\s\\x00-\\x1F\\x7F]+$",
+      "type": "string"
     },
     "_h39": {
       "anyOf": [
@@ -7039,7 +7093,7 @@
                   "$ref": "#/$defs/_h64"
                 },
                 "ref": {
-                  "$ref": "#/$defs/_h37"
+                  "$ref": "#/$defs/_h38"
                 },
                 "repo": {
                   "$ref": "#/$defs/_h6"
@@ -7522,7 +7576,7 @@
         },
         "resources": {
           "additionalProperties": {
-            "$ref": "#/$defs/_h2"
+            "$ref": "#/$defs/_h3"
           },
           "minProperties": 1,
           "propertyNames": {
@@ -7670,7 +7724,7 @@
               "$ref": "#/$defs/_h15"
             },
             "source": {
-              "$ref": "#/$defs/_h2"
+              "$ref": "#/$defs/_h3"
             }
           },
           "required": [
@@ -8001,7 +8055,7 @@
           "$ref": "#/$defs/_h250"
         },
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "defaultExcludes": {
           "$ref": "#/$defs/DefaultExcludes"
@@ -8105,7 +8159,7 @@
           "$ref": "#/$defs/_h250"
         },
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "contextLines": {
           "$ref": "#/$defs/_h34"
@@ -8259,7 +8313,7 @@
       "additionalProperties": false,
       "properties": {
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "defaultExcludes": {
           "$ref": "#/$defs/DefaultExcludes",
@@ -8276,7 +8330,7 @@
           "$ref": "#/$defs/_h326"
         },
         "extensions": {
-          "$ref": "#/$defs/_h281"
+          "$ref": "#/$defs/_h282"
         },
         "include": {
           "$ref": "#/$defs/_h328"
@@ -8628,7 +8682,7 @@
           "$ref": "#/$defs/_h250"
         },
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "contextLines": {
           "$ref": "#/$defs/_h34"
@@ -8928,7 +8982,7 @@
       "additionalProperties": false,
       "properties": {
         "baseRef": {
-          "$ref": "#/$defs/_h37"
+          "$ref": "#/$defs/_h38"
         },
         "caseMode": {
           "$ref": "#/$defs/_h250"
@@ -8940,7 +8994,7 @@
           "$ref": "#/$defs/_h54"
         },
         "headRef": {
-          "$ref": "#/$defs/_h37"
+          "$ref": "#/$defs/_h38"
         },
         "include": {
           "$ref": "#/$defs/_h57"
@@ -9023,7 +9077,7 @@
           "$ref": "#/$defs/_h15"
         },
         "minScore": {
-          "$ref": "#/$defs/_h207"
+          "$ref": "#/$defs/_h200"
         },
         "minTier": {
           "anyOf": [
@@ -9099,7 +9153,7 @@
         "$ref": "#/$defs/astSearchContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h282"
+        "$ref": "#/$defs/_h283"
       },
       "type": "object"
     },
@@ -9162,7 +9216,7 @@
           "$ref": "#/$defs/_h15"
         },
         "ref": {
-          "$ref": "#/$defs/_h37"
+          "$ref": "#/$defs/_h38"
         },
         "regexEngine": {
           "$ref": "#/$defs/_h241"
@@ -9190,7 +9244,7 @@
       "additionalProperties": false,
       "properties": {
         "classification": {
-          "$ref": "#/$defs/_h1"
+          "$ref": "#/$defs/_h2"
         },
         "fileStatus": {
           "$ref": "#/$defs/_h54"
@@ -9580,7 +9634,7 @@
                             "$ref": "#/$defs/_h83"
                           },
                           "version": {
-                            "$ref": "#/$defs/_h277"
+                            "$ref": "#/$defs/_h278"
                           }
                         },
                         "required": [
@@ -9644,7 +9698,7 @@
                             "$ref": "#/$defs/_h15"
                           },
                           "version": {
-                            "$ref": "#/$defs/_h277"
+                            "$ref": "#/$defs/_h278"
                           }
                         },
                         "required": [
@@ -9861,10 +9915,10 @@
       "$ref": "#/$defs/_h296"
     },
     "AstScopePoint": {
-      "$ref": "#/$defs/_h273"
+      "$ref": "#/$defs/_h274"
     },
     "AstScopePointContinuationInput": {
-      "$ref": "#/$defs/_h273"
+      "$ref": "#/$defs/_h274"
     },
     "astSearchContinueCall": {
       "additionalProperties": false,
@@ -10535,7 +10589,7 @@
         "$ref": "#/$defs/astSearchContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h282"
+        "$ref": "#/$defs/_h283"
       },
       "type": "object"
     },
@@ -11116,7 +11170,7 @@
               "$ref": "#/$defs/_h41"
             },
             "next": {
-              "$ref": "#/$defs/_h14"
+              "$ref": "#/$defs/_h10"
             },
             "operation": {
               "const": "sections"
@@ -11131,7 +11185,7 @@
               "const": true
             },
             "resources": {
-              "$ref": "#/$defs/_h278"
+              "$ref": "#/$defs/_h279"
             },
             "usage": {
               "$ref": "#/$defs/SelectionUsage"
@@ -11158,7 +11212,7 @@
               "$ref": "#/$defs/_h41"
             },
             "next": {
-              "$ref": "#/$defs/_h14"
+              "$ref": "#/$defs/_h10"
             },
             "operation": {
               "const": "sections"
@@ -11173,7 +11227,7 @@
               "const": true
             },
             "resources": {
-              "$ref": "#/$defs/_h278"
+              "$ref": "#/$defs/_h279"
             },
             "usage": {
               "$ref": "#/$defs/SelectionUsage"
@@ -11196,7 +11250,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "noul": {
-                        "$ref": "#/$defs/_h207"
+                        "$ref": "#/$defs/_h200"
                       },
                       "type": {
                         "const": "noul"
@@ -11215,7 +11269,7 @@
                         "type": "string"
                       },
                       "confidence": {
-                        "$ref": "#/$defs/_h207"
+                        "$ref": "#/$defs/_h200"
                       },
                       "probabilities": {
                         "$ref": "#/$defs/_h225"
@@ -11236,7 +11290,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "confidence": {
-                        "$ref": "#/$defs/_h207"
+                        "$ref": "#/$defs/_h200"
                       },
                       "legend": {
                         "$ref": "#/$defs/_h36"
@@ -11355,7 +11409,7 @@
               "$ref": "#/$defs/_h41"
             },
             "next": {
-              "$ref": "#/$defs/_h14"
+              "$ref": "#/$defs/_h10"
             },
             "readChars": {
               "$ref": "#/$defs/_h0"
@@ -11430,7 +11484,7 @@
               "type": "array"
             },
             "next": {
-              "$ref": "#/$defs/_h14"
+              "$ref": "#/$defs/_h10"
             },
             "related": {
               "$ref": "#/$defs/_h49"
@@ -11454,7 +11508,7 @@
               "$ref": "#/$defs/RowHints"
             },
             "next": {
-              "$ref": "#/$defs/_h14"
+              "$ref": "#/$defs/_h10"
             },
             "related": {
               "$ref": "#/$defs/_h49"
@@ -11492,14 +11546,17 @@
     },
     "clasifyNext": {
       "additionalProperties": {
-        "$ref": "#/$defs/_h280"
+        "$ref": "#/$defs/_h281"
       },
       "patternProperties": {
         "^(?:nextPage)$": {
           "$ref": "#/$defs/clasifyContinueCall"
         },
+        "^(?:quiet(?:[2-9]|[1-9][0-9]+)?)$": {
+          "$ref": "#/$defs/clasifyContinueCall"
+        },
         "^(?:read(?:[2-9]|[1-9][0-9]+)?)$": {
-          "$ref": "#/$defs/_h206"
+          "$ref": "#/$defs/_h207"
         },
         "^(?:restart(?:[2-9]|[1-9][0-9]+)?)$": {
           "$ref": "#/$defs/clasifyContinueCall"
@@ -11509,7 +11566,7 @@
         }
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h284"
+        "$ref": "#/$defs/_h273"
       },
       "type": "object"
     },
@@ -11647,7 +11704,7 @@
                                             "$ref": "#/$defs/_h145"
                                           },
                                           "ref": {
-                                            "$ref": "#/$defs/_h37"
+                                            "$ref": "#/$defs/_h38"
                                           },
                                           "repo": {
                                             "$ref": "#/$defs/_h6"
@@ -11686,7 +11743,7 @@
                         ]
                       },
                       {
-                        "$ref": "#/$defs/_h159"
+                        "$ref": "#/$defs/_h160"
                       },
                       {
                         "$ref": "#/$defs/_h55"
@@ -11773,6 +11830,9 @@
         "error": {
           "$ref": "#/$defs/_h0"
         },
+        "quiet": {
+          "$ref": "#/$defs/_h0"
+        },
         "remainingSections": {
           "$ref": "#/$defs/_h0"
         },
@@ -11807,7 +11867,7 @@
                   "additionalProperties": false,
                   "properties": {
                     "noul": {
-                      "$ref": "#/$defs/_h207"
+                      "$ref": "#/$defs/_h200"
                     }
                   },
                   "required": [
@@ -11822,7 +11882,7 @@
                       "type": "string"
                     },
                     "confidence": {
-                      "$ref": "#/$defs/_h207"
+                      "$ref": "#/$defs/_h200"
                     },
                     "probabilities": {
                       "$ref": "#/$defs/_h225"
@@ -11839,7 +11899,7 @@
                   "additionalProperties": false,
                   "properties": {
                     "confidence": {
-                      "$ref": "#/$defs/_h207"
+                      "$ref": "#/$defs/_h200"
                     },
                     "probabilities": {
                       "$ref": "#/$defs/_h225"
@@ -11972,7 +12032,7 @@
               "$ref": "#/$defs/_h41"
             },
             "read": {
-              "$ref": "#/$defs/_h206"
+              "$ref": "#/$defs/_h207"
             },
             "sections": {
               "items": {
@@ -11984,7 +12044,7 @@
               "$ref": "#/$defs/_h41"
             },
             "source": {
-              "$ref": "#/$defs/_h2"
+              "$ref": "#/$defs/_h3"
             },
             "status": {
               "const": "ready"
@@ -12021,7 +12081,7 @@
               "$ref": "#/$defs/_h41"
             },
             "source": {
-              "$ref": "#/$defs/_h2"
+              "$ref": "#/$defs/_h3"
             },
             "status": {
               "const": "error"
@@ -12056,7 +12116,7 @@
               "$ref": "#/$defs/_h41"
             },
             "source": {
-              "$ref": "#/$defs/_h2"
+              "$ref": "#/$defs/_h3"
             },
             "status": {
               "const": "unsupported"
@@ -12491,7 +12551,7 @@
                         "$ref": "#/$defs/_h15"
                       },
                       "ref": {
-                        "$ref": "#/$defs/_h37"
+                        "$ref": "#/$defs/_h38"
                       },
                       "repo": {
                         "$ref": "#/$defs/_h6"
@@ -12830,7 +12890,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h15"
@@ -12845,7 +12905,7 @@
                             "$ref": "#/$defs/_h15"
                           },
                           "ref": {
-                            "$ref": "#/$defs/_h37"
+                            "$ref": "#/$defs/_h38"
                           },
                           "repo": {
                             "$ref": "#/$defs/_h6"
@@ -12868,7 +12928,7 @@
                             "type": "boolean"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h15"
@@ -12886,7 +12946,7 @@
                             "$ref": "#/$defs/_h15"
                           },
                           "ref": {
-                            "$ref": "#/$defs/_h37"
+                            "$ref": "#/$defs/_h38"
                           },
                           "repo": {
                             "$ref": "#/$defs/_h6"
@@ -12913,7 +12973,7 @@
                             "$ref": "#/$defs/CaseMode"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "contextLines": {
                             "$ref": "#/$defs/_h47"
@@ -12937,7 +12997,7 @@
                             "$ref": "#/$defs/_h15"
                           },
                           "ref": {
-                            "$ref": "#/$defs/_h37"
+                            "$ref": "#/$defs/_h38"
                           },
                           "regexEngine": {
                             "$ref": "#/$defs/RegexEngine"
@@ -12976,7 +13036,7 @@
                             "$ref": "#/$defs/_h15"
                           },
                           "ref": {
-                            "$ref": "#/$defs/_h37"
+                            "$ref": "#/$defs/_h38"
                           },
                           "repo": {
                             "$ref": "#/$defs/_h6"
@@ -13015,7 +13075,7 @@
                             "$ref": "#/$defs/_h15"
                           },
                           "ref": {
-                            "$ref": "#/$defs/_h37"
+                            "$ref": "#/$defs/_h38"
                           },
                           "repo": {
                             "$ref": "#/$defs/_h6"
@@ -13049,7 +13109,7 @@
                             "$ref": "#/$defs/_h15"
                           },
                           "ref": {
-                            "$ref": "#/$defs/_h37"
+                            "$ref": "#/$defs/_h38"
                           },
                           "repo": {
                             "$ref": "#/$defs/_h6"
@@ -13159,7 +13219,7 @@
               "$ref": "#/$defs/_h53"
             },
             "providerLimit": {
-              "$ref": "#/$defs/_h204"
+              "$ref": "#/$defs/_h205"
             },
             "pullRequests": {
               "items": {
@@ -13941,7 +14001,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "fileStatus": {
                             "$ref": "#/$defs/_h54"
@@ -13989,7 +14049,7 @@
                             "$ref": "#/$defs/CaseMode"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "contextLines": {
                             "$ref": "#/$defs/_h47"
@@ -14047,7 +14107,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h15"
@@ -14104,7 +14164,7 @@
                             "$ref": "#/$defs/_h15"
                           },
                           "ref": {
-                            "$ref": "#/$defs/_h37"
+                            "$ref": "#/$defs/_h38"
                           },
                           "repo": {
                             "$ref": "#/$defs/_h6"
@@ -14155,7 +14215,7 @@
                             "$ref": "#/$defs/_h15"
                           },
                           "ref": {
-                            "$ref": "#/$defs/_h37"
+                            "$ref": "#/$defs/_h38"
                           },
                           "regexEngine": {
                             "$ref": "#/$defs/RegexEngine"
@@ -14183,13 +14243,13 @@
                         "additionalProperties": false,
                         "properties": {
                           "baseRef": {
-                            "$ref": "#/$defs/_h37"
+                            "$ref": "#/$defs/_h38"
                           },
                           "fileStatus": {
                             "$ref": "#/$defs/_h54"
                           },
                           "headRef": {
-                            "$ref": "#/$defs/_h37"
+                            "$ref": "#/$defs/_h38"
                           },
                           "include": {
                             "$ref": "#/$defs/_h57"
@@ -14229,7 +14289,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "baseRef": {
-                            "$ref": "#/$defs/_h37"
+                            "$ref": "#/$defs/_h38"
                           },
                           "caseMode": {
                             "$ref": "#/$defs/CaseMode"
@@ -14241,7 +14301,7 @@
                             "$ref": "#/$defs/_h54"
                           },
                           "headRef": {
-                            "$ref": "#/$defs/_h37"
+                            "$ref": "#/$defs/_h38"
                           },
                           "include": {
                             "$ref": "#/$defs/_h57"
@@ -14535,7 +14595,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "classification": {
-                        "$ref": "#/$defs/_h1"
+                        "$ref": "#/$defs/_h2"
                       },
                       "contextLines": {
                         "$ref": "#/$defs/_h47"
@@ -14579,7 +14639,7 @@
                         "$ref": "#/$defs/_h15"
                       },
                       "ref": {
-                        "$ref": "#/$defs/_h37"
+                        "$ref": "#/$defs/_h38"
                       },
                       "repo": {
                         "$ref": "#/$defs/_h6"
@@ -15072,7 +15132,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "fields": {
                             "$ref": "#/$defs/_h19"
@@ -15235,7 +15295,7 @@
                             "$ref": "#/$defs/_h6"
                           },
                           "sort": {
-                            "$ref": "#/$defs/_h203"
+                            "$ref": "#/$defs/_h204"
                           }
                         },
                         "required": [
@@ -15247,7 +15307,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "fields": {
                             "$ref": "#/$defs/_h19"
@@ -15358,7 +15418,7 @@
                             "$ref": "#/$defs/_h6"
                           },
                           "sort": {
-                            "$ref": "#/$defs/_h203"
+                            "$ref": "#/$defs/_h204"
                           }
                         },
                         "required": [
@@ -15372,7 +15432,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "fields": {
                             "$ref": "#/$defs/_h19"
@@ -15414,7 +15474,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "fields": {
                             "$ref": "#/$defs/_h19"
@@ -15441,7 +15501,7 @@
                             "$ref": "#/$defs/_h15"
                           },
                           "ref": {
-                            "$ref": "#/$defs/_h37"
+                            "$ref": "#/$defs/_h38"
                           },
                           "repo": {
                             "$ref": "#/$defs/_h6"
@@ -16537,7 +16597,7 @@
                             "$ref": "#/$defs/_h15"
                           },
                           "ref": {
-                            "$ref": "#/$defs/_h37"
+                            "$ref": "#/$defs/_h38"
                           },
                           "repo": {
                             "$ref": "#/$defs/_h6"
@@ -16569,7 +16629,7 @@
                             "$ref": "#/$defs/_h15"
                           },
                           "ref": {
-                            "$ref": "#/$defs/_h37"
+                            "$ref": "#/$defs/_h38"
                           },
                           "repo": {
                             "$ref": "#/$defs/_h6"
@@ -16583,7 +16643,7 @@
                         "type": "object"
                       },
                       {
-                        "$ref": "#/$defs/_h161"
+                        "$ref": "#/$defs/_h162"
                       }
                     ]
                   },
@@ -16866,7 +16926,7 @@
               "$ref": "#/$defs/_h53"
             },
             "progress": {
-              "$ref": "#/$defs/_h201"
+              "$ref": "#/$defs/_h202"
             },
             "pruned": {
               "$ref": "#/$defs/_h24"
@@ -16955,7 +17015,7 @@
               "$ref": "#/$defs/_h53"
             },
             "progress": {
-              "$ref": "#/$defs/_h201"
+              "$ref": "#/$defs/_h202"
             },
             "pruned": {
               "$ref": "#/$defs/_h24"
@@ -17044,7 +17104,7 @@
               "$ref": "#/$defs/_h53"
             },
             "progress": {
-              "$ref": "#/$defs/_h201"
+              "$ref": "#/$defs/_h202"
             },
             "pruned": {
               "$ref": "#/$defs/_h24"
@@ -18534,7 +18594,7 @@
                             "$ref": "#/$defs/OutputParseAssessment"
                           },
                           "reason": {
-                            "$ref": "#/$defs/_h283"
+                            "$ref": "#/$defs/_h284"
                           },
                           "recipient": {
                             "$ref": "#/$defs/_h56"
@@ -18612,7 +18672,7 @@
                             "$ref": "#/$defs/OutputParseAssessment"
                           },
                           "reason": {
-                            "$ref": "#/$defs/_h283"
+                            "$ref": "#/$defs/_h284"
                           },
                           "targetName": {
                             "$ref": "#/$defs/_h41"
@@ -19959,7 +20019,7 @@
                             "$ref": "#/$defs/_h15"
                           },
                           "minScore": {
-                            "$ref": "#/$defs/_h207"
+                            "$ref": "#/$defs/_h200"
                           },
                           "minTier": {
                             "anyOf": [
@@ -20284,7 +20344,7 @@
               "type": "string"
             },
             "next": {
-              "$ref": "#/$defs/_h274"
+              "$ref": "#/$defs/_h275"
             },
             "observedAt": {
               "type": "string"
@@ -20394,7 +20454,7 @@
               "type": "string"
             },
             "next": {
-              "$ref": "#/$defs/_h274"
+              "$ref": "#/$defs/_h275"
             },
             "observedAt": {
               "type": "string"
@@ -20482,7 +20542,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "limit": {
                             "$ref": "#/$defs/_h95"
@@ -20512,7 +20572,7 @@
                             "type": "boolean"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "limit": {
                             "$ref": "#/$defs/_h95"
@@ -20549,7 +20609,7 @@
                             "$ref": "#/$defs/CaseMode"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "contextLines": {
                             "$ref": "#/$defs/_h47"
@@ -21046,7 +21106,7 @@
                             "$ref": "#/$defs/CaseMode"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "contextLines": {
                             "$ref": "#/$defs/_h47"
@@ -21213,7 +21273,7 @@
                             "$ref": "#/$defs/CaseMode"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "defaultExcludes": {
                             "$ref": "#/$defs/DefaultExcludesContinuationInput"
@@ -21478,7 +21538,7 @@
               "type": "boolean"
             },
             "lsp": {
-              "$ref": "#/$defs/_h12"
+              "$ref": "#/$defs/_h13"
             },
             "matchCount": {
               "$ref": "#/$defs/_h0"
@@ -21603,7 +21663,7 @@
               "type": "boolean"
             },
             "lsp": {
-              "$ref": "#/$defs/_h12"
+              "$ref": "#/$defs/_h13"
             },
             "matchCount": {
               "$ref": "#/$defs/_h0"
@@ -21728,7 +21788,7 @@
               "type": "boolean"
             },
             "lsp": {
-              "$ref": "#/$defs/_h12"
+              "$ref": "#/$defs/_h13"
             },
             "matchCount": {
               "$ref": "#/$defs/_h0"
@@ -21853,7 +21913,7 @@
               "type": "boolean"
             },
             "lsp": {
-              "$ref": "#/$defs/_h12"
+              "$ref": "#/$defs/_h13"
             },
             "matchCount": {
               "$ref": "#/$defs/_h0"
@@ -21978,7 +22038,7 @@
               "type": "boolean"
             },
             "lsp": {
-              "$ref": "#/$defs/_h12"
+              "$ref": "#/$defs/_h13"
             },
             "matchCount": {
               "$ref": "#/$defs/_h0"
@@ -22103,7 +22163,7 @@
               "type": "boolean"
             },
             "lsp": {
-              "$ref": "#/$defs/_h12"
+              "$ref": "#/$defs/_h13"
             },
             "matchCount": {
               "$ref": "#/$defs/_h0"
@@ -23904,7 +23964,7 @@
               "$ref": "#/$defs/_h0"
             },
             "providerLimit": {
-              "$ref": "#/$defs/_h204"
+              "$ref": "#/$defs/_h205"
             },
             "totalItems": {
               "$ref": "#/$defs/_h0"
@@ -24046,7 +24106,7 @@
           "additionalProperties": false,
           "properties": {
             "range": {
-              "$ref": "#/$defs/_h275"
+              "$ref": "#/$defs/_h276"
             },
             "scope": {
               "$ref": "#/$defs/_h292"
@@ -24065,7 +24125,7 @@
           "additionalProperties": false,
           "properties": {
             "range": {
-              "$ref": "#/$defs/_h275"
+              "$ref": "#/$defs/_h276"
             },
             "reason": {
               "const": "syntaxRecovery"
@@ -24697,7 +24757,7 @@
       "$ref": "#/$defs/_h25"
     },
     "QueryClasifySource": {
-      "$ref": "#/$defs/_h2"
+      "$ref": "#/$defs/_h3"
     },
     "QueryInstr": {
       "$ref": "#/$defs/_h212"
@@ -24706,13 +24766,13 @@
       "$ref": "#/$defs/_h96"
     },
     "QueryModels": {
-      "$ref": "#/$defs/_h159"
+      "$ref": "#/$defs/_h160"
     },
     "QuerySections": {
       "$ref": "#/$defs/_h55"
     },
     "QuerySectionsResume": {
-      "$ref": "#/$defs/_h162"
+      "$ref": "#/$defs/_h163"
     },
     "QueryUrlSource": {
       "$ref": "#/$defs/_h216"
@@ -24840,7 +24900,7 @@
         {
           "properties": {
             "advisories": {
-              "$ref": "#/$defs/_h3"
+              "$ref": "#/$defs/_h1"
             },
             "affected": {
               "type": "boolean"
@@ -24912,7 +24972,7 @@
               "$ref": "#/$defs/_h53"
             },
             "policy": {
-              "$ref": "#/$defs/_h160"
+              "$ref": "#/$defs/_h161"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h5"
@@ -24930,7 +24990,7 @@
               "const": true
             },
             "sources": {
-              "$ref": "#/$defs/_h38"
+              "$ref": "#/$defs/_h37"
             },
             "ssoUrl": {
               "type": "string"
@@ -24965,7 +25025,7 @@
         {
           "properties": {
             "advisories": {
-              "$ref": "#/$defs/_h3"
+              "$ref": "#/$defs/_h1"
             },
             "affected": {
               "type": "boolean"
@@ -25037,7 +25097,7 @@
               "$ref": "#/$defs/_h53"
             },
             "policy": {
-              "$ref": "#/$defs/_h160"
+              "$ref": "#/$defs/_h161"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h5"
@@ -25055,7 +25115,7 @@
               "const": true
             },
             "sources": {
-              "$ref": "#/$defs/_h38"
+              "$ref": "#/$defs/_h37"
             },
             "ssoUrl": {
               "type": "string"
@@ -25090,7 +25150,7 @@
         {
           "properties": {
             "advisories": {
-              "$ref": "#/$defs/_h3"
+              "$ref": "#/$defs/_h1"
             },
             "affected": {
               "type": "boolean"
@@ -25162,7 +25222,7 @@
               "$ref": "#/$defs/_h53"
             },
             "policy": {
-              "$ref": "#/$defs/_h160"
+              "$ref": "#/$defs/_h161"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h5"
@@ -25180,7 +25240,7 @@
               "const": true
             },
             "sources": {
-              "$ref": "#/$defs/_h38"
+              "$ref": "#/$defs/_h37"
             },
             "ssoUrl": {
               "type": "string"
@@ -25215,7 +25275,7 @@
         {
           "properties": {
             "advisories": {
-              "$ref": "#/$defs/_h3"
+              "$ref": "#/$defs/_h1"
             },
             "affected": {
               "type": "boolean"
@@ -25287,7 +25347,7 @@
               "$ref": "#/$defs/_h53"
             },
             "policy": {
-              "$ref": "#/$defs/_h160"
+              "$ref": "#/$defs/_h161"
             },
             "rateLimit": {
               "$ref": "#/$defs/_h5"
@@ -25305,7 +25365,7 @@
               "const": true
             },
             "sources": {
-              "$ref": "#/$defs/_h38"
+              "$ref": "#/$defs/_h37"
             },
             "ssoUrl": {
               "type": "string"
@@ -25381,7 +25441,7 @@
                             "$ref": "#/$defs/_h311"
                           },
                           "version": {
-                            "$ref": "#/$defs/_h277"
+                            "$ref": "#/$defs/_h278"
                           }
                         },
                         "required": [
@@ -25395,7 +25455,7 @@
                         "$ref": "#/$defs/_h187"
                       },
                       {
-                        "$ref": "#/$defs/_h164"
+                        "$ref": "#/$defs/_h154"
                       },
                       {
                         "additionalProperties": false,
@@ -25769,7 +25829,7 @@
               "$ref": "#/$defs/ErrorCode"
             },
             "files": {
-              "$ref": "#/$defs/_h156"
+              "$ref": "#/$defs/_h157"
             },
             "filesScanned": {
               "$ref": "#/$defs/_h0"
@@ -25864,7 +25924,7 @@
               "$ref": "#/$defs/ErrorCode"
             },
             "files": {
-              "$ref": "#/$defs/_h156"
+              "$ref": "#/$defs/_h157"
             },
             "filesScanned": {
               "$ref": "#/$defs/_h0"
@@ -25961,7 +26021,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "defaultExcludes": {
                             "type": "boolean"
@@ -26028,7 +26088,7 @@
                             "$ref": "#/$defs/DateRangeContinuationInput"
                           },
                           "classification": {
-                            "$ref": "#/$defs/_h1"
+                            "$ref": "#/$defs/_h2"
                           },
                           "defaultExcludes": {
                             "type": "boolean"
@@ -26110,7 +26170,7 @@
                                 "type": "object"
                               },
                               {
-                                "$ref": "#/$defs/_h279"
+                                "$ref": "#/$defs/_h280"
                               }
                             ]
                           },
@@ -26250,6 +26310,7 @@
       ],
       "row": {
         "nextPage": "linear",
+        "quiet": "branch",
         "read": {
           "kind": "branch",
           "owner": [
@@ -26530,7 +26591,7 @@
     "restart": "branch",
     "retry": "branch"
   },
-  "fingerprint": "85db953210267d372207a292da7f514588cb10a79d670a03d49e95b001033215",
+  "fingerprint": "a96737b1e15d783fc998a712506a805e709a2e43c73604b15db464adaf3a28bc",
   "limits": {
     "clasifyContextLines": 8,
     "defaultReadContextLines": 0,
@@ -26899,7 +26960,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -27083,7 +27144,7 @@
                 "items": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/_h200"
+                      "$ref": "#/$defs/_h201"
                     },
                     {
                       "$ref": "#/$defs/_h151"
@@ -27113,7 +27174,7 @@
                       "$ref": "#/$defs/_h127"
                     },
                     {
-                      "$ref": "#/$defs/_h157"
+                      "$ref": "#/$defs/_h158"
                     },
                     {
                       "$ref": "#/$defs/_h118"
@@ -27228,7 +27289,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -27786,7 +27847,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "anyOf": [
           {
-            "$ref": "#/$defs/_h200"
+            "$ref": "#/$defs/_h201"
           },
           {
             "$ref": "#/$defs/_h151"
@@ -27816,7 +27877,7 @@
             "$ref": "#/$defs/_h127"
           },
           {
-            "$ref": "#/$defs/_h157"
+            "$ref": "#/$defs/_h158"
           },
           {
             "$ref": "#/$defs/_h118"
@@ -28429,7 +28490,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -28587,13 +28648,13 @@
             "$ref": "#/$defs/_h59"
           },
           {
-            "$ref": "#/$defs/_h159"
+            "$ref": "#/$defs/_h160"
           },
           {
             "$ref": "#/$defs/_h55"
           },
           {
-            "$ref": "#/$defs/_h162"
+            "$ref": "#/$defs/_h163"
           }
         ],
         "x-checks": [
@@ -28900,7 +28961,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -29081,7 +29142,7 @@
                   "additionalProperties": false,
                   "properties": {
                     "classification": {
-                      "$ref": "#/$defs/_h1"
+                      "$ref": "#/$defs/_h2"
                     },
                     "contextLines": {
                       "$ref": "#/$defs/_h34"
@@ -29129,7 +29190,7 @@
                       "$ref": "#/$defs/_h15"
                     },
                     "ref": {
-                      "$ref": "#/$defs/_h37"
+                      "$ref": "#/$defs/_h38"
                     },
                     "repo": {
                       "$ref": "#/$defs/_h6"
@@ -29346,7 +29407,7 @@
                           "$ref": "#/$defs/_h7"
                         },
                         "rowPart": {
-                          "$ref": "#/$defs/_h10"
+                          "$ref": "#/$defs/_h11"
                         },
                         "status": {
                           "$ref": "#/$defs/_h146"
@@ -29434,7 +29495,7 @@
                           "$ref": "#/$defs/_h7"
                         },
                         "rowPart": {
-                          "$ref": "#/$defs/_h10"
+                          "$ref": "#/$defs/_h11"
                         },
                         "status": {
                           "const": "empty"
@@ -29562,7 +29623,7 @@
         "additionalProperties": false,
         "properties": {
           "classification": {
-            "$ref": "#/$defs/_h1"
+            "$ref": "#/$defs/_h2"
           },
           "contextLines": {
             "$ref": "#/$defs/_h34"
@@ -29610,7 +29671,7 @@
             "$ref": "#/$defs/_h15"
           },
           "ref": {
-            "$ref": "#/$defs/_h37"
+            "$ref": "#/$defs/_h38"
           },
           "repo": {
             "$ref": "#/$defs/_h6"
@@ -29814,7 +29875,7 @@
                       "$ref": "#/$defs/_h192"
                     },
                     {
-                      "$ref": "#/$defs/_h161"
+                      "$ref": "#/$defs/_h162"
                     }
                   ]
                 },
@@ -29896,7 +29957,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -29990,7 +30051,7 @@
             "$ref": "#/$defs/_h192"
           },
           {
-            "$ref": "#/$defs/_h161"
+            "$ref": "#/$defs/_h162"
           }
         ]
       },
@@ -30094,7 +30155,7 @@
                       "$ref": "#/$defs/_h169"
                     },
                     {
-                      "$ref": "#/$defs/_h154"
+                      "$ref": "#/$defs/_h155"
                     },
                     {
                       "$ref": "#/$defs/_h107"
@@ -30183,7 +30244,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -30287,7 +30348,7 @@
             "$ref": "#/$defs/_h169"
           },
           {
-            "$ref": "#/$defs/_h154"
+            "$ref": "#/$defs/_h155"
           },
           {
             "$ref": "#/$defs/_h107"
@@ -30501,7 +30562,7 @@
                 "items": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/_h11"
+                      "$ref": "#/$defs/_h12"
                     },
                     {
                       "$ref": "#/$defs/_h22"
@@ -30587,7 +30648,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -30687,7 +30748,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "anyOf": [
           {
-            "$ref": "#/$defs/_h11"
+            "$ref": "#/$defs/_h12"
           },
           {
             "$ref": "#/$defs/_h22"
@@ -31010,7 +31071,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -31538,7 +31599,7 @@
                       "$ref": "#/$defs/_h186"
                     },
                     {
-                      "$ref": "#/$defs/_h158"
+                      "$ref": "#/$defs/_h159"
                     }
                   ]
                 },
@@ -31615,7 +31676,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -31716,7 +31777,7 @@
             "$ref": "#/$defs/_h186"
           },
           {
-            "$ref": "#/$defs/_h158"
+            "$ref": "#/$defs/_h159"
           }
         ]
       },
@@ -31907,7 +31968,7 @@
                       "$ref": "#/$defs/_h15"
                     },
                     "ref": {
-                      "$ref": "#/$defs/_h37"
+                      "$ref": "#/$defs/_h38"
                     },
                     "repo": {
                       "$ref": "#/$defs/_h6"
@@ -31995,7 +32056,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -32092,7 +32153,7 @@
             "$ref": "#/$defs/_h15"
           },
           "ref": {
-            "$ref": "#/$defs/_h37"
+            "$ref": "#/$defs/_h38"
           },
           "repo": {
             "$ref": "#/$defs/_h6"
@@ -32242,7 +32303,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -32807,7 +32868,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -33127,7 +33188,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -33716,7 +33777,7 @@
                       "$ref": "#/$defs/_h170"
                     },
                     {
-                      "$ref": "#/$defs/_h155"
+                      "$ref": "#/$defs/_h156"
                     },
                     {
                       "$ref": "#/$defs/_h108"
@@ -33805,7 +33866,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -33907,7 +33968,7 @@
             "$ref": "#/$defs/_h170"
           },
           {
-            "$ref": "#/$defs/_h155"
+            "$ref": "#/$defs/_h156"
           },
           {
             "$ref": "#/$defs/_h108"
@@ -34132,7 +34193,7 @@
                       "$ref": "#/$defs/_h175"
                     },
                     {
-                      "$ref": "#/$defs/_h163"
+                      "$ref": "#/$defs/_h164"
                     },
                     {
                       "$ref": "#/$defs/_h167"
@@ -34250,7 +34311,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -34688,7 +34749,7 @@
             "$ref": "#/$defs/_h175"
           },
           {
-            "$ref": "#/$defs/_h163"
+            "$ref": "#/$defs/_h164"
           },
           {
             "$ref": "#/$defs/_h167"
@@ -35090,10 +35151,10 @@
                       "$ref": "#/$defs/_h187"
                     },
                     {
-                      "$ref": "#/$defs/_h164"
+                      "$ref": "#/$defs/_h154"
                     },
                     {
-                      "$ref": "#/$defs/_h205"
+                      "$ref": "#/$defs/_h206"
                     },
                     {
                       "$ref": "#/$defs/_h219"
@@ -35175,7 +35236,7 @@
                       "$ref": "#/$defs/_h7"
                     },
                     "rowPart": {
-                      "$ref": "#/$defs/_h10"
+                      "$ref": "#/$defs/_h11"
                     },
                     "status": {
                       "$ref": "#/$defs/_h146"
@@ -35229,8 +35290,11 @@
         "requiredEvidence": [
           "/data",
           "/data/advisories",
-          "/data/advisories/*/cvss/*/score",
+          "/data/advisories/*/credits/*/login",
           "/data/advisories/*/cvss/*/type",
+          "/data/advisories/*/cvss/*/vector",
+          "/data/advisories/*/epss/percentage",
+          "/data/advisories/*/epss/percentile",
           "/data/advisories/*/id",
           "/data/advisories/*/link",
           "/data/answer",
@@ -35243,8 +35307,11 @@
           "/data/coverage/state",
           "/data/error",
           "/data/moduleOnly/advisories",
-          "/data/moduleOnly/advisories/*/cvss/*/score",
+          "/data/moduleOnly/advisories/*/credits/*/login",
           "/data/moduleOnly/advisories/*/cvss/*/type",
+          "/data/moduleOnly/advisories/*/cvss/*/vector",
+          "/data/moduleOnly/advisories/*/epss/percentage",
+          "/data/moduleOnly/advisories/*/epss/percentile",
           "/data/moduleOnly/advisories/*/id",
           "/data/moduleOnly/advisories/*/link",
           "/data/moduleOnly/note",
@@ -35281,10 +35348,10 @@
             "$ref": "#/$defs/_h187"
           },
           {
-            "$ref": "#/$defs/_h164"
+            "$ref": "#/$defs/_h154"
           },
           {
-            "$ref": "#/$defs/_h205"
+            "$ref": "#/$defs/_h206"
           },
           {
             "$ref": "#/$defs/_h219"
@@ -35347,6 +35414,7 @@
           "fields": [
             "operation",
             "id",
+            "repo",
             "mainGoal",
             "reasoning"
           ],

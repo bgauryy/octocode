@@ -10,9 +10,10 @@ use crate::graph::{GraphFactDeclaration, GraphFactEdge, GraphFactExport};
 
 use crate::signatures::languages::SCRIPT_BEARING_MARKUP;
 use crate::signatures::nodes::{
-    declaration_extent_from_parents, declaration_in, declaration_label, instance_attribute_init,
-    member_field,
+    FunctionTypes, declaration_extent_from_parents, declaration_in, declaration_label,
+    function_typed, init_attribute_names, instance_attribute, member_field,
 };
+use crate::signatures::visibility::VisibilityAdapter;
 use crate::text::{JS_TS_EXTENSIONS, extension_of};
 
 /// Statement keywords that error recovery turns into declaration names:
@@ -78,30 +79,65 @@ pub(super) fn declaration_fact(
                 active_decl,
             )
         })?;
-    let Some(init) = (acc.ext == "py")
-        .then(|| instance_attribute_init(node, ancestors.iter().rev().copied(), content))
-        .flatten()
-    else {
+    if acc.ext != "py" {
         return Some(declared);
+    }
+    python_member(declared, node, ancestors, content, acc, active_decl)
+}
+
+/// A Python class's data members are declared once each, by the first
+/// declaration of the name: its class-body attribute or `__init__`'s
+/// assignment, in source order, then another method's assignment of a name
+/// neither declares. An instance attribute is a member of the method's
+/// class.
+fn python_member(
+    declared: GraphFactDeclaration,
+    node: Node<'_>,
+    ancestors: &[Node<'_>],
+    content: &str,
+    acc: &mut GraphAccumulator,
+    active_decl: Option<&str>,
+) -> Option<GraphFactDeclaration> {
+    let attribute = (node.kind() == "attribute")
+        .then(|| instance_attribute(node, ancestors.iter().rev().copied(), content))
+        .flatten();
+    let declared = match &attribute {
+        Some(attribute) => {
+            let class = acc
+                .declarations
+                .iter()
+                .rev()
+                .find(|method| Some(method.id.as_str()) == active_decl)
+                .and_then(|method| method.parent.clone());
+            if !attribute.in_init
+                && acc
+                    .init_attributes
+                    .entry(attribute.class.id())
+                    .or_insert_with(|| init_attribute_names(attribute.class, content))
+                    .contains(&declared.name)
+            {
+                return None;
+            }
+            GraphFactDeclaration {
+                parent: class,
+                ..declared
+            }
+        }
+        None => declared,
     };
-    // A Python instance attribute: its first assignment in `__init__`
-    // declares it, as a member of the class that `__init__` belongs to.
-    if !acc
-        .instance_attributes
-        .insert((init.id(), declared.name.clone()))
+    let class_member = attribute.is_some()
+        || (matches!(declared.kind.as_str(), "property" | "constant")
+            && declared
+                .parent
+                .as_deref()
+                .is_some_and(|parent| parent.ends_with(":class")));
+    if class_member
+        && let Some(class) = declared.parent.clone()
+        && !acc.class_members.insert((class, declared.name.clone()))
     {
         return None;
     }
-    let class = acc
-        .declarations
-        .iter()
-        .rev()
-        .find(|method| Some(method.id.as_str()) == active_decl)
-        .and_then(|method| method.parent.clone());
-    Some(GraphFactDeclaration {
-        parent: class,
-        ..declared
-    })
+    Some(declared)
 }
 
 /// The declaration fact of `node` as `kind`, named by `name_token`.
@@ -159,6 +195,17 @@ pub(super) fn named_declaration(
                 active_decl.is_some_and(|parent| acc.public_namespace_scopes.contains(parent)),
             );
             let parent = active_decl.map(str::to_owned);
+            let function_types = match acc.visibility_adapter {
+                VisibilityAdapter::CFamily => Some(FunctionTypes::CFamily),
+                #[cfg(feature = "tree-sitter-scala")]
+                VisibilityAdapter::Scala => Some(FunctionTypes::Scala),
+                #[cfg(feature = "tree-sitter-c-sharp")]
+                VisibilityAdapter::CSharp => Some(FunctionTypes::CSharp),
+                _ => None,
+            };
+            let function_typed = matches!(kind, "property" | "constant" | "variable")
+                && function_types
+                    .is_some_and(|language| function_typed(language, node, written, content));
             let (return_type, try_type) = match acc.ext.as_str() {
                 "rs" => super::receiver::rust_return_types(node, ancestors, content),
                 "go" => (super::receiver::go_return_type(node, content), None),
@@ -193,6 +240,7 @@ pub(super) fn named_declaration(
                 ) && super::c_family::is_prototype(node, kind),
                 return_type,
                 try_type,
+                function_typed,
             }
         })
 }

@@ -389,3 +389,28 @@ async fn an_advisory_walk_that_stops_reads_on_from_its_cursor_with_no_repeat_or_
     published.sort();
     assert_eq!(walked, published, "every advisory once: {stopped} {rest}");
 }
+
+/// A resumed walk refused again at the page it resumes keeps that cursor: the
+/// next call asks the same page, never the walk from its start.
+#[tokio::test]
+async fn a_resumed_advisory_walk_refused_at_its_first_page_keeps_its_cursor() {
+    use crate::tools::security_check::github_double::recorded_advisories;
+    let refused = || {
+        crate::tools::security_check::AdvisoryRead::Failed(RepoFailure {
+            code: ErrorCode::RateLimited,
+            why: "resets at 2999".into(),
+        })
+    };
+    let stopping = Double::repo(RepoRead::Found(named("o", "r")))
+        .page(None, recorded_advisories(1), Some("c2"))
+        .page_read(Some("c2"), refused());
+    let stopped = query_row(json!({"operation": "repository", "repo": "o/r"}), &stopping).await;
+    let next = stopped["next"]["nextPage"]["input"]["queries"][0].clone();
+    let refusing = Double::repo(RepoRead::Found(named("o", "r"))).page_read(Some("c2"), refused());
+    let again = query_row(next.clone(), &refusing).await;
+    assert_eq!(refusing.asked(), [Some("c2".to_owned())], "{again}");
+    assert_eq!(
+        again["next"]["nextPage"]["input"]["queries"][0]["resume"], next["resume"],
+        "the same page is one call away: {again}"
+    );
+}

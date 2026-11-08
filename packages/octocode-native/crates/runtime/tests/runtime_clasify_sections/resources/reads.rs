@@ -49,9 +49,39 @@ async fn next_read_reads_only_the_lines_of_the_yes_sections() {
         .iter()
         .find(|section| section["answers"]["q"]["answer"]["noul"] == json!(0.9))
         .unwrap_or_else(|| panic!("a yes section: {out:#}"));
-    assert!(
-        resource["sections"].as_array().unwrap().len() > 1,
+    // The page shows the yes; the two no sections are held back, counted and
+    // listed by `next.quiet` (hits view): every section still reaches the caller.
+    let shown = resource["sections"].as_array().unwrap().len() as u64;
+    let quiet = resource["coverage"]["quiet"].as_u64().unwrap_or(0);
+    assert_eq!(
+        shown + quiet,
+        resource["coverage"]["totalSections"]
+            .as_u64()
+            .expect("total"),
         "{out:#}"
+    );
+    assert!(quiet >= 1, "the no sections are held back: {out:#}");
+    let replay = runtime
+        .run(
+            "quiet".into(),
+            "clasify".into(),
+            out["next"]["quiet"]["input"].clone(),
+        )
+        .await
+        .expect("next.quiet runs")
+        .structured_content
+        .into_value();
+    let held = replay["results"][0]["data"]["resources"]["a"]["sections"]
+        .as_array()
+        .unwrap_or_else(|| panic!("quiet sections: {replay:#}"))
+        .clone();
+    assert_eq!(held.len() as u64, quiet, "{replay:#}");
+    assert!(
+        held.iter().all(
+            |section| section["answers"]["q"]["answer"]["noul"] == json!(0.1)
+                && section["id"] != hit["id"]
+        ),
+        "{replay:#}"
     );
     let read = &out["next"]["read"];
     assert_eq!(read["tool"], "localFetch", "{out:#}");

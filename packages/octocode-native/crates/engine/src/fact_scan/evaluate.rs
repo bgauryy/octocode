@@ -6,15 +6,15 @@ mod facts;
 mod ordered;
 mod outcome;
 use super::{
-    FactsSource, GraphFactsMappedScan, GraphFactsView, GraphScanError, MAX_GRAPH_SOURCE_BYTES,
-    ParserOverride, ScanHold, parser_overrides_with_registry,
+    FactsSource, GraphFactsMappedScan, GraphFactsView, GraphScanError, ParserOverride, ScanHold,
+    parser_overrides_with_registry,
 };
 use crate::search::walk::Stop;
 use crate::stamp::SourceStamp;
 use crate::types::GraphFactsScanOptions;
 use ordered::watch_stop;
 use outcome::{GraphFactsScanOutcome, Mapped, contained, failed, mapped_outcome, skipped};
-pub use outcome::{PANICKED, SOURCE_BUDGET_EXCEEDED, panicked};
+pub use outcome::{PANICKED, SOURCE_BUDGET_EXCEEDED, over_budget_message, panicked};
 
 use crate::contain::{Phase, contain, observe, within};
 
@@ -61,7 +61,7 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
     let overrides =
         parser_overrides_with_registry(&root, options.language_globs.as_deref(), registry)?;
     let timed = options.max_files.is_none();
-    let max_file_bytes = options.max_file_bytes.unwrap_or(MAX_GRAPH_SOURCE_BYTES);
+    let max_file_bytes = options.max_file_bytes.unwrap_or(u64::MAX);
     let truncated = query.was_capped;
     let mut entries = query.entries;
     // Walk order is stable, so the leading files an earlier window read are
@@ -202,7 +202,7 @@ impl Root<'_> {
     }
 }
 
-/// What evaluating one walked file needs: the settle time, the byte limit,
+/// What evaluating one walked file needs: the settle time, the caller's read ceiling,
 /// the parser overrides, and the caller's prefilter, map and stop.
 struct EntryEvaluator<'s, T> {
     root: Root<'s>,
@@ -210,7 +210,7 @@ struct EntryEvaluator<'s, T> {
     map_limits: MapLimits,
     settle_now: std::time::SystemTime,
     overrides: &'s [ParserOverride],
-    max_file_bytes: u32,
+    max_file_bytes: u64,
     source: FactsSource<'s>,
     keep: &'s (dyn Fn(&str) -> bool + Sync),
     map: &'s (dyn Fn(&GraphFactsView<'_>) -> Option<T> + Sync),
@@ -264,21 +264,28 @@ impl<T> EntryEvaluator<'_, T> {
         let relative_path = crate::text::slash_path(Path::new(&entry.relative_path));
         let outcome =
             |code: &str, message: &str| Ok(Some(skipped(relative_path.clone(), code, message)));
-        let too_large = || {
+        let too_large = |size: u64| {
             outcome(
                 "graph.scan.fileTooLarge",
-                "file exceeds the graph scan byte limit",
+                &format!(
+                    "file of {size} bytes is larger than the {} bytes this scan may hold whole",
+                    self.max_file_bytes
+                ),
             )
         };
         // The walk's size is advisory: the read is bounded on its own.
-        if entry.size.unwrap_or_default() > i64::from(self.max_file_bytes) {
-            return too_large();
+        if let Some(size) = entry
+            .size
+            .and_then(|size| u64::try_from(size).ok())
+            .filter(|size| *size > self.max_file_bytes)
+        {
+            return too_large(size);
         }
         let source = match within(Phase::Read, || {
-            crate::text::read_regular(path, u64::from(self.max_file_bytes))
+            crate::text::read_regular(path, self.max_file_bytes)
         }) {
             Ok(source) => source,
-            Err(crate::text::ReadError::TooLarge(_)) => return too_large(),
+            Err(crate::text::ReadError::TooLarge(size)) => return too_large(size),
             Err(_) => return outcome("graph.scan.readFailed", "file could not be opened"),
         };
         let cancelled = || (self.stop)();
@@ -486,8 +493,8 @@ impl<T> EntryEvaluator<'_, T> {
     ) -> Result<Mapped<T>, GraphScanError> {
         let source = match mapped.facts.source_templates.bind(admitted, map_budget) {
             Ok(source) => source,
-            Err(crate::text::analysis::SourceError::LimitExceeded(_)) => {
-                return Ok(Mapped::OverBudget);
+            Err(crate::text::analysis::SourceError::LimitExceeded(name)) => {
+                return Ok(Mapped::OverBudget(map_budget.exceeded(name)));
             }
             Err(error) => return Err(GraphScanError::Source(error)),
         };

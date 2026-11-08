@@ -14,7 +14,7 @@ pub(super) fn locate(options: &QueryOptions) -> Result<(PathBuf, bool), Failure>
             return Ok((path, true));
         }
     }
-    let home = graph_home(options.workspace.as_deref())
+    let home = graph_home(options.workspace.as_deref(), options.home.as_deref())
         .map_err(|message| fail(ErrorCode::WorkspaceRootInvalid, message))?;
     let ids = list_snapshots(&home);
     let chosen = match options.graph.as_deref() {
@@ -143,8 +143,10 @@ pub(super) fn load_with(
 ) -> Result<Graph, Failure> {
     let selective = decode == Decode::Selective;
     let (dir, explicit_path) = locate(options)?;
+    // A snapshot is an output: it may lie under an output root
+    // (`local.graphHome`), which no local tool reads.
     let dir = paths
-        .validate(&dir)
+        .validate_output(&dir)
         .map_err(|error| fail(error.shared_code(), error.message))?
         .canonical;
     let manifest = std::fs::read(dir.join(MANIFEST_FILE))
@@ -184,7 +186,7 @@ pub(super) fn load_with(
     // canonical spelling of a directory inside the allowed roots.
     let root = manifest["root"].as_str().unwrap_or_default();
     let allowed = paths
-        .validate_output(root)
+        .validate_location(root)
         .map_err(|error| fail(error.shared_code(), error.message))?;
     if allowed.canonical != Path::new(root) {
         return Err(fail(

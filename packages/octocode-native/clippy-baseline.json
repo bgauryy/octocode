@@ -28,7 +28,6 @@
       "crates/runtime/src/tools/gh_get_history_item/inventory/review.rs": 1,
       "crates/runtime/src/tools/gh_get_history_item/patch/locate.rs": 1,
       "crates/runtime/src/tools/gh_search_code/code_output/index_ref.rs": 1,
-      "crates/runtime/src/tools/line_spans.rs": 1,
       "crates/runtime/src/tools/local_fetch/large_source/held.rs": 3,
       "crates/runtime/src/tools/structure_search/listing/walk.rs": 1,
       "crates/runtime/src/tools/structure_search/rows/line_counts.rs": 1

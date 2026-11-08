@@ -94,13 +94,20 @@ export async function unreadSectionsChecks(ctx, surface, provider) {
   return checks;
 }
 
-/** A memory-storage refusal of a source row: nothing read, no provider called, no continuation. */
+/** A memory-storage refusal of a section plan: nothing read, no provider called, no continuation. */
 function memoryRefused(row) {
   if (row?.status !== 'error' || row.data?.errorCode !== 'classificationContextUnavailable') return false;
   const { error = '', hints = [], usage } = row.data;
   return error.includes('no source was read') && error.includes('no classification provider was called')
-    && hints.some(hint => hint.includes('persistent storage') && hint.includes('MCP'))
+    && hints.some(hint => hint.includes('storage.mode persistent') && hint.includes('MCP'))
     && (usage?.calls ?? 0) === 0 && !JSON.stringify(row).includes('"kind":"continue"');
+}
+
+/** A source evaluation answered under memory storage: its only read is a `related` call that a later runtime runs. */
+function memoryAnswered(row, file) {
+  if (row?.status || row?.data?.answers?.evidence?.noul !== 0.9 || row.data.next) return false;
+  const reads = (row.data.related ?? []).filter(call => call.tool === 'localFetch');
+  return reads.length === 1 && reads[0].input?.queries?.[0]?.path === file && !JSON.stringify(row).includes('cursor');
 }
 
 /** `queries` on the CLI under memory storage, with how many provider calls it made. */
@@ -112,14 +119,38 @@ async function memoryCall(ctx, provider, queries) {
 
 const unpaged = json => json?.responsePagination?.hasMore !== true;
 
-/** One source row refused under memory storage, with no provider call. */
+/** One section plan refused under memory storage, with no provider call. */
 const refusedAlone = run => run.status !== 0 && run.rows.length === 1 && memoryRefused(run.rows[0]) && unpaged(run.json) && run.providerCalls === 0;
 
-/** Source rows refused beside a literal row, which alone reaches the provider once. */
-function refusedBesideLiteral(run) {
-  const [first, middle, last] = run.rows;
-  return run.rows.length === 3 && memoryRefused(first) && memoryRefused(last) && !middle?.status
-    && middle?.data.answers?.evidence?.noul === 0.9 && unpaged(run.json) && run.providerCalls === 1;
+/** One source evaluation answered under memory storage with one provider call. */
+const answeredAlone = (run, file) => run.status === 0 && run.rows.length === 1 && memoryAnswered(run.rows[0], file) && unpaged(run.json) && run.providerCalls === 1;
+
+/** The row's disclosure that its fresh read is larger than one response, so it pages and needs saved continuations. */
+const pagedReadHint = row => (row?.data?.hints ?? []).some(hint => hint.includes('larger than one response')
+  && hint.includes('storage.mode persistent') && hint.includes('MCP'));
+
+/**
+ * The offered read runs in the next memory CLI call. A read that fits one
+ * response returns the file's text, and the row carries no paging hint. A
+ * read larger than one response needs continuations, which a memory CLI call
+ * refuses like any other paged read: the row said so beside the read. The
+ * hint is there exactly when the read cannot complete.
+ */
+async function freshReadRuns(ctx, run, marker, env) {
+  const row = run.rows[0];
+  const call = row?.data?.related?.find(related => related.tool === 'localFetch');
+  if (!call) return { ok: false, response: run.json };
+  const response = await ctx.cliCall(call.tool, call.input, { credentialTool: 'clasify', env });
+  const read = response.status === 0 && JSON.stringify(response.json ?? {}).includes(marker);
+  const hinted = pagedReadHint(row);
+  return { ok: hinted ? response.status !== 0 && !read : read, response: { hinted, read: response.json } };
+}
+
+/** A refused plan beside a literal and a source evaluation: both evaluations reach the provider once each. */
+function refusedBesideAnswers(run, file) {
+  const [plan, literal, source] = run.rows;
+  return run.rows.length === 3 && memoryRefused(plan) && !literal?.status && literal?.data.answers?.evidence?.noul === 0.9
+    && memoryAnswered(source, file) && unpaged(run.json) && run.providerCalls === 2;
 }
 
 export async function memorySectionsChecks(ctx, surface, provider) {
@@ -132,15 +163,18 @@ export async function memorySectionsChecks(ctx, surface, provider) {
   const literal = { operation: 'evaluate', content: 'There is literal evidence here.', questions };
   const checks = [];
   try {
+    const memory = { OCTOCODE_STORAGE_MODE: 'memory' };
     for (const [name, text] of [['simple', 'pub fn evidence() {}\n'], ['seventy', sectionSource()]]) {
       fs.writeFileSync(file, text);
-      for (const query of [section, evaluate]) {
-        const run = await memoryCall(ctx, provider, [query]);
-        checks.push([`sections.memoryRefuses.${name}.${query.operation}`, refusedAlone(run), { response: run.json, providerCalls: run.providerCalls }]);
-      }
+      const plan = await memoryCall(ctx, provider, [section]);
+      checks.push([`sections.memoryRefuses.${name}.sections`, refusedAlone(plan), { response: plan.json, providerCalls: plan.providerCalls }]);
+      const answer = await memoryCall(ctx, provider, [evaluate]);
+      checks.push([`sections.memoryAnswers.${name}.evaluate`, answeredAlone(answer, file), { response: answer.json, providerCalls: answer.providerCalls }]);
+      const read = await freshReadRuns(ctx, answer, text.slice(0, text.indexOf('(')), memory);
+      checks.push([`sections.memoryAnswers.${name}.freshRead.memory`, read.ok, read.response]);
     }
     const mixed = await memoryCall(ctx, provider, [section, literal, evaluate]);
-    checks.push(['sections.memoryMixedLiteral', refusedBesideLiteral(mixed), { response: mixed.json, providerCalls: mixed.providerCalls }]);
+    checks.push(['sections.memoryMixedLiteral', refusedBesideAnswers(mixed, file), { response: mixed.json, providerCalls: mixed.providerCalls }]);
     return checks;
   } finally { fs.rmSync(file); }
 }

@@ -88,14 +88,9 @@ impl<'a> Reader<'a> {
         self.file_with(cancelled, |hashed| !hashed)
     }
 
-    /// The next page-entry frame (see the frame layout in [`super`]); its
-    /// rows are read past, none decoded, without `keep_rows`.
-    pub(super) fn entry(
-        &mut self,
-        keep_rows: bool,
-        cancelled: &dyn Fn() -> bool,
-    ) -> Option<super::Entry> {
-        let file = self.file_with(cancelled, |_| keep_rows)?;
+    /// The next page-entry frame (see the frame layout in [`super`]).
+    pub(super) fn entry(&mut self, cancelled: &dyn Fn() -> bool) -> Option<super::Entry> {
+        let file = self.file(cancelled)?;
         let facts = self.facts()?;
         let redacted = (0..self.number()?)
             .map(|_| self.small())

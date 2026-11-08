@@ -283,6 +283,10 @@ const REPO_ROUTES = [
 /** `/repos/<owner>/<repo>[/<rest>]`: false for any other path or an unknown read. */
 export function repoRoute(r) {
   if (overridden(r)) return true;
+  // securityCheck's reads of GitHub's global advisory database (a package row
+  // at its confirmed version, an advisory by GHSA id): the fixture has none there.
+  if (r.p === '/advisories') return sendPage(r, []);
+  if (/^\/advisories\/[^/]+$/.test(r.p)) { r.send(404, { message: 'Not Found', documentation_url: 'https://docs.github.com/rest' }); return true; }
   const owner = /^\/(?:users|orgs)\/([^/]+)\/repos$/.exec(r.p);
   if (owner) return sendPage(r, r.model.repos.filter(repo => repo.owner === owner[1]).map(repo => repoJson(r.base, repo)));
   const m = /^\/repos\/([^/]+)\/([^/]+)(?:\/(.*))?$/.exec(r.p);

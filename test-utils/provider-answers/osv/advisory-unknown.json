@@ -26,6 +26,26 @@
     "code": 5,
     "message": "Vulnerability not found"
    }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/advisories/GHSA-0000-0000-0000",
+    "accept": "application/vnd.github+json"
+   },
+   "status": 404,
+   "headers": [
+    [
+     "content-type",
+     "application/json; charset=utf-8"
+    ]
+   ],
+   "digest": "sha256:2218b50c8a811e2f609d256cc18fa9a5c1ecabca78a58f10ea7977e8a8392684",
+   "body": {
+    "message": "Not Found",
+    "documentation_url": "https://docs.github.com/rest/security-advisories/global-advisories#get-a-global-security-advisory",
+    "status": "404"
+   }
   }
  ]
 }

@@ -15,8 +15,9 @@ use tokio::sync::OwnedSemaphorePermit;
 
 impl KeyState {
     /// Pre-send gate: wait out a block that ends before the deadline, or
-    /// fail fast without sending (the reset or `retry-after` that falls past
-    /// the deadline is the only refusal).
+    /// fail fast without sending: an open circuit, a spent quota the client
+    /// does not pace ([`super::Block::waited_out`]), or a reset or `retry-after`
+    /// that falls past the deadline.
     pub(crate) async fn wait_unblocked(
         self: &Arc<Self>,
         resource: &str,
@@ -32,7 +33,7 @@ impl KeyState {
             };
             let now = now_ms();
             let wait = block.wait(now);
-            if block.circuit.is_some() || Instant::now() + wait >= deadline {
+            if !block.waited_out() || Instant::now() + wait >= deadline {
                 return Err(block.error(now));
             }
             client_waits
@@ -260,21 +261,15 @@ impl KeyState {
     }
 
     /// [`Self::release_reservation`] without awaiting: the in-memory slot is
-    /// handed back at once and the disk copy on the blocking pool.
+    /// handed back at once and the disk copy is a detached write
+    /// ([`Self::persist_detached`]).
     pub(in crate::budget) fn release_reservation_detached(
         self: &Arc<Self>,
         (group, start, previous, persisted): ReservedSlot,
     ) {
         self.facts().release(group.name(), start, previous);
         if persisted {
-            let state = Arc::clone(self);
-            let write = octocode_io::notice::carried(move || {
-                state.persist_with(|view| view.release(group.name(), start, previous));
-            });
-            match tokio::runtime::Handle::try_current() {
-                Ok(handle) => drop(handle.spawn_blocking(write)),
-                Err(_) => write(),
-            }
+            self.persist_detached(move |view| view.release(group.name(), start, previous));
         }
     }
 

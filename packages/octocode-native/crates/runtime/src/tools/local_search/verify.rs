@@ -83,18 +83,32 @@ fn shows_withheld(
 pub struct Redaction {
     /// The root the scan's paths were made relative to.
     pub(super) output_root: std::path::PathBuf,
-    /// Files whose snippets looked like key material, by scan index, with
-    /// the digest of the bytes their key-block scan read (`None`: no read).
-    pub(super) key_files: Vec<(usize, Option<super::sources::Digest>)>,
+    /// Files whose snippets looked like key material (see [`KeyFile`]).
+    pub(super) key_files: Vec<KeyFile>,
     /// Values the redaction replaced: file index, match index, new value.
     pub(super) changes: Vec<(usize, usize, String)>,
+}
+
+/// A file whose snippets looked like key material, and its key-block scan.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyFile {
+    /// Its index in the scan, in scan order (a whole scan replays by it).
+    pub(super) index: usize,
+    /// Its row path.
+    pub(super) path: String,
+    /// The digest of the bytes the scan read (`None`: no read).
+    pub(super) read: Option<super::sources::Digest>,
 }
 
 impl Redaction {
     /// Bytes the record adds to a stored scan.
     pub(super) fn weight(&self) -> usize {
         self.output_root.as_os_str().len()
-            + self.key_files.len() * 40
+            + self
+                .key_files
+                .iter()
+                .map(|key| key.path.len() + 40)
+                .sum::<usize>()
             + self
                 .changes
                 .iter()

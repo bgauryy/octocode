@@ -188,8 +188,13 @@ async fn an_unrecorded_nonempty_snapshot_is_refused_without_deleting_its_files()
     );
 }
 
+/// A repeat materialize of the same commit keeps the copy its manifest
+/// verifies (same bytes and SHA-256) and sends no second read: the snapshot,
+/// not a saved provider answer, owns the body (GST-5). Before, the repeat
+/// read again, answered by a saved copy of the same body in persistent
+/// storage.
 #[tokio::test]
-async fn repeated_materialization_reads_the_provider_again() {
+async fn repeated_materialization_keeps_the_verified_snapshot_copy() {
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
         matchers::{method, path},
@@ -202,7 +207,7 @@ async fn repeated_materialization_reads_the_provider_again() {
                 .insert_header("content-type", "application/vnd.github.raw")
                 .set_body_bytes(b"source\n"),
         )
-        .expect(2)
+        .expect(1)
         .mount(&server)
         .await;
     let provider = crate::tools::gh_shared::test_support::one_shot_provider(&server);

@@ -86,40 +86,30 @@ async fn a_quota_wait_reports_progress_and_still_returns_the_page() {
 
 /// B91: a row discloses the client-side waits it spent, by kind, as
 /// `clientWaits`; a row of the same batch that waited for nothing has none.
-/// Row 0 reads its repository against a spent core quota (reset in 2 s);
-/// row 1 searches an owner's code, a bucket that quota does not touch.
+/// Row 0 searches repositories against a spent search quota (reset in 2 s,
+/// a quota a request waits out); row 1 reads a repository, a core read
+/// that quota does not touch. (A spent core quota is not waited out at
+/// all: D1, `runtime_github::failures`.)
 #[tokio::test]
 async fn each_row_discloses_its_own_client_waits() {
     let server = MockServer::builder().start().await;
-    let reset = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock")
-        .as_secs()
-        + 2;
     Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(403)
-                .insert_header("x-ratelimit-remaining", "0")
-                .insert_header("x-ratelimit-reset", reset.to_string().as_str())
-                .insert_header("x-ratelimit-resource", "core")
-                .set_body_json(json!({"message":"API rate limit exceeded"})),
-        )
+        .and(path("/api/v3/search/repositories"))
+        .respond_with(spent("search", Some(epoch_secs() + 2)))
         .up_to_n_times(1)
         .mount(&server)
         .await;
     Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(json!({"default_branch":"main","full_name":"a/b"})),
-        )
+        .and(path("/api/v3/search/repositories"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "total_count":0,"incomplete_results":false,"items":[]})))
         .mount(&server)
         .await;
     Mock::given(method("GET"))
-        .and(path("/api/v3/search/code"))
+        .and(path("/api/v3/repos/c/d"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "total_count":0,"incomplete_results":false,"items":[]})))
+            "name":"d","full_name":"c/d","owner":{"login":"c"},
+            "default_branch":"main","html_url":"https://github.com/c/d"})))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -132,17 +122,17 @@ async fn each_row_discloses_its_own_client_waits() {
     );
     let outcome = call(
         &runtime,
-        "ghSearchCode",
+        "ghSearchRepo",
         json!({"queries":[
-            {"owner":"a","repo":"b","keywords":["needle"]},
-            {"owner":"c","keywords":["haystack"]}
+            {"operation":"search","keywords":["needle"]},
+            {"operation":"get","owner":"c","repo":"d"}
         ]}),
     )
     .await
     .expect("both rows");
     let rows = &outcome.structured_content["results"];
-    // Row 0 sat out the spent quota; a queue behind row 1's search on the
-    // shared code-search lane may sit beside it, one entry per kind.
+    assert_eq!(rows[0]["status"], "empty", "{}", outcome.structured_content);
+    // Row 0 sat out the spent quota, one entry per kind.
     let waited = rows[0]["data"]["clientWaits"]
         .as_array()
         .cloned()
@@ -162,14 +152,15 @@ async fn each_row_discloses_its_own_client_waits() {
         .map(|wait| wait["kind"].to_string())
         .collect::<std::collections::BTreeSet<_>>();
     assert_eq!(kinds.len(), waited.len(), "summed by kind: {waited:?}");
-    // Row 1 may queue behind row 0's search on the code-search lane, a wait
-    // of its own; it never carries row 0's wait for the spent core quota.
-    let other = rows[1]["data"]["clientWaits"].as_array().cloned();
+    // Row 1 answers and never carries row 0's wait for the spent search
+    // quota.
+    assert_eq!(
+        rows[1]["data"]["repositories"][0]["repo"], "d",
+        "{}",
+        outcome.structured_content
+    );
     assert!(
-        other
-            .unwrap_or_default()
-            .iter()
-            .all(|wait| wait["kind"] != "quotaPacing"),
+        rows[1]["data"].get("clientWaits").is_none(),
         "row 0's wait stays on row 0: {}",
         outcome.structured_content
     );
@@ -177,8 +168,8 @@ async fn each_row_discloses_its_own_client_waits() {
     // flight) says nothing.
     let alone = call(
         &runtime,
-        "ghSearchCode",
-        json!({"owner":"a","repo":"b","keywords":["needle"]}),
+        "ghSearchRepo",
+        json!({"operation":"search","keywords":["needle"]}),
     )
     .await
     .expect("an unpaced row");
@@ -344,8 +335,9 @@ async fn a_continuation_page_carries_none_of_the_first_pages_waits() {
 }
 
 /// B91 r2: rows of a ghGetFileContent batch wait on the batch warm-up, which
-/// resolves their ref under a spent core quota: each row discloses the
-/// warm-up's wait as its own `quotaPacing`.
+/// resolves their ref under a secondary-limit cooldown: each row discloses
+/// the warm-up's wait as its own `secondaryLimit`. (A spent core quota is
+/// not waited out at all: D1.)
 #[tokio::test]
 async fn file_rows_disclose_the_batch_warm_ups_quota_wait() {
     const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -354,7 +346,15 @@ async fn file_rows_disclose_the_batch_warm_ups_quota_wait() {
         .and(wiremock::matchers::path_regex(
             "^/api/v3/repos/a/b/commits/[^/]+$",
         ))
-        .respond_with(spent("core", Some(epoch_secs() + 2)))
+        .respond_with(
+            ResponseTemplate::new(403)
+                .insert_header("retry-after", "1")
+                .insert_header("x-ratelimit-remaining", "4000")
+                .insert_header("x-ratelimit-resource", "core")
+                .set_body_json(json!({
+                    "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
+                })),
+        )
         .up_to_n_times(1)
         .mount(&server)
         .await;
@@ -415,7 +415,7 @@ async fn file_rows_disclose_the_batch_warm_ups_quota_wait() {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .any(|wait| wait["kind"] == "quotaPacing" && wait["ms"].as_i64() > Some(0)),
+                .any(|wait| wait["kind"] == "secondaryLimit" && wait["ms"].as_i64() > Some(0)),
             "row {index} discloses the warm-up's wait: {}",
             outcome.structured_content
         );

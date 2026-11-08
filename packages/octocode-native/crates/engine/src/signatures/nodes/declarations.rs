@@ -24,7 +24,8 @@ pub(super) fn declaration_kind(kind: &str) -> Option<&'static str> {
         | "abstract_class_declaration"
         | "class_specifier"
         | "class" => Some("class"),
-        "struct_item" | "struct_specifier" | "struct_declaration" | "union_item" => Some("struct"),
+        "struct_item" | "struct_specifier" | "struct_declaration" | "union_item"
+        | "union_specifier" => Some("struct"),
         "enum_item" | "enum_declaration" | "enum_specifier" | "enum_definition" => Some("enum"),
         "trait_item" => Some("trait"),
         "interface_declaration" | "interface_item" | "annotation_type_declaration" => {
@@ -120,6 +121,10 @@ pub(in crate::signatures) fn member_field<'t>(
     }
     let parent = parents.next()?;
     match parent.kind() {
+        // A field that holds a parse error is recovery, not a member: a
+        // macro line with no semicolon (Qt's `Q_OBJECT`) reads as a field
+        // named by the next word.
+        "field_declaration" | "constant_declaration" if parent.has_error() => None,
         "field_declaration" | "constant_declaration" => {
             let in_field = |field: &str| {
                 let mut cursor = parent.walk();
@@ -139,6 +144,68 @@ pub(in crate::signatures) fn member_field<'t>(
             })
         }
         _ => None,
+    }
+}
+
+/// Languages that write a function type for a data member
+/// ([`function_typed`]).
+#[derive(Clone, Copy)]
+pub(in crate::signatures) enum FunctionTypes {
+    Scala,
+    CSharp,
+    CFamily,
+}
+
+/// Whether the data member `node`, declared by `written` (its field
+/// declaration, or `node` itself), holds a function by its declared type, so
+/// a call of the member invokes it: a Scala function type (`A => B`,
+/// `FunctionN[..]`, `PartialFunction[..]`) or an untyped `val` holding a
+/// lambda; a C# `Action` or `Func` field or property; a C++ `std::function`
+/// or a function-pointer declarator. Only the written type counts: a type the
+/// repository declares (a C# delegate, a Scala alias) is not resolved here.
+pub(in crate::signatures) fn function_typed(
+    language: FunctionTypes,
+    node: Node<'_>,
+    written: Node<'_>,
+    content: &str,
+) -> bool {
+    // `int (*fp)(int);`: a field's function declarator declares a pointer
+    // (a member function is no data member).
+    if matches!(language, FunctionTypes::CFamily) && node.kind() == "function_declarator" {
+        return true;
+    }
+    let ty = written.child_by_field_name("type").or_else(|| {
+        // A C# field holds its type on its `variable_declaration`.
+        let mut cursor = written.walk();
+        written
+            .named_children(&mut cursor)
+            .find(|child| child.kind() == "variable_declaration")?
+            .child_by_field_name("type")
+    });
+    let Some(ty) = ty else {
+        return matches!(language, FunctionTypes::Scala)
+            && written
+                .child_by_field_name("value")
+                .is_some_and(|value| value.kind() == "lambda_expression");
+    };
+    let Some(text) = node_text(ty, content) else {
+        return false;
+    };
+    let head = text.split(['<', '[']).next().unwrap_or(text).trim();
+    let (scope, name) = head
+        .rsplit_once("::")
+        .or_else(|| head.rsplit_once('.'))
+        .unwrap_or(("", head));
+    match language {
+        FunctionTypes::Scala => {
+            ty.kind() == "function_type"
+                || name == "PartialFunction"
+                || name.strip_prefix("Function").is_some_and(|arity| {
+                    !arity.is_empty() && arity.bytes().all(|b| b.is_ascii_digit())
+                })
+        }
+        FunctionTypes::CSharp => matches!(name, "Action" | "Func"),
+        FunctionTypes::CFamily => name == "function" && scope.trim_start_matches("::") == "std",
     }
 }
 
@@ -201,6 +268,16 @@ fn declaration_given<'t, P: Iterator<Item = Node<'t>> + Clone>(
             return None;
         }
     }
+    // C/C++ name an enum constant `enumerator`, and tree-sitter-scala a
+    // for-comprehension generator (`x <- xs`): only one in an enum's
+    // `enumerator_list` (through preprocessor blocks) declares a member.
+    if node_kind == "enumerator"
+        && parents()
+            .find(|parent| !parent.kind().starts_with("preproc_"))
+            .is_none_or(|parent| parent.kind() != "enumerator_list")
+    {
+        return None;
+    }
     if let Some(kind) = declaration_kind(node_kind) {
         // C/C++ definitions carry no `name` field: the name sits in the
         // declarator chain, and the `type` field (a named return type such as
@@ -242,6 +319,10 @@ fn declaration_given<'t, P: Iterator<Item = Node<'t>> + Clone>(
         "preproc_def" | "preproc_function_def" => {
             node.child_by_field_name("name").map(|name| ("macro", name))
         }
+        // A Python attribute a method assigns through its receiver.
+        "attribute" => instance_attribute(node, parents(), content)
+            .and_then(|_| node.child_by_field_name("attribute"))
+            .map(|name| ("property", name)),
         // A TypeScript enum member written without a value is its name alone.
         "property_identifier" if parent().is_some_and(|parent| parent.kind() == "enum_body") => {
             Some(("enumMember", node))
@@ -276,16 +357,9 @@ fn declaration_given<'t, P: Iterator<Item = Node<'t>> + Clone>(
             let assignment = node
                 .named_child(0)
                 .filter(|child| child.kind() == "assignment")?;
-            let left = assignment.child_by_field_name("left")?;
-            if left.kind() == "attribute" {
-                instance_attribute_init(node, parents(), content)?;
-                return left
-                    .child_by_field_name("attribute")
-                    .map(|name| ("property", name));
-            }
-            if left.kind() != "identifier" {
-                return None;
-            }
+            let left = assignment
+                .child_by_field_name("left")
+                .filter(|left| left.kind() == "identifier")?;
             let mut parents = parents();
             let unwritten = match parents.next()?.kind() {
                 "module" => "variable",
@@ -313,49 +387,85 @@ fn embedded_type_name(ty: Node<'_>) -> Option<Node<'_>> {
     }
 }
 
-/// The `__init__` whose receiver the Python statement `node` assigns an
-/// attribute of (`self.x = …`, `self.x: T = …`), given `node`'s parents
-/// nearest first: `node` sits in that method's own body, at any depth of its
-/// blocks, and the method is its class's. Another object's attribute, a
-/// nested attribute (`self.a.b`), and a statement of a nested function or
-/// class declare nothing. The caller keeps the first such assignment of
-/// each name.
-pub(in crate::signatures) fn instance_attribute_init<'t>(
+/// Where a Python instance attribute is declared: the method and class of
+/// an attribute `node` that is an assignment target through the method's
+/// receiver (its first parameter, whatever its name), given `node`'s
+/// parents nearest first.
+pub(in crate::signatures) struct InstanceAttribute<'t> {
+    pub(in crate::signatures) class: Node<'t>,
+    /// The method is `__init__`, whose attributes come first.
+    pub(in crate::signatures) in_init: bool,
+}
+
+/// The [`InstanceAttribute`] an attribute `node` declares: `self.x = …`,
+/// `self.x: T = …`, each target of `self.a, self.b = …` and of a chained
+/// `self.c = self.d = …`, at any depth of the method's own blocks, in a
+/// method of a class that is not a `@staticmethod`. A source (`… = self.x`),
+/// another object's attribute, a nested attribute (`self.a.b`) and a nested
+/// function's or class's assignment declare nothing. The caller keeps one
+/// declaration per class and name.
+pub(in crate::signatures) fn instance_attribute<'t>(
     node: Node<'t>,
     mut parents: impl Iterator<Item = Node<'t>>,
     content: &str,
-) -> Option<Node<'t>> {
-    let assignment = node
-        .named_child(0)
-        .filter(|child| child.kind() == "assignment")?;
-    let object = assignment
-        .child_by_field_name("left")
-        .filter(|left| left.kind() == "attribute")?
+) -> Option<InstanceAttribute<'t>> {
+    let object = node
         .child_by_field_name("object")
         .filter(|object| object.kind() == "identifier")?;
-    let init = parents.find(|parent| {
+    // A target, possibly inside a tuple or list target, of an assignment
+    // that may be the value of another (chained), of one statement.
+    let mut child = node;
+    let mut parent = parents.next()?;
+    while matches!(
+        parent.kind(),
+        "pattern_list" | "tuple_pattern" | "list_pattern"
+    ) {
+        child = parent;
+        parent = parents.next()?;
+    }
+    if parent.kind() != "assignment" || parent.child_by_field_name("left") != Some(child) {
+        return None;
+    }
+    loop {
+        child = parent;
+        parent = parents.next()?;
+        if parent.kind() != "assignment" || parent.child_by_field_name("right") != Some(child) {
+            break;
+        }
+    }
+    if parent.kind() != "expression_statement" {
+        return None;
+    }
+    let method = parents.find(|parent| {
         matches!(
             parent.kind(),
             "function_definition" | "class_definition" | "lambda" | "module"
         )
     })?;
-    if init.kind() != "function_definition"
-        || init
-            .child_by_field_name("name")
-            .and_then(|name| node_text(name, content))
-            != Some("__init__")
-    {
+    if method.kind() != "function_definition" {
         return None;
     }
     let mut owner = parents.next()?;
     if owner.kind() == "decorated_definition" {
+        let mut cursor = owner.walk();
+        let is_static = owner
+            .children(&mut cursor)
+            .filter(|child| child.kind() == "decorator")
+            .filter_map(|decorator| node_text(decorator, content))
+            .any(|decorator| decorator.trim_start_matches('@').trim() == "staticmethod");
+        if is_static {
+            return None;
+        }
         owner = parents.next()?;
     }
-    if owner.kind() != "block" || parents.next()?.kind() != "class_definition" {
+    let class = parents
+        .next()
+        .filter(|class| class.kind() == "class_definition")?;
+    if owner.kind() != "block" {
         return None;
     }
     // The receiver is the method's first parameter, whatever its name.
-    let receiver = init
+    let receiver = method
         .child_by_field_name("parameters")?
         .named_child(0)
         .and_then(|parameter| match parameter.kind() {
@@ -363,9 +473,57 @@ pub(in crate::signatures) fn instance_attribute_init<'t>(
             "typed_parameter" => parameter.named_child(0),
             _ => None,
         })?;
-    (node_text(receiver, content).is_some()
-        && node_text(receiver, content) == node_text(object, content))
-    .then_some(init)
+    let receiver = node_text(receiver, content)?;
+    (node_text(object, content) == Some(receiver)).then(|| InstanceAttribute {
+        class,
+        in_init: method
+            .child_by_field_name("name")
+            .and_then(|name| node_text(name, content))
+            == Some("__init__"),
+    })
+}
+
+/// The instance attribute names `class`'s `__init__` declares
+/// ([`instance_attribute`]): another method's assignment of one of these
+/// names is no declaration, wherever the method sits.
+pub(in crate::signatures) fn init_attribute_names(
+    class: Node<'_>,
+    content: &str,
+) -> std::collections::HashSet<String> {
+    let mut names = std::collections::HashSet::new();
+    // Depth first, with the path from `class` to each node.
+    let mut path = vec![class];
+    let mut cursor = class.walk();
+    let mut descended = cursor.goto_first_child();
+    while path.len() > 1 || descended {
+        if descended {
+            let node = cursor.node();
+            if node.kind() == "attribute"
+                && instance_attribute(node, parents_of(node, &path), content)
+                    .is_some_and(|attribute| attribute.class == class && attribute.in_init)
+                && let Some(name) = node
+                    .child_by_field_name("attribute")
+                    .and_then(|name| node_text(name, content))
+            {
+                names.insert(name.to_owned());
+            }
+            path.push(node);
+            descended = cursor.goto_first_child();
+            continue;
+        }
+        // Up to the next sibling of the nearest node that has one.
+        loop {
+            path.pop();
+            if cursor.goto_next_sibling() {
+                descended = true;
+                break;
+            }
+            if !cursor.goto_parent() || path.len() <= 1 {
+                return names;
+            }
+        }
+    }
+    names
 }
 
 /// The node that spans a declaration as written. Some grammars wrap the
@@ -405,10 +563,19 @@ fn modifier_words<'c>(node: Node<'_>, content: &'c str) -> Vec<&'c str> {
         .collect()
 }
 
+/// Java `static final`, C# `const` / `static readonly`, and C++ `static`
+/// `const` / `constexpr` fields.
 fn is_constant_field(node: Node<'_>, content: &str) -> bool {
     let words = modifier_words(node, content);
     let has = |word: &str| words.contains(&word);
-    has("const") || (has("static") && (has("final") || has("readonly")))
+    let mut cursor = node.walk();
+    let static_storage = node
+        .children(&mut cursor)
+        .filter(|child| child.kind() == "storage_class_specifier")
+        .any(|child| node_text(child, content) == Some("static"));
+    has("const")
+        || (has("static") && (has("final") || has("readonly")))
+        || (static_storage && has_const_qualifier(node, content))
 }
 
 fn has_const_qualifier(node: Node<'_>, content: &str) -> bool {

@@ -10,10 +10,30 @@ use super::*;
 /// the next build prunes it; its ID then names its successor.
 pub(super) const READ_LEASE_FILE: &str = "last-read";
 
-/// `<workspace>/.octocode/graph`. The workspace is the caller's: the
-/// runtime names one ([`default_workspace`] of its own working directory)
-/// when the call does not, so the process directory never decides it.
-pub(crate) fn graph_home(workspace: Option<&Path>) -> Result<PathBuf, String> {
+/// The directory Octocode owns inside a configured `local.graphHome`. The
+/// configured directory is the user's (it may be `~` or `/tmp`): snapshots,
+/// `latest`, the build lock, `.facts` and every temp entry go in here, so
+/// retention and the temp sweep never see what the user keeps beside it.
+const CONFIGURED_HOME_DIR: &str = "octocode-graph";
+
+/// The snapshot home of a configured `local.graphHome`
+/// ([`CONFIGURED_HOME_DIR`] inside it).
+pub(crate) fn configured_graph_home(configured: &Path) -> PathBuf {
+    configured.join(CONFIGURED_HOME_DIR)
+}
+
+/// The snapshot home: [`configured_graph_home`] of `configured`
+/// (`local.graphHome`) when set, else `<workspace>/.octocode/graph`. The
+/// workspace is the caller's: the runtime names one ([`default_workspace`]
+/// of its own working directory) when the call does not, so the process
+/// directory never decides it.
+pub(crate) fn graph_home(
+    workspace: Option<&Path>,
+    configured: Option<&Path>,
+) -> Result<PathBuf, String> {
+    if let Some(configured) = configured {
+        return Ok(configured_graph_home(configured));
+    }
     let workspace =
         workspace.ok_or("no workspace: name the directory that owns .octocode/graph")?;
     Ok(workspace.join(".octocode").join("graph"))
@@ -92,6 +112,11 @@ fn leased(dir: &Path) -> bool {
         .is_some_and(|idle| idle < crate::cache::CONTINUATION_IDLE)
 }
 
+/// The name [`remove_unless_leased`] claims a snapshot under. Its claims
+/// are the only entries the temp sweep of [`prune_with`] removes; staging
+/// directories go through [`super::ingest`]'s marker-checked cleanup.
+const CLAIM_PREFIX: &str = ".tmp-removing-";
+
 /// Removes snapshot `id` unless a reader holds its lease, deciding at the
 /// removal itself: the directory is first claimed by an atomic rename, and the
 /// lease is read again on the claimed directory. A renewal that landed before
@@ -105,7 +130,7 @@ fn remove_unless_leased(home: &Path, id: &str, between: &dyn Fn(&Path)) -> bool 
         return false;
     }
     between(&dir);
-    let claimed = home.join(format!(".tmp-removing-{id}"));
+    let claimed = home.join(format!("{CLAIM_PREFIX}{id}"));
     if std::fs::rename(&dir, &claimed).is_err() {
         return false;
     }
@@ -204,7 +229,8 @@ pub(crate) fn list_snapshots(home: &Path) -> Vec<String> {
 /// progress, whichever build reads it), older snapshots of `root` beyond
 /// `keep` and snapshots of any root in an older format (no query of this
 /// build can read them; a newer format belongs to a newer build and stays),
-/// plus abandoned temp dirs.
+/// plus the claims of removals a dead process abandoned ([`CLAIM_PREFIX`];
+/// no other entry, whatever its name or age).
 /// Snapshots are grouped by the root they scanned, never by their scope
 /// name: two roots that share a name keep their own snapshots.
 pub(super) fn prune(home: &Path, root: &Path, keep: usize) -> Vec<String> {
@@ -248,14 +274,18 @@ pub(super) fn prune_with(
     }
     let stale_after = std::time::Duration::from_secs(3600);
     for entry in std::fs::read_dir(home).into_iter().flatten().flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
+        let claim = entry
+            .file_name()
+            .to_string_lossy()
+            .starts_with(CLAIM_PREFIX)
+            && entry.file_type().is_ok_and(|kind| kind.is_dir());
         let old = entry
             .metadata()
             .and_then(|meta| meta.modified())
             .ok()
             .and_then(|time| time.elapsed().ok())
             .is_some_and(|age| age > stale_after);
-        if name.starts_with(".tmp-") && old {
+        if claim && old {
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }

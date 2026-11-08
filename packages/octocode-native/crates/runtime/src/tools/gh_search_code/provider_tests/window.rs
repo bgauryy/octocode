@@ -36,6 +36,7 @@ async fn a_page_past_the_window_repairs_to_the_last_real_page() {
         Ok(&context),
         &Passthrough,
         &crate::policy::discovery::is_sensitive_repository_file,
+        None,
     )
     .await
     else {
@@ -92,6 +93,7 @@ async fn the_code_search_window_ends_at_its_last_whole_page() {
         Ok(&context),
         &Passthrough,
         &crate::policy::discovery::is_sensitive_repository_file,
+        None,
     )
     .await
     else {
@@ -134,6 +136,7 @@ async fn a_multi_extension_window_is_each_searchs_own() {
         Ok(&context),
         &Passthrough,
         &crate::policy::discovery::is_sensitive_repository_file,
+        None,
     )
     .await
     else {

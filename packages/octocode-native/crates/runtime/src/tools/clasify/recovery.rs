@@ -12,6 +12,18 @@ const IMAGE_WINDOW_HINT: &str = "Each image question re-reads its images: ask fe
 /// What a binary source needs when it is an image.
 const IMAGE_SOURCE_HINT: &str = "source takes text; a PNG or JPEG image is judged under assets, as the clasify call in related[] does.";
 
+/// What a fresh read larger than one response needs
+/// ([`Captured::read_pages`]): the runtime that runs it pages it, which a
+/// command that exits after one call refuses.
+const PAGED_READ_HINT: &str = "This source is larger than one response, so its read in related[] pages: run it with storage.mode persistent, or in one running MCP server.";
+
+/// Says on `row` that the read `captured` offers pages, when it does.
+pub(super) fn disclose_paged_read(row: &mut Value, captured: &Captured) {
+    if captured.read_pages {
+        crate::response::result::add_hints(row, [PAGED_READ_HINT]);
+    }
+}
+
 /// Recovery for a failed row. A captured source failed in classification:
 /// its exact read is the way back to the evidence. A source that was never
 /// captured failed in its reader: that error and its own hints say what
@@ -19,7 +31,7 @@ const IMAGE_SOURCE_HINT: &str = "source takes text; a PNG or JPEG image is judge
 /// when repeating it can succeed (not for a missing path or a refusal). A
 /// selection too large to judge offers no read of itself: its hints say how
 /// to judge it.
-pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
+pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value, can_resume: bool) {
     if matches!(row.input, Input::Models) {
         return;
     }
@@ -30,7 +42,7 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
     );
     if too_large
         && let Input::Judge(Target::Source(source)) = &row.input
-        && let Some(split) = sections_call(row, source)
+        && let Some(split) = sections_call(row, source, can_resume)
     {
         crate::response::result::attach_related(failure, split);
     }
@@ -56,6 +68,9 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
         .filter(|_| !too_large);
     if let Some(read) = &read {
         crate::response::result::attach_calls(failure, json!({"read":read}));
+        if let Some(captured) = captured {
+            disclose_paged_read(failure, captured);
+        }
     }
     if acquisition {
         return;
@@ -78,8 +93,12 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value) {
 
 /// The same questions over `source` as a ready `sections` call: where each
 /// answer sits, and the way to judge a source too large for one state. A box
-/// has no text to read, so it stays out.
-pub(super) fn sections_call(row: &Row, source: &Value) -> Option<Value> {
+/// has no text to read, so it stays out. A runtime that keeps nothing for a
+/// later call (`can_resume` false) refuses a plan, so it offers none.
+pub(super) fn sections_call(row: &Row, source: &Value, can_resume: bool) -> Option<Value> {
+    if !can_resume {
+        return None;
+    }
     let questions = row
         .keys
         .iter()
@@ -170,6 +189,7 @@ mod tests {
         let snapshot = "f".repeat(64);
         let capture = Captured {
             read_chars: 0,
+            read_pages: false,
             state: json!({"content":"PRIVATE SOURCE BODY"}),
             read: source_capture::read_lead(
                 ToolId::LocalFetch,
@@ -180,7 +200,7 @@ mod tests {
         };
         let mut failure =
             json!({"errorCode":"classificationProviderError","hints":["Provider guidance."]});
-        add(&row, Some(&capture), &mut failure);
+        add(&row, Some(&capture), &mut failure, true);
         assert_eq!(failure["next"]["read"], capture.read);
         assert_eq!(failure["next"]["read"]["kind"], "continue");
         assert_eq!(
@@ -195,7 +215,7 @@ mod tests {
         );
         assert!(!failure.to_string().contains("PRIVATE SOURCE BODY"));
         let once = failure.clone();
-        add(&row, Some(&capture), &mut failure);
+        add(&row, Some(&capture), &mut failure, true);
         assert_eq!(failure, once);
     }
 
@@ -206,7 +226,7 @@ mod tests {
             unreachable!()
         };
         let mut failure = json!({"errorCode":"classificationContextUnavailable"});
-        add(&row, None, &mut failure);
+        add(&row, None, &mut failure, true);
         assert_eq!(failure["related"][0]["kind"], "related");
         assert_eq!(
             failure["related"][0]["input"]["queries"][0],
@@ -218,14 +238,19 @@ mod tests {
         asked.keys = vec!["q".into()];
         asked.questions = vec![json!({"type":"noul","instructions":"Is it big?"})];
         let mut too_large = json!({"errorCode":"classificationContextTooLarge"});
-        add(&asked, None, &mut too_large);
+        add(&asked, None, &mut too_large, true);
         assert!(too_large.get("next").is_none(), "{too_large}");
         let split = &too_large["related"][0]["input"]["queries"][0];
         assert_eq!(split["operation"], "sections", "{too_large}");
         assert_eq!(split["resources"]["source"], *source, "{too_large}");
+        // A runtime that keeps nothing for a later call refuses a plan: it
+        // offers none.
+        let mut one_shot = json!({"errorCode":"classificationContextTooLarge"});
+        add(&asked, None, &mut one_shot, false);
+        assert!(one_shot.get("related").is_none(), "{one_shot}");
         for code in ["pathNotFound", "outsideAllowedRoots"] {
             let mut failure = json!({"errorCode":code});
-            add(&row, None, &mut failure);
+            add(&row, None, &mut failure, true);
             assert!(failure.get("next").is_none(), "{failure}");
             assert!(failure.get("related").is_none(), "{failure}");
         }
@@ -240,19 +265,19 @@ mod tests {
         let failure =
             || json!({"errorCode":"classificationStateTooLarge","hints":["Provider guidance."]});
         let mut text = failure();
-        add(&row, None, &mut text);
+        add(&row, None, &mut text, true);
         assert!(!text.to_string().contains(IMAGE_WINDOW_HINT), "{text}");
         row.assets = Some(json!({"image":{}}));
         let mut image = failure();
-        add(&row, None, &mut image);
+        add(&row, None, &mut image, true);
         let hints = image["hints"].as_array().unwrap();
         assert!(hints.contains(&json!(IMAGE_WINDOW_HINT)), "{image}");
         assert!(hints.contains(&json!("Provider guidance.")), "{image}");
         let once = image.clone();
-        add(&row, None, &mut image);
+        add(&row, None, &mut image, true);
         assert_eq!(image, once);
         let mut other = json!({"errorCode":"classificationProviderError"});
-        add(&row, None, &mut other);
+        add(&row, None, &mut other, true);
         assert!(!other.to_string().contains(IMAGE_WINDOW_HINT), "{other}");
     }
 
@@ -264,7 +289,7 @@ mod tests {
         row.keys = vec!["q".into()];
         row.questions = vec![json!({"type":"noul","instructions":"Is a popup shown?"})];
         let mut failure = json!({"errorCode":"binaryFileUnsupported","hints":["Reader advice."]});
-        add(&row, None, &mut failure);
+        add(&row, None, &mut failure, true);
         let hints = failure["hints"].as_array().unwrap();
         assert_eq!(hints[0], json!(IMAGE_SOURCE_HINT), "{failure}");
         assert!(hints.contains(&json!("Reader advice.")), "{failure}");
@@ -289,12 +314,12 @@ mod tests {
         let mut row = source_row();
         row.input = Input::Judge(Target::Content(json!("literal")));
         let mut failure = json!({"errorCode":"classificationProviderError"});
-        add(&row, None, &mut failure);
+        add(&row, None, &mut failure, true);
         assert!(failure.get("next").is_none());
         assert!(failure.get("related").is_none());
         row.input = Input::Models;
         let before = failure.clone();
-        add(&row, None, &mut failure);
+        add(&row, None, &mut failure, true);
         assert_eq!(failure, before);
     }
 }

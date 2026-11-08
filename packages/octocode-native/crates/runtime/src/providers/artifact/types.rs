@@ -117,11 +117,10 @@ pub struct ArtifactItem {
     /// release names. The response warns with it.
     #[serde(skip)]
     pub successor_repository: Option<String>,
-    /// Why the repository's tag list could not be read when no candidate tag
-    /// shape named the release: a tag may still name it, so the response
-    /// scopes its "no tag" claim to the shapes checked and states this cause.
+    /// What limits the response's "no tag names this version" claim when
+    /// no tag of this package named the release.
     #[serde(skip)]
-    pub tags_unlisted: Option<String>,
+    pub tag_absence: Option<TagAbsence>,
     /// `${…}` properties the declared dependencies name that the release's
     /// own metadata does not define (a Maven parent POM's): the response
     /// states them.
@@ -161,6 +160,19 @@ pub(crate) struct LinkBelowRef {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Retraction {
     pub reason: Option<String>,
+}
+
+/// What limits a row's "no tag names this version" claim.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TagAbsence {
+    /// The whole tag list was read: only these tags, another package's,
+    /// name the version.
+    OtherPackagesOnly(Vec<String>),
+    /// The candidate shapes were checked, and the tag list could not be read
+    /// or resolved, for this reason.
+    ListUnread(String),
+    /// No tag could be checked, for this reason.
+    Unchecked(String),
 }
 
 /// What GitHub says of the repository a registry row names, when it says
@@ -258,7 +270,7 @@ impl ArtifactItem {
             missing_ref: None,
             repository_status: None,
             successor_repository: None,
-            tags_unlisted: None,
+            tag_absence: None,
             unresolved_properties: Vec::new(),
             only_prerelease: false,
             retraction: None,

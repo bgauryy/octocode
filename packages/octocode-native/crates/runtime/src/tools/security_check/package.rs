@@ -5,6 +5,7 @@ use super::Net;
 use super::answer;
 use super::dispute;
 use super::ecosystem::{self, Ecosystem};
+use super::global;
 use super::source::{Confirmed, SourceResult, Target, View, ask_all, into_row, names_release};
 use super::trust::{self, Registered, Trust};
 use super::update::{self, Latest};
@@ -55,6 +56,9 @@ struct Notes {
     latest_unread: Option<Unread>,
     /// The trust read, once made.
     trust: Option<Trust>,
+    /// Why the last page of a resumed walk could not read the source
+    /// repository's advisories: the registry read that names it failed.
+    repository_unread: Option<Unread>,
     /// A source lists the package in the release asked, so a version with no
     /// record there is a finding and not an unnamed release.
     release_named: bool,
@@ -140,10 +144,33 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
     };
     let upgrade = upgrade_for(&confirmed, &results, net).await;
     let mut results = results;
+    let finished = results.iter().all(|result| result.resume.is_none());
+    if resumed && finished {
+        // The first page could not compare the source repository's advisories
+        // with a walk that was not whole; this page holds all of OSV's records.
+        match registered_again(package, net).await {
+            Ok(Some(registered)) => {
+                notes.trust = Some(
+                    trust::read(registered, &confirmed, net)
+                        .await
+                        .on_last_page(),
+                );
+            }
+            Ok(None) => {}
+            Err(unread) => notes.repository_unread = Some(unread),
+        }
+    }
     let disputes = dispute::mark(&confirmed, &mut results, net).await;
+    // GitHub's database is compared with OSV's whole list only.
+    let mut github = match finished {
+        true => global::read(&confirmed, net).await,
+        false => None,
+    };
     if let Some(trust) = &mut notes.trust {
-        let finished = results.iter().all(|result| result.resume.is_none());
         trust.merge(&mut results, finished);
+    }
+    if let Some(github) = &mut github {
+        github.merge(&mut results);
     }
     let needs_release = ecosystem::needs_release(package.ecosystem)?;
     let mut data = respond(
@@ -154,6 +181,10 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
         &upgrade,
         needs_release,
     );
+    if let Some(github) = &github {
+        github.apply(&mut data, &package.brief);
+        crate::response::result::finish_calls(&mut data);
+    }
     paging::push_warnings(&mut data, disputes);
     if let Some(why) = probe_failed {
         paging::push_warnings(
@@ -164,10 +195,18 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
         );
     }
     if resumed {
-        // The registry facts were read with the first page; this page only continues OSV's walk.
+        // The registry facts were read with the first page; this page continues
+        // OSV's walk and, on its last page, compares the repository's advisories.
+        let this_page = if finished {
+            "this page ends the advisory list and compares the source repository's advisories with it"
+        } else {
+            "this page continues the advisory list only"
+        };
         paging::push_warnings(
             &mut data,
-            ["Trust, repository and update facts are on the first page of this walk; this page continues the advisory list only.".to_owned()],
+            [format!(
+                "Trust, repository and update facts are on the first page of this walk; {this_page}."
+            )],
         );
     }
     Ok(data)
@@ -373,6 +412,7 @@ async fn confirm(
             latest_lookup,
             latest_unread: None,
             trust: None,
+            repository_unread: None,
             release_named: false,
             prerelease_warning: artifact.only_prerelease.then(|| {
                 format!(
@@ -381,6 +421,43 @@ async fn confirm(
             }),
         },
     ))
+}
+
+/// What the registry states of the confirmed version, read again on the last
+/// page of a resumed walk: the source repository is the registry's to name,
+/// and the cursor carries only OSV's walk. An ecosystem no registry reads has
+/// none to name.
+async fn registered_again(
+    package: &Package<'_>,
+    net: &Net<'_>,
+) -> Result<Option<Registered>, Unread> {
+    let unread = |code: ErrorCode, message: &str| Unread {
+        code,
+        why: format!(
+            "{}: the registry was not read again for its source repository, so that repository's advisories were not compared with OSV's records: {}",
+            package.name,
+            sentence(message)
+        ),
+    };
+    let Some(kind) = ecosystem::registry(package.ecosystem)
+        .map_err(|error| unread(error.code, &error.message))?
+    else {
+        return Ok(None);
+    };
+    let query = resolve_query(kind, package.name, package.version)
+        .map_err(|error| unread(error.code, &error.message))?;
+    let page = execute_artifact(&query, &context(net))
+        .await
+        .map_err(|error| unread(error.code, &error.message))?;
+    page.artifacts
+        .first()
+        .map(|artifact| Some(Registered::of(artifact)))
+        .ok_or_else(|| {
+            unread(
+                ErrorCode::NotFound,
+                "the registry no longer lists this version",
+            )
+        })
 }
 
 /// The registry lookup of `name` at `version`, as the artifact tool validates it.
@@ -608,6 +685,9 @@ fn respond(
     if let Some(unread) = &notes.latest_unread {
         registry_failed(&mut data, unread);
     }
+    if let Some(unread) = &notes.repository_unread {
+        registry_failed(&mut data, unread);
+    }
     if let (Some(latest), Some(version)) = (&notes.latest, version) {
         update::apply(
             &mut data,
@@ -617,7 +697,7 @@ fn respond(
         );
     }
     if let Some(trust) = &notes.trust {
-        trust.apply(&mut data);
+        trust.apply(&mut data, &package.brief);
     }
     if let Some(absent) = notes.absent {
         // A version the registry does not list is a failed lookup, so the row

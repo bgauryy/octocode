@@ -26,6 +26,25 @@ pub(super) fn local_dependencies(value: &Value) -> impl Iterator<Item = String> 
     .into_iter()
 }
 
+/// Whether Node, resolving the package's own `name` from its directory
+/// `dir`, finds the package itself: the first `node_modules/<name>` at or
+/// above `dir`, up to the repository's boundary, links to `dir`.
+pub(super) fn links_itself(dir: &Path, name: &str) -> bool {
+    let Ok(own) = std::fs::canonicalize(dir) else {
+        return false;
+    };
+    for ancestor in dir.ancestors() {
+        let entry = ancestor.join("node_modules").join(name);
+        if entry.symlink_metadata().is_ok() {
+            return std::fs::canonicalize(&entry).is_ok_and(|real| real == own);
+        }
+        if octocode_engine::search::repository::is_root(ancestor) {
+            break;
+        }
+    }
+    false
+}
+
 /// The patterns a `package.json` `workspaces` field lists, array or object form.
 fn workspace_patterns(value: &Value) -> Vec<String> {
     let field = value.get("workspaces");
@@ -115,9 +134,16 @@ impl ResolveContext {
     }
 
     /// A scan below a JS workspace root knows its sibling packages by name.
+    /// A manifest above the scan that the path policy keeps unread leaves
+    /// membership unknown ([`ResolveContext::outer_workspace_unread`]).
     pub(super) fn load_outer_workspaces(&mut self, reader: &ConfigReader<'_>) {
         for dir in dirs_above_within_repository(reader.root) {
-            let value = reader.read_json(&dir.join("package.json"));
+            let manifest = dir.join("package.json");
+            let value = reader.read_json(&manifest);
+            let pnpm = dir.join("pnpm-workspace.yaml");
+            self.outer_workspace_unread |= (value.is_none() && manifest.is_file())
+                || (pnpm.is_file()
+                    && read_config_text(reader.paths, reader.security, &pnpm).is_none());
             let Some(patterns) = root_patterns(reader, &dir, value.as_ref()) else {
                 continue;
             };

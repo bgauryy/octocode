@@ -51,6 +51,8 @@ const CANONICAL = [
   'OCTOCODE_SECURITY_CHECKS',
   'ALLOWED_PATHS',
   'WORKSPACE_ROOT',
+  // Where graph snapshots are written: a repository must not choose it.
+  'OCTOCODE_GRAPH_HOME',
   'OCTOCODE_ALLOW_PRIVATE_REGISTRY',
   'OCTOCODE_CLASSIFICATION_API_HOST',
   // The classification key turns on provider calls that carry evidence: a

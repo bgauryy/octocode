@@ -1,4 +1,4 @@
-use super::emit::{answered_cell, emit, terminal_saved};
+use super::emit::{answered_cell, emit, terminal, terminal_saved};
 use super::*;
 use crate::cache::CacheConfig;
 use crate::execution::SelectionLimits;
@@ -21,7 +21,7 @@ pub(super) fn session() -> Session {
         keys: vec!["a".into(), "b".into()],
         model: Some("jev-1.13.0".into()),
         resolved_model: None,
-        long_context: false,
+        long_context: LongContext::OnRefusal,
         resources: vec![Resource {
             key: "resource".into(),
             metadata: json!({"status":"ready"}),
@@ -296,7 +296,9 @@ fn work_token_is_bounded_and_does_not_accept_arbitrary_plan_keys() {
         value.len() <= 128,
         "work token exceeded the canonical bound"
     );
-    assert_eq!(decode(&value), Some((id.as_str(), usize::MAX)));
+    assert_eq!(decode(&value), Some((id.as_str(), Some(usize::MAX))));
+    assert_eq!(decode(&quiet_token(&id)), Some((id.as_str(), None)));
+    assert!(quiet_token(&id).len() <= 128);
     assert!(decode("sections-v1:../other:0").is_none());
     assert!(decode(&format!("sections-v1:{}:no", id)).is_none());
 }
@@ -351,3 +353,378 @@ fn retained_work_is_partitioned_by_access_and_terminal_receipts_replay() {
             .is_none()
     );
 }
+
+/// A one-`noul`-question session whose sections answered `answers`, ids `s0`, `s1`, ….
+fn answered_session(answers: &[f64]) -> Session {
+    let mut session = session();
+    session.questions = json!({"a":{"type":"noul","instructions":"a"}});
+    session.keys = vec!["a".into()];
+    let template = session.resources[0].units[0].clone();
+    session.resources[0].units = answers
+        .iter()
+        .enumerate()
+        .map(|(index, p)| {
+            let mut unit = template.clone();
+            unit.metadata["id"] = json!(format!("s{index}"));
+            unit.cells = vec![Some(answered_cell(json!({"type":"noul","noul":p})))];
+            unit
+        })
+        .collect();
+    session
+}
+
+fn ids(output: &Value, resource: &str) -> Vec<String> {
+    output["resources"][resource]["sections"]
+        .as_array()
+        .map(|sections| {
+            sections
+                .iter()
+                .map(|section| section["id"].as_str().expect("id").to_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn shown_ids(output: &Value) -> Vec<String> {
+    ids(output, "resource")
+}
+
+/// One batch as a resumable runtime publishes it: emitted, then the hits view.
+fn page(session: &mut Session, last: bool) -> (Value, emit::Held) {
+    let mut output = emit(session, &ClassificationUsage::default(), None);
+    let held = emit::attach_continuations(&mut output, session, last);
+    (output, held)
+}
+
+/// C3e-2 hits view: a section every `noul` answered below 0.3 is held back
+/// and counted; the page shows what answered (RFC 2026-11-08 S15).
+#[test]
+fn quiet_sections_are_held_back_and_counted() {
+    let mut answers = vec![0.2; 22];
+    answers[7] = 0.53;
+    let mut session = answered_session(&answers);
+    let (output, _) = page(&mut session, true);
+    assert_eq!(shown_ids(&output), ["s7"]);
+    let coverage = &output["resources"]["resource"]["coverage"];
+    assert_eq!(coverage["quiet"], json!(21), "{coverage}");
+    assert_eq!(coverage["totalSections"], json!(22));
+    let token = output["next"]["quiet"]["input"]["queries"][0]["assessment"]
+        .as_str()
+        .expect("next.quiet on the last batch");
+    assert_eq!(decode(token), Some((session.id.as_str(), None)));
+    let replay = emit::quiet_replay(&session);
+    assert_eq!(replay["replayed"], json!(true));
+    assert_eq!(shown_ids(&replay).len(), 21);
+    assert!(!shown_ids(&replay).contains(&"s7".to_owned()));
+}
+
+#[test]
+fn shown_sections_rank_by_their_highest_noul_answer() {
+    let mut session = answered_session(&[0.4, 0.9, 0.2, 0.6]);
+    let (output, _) = page(&mut session, true);
+    assert_eq!(shown_ids(&output), ["s1", "s3", "s0"]);
+    assert_eq!(
+        output["resources"]["resource"]["coverage"]["quiet"],
+        json!(1)
+    );
+}
+
+#[test]
+fn failed_cells_and_non_noul_questions_are_never_quiet() {
+    let mut session = answered_session(&[0.1, 0.1]);
+    session.resources[0].units[1].cells[0] = Some(
+        json!({"status":"error","error":{"errorCode":"classificationProviderError","error":"refused"}}),
+    );
+    let (output, _) = page(&mut session, true);
+    assert_eq!(shown_ids(&output), ["s1"], "an error is never quiet");
+    let mut session = answered_session(&[0.1]);
+    session.questions = json!({"a":{"type":"choice","criteria":{"x":"x","y":"y"}}});
+    session.resources[0].units[0].cells = vec![Some(answered_cell(
+        json!({"type":"choice","choice":"x","confidence":0.1,"probabilities":{"x":0.55,"y":0.45}}),
+    ))];
+    let (output, _) = page(&mut session, true);
+    assert_eq!(shown_ids(&output), ["s0"], "a choice answer is shown");
+    assert!(
+        output["resources"]["resource"]["coverage"]
+            .get("quiet")
+            .is_none()
+    );
+    assert!(output["next"].get("quiet").is_none());
+}
+
+/// With nothing quiet the page is today's: no `coverage.quiet`, no `next.quiet`.
+#[test]
+fn nothing_quiet_keeps_todays_coverage() {
+    let mut session = answered_session(&[0.9, 0.3]);
+    let (output, _) = page(&mut session, true);
+    assert_eq!(shown_ids(&output), ["s0", "s1"]);
+    assert!(
+        output["resources"]["resource"]["coverage"]
+            .get("quiet")
+            .is_none()
+    );
+    assert!(output["next"].get("quiet").is_none());
+}
+
+/// A runtime that keeps no plan never holds back: no `next.quiet` could read it.
+#[test]
+fn a_page_with_no_kept_plan_shows_every_section() {
+    let mut session = answered_session(&[0.1, 0.9]);
+    let output = emit(&mut session, &ClassificationUsage::default(), None);
+    assert_eq!(shown_ids(&output), ["s0", "s1"]);
+}
+
+/// A plan that cannot be kept shows what it held back again (`Held::restore`).
+#[test]
+fn restore_shows_held_sections_and_drops_next_quiet() {
+    let mut session = answered_session(&[0.1, 0.9]);
+    let (mut output, held) = page(&mut session, true);
+    assert_eq!(shown_ids(&output), ["s1"]);
+    assert!(output["next"].get("quiet").is_some());
+    held.restore(&mut output);
+    let mut shown = shown_ids(&output);
+    shown.sort();
+    assert_eq!(shown, ["s0", "s1"]);
+    assert!(output["next"].get("quiet").is_none());
+    assert!(
+        output["resources"]["resource"]["coverage"]
+            .get("quiet")
+            .is_none()
+    );
+}
+
+/// Reachability walk (C3e-2 review): two resources, two batches, mixed
+/// answers. Every planned section reaches the caller exactly once, through a
+/// page or through the last batch's `next.quiet`; per resource, shown plus
+/// quiet is the total; nothing quiet holds a cell that is not answered.
+#[test]
+fn every_section_is_reachable_exactly_once_across_pages_and_next_quiet() {
+    let mut session = answered_session(&[0.1, 0.8, 0.2, 0.5, 0.05, 0.95]);
+    let mut other = session.resources[0].clone();
+    other.key = "other".into();
+    other.shown = None;
+    for (index, unit) in other.units.iter_mut().enumerate() {
+        unit.metadata["id"] = json!(format!("o{index}"));
+    }
+    session.resources.push(other);
+    let planned: Vec<(String, Vec<Option<Value>>)> = session
+        .resources
+        .iter()
+        .map(|resource| {
+            (
+                resource.key.clone(),
+                resource
+                    .units
+                    .iter()
+                    .map(|unit| unit.cells[0].clone())
+                    .collect(),
+            )
+        })
+        .collect();
+    // Batch 1 judges the first half of each resource, batch 2 the rest; an
+    // error and an unassessed cell land in batch 2.
+    for resource in &mut session.resources {
+        for unit in resource.units.iter_mut().skip(3) {
+            unit.cells[0] = None;
+        }
+    }
+    let (first, _) = page(&mut session, false);
+    assert!(
+        first["next"].get("quiet").is_none(),
+        "only the last batch lists them"
+    );
+    for (resource, (_, cells)) in session.resources.iter_mut().zip(&planned) {
+        for (unit, cell) in resource.units.iter_mut().zip(cells).skip(3) {
+            unit.cells[0] = cell.clone();
+        }
+    }
+    session.resources[1].units[4].cells[0] = Some(
+        json!({"status":"error","error":{"errorCode":"classificationProviderError","error":"refused"}}),
+    );
+    session.resources[1].units[5].cells[0] = Some(json!({"status":"unassessed","reason":"budget"}));
+    let (second, _) = page(&mut session, true);
+    assert!(second["next"].get("quiet").is_some());
+    let replay = emit::quiet_replay(&session);
+    let mut seen = std::collections::BTreeMap::<(String, String), usize>::new();
+    for output in [&first, &second, &replay] {
+        for key in ["resource", "other"] {
+            for id in ids(output, key) {
+                *seen.entry((key.to_owned(), id)).or_default() += 1;
+            }
+        }
+    }
+    let plan: std::collections::BTreeSet<(String, String)> = session
+        .resources
+        .iter()
+        .flat_map(|resource| {
+            resource.units.iter().map(|unit| {
+                (
+                    resource.key.clone(),
+                    unit.metadata["id"].as_str().expect("id").to_owned(),
+                )
+            })
+        })
+        .collect();
+    assert_eq!(
+        seen.keys()
+            .cloned()
+            .collect::<std::collections::BTreeSet<_>>(),
+        plan
+    );
+    assert!(seen.values().all(|count| *count == 1), "{seen:?}");
+    for key in ["resource", "other"] {
+        let shown = ids(&first, key).len() + ids(&second, key).len();
+        let quiet = second["resources"][key]["coverage"]["quiet"]
+            .as_u64()
+            .unwrap_or(0);
+        let total = second["resources"][key]["coverage"]["totalSections"]
+            .as_u64()
+            .expect("total");
+        assert_eq!(shown as u64 + quiet, total, "{key}");
+    }
+    for section in replay["resources"]
+        .as_object()
+        .expect("resources")
+        .values()
+        .flat_map(|row| row["sections"].as_array().into_iter().flatten())
+    {
+        assert!(
+            section["answers"]
+                .as_object()
+                .expect("answers")
+                .values()
+                .all(|cell| cell["status"] == "answered"),
+            "{section}"
+        );
+    }
+}
+
+/// C3e-2 review (RV-C3E note 2): batch 1 is kept and holds a quiet section;
+/// the terminal batch's plan cannot be kept, so no `next.quiet` can list
+/// anything. Every section of both batches still reaches the caller once.
+#[test]
+fn a_terminal_batch_whose_plan_is_not_kept_shows_every_held_section() {
+    let mut session = answered_session(&[0.1, 0.9, 0.2, 0.8]);
+    let planned: Vec<Option<Value>> = session.resources[0]
+        .units
+        .iter()
+        .map(|unit| unit.cells[0].clone())
+        .collect();
+    for unit in session.resources[0].units.iter_mut().skip(2) {
+        unit.cells[0] = None;
+    }
+    let (first, _) = page(&mut session, false);
+    assert_eq!(shown_ids(&first), ["s1"], "s0 is held back on batch 1");
+    for (unit, cell) in session.resources[0].units.iter_mut().zip(&planned).skip(2) {
+        unit.cells[0] = cell.clone();
+    }
+    // A disk store that admits no entry: the terminal save fails.
+    let dir = tempfile::tempdir().expect("dir");
+    let sessions = Sessions::new(
+        CacheConfig { disk_bytes: 1 },
+        Some(dir.path().to_path_buf()),
+        "policy".into(),
+    );
+    let runtime = Runtime {
+        sessions: &sessions,
+        access: [1; 32],
+        can_resume: true,
+    };
+    let terminal = terminal_saved(
+        &mut session,
+        "terminal",
+        ClassificationUsage::default(),
+        runtime,
+        &test_context(Duration::from_secs(5)),
+    )
+    .output;
+    assert!(
+        sessions
+            .store
+            .get(&sessions.key(&runtime.access, &session.id))
+            .is_none(),
+        "the plan was not kept"
+    );
+    assert!(terminal["next"].get("quiet").is_none(), "{terminal:#}");
+    let mut seen = shown_ids(&first);
+    seen.extend(shown_ids(&terminal));
+    seen.sort();
+    assert_eq!(seen, ["s0", "s1", "s2", "s3"], "{terminal:#}");
+}
+
+/// RV-CLS F1: a continuation that finds the previous process stopped
+/// mid-batch ends the plan like every terminal batch. Batch 1 was kept and
+/// held `s0` back; the interrupted batch's in-flight cells become errors.
+/// With the plan kept, `next.quiet` lists `s0`; with no plan kept, the
+/// terminal output shows it. Either way every section reaches the caller
+/// exactly once, and shown plus `coverage.quiet` is `totalSections`.
+#[test]
+fn an_interrupted_continuation_keeps_every_held_section_reachable() {
+    for kept in [true, false] {
+        let mut session = answered_session(&[0.1, 0.9, 0.2, 0.8]);
+        for unit in session.resources[0].units.iter_mut().skip(2) {
+            unit.cells[0] = None;
+        }
+        let (first, _) = page(&mut session, false);
+        assert_eq!(shown_ids(&first), ["s1"], "s0 is held back on batch 1");
+        session.active = vec![[0, 2], [0, 3]];
+        let dir = tempfile::tempdir().expect("dir");
+        // A disk store that admits no entry: the terminal save fails.
+        let sessions = if kept {
+            Sessions::new(CacheConfig::derived(), None, "policy".into())
+        } else {
+            Sessions::new(
+                CacheConfig { disk_bytes: 1 },
+                Some(dir.path().to_path_buf()),
+                "policy".into(),
+            )
+        };
+        let runtime = Runtime {
+            sessions: &sessions,
+            access: [1; 32],
+            can_resume: true,
+        };
+        let output =
+            interrupted(&mut session, runtime, &test_context(Duration::from_secs(5))).output;
+        let resource = &output["resources"]["resource"];
+        for section in resource["sections"].as_array().expect("sections") {
+            if ["s2", "s3"].contains(&section["id"].as_str().expect("id")) {
+                assert_eq!(section["answers"]["a"]["status"], "error", "{section}");
+            }
+        }
+        let mut seen = shown_ids(&first);
+        seen.extend(shown_ids(&output));
+        let shown = seen.len() as u64;
+        let retained = sessions
+            .store
+            .get(&sessions.key(&runtime.access, &session.id));
+        if kept {
+            let retained = retained.expect("the plan is kept for next.quiet");
+            assert!(
+                output["next"].get("quiet").is_some(),
+                "kept={kept}: {output:#}"
+            );
+            seen.extend(shown_ids(&emit::quiet_replay(&retained.value)));
+        } else {
+            assert!(retained.is_none(), "the plan was not kept");
+            assert!(output["next"].get("quiet").is_none(), "{output:#}");
+        }
+        seen.sort();
+        assert_eq!(
+            seen,
+            ["s0", "s1", "s2", "s3"],
+            "kept={kept}: next.quiet offered {}: {output:#}",
+            output["next"].get("quiet").is_some()
+        );
+        let quiet = resource["coverage"]["quiet"].as_u64().unwrap_or(0);
+        assert_eq!(
+            shown + quiet,
+            resource["coverage"]["totalSections"]
+                .as_u64()
+                .expect("total"),
+            "kept={kept}: {output:#}"
+        );
+    }
+}
+
+mod quiet_identity;

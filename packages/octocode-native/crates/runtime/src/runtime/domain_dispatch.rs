@@ -249,6 +249,13 @@ impl DomainDispatcher {
                     memory_only: !crate::config::is_persistent_storage_enabled(
                         &self.config.resolved,
                     ),
+                    graph_home: self
+                        .config
+                        .resolved
+                        .local
+                        .graph_home
+                        .as_deref()
+                        .map(std::path::Path::new),
                     cargo: self
                         .config
                         .env_value(crate::config::environment::OCTOCODE_CARGO),

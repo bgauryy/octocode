@@ -1,13 +1,18 @@
 //! The GitHub release-tag double artifact tests share.
 use super::super::release_ref::{
-    CheckFailure, CommitCheck, CommitFuture, ReleaseTags, TagCommitFuture, TagNamesFuture,
+    CheckFailure, CommitCheck, CommitFuture, ListedTag, ReleaseTags, TagCommitFuture,
+    TagRefsFuture, TreeFiles, TreeFilesFuture,
 };
 use std::sync::Mutex;
 
 /// GitHub's answer to every release-ref check: the refs that exist
 /// (`owner/repo@ref`), or one fixed answer (`None`: the check could not run).
-/// A repository's tag list is its known refs (none for a fixed answer).
-/// Records every check; a tag-list read as `owner/repo#tags`.
+/// A repository's tag list is its known refs (none for a fixed answer):
+/// `tag=<sha>` lists as a lightweight tag naming `<sha>`, a bare `tag` as an
+/// annotated one, read through `tag_commit`.
+/// A tree read at a commit lists the files set for it (`with_tree`), none
+/// otherwise. Records every check; a tag-list read as `owner/repo#tags`, a
+/// tree read as `owner/repo^tree@<commit>`.
 pub(crate) struct KnownTags {
     answer: Answer,
     /// What every commit check answers about the repository, when set.
@@ -16,6 +21,8 @@ pub(crate) struct KnownTags {
     failure: Option<CheckFailure>,
     /// Why every tag-list read fails, when set.
     listing_failure: Option<CheckFailure>,
+    /// The files of the tree at each commit set.
+    trees: Vec<(&'static str, Vec<&'static str>)>,
     seen: Mutex<Vec<String>>,
 }
 
@@ -31,6 +38,7 @@ impl KnownTags {
             repository: None,
             failure: None,
             listing_failure: None,
+            trees: Vec::new(),
             seen: Mutex::new(Vec::new()),
         }
     }
@@ -41,6 +49,7 @@ impl KnownTags {
             repository: None,
             failure: None,
             listing_failure: None,
+            trees: Vec::new(),
             seen: Mutex::new(Vec::new()),
         }
     }
@@ -72,6 +81,12 @@ impl KnownTags {
     /// Every tag-list read fails with `failure`.
     pub(crate) fn with_listing_failure(mut self, failure: CheckFailure) -> Self {
         self.listing_failure = Some(failure);
+        self
+    }
+
+    /// The tree at `commit` holds `files`.
+    pub(crate) fn with_tree(mut self, commit: &'static str, files: Vec<&'static str>) -> Self {
+        self.trees.push((commit, files));
         self
     }
 
@@ -117,14 +132,23 @@ impl ReleaseTags for KnownTags {
         Box::pin(async move { commit })
     }
 
-    fn tag_names<'a>(&'a self, owner: &'a str, repo: &'a str) -> TagNamesFuture<'a> {
+    fn tag_refs<'a>(&'a self, owner: &'a str, repo: &'a str) -> TagRefsFuture<'a> {
         let prefix = format!("{owner}/{repo}@");
         let names = match (&self.listing_failure, &self.answer) {
             (Some(failure), _) => Err(failure.clone()),
             (None, Answer::Known(known)) => Ok(known
                 .iter()
                 .filter_map(|entry| entry.strip_prefix(prefix.as_str()))
-                .map(|tag| tag.split_once('=').map_or(tag, |(tag, _)| tag).to_owned())
+                .map(|tag| match tag.split_once('=') {
+                    Some((name, commit)) => ListedTag {
+                        name: name.to_owned(),
+                        commit: Some(commit.to_owned()),
+                    },
+                    None => ListedTag {
+                        name: tag.to_owned(),
+                        commit: None,
+                    },
+                })
                 .collect()),
             (None, Answer::Always(Some(_))) => Ok(Vec::new()),
             (None, Answer::Always(None)) => Err(CheckFailure::Request),
@@ -154,5 +178,27 @@ impl ReleaseTags for KnownTags {
         };
         self.record(name);
         Box::pin(async move { check })
+    }
+
+    fn tree_files<'a>(
+        &'a self,
+        owner: &'a str,
+        repo: &'a str,
+        commit: &'a str,
+    ) -> TreeFilesFuture<'a> {
+        let files = match &self.answer {
+            Answer::Always(None) => Err(CheckFailure::Request),
+            _ => Ok(TreeFiles {
+                paths: self
+                    .trees
+                    .iter()
+                    .filter(|(at, _)| *at == commit)
+                    .flat_map(|(_, files)| files.iter().map(|file| (*file).to_owned()))
+                    .collect(),
+                truncated: false,
+            }),
+        };
+        self.record(format!("{owner}/{repo}^tree@{commit}"));
+        Box::pin(async move { files })
     }
 }

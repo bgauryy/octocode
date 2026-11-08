@@ -25,9 +25,14 @@ fn pattern(name: &str) -> usize {
 /// and the secrets it found there.
 fn read_tails(name: &str, text: &str) -> (usize, Found) {
     let syntax = CodeSyntax::of("a.ts", text).expect("a TypeScript grammar");
-    let judge = Judge::of(pattern(name), Scope::File("a.ts"), text, Some(&syntax));
+    let edits = crate::security::Edits::default();
+    let source = SourceSyntax {
+        syntax: &syntax,
+        edits: &edits,
+    };
+    let judge = Judge::of(pattern(name), Scope::File("a.ts"), text, Some(source));
     let mut scanned = 0;
-    let found = judge.tail_secrets(text, &syntax, &mut scanned);
+    let found = judge.tail_secrets(text, syntax.comment_lines(), &mut scanned);
     (scanned, found)
 }
 
@@ -328,6 +333,7 @@ fn every_word_tail(judge: &Judge<'_>, name: &str, text: &str, comment_at: usize)
                 &text[at..end],
                 line_start_of,
                 |key, secret, _| judge.value_test.redacts_in_comment(key, secret),
+                |secret| judge.value_end(&text[at..end], at, secret),
                 |whole, secret| {
                     let shift = |range: Range<usize>| range.start + at..range.end + at;
                     found.push((shift(whole), shift(secret)));

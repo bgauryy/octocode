@@ -217,6 +217,23 @@ impl<'a> Projector<'a> {
         return_types
     }
 
+    /// Data members of a function type by declaration node (see
+    /// [`Linker::function_typed`]).
+    fn function_typed(&self, symbols: &Symbols) -> HashSet<u32> {
+        self.built
+            .facts
+            .iter()
+            .filter_map(|(file, facts)| Some((symbols.indexes.get(file.as_str())?, facts)))
+            .flat_map(|(index, facts)| {
+                facts
+                    .declarations
+                    .iter()
+                    .filter(|decl| decl.function_typed)
+                    .filter_map(|decl| index.decl_nodes.get(decl.id.as_str()).copied())
+            })
+            .collect()
+    }
+
     pub(super) fn call_edges(&mut self, resolver: &ExportResolver, symbols: &Symbols) -> CallStats {
         let mut file_paths = vec![""; self.nodes.len()];
         let mut families = vec![""; self.nodes.len()];
@@ -247,9 +264,12 @@ impl<'a> Projector<'a> {
         let method = accepts(METHOD_TARGET);
         let is_type = accepts(TYPE_TARGET);
         let recovered = accepts(RECOVERED_TARGET);
+        let member_data = accepts(MEMBER_DATA);
+        let enum_member = accepts(ENUM_MEMBER);
         let empty_bases = BaseIndex::default();
         let rust_macros = self.rust_macro_names();
         let return_types = self.return_types(symbols);
+        let function_typed = self.function_typed(symbols);
         let no_declared = DeclaredTypes::default();
         let linker = Linker {
             resolver,
@@ -261,6 +281,9 @@ impl<'a> Projector<'a> {
             bases: &empty_bases,
             is_type: &is_type,
             recovered: &recovered,
+            member_data: &member_data,
+            enum_member: &enum_member,
+            function_typed: &function_typed,
             rust_macros: &rust_macros,
             return_types: &return_types,
             declared: &no_declared,
@@ -301,21 +324,7 @@ impl<'a> Projector<'a> {
             units.push((unit, facts));
         }
         let bases = base_index(&linked, unresolved_bases, scala_bases);
-        let declared = DeclaredTypes {
-            types: units
-                .iter()
-                .flat_map(|(unit, facts)| {
-                    facts.declared_types.iter().filter_map(|declared| {
-                        let node = unit
-                            .index
-                            .decl_nodes
-                            .get(declared.declaration_id.as_str())?;
-                        Some((*node, &declared.ty))
-                    })
-                })
-                .collect(),
-            units: units.iter().map(|(unit, _)| (unit.file_id, unit)).collect(),
-        };
+        let declared = DeclaredTypes::of(&units);
         let linker = Linker {
             bases: &bases,
             declared: &declared,

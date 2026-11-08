@@ -260,7 +260,8 @@ pub(super) struct Shaped {
 /// Redact the scan, order it, cut the page, and verify what it shows.
 /// A fresh scan (`fresh`) is encoded for its cursor: by page once its cut
 /// is made, or whole when its page judges rows before cutting
-/// (classification) or shows none (a list view); see [`super::packed`].
+/// (classification), shows none (a list view) or cuts a match-page grid;
+/// see [`super::packed`].
 ///
 /// Every file the page reads or shows passes the read policy first: the
 /// key-block reads inside [`redact_scan`] and each shown file here. A file
@@ -285,21 +286,22 @@ pub(super) fn shape_page(
     let cancelled = || scope.cancel.check().is_err();
     let (mut redacted, withheld, redaction) = redact_scan(scope, parsed, stored_redaction)?;
     let whole = local_search_query::has_classification(query)
-        || super::layout::list_view(local_search_query::view(query));
+        || super::layout::list_view(local_search_query::view(query))
+        || !local_search_query::streamed_layout(query);
     // A whole scan is encoded before the page reorders and fills it;
     // deflated only if the page's cursor keeps it (see
     // `manifest::put_checked`).
     let mut packed = (fresh && whole)
         .then(|| super::manifest::encode_checked(parsed, &cancelled))
         .flatten();
-    // The files whose key-block scan read their bytes, by path: the frames
-    // of a seekable scan are written in page order.
+    // The files with a key-block scan, by path (the frames of a seekable
+    // scan are written in page order): each page that shows one reads it
+    // again.
     let key_scans = if fresh && !whole {
         redaction
             .key_files
             .iter()
-            .filter(|(_, read)| read.is_some())
-            .filter_map(|(index, _)| Some(parsed.files.get(*index)?.path.clone()))
+            .map(|key| key.path.clone())
             .collect::<std::collections::HashSet<_>>()
     } else {
         std::collections::HashSet::new()

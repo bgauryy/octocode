@@ -70,6 +70,55 @@ impl Edits {
         })
     }
 
+    /// Where output byte `at` came from in the input: its own place outside
+    /// every replacement, the start of what a replacement took inside one.
+    #[must_use]
+    pub(crate) fn input_at(&self, at: usize) -> usize {
+        let after = self.0.partition_point(|edit| edit.output.start <= at);
+        match after.checked_sub(1).and_then(|last| self.0.get(last)) {
+            None => at,
+            Some(edit) if at < edit.output.end => edit.input.start,
+            Some(edit) => at - edit.output.end + edit.input.end,
+        }
+    }
+
+    /// The input bytes output bytes `range` came from: a replacement the range
+    /// touches counts whole.
+    #[must_use]
+    pub(crate) fn input_range(&self, range: &Range<usize>) -> Range<usize> {
+        let after = self.0.partition_point(|edit| edit.output.start < range.end);
+        let end = match after.checked_sub(1).and_then(|last| self.0.get(last)) {
+            None => range.end,
+            Some(edit) if range.end <= edit.output.end => edit.input.end,
+            Some(edit) => range.end - edit.output.end + edit.input.end,
+        };
+        let start = self.input_at(range.start);
+        start..end.max(start)
+    }
+
+    /// Where input byte `at` is in the output; `None` when a replacement took it.
+    #[must_use]
+    pub(crate) fn output_at(&self, at: usize) -> Option<usize> {
+        let after = self.0.partition_point(|edit| edit.input.start <= at);
+        match after.checked_sub(1).and_then(|last| self.0.get(last)) {
+            None => Some(at),
+            Some(edit) if at < edit.input.end => None,
+            Some(edit) => Some(at - edit.input.end + edit.output.end),
+        }
+    }
+
+    /// Where a range of the input that ends at `at` ends in the output: past
+    /// the replacement of an input range the end lies in or closes.
+    #[must_use]
+    pub(crate) fn output_end(&self, at: usize) -> usize {
+        let after = self.0.partition_point(|edit| edit.input.start < at);
+        match after.checked_sub(1).and_then(|last| self.0.get(last)) {
+            None => at,
+            Some(edit) if at <= edit.input.end => edit.output.end,
+            Some(edit) => at - edit.input.end + edit.output.end,
+        }
+    }
+
     /// Heap bytes these edits hold, for a cache that weighs what it keeps.
     #[must_use]
     pub fn heap_bytes(&self) -> usize {

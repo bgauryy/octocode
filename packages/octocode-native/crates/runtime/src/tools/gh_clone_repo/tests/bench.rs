@@ -9,7 +9,7 @@ pub(super) struct Bench {
     pub(super) _root: test_support::Fixture,
     pub(super) policy: PathPolicy,
     pub(super) endpoint: GitHubEndpoint,
-    pub(super) runner: RewriteRunner,
+    pub(super) runner: Arc<RewriteRunner>,
     pub(super) config: CloneConfig,
 }
 
@@ -38,7 +38,7 @@ impl Bench {
             "fixture-repo",
         )
         .expect("clone URL");
-        let runner = RewriteRunner::new(&url, &fixture.bare_url);
+        let runner = Arc::new(RewriteRunner::new(&url, &fixture.bare_url));
         let config = CloneConfig::persistent(&home);
         Self {
             fixture,
@@ -51,24 +51,26 @@ impl Bench {
     }
 
     pub(super) fn context(&self) -> CloneContext<'_> {
-        self.context_as(None)
+        setup(
+            self.runner.as_ref(),
+            &self.config,
+            &self.endpoint,
+            &self.policy,
+            &NeverCancel,
+            None,
+        )
     }
 
-    /// [`Self::context`] for the caller holding `credential`.
-    pub(super) fn context_as<'a>(
-        &'a self,
-        credential: Option<&'a ResolvedCredential>,
-    ) -> CloneContext<'a> {
-        CloneContext {
-            ..setup(
-                &self.runner,
-                &self.config,
-                &self.endpoint,
-                &self.policy,
-                &NeverCancel,
-                credential,
-            )
-        }
+    /// [`Self::context`] owned, as [`run`] takes it, for the caller holding
+    /// `credential`.
+    pub(super) fn setup_as(&self, credential: Option<&ResolvedCredential>) -> Arc<CloneSetup> {
+        owned_setup(
+            self.runner.clone(),
+            &self.config,
+            &self.endpoint,
+            &self.policy,
+            credential,
+        )
     }
 
     pub(super) fn clones_seen(&self) -> usize {
@@ -112,7 +114,7 @@ pub(super) async fn clone_as(
         provider,
         query,
         Ok(&request),
-        &bench.context_as(Some(&credential)),
+        &bench.setup_as(Some(&credential)),
     )
     .await
 }

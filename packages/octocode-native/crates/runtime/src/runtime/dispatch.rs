@@ -18,6 +18,8 @@ use serde_json::Value;
 /// The runtime-owned services a local row runs against.
 pub(super) struct LocalEnv<'a> {
     pub memory_only: bool,
+    /// `local.graphHome`: the graph snapshot home in place of the workspace's.
+    pub graph_home: Option<&'a std::path::Path>,
     pub paths: &'a PathPolicy,
     pub security: &'a ContentSecurity,
     pub cargo: Option<&'a str>,
@@ -36,6 +38,7 @@ pub(super) fn execute_local(
 ) -> Result<DomainResult, ExecutionError> {
     let &LocalEnv {
         memory_only,
+        graph_home,
         paths,
         security,
         selection,
@@ -61,7 +64,10 @@ pub(super) fn execute_local(
                 security,
                 context,
                 cargo,
-                memory_only,
+                &crate::tools::ast_graph::store::tools::Store {
+                    memory_only,
+                    home: graph_home,
+                },
             )
         }
         ToolId::GraphQuery => {
@@ -71,6 +77,7 @@ pub(super) fn execute_local(
                 paths,
                 context,
                 graph_rows.cloned(),
+                graph_home,
             )
         }
         ToolId::LocalFetch => {

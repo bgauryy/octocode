@@ -919,6 +919,7 @@
     },
     "graphBuild": {
       "evidence": [
+        "src/config/effect_tests/graph_home.rs",
         "src/tools/ast_graph/graph/checkpoint/tests.rs",
         "src/tools/ast_graph/store/tools/tests.rs",
         "src/tools/ast_graph/store/tests/ingest.rs",

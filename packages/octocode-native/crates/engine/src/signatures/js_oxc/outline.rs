@@ -69,6 +69,46 @@ fn attach_doc_lines(content: &str, declarations: &mut [GraphFactDeclaration]) {
 /// base type name as written (`Base`, `ns.Base`). Syntax only: `to` is not a
 /// resolved declaration. A clause whose declaring name has no outline
 /// declaration (a class nested in a function body) is dropped.
+/// Export each declaration a CommonJS value holds (its binding span, see
+/// `CommonJsExports::members`) under its public names, wherever it is
+/// declared: a member function can sit inside the factory that builds the
+/// value.
+pub(super) fn mark_member_exports(
+    declarations: &mut [GraphFactDeclaration],
+    members: &[(oxc_span::Span, String)],
+) {
+    for declaration in declarations.iter_mut() {
+        let Some(start) = declaration
+            .selection_byte_range
+            .map(|span| span.range.start_byte)
+        else {
+            continue;
+        };
+        let mut public = members
+            .iter()
+            .filter(|(span, _)| span.start == start)
+            .map(|(_, name)| name.clone())
+            .peekable();
+        if public.peek().is_none() {
+            continue;
+        }
+        let mut names = match (declaration.exported, declaration.exported_as.is_empty()) {
+            (false, _) => Vec::new(),
+            (true, true) => vec![declaration.name.clone()],
+            (true, false) => declaration.exported_as.clone(),
+        };
+        names.extend(public);
+        names.sort();
+        names.dedup();
+        declaration.exported = true;
+        declaration.exported_as = if names == [declaration.name.as_str()] {
+            Vec::new()
+        } else {
+            names
+        };
+    }
+}
+
 /// Each declared type keyed by its declaration's name token and kind, as the
 /// declaration id it belongs to.
 pub(super) fn declared_types_of(
@@ -197,6 +237,7 @@ fn flatten_symbols(
             prototype: false,
             return_type: None,
             try_type: None,
+            function_typed: false,
         });
         if let Some(parent_id) = parent {
             edges.push(GraphFactEdge {

@@ -151,6 +151,30 @@ pub(super) fn link_calls(
         calls.sites += 1;
         let receiver_type = received.receiver_type(call.receiver_type.as_deref());
         let (caller, resolved) = resolve_call(linker, unit, call, receiver_type, callable, method);
+        // A written call that names an enum member through its type
+        // (`Attempt::Done(1)`) constructs it, as `new T()` constructs a class.
+        let (resolved, constructs) = match resolved {
+            Err(_)
+                if call.binding == GraphCallBinding::SyntaxLookup
+                    && !split_callee(&call.callee).0.is_empty() =>
+            {
+                let never = |_: u32| false;
+                match resolve_call(
+                    linker,
+                    unit,
+                    call,
+                    receiver_type,
+                    linker.enum_member,
+                    &never,
+                )
+                .1
+                {
+                    Ok(linked) => (Ok(linked), true),
+                    Err(_) => (resolved, false),
+                }
+            }
+            resolved => (resolved, false),
+        };
         let Ok((targets, resolution, confidence)) = resolved else {
             let reason = resolved.err().unwrap_or("other");
             calls.unresolved += 1;
@@ -189,6 +213,7 @@ pub(super) fn link_calls(
         // JSX renders, bare decorators and `new` keep their kind visible:
         // `renders:import`, `constructs:local`.
         let detail = match call.kind.as_str() {
+            _ if constructs => format!("constructs:{resolution}"),
             "" | "calls" | "call" => resolution.to_owned(),
             kind => format!("{kind}:{resolution}"),
         };
@@ -234,15 +259,53 @@ fn resolve_call(
         // a JS/TS class or object member is never in lexical scope. A bare
         // name can still name a nested free function; Java/C++ may also call
         // methods through an implicit receiver; a Go method never is a bare name.
-        let bare_lexical = (matches!(unit.language, "rust" | "go")
-            || ecosystem(unit.language) == "npm")
-            && qualifier.is_empty()
-            && receiver_type.is_none();
+        let bare = qualifier.is_empty() && receiver_type.is_none();
+        let bare_lexical =
+            (matches!(unit.language, "rust" | "go") || ecosystem(unit.language) == "npm") && bare;
+        // A type's data (a field, an enum member) is reached through a
+        // receiver or the type, in every language: a bare name never is one,
+        // except a member of a function type called inside its own type in a
+        // language with an implicit receiver (Scala `f()` for `val f: A =>
+        // B`, C# `cb()` for `Action cb`, C++ `cb()` for a `std::function`).
+        // A callable member of the same type and name wins (a Java accessor
+        // `name()` beside its field `name`): the same type, never a
+        // same-named type elsewhere.
+        let implicit_receiver = matches!(unit.language, "scala" | "csharp" | "cpp" | "cuda");
+        let bare_data = |id: u32| {
+            let owner = linker.nodes[id as usize].parent;
+            implicit_receiver
+                && owner != NONE
+                && linker.function_typed.contains(&id)
+                && linker.chain(Some(caller)).any(|scope| scope == owner)
+        };
+        let data_shadowed = |id: u32| {
+            let parent = linker.nodes[id as usize].parent;
+            parent != NONE
+                && linker
+                    .members
+                    .get(&(
+                        linker.strings[linker.nodes[parent as usize].name as usize].as_str(),
+                        name,
+                    ))
+                    .is_some_and(|ids| {
+                        ids.iter().any(|&other| {
+                            other != id
+                                && callable(other)
+                                && !(linker.member_data)(other)
+                                && linker.same_type(parent, linker.nodes[other as usize].parent)
+                        })
+                    })
+        };
         let accept = |id| match call.binding {
             GraphCallBinding::ConstructedType => {
                 constructors::admits(linker, caller, id, &call.callee)
             }
-            GraphCallBinding::SyntaxLookup => callable(id) && (!bare_lexical || !method(id)),
+            GraphCallBinding::SyntaxLookup => {
+                callable(id)
+                    && (!bare_lexical || !method(id))
+                    && !((linker.member_data)(id)
+                        && ((bare && !bare_data(id)) || data_shadowed(id)))
+            }
             GraphCallBinding::Unassessed { .. } => false,
         };
         let site = Site {

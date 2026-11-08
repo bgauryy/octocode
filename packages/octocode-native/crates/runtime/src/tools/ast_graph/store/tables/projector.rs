@@ -281,7 +281,7 @@ impl<'a> Projector<'a> {
             } else if module_holders.contains(decl.id.as_str()) {
                 REFERENCE_TARGET | RECOVERED_TARGET
             } else {
-                target_bits(&decl.kind)
+                target_bits(&decl.kind, is_member_data(decl, &by_id))
             };
             let source_origin = self.sources.origin(file, decl.source_range);
             let source_digest = self

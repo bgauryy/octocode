@@ -29,13 +29,13 @@ pub(crate) use npmrc::npm_authorization;
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 pub(crate) use pins::{Pin, exact_pins};
 pub use release_ref::{
-    CheckFailure, CommitCheck, CommitFuture, FailedTags, ReleaseTag, ReleaseTags, TagCommitFuture,
-    TagNamesFuture,
+    CheckFailure, CommitCheck, CommitFuture, FailedTags, ListedTag, ReleaseTag, ReleaseTags,
+    TagCommitFuture, TagRefsFuture, TreeFiles, TreeFilesFuture,
 };
 pub(crate) use types::alias_groups;
 pub use types::{
     Advisory, ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState,
-    RepositoryStatus, ResolvedNpmRegistry, TerminalLimit,
+    RepositoryStatus, ResolvedNpmRegistry, TagAbsence, TerminalLimit,
 };
 pub(crate) use util::{github_repository, github_slug, release_ref_in};
 

@@ -55,6 +55,11 @@ impl StreamCuts {
         self.lock().as_deref().map_or(0, |pages| cut_weight(pages))
     }
 
+    /// Drop the kept cut.
+    pub(super) fn clear(&self) {
+        *self.lock() = None;
+    }
+
     /// Where a cut made once the scan is stored is charged.
     pub(super) fn billing(&self) -> &super::manifest::Billing {
         &self.1
@@ -217,9 +222,9 @@ impl Layout {
         })
     }
 
-    /// The layout of the page `query` asks for of a seekable stored scan,
-    /// from the cut its first page stored (`index`): no row is ranked or
-    /// priced again. `shown` are the page's own rows (see
+    /// The layout of the page `query` asks for of a seekable stored scan
+    /// (always streamed), from the cut its first page stored (`index`): no
+    /// row is ranked or priced again. `shown` are the page's own rows (see
     /// [`super::page_view::PageView`]).
     pub(super) fn from_index(
         query: &LocalSearchQuery,
@@ -232,35 +237,19 @@ impl Layout {
         } else {
             local_search_query::context(query)
         };
-        let (streamed, total_pages, files_per_page, total_items) = match &index.cut {
-            super::packed::Cut::Stream { pages } => (
-                true,
-                saturating_u32(pages.len()).max(1),
-                None,
-                index.total_rows,
-            ),
-            super::packed::Cut::Grid { page_size, .. } => (
-                false,
-                saturating_u32(crate::response::page_windows::count_pages(
-                    index.total_files as usize,
-                    octocode_engine::num::saturating_usize(*page_size),
-                )),
-                Some(*page_size),
-                index.total_files,
-            ),
-        };
+        let total_pages = saturating_u32(index.pages.len()).max(1);
         Self {
             list: false,
             out_of_range: index.total_files > 0
                 && local_search_query::page(query).max(1) > total_pages,
             shown,
             total_pages,
-            files_per_page,
-            total_items,
+            files_per_page: None,
+            total_items: index.total_rows,
             matches_per: index.matches_per,
             merge_context: (!match_only && !context.is_empty()).then_some(context),
             context,
-            streamed,
+            streamed: true,
             pages: None,
         }
     }

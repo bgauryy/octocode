@@ -48,6 +48,15 @@ pub struct NamedRef {
     pub sha: String,
 }
 
+/// A tag of a repository as its git ref names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TagRef {
+    pub name: String,
+    /// The commit a lightweight tag's ref names; `None` for an annotated tag
+    /// (its ref names the tag object) or a ref whose object GitHub left out.
+    pub commit: Option<String>,
+}
+
 /// One provider page of branches or tags, in GitHub's order.
 #[derive(Clone, Debug, Default)]
 pub struct RefPage {
@@ -107,24 +116,48 @@ impl GitHubTransport {
         })
     }
 
-    /// Every tag name of a repository, from its git refs, read page by page
-    /// (`per_page=100`, by our own page number, whatever origin a forwarded
-    /// `Link` names) until GitHub links no next page, bounded by the
-    /// request's deadline: the whole set a caller orders itself, which
-    /// GitHub's tag pages (reverse-lexicographic) cannot give. A repository
-    /// with no commits has none.
+    /// Every tag name of a repository ([`Self::repository_tag_refs`]).
     pub async fn repository_tag_names(
         &self,
         owner: &str,
         repo: &str,
         context: &RequestContext,
     ) -> Result<Vec<String>, ProviderError> {
+        Ok(self
+            .repository_tag_refs(owner, repo, context)
+            .await?
+            .into_iter()
+            .map(|tag| tag.name)
+            .collect())
+    }
+
+    /// Every tag of a repository, from its git refs, read page by page
+    /// (`per_page=100`, by our own page number, whatever origin a forwarded
+    /// `Link` names) until GitHub links no next page, bounded by the
+    /// request's deadline: the whole set a caller orders itself, which
+    /// GitHub's tag pages (reverse-lexicographic) cannot give. Each tag
+    /// keeps the object its ref names, so a lightweight tag's commit needs no
+    /// further read. A repository with no commits has none.
+    pub async fn repository_tag_refs(
+        &self,
+        owner: &str,
+        repo: &str,
+        context: &RequestContext,
+    ) -> Result<Vec<TagRef>, ProviderError> {
         #[derive(Deserialize)]
-        struct TagRef {
+        struct Row {
             #[serde(rename = "ref")]
             name: String,
+            #[serde(default)]
+            object: Option<RowObject>,
         }
-        let mut names = Vec::new();
+        #[derive(Deserialize)]
+        struct RowObject {
+            sha: Option<String>,
+            #[serde(rename = "type")]
+            kind: Option<String>,
+        }
+        let mut tags = Vec::new();
         for page in 1_usize.. {
             let mut url =
                 self.endpoint()
@@ -135,24 +168,29 @@ impl GitHubTransport {
             let response = match self.execute(RequestSpec::get(url), context).await {
                 Ok(response) => response,
                 // GitHub answers an empty repository's refs with 409.
-                Err(error) if error.status == Some(409) => return Ok(names),
+                Err(error) if error.status == Some(409) => return Ok(tags),
                 Err(error) => return Err(repository_missing(error)),
             };
-            let rows: Vec<TagRef> = serde_json::from_slice(&response.body).map_err(|_| {
+            let rows: Vec<Row> = serde_json::from_slice(&response.body).map_err(|_| {
                 ProviderError::new(
                     ProviderErrorKind::Decode,
                     "invalid GitHub tag refs response",
                 )
             })?;
-            names.extend(
-                rows.into_iter()
-                    .filter_map(|row| row.name.strip_prefix("refs/tags/").map(str::to_owned)),
-            );
+            tags.extend(rows.into_iter().filter_map(|row| {
+                let name = row.name.strip_prefix("refs/tags/")?.to_owned();
+                let object = row.object;
+                let commit = object
+                    .as_ref()
+                    .filter(|object| object.kind.as_deref() == Some("commit"))
+                    .and_then(|object| object.sha.clone());
+                Some(TagRef { name, commit })
+            }));
             if response.next.is_none() {
                 break;
             }
         }
-        Ok(names)
+        Ok(tags)
     }
 
     /// Whether `reference` names a branch, a tag, or neither (a commit),

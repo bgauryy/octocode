@@ -9,9 +9,30 @@
  "unread": [
   "affected[*].package.ecosystem",
   "affected[*].package.purl",
+  "credits[*].user.avatar_url",
+  "credits[*].user.events_url",
+  "credits[*].user.followers_url",
+  "credits[*].user.following_url",
+  "credits[*].user.gists_url",
+  "credits[*].user.html_url",
+  "credits[*].user.id",
+  "credits[*].user.node_id",
+  "credits[*].user.organizations_url",
+  "credits[*].user.received_events_url",
+  "credits[*].user.repos_url",
+  "credits[*].user.starred_url",
+  "credits[*].user.subscriptions_url",
+  "credits[*].user.type",
+  "credits[*].user.url",
+  "credits[*].user.user_view_type",
+  "cwes[*].name",
   "database_specific.github_reviewed_at",
   "database_specific.nvd_published_at",
-  "schema_version"
+  "github_reviewed_at",
+  "nvd_published_at",
+  "schema_version",
+  "source_code_location",
+  "vulnerabilities[*].package.ecosystem"
  ],
  "exchanges": [
   {
@@ -27,7 +48,7 @@
      "application/json"
     ]
    ],
-   "digest": "sha256:cae7b9b88a6162338a055a4bd81a5f3dbf5e637b2fc2efb765716c75ede686fc",
+   "digest": "sha256:75a505d298d6e520431d9dfdd16773a66dc8df1aa2c0f9775b468568475962aa",
    "body": {
     "id": "GHSA-29mw-wpgm-hmr9",
     "summary": "Regular Expression Denial of Service (ReDoS) in lodash",
@@ -38,14 +59,14 @@
     "modified": "2025-09-29T21:12:31.102523Z",
     "published": "2022-01-06T20:30:46Z",
     "database_specific": {
-     "github_reviewed_at": "2021-03-19T22:45:28Z",
      "nvd_published_at": "2021-02-15T11:15:00Z",
      "cwe_ids": [
       "CWE-1333",
       "CWE-400"
      ],
      "severity": "MODERATE",
-     "github_reviewed": true
+     "github_reviewed": true,
+     "github_reviewed_at": "2021-03-19T22:45:28Z"
     },
     "references": [
      {
@@ -139,6 +160,168 @@
       "score": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L"
      }
     ]
+   }
+  },
+  {
+   "request": {
+    "method": "GET",
+    "url": "https://api.github.com/advisories/GHSA-29mw-wpgm-hmr9",
+    "accept": "application/vnd.github+json"
+   },
+   "status": 200,
+   "headers": [
+    [
+     "cache-control",
+     "private, max-age=60, s-maxage=60"
+    ],
+    [
+     "content-type",
+     "application/json; charset=utf-8"
+    ],
+    [
+     "etag",
+     "\"e6a7a9a52457bdbff9dc5e84fc6de3761a5700796f5ed6f57d03d7f7caf7461b\""
+    ]
+   ],
+   "digest": "sha256:72b126165303330bdfce6f5ea852162b2efa565796049a9166d53cc2ee381a16",
+   "body": {
+    "ghsa_id": "GHSA-29mw-wpgm-hmr9",
+    "cve_id": "CVE-2020-28500",
+    "url": "https://api.github.com/advisories/GHSA-29mw-wpgm-hmr9",
+    "html_url": "https://github.com/advisories/GHSA-29mw-wpgm-hmr9",
+    "summary": "Regular Expression Denial of Service (ReDoS) in lodash",
+    "description": "All versions of package lodash prior to 4.17.21 are vulnerable to Regular Expression Denial of Service (ReDoS) via the `toNumber`, `trim` and `trimEnd` functions. \n\nSteps to reproduce (provided by reporter Liyuan Chen):\n```js\nvar lo = require('lodash');\n\nfunction build_blank(n) {\n    var ret = \"1\"\n    for (var i = 0; i < n; i++) {\n        ret += \" \"\n    }\n    return ret + \"1\";\n}\nvar s = build_blank(50000) var time0 = Date.now();\nlo.trim(s) \nvar time_cost0 = Date.now() - time0;\nconsole.log(\"time_cost0: \" + time_cost0);\nvar time1 = Date.now();\nlo.toNumber(s) var time_cost1 = Date.now() - time1;\nconsole.log(\"time_cost1: \" + time_cost1);\nvar time2 = Date.now();\nlo.trimEnd(s);\nvar time_cost2 = Date.now() - time2;\nconsole.log(\"time_cost2: \" + time_cost2);\n```",
+    "type": "reviewed",
+    "severity": "medium",
+    "repository_advisory_url": null,
+    "source_code_location": "https://github.com/lodash/lodash",
+    "identifiers": [
+     {
+      "value": "GHSA-29mw-wpgm-hmr9",
+      "type": "GHSA"
+     },
+     {
+      "value": "CVE-2020-28500",
+      "type": "CVE"
+     }
+    ],
+    "references": [
+     "https://nvd.nist.gov/vuln/detail/CVE-2020-28500",
+     "https://github.com/advisories/GHSA-29mw-wpgm-hmr9"
+    ],
+    "published_at": "2022-01-06T20:30:46Z",
+    "updated_at": "2025-09-29T20:19:46Z",
+    "github_reviewed_at": "2021-03-19T22:45:28Z",
+    "nvd_published_at": "2021-02-15T11:15:00Z",
+    "withdrawn_at": null,
+    "vulnerabilities": [
+     {
+      "package": {
+       "ecosystem": "npm",
+       "name": "lodash"
+      },
+      "vulnerable_version_range": ">= 4.0.0, < 4.17.21",
+      "first_patched_version": "4.17.21",
+      "vulnerable_functions": []
+     },
+     {
+      "package": {
+       "ecosystem": "npm",
+       "name": "lodash.trimend"
+      },
+      "vulnerable_version_range": ">= 4.0.0, <= 4.5.1",
+      "first_patched_version": null,
+      "vulnerable_functions": []
+     },
+     {
+      "package": {
+       "ecosystem": "rubygems",
+       "name": "lodash-rails"
+      },
+      "vulnerable_version_range": ">= 4.0.0, < 4.17.21",
+      "first_patched_version": "4.17.21",
+      "vulnerable_functions": []
+     }
+    ],
+    "cvss_severities": {
+     "cvss_v3": {
+      "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+      "score": 5.3
+     },
+     "cvss_v4": {
+      "vector_string": null,
+      "score": 0
+     }
+    },
+    "cwes": [
+     {
+      "cwe_id": "CWE-400",
+      "name": "Uncontrolled Resource Consumption"
+     },
+     {
+      "cwe_id": "CWE-1333",
+      "name": "Inefficient Regular Expression Complexity"
+     }
+    ],
+    "credits": [
+     {
+      "user": {
+       "login": "mitchell-codecov",
+       "id": 88285871,
+       "node_id": "MDQ6VXNlcjg4Mjg1ODcx",
+       "avatar_url": "https://avatars.githubusercontent.com/u/88285871?v=4",
+       "gravatar_id": "",
+       "url": "https://api.github.com/users/mitchell-codecov",
+       "html_url": "https://github.com/mitchell-codecov",
+       "followers_url": "https://api.github.com/users/mitchell-codecov/followers",
+       "following_url": "https://api.github.com/users/mitchell-codecov/following{/other_user}",
+       "gists_url": "https://api.github.com/users/mitchell-codecov/gists{/gist_id}",
+       "starred_url": "https://api.github.com/users/mitchell-codecov/starred{/owner}{/repo}",
+       "subscriptions_url": "https://api.github.com/users/mitchell-codecov/subscriptions",
+       "organizations_url": "https://api.github.com/users/mitchell-codecov/orgs",
+       "repos_url": "https://api.github.com/users/mitchell-codecov/repos",
+       "events_url": "https://api.github.com/users/mitchell-codecov/events{/privacy}",
+       "received_events_url": "https://api.github.com/users/mitchell-codecov/received_events",
+       "type": "User",
+       "user_view_type": "public",
+       "site_admin": false
+      },
+      "type": "analyst"
+     },
+     {
+      "user": {
+       "login": "levpachmanov",
+       "id": 31389480,
+       "node_id": "MDQ6VXNlcjMxMzg5NDgw",
+       "avatar_url": "https://avatars.githubusercontent.com/u/31389480?v=4",
+       "gravatar_id": "",
+       "url": "https://api.github.com/users/levpachmanov",
+       "html_url": "https://github.com/levpachmanov",
+       "followers_url": "https://api.github.com/users/levpachmanov/followers",
+       "following_url": "https://api.github.com/users/levpachmanov/following{/other_user}",
+       "gists_url": "https://api.github.com/users/levpachmanov/gists{/gist_id}",
+       "starred_url": "https://api.github.com/users/levpachmanov/starred{/owner}{/repo}",
+       "subscriptions_url": "https://api.github.com/users/levpachmanov/subscriptions",
+       "organizations_url": "https://api.github.com/users/levpachmanov/orgs",
+       "repos_url": "https://api.github.com/users/levpachmanov/repos",
+       "events_url": "https://api.github.com/users/levpachmanov/events{/privacy}",
+       "received_events_url": "https://api.github.com/users/levpachmanov/received_events",
+       "type": "User",
+       "user_view_type": "public",
+       "site_admin": false
+      },
+      "type": "analyst"
+     }
+    ],
+    "comments": 0,
+    "cvss": {
+     "vector_string": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L",
+     "score": 5.3
+    },
+    "epss": {
+     "percentage": 0.07336,
+     "percentile": 0.93601
+    }
    }
   }
  ]

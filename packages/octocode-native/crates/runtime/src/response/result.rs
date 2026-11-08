@@ -222,6 +222,11 @@ pub(crate) const HINTS_KEY: &str = "hints";
 pub(crate) struct ToolDiagnostics {
     pub partial_reasons: Vec<crate::response::paging::PartialReason>,
     pub hints: Vec<String>,
+    /// The row's linear walk continues the page it answered (the rest of
+    /// one provider page the row's share of the response window did not
+    /// hold), so it is the response's continuation: publication states it as
+    /// `responsePagination.next`.
+    pub continues_page: bool,
 }
 impl ToolDiagnostics {
     /// A recovery hint, once.

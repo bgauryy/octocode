@@ -1,6 +1,6 @@
 //! Release-source labels, source leads and repair leads.
 use super::{advisory_lead, label_release_source, source_leads, source_warning};
-use crate::providers::artifact::ArtifactItem;
+use crate::providers::artifact::{ArtifactItem, TagAbsence};
 use octocode_contract_types::ArtifactType;
 use serde_json::json;
 
@@ -144,22 +144,47 @@ fn an_unread_tag_list_scopes_the_no_tag_claim_and_names_its_cause() {
     row.version = Some("2.14.1".into());
     row.source_ref = Some("log4j-2.14.1-rc1".into());
     row.declared_ref = true;
-    row.tags_unlisted = Some("GitHub's rate limit stopped it".into());
+    row.tag_absence = Some(TagAbsence::ListUnread(
+        "GitHub's rate limit stopped it".into(),
+    ));
     label_release_source(&mut row, true);
     assert_eq!(
         source_warning(&row).as_deref(),
         Some(
-            "org.apache.logging.log4j:log4j-core 2.14.1: no tag of the shapes checked names this version, and its tag list could not be read (GitHub's rate limit stopped it); ref log4j-2.14.1-rc1 is the tag its metadata declares, unchecked against the release."
+            "org.apache.logging.log4j:log4j-core 2.14.1: no tag of the shapes checked names this version; its tag list could not be read (GitHub's rate limit stopped it), so a tag may still name it; ref log4j-2.14.1-rc1 is the tag its metadata declares, unchecked against the release."
         )
     );
     let mut unpinned = item(ArtifactType::Npm, "https://github.com/o/r");
     unpinned.version = Some("1.0.0".into());
-    unpinned.tags_unlisted = Some("GitHub's rate limit stopped it".into());
+    unpinned.tag_absence = Some(TagAbsence::ListUnread(
+        "GitHub's rate limit stopped it".into(),
+    ));
     label_release_source(&mut unpinned, true);
     assert_eq!(
         source_warning(&unpinned).as_deref(),
         Some(
             "x 1.0.0: the registry names no release ref, and no tag of the shapes checked names this version; its tag list could not be read (GitHub's rate limit stopped it), so a tag may still name it; its source on the default branch may be another version."
+        )
+    );
+    // No shape could be checked: none is claimed checked.
+    unpinned.tag_absence = Some(TagAbsence::Unchecked(
+        "GitHub's rate limit stopped it".into(),
+    ));
+    assert_eq!(
+        source_warning(&unpinned).as_deref(),
+        Some(
+            "x 1.0.0: the registry names no release ref, and no tag could be checked on GitHub (GitHub's rate limit stopped it), so a tag may name this version; its source on the default branch may be another version."
+        )
+    );
+    // Only another package's tags name it.
+    unpinned.tag_absence = Some(TagAbsence::OtherPackagesOnly(vec![
+        "a@1.0.0".into(),
+        "b-v1.0.0".into(),
+    ]));
+    assert_eq!(
+        source_warning(&unpinned).as_deref(),
+        Some(
+            "x 1.0.0: the registry names no release ref, and only tags of other packages (a@1.0.0, b-v1.0.0) name this version; its source on the default branch may be another version."
         )
     );
 }

@@ -111,6 +111,31 @@ impl Linker<'_> {
         if nested_item { parent } else { owner }
     }
 
+    /// Whether the member containers `a` and `b` are one type: the same
+    /// declaration, or a Rust type and an `impl` block of its name in its
+    /// crate, which rust-analyzer collects into one method set.
+    pub(super) fn same_type(&self, a: u32, b: u32) -> bool {
+        if a == b {
+            return true;
+        }
+        if a == NONE || b == NONE {
+            return false;
+        }
+        let crate_dir = |id: u32| {
+            self.scope
+                .path(self.file_of(id))
+                .map(|path| self.scope.rust_crate_dir(path))
+        };
+        let block_of = |block: u32, ty: u32| {
+            self.kind_of(block) == "impl"
+                && self.is_rust(block)
+                && self.strings[self.nodes[block as usize].name as usize]
+                    == self.strings[self.nodes[ty as usize].name as usize]
+                && crate_dir(block).is_some_and(|dir| crate_dir(ty) == Some(dir))
+        };
+        block_of(a, b) || block_of(b, a)
+    }
+
     /// The declaration kind of symbol `id` (`impl`, `module`, `method`, …).
     pub(super) fn kind_of(&self, id: u32) -> &str {
         self.strings[self.nodes[id as usize].detail as usize].as_str()

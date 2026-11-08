@@ -3,9 +3,11 @@
 //! (GitHub's, RUSTSEC, PYSEC), each its own record naming the others as
 //! aliases. When a listed record names an alias that OSV keeps for the same
 //! package and does not list at the version, the two databases disagree on
-//! whether the version is affected. The row states that per record instead of
-//! picking one: OSV's server decides what a range holds, never this module.
+//! whether the version is affected. The row counts the record OSV lists, as
+//! OSV's server decides what a range holds, never this module, and names the
+//! record that disagrees on the row, in the answer and in a warning.
 use super::Net;
+use super::answer::{stated_id, typed};
 use super::osv;
 use super::record::{Selection, own_entries};
 use super::source::{Confirmed, SourceResult};
@@ -62,8 +64,10 @@ pub(super) async fn mark(
             // OSV keeps no such record, or one about another package.
             Ok(_) => {}
             Err(error) => warnings.push(format!(
-                "The record {alias} was not read ({}), so whether its database agrees that {version} is affected is unknown.",
-                error.message
+                "The record {} was not read ({}), so whether its database agrees that {} is affected is unknown.",
+                stated_id(&alias),
+                osv::unread_reason(&error),
+                typed(version)
             )),
         }
     }
@@ -79,11 +83,14 @@ pub(super) async fn mark(
             disputed.insert(row.id.clone(), row.disputed_by.clone());
         }
     }
+    // Ids and names as the answer states them: no source writes prose here.
+    let version = typed(version);
     for (id, by) in disputed {
         warnings.push(format!(
-            "The databases disagree on {version}: OSV lists {id} at it, but {} names {} too and is not listed at it. Read each record's ranges; the row picks neither.",
-            by.join(", "),
-            confirmed.name
+            "The databases disagree on {version}: the row counts {} as affecting it, as OSV lists it there; {}, another database's record of it that names {}, does not list {version}. Read each record's ranges.",
+            stated_id(&id),
+            by.iter().map(|id| stated_id(id)).collect::<Vec<_>>().join(", "),
+            typed(&confirmed.name)
         ));
     }
     warnings

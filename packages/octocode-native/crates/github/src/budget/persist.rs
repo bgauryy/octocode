@@ -21,6 +21,38 @@ const WRITE_LOCK_WAIT: Duration = Duration::from_secs(1);
 /// and it must not hold the group until its own time arrives.
 const PEER_STAMP_HORIZON_MS: u64 = 120_000;
 
+/// Detached writes of every key of every budget in this process that may
+/// still be queued or running ([`KeyState::persist_detached`]).
+static DETACHED: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>> =
+    std::sync::Mutex::new(Vec::new());
+
+fn detached() -> std::sync::MutexGuard<'static, Vec<tokio::task::JoinHandle<()>>> {
+    DETACHED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn track_detached(write: tokio::task::JoinHandle<()>) {
+    let mut writes = detached();
+    writes.retain(|write| !write.is_finished());
+    writes.push(write);
+}
+
+/// Await every detached write, including those a finishing write started.
+pub(super) async fn flush_detached() {
+    loop {
+        let writes = std::mem::take(&mut *detached());
+        if writes.is_empty() {
+            return;
+        }
+        for write in writes {
+            // A write whose runtime already stopped ends as cancelled: there
+            // is nothing left to wait for.
+            let _ = write.await;
+        }
+    }
+}
+
 /// Say on stderr, once per process ([`octocode_io::notice`]), that the shared
 /// record cannot be used and this process paces alone: the request still goes
 /// ahead under its own limits.
@@ -269,18 +301,20 @@ impl KeyState {
         Ok(result)
     }
 
-    /// Load-merge-write via a unique temp file + atomic rename.
-    /// Mirror the blocking facts to disk. On an async worker the write runs on
-    /// the blocking pool: it takes the peer lock and may wait for it up to
-    /// `WRITE_LOCK_WAIT`. Each write merges the current view into the file, so
-    /// two writes finishing out of order still leave the latest facts. Runtime
-    /// shutdown waits for pending blocking writes, so none is lost at exit.
+    /// Mirror the blocking facts to disk without awaiting the write
+    /// ([`Self::persist_detached`]).
     pub(super) fn persist(self: &Arc<Self>) {
         self.persist_detached(|_| {});
     }
 
-    /// [`Self::persist`] with `adjust` applied to the merged view
-    /// ([`Self::persist_with`]).
+    /// [`Self::persist_with`] without awaiting it. On an async worker the
+    /// write runs on the blocking pool (it takes the peer lock and may wait
+    /// for it up to `WRITE_LOCK_WAIT`), tracked until
+    /// [`super::GitHubBudget::flush_detached_writes`] awaits it: tokio runs no
+    /// still-queued blocking task at shutdown, so a process that ends right
+    /// after the write (a CLI call, an MCP server stopping) flushes first.
+    /// Each write merges the current view into the file, so two writes
+    /// finishing out of order still leave the latest facts.
     pub(super) fn persist_detached(
         self: &Arc<Self>,
         adjust: impl FnOnce(&mut KeyFacts) + Send + 'static,
@@ -288,12 +322,26 @@ impl KeyState {
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => {
                 let state = Arc::clone(self);
-                drop(handle.spawn_blocking(octocode_io::notice::carried(move || {
+                track_detached(handle.spawn_blocking(octocode_io::notice::carried(move || {
                     state.persist_with(adjust);
                 })));
             }
             Err(_) => self.persist_with(adjust),
         }
+    }
+
+    /// [`Self::persist_with`] on the blocking pool, awaited by the request: it
+    /// is on disk (or deferred to the next write, past `WRITE_LOCK_WAIT`) before
+    /// the request ends, so a process that exits next still leaves it behind.
+    pub(super) async fn persist_awaited(
+        self: &Arc<Self>,
+        adjust: impl FnOnce(&mut KeyFacts) + Send + 'static,
+    ) {
+        let state = Arc::clone(self);
+        let _ = tokio::task::spawn_blocking(octocode_io::notice::carried(move || {
+            state.persist_with(adjust);
+        }))
+        .await;
     }
 
     /// [`Self::persist`] with `adjust` applied to the merged view before the

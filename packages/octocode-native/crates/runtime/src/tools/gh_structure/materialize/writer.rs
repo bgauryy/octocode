@@ -10,6 +10,8 @@ pub(in crate::tools::gh_structure) enum Acquired {
     /// Larger than this call may read, by its listed size.
     Oversized,
     Read(Result<octocode_github::ContentResponse, ProviderError>),
+    /// Already in the snapshot with these bytes ([`super::snapshot::Store::kept`]).
+    Kept(FileIdentity),
 }
 
 /// The ordered write side of a materialize call.
@@ -46,6 +48,12 @@ impl MaterializeWriter<'_> {
             Acquired::Oversized => {
                 self.cursor += 1;
                 self.skips.oversized.push(entry.path.clone());
+                return Ok(true);
+            }
+            Acquired::Kept(identity) => {
+                self.cursor += 1;
+                self.written += 1;
+                self.recorded.push((entry.path.clone(), identity));
                 return Ok(true);
             }
             Acquired::Read(Ok(acquired)) => acquired,

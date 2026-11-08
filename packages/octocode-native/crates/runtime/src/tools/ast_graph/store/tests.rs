@@ -19,6 +19,7 @@ mod impact_since;
 mod incremental;
 mod ingest;
 mod issues;
+mod large_sources;
 mod limits;
 mod linking;
 mod nested_calls;

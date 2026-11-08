@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 
 mod capacity;
-#[cfg(test)]
-pub(super) use capacity::EXPIRED_PER_SCAN;
 pub(super) use capacity::REUSE_LOCK_WAIT;
+#[cfg(test)]
+pub(super) use capacity::{EXPIRED_PER_SCAN, SCANS};
 
 /// The extension of an entry file. Entries of the retired JSON-envelope
 /// layout (`.json`, value base64 inside JSON) are removed by the next prune.
@@ -152,9 +152,14 @@ impl Disk {
         self.dir.join(format!("{ENTRY_LOCK_PREFIX}{stem}.lock"))
     }
 
-    /// Whether `key`'s entry exists; if so it counts as used now.
+    /// Whether `key`'s entry exists and is live; if so it counts as used now.
     pub(super) fn touch(&self, key: &CacheKey) -> bool {
         let path = self.file(key);
+        // A use of an expired entry restarts nothing: its lifetime is over,
+        // and a touch would serve it again until a scan removes it.
+        if expired(&path, now_unix()) {
+            return false;
+        }
         crate::private_file::open_no_follow(&path, false)
             .map(|file| touch_file(&file, &path))
             .is_ok()

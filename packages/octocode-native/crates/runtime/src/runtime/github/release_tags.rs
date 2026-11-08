@@ -36,12 +36,12 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
         })
     }
 
-    fn tag_names<'a>(
+    fn tag_refs<'a>(
         &'a self,
         owner: &'a str,
         repo: &'a str,
-    ) -> crate::providers::artifact::TagNamesFuture<'a> {
-        use crate::providers::artifact::CheckFailure;
+    ) -> crate::providers::artifact::TagRefsFuture<'a> {
+        use crate::providers::artifact::{CheckFailure, ListedTag};
         Box::pin(async move {
             let request = self
                 .services
@@ -51,8 +51,16 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
             self.services
                 .provider
                 .transport
-                .repository_tag_names(owner, repo, &request)
+                .repository_tag_refs(owner, repo, &request)
                 .await
+                .map(|refs| {
+                    refs.into_iter()
+                        .map(|tag| ListedTag {
+                            name: tag.name,
+                            commit: tag.commit,
+                        })
+                        .collect()
+                })
                 .map_err(|error| CheckFailure::Provider(error.kind))
         })
     }
@@ -103,6 +111,46 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
                 }
                 Err(error) => Err(CheckFailure::Provider(error.kind)),
             }
+        })
+    }
+
+    fn tree_files<'a>(
+        &'a self,
+        owner: &'a str,
+        repo: &'a str,
+        commit: &'a str,
+    ) -> crate::providers::artifact::TreeFilesFuture<'a> {
+        use crate::providers::artifact::{CheckFailure, TreeFiles};
+        Box::pin(async move {
+            let request = self
+                .services
+                .resolve_request(self.context, self.access)
+                .await
+                .map_err(|_| CheckFailure::Request)?;
+            let tree = self
+                .services
+                .provider
+                .transport
+                .get_tree(
+                    &octocode_github::TreeRequest {
+                        owner: owner.to_owned(),
+                        repo: repo.to_owned(),
+                        reference: commit.to_owned(),
+                        recursive: true,
+                    },
+                    &request,
+                )
+                .await
+                .map_err(|error| CheckFailure::Provider(error.kind))?;
+            Ok(TreeFiles {
+                paths: tree
+                    .tree
+                    .into_iter()
+                    .filter(|entry| entry.kind == "blob")
+                    .map(|entry| entry.path)
+                    .collect(),
+                truncated: tree.truncated,
+            })
         })
     }
 }

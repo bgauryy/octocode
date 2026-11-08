@@ -313,7 +313,7 @@ fn reports_a_stable_read_failure_and_extracts_past_any_parse_size() {
         path: path_string(&root),
         max_files: Some(10),
         skip_files: None,
-        max_file_bytes: Some(extraction_size as u32),
+        max_file_bytes: Some(extraction_size as u64),
         ..Default::default()
     })
     .expect("scan graph facts");

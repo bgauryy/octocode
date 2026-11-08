@@ -38,6 +38,12 @@ const STORE_BUSY: &str = "cache-store-busy";
 /// a read judges an entry's age itself, so what waits here is never served.
 pub(in crate::cache) const EXPIRED_PER_SCAN: usize = 32;
 
+#[cfg(test)]
+thread_local! {
+    /// Directory scans [`Disk::trim`] ran on this thread.
+    pub(in crate::cache) static SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// A conservative upper bound. Reserve before publishing; deletions and failed
 /// writes can overcount until the next scan, but cannot admit too many bytes.
 /// Writes are not fsynced; this bound does not guarantee power-loss recovery.
@@ -181,7 +187,13 @@ impl Disk {
         let mut capacity = match self.capacity() {
             Some(capacity) if now.saturating_sub(capacity.scanned_at) < SCAN_INTERVAL => capacity,
             known => self
-                .trim(budget, Some(path), now, known.map(|known| known.used))
+                .trim(
+                    budget,
+                    Some(path),
+                    now,
+                    known.map(|known| known.used),
+                    EXPIRED_PER_SCAN,
+                )
                 .ok()?,
         };
         let old_size = entry_size(path).ok()?;
@@ -196,7 +208,9 @@ impl Disk {
             // Reconcile reader deletions and make headroom in one scan. Batch
             // eviction keeps a full cache from scanning on every insertion.
             let target = budget.saturating_sub(growth).saturating_sub(budget / 8);
-            capacity = self.trim(target, Some(path), now, None).ok()?;
+            capacity = self
+                .trim(target, Some(path), now, None, EXPIRED_PER_SCAN)
+                .ok()?;
         }
         let growth = size.saturating_sub(entry_size(path).ok()?);
         capacity.used = capacity.used.checked_add(growth)?;
@@ -206,25 +220,28 @@ impl Disk {
         self.save_capacity(&capacity)
     }
 
-    /// Remove up to [`EXPIRED_PER_SCAN`] expired entries, then the oldest disk
-    /// reads/writes, which those it left count among. A failed scan never becomes
-    /// a partial byte count that could admit excess data. A scan that stopped at
-    /// its share reads as long past, so the next write scans again; given the
-    /// `known` count it stops there, that count less what it removed, which stays
-    /// an upper bound.
+    /// Remove up to `share` expired entries (a write's scan takes
+    /// [`EXPIRED_PER_SCAN`]), then the oldest disk reads/writes, which those it
+    /// left count among. A failed scan never becomes a partial byte count that
+    /// could admit excess data. A scan that stopped at its share reads as long
+    /// past, so the next write scans again; given the `known` count it stops
+    /// there, that count less what it removed, which stays an upper bound.
     fn trim(
         &self,
         budget: u64,
         protected: Option<&Path>,
         at: u64,
         known: Option<u64>,
+        share: usize,
     ) -> io::Result<Capacity> {
+        #[cfg(test)]
+        SCANS.with(|scans| scans.set(scans.get() + 1));
         let now = SystemTime::now();
         let (mut expired_removed, mut freed) = (0, 0);
         let unix_now = now_unix();
         let mut files = Vec::new();
         for entry in fs::read_dir(&self.dir)? {
-            if let Some(used) = known.filter(|_| expired_removed >= EXPIRED_PER_SCAN) {
+            if let Some(used) = known.filter(|_| expired_removed >= share) {
                 return Ok(Capacity {
                     used: used.saturating_sub(freed),
                     scanned_at: 0,
@@ -232,7 +249,7 @@ impl Disk {
             }
             let path = entry?.path();
             if let Some(entry) = self.entry_of_lock(&path) {
-                if expired_removed < EXPIRED_PER_SCAN && remove_unneeded_lock(&path, &entry) {
+                if expired_removed < share && remove_unneeded_lock(&path, &entry) {
                     expired_removed += 1;
                 }
                 continue;
@@ -260,7 +277,7 @@ impl Disk {
                         expired(&path, unix_now)
                     }
                 };
-                let in_share = expired_removed < EXPIRED_PER_SCAN;
+                let in_share = expired_removed < share;
                 if !meta.is_file() || (in_share && Some(path.as_path()) != protected && aged()) {
                     match fs::remove_file(&path) {
                         Ok(()) => {
@@ -305,33 +322,24 @@ impl Disk {
         }
         Ok(Capacity {
             used: total,
-            scanned_at: if expired_removed < EXPIRED_PER_SCAN {
-                at
-            } else {
-                0
-            },
+            scanned_at: if expired_removed < share { at } else { 0 },
         })
     }
 
-    /// Remove every expired entry, and every lock its entry outlived, under
-    /// the store's lock: a scan's share at a time until a scan leaves none.
-    /// Nothing live is evicted (no byte budget applies), and the capacity
-    /// file is rewritten from the scan. The daily maintenance sweep runs this,
-    /// so expired saved work (a section plan holds source text) does not
-    /// wait on disk for the next write to its store. A busy store is left
-    /// to its writers, whose scans remove the same entries.
+    /// Remove every expired entry, and every lock its entry outlived, in one
+    /// scan under the store's lock: no share applies, so the lock is held for
+    /// one pass over the directory however long the backlog. Nothing live is
+    /// evicted (no byte budget applies), and the capacity file is rewritten
+    /// from the scan. The daily maintenance sweep runs this, so expired saved
+    /// work (a section plan holds source text) does not wait on disk for the
+    /// next write to its store. A busy store is left to its writers, whose
+    /// scans remove the same entries.
     pub(crate) fn prune_expired(&self) {
         let Ok(_lock) = self.lock(Instant::now() + REUSE_LOCK_WAIT) else {
             return;
         };
-        loop {
-            let Ok(capacity) = self.trim(u64::MAX, None, now_unix(), None) else {
-                return;
-            };
+        if let Ok(capacity) = self.trim(u64::MAX, None, now_unix(), None, usize::MAX) {
             let _ = self.save_capacity(&capacity);
-            if capacity.scanned_at != 0 {
-                return;
-            }
         }
     }
 
@@ -340,7 +348,7 @@ impl Disk {
         let Ok(_lock) = self.lock(Instant::now() + REUSE_LOCK_WAIT) else {
             return;
         };
-        if let Ok(capacity) = self.trim(budget, None, now_unix(), None) {
+        if let Ok(capacity) = self.trim(budget, None, now_unix(), None, EXPIRED_PER_SCAN) {
             let _ = self.save_capacity(&capacity);
         }
     }

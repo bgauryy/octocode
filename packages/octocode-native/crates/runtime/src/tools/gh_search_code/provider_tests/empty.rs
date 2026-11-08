@@ -336,6 +336,7 @@ async fn a_missing_repository_labels_its_name_search_and_lists_the_owner() {
         Ok(&context),
         &Passthrough,
         &crate::policy::discovery::is_sensitive_repository_file,
+        None,
     )
     .await
     .expect_err("a missing repository");

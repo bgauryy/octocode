@@ -17,7 +17,12 @@ pub(super) fn replay_redaction(
     paths: &crate::policy::path::PathPolicy,
     stored: &Redaction,
 ) -> Result<Option<Redacted>, ToolError> {
-    for &(index, made_from) in &stored.key_files {
+    for &KeyFile {
+        index,
+        read: made_from,
+        ..
+    } in &stored.key_files
+    {
         let Some(file) = parsed.files.get(index) else {
             return Ok(None);
         };

@@ -49,7 +49,7 @@ pub(super) struct GitHubServices {
     /// `storage.mode` allows writing under the home: materialize needs it.
     persistent: bool,
     /// ghCloneRepo's git, keeping the runtime env's PATH, proxy and CA names.
-    git: SystemGit,
+    git: std::sync::Arc<SystemGit>,
     /// The automatic response page: file and patch pages are sized to fit
     /// it when the call names no `responseChars`.
     auto_page_chars: usize,
@@ -109,7 +109,7 @@ impl GitHubServices {
                 .then(|| home.join("tmp").join("ratelimit")),
         );
         transport.set_saved_answers(Some(answers));
-        let git = SystemGit::with_env(&config.credential_env());
+        let git = std::sync::Arc::new(SystemGit::with_env(&config.credential_env()));
         let persistent = crate::config::is_persistent_storage_enabled(&config.resolved);
         let credentials = Authentication::new(config);
         Ok(Self {

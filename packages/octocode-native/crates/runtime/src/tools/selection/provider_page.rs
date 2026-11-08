@@ -177,22 +177,20 @@ fn select_row(
         }
     };
     let shown = outcome.shown(total);
-    let unread_notes = rows
-        .as_ref()
-        .map_or_else(Vec::new, |rows| rows.unread_notes(tool, query, data));
-    let (withheld_note, hidden) = match &rows {
+    let (notes, hidden, unread_sections) = match &rows {
         Some(rows) => {
+            let (notes, unread_sections) = rows.notes(tool, query, data);
             rows.retain(data, &shown);
-            (rows.withheld_note(), Vec::new())
+            (notes, Vec::new(), unread_sections)
         }
         None => {
             let note = withheld_note(&values);
             let (kept, hidden) = keep_shown(values, &hits, &shown, &outcome);
             data["files"] = Value::Array(kept);
-            (note, hidden)
+            (note.into_iter().collect(), hidden, false)
         }
     };
-    data["selection"] = serde_json::to_value(&outcome.receipt).unwrap_or(Value::Null);
+    data["selection"] = receipt(&outcome, unread_sections);
     strip_plan_from_tool_continuations(data, tool);
     // The unfiltered page reaches what selection left out; a page that
     // kept every candidate (or had none, or shows every one because the
@@ -223,8 +221,7 @@ fn select_row(
             .map(|error| unclassified_notice(error, Unclassified::Page))
             .into_iter()
             .chain(outcome.long_context_notice.clone())
-            .chain(withheld_note)
-            .chain(unread_notes),
+            .chain(notes),
     );
     let response_row = match response_at {
         None => Some(&mut *response_query),
@@ -235,6 +232,17 @@ fn select_row(
     }
 
     Ok(())
+}
+
+/// The row's selection receipt. A read that held none of the entries this
+/// tool judges, while its warnings name the sections that hold them, says so:
+/// no hit was found wanting.
+fn receipt(outcome: &super::Outcome, unread_sections: bool) -> Value {
+    let mut receipt = serde_json::to_value(&outcome.receipt).unwrap_or(Value::Null);
+    if unread_sections && receipt["reason"] == "noCandidates" {
+        receipt["reason"] = json!("unreadSections");
+    }
+    receipt
 }
 
 /// The rows holding a `shown` hit, cut to those hits, and the rows judged yet

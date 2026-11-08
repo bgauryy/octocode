@@ -8,6 +8,7 @@ mod dispute;
 mod ecosystem;
 #[cfg(test)]
 pub(crate) mod github_double;
+mod global;
 mod osv;
 #[cfg(test)]
 pub(crate) mod osv_double;
@@ -26,7 +27,7 @@ use crate::providers::artifact::{ArtifactError, ArtifactHttp, SystemArtifactHttp
 use crate::providers::saved_answers::{ReusedSince, disclose_reuse};
 use crate::response::paging::{self, PartialReason};
 use crate::response::result::Continuation;
-pub(crate) use advisories::{AdvisoryFuture, AdvisoryRead};
+pub(crate) use advisories::{AdvisoryFuture, AdvisoryRead, GhsaFuture, GhsaRead};
 pub(crate) use commit::{CommitFacts, CommitFuture, CommitLookup, OtherRefs, Unread};
 use octocode_contract_types::{ErrorCode, SecurityCheckQuery};
 use octocode_io::budget::{PROVIDER_BODY_BYTES, RequestBudget};
@@ -130,7 +131,9 @@ async fn run(query: &SecurityCheckQuery, net: &Net<'_>) -> Result<Value, Artifac
             .await
         }
         SecurityCheckQuery::Url(row) => from_url(&row.url, brief(query), net).await,
-        SecurityCheckQuery::Advisory(row) => advisory(&row.id, net).await,
+        SecurityCheckQuery::Advisory(row) => {
+            advisory(&row.id, row.repo.as_deref().map(String::as_str), net).await
+        }
         SecurityCheckQuery::Commit(row) => {
             commit(
                 &row.commit,
@@ -152,7 +155,7 @@ async fn from_url(
     net: &Net<'_>,
 ) -> Result<Value, ArtifactError> {
     match url_source::github(text) {
-        Some(Ok(url_source::GithubUrl::Advisory { id })) => return advisory(&id, net).await,
+        Some(Ok(url_source::GithubUrl::Advisory { id })) => return advisory(&id, None, net).await,
         Some(Ok(url_source::GithubUrl::Repository { owner, repo })) => {
             return repository::run(&format!("{owner}/{repo}"), None, brief, net).await;
         }
@@ -196,29 +199,71 @@ fn canonical_advisory_id(id: &str) -> String {
 }
 
 /// One advisory by id, asked as given. Only when OSV has no such record is the
-/// canonical spelling asked, if it differs, and the row says it was.
-async fn advisory(id: &str, net: &Net<'_>) -> Result<Value, ArtifactError> {
+/// canonical spelling asked, if it differs, and the row says it was. A GHSA id
+/// is also read on GitHub ([`advisories::ghsa`]): its global record, and with
+/// `repo` the repository's own, so an advisory OSV lacks is read whole there.
+async fn advisory(id: &str, repo: Option<&str>, net: &Net<'_>) -> Result<Value, ArtifactError> {
     let mut retried = None;
-    let results = match source::ask_all(&Target::Advisory(id.to_owned()), net).await {
+    let osv = match source::ask_all(&Target::Advisory(id.to_owned()), net).await {
         Err(missing) if missing.code == ErrorCode::NotFound => {
             let canonical = canonical_advisory_id(id);
             if canonical == id {
-                return Err(missing);
+                Err(missing)
+            } else {
+                let asked = source::ask_all(&Target::Advisory(canonical.clone()), net)
+                    .await
+                    .map_err(|mut error| {
+                        if error.code == ErrorCode::NotFound {
+                            error.message =
+                                format!("{} Also asked as {canonical}.", missing.message);
+                        }
+                        error
+                    });
+                if asked.is_ok() {
+                    retried = Some(canonical);
+                }
+                asked
             }
-            let results = source::ask_all(&Target::Advisory(canonical.clone()), net)
-                .await
-                .map_err(|mut error| {
-                    if error.code == ErrorCode::NotFound {
-                        error.message = format!("{} Also asked as {canonical}.", missing.message);
-                    }
-                    error
-                })?;
-            retried = Some(canonical);
-            results
         }
-        other => other?,
+        other => other,
     };
+    let github = advisories::ghsa(&canonical_advisory_id(id), repo, net).await;
+    let mut osv_failed = None;
+    let mut results = match osv {
+        Ok(results) => results,
+        // OSV has none: GitHub's record stands alone, or the id is unknown to both.
+        Err(missing) if missing.code == ErrorCode::NotFound && github.found() => {
+            vec![source::SourceResult::new(source::Source::Osv)]
+        }
+        // OSV did not answer: GitHub's record, already read whole, still stands.
+        Err(failed) if github.found() => {
+            osv_failed = Some(failed);
+            Vec::new()
+        }
+        // Neither has it, or OSV failed and GitHub has none: the error names
+        // what GitHub said, and each GitHub read that was not made.
+        Err(mut error) => {
+            if let Some(clause) = github.none_clause().or_else(|| github.failed_clause()) {
+                error.message = format!("{} {clause}", error.message);
+            }
+            return Err(error);
+        }
+    };
+    results.extend(github.result());
     let mut data = source::into_row(json!({}), &results, View::Whole);
+    if let Some(failed) = osv_failed {
+        let why = format!(
+            "{}; GitHub's record stands alone. Retry later.",
+            osv::unread_reason(&failed)
+        );
+        let entry = json!({"source": "osv", "status": "failed", "errorCode": failed.code, "why": why.clone()});
+        match data["sources"].as_array_mut() {
+            Some(sources) => sources.insert(0, entry),
+            None => data["sources"] = json!([entry]),
+        }
+        paging::mark_partial(&mut data, PartialReason::SourceFailed, &[why]);
+    }
+    github.apply(&mut data);
     // The answer leads; the whole record follows it, paged and uncapped.
     let mut lead = answer::advisory_lead(&data);
     if let (Some(lead), Some(rest)) = (lead.as_object_mut(), data.as_object()) {

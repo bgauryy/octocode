@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::lsp::client::stderr::{
-    ReadNow, STDERR_LINE_MAX_CHARS, STDERR_RING_CAPACITY, UntilExit, drain_stderr,
+    Held, ReadNow, STDERR_LINE_MAX_CHARS, STDERR_RING_CAPACITY, UntilExit, drain_stderr,
     push_stderr_line, read_capped_line,
 };
 use tokio::io::BufReader;
@@ -116,14 +116,14 @@ impl tokio::io::AsyncRead for HeldPipe {
 }
 
 impl ReadNow for HeldPipe {
-    fn read_now(&mut self, buf: &mut [u8]) -> Option<std::io::Result<usize>> {
+    fn read_now(&mut self, buf: &mut [u8]) -> std::io::Result<Held> {
         if self.held.is_empty() {
-            return Some(Err(std::io::ErrorKind::WouldBlock.into()));
+            return Ok(Held::Nothing);
         }
         let read = buf.len().min(self.held.len());
         buf[..read].copy_from_slice(&self.held[..read]);
         self.held.drain(..read);
-        Some(Ok(read))
+        Ok(Held::Read(read))
     }
 }
 
@@ -149,6 +149,67 @@ async fn an_exited_servers_drain_reads_what_the_pipe_holds_and_ends() {
     );
 }
 
+/// A pipe read on a blocking thread (Windows): the stream hands over a
+/// chunk only once the peek has found bytes held (the read in flight
+/// finishing); it never ends, as a writer that left the Job Object keeps the
+/// pipe open.
+struct ThreadReadPipe {
+    held: VecDeque<Vec<u8>>,
+    peeked: bool,
+}
+
+impl tokio::io::AsyncRead for ThreadReadPipe {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        if !std::mem::take(&mut self.peeked) {
+            return std::task::Poll::Pending;
+        }
+        let Some(chunk) = self.held.pop_front() else {
+            return std::task::Poll::Pending;
+        };
+        buf.put_slice(&chunk);
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
+impl ReadNow for ThreadReadPipe {
+    fn read_now(&mut self, _: &mut [u8]) -> std::io::Result<Held> {
+        self.peeked = !self.held.is_empty();
+        Ok(if self.peeked {
+            Held::InStream
+        } else {
+            Held::Nothing
+        })
+    }
+}
+
+/// Once the server has exited, a pipe whose bytes only its stream delivers
+/// is read until the peek finds it empty, and the drain ends while a
+/// leftover writer still holds it open.
+#[tokio::test]
+async fn an_exited_servers_drain_takes_the_streams_bytes_until_the_pipe_is_empty() {
+    let pipe = ThreadReadPipe {
+        held: VecDeque::from([b"first\nsec".to_vec(), b"ond\nlast".to_vec()]),
+        peeked: false,
+    };
+    let (exited, on_exit) = tokio::sync::oneshot::channel();
+    let lines = Arc::new(StdMutex::new(VecDeque::new()));
+    let drain = tokio::spawn(drain_stderr(
+        UntilExit::new(pipe, on_exit),
+        Arc::clone(&lines),
+    ));
+    exited.send(()).expect("drain listens");
+    drain.await.expect("drain ends");
+    let lines = lines.lock().unwrap();
+    assert_eq!(
+        lines.iter().map(String::as_str).collect::<Vec<_>>(),
+        ["first", "second", "last"]
+    );
+}
+
 /// A running server's drain (no exit signal ever sent) reads to EOF: the
 /// signal's sender going away does not end it.
 #[tokio::test]
@@ -164,8 +225,8 @@ async fn a_running_servers_drain_reads_to_eof() {
         }
     }
     impl ReadNow for Stream {
-        fn read_now(&mut self, _: &mut [u8]) -> Option<std::io::Result<usize>> {
-            Some(Err(std::io::ErrorKind::WouldBlock.into()))
+        fn read_now(&mut self, _: &mut [u8]) -> std::io::Result<Held> {
+            Ok(Held::Nothing)
         }
     }
     let (mut writer, reader) = tokio::io::duplex(64);

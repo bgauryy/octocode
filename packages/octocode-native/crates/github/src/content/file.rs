@@ -18,6 +18,28 @@ impl GitHubProvider {
         request: &ContentRequest,
         context: &RequestContext,
     ) -> Result<ContentResponse, ProviderError> {
+        self.file_bytes(request, context, BodyOwner::Transport)
+            .await
+    }
+
+    /// [`Self::get_file_bytes`] for a caller that stores the bytes itself (a
+    /// materialized checkout): the transport saves no answer holding them,
+    /// so each body is stored once. A saved answer another read kept still
+    /// answers it.
+    pub async fn get_file_bytes_kept_by_caller(
+        &self,
+        request: &ContentRequest,
+        context: &RequestContext,
+    ) -> Result<ContentResponse, ProviderError> {
+        self.file_bytes(request, context, BodyOwner::Caller).await
+    }
+
+    async fn file_bytes(
+        &self,
+        request: &ContentRequest,
+        context: &RequestContext,
+        owner: BodyOwner,
+    ) -> Result<ContentResponse, ProviderError> {
         validate_name(&request.owner)?;
         validate_name(&request.repo)?;
         if request.path.is_empty() {
@@ -27,12 +49,12 @@ impl GitHubProvider {
             ));
         }
         let resolved_ref = self.resolve_commit(request, context).await?;
-        let spec = self.contents_spec(request, &resolved_ref)?;
+        let spec = owner.of(self.contents_spec(request, &resolved_ref)?);
         let page = match self.transport.execute(spec, context).await {
             Ok(page) => page,
             Err(error) if error.status == Some(413) => {
                 let (bytes, raw_response_bytes, blob) = self
-                    .fetch_via_directory_and_blob(request, &resolved_ref, context)
+                    .fetch_via_directory_and_blob(request, &resolved_ref, context, owner)
                     .await?;
                 return Ok(ContentResponse {
                     bytes,
@@ -43,13 +65,31 @@ impl GitHubProvider {
             }
             Err(error) => return Err(error),
         };
-        let (bytes, raw_response_bytes, blob) = self.page_bytes(request, &page, context).await?;
+        let (bytes, raw_response_bytes, blob) =
+            self.page_bytes(request, &page, context, owner).await?;
         Ok(ContentResponse {
             bytes,
             resolved_ref,
             raw_response_bytes,
             blob,
         })
+    }
+
+    /// Whether reading `request` sends a contents request to GitHub: neither
+    /// a resumed continuation's journal nor a saved answer holds the read
+    /// (neither costs a provider call). A reference that is not a full
+    /// commit SHA is resolved first, so its read counts as sent.
+    pub fn file_read_unanswered(&self, request: &ContentRequest, context: &RequestContext) -> bool {
+        let Some(sha) = request
+            .reference
+            .as_deref()
+            .filter(|reference| is_full_sha(reference))
+        else {
+            return true;
+        };
+        !self
+            .contents_spec(request, &sha.to_ascii_lowercase())
+            .is_ok_and(|spec| self.transport.answers_unasked(&spec, context))
     }
 
     /// The contents request for `request` at `resolved_ref`, in the raw
@@ -86,6 +126,7 @@ impl GitHubProvider {
         request: &ContentRequest,
         page: &ResponsePage,
         context: &RequestContext,
+        owner: BodyOwner,
     ) -> Result<(Bytes, usize, Option<String>), ProviderError> {
         let body = page.body.as_ref();
         let raw_response_bytes = body.len();
@@ -110,7 +151,7 @@ impl GitHubProvider {
                 && payload.size.unwrap_or(0) > 0);
         match payload.sha.as_deref().filter(|_| needs_blob) {
             Some(sha) => {
-                let (bytes, blob_bytes) = self.fetch_blob(request, sha, context).await?;
+                let (bytes, blob_bytes) = self.fetch_blob(request, sha, context, owner).await?;
                 Ok((
                     bytes,
                     raw_response_bytes.saturating_add(blob_bytes),
@@ -129,6 +170,7 @@ impl GitHubProvider {
         request: &ContentRequest,
         resolved_ref: &str,
         context: &RequestContext,
+        owner: BodyOwner,
     ) -> Result<(Bytes, usize, Option<String>), ProviderError> {
         let (parent, name) = request.path.rsplit_once('/').unwrap_or(("", &request.path));
         let mut directory_url = self.transport.endpoint().rest(&[
@@ -161,7 +203,7 @@ impl GitHubProvider {
                     "file was not present in its parent directory",
                 )
             })?;
-        let (bytes, blob_bytes) = self.fetch_blob(request, &entry.sha, context).await?;
+        let (bytes, blob_bytes) = self.fetch_blob(request, &entry.sha, context, owner).await?;
         Ok((
             bytes,
             directory.body.len().saturating_add(blob_bytes),
@@ -178,6 +220,7 @@ impl GitHubProvider {
         request: &ContentRequest,
         sha: &str,
         context: &RequestContext,
+        owner: BodyOwner,
     ) -> Result<(Bytes, usize), ProviderError> {
         let blob_url = self.transport.endpoint().rest(&[
             "repos",
@@ -188,12 +231,30 @@ impl GitHubProvider {
             sha,
         ])?;
         // The URL names only the bytes: what holds them must know whose they are.
-        let mut spec = RequestSpec::get(blob_url).reading_file(&request.path);
+        let mut spec = owner.of(RequestSpec::get(blob_url).reading_file(&request.path));
         spec.headers
             .insert(ACCEPT, HeaderValue::from_static(RAW_MEDIA_TYPE));
         let blob = self.transport.execute(spec, context).await?;
         let size = blob.body.len();
         Ok((blob.body, size))
+    }
+}
+
+/// Who stores a file read's body: the transport's saved answers, or the
+/// caller alone. The directory listing a large file's fallback reads holds no
+/// body and is kept as usual.
+#[derive(Clone, Copy)]
+enum BodyOwner {
+    Transport,
+    Caller,
+}
+
+impl BodyOwner {
+    fn of(self, spec: RequestSpec) -> RequestSpec {
+        match self {
+            Self::Transport => spec,
+            Self::Caller => spec.kept_by_caller(),
+        }
     }
 }
 

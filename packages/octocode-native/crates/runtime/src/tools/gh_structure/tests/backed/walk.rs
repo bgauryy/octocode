@@ -130,6 +130,25 @@ async fn a_path_relative_include_leads_to_the_root_relative_globs() {
         "the hint says globs match from the repository root: {}",
         out.data
     );
+    // The hint names the request it explains, not a position in related[].
+    assert!(!hints.contains("related[] request asks"), "{}", out.data);
+    // A glob written with a leading `/` is asked under `path` once, not as
+    // `path//glob`.
+    let rooted = run(
+        &server,
+        json!({"operation":"tree","owner":"a","repo":"b","ref":"main",
+            "path":"starlette","include":["/nope.py"]}),
+    )
+    .await
+    .expect("empty listing");
+    let broaden =
+        crate::tools::test_support::checks::related_call(&rooted.data, "ghStructure", |_| true);
+    assert_eq!(
+        broaden["input"]["queries"][0]["include"],
+        json!(["starlette/nope.py"]),
+        "{}",
+        rooted.data
+    );
 }
 
 /// ghStructure: a recursive listing fetches its tree once, by the

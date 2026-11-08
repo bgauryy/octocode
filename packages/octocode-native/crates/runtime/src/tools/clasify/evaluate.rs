@@ -36,6 +36,7 @@ pub(super) fn evaluate_row(
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
     gate: &crate::providers::classification::gate::GateLease,
+    can_resume: bool,
 ) -> RowOutcome {
     let (state, captured) = match target {
         // An empty literal is nothing to judge, as an empty source is.
@@ -54,10 +55,11 @@ pub(super) fn evaluate_row(
             // Only local memory bounds a capture: the provider's own window
             // decides what it judges, and its refusal says so.
             let limit = dispatcher.text_capture_limit();
-            let mut captured = match source_capture::capture(source, dispatcher, context, limit) {
-                Ok(captured) => captured,
-                Err(error) => return rejected(error, None),
-            };
+            let mut captured =
+                match source_capture::capture(source, dispatcher, context, limit, can_resume) {
+                    Ok(captured) => captured,
+                    Err(error) => return rejected(error, None),
+                };
             // The answer row reports the capture's read and provenance, never
             // its state.
             (

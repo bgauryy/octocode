@@ -199,6 +199,36 @@ fn data_members_are_declarations_of_their_type() {
             &["local"],
         ),
         (
+            "u.c",
+            "union U {\n    int i;\n    float f;\n};\n",
+            "U",
+            &[("i", "property", 2), ("f", "property", 3)],
+            &[],
+        ),
+        #[cfg(feature = "tree-sitter-cpp")]
+        (
+            "q2.cpp",
+            "class Q {\npublic:\n    static constexpr int K = 1;\n    static const int L = 2;\n    const int c = 3;\n    int m;\n};\n",
+            "Q",
+            &[
+                ("K", "constant", 3),
+                ("L", "constant", 4),
+                ("c", "property", 5),
+                ("m", "property", 6),
+            ],
+            &[],
+        ),
+        // A macro line without its semicolon (`Q_OBJECT`) recovers as a
+        // field whose name is the next word: no member comes of it.
+        #[cfg(feature = "tree-sitter-cpp")]
+        (
+            "q.cpp",
+            "class W : public QWidget {\n    Q_OBJECT\npublic:\n    static constexpr int K = 3;\n    int a = make(), b;\n};\n",
+            "W",
+            &[("a", "property", 5), ("b", "property", 5)],
+            &["public", "Q_OBJECT"],
+        ),
+        (
             "point.c",
             "struct P {\n    int x;\n    int *p, y[3];\n};\nint main(void) { int local = 0; return local; }\n",
             "P",
@@ -334,22 +364,30 @@ fn go_embedded_fields_are_named_by_their_type() {
     )]);
 }
 
-/// A Python instance attribute is declared by its first assignment through
-/// `__init__`'s receiver, at any depth of `__init__`'s own body; a later
-/// assignment, another object's attribute, a nested attribute, a nested
-/// function's assignment and another method's assignment declare nothing.
+/// A Python instance attribute is declared once, by its first assignment
+/// through a method's receiver (its first parameter, whatever its name):
+/// a class-body attribute or `__init__` first, then any other method in
+/// source order. Each target of a tuple or chained assignment counts; an
+/// assignment at any depth of the method's own blocks counts. Another
+/// object's attribute, a nested attribute, a nested function's assignment
+/// and a static method's parameter declare nothing.
 #[test]
-fn python_instance_attributes_are_declared_once_from_init() {
+fn python_instance_attributes_are_declared_once_per_class() {
     assert_members(&[(
         "inst.py",
-        "class Square:\n    side: int = 1\n    def __init__(this, n):\n        this.n = n\n        this.n = n + 1\n        if n:\n            this.extra: int = 2\n        other.y = 3\n        this.a.b = 4\n        def inner(me):\n            me.z = 1\n    def area(self):\n        self.cache = 1\n",
+        "class Square:\n    side: int = 1\n    def reset(self):\n        self.n = 0\n        self.cache = None\n    def __init__(this, n):\n        this.n = n\n        this.n = n + 1\n        if n:\n            this.extra: int = 2\n        this.a, (this.b, other.q) = 1, (2, 3)\n        this.c = this.d = 0\n        this.side = 2\n        other.y = 3\n        this.p.r = 4\n        def inner(me):\n            me.z = 1\n    def area(self):\n        self.cache = 1\n    @staticmethod\n    def make(s):\n        s.w = 1\n",
         "Square",
         &[
             ("side", "property", 2),
-            ("n", "property", 4),
-            ("extra", "property", 7),
+            ("cache", "property", 5),
+            ("n", "property", 7),
+            ("extra", "property", 10),
+            ("a", "property", 11),
+            ("b", "property", 11),
+            ("c", "property", 12),
+            ("d", "property", 12),
         ],
-        &["y", "a", "b", "z", "cache"],
+        &["y", "p", "q", "r", "z", "w"],
     )]);
 }
 
@@ -533,4 +571,105 @@ fn scala_enums_and_givens_are_declared() {
     assert_eq!(declared[2], row("intOrd", "constant", true));
     // An anonymous given has only the type it provides to name it.
     assert_eq!(declared[3], row("Ord[String]", "constant", true));
+}
+
+/// tree-sitter-scala names a for-comprehension generator (`fz <- xs`) an
+/// `enumerator`, as C/C++ name an enum constant: only one inside an enum's
+/// `enumerator_list` is an enum member. A generator declares nothing, and a
+/// call inside it stays the method's.
+#[cfg(feature = "tree-sitter-scala")]
+#[test]
+fn scala_for_comprehension_generators_are_no_enum_members() {
+    let source = "object A {\n  def f(xs: List[Int]) = for {\n    fz <- xs.map(g)\n    gz <- xs\n  } yield fz + gz\n  def g(x: Int) = x\n}\n";
+    let facts = extract_graph_facts_with_metadata(source, "A.scala")
+        .expect("graph facts")
+        .facts;
+    let names = facts
+        .declarations
+        .iter()
+        .map(|d| (d.name.as_str(), d.kind.as_str()))
+        .collect::<Vec<_>>();
+    assert!(
+        !names.iter().any(|(name, _)| matches!(*name, "fz" | "gz")),
+        "{names:?}"
+    );
+    let f = facts
+        .declarations
+        .iter()
+        .find(|d| d.name == "f")
+        .expect("f is declared");
+    let map = facts
+        .calls
+        .iter()
+        .find(|call| call.callee.ends_with("map"))
+        .expect("the generator's call");
+    assert_eq!(map.caller_id.as_deref(), Some(f.id.as_str()), "{map:?}");
+    // A C enum constant is still one.
+    let c = kinds("enum E { A };\n", "e.c");
+    assert!(
+        c.iter().any(|(name, kind, _)| name == "A" && kind == "enumMember"),
+        "{c:?}"
+    );
+}
+
+/// A data member says when its written type is a function type, so a call of
+/// it invokes it: Scala function types and lambda-valued `val`s, C#
+/// `Action`/`Func`, C++ `std::function` and function pointers. Any other
+/// type is no function, whatever its `apply`.
+#[test]
+fn function_typed_data_members_say_so() {
+    let typed = |source: &str, path: &str| {
+        let mut rows = extract_graph_facts_with_metadata(source, path)
+            .expect("graph facts")
+            .facts
+            .declarations
+            .iter()
+            .filter(|d| matches!(d.kind.as_str(), "property" | "constant" | "variable"))
+            .map(|d| (d.name.clone(), d.function_typed))
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    let row = |name: &str, typed: bool| (name.to_owned(), typed);
+    #[cfg(feature = "tree-sitter-scala")]
+    assert_eq!(
+        typed(
+            "class A {\n  val f: Int => Int = _ + 1\n  lazy val g: Function0[Int] = () => 1\n  val h = (x: Int) => x\n  val p: PartialFunction[Int, Int] = { case 1 => 1 }\n  val m: Map[Int, Int] = Map.empty\n  val n = 1\n}\n",
+            "A.scala"
+        ),
+        [
+            row("f", true),
+            row("g", true),
+            row("h", true),
+            row("m", false),
+            row("n", false),
+            row("p", true)
+        ]
+    );
+    #[cfg(feature = "tree-sitter-c-sharp")]
+    assert_eq!(
+        typed(
+            "class W {\n    System.Action a;\n    Func<int> f;\n    int n;\n    Action P { get; set; }\n}\n",
+            "W.cs"
+        ),
+        [
+            row("P", true),
+            row("a", true),
+            row("f", true),
+            row("n", false)
+        ]
+    );
+    #[cfg(feature = "tree-sitter-cpp")]
+    assert_eq!(
+        typed(
+            "struct S {\n    std::function<void()> cb;\n    int (*fp)(int);\n    int n;\n    function<void()> other;\n};\n",
+            "s.cpp"
+        ),
+        [
+            row("cb", true),
+            row("fp", true),
+            row("n", false),
+            row("other", false)
+        ]
+    );
 }

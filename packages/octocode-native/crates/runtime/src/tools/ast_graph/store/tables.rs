@@ -147,8 +147,29 @@ const LEXICAL_SCOPE: u8 = 16;
 /// `require`d module: never a call target, but it still occupies its name,
 /// so a same-named decoy cannot win a scope choice by its absence.
 const RECOVERED_TARGET: u8 = 32;
+/// Data a type declares ([`is_member_data`]): reached through a receiver or
+/// a type, never by a bare name.
+const MEMBER_DATA: u8 = 64;
+/// An enum member: constructed (`Attempt::Done(1)`), never called.
+const ENUM_MEMBER: u8 = 128;
 
-fn target_bits(kind: &str) -> u8 {
+/// A field, property or enum member, or a constant or variable declared in
+/// a type's body: data of that type, not a callable of its scope.
+fn is_member_data(decl: &Declaration, by_id: &HashMap<&str, &Declaration>) -> bool {
+    match decl.kind.as_str() {
+        "property" | "enumMember" => true,
+        "constant" | "variable" => decl
+            .parent
+            .as_deref()
+            .and_then(|parent| by_id.get(parent))
+            .is_some_and(|parent| {
+                TYPE_DECLARATION_KINDS.contains(&parent.kind.as_str()) || parent.kind == "impl"
+            }),
+        _ => false,
+    }
+}
+
+fn target_bits(kind: &str, member_data: bool) -> u8 {
     let call = if NON_CALLABLE.contains(&kind) {
         0
     } else {
@@ -165,7 +186,9 @@ fn target_bits(kind: &str) -> u8 {
     } else {
         0
     };
-    call | ty | method | REFERENCE_TARGET | lexical
+    let data = if member_data { MEMBER_DATA } else { 0 };
+    let variant = if kind == "enumMember" { ENUM_MEMBER } else { 0 };
+    call | ty | method | REFERENCE_TARGET | lexical | data | variant
 }
 
 /// `(src, dst, line)` links to unparsed files, and the `(file, line)`
@@ -231,16 +254,27 @@ fn symbol_keys(
         .iter()
         .map(|decl| qualified(decl))
         .collect::<Vec<_>>();
-    let mut repeats = HashMap::<&str, u32>::new();
-    for name in &names {
-        *repeats.entry(name.as_str()).or_default() += 1;
+    // Repeats of each name, all and other than data members: a field beside
+    // its same-named method takes the line suffix, so the method keeps the
+    // key it has without the field.
+    let mut repeats = HashMap::<&str, (u32, u32)>::new();
+    for (decl, name) in ordered.iter().zip(&names) {
+        let repeat = repeats.entry(name.as_str()).or_default();
+        repeat.0 += 1;
+        repeat.1 += u32::from(!is_member_data(decl, by_id));
     }
     let mut used = BTreeSet::<String>::new();
     ordered
         .iter()
         .zip(&names)
         .map(|(decl, qualified_name)| {
-            let mut key = if repeats[qualified_name.as_str()] > 1 {
+            let (all, others) = repeats[qualified_name.as_str()];
+            let repeated = if is_member_data(decl, by_id) {
+                all > 1
+            } else {
+                others > 1
+            };
+            let mut key = if repeated {
                 format!("{file}#{qualified_name}@{}", decl.line)
             } else {
                 format!("{file}#{qualified_name}")

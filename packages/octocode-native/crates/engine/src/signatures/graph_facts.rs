@@ -147,9 +147,12 @@ struct GraphAccumulator {
     typing: python::TypingBindings,
     /// C++ `namespace al = a::b;` seen so far: alias → what it names.
     namespace_aliases: std::collections::HashMap<String, String>,
-    /// Python instance attributes declared so far, by the `__init__` node
-    /// that assigns them and the name: a later assignment declares nothing.
-    instance_attributes: std::collections::HashSet<(usize, String)>,
+    /// Python class members declared so far, by class declaration ID and
+    /// name: a later declaration of the name declares nothing.
+    class_members: std::collections::HashSet<(String, String)>,
+    /// The instance attribute names each Python class's `__init__` declares,
+    /// by class node ID: another method's assignment of one is no declaration.
+    init_attributes: std::collections::HashMap<usize, std::collections::HashSet<String>>,
 }
 
 /// A token `count_name_references` reads: a name leaf, or (`format`) a Rust
@@ -187,7 +190,8 @@ impl GraphAccumulator {
             public_namespace_scopes: std::collections::HashSet::new(),
             macro_bodies: Vec::new(),
             namespace_aliases: std::collections::HashMap::new(),
-            instance_attributes: std::collections::HashSet::new(),
+            class_members: std::collections::HashSet::new(),
+            init_attributes: std::collections::HashMap::new(),
             macro_chain: None,
             macro_recovered: None,
             leading_start: None,
@@ -250,8 +254,8 @@ pub(super) fn extract_facts_before(
     } else {
         crate::text::analysis::AnalysisOperation::GraphFacts
     })?;
-    let tree = crate::contain::within(crate::contain::Phase::Parse, || {
-        super::extractor::parse_before(content, &entry.language, deadline)
+    let parsed = crate::contain::within(crate::contain::Phase::Parse, || {
+        super::extractor::parse_with_deadline(content, &entry.language, deadline)
     });
     facts_from_tree(
         content,
@@ -259,7 +263,7 @@ pub(super) fn extract_facts_before(
         extension,
         deadline,
         declarations_only,
-        tree.as_ref(),
+        parsed.as_ref(),
     )
 }
 

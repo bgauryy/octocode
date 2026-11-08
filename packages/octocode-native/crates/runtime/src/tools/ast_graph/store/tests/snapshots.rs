@@ -473,3 +473,34 @@ fn a_lease_renewed_while_prune_acts_keeps_the_snapshot() {
     assert!(removed.is_empty(), "{removed:?}");
     assert!(left.contains(&old_id) && left.contains(&new_id), "{left:?}");
 }
+
+/// The temp sweep removes only the claims this code makes
+/// (`.tmp-removing-<id>`), however old anything else named `.tmp-*` is:
+/// an entry Octocode did not create is never its to delete.
+#[test]
+fn the_temp_sweep_removes_only_its_own_abandoned_claims() {
+    let home = tempfile::tempdir().expect("home");
+    let aged = std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 3600);
+    let age = |path: &Path| {
+        std::fs::File::open(path)
+            .expect("open")
+            .set_times(std::fs::FileTimes::new().set_modified(aged))
+            .expect("age");
+    };
+    let claim = home
+        .path()
+        .join(".tmp-removing-20260101T000000Z-app-abcdef");
+    let user_dir = home.path().join(".tmp-mywork");
+    let user_file = home.path().join(".tmp-notes");
+    std::fs::create_dir_all(&claim).expect("claim");
+    std::fs::create_dir_all(&user_dir).expect("user dir");
+    std::fs::write(user_dir.join("file"), "kept").expect("user data");
+    std::fs::write(&user_file, "kept").expect("user file");
+    for path in [&claim, &user_dir, &user_file] {
+        age(path);
+    }
+    prune(home.path(), Path::new("/no/such/root"), 1);
+    assert!(!claim.exists(), "an abandoned claim is swept");
+    assert!(user_dir.join("file").exists(), "a user's .tmp-* dir stays");
+    assert!(user_file.exists(), "a user's .tmp-* file stays");
+}

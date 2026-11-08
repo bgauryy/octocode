@@ -224,6 +224,7 @@ impl Query<'_> {
         let base_options = QueryOptions {
             graph: Some(base.to_owned()),
             workspace: self.options.workspace.clone(),
+            home: self.options.home.clone(),
             ..Default::default()
         };
         let base_graph = load(&base_options, paths, self.cancel).map_err(|failure| *failure)?;
@@ -248,6 +249,7 @@ impl Query<'_> {
         let base_options = QueryOptions {
             graph: Some(base.to_owned()),
             workspace: self.options.workspace.clone(),
+            home: self.options.home.clone(),
             ..Default::default()
         };
         let base_graph = load(&base_options, paths, self.cancel).map_err(|failure| *failure)?;

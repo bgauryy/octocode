@@ -17,7 +17,7 @@ import { createDriver } from './tool-health/driver.mjs';
 import { transportPagesProblem } from './tool-health/compare.mjs';
 import { startSurfaces, tokenFor } from './tool-health/surfaces.mjs';
 import { createInputCoverage } from './tool-health/input-coverage.mjs';
-import { planTool, unplanned } from './schema-matrix/derive.mjs';
+import { planRefusals, planTool, unplanned } from './schema-matrix/derive.mjs';
 import { drain, workerCount } from './schema-matrix/pool.mjs';
 import { createLedger } from './schema-matrix/ledger.mjs';
 import { runRow } from './schema-matrix/runner.mjs';
@@ -48,7 +48,7 @@ const coverage = createInputCoverage(tools);
 const ledger = createLedger(contract);
 
 // OCTOCODE_MATRIX_ROWS=none runs the scenarios alone (values then read as uncovered).
-const plan = process.env.OCTOCODE_MATRIX_ROWS === 'none' ? [] : tools.flatMap(tool => (SPECS[tool.name] ? planTool(tool, SPECS[tool.name]) : []));
+const plan = process.env.OCTOCODE_MATRIX_ROWS === 'none' ? [] : tools.flatMap(tool => (SPECS[tool.name] ? [...planTool(tool, SPECS[tool.name]), ...planRefusals(tool, SPECS[tool.name])] : []));
 for (const row of plan) {
   SPECS[row.tool].normalize?.(row);
   row.input = { queries: [row.query], ...(row.responseChars && { responseChars: row.responseChars }) };

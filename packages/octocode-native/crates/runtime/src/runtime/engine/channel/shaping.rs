@@ -18,6 +18,7 @@ impl ChannelRun {
             mut rows,
             judged,
             failure,
+            continues_page,
         } = self.evaluate_rows(context)?;
         let mut judged: std::collections::HashMap<usize, JudgedLeaves> =
             self.row_indices.iter().copied().zip(judged).collect();
@@ -51,6 +52,7 @@ impl ChannelRun {
             response_query,
             rejected_at,
             failure,
+            continues_page,
         })
     }
 
@@ -110,6 +112,7 @@ impl ChannelRun {
                 judged: Vec::new(),
                 rows: receipts.rows,
                 failure: receipts.failure,
+                continues_page: false,
             });
         }
         let response_page = self
@@ -123,6 +126,7 @@ impl ChannelRun {
         let mut rows = Vec::with_capacity(queries.len());
         let mut judged = Vec::with_capacity(queries.len());
         let mut failure = None;
+        let mut continues_page = false;
         let mut evaluated = evaluated.into_iter();
         for index in 0..queries.len() {
             context.check()?;
@@ -130,6 +134,7 @@ impl ChannelRun {
             context.check()?;
             failure = failure.or(result.failure);
             judged.push(result.judged);
+            continues_page |= result.diagnostics.continues_page;
             let row = rows::finish_row(
                 index,
                 result.data,
@@ -144,6 +149,7 @@ impl ChannelRun {
             rows,
             judged,
             failure,
+            continues_page,
         })
     }
 }
@@ -155,6 +161,9 @@ pub(super) struct ShapedRows {
     pub(super) response_query: Value,
     pub(super) rejected_at: Vec<usize>,
     pub(super) failure: Option<FailureKind>,
+    /// A row's walk continues the page it answered
+    /// ([`crate::response::result::ToolDiagnostics::continues_page`]).
+    pub(super) continues_page: bool,
 }
 
 /// Shaped result rows of one call, with the batch's failure kind.
@@ -163,4 +172,5 @@ struct EvaluatedRows {
     /// Each row's judged leaves, by row, relative to its `data`.
     judged: Vec<JudgedLeaves>,
     failure: Option<FailureKind>,
+    continues_page: bool,
 }

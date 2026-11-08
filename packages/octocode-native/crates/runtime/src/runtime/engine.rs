@@ -136,6 +136,10 @@ impl ToolRuntime {
     pub async fn close(&self) {
         self.begin_close();
         self.requests.close().await;
+        // A rate-limit fact a finished request wrote without awaiting must
+        // reach the next process: the CLI and the MCP server end right after
+        // this close.
+        octocode_github::GitHubBudget::flush_detached_writes().await;
         if self.owns_lsp_pool {
             self.lsp_pool.clear_all().await;
         }

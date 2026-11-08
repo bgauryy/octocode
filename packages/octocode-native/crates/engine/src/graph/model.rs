@@ -58,6 +58,10 @@ pub struct GraphFactDeclaration {
     /// a `Result<T, ..>` or `Option<T>`, spelled the same way.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub try_type: Option<String>,
+    /// A data member whose written type is a function type (Scala
+    /// `A => B`, C# `Action`, C++ `std::function`): a call of it invokes it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub function_typed: bool,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
@@ -216,7 +220,7 @@ pub enum GraphDeclaredType {
     Object { members: Vec<GraphTypeMember> },
     /// A function type `(a: A, b: B) => R`: each parameter's declared type.
     Function {
-        parameters: Vec<Option<GraphDeclaredType>>,
+        parameters: Vec<Option<Self>>,
     },
 }
 
@@ -385,6 +389,11 @@ pub struct GraphFactsDocument {
     /// aliases (see [`GraphFactCall::receiver_declared`]).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub declared_types: Vec<GraphFactDeclaredType>,
+    /// The file's CommonJS exports hold only on some runs: the whole export
+    /// is written in a branch (a UMD wrapper's CommonJS branch), or the
+    /// exported value escapes to code that may change its members.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub conditional_exports: bool,
 }
 
 impl GraphFactsDocument {

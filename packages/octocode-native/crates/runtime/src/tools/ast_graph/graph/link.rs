@@ -133,6 +133,7 @@ pub(super) fn link_file(
         test_lines: p.test_lines.clone(),
         go_package: p.go_package.clone(),
         declared_types: p.declared_types,
+        conditional_exports: p.conditional_exports,
         ..Default::default()
     };
     let mut linker = FileLink {

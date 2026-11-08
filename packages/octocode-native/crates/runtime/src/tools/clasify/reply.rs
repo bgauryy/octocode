@@ -11,6 +11,7 @@ pub(super) fn answered(
     judged: Judged,
     captured: Option<Box<Captured>>,
     assets: Option<Value>,
+    can_resume: bool,
 ) -> Value {
     // A yes is worth checking, and the read is the whole source: offer where
     // the answer sits, ready to run, only then.
@@ -36,6 +37,7 @@ pub(super) fn answered(
         out["assets"] = assets;
     }
     if let Some(captured) = captured {
+        recovery::disclose_paged_read(&mut out, &captured);
         if let Some(source) = captured.source {
             out["source"] = source;
         }
@@ -44,14 +46,19 @@ pub(super) fn answered(
     }
     if locate
         && let Input::Judge(Target::Source(source)) = &row.input
-        && let Some(call) = recovery::sections_call(row, source)
+        && let Some(call) = recovery::sections_call(row, source, can_resume)
     {
         crate::response::result::attach_related(&mut out, call);
     }
     out
 }
 
-pub(super) fn failed(row: &Row, error: &ClassificationError, captured: Option<&Captured>) -> Value {
+pub(super) fn failed(
+    row: &Row,
+    error: &ClassificationError,
+    captured: Option<&Captured>,
+    can_resume: bool,
+) -> Value {
     let mut failure = json!({
         "errorCode": error.code,
         "error": error.message,
@@ -71,7 +78,7 @@ pub(super) fn failed(row: &Row, error: &ClassificationError, captured: Option<&C
         &mut failure,
         Value::Object(error.leads.iter().cloned().collect()),
     );
-    recovery::add(row, captured, &mut failure);
+    recovery::add(row, captured, &mut failure, can_resume);
     failure
 }
 

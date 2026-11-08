@@ -105,18 +105,26 @@ fn calls_through_an_external_require_are_excluded_as_external() {
 }
 
 /// A binding the engine could not prove keeps today's behavior: its file
-/// edge, and no import link.
+/// edge, and no import link. A guarded load (`E || require(x)`) binds the
+/// module on the branch where the guard fails (B122): it links, at medium.
 #[test]
 fn an_unproven_binding_keeps_its_file_edge_only() {
     let temp = fixture(&[
         ("lib/isObject.js", IS_OBJECT),
         (
             "a.js",
+            "var isObject = flag ? require('./lib/isObject') : null;\nfunction main(x) { return isObject(x); }\n",
+        ),
+        (
+            "b.js",
             "var isObject = root.isObject || require('./lib/isObject');\nfunction main(x) { return isObject(x); }\n",
         ),
     ]);
     let root = ingested(&temp);
-    assert_eq!(caller_edges(root, "lib/isObject.js#isObject"), []);
+    assert_eq!(
+        caller_edges(root, "lib/isObject.js#isObject"),
+        [edge("b.js#main", "import", "medium")]
+    );
     let deps = ask(root, "deps", Some("a.js"));
     assert_eq!(files(&deps), ["lib/isObject.js"], "{deps}");
 }

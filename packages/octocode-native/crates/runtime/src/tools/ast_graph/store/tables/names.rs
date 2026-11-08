@@ -5,7 +5,7 @@
 pub(super) const MIN_UNIQUE_NAME_LEN: usize = 3;
 
 /// Declarations a call can never target (`format!` is not `mod format`,
-/// `Err(..)` is not `type Err`).
+/// `Err(..)` is not `type Err`, and `Attempt::Done(1)` constructs a variant).
 pub(super) const NON_CALLABLE: &[&str] = &[
     "module",
     "namespace",
@@ -14,6 +14,7 @@ pub(super) const NON_CALLABLE: &[&str] = &[
     "trait",
     "impl",
     "enum",
+    "enumMember",
     "label",
 ];
 

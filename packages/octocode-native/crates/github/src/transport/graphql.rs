@@ -163,7 +163,8 @@ impl GitHubTransport {
                     .unwrap_or_else(|| now_ms() / 1000 + 60);
                 state.exhaust(GitHubResource::Graphql.bucket(), reset);
                 let wait = self.budget.config().reset_wait(reset);
-                if attempt + 1 < self.retry.max_attempts
+                if crate::budget::waits_out_spent(GitHubResource::Graphql.bucket())
+                    && attempt + 1 < self.retry.max_attempts
                     && Instant::now() + wait < context.budget.admission_deadline()
                 {
                     attempt += 1;

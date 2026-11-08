@@ -10,7 +10,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "jwtSecrets",
         file_context: None,
-        regex: r###"(?i)\bjwt[_-]?secret['"]?\s*[:=]\s*['"](?P<secret>[^'"\r\n]{16,})['"]"###,
+        regex: r###"(?i)\bjwt[_-]?secret['"]?\s*[:=]\s*['"](?P<secret>(?:\\[^\r\n]|[^'"\r\n]){16,})['"]"###,
     },
     SecretPattern {
         name: "kubernetesSecrets",
@@ -34,13 +34,13 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         file_context: Some("docker-compose\\.ya?ml$"),
         // Compose spells values bare too (`- POSTGRES_PASSWORD=value`); a bare
         // `${NAME}` only names one.
-        regex: r###"(?i)\b(?:MYSQL_ROOT_PASSWORD|POSTGRES_PASSWORD|REDIS_PASSWORD|MONGODB_PASSWORD)['"]?\s*[:=]\s*(?:['"](?P<secret>[^'"\r\n]{4,})['"]|(?P<secret_bare>[^'"\s$][^'"\s]{3,}))"###,
+        regex: r###"(?i)\b(?:MYSQL_ROOT_PASSWORD|POSTGRES_PASSWORD|REDIS_PASSWORD|MONGODB_PASSWORD)['"]?\s*[:=]\s*(?:['"](?P<secret>(?:\\[^\r\n]|[^'"\r\n]){4,})['"]|(?P<secret_bare>[^'"\s$][^'"\s]{3,}))"###,
     },
     SecretPattern {
         name: "springBootSecrets",
         file_context: Some("(?:application|bootstrap)(?:-\\w+)?\\.(?:properties|ya?ml)$"),
         // A `.properties` value is bare; a bare `${NAME}` only names one.
-        regex: r###"(?i)\b(?:spring\.datasource\.password|spring\.security\.oauth2\.client\.registration\..*\.client-secret)\s*[:=]\s*(?:['"](?P<secret>[^'"\r\n]{4,})['"]|(?P<secret_bare>[^'"\s$][^'"\s]{3,}))"###,
+        regex: r###"(?i)\b(?:spring\.datasource\.password|spring\.security\.oauth2\.client\.registration\..*\.client-secret)\s*[:=]\s*(?:['"](?P<secret>(?:\\[^\r\n]|[^'"\r\n]){4,})['"]|(?P<secret_bare>[^'"\s$][^'"\s]{3,}))"###,
     },
     SecretPattern {
         name: "dotnetConnectionStrings",
@@ -51,9 +51,10 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         // Only that field's value goes; the other fields stay. A field name
         // opens a line or a value (a dotenv `NAME=` holding the string) or
         // follows `;`, a quote or whitespace, so minified code (`,pwd=f(x),branch=y;`,
-        // `e.password=t.password;`) is no field.
+        // `e.password=t.password;`) is no field. A backslash escape (`\"` in a
+        // code literal) is the value's own character, not its end.
         file_context: None,
-        regex: r###"(?im)(?:^|[;='"\s])[A-Za-z][A-Za-z0-9 _]{0,30}=[^;=\r\n'"]*;[ \t]*(?:[A-Za-z][A-Za-z0-9 _]{0,30}=[^;=\r\n'"]*;[ \t]*)*?(?:password|pwd)[ \t]*=[ \t]*(?P<secret>[^;'"\r\n]+)|(?:^|[;='"\s])(?:password|pwd)[ \t]*=[ \t]*(?P<secret_first>[^;'"\r\n]+);[ \t]*[A-Za-z][A-Za-z0-9 _]{0,30}="###,
+        regex: r###"(?im)(?:^|[;='"\s])[A-Za-z][A-Za-z0-9 _]{0,30}=[^;=\r\n'"]*;[ \t]*(?:[A-Za-z][A-Za-z0-9 _]{0,30}=[^;=\r\n'"]*;[ \t]*)*?(?:password|pwd)[ \t]*=[ \t]*(?P<secret>(?:\\[^\r\n]|[^;'"\r\n])+)|(?:^|[;='"\s])(?:password|pwd)[ \t]*=[ \t]*(?P<secret_first>(?:\\[^\r\n]|[^;'"\r\n])+);[ \t]*[A-Za-z][A-Za-z0-9 _]{0,30}="###,
     },
     SecretPattern {
         name: "base64PemPrivateKey",
@@ -182,17 +183,17 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "postgresqlConnectionString",
         file_context: None,
-        regex: r###"(?i)\bpostgresql:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+\/[^?\s]+\b"###,
+        regex: r###"(?i)\bpostgresql:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s\\]+\/[^?\s]+\b"###,
     },
     SecretPattern {
         name: "mysqlConnectionString",
         file_context: None,
-        regex: r###"(?i)\bmysql:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+\/[^?\s]+\b"###,
+        regex: r###"(?i)\bmysql:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s\\]+\/[^?\s]+\b"###,
     },
     SecretPattern {
         name: "jdbcConnectionStringWithCredentials",
         file_context: Some("(?:\\.env|config|settings|secrets)"),
-        regex: r###"(?i)\bjdbc:(?:postgresql|mysql):\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+\b"###,
+        regex: r###"(?i)\bjdbc:(?:postgresql|mysql):\/\/[^:]+:(?P<secret>[^@]+)@[^/\s\\]+\b"###,
     },
     SecretPattern {
         name: "mongodbConnectionString",
@@ -212,32 +213,32 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "elasticsearchCredentials",
         file_context: None,
-        regex: r###"(?i)\bhttps?:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+:9200\b"###,
+        regex: r###"(?i)\bhttps?:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s\\]+:9200\b"###,
     },
     SecretPattern {
         name: "couchdbCredentials",
         file_context: None,
-        regex: r###"(?i)\bhttp[s]?:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+:5984\b"###,
+        regex: r###"(?i)\bhttp[s]?:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s\\]+:5984\b"###,
     },
     SecretPattern {
         name: "neo4jCredentials",
         file_context: None,
-        regex: r###"(?i)\bbolt[s]?:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+:7687\b"###,
+        regex: r###"(?i)\bbolt[s]?:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s\\]+:7687\b"###,
     },
     SecretPattern {
         name: "timescaledbConnectionString",
         file_context: None,
-        regex: r###"(?i)\btimescaledb:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+\/[^?\s]+\b"###,
+        regex: r###"(?i)\btimescaledb:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s\\]+\/[^?\s]+\b"###,
     },
     SecretPattern {
         name: "clickhouseCredentials",
         file_context: None,
-        regex: r###"(?i)\bclickhouse:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+:8123\b"###,
+        regex: r###"(?i)\bclickhouse:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s\\]+:8123\b"###,
     },
     SecretPattern {
         name: "cassandraConnectionString",
         file_context: None,
-        regex: r###"(?i)\bcassandra:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+:9042\b"###,
+        regex: r###"(?i)\bcassandra:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s\\]+:9042\b"###,
     },
     SecretPattern {
         name: "faunadbKey",
@@ -257,7 +258,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "databaseUrlWithCredentials",
         file_context: None,
-        regex: r###"(?i)\b(?:postgres|mysql|mongodb|redis):\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]+\b"###,
+        regex: r###"(?i)\b(?:postgres|mysql|mongodb|redis):\/\/[^:]+:(?P<secret>[^@]+)@[^/\s\\]+\b"###,
     },
     SecretPattern {
         name: "clickhouseCloudApiKey",
@@ -267,7 +268,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "neonDatabaseConnectionString",
         file_context: None,
-        regex: r###"(?i)\bpostgres:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]*neon\.tech[^?\s]*\b"###,
+        regex: r###"(?i)\bpostgres:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s\\]*neon\.tech[^?\s]*\b"###,
     },
     SecretPattern {
         name: "tursoDatabaseToken",
@@ -287,6 +288,6 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "cockroachdbConnectionString",
         file_context: None,
-        regex: r###"(?i)\bpostgresql:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s]*cockroachlabs\.cloud[^?\s]*\b"###,
+        regex: r###"(?i)\bpostgresql:\/\/[^:]+:(?P<secret>[^@]+)@[^/\s\\]*cockroachlabs\.cloud[^?\s]*\b"###,
     },
 ];

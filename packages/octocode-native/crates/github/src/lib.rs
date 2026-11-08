@@ -50,15 +50,16 @@ pub use query_syntax::{
     qualifier_value, quote_search_keyword, search_phrase, validate_person_name,
     validate_qualifier_value,
 };
-pub use refs::{NamedRef, RefKind, RefMatch, RefPage};
+pub use refs::{NamedRef, RefKind, RefMatch, RefPage, TagRef};
 pub use search::{
     CodeSearchItem, CodeSearchPage, CodeSearchRequest, RepositoryMetadata, RepositorySearchItem,
     RepositorySearchPage, RepositorySearchRequest, SEARCH_RESULT_CAP, TextMatch, TreeEntry,
     TreeRequest, TreeResponse,
 };
 pub use security::{
-    AdvisoryCvss, AdvisoryPackage, AdvisoryPage, AdvisoryVulnerability, CommitRead, RefHolder,
-    RefHolders, RepositoryAdvisory, tags_pointing_at,
+    AdvisoryCredit, AdvisoryCvss, AdvisoryCwe, AdvisoryEpss, AdvisoryPackage, AdvisoryPage,
+    AdvisoryUser, AdvisoryVulnerability, CommitRead, CvssSeverities, RefHolder, RefHolders,
+    RepositoryAdvisory, tags_pointing_at,
 };
 pub use transport::{
     AnswerBody, GitHubTransport, GraphQlError, GraphQlPage, HTTP_USER_AGENT, HttpMethod,

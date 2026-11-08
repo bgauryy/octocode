@@ -34,8 +34,8 @@ pub(crate) struct EvaluationInput<'a> {
 }
 
 /// The provider's long-context window, which it documents as slower and less
-/// accurate than its default one.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// accurate than its default one. A section plan keeps the caller's choice.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) enum LongContext {
     Never,
     /// Only after the provider refuses the default window, which is unbilled:
@@ -62,6 +62,14 @@ impl EvaluationInput<'_> {
                 .questions
                 .iter()
                 .any(|question| question["type"] == "box")
+    }
+
+    /// Whether the long window can ever take this evaluation: never with
+    /// images, whose tokens follow their pixels, not their bytes, so no
+    /// local bound shows the request fits. A refused image group splits per
+    /// question instead.
+    pub(super) fn long_window_takes(&self) -> bool {
+        !self.images()
     }
 }
 

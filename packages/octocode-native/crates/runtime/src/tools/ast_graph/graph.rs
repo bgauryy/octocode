@@ -212,7 +212,13 @@ pub(crate) fn build_graph_with_registry(
             link_restored(&mut built, &inputs, &known, scan, restored?)?;
         }
     }
-    markup::link_markup(&mut built, &inputs, markup, cancel)?;
+    markup::link_markup(
+        &mut built,
+        &inputs,
+        markup,
+        scan.limits.build_bytes as u64,
+        cancel,
+    )?;
     diagnose_unlinked_path_imports(&mut built, &js_modules, security);
     built.diagnostics.sort();
     built.diagnostics.dedup();

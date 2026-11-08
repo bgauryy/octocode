@@ -1,5 +1,6 @@
 //! Cache maintenance is explicit and runs after this runtime drains.
 use super::{RuntimeError, ToolRuntime};
+use crate::tools::ast_graph::store;
 use octocode_contract_types::ErrorCode;
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -20,7 +21,17 @@ impl ToolRuntime {
         octocode_engine::memory::MEMORY.clear();
         let home = self.config.home.clone();
         let workspace = self.graph_workspace(None);
-        let removed = tokio::task::spawn_blocking(move || clear_disk(&home, &workspace))
+        let graph = store::graph_home(
+            Some(&workspace),
+            self.config
+                .resolved
+                .local
+                .graph_home
+                .as_deref()
+                .map(Path::new),
+        )
+        .map_err(|message| RuntimeError::new(ErrorCode::WorkspaceRootInvalid, message))?;
+        let removed = tokio::task::spawn_blocking(move || clear_disk(&home, &workspace, &graph))
             .await
             .map_err(|error| RuntimeError::new(ErrorCode::ExecutionFailed, error.to_string()))?
             .map_err(|error| RuntimeError::new(ErrorCode::FileAccessFailed, error.to_string()))?;
@@ -31,8 +42,9 @@ impl ToolRuntime {
     }
 }
 
-fn clear_disk(home: &Path, workspace: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let graph = workspace.join(".octocode/graph");
+/// `graph` is the snapshot home ([`store::graph_home`]); only its
+/// extraction checkpoints go, never a published snapshot.
+fn clear_disk(home: &Path, workspace: &Path, graph: &Path) -> std::io::Result<Vec<PathBuf>> {
     let directories: Vec<_> = crate::cache::Directory::ALL
         .into_iter()
         .map(|dir| dir.path(home))
@@ -51,7 +63,7 @@ fn clear_disk(home: &Path, workspace: &Path) -> std::io::Result<Vec<PathBuf>> {
     for path in &directories {
         for parent in path
             .ancestors()
-            .take_while(|parent| *parent != home && *parent != workspace)
+            .take_while(|parent| *parent != home && *parent != workspace && *parent != graph)
         {
             if std::fs::symlink_metadata(parent).is_ok_and(|meta| meta.file_type().is_symlink()) {
                 return Err(std::io::Error::other(format!(
@@ -116,7 +128,7 @@ mod tests {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, "user").unwrap();
         }
-        let removed = clear_disk(&home, &workspace).unwrap();
+        let removed = clear_disk(&home, &workspace, &workspace.join(".octocode/graph")).unwrap();
         assert_eq!(removed.len(), cache_dirs.len());
         for path in cache_dirs {
             assert!(!path.exists(), "{}", path.display());
@@ -124,7 +136,11 @@ mod tests {
         for path in kept {
             assert_eq!(std::fs::read_to_string(path).unwrap(), "user");
         }
-        assert!(clear_disk(&home, &workspace).unwrap().is_empty());
+        assert!(
+            clear_disk(&home, &workspace, &workspace.join(".octocode/graph"))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[cfg(unix)]
@@ -138,7 +154,7 @@ mod tests {
         let file = outside.join("response/user");
         std::fs::write(&file, "keep").unwrap();
         std::os::unix::fs::symlink(&outside, home.join("tmp")).unwrap();
-        assert!(clear_disk(&home, dir.path()).is_err());
+        assert!(clear_disk(&home, dir.path(), &dir.path().join(".octocode/graph")).is_err());
         assert_eq!(std::fs::read_to_string(file).unwrap(), "keep");
     }
 }

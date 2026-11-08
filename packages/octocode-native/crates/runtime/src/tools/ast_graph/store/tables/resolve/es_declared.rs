@@ -7,7 +7,9 @@
 //! writes it, through that file's imports, and a member missing from a class
 //! or interface is looked up on what it `extends`. Only declared types take
 //! part: a member written without a type, or one that depends on a type
-//! argument, types nothing.
+//! argument, types nothing. The cycle guard holds the alias and base
+//! expansions in progress on one path: an alias or class met again on a later
+//! step (`a.parent.scene` through an inherited `parent: Node`) expands again.
 use super::linker::{Linked, Linker, Site};
 use super::*;
 use octocode_engine::graph::{GraphDeclaredType, GraphTypeStep};
@@ -18,6 +20,31 @@ use octocode_engine::graph::{GraphDeclaredType, GraphTypeStep};
 pub(crate) struct DeclaredTypes<'r> {
     pub(crate) types: HashMap<u32, &'r GraphDeclaredType>,
     pub(crate) units: HashMap<u32, &'r FileLinks<'r>>,
+}
+
+impl<'r> DeclaredTypes<'r> {
+    /// The declared types of every file's type declarations, by node, and
+    /// each file's link context, by file node.
+    pub(crate) fn of(
+        units: &'r [(FileLinks<'r>, &'r crate::tools::ast_graph::types::FileFacts)],
+    ) -> Self {
+        let types = units
+            .iter()
+            .flat_map(|(unit, facts)| {
+                facts.declared_types.iter().filter_map(|declared| {
+                    let node = unit
+                        .index
+                        .decl_nodes
+                        .get(declared.declaration_id.as_str())?;
+                    Some((*node, &declared.ty))
+                })
+            })
+            .collect();
+        Self {
+            types,
+            units: units.iter().map(|(unit, _)| (unit.file_id, unit)).collect(),
+        }
+    }
 }
 
 /// A type reached on the way: a declaration node, or a type written in a
@@ -37,10 +64,10 @@ impl Linker<'_> {
         declared: &GraphDeclaredType,
     ) -> Option<Linked> {
         let file = self.file_of(site.caller);
-        let mut seen = HashSet::new();
+        let mut expanding = HashSet::new();
         let owners = self.settle(
             Reached::Written(declared, file, Confidence::High),
-            &mut seen,
+            &mut expanding,
         );
         let mut targets = BTreeSet::new();
         let mut weakest = Confidence::High;
@@ -66,17 +93,21 @@ impl Linker<'_> {
 
     /// The declaration nodes `reached` stands for: a named type resolves in
     /// its file, a type alias to the type it names; an object or function
-    /// type written in place declares no members of its own.
+    /// type written in place declares no members of its own. `expanding`
+    /// holds the aliases and classes being expanded on this path, so only a
+    /// cycle stops.
     fn settle<'a>(
         &'a self,
         reached: Reached<'a>,
-        seen: &mut HashSet<u32>,
+        expanding: &mut HashSet<u32>,
     ) -> Vec<(u32, Confidence)> {
         match reached {
             Reached::Node(node, confidence) => match self.declared.types.get(&node) {
-                Some(ty @ GraphDeclaredType::Named { .. }) if seen.insert(node) => {
+                Some(ty @ GraphDeclaredType::Named { .. }) if expanding.insert(node) => {
                     let written = Reached::Written(ty, self.file_of(node), confidence);
-                    self.settle(written, seen)
+                    let settled = self.settle(written, expanding);
+                    expanding.remove(&node);
+                    settled
                 }
                 Some(GraphDeclaredType::Named { .. }) => Vec::new(),
                 _ => vec![(node, confidence)],
@@ -86,12 +117,12 @@ impl Linker<'_> {
                 for step in steps {
                     reached = reached
                         .into_iter()
-                        .flat_map(|item| self.step(item, step, seen))
+                        .flat_map(|item| self.step(item, step, expanding))
                         .collect();
                 }
                 reached
                     .into_iter()
-                    .flat_map(|item| self.settle(item, seen))
+                    .flat_map(|item| self.settle(item, expanding))
                     .collect()
             }
             Reached::Written(..) => Vec::new(),
@@ -130,12 +161,13 @@ impl Linker<'_> {
             .collect()
     }
 
-    /// The types one `step` reaches from `from`.
+    /// The types one `step` reaches from `from` (`expanding` as in
+    /// [`Self::settle`]).
     fn step<'a>(
         &'a self,
         from: Reached<'a>,
         step: &GraphTypeStep,
-        seen: &mut HashSet<u32>,
+        expanding: &mut HashSet<u32>,
     ) -> Vec<Reached<'a>> {
         match from {
             Reached::Node(node, confidence) => {
@@ -143,32 +175,39 @@ impl Linker<'_> {
                     return Vec::new();
                 };
                 let file = self.file_of(node);
-                let own = self.step(Reached::Written(ty, file, confidence), step, seen);
+                let own = self.step(Reached::Written(ty, file, confidence), step, expanding);
                 match (step, ty) {
                     // A class or interface without the member: what it extends.
                     (GraphTypeStep::Member(name), GraphDeclaredType::Object { members })
                         if !members.iter().any(|member| member.name == *name)
-                            && seen.insert(node) =>
+                            && expanding.insert(node) =>
                     {
-                        self.bases
+                        let inherited = self
+                            .bases
                             .parents
                             .get(&node)
                             .into_iter()
                             .flatten()
                             .flat_map(|(base, edge)| {
-                                self.step(Reached::Node(*base, confidence.max(*edge)), step, seen)
+                                self.step(
+                                    Reached::Node(*base, confidence.max(*edge)),
+                                    step,
+                                    expanding,
+                                )
                             })
-                            .collect()
+                            .collect();
+                        expanding.remove(&node);
+                        inherited
                     }
                     _ => own,
                 }
             }
             Reached::Written(ty, file, confidence) => match (ty, step) {
                 (GraphDeclaredType::Named { .. }, _) => self
-                    .settle(from, seen)
+                    .settle(from, expanding)
                     .into_iter()
                     .flat_map(|(node, confidence)| {
-                        self.step(Reached::Node(node, confidence), step, seen)
+                        self.step(Reached::Node(node, confidence), step, expanding)
                     })
                     .collect(),
                 (GraphDeclaredType::Object { members }, GraphTypeStep::Member(name)) => members

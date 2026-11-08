@@ -64,15 +64,12 @@ async fn gh_primary_rate_limit_is_contract_valid_and_persisted_for_other_process
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    // A refusal needs a caller budget the reset falls past: without one
-    // (B75) a quota wait keeps waiting until the reset or a cancel.
-    let runtime = workspace
-        .runtime(&[
-            ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
-            ("OCTOCODE_STORAGE_MODE", "persistent".into()),
-        ])
-        .with_request_budget(std::time::Duration::from_secs(300))
-        .expect("caller budget");
+    // No caller budget (D1): a spent core quota is disclosed at once, not
+    // waited out for up to an hour.
+    let runtime = workspace.runtime(&[
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+        ("OCTOCODE_STORAGE_MODE", "persistent".into()),
+    ]);
     let sha = "0123456789abcdef0123456789abcdef01234567";
     for name in ["one.rs", "two.rs"] {
         let outcome = call(

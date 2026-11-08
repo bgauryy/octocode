@@ -64,6 +64,12 @@ impl ExportResolver<'_> {
             {
                 found.extend(ids);
                 hopped |= depth > 0;
+                // A CommonJS export written on one branch holds on some runs.
+                uncertain |= self
+                    .built
+                    .facts
+                    .get(&file)
+                    .is_some_and(|facts| facts.conditional_exports);
                 continue;
             }
             if let Some(facts) = self.built.facts.get(&file) {

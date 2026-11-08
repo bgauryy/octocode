@@ -3,8 +3,8 @@
 use super::{GitHubServices, ResponseAccess};
 use crate::execution::ExecutionContext;
 use crate::tools::security_check::{
-    AdvisoryFuture, AdvisoryRead, CommitFacts, CommitFuture, CommitLookup, OtherRefs, RepoFacts,
-    RepoFailure, RepoFuture, RepoRead, RepositoryRead, Unread, Visibility,
+    AdvisoryFuture, AdvisoryRead, CommitFacts, CommitFuture, CommitLookup, GhsaFuture, GhsaRead,
+    OtherRefs, RepoFacts, RepoFailure, RepoFuture, RepoRead, RepositoryRead, Unread, Visibility,
 };
 use octocode_github::{
     ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext, tags_pointing_at,
@@ -182,6 +182,53 @@ impl RepositoryRead for RepositoryReader<'_> {
                     AdvisoryRead::Missing
                 }
                 Err(error) => AdvisoryRead::Failed(failure_of(&error)),
+            }
+        })
+    }
+
+    fn global_advisories<'a>(
+        &'a self,
+        ecosystem: &'a str,
+        affects: &'a str,
+        after: Option<&'a str>,
+    ) -> AdvisoryFuture<'a> {
+        Box::pin(async move {
+            let request = match self.request().await {
+                Ok(request) => request,
+                Err(failure) => return AdvisoryRead::Failed(failure),
+            };
+            match self
+                .services
+                .provider
+                .transport
+                .global_advisories_page(ecosystem, affects, after, &request)
+                .await
+            {
+                Ok(page) => AdvisoryRead::Page(page),
+                Err(error) => AdvisoryRead::Failed(failure_of(&error)),
+            }
+        })
+    }
+
+    fn ghsa<'a>(&'a self, repo: Option<(&'a str, &'a str)>, id: &'a str) -> GhsaFuture<'a> {
+        Box::pin(async move {
+            let request = match self.request().await {
+                Ok(request) => request,
+                Err(failure) => return GhsaRead::Failed(failure),
+            };
+            let transport = &self.services.provider.transport;
+            let read = match repo {
+                Some((owner, name)) => {
+                    transport
+                        .repository_advisory(owner, name, id, &request)
+                        .await
+                }
+                None => transport.global_advisory(id, &request).await,
+            };
+            match read {
+                Ok(Some(advisory)) => GhsaRead::Found(Box::new(advisory)),
+                Ok(None) => GhsaRead::Missing,
+                Err(error) => GhsaRead::Failed(failure_of(&error)),
             }
         })
     }

@@ -111,17 +111,21 @@ impl ChannelRun {
 
     /// Move the rows' linear walks to `responsePagination.next`, so one loop
     /// reaches everything the request asked for: when the response pages (a
-    /// page break would sit between a row and its walk) or when more than one
-    /// walk remains. One walk on an unpaged response stays where it is.
+    /// page break would sit between a row and its walk), when more than one
+    /// walk remains, or when a walk continues the page its row answered
+    /// (`continues_page`: the rest of that page is the rest of this
+    /// response). One walk to a later page on an unpaged response stays
+    /// where it is.
     pub(super) fn hoist_walks(
         &self,
         structured: &mut Sanitized,
         pending: &mut Pending,
+        continues_page: bool,
     ) -> Result<(), contracts::ContractValidationError> {
         let walks = continuations::linear_walks(self.id, structured)?;
         let handles = continuations::walk_handles(structured, &walks);
         let splits = self.options.pages(structured, self.output.auto_page_chars);
-        if handles.is_empty() || (handles.len() == 1 && !splits) {
+        if handles.is_empty() || (handles.len() == 1 && !splits && !continues_page) {
             return Ok(());
         }
         let Some(token) = pending.walk_handle(self.id, &handles) else {
@@ -129,6 +133,25 @@ impl ChannelRun {
         };
         structured.edit(|output| continuations::hoist(output, &walks, self.id, &token));
         Ok(())
+    }
+
+    /// Every read of a section plan restarts its idle lifetime: a page read
+    /// from a saved clasify response refreshes each plan it continues, named
+    /// in its rows or in the walk handle a split batch's next page is hoisted
+    /// to (`responsePagination.next`), so a reader walking the pages still
+    /// reaches the next batch. Opening the handle restarts its own lifetime,
+    /// as a read of it does.
+    pub(super) fn refresh_plans(&self, saved: &Value) {
+        let walk = saved
+            .pointer("/responsePagination/next/input/cursor")
+            .and_then(Value::as_str)
+            .and_then(|token| self.cursors.open(self.id, token, self.access).ok());
+        let inputs = std::iter::once(saved).chain(walk.as_ref().map(|walk| &walk.member().input));
+        crate::tools::clasify::sections::refresh_continued(
+            &self.section_sessions,
+            &self.access,
+            inputs,
+        );
     }
 
     pub(super) fn register_page(

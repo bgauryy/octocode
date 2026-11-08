@@ -18,6 +18,7 @@ shared	policy/include.rs	Nothing searched: include/exclude matched no file. A gl
 shared	providers/artifact/go/search.rs	Follow an earlier page's nextPage to continue with its exact registry token (one request each).
 shared	providers/artifact/release_ref/listing.rs	{} (commit {})
 shared	providers/artifact/release_ref/listing.rs	{}: tags {tags} each name version {version} at different commits, so none is taken as its release tag.
+shared	providers/artifact/release_ref/listing.rs	{}: tag {} is taken as its release tag: {stem} in its prefix is none of this package's names, and {unattested}.
 shared	providers/artifact/types.rs	{}: {what} could not be checked on GitHub ({}), so what it shows is unknown, not confirmed.
 shared	providers/classification/transport.rs	Check OCTOCODE_CLASSIFICATION_API_HOST.
 shared	providers/classification/transport.rs	Remove paths, credentials, query strings, and fragments from the configured API root.
@@ -135,12 +136,13 @@ astSearch	tools/ast_search/symbols/page.rs	0 declarations {named}in {files_scann
 astSearch	tools/ast_search/symbols/page.rs	named {} 
 shared	tools/bounded_process/capture.rs	[stderr cut: {error}]
 shared	tools/bounded_process/capture.rs	[stderr truncated at {STDERR_BYTES} bytes]
-clasify	tools/clasify/admission.rs	Use persistent storage across CLI calls or a long-lived MCP runtime, or supply the text as literal content.
+clasify	tools/clasify/admission.rs	Section plans across CLI calls need storage.mode persistent, or one running MCP server; operation:"evaluate" with this source answers here.
 clasify	tools/clasify/evaluate.rs	Supply the text to judge.
 clasify	tools/clasify/recovery.rs	Each image question re-reads its images: ask fewer image questions per call, or crop the image.
+clasify	tools/clasify/recovery.rs	This source is larger than one response, so its read in related[] pages: run it with storage.mode persistent, or in one running MCP server.
 clasify	tools/clasify/recovery.rs	source takes text; a PNG or JPEG image is judged under assets, as the clasify call in related[] does.
 clasify	tools/clasify/sections.rs	Copy nextPage unchanged, or start a fresh sections request.
-clasify	tools/clasify/sections.rs	Use persistent storage across CLI calls or a long-lived MCP runtime; start a fresh sections request explicitly if the saved plan expired.
+clasify	tools/clasify/sections.rs	Section plans across CLI calls need storage.mode persistent, or one running MCP server; start a fresh sections request explicitly if the saved plan expired.
 clasify	tools/clasify/sections/capture.rs	Use its pinned raw reader or assess a narrower resource set.
 clasify	tools/clasify/sections/capture.rs	Use raw readers or a smaller resource set.
 clasify	tools/clasify/sections/capture.rs	Use the pinned raw reader or a smaller resource selection.
@@ -151,7 +153,7 @@ ghCloneRepo	tools/gh_clone_repo/pin.rs	Verify the branch, tag, or SHA (ghStructu
 ghCloneRepo	tools/gh_clone_repo/process.rs	Resolve the reported Git process or resource failure before retrying.
 ghGetFileContent	tools/gh_get_file_content/timestamp.rs	lastModified is absent: the last-change read failed ({})
 ghSearchCode	tools/gh_search_code.rs	Check the owner spelling: a user or organization login.
-ghSearchCode	tools/gh_search_code.rs	GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.
+ghSearchCode	tools/gh_search_code/page_facts.rs	GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 `{branch}`
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 with `path:"{}"`
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	Code search indexes only the default branch{branch}; `{reference}` was not searched.
@@ -165,6 +167,8 @@ ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	 at {}
 ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	; `lines` read at {reference}
 ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	Files from the default-branch index{index}, not {reference}{lines}.
 ghSearchCode	tools/gh_search_code/empty.rs	keywords hold OR, which code search does not support: run the related[] ghSearchCode request, one row per alternative.
+ghSearchCode	tools/gh_search_code/page_facts.rs	{} file(s) on this page are larger than the line-scan read bound ({} bytes: the scan limit, or the request's smaller response budget), so their lines were not resolved (`lineResolved:false`): read them with ghGetFileContent at the commit.
+ghSearchCode	tools/gh_search_code/page_facts.rs	{} file(s) on this page are withheld by the security path policy (a credential file name or a sensitive directory): their rows list the path only, with no lines, and nothing of them was read. No query field lifts it.
 ghSearchHistory	tools/gh_search_history/shape.rs	No commit touches `{path}` on {at} of GitHub: history covers only what was pushed there, so a file or commit that exists only in your checkout (never pushed, or on an unpushed branch) has none here; read it with local git history, or retry with the ref that holds it. The related[] ghStructure request lists the path's parent to check it exists at that ref.
 ghSearchHistory	tools/gh_search_history/shape.rs	pull request
 ghSearchRepo	tools/gh_search_repo.rs	`{owner}` exists but lists no repositories visible to this token; no filter hid any.
@@ -185,7 +189,7 @@ ghStructure	tools/gh_structure/listing.rs	One or more repository subdirectories 
 ghStructure	tools/gh_structure/materialize/writer.rs	{} binary file(s) are in location.skipped: not text, so not written.
 ghStructure	tools/gh_structure/materialize/writer.rs	{} credential-named file(s) are in location.skipped: withheld, so neither read nor written.
 ghStructure	tools/gh_structure/traverse/entries.rs	{path} ({label})
-ghStructure	tools/gh_structure/tree.rs	include globs match paths from the repository root, also with path set: the first related[] request asks them under {root}/.
+ghStructure	tools/gh_structure/tree.rs	include globs match paths from the repository root, also with path set: the related[] ghStructure request's first query asks them under {root}/.
 shared	tools/judgment.rs	Set OCTOCODE_CLASSIFICATION_API.
 shared	tools/judgment.rs	Set a model identifier without credentials.
 shared	tools/judgment/batch.rs	Inspect the current clasify query schema.
@@ -333,8 +337,8 @@ shared	tools/source_capture/url/fetch.rs	Select a smaller page or section, or su
 shared	tools/source_capture/url/store.rs	Check that the Octocode home is writable, or supply the text as content.
 shared	tools/source_capture/url/store.rs	Check that the Octocode home is writable.
 shared	tools/source_capture/url/store.rs	Enable localFetch for source capture storage.
+shared	tools/source_capture/url/store.rs	Set storage.mode persistent for URL and image captures; literal content and localFetch or ghGetFileContent sources still work here.
 shared	tools/source_capture/url/store.rs	Supply the page text as content.
-shared	tools/source_capture/url/store.rs	Use persistent storage for unread source captures.
 shared	tools/source_view/block/recovery.rs	, e.g. Flow types
 shared	tools/source_view/block/recovery.rs	The parser could not parse lines {} of this file (syntax its grammar lacks{example}) and recovered, so {misses}.
 shared	tools/source_view/block/recovery.rs	The parser could not parse lines {} of this file, where secret-shaped text was redacted, so {misses}.

@@ -94,3 +94,14 @@ fn facts_within_the_retention_budget_link_without_reading_artifacts_back() {
     scan.limits.retained_bytes = LIMITS.retained_bytes;
     equivalent(spilled, reread);
 }
+
+/// A file whose facts encode past one artifact's bound (a large generated
+/// source) is linked from its decoded facts, as past the disk budget: the
+/// build still answers, and only that file's resumption is lost.
+#[test]
+fn facts_past_one_artifact_bound_link_without_a_checkpoint() {
+    let (_dir, mut scan) = fixture();
+    scan.limits.artifact_bytes = 64;
+    let built = build(&scan, &NeverCancel).expect("an oversized artifact refuses nothing");
+    assert_eq!(built.facts.len(), 12);
+}

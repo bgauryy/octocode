@@ -19,10 +19,9 @@ const JOB_VERSION: u32 = 3;
 
 /// Whether the file's source holds a secret. Every text an artifact holds
 /// is a substring of that source, so a clean source cannot put a secret on
-/// disk; the scan reads the raw text once, not its JSON-escaped facts. A
-/// graph source is within what the scanner admits
-/// ([`octocode_engine::fact_scan::MAX_GRAPH_SOURCE_BYTES`]); a larger text
-/// would be refused as a secret, so nothing unscanned is ever written.
+/// disk; the scan reads the raw text once, not its JSON-escaped facts, at
+/// any length (a text past the whole-source size is judged in one pass over
+/// its spans), so nothing unscanned is ever written.
 /// `Err` when the scan panicked, even if the sanitizer recovered: whether
 /// the source holds a secret is then unknown.
 fn holds_secret(
@@ -116,7 +115,7 @@ impl Job<'_> {
     }
 
     fn read(&self, target: &Path) -> Result<Vec<u8>, ToolError> {
-        state::checked_path(self.paths, target, false)?;
+        state::checked_path(self.paths, target)?;
         crate::tools::source::read_bounded(target, LIMITS.artifact_bytes + 65)
             .map_err(|error| failure(format!("cannot read graph checkpoint: {error:?}")))
     }
@@ -188,7 +187,13 @@ impl Job<'_> {
                 )));
             }
         }
-        let bytes = encode(&self.manifest.namespace, view)?;
+        // Past one artifact's bound the file is linked from its decoded
+        // facts, as past the disk and memory-only budgets: only its
+        // resumption is lost, never the build.
+        let Some(bytes) = encode(&self.manifest.namespace, view, self.limits.artifact_bytes) else {
+            let fact_bytes = octocode_engine::json_size::bytes_or(view.facts, usize::MAX);
+            return Ok(Ok((decoded(view, source), fact_bytes)));
+        };
         let size = bytes.len() as u64;
         let holds_secret = match holds_secret(self.security, view.content) {
             Ok(holds) => holds,
@@ -220,7 +225,7 @@ impl Job<'_> {
             Storage::Memory(bytes.into_boxed_slice())
         } else {
             let target = self.target(view.relative_path);
-            state::checked_path(self.paths, &target, true)?;
+            state::checked_path(self.paths, &target)?;
             // Reserve the quota first, so concurrent writers never pass it together.
             let previous = {
                 let mut state = self.state();

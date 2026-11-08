@@ -1,4 +1,5 @@
-//! A host that exits cannot promise a later pinned read from memory storage.
+//! A host that exits cannot promise a later pinned read from memory storage:
+//! it refuses a section plan, and a source evaluation offers a fresh read.
 use super::{provider, provider_calls, separate_functions};
 use crate::support::{Workspace, clasify_runtime};
 use octocode_native::runtime::{Channel, ToolRuntime};
@@ -48,7 +49,7 @@ fn refused(row: &Value) {
             .as_array()
             .unwrap()
             .iter()
-            .any(|hint| hint.as_str().unwrap().contains("persistent storage")),
+            .any(|hint| hint.as_str().unwrap().contains("storage.mode persistent")),
         "{row:#}"
     );
     assert!(
@@ -139,7 +140,10 @@ async fn a_one_shot_memory_evaluation_offers_a_fresh_read_the_next_runtime_runs(
         first.close().await;
         let data = &output["results"][0]["data"];
         assert_eq!(data["answers"]["q"]["noul"], 0.9, "{output:#}");
-        assert!(data["next"].get("read").is_none(), "no dead handle: {data:#}");
+        assert!(
+            data["next"].get("read").is_none(),
+            "no dead handle: {data:#}"
+        );
         assert!(!output.to_string().contains("\"cursor\""), "{output:#}");
         let read = data["related"]
             .as_array()
@@ -148,6 +152,16 @@ async fn a_one_shot_memory_evaluation_offers_a_fresh_read_the_next_runtime_runs(
             .find(|call| call["tool"] == source["tool"])
             .unwrap_or_else(|| panic!("a fresh read in related[]: {data:#}"));
         assert_eq!(read["kind"], "related", "{read:#}");
+        let reread = &read["input"]["queries"][0];
+        if source["tool"] == "ghGetFileContent" {
+            assert_eq!(reread["ref"], SHA, "the captured commit: {read:#}");
+        } else {
+            assert!(reread.get("snapshot").is_none(), "{read:#}");
+        }
+        assert!(
+            !data.to_string().contains("\"sections\""),
+            "no section plan this runtime refuses: {data:#}"
+        );
         let second = clasify_runtime(&workspace, &server, &env);
         let admission = second
             .admit("next-cli-call".into())
@@ -166,6 +180,65 @@ async fn a_one_shot_memory_evaluation_offers_a_fresh_read_the_next_runtime_runs(
             .into_value();
         assert!(fetched.to_string().contains(text), "{fetched:#}");
         second.close().await;
+    }
+}
+
+/// RV-CLS open item (#28): a one-shot memory runtime offers a fresh read of
+/// the captured source; a source larger than one response pages, which the
+/// next one-shot memory call refuses. The row then says so, beside the read:
+/// it needs `storage.mode persistent` or one MCP server. A source that fits
+/// one response carries no such hint, and its read completes.
+#[tokio::test]
+async fn a_one_shot_fresh_read_larger_than_one_response_says_it_needs_saved_continuations() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    workspace.write("small.rs", "pub fn restart() {}\n");
+    workspace.write("large.rs", separate_functions(10));
+    let env = [("OCTOCODE_STORAGE_MODE", "memory".into())];
+    for (path, pages) in [("small.rs", false), ("large.rs", true)] {
+        let first = clasify_runtime(&workspace, &server, &env);
+        let output = exiting_call(
+            &first,
+            vec![json!({"operation":"evaluate","source":source(path),"questions":questions()})],
+        )
+        .await;
+        first.close().await;
+        let data = &output["results"][0]["data"];
+        assert_eq!(data["answers"]["q"]["noul"], 0.9, "{output:#}");
+        let read = data["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|call| call["tool"] == "localFetch")
+            .unwrap_or_else(|| panic!("{path}: a fresh read in related[]: {data:#}"))
+            .clone();
+        let hinted = data["hints"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .any(|hint| {
+                hint.contains("larger than one response")
+                    && hint.contains("storage.mode persistent")
+                    && hint.contains("MCP")
+            });
+        assert_eq!(hinted, pages, "{path}: {data:#}");
+        let second = clasify_runtime(&workspace, &server, &env);
+        let admission = second
+            .admit("next-cli-call".into())
+            .unwrap()
+            .requiring_persistent_continuations();
+        let fetched = second
+            .execute(
+                admission,
+                "localFetch".into(),
+                read["input"].clone(),
+                Channel::Cli,
+            )
+            .await;
+        second.close().await;
+        // The hint is exactly when the read cannot complete in this mode.
+        assert_eq!(fetched.is_err(), pages, "{path}: {:?}", fetched.err());
     }
 }
 
@@ -236,5 +309,73 @@ async fn exiting_memory_clasify_keeps_literal_siblings_and_long_lived_source_rea
             "following the exact read never bills again"
         );
     }
+    runtime.close().await;
+}
+
+/// Every read of a section plan restarts its idle lifetime: reading a
+/// response page of a batch keeps the plan its rows continue, so the batch's
+/// next page still answers past 30 minutes from the batch (CLS-C29).
+#[tokio::test]
+async fn reading_a_response_page_keeps_the_plan_its_batch_continues() {
+    let server = provider().await;
+    let workspace = Workspace::new();
+    workspace.write("many.rs", separate_functions(70));
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let plans = workspace.home.join("tmp/section-assessments");
+    let age = |by: std::time::Duration| {
+        for entry in std::fs::read_dir(&plans).unwrap() {
+            let path = entry.unwrap().path();
+            let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(modified - by)
+                .unwrap();
+        }
+    };
+    let row = json!({"operation":"sections","resources":{"file":source("many.rs")},"questions":questions()});
+    let mut page = crate::support::Run::run(
+        &runtime,
+        "plan-first".into(),
+        "clasify".into(),
+        json!({"queries":[row],"responseChars":2_500}),
+    )
+    .await
+    .expect("first page")
+    .structured_content
+    .into_value();
+    age(std::time::Duration::from_secs(25 * 60));
+    // Each saved page is read 10 minutes after the last read: the plan lives
+    // only if every read restarts its lifetime. The first call that judges
+    // again is the batch's next page.
+    let mut pages = 0;
+    loop {
+        let next = crate::support::next_input(&page)
+            .unwrap_or_else(|| panic!("the batch continues: {page:#}"));
+        if pages > 0 {
+            age(std::time::Duration::from_secs(10 * 60));
+        }
+        let calls = provider_calls(&server).await;
+        page = crate::support::Run::run(&runtime, format!("plan-{pages}"), "clasify".into(), next)
+            .await
+            .expect("next page")
+            .structured_content
+            .into_value();
+        if page["responsePagination"]["replayed"] == true {
+            pages += 1;
+            continue;
+        }
+        assert_ne!(
+            page["results"][0]["data"]["errorCode"], "classificationContextUnavailable",
+            "the plan lives 30 minutes from its last read: {page:#}"
+        );
+        assert!(
+            provider_calls(&server).await > calls,
+            "the next batch is judged"
+        );
+        break;
+    }
+    assert!(pages > 1, "the batch pages over saved pages: {page:#}");
     runtime.close().await;
 }

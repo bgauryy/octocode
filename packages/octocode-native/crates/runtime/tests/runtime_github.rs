@@ -2,6 +2,7 @@
 //! reads, recoveries, rate limits and bulk dispatch against a mock GitHub.
 
 mod batches;
+mod code_page_reads;
 mod failures;
 mod file_reads;
 mod materialize;

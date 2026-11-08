@@ -4,11 +4,12 @@
 use super::*;
 use std::io::Write;
 
-struct Bounded(Vec<u8>);
+/// An artifact's bytes, refused past `.1` (one artifact's bound).
+struct Bounded(Vec<u8>, usize);
 
 impl Write for Bounded {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        if self.0.len().saturating_add(bytes.len()) > LIMITS.artifact_bytes {
+        if self.0.len().saturating_add(bytes.len()) > self.1 {
             return Err(std::io::Error::other(
                 "graph extraction artifact exceeds its byte limit",
             ));
@@ -21,7 +22,12 @@ impl Write for Bounded {
     }
 }
 
-pub(super) fn encode(namespace: &str, view: &GraphFactsView<'_>) -> Result<Vec<u8>, ToolError> {
+/// The artifact of `view`, `None` past `max_bytes` (one artifact's bound).
+pub(super) fn encode(
+    namespace: &str,
+    view: &GraphFactsView<'_>,
+    max_bytes: usize,
+) -> Option<Vec<u8>> {
     let artifact = cache::Artifact {
         namespace,
         relative_path: view.relative_path,
@@ -33,13 +39,12 @@ pub(super) fn encode(namespace: &str, view: &GraphFactsView<'_>) -> Result<Vec<u
             .map(|count| (count.declaration_id.as_str(), count.count))
             .collect::<Vec<_>>(),
     };
-    let mut writer = Bounded(vec![0; 65]);
-    serde_json::to_writer(&mut writer, &artifact)
-        .map_err(|_| limit("one extraction artifact", LIMITS.artifact_bytes as u64))?;
+    let mut writer = Bounded(vec![0; 65], max_bytes);
+    serde_json::to_writer(&mut writer, &artifact).ok()?;
     let digest = octocode_engine::digest::sha256(&writer.0[65..]);
     writer.0[..64].copy_from_slice(digest.as_bytes());
     writer.0[64] = b'\n';
-    Ok(writer.0)
+    Some(writer.0)
 }
 
 /// The verified extraction record of `relative` at `digest`.

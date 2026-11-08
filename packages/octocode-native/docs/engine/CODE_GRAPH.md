@@ -601,10 +601,37 @@ stay package candidates. A constructor-shaped receiver (`T(..).m()`,
 Multiple targets or unresolved branches keep observed candidates at medium
 confidence.
 
+Data members (fields, properties, enum members, and constants or variables a
+type's body declares) are members of their type. A call reaches one through a
+receiver or the type (`s.cb()`, `T.K`), never by a bare name, which would
+otherwise link a builtin or a free function to a same-named field (Go `append`, C
+`compute`). The one exception is a member whose written type is a function type
+(facts schema 28, `function_typed`): a Scala `A => B`, `FunctionN[..]` or
+`PartialFunction[..]`, or an untyped `val` holding a lambda; a C# `Action` or
+`Func` field or property; a C++ `std::function` or function-pointer member. In
+those languages, which have an implicit receiver, a bare call inside the
+member's own type invokes it (`def apply() = resolved()` for `lazy val resolved:
+Function0[A]`, C# `cb()` for `Action cb`). TypeScript and JavaScript have no
+implicit receiver, so `this.cb()` reaches an arrow-typed property and a bare
+`cb()` never does. Limits: only the written type counts, so a C# field of a
+delegate type the repository declares, or a Scala `val` typed by an alias, stays
+unlinked by its bare name; so does a call from a C# partial part other than the
+member's own, from a base class's subclass, or from a C++ out-of-line definition
+(`void S::run() { cb(); }`), whose caller sits outside the class body. A value of
+another type called through `apply` (`m(k)` for a `Map`) is no call of the
+member. Through a receiver, a callable member of the same type and name wins over
+a data member (a Java accessor `name()` beside its field `name`); "the same type"
+is the member's own declaration, or a Rust type and an `impl` block of its name
+in its crate, never a same-named type elsewhere. A data member whose qualified
+name repeats in its file takes the `@line` key suffix, so a same-named method
+keeps its plain key (`Buf.len` is the method, `Buf.len@2` the field). A written
+call of an enum member through its type (`Attempt::Done(1)`) constructs it and
+links as `constructs:<resolution>`; `v.Done(1)` through a value does not link.
+
 CommonJS links the same way. A module-scope `require('./m')` binding (whole module,
 destructured key or `.key`) counts as an import only when oxc semantics prove it
-holds the loaded module; a guarded form such as `root.x || require('./m')` keeps
-its file edge but links no call. A `require` binding inside a function or block
+holds the loaded module; a guarded form such as `root.x || require('./m')` binds
+it only on one branch, at medium (below). A `require` binding inside a function or block
 (`function f() { const m = require('./m'); m.k() }`) holds only over that scope:
 it must be declared directly in the scope that holds it, never written, and not
 declared again in a nested scope; calls inside the scope link at medium
@@ -620,8 +647,29 @@ A function, arrow or class written straight into such an export
 (`exports.k = function () {}`, `module.exports = { k() {} }`,
 `module.exports = function name() {}`) is a declaration named as callers write
 it, and owns the calls inside it. A barrel `module.exports = require('./impl')` forwards every export of its
-target, as `export * from` does (a spread `{ ...require('./impl') }` is not read). An export inside an IIFE, a UMD wrapper or a
-conditional proves nothing, so calls into it stay unresolved.
+target, as `export * from` does (a spread `{ ...require('./impl') }` is not read).
+A whole export `module.exports = v` also exports the members of what `v` holds,
+followed through identifier chains only (B122): a variable initialized by another
+name, or by a call of the file's own function whose every `return` gives one
+local, ends at a function or class, and each `v.k = f` statement written directly
+in the scope that declares it (before that function returns it) exports the
+function `f` declared there as `k`. A UMD wrapper (the module body is one
+function called in place) that writes `module.exports` once, directly or through
+an alias `var m = .. && module`, at its statement level or in `if` branches,
+exports the same way. An export written in a branch, or a value passed on to code
+that may change its members (`mixin(lodash, ..)`), holds on some runs only: its
+links are medium. Any other export inside an IIFE or a conditional proves
+nothing. A guarded load `var x = E || require('./m')` (or `??`) binds the module
+on the branch where `E` fails, at medium confidence even at module scope. Any
+later write to `x` drops the binding, except a write of the guard's own source
+text (`x = E`, compared as text, never by name): it assigns one of the two values
+the declaration already admits, so the binding stays at medium. The value `E`
+holds then need not be the loaded module (after `_.noConflict()` restores an
+earlier global it is not).
+A bare specifier naming the importer's own package (`require('lodash')` inside
+lodash) reaches its source only as Node resolves it: through self-reference,
+which needs `exports` in its `package.json`, or as a workspace member; otherwise
+it is the installed copy, a third-party package.
 
 ES modules bind the way TypeScript does. A bare call never names a class or
 object-literal member, which is never in lexical scope, so `mutate()` inside a
@@ -819,14 +867,14 @@ rather than linked by a name guess.
 
 | Language | Not linked |
 |---|---|
-| TypeScript, TSX, JavaScript | Cross-file property types (`app.scene`), contextually typed parameters and generic callback types; members of `await import()`; UMD exports; guarded loaders (`root._ \|\| require(..)`); a scope `require` whose name a nested scope declares again |
+| TypeScript, TSX, JavaScript | Types only a checker settles: a parameter typed through a type-parameter constraint (`register<T extends Action>({ perform: (.., app) => .. })`), a global through `declare global` merging and the DOM `window` (`const { h } = window`), `InstanceType<typeof X>`, `import("..").T`, and members whose declared type names a type parameter. Declared types do link across files: class fields and parameter properties, imported interface and alias members (`app.scene.m()`), `T["k"]` with a literal key, parameters of a function its declarator annotates with an alias (`const f: A = ({ scene }) => ..`), and properties destructured from a typed value; a chain may pass the same class (through an inherited member) or the same alias again. Members of `await import()`; a conditional of two requires (`c ? require(a) : require(b)`); a `require` through a wrapper function; a scope `require` whose name a nested scope declares again. A guarded loader (`root._ \|\| require(..)`) and a UMD wrapper's CommonJS-branch export link at medium |
 | Python | The standard-library module list is generated (`skills-dev/octocode-graph-dev/scripts/gen-python-stdlib.mjs` → `aliases/python_stdlib.txt`: the interpreter's `sys.stdlib_module_names` at a pinned Python line plus typeshed `VERSIONS` entries with an upper bound at a pinned typeshed commit; the file header names both), so a private stdlib module (`_socket`) is never bound to another tree; `cls()`; `__all__` is not read; a constructor call links to the class, not `__init__`; `self` inside a nested function |
 | Go | an explicit type argument applied to one value (`F[T]` with a single argument, which the grammar reads as a type conversion); function values, type switches and method-chain return types. A `NewT()` result is typed `T` from the constructor's name only when no declaration of `NewT` is found; a declared result type (an interface included) wins |
 | Rust | calls inside macros; untyped closure parameters. A trait default method is matched to its implementing type by name |
 | Java | method references (`Foo::bar`); untyped lambda parameters; `this(..)` and `super(..)` delegation (`constructor-binding-not-assessed`); record accessors and anonymous-class bodies |
 | C# | extension methods and literal receivers; `: base(..)` initializers; a `global using` declared in another file |
 | Scala | implicit and `given` resolution, `summon` and extension methods (a `given` is declared, an anonymous one under the type it provides); calls through the base type never reach an override |
-| C, C++, CUDA | calls inside macros; calls through function pointers; overloads (every overload of the chosen type is a medium candidate); virtual dispatch (the static type's method only); only direct includes count as near for qualified calls |
+| C, C++, CUDA | calls inside macros; calls through function pointers, except a class's own function-pointer or `std::function` member called by its bare name inside the class body; overloads (every overload of the chosen type is a medium candidate); virtual dispatch (the static type's method only); only direct includes count as near for qualified calls |
 | Assembly | a C call into an assembly symbol: assembly is its own link family |
 
 ### Open decisions
@@ -926,8 +974,8 @@ binary; the 2026-10-30 text-oracle figure in brackets where it differs):
 | C# | Newtonsoft.Json | `ArgumentNotNull` | 0.98 (0.96) | 1.00 |
 | Go | prometheus | `FromStrings` | 0.98 (0.94) | 1.00 |
 | Scala | cats (`core`) | `tailRecM` | 0.94 (0.69) | 1.00 |
-| TSX | excalidraw (`packages`) | `mutateElement` | 0.56 | 1.00 |
-| JavaScript | lodash (excl. `vendor/**`) | `isObject` | 0.50 (0.25) | 1.00 |
+| TSX | excalidraw (`packages`) | `mutateElement` | 0.77 | 1.00 |
+| JavaScript | lodash (excl. `vendor/**`) | `isObject` | 0.67 | 1.00 |
 | JavaScript (CommonJS) | next.js (`scripts`) | `getGitHubToken` | 1.00 | 1.00 |
 
 The oracle still matches text, not bindings:
@@ -936,31 +984,25 @@ The oracle still matches text, not bindings:
   the function through an `extern "C"` include, so it is a real caller.
 - **C#:** the one miss is a `recovered-declaration` site.
 - **Go:** the two misses are `ambiguous` sites (119 sites in two test files).
-- **TSX:** the 22 missed files (57 sites, 2026-11-08 run) are all
-  `member-unknown-receiver-in-repo`: (a) `const {scene} = app` or `app.scene.*`, where
-  the field's type is the indexed-access type `App["scene"]` of another file
-  (GRF-G2); (b) parameters of callbacks typed by a contextual generic alias
-  (`DragInputCallbackType`); (c) the test global `h.scene`. Direct typed
-  parameters and `this.field` already link. Each needs cross-file type
-  inference; none has a precision-safe cheap rule, so they stay classified misses.
+- **TSX:** declared types across files (class fields, imported interface and
+  alias members, `T["k"]`, parameters of an annotated alias, 2026-11-08) took
+  recall from 0.58 to 0.77 at precision 1.00. The 12 missed files need a
+  checker: 10 reach `Scene` through the test global `window.h` (`declare global`
+  merging, the DOM `window`, `InstanceType<typeof App>`), and 2 through
+  `register({ perform: (.., app) => .. })`, typed by a generic constraint.
 - **Scala:** the two misses are member calls on untyped receivers
   (`monadInstance.tailRecM`, `fn1.tailRecM`).
-- **JavaScript:** the three missed files hold 32 sites, all
-  `member-unknown-receiver-in-repo`: `lib/common/minify.js` binds
-  `_ = require('lodash')`, the npm package (a correct non-link), and the two
-  test files reach lodash through guarded loaders (`root._ || require(..)`,
-  `interopRequire(filePath)`). `isObject` itself is exported only through
-  lodash's UMD wrapper (`lodash.isObject = isObject` inside `runInContext`),
-  which proves no CommonJS export (Known limits). Re-run 2026-11-07 after
-  scope and inline `require` linking: unchanged, as lodash has no such load.
+- **JavaScript:** after B122 (2026-11-08) `test/test-fp.js` links at medium
+  through its guarded loader and lodash's UMD export; recall 0.50 → 0.67. Two
+  files stay missed: `lib/common/minify.js` binds `_ = require('lodash')`, the
+  installed package (now `external-package`: lodash has no `exports`, so it
+  cannot require itself), and `test/test.js` loads lodash by a path computed at
+  run time (`interopRequire(filePath)`).
 - **JavaScript (CommonJS):** the probe is the exported name with the most
   caller files among modules two or more files load by relative `require`,
   picked before measuring; its callers use module-scope destructured requires.
-- **TSX:** all 23 misses are `member-unknown-receiver-in-repo` receivers typed
-  in other files (Known limits). One oracle hit is a type position
-  (`typeof h.app.scene.mutateElement<T>`), not a call. Receivers destructured
-  from the file's own function (`const { scene } = make()`, facts v17) are
-  typed but not yet measured on the battery.
+- **TSX:** one oracle hit is a type position
+  (`typeof h.app.scene.mutateElement<T>`), not a call.
 
 Rust receiver typing was also checked against rust-analyzer call hierarchy on
 the octocode native crates (2026-11-01, graph-view LSP cross-check, same-crate

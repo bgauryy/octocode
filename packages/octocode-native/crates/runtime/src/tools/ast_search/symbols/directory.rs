@@ -24,7 +24,7 @@ fn directory_scan_options(
             ast_search_query_symbols::scan_offset(q),
         ),
         skip_files: Some(ast_search_query_symbols::scan_offset(q)),
-        max_file_bytes: u32::try_from(crate::security::SourceLimits::REAL.whole_source).ok(),
+        max_file_bytes: Some(crate::security::SourceLimits::REAL.whole_source_bytes()),
         language_globs: ast_search_query_symbols::language_globs(q)
             .as_ref()
             .map(crate::tools::ast_rule::language_globs),

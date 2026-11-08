@@ -68,28 +68,34 @@ async fn projects_rate_limit_metadata_without_retrying_long_delays() {
     );
 }
 
-/// A 403 primary (core) rate limit that resets at epoch second `reset`.
-fn primary_limit(reset: u64) -> ResponseTemplate {
+/// A 403 primary rate limit on `resource` that resets at epoch second `reset`.
+fn primary_limit(resource: &str, reset: u64) -> ResponseTemplate {
     ResponseTemplate::new(403)
         .insert_header("x-ratelimit-remaining", "0")
         .insert_header("x-ratelimit-reset", reset.to_string().as_str())
-        .insert_header("x-ratelimit-resource", "core")
+        .insert_header("x-ratelimit-resource", resource)
         .set_body_json(serde_json::json!({"message": "API rate limit exceeded"}))
 }
 
+/// A spent search quota (a minute window the search pacing plans around) is
+/// waited out; a spent core quota is not (see
+/// `a_spent_core_quota_is_disclosed_at_once_however_far_the_deadline`).
 #[tokio::test]
 async fn primary_limit_waits_for_a_short_reset_then_retries() {
     let server = MockServer::builder().start().await;
     let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let reset = epoch_secs() + 1;
     Mock::given(method("GET"))
-        .respond_with(Sequence::new(vec![primary_limit(reset), ok_json()]))
+        .respond_with(Sequence::new(vec![
+            primary_limit("search", reset),
+            ok_json(),
+        ]))
         .expect(2)
         .mount(&server)
         .await;
     let page = transport
         .execute(
-            RequestSpec::get(endpoint.rest(&["repos", "a", "b"]).expect("route")),
+            RequestSpec::get(endpoint.rest(&["search", "issues"]).expect("route")),
             &with_token("t", Duration::from_secs(5), 1024),
         )
         .await
@@ -98,7 +104,7 @@ async fn primary_limit_waits_for_a_short_reset_then_retries() {
     assert!(epoch_secs() >= reset, "retried before the reset");
 }
 
-/// A rate-limit wait runs on the call's time, not the request's: a 0.5 s
+/// A rate-limit wait (here a spent search quota's) runs on the call's time, not the request's: a 0.5 s
 /// request budget survives a 1–2 s reset wait, and the retried request still
 /// gets its own time. Without a call deadline past the request's, the same
 /// wait fails fast. The reset is two whole seconds away, so the wait (at
@@ -112,14 +118,17 @@ async fn rate_limit_waits_do_not_spend_the_request_timeout() {
     let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let reset = epoch_secs() + 2;
     Mock::given(method("GET"))
-        .respond_with(Sequence::new(vec![primary_limit(reset), ok_json()]))
+        .respond_with(Sequence::new(vec![
+            primary_limit("search", reset),
+            ok_json(),
+        ]))
         .mount(&server)
         .await;
     let mut context = with_token("t", Duration::from_millis(500), 1024);
     context.budget.wait_until = std::time::Instant::now() + Duration::from_secs(10);
     let page = transport
         .execute(
-            RequestSpec::get(endpoint.rest(&["repos", "a", "b"]).expect("route")),
+            RequestSpec::get(endpoint.rest(&["search", "issues"]).expect("route")),
             &context,
         )
         .await
@@ -131,12 +140,15 @@ async fn rate_limit_waits_do_not_spend_the_request_timeout() {
     let (transport, endpoint) = executor_transport(&other, GitHubBudget::relaxed(), short_retry());
     let reset = epoch_secs() + 2;
     Mock::given(method("GET"))
-        .respond_with(Sequence::new(vec![primary_limit(reset), ok_json()]))
+        .respond_with(Sequence::new(vec![
+            primary_limit("search", reset),
+            ok_json(),
+        ]))
         .mount(&other)
         .await;
     let error = transport
         .execute(
-            RequestSpec::get(endpoint.rest(&["repos", "a", "b"]).expect("route")),
+            RequestSpec::get(endpoint.rest(&["search", "issues"]).expect("route")),
             &with_token("t", Duration::from_millis(500), 1024),
         )
         .await
@@ -214,5 +226,71 @@ async fn a_headerless_rate_limit_body_is_a_primary_limit() {
     assert!(
         (epoch_secs() + 55..=epoch_secs() + 61).contains(&reset),
         "reset {reset} is not about a minute out"
+    );
+}
+
+/// D1: a spent core quota is disclosed at once, however far the call's own
+/// deadline lies (no caller budget sets it 24 h out). GitHub meters core
+/// over an hour, so waiting for its reset would hold the call for up to an
+/// hour; the caller gets `rateLimited` with the reset instead and decides.
+/// A known spent bucket refuses the next core read the same way, unsent.
+/// Should the call wait anyway, the host hears it and the watcher cancels
+/// it, so the old behavior fails on the error kind rather than hanging.
+#[tokio::test]
+async fn a_spent_core_quota_is_disclosed_at_once_however_far_the_deadline() {
+    let server = MockServer::builder().start().await;
+    let reset = epoch_secs() + 3600;
+    Mock::given(method("GET"))
+        .respond_with(primary_limit("core", reset))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    let mut context = with_token("spent-far", Duration::from_secs(5), 1024);
+    context.budget.wait_until = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
+    let heard = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = Arc::clone(&heard);
+    let scope = octocode_io::notice::Scope::with_progress(move |line| {
+        sink.lock().expect("lines").push(line.to_owned());
+    });
+    let cancellation = context.budget.cancellation.clone();
+    let lines = Arc::clone(&heard);
+    let watcher = tokio::spawn(async move {
+        while lines.lock().expect("lines").is_empty() {
+            tokio::task::yield_now().await;
+        }
+        cancellation.cancel();
+    });
+    for path in [["repos", "a", "b"], ["repos", "a", "c"]] {
+        let error = scope
+            .run(transport.execute(
+                RequestSpec::get(endpoint.rest(&path).expect("route")),
+                &context,
+            ))
+            .await
+            .expect_err("rate limited");
+        assert_eq!(
+            error.kind,
+            ProviderErrorKind::RateLimited,
+            "{path:?}: {error:?}"
+        );
+        let rate = error.rate_limit.expect("rate limit");
+        assert_eq!(rate.reset_epoch_seconds, Some(reset), "{path:?}");
+        assert_eq!(rate.resource.as_deref(), Some("core"), "{path:?}");
+        assert!(
+            rate.retry_after_seconds.unwrap_or_default() > 3000,
+            "{path:?}: {rate:?}"
+        );
+    }
+    watcher.abort();
+    assert!(
+        heard.lock().expect("lines").is_empty(),
+        "no wait was announced: {:?}",
+        heard.lock().expect("lines")
+    );
+    assert!(
+        context.client_waits().is_empty(),
+        "{:?}",
+        context.client_waits()
     );
 }

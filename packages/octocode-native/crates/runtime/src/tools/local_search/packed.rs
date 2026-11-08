@@ -9,11 +9,12 @@
 //!
 //! - **Whole** ([`Encoded::encode_checked`]): every file in scan order, one
 //!   deflate stream, encoded before the page reorders it. A continuation
-//!   inflates and decodes all of it and cuts its page again. Classification
-//!   and list pages keep this shape: a classification filters rows before
-//!   its cut, and a list page shows no rows.
-//! - **Seekable** ([`Encoded::frames`]): one frame per page entry of the
-//!   page's cut, in page order, each its own deflate stream, with an index of
+//!   inflates and decodes all of it and cuts its page again. Classification,
+//!   list and match-page grid pages keep this shape: a classification
+//!   filters rows before its cut, a list page shows no rows, and a grid is
+//!   reached by no public call.
+//! - **Seekable** ([`FrameWriter`]): one frame per page entry of the
+//!   page's streamed cut, in page order, each its own deflate stream, with an index of
 //!   where each frame sits and which entries make each page ([`PageIndex`]).
 //!   A continuation inflates and decodes only its own page's frames.
 //!
@@ -48,10 +49,14 @@ pub use write::Identity;
 use write::Writer;
 
 /// Which page entries a seekable scan's pages are made of, and the totals
-/// a page reports, so a continuation cuts nothing again.
+/// a page reports, so a continuation cuts nothing again. Only the default
+/// (streamed) layout is seekable: a match-page grid is reached by no
+/// public call (`matchPage` is private progress, and only a grid page
+/// issues a next match page), so a grid scan is kept whole.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct PageIndex {
-    pub(super) cut: Cut,
+    /// Page `p` is the frames `pages[p - 1]`.
+    pub(super) pages: Vec<std::ops::Range<u32>>,
     /// Files the scan matched.
     pub(super) total_files: u32,
     /// Rows of every file.
@@ -62,33 +67,15 @@ pub(super) struct PageIndex {
     pub(super) over_matches_per: bool,
 }
 
-/// How a seekable scan's pages are cut.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum Cut {
-    /// Default layout: page `p` is the frames `pages[p - 1]`.
-    Stream { pages: Vec<std::ops::Range<u32>> },
-    /// A caller page size: file `f` (in page order) is the frames
-    /// `files[f]`, one per match page; a page shows `page_size` files.
-    Grid {
-        page_size: u32,
-        files: Vec<std::ops::Range<u32>>,
-    },
-}
-
 impl PageIndex {
     fn weight(&self) -> usize {
-        let ranges = match &self.cut {
-            Cut::Stream { pages } => pages.len(),
-            Cut::Grid { files, .. } => files.len(),
-        };
-        std::mem::size_of::<Self>() + ranges * std::mem::size_of::<std::ops::Range<u32>>()
+        std::mem::size_of::<Self>() + self.pages.len() * std::mem::size_of::<std::ops::Range<u32>>()
     }
 }
 
 /// One page entry as a frame holds it.
 pub(super) struct Entry {
-    /// The file with the entry's rows only (none when its rows were read
-    /// past).
+    /// The file with the entry's rows only.
     pub(super) file: TextSearchFile,
     pub(super) facts: super::page_view::EntryFacts,
     /// Rows of the entry whose value redaction changed.
@@ -351,18 +338,12 @@ impl Packed {
         &self.stats
     }
 
-    /// Frame `at` of a seekable scan, inflated alone; its rows are read
-    /// past, not decoded, without `keep_rows`.
-    pub(super) fn entry(
-        &self,
-        at: u32,
-        keep_rows: bool,
-        cancelled: &dyn Fn() -> bool,
-    ) -> Option<Entry> {
+    /// Frame `at` of a seekable scan, inflated alone.
+    pub(super) fn entry(&self, at: u32, cancelled: &dyn Fn() -> bool) -> Option<Entry> {
         self.seek.as_ref()?;
         let raw = self.inflate(*self.frames.get(at as usize)?, cancelled)?;
         let mut reader = Reader::new(&raw);
-        let entry = reader.entry(keep_rows, cancelled)?;
+        let entry = reader.entry(cancelled)?;
         reader.finished().then_some(entry)
     }
 

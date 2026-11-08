@@ -11,7 +11,10 @@ pub struct GraphFactsScanOptions {
     /// Leading files (walk order) left unscanned: an earlier scan of the
     /// same scope already read them. They still count toward `max_files`.
     pub skip_files: Option<u32>,
-    pub max_file_bytes: Option<u32>,
+    /// The largest file the scan reads whole: the caller's memory bound
+    /// (a graph build's budget, a whole-source read's limit). `None` reads
+    /// any size; the parse's own work bound and the map budget still apply.
+    pub max_file_bytes: Option<u64>,
     pub language_globs: Option<Vec<GraphLanguageGlob>>,
     /// Which ignore rules and dot entries the walk leaves out.
     pub ignore: crate::types::IgnorePolicy,

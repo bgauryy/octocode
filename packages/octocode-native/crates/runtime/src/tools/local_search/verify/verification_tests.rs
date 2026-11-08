@@ -94,7 +94,7 @@ fn a_parallel_redaction_records_in_file_order() {
         .map(|(file, row, _)| (*file, *row))
         .collect::<Vec<_>>();
     assert!(order.is_sorted(), "{order:?}");
-    assert!(record.key_files.iter().map(|(file, _)| *file).is_sorted());
+    assert!(record.key_files.iter().map(|key| key.index).is_sorted());
     assert_eq!(record.key_files.len(), 7, "{:?}", record.key_files);
     assert!(record.changes.len() >= 16 + 7, "{:?}", record.changes);
     assert_eq!(redacted.len(), record.changes.len());

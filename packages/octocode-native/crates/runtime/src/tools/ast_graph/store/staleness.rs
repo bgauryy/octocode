@@ -18,23 +18,18 @@ pub(crate) fn source_matches(
     digest: &str,
     stamp: Option<&SourceStamp>,
 ) -> Option<bool> {
-    // Ingest never reads a source beyond this bound. A different size cannot
-    // have the recorded digest, and a file grown past the parser bound must
-    // prove the snapshot stale without allocating it in full.
-    const MAX_INGEST_SOURCE_BYTES: usize =
-        octocode_engine::fact_scan::MAX_GRAPH_SOURCE_BYTES as usize;
+    // A different size cannot have the recorded digest.
     let meta = std::fs::metadata(path).ok()?;
-    let current_size = meta.len();
-    if current_size > MAX_INGEST_SOURCE_BYTES as u64
-        || stamp.is_some_and(|recorded| recorded.size != current_size)
-    {
+    if stamp.is_some_and(|recorded| recorded.size != meta.len()) {
         return Some(false);
     }
     if stamp.is_some() && SourceStamp::of(&meta).as_ref() == stamp {
         return Some(true);
     }
-    let content = crate::tools::source::read_bounded(path, MAX_INGEST_SOURCE_BYTES).ok()?;
-    Some(octocode_engine::digest::sha256(&content) == digest)
+    // Hashed as it streams: proving a large source holds nothing of it.
+    let mut hash = octocode_engine::digest::HashWriter::default();
+    std::io::copy(&mut std::fs::File::open(path).ok()?, &mut hash).ok()?;
+    Some(hex::encode(hash.finalize()) == digest)
 }
 
 /// The linking configs a build of the snapshot's files read (see

@@ -178,7 +178,7 @@ impl ReceiverScopes {
         {
             match &it.pattern {
                 BindingPattern::ObjectPattern(object) => {
-                    self.bind_declared_object(object, &context)
+                    self.bind_declared_object(object, &context);
                 }
                 pattern => self.bind_path(pattern, context),
             }

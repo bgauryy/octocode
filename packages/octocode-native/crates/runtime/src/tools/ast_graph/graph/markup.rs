@@ -7,17 +7,20 @@ use octocode_engine::signatures::markup::{MarkupScripts, markup_scripts};
 use octocode_engine::text::{Decoding, extension_of, read_regular};
 use octocode_engine::types::FileSystemEntry;
 
-/// The scripts of one walked markup file. A file the scan cannot read may
-/// hold a script it did not see, so it counts as holding one.
-fn read_scripts(entry: &FileSystemEntry, relative: &str, extension: &str) -> MarkupScripts {
+/// The scripts of one walked markup file, read whole within `max_bytes` (the
+/// build's memory bound, as for every scanned source). A file the scan cannot
+/// read may hold a script it did not see, so it counts as holding one.
+fn read_scripts(
+    entry: &FileSystemEntry,
+    relative: &str,
+    extension: &str,
+    max_bytes: u64,
+) -> MarkupScripts {
     let unread = MarkupScripts {
         has_script: true,
         imports: Vec::new(),
     };
-    let Ok(source) = read_regular(
-        Path::new(&entry.path),
-        u64::from(octocode_engine::fact_scan::MAX_GRAPH_SOURCE_BYTES),
-    ) else {
+    let Ok(source) = read_regular(Path::new(&entry.path), max_bytes) else {
         return unread;
     };
     match source.admit(Decoding::Unicode) {
@@ -30,6 +33,7 @@ pub(super) fn link_markup(
     b: &mut BuiltGraph,
     inputs: &LinkInputs<'_>,
     mut entries: Vec<FileSystemEntry>,
+    max_bytes: u64,
     cancel: &dyn CancellationCheck,
 ) -> Result<(), ToolError> {
     let width = crate::tools::workers::workers(entries.len(), None);
@@ -37,7 +41,7 @@ pub(super) fn link_markup(
         cancel.check().ok()?;
         let relative = normalize(&entry.relative_path);
         let extension = extension_of(&relative, true, "");
-        let scripts = read_scripts(entry, &relative, &extension);
+        let scripts = read_scripts(entry, &relative, &extension, max_bytes);
         Some((relative, extension, scripts))
     });
     cancel.check().map_err(ToolError::cancelled)?;

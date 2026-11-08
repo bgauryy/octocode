@@ -66,14 +66,19 @@ fn error_code(resource: &Value) -> &Value {
     &resource["error"]["errorCode"]
 }
 
-/// A finished plan has no continuation of any kind: whatever `next` holds is
-/// a `read`/`readN` of the judged lines, an executable localFetch or
-/// ghGetFileContent continuation (a pinned cursor), never a page.
+/// A finished plan has no continuation that judges more: whatever `next`
+/// holds is a `read`/`readN` of the judged lines, an executable localFetch or
+/// ghGetFileContent continuation (a pinned cursor), never a page; or
+/// `quiet`, the unbilled replay of the sections it held back.
 pub(crate) fn assert_next_is_only_pinned_reads(out: &Value) {
     let Some(next) = out.get("next") else {
         return;
     };
     for (key, call) in next.as_object().expect("next is an object") {
+        if key == "quiet" {
+            assert_eq!(call["tool"], "clasify", "{call}");
+            continue;
+        }
         let index = key
             .strip_prefix("read")
             .unwrap_or_else(|| panic!("`next.{key}` is a continuation, not a read: {out:#}"));

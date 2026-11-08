@@ -87,7 +87,9 @@ pub(crate) async fn answer_questions(
     };
     if let Ok(judged) = &mut outcomes.complete {
         judged.long_context_retry = Some(super::LongContextRetry {
-            unreported_calls: judged.provider_calls.saturating_sub(judged.known_usage_calls),
+            unreported_calls: judged
+                .provider_calls
+                .saturating_sub(judged.known_usage_calls),
         });
     }
     add_refused(&mut outcomes, refused);
@@ -97,14 +99,14 @@ pub(crate) async fn answer_questions(
 /// Whether the long-context retry of a refused evaluation provably fits the
 /// provider's long window. A token covers at least one byte of the text sent,
 /// so a text request of at most that many bytes holds at most that many
-/// tokens; over it, nothing local tells. An image's tokens follow its pixels,
-/// not its bytes, so a request with assets has no such bound.
+/// tokens; over it, nothing local tells. An image request has no such bound
+/// ([`EvaluationInput::long_window_takes`]).
 fn fits_long_window(
     input: EvaluationInput<'_>,
     model: &str,
     provider: &dyn ClassificationProvider,
 ) -> bool {
-    if input.assets.is_some() {
+    if !input.long_window_takes() {
         return false;
     }
     let questions: Vec<&Value> = input.questions.iter().collect();
@@ -169,10 +171,14 @@ async fn answer_inner(
             Ok((response, calls)) => return grouped_outcomes(&request, &response, calls, provider),
             // The provider's window, not a byte count, decides whether a
             // group fits: its refusal tries the long window, then splits the
-            // group into the per-question requests below.
+            // group into the per-question requests below. An image group
+            // splits at once: the long window never takes it
+            // ([`EvaluationInput::long_window_takes`]), and each image
+            // question is billed for its images whether grouped or alone.
             Err(error)
                 if error.code == ErrorCode::ClassificationStateTooLarge
-                    && input.long_context != LongContext::OnRefusal =>
+                    && (input.long_context != LongContext::OnRefusal
+                        || !input.long_window_takes()) =>
             {
                 refused_calls = error.provider_calls;
             }

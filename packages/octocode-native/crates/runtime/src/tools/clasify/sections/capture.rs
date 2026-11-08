@@ -1,8 +1,9 @@
 use super::{Resource, Row, Session, Unit, error_value, new_id};
 use crate::execution::ExecutionContext;
 use crate::security::scan::ContentScan as _;
+use crate::tools::judgment::{ClassificationError, LongContext};
 use crate::tools::source_capture::SourceReader;
-use crate::tools::{judgment::ClassificationError, source_capture::resource, source_sections};
+use crate::tools::{source_capture::resource, source_sections};
 use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -135,7 +136,7 @@ pub(super) fn create(
                 .unwrap_or_else(|| dispatcher.evaluator().model.clone()),
         ),
         resolved_model: None,
-        long_context: row.long_context == Some(true),
+        long_context: LongContext::from_field(row.long_context),
         resources,
         github_identity: None,
         batches: Vec::new(),
@@ -157,7 +158,7 @@ fn prepare(
     // byte remains in a target even when it needs a fragment, and one section
     // well inside the provider's 32k-token (262k long-context) window leaves
     // room for its context and questions.
-    let target_chars = if row.long_context == Some(true) {
+    let target_chars = if LongContext::from_field(row.long_context) == LongContext::Always {
         LONG_CONTEXT_SECTION_CHARS
     } else {
         SECTION_CHARS

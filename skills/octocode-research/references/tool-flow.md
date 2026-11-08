@@ -238,7 +238,7 @@ Measured 2026-11-02 on an optimized build over MCP, under other work on the mach
 | Question | Use | Instead of |
 |---|---|---|
 | One method in a large file | `matchString` + `block:true`: 1,063 | whole file: 195,566 |
-| Markdown outline (a tool reference doc, re-measured 2026-11-08) | `symbols`: 1,396 | whole file: 37,504 |
+| Markdown outline ([OCTOCODE_TOOLS.md](https://github.com/bgauryy/octocode/blob/01e85a06dab71769c8f04303c4142e266482f6c8/docs/OCTOCODE_TOOLS.md), re-measured 2026-11-08) | `symbols`: 1,396 | whole file: 37,504 |
 | Large code outline | `astSearch` symbols + kinds: 6,353 | `symbols`: 54,014; `documentSymbols`: 123,412 |
 | Find a declaration | `astSearch` `symbolFilter`: 375 | `workspaceSymbol`: 2,051 |
 | Which files use a term | `view:"files"`: 809 | content: 9,204 |

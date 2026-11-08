@@ -109,6 +109,77 @@ fn an_uppercase_name_is_readable_and_its_twins_are_not() {
     );
 }
 
+/// Capital words joined by `_` under a key that names a chosen credential
+/// (`password`, `passphrase`, `secret`) are a chosen password
+/// (`CORRECT_HORSE_BATTERY_STAPLE`); under a key naming an opaque string they
+/// stay a constant's name (B165 round 10).
+#[test]
+fn an_uppercase_value_under_a_chosen_credential_key_is_hidden() {
+    hidden_in_files(
+        &[
+            (
+                "a.ts",
+                "const config = { password: \"CORRECT_HORSE_BATTERY_STAPLE\" };\n",
+            ),
+            (
+                "a.ts",
+                "export const DB_PASSWORD = \"CORRECT_HORSE_BATTERY_STAPLE\";\n",
+            ),
+            (
+                "a.json",
+                "{\"db_password\": \"CORRECT_HORSE_BATTERY_STAPLE\", \"passphrase\": \"PURPLE_MONKEY_DISHWASHER\"}\n",
+            ),
+            (
+                "a.rs",
+                "const SECRET: &str = \"CORRECT_HORSE_BATTERY_STAPLE\";\n",
+            ),
+        ],
+        &["CORRECT_HORSE_BATTERY_STAPLE", "PURPLE_MONKEY_DISHWASHER"],
+    );
+    kept_in_files(&[
+        (
+            "a.rs",
+            "let o = json!({\"token\": \"INIT_OPTION_SECRET\"});\n",
+        ),
+        ("a.rs", "const KEY: &str = \"OCTOCODE_GITHUB_CLIENT_ID\";\n"),
+    ]);
+}
+
+/// A label one of whose words is a credential word (`unrelated-secret`,
+/// `highly-sensitive-token`) names a credential, so it is one; a label of
+/// other words under an opaque-string key stays readable (B165 round 10).
+#[test]
+fn a_label_holding_a_credential_word_is_hidden() {
+    hidden_in_files(
+        &[
+            ("a.rs", "let token = \"highly-sensitive-token\";\n"),
+            (
+                "a.rs",
+                "let o = json!({\"apiKey\":\"unrelated-secret\"});\n",
+            ),
+            (
+                "a.rs",
+                "let o = json!({\"githubToken\":\"different-request-token\"});\n",
+            ),
+        ],
+        &[
+            "highly-sensitive-token",
+            "unrelated-secret",
+            "different-request-token",
+        ],
+    );
+    kept_in_files(&[
+        (
+            "a.ts",
+            "const request = { to: b, key: 'release-question', wake: 'action' };\n",
+        ),
+        (
+            "a.rs",
+            "fn f() {\n    t.refresh_token = Some(\"synthetic-refresh\".into());\n}\n",
+        ),
+    ]);
+}
+
 /// Control characters framing a literal (`"\0octocode/serverStatus"`) are
 /// no credential's bytes: the value between them is judged. A token so
 /// framed stays a credential.

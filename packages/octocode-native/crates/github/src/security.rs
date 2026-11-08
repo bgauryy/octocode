@@ -73,36 +73,152 @@ pub fn tags_pointing_at(tips: &[NamedRef], sha: &str) -> Vec<String> {
         .collect()
 }
 
-/// One repository security advisory as GitHub publishes it.
+/// One security advisory as GitHub publishes it: a repository's own
+/// (`/repos/{o}/{r}/security-advisories`) or one of its global database
+/// (`/advisories`). Each field is the one either endpoint names; one that an
+/// endpoint does not publish stays empty.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RepositoryAdvisory {
     pub ghsa_id: String,
     pub cve_id: Option<String>,
+    /// The record's API address.
+    pub url: Option<String>,
     pub html_url: Option<String>,
     pub summary: Option<String>,
     pub description: Option<String>,
     pub severity: Option<String>,
+    /// A repository advisory's state (`published`, `withdrawn`, ...).
+    pub state: Option<String>,
+    /// The account that published a repository advisory.
+    pub publisher: Option<AdvisoryUser>,
     pub published_at: Option<String>,
     pub updated_at: Option<String>,
     pub withdrawn_at: Option<String>,
+    /// The global database's class of the record: `reviewed`, `unreviewed`
+    /// or `malware` (absent on a repository's own advisory).
+    #[serde(rename = "type")]
+    pub kind: Option<String>,
     pub cvss: Option<AdvisoryCvss>,
+    /// Each CVSS version GitHub scored, as `cvss_v3` and `cvss_v4`.
+    pub cvss_severities: Option<CvssSeverities>,
+    /// GitHub's EPSS of the advisory (global database only).
+    pub epss: Option<AdvisoryEpss>,
     #[serde(default)]
     pub cwe_ids: Vec<String>,
     #[serde(default)]
+    pub cwes: Vec<AdvisoryCwe>,
+    #[serde(default)]
+    pub credits: Vec<AdvisoryCredit>,
+    /// Reference URLs (global database only).
+    #[serde(default)]
+    pub references: Vec<String>,
+    #[serde(default)]
     pub vulnerabilities: Vec<AdvisoryVulnerability>,
+}
+
+impl RepositoryAdvisory {
+    /// Every CVSS vector GitHub states with the score it publishes beside it,
+    /// each vector once: `cvss`, then each of `cvss_severities`. A severity with
+    /// no vector is none (GitHub writes `score: 0.0` beside a null vector).
+    #[must_use]
+    pub fn cvss_all(&self) -> Vec<(String, Option<f64>)> {
+        let severities = self.cvss_severities.as_ref();
+        let mut found: Vec<(String, Option<f64>)> = Vec::new();
+        for cvss in std::iter::once(self.cvss.as_ref())
+            .chain(severities.map(|all| all.cvss_v3.as_ref()))
+            .chain(severities.map(|all| all.cvss_v4.as_ref()))
+            .flatten()
+        {
+            if let Some(vector) = cvss.vector_string.as_deref()
+                && !found.iter().any(|(known, _)| known == vector)
+            {
+                found.push((vector.to_owned(), cvss.score));
+            }
+        }
+        found
+    }
+
+    /// Each credited account's login and GitHub's credit type: a repository
+    /// advisory names `login`, the global database a `user`.
+    #[must_use]
+    pub fn credit_logins(&self) -> Vec<(String, Option<String>)> {
+        self.credits
+            .iter()
+            .filter_map(|credit| {
+                let login = credit
+                    .login
+                    .clone()
+                    .or_else(|| credit.user.as_ref().and_then(|user| user.login.clone()))?;
+                Some((login, credit.kind.clone()))
+            })
+            .collect()
+    }
+
+    /// Every CWE id the advisory names, once each: `cwe_ids`, then `cwes`.
+    #[must_use]
+    pub fn cwe_list(&self) -> Vec<String> {
+        let mut ids: Vec<String> = Vec::new();
+        for id in self
+            .cwe_ids
+            .iter()
+            .chain(self.cwes.iter().filter_map(|cwe| cwe.cwe_id.as_ref()))
+        {
+            if !ids.contains(id) {
+                ids.push(id.clone());
+            }
+        }
+        ids
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AdvisoryCvss {
     pub vector_string: Option<String>,
+    /// The base score GitHub publishes with the vector.
+    pub score: Option<f64>,
 }
 
-/// One package a repository advisory names, with its affected and patched versions.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct CvssSeverities {
+    pub cvss_v3: Option<AdvisoryCvss>,
+    pub cvss_v4: Option<AdvisoryCvss>,
+}
+
+/// GitHub's EPSS: the probability of exploitation in the next 30 days and its
+/// percentile among scored CVEs, both 0 to 1.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct AdvisoryEpss {
+    pub percentage: f64,
+    pub percentile: f64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AdvisoryUser {
+    pub login: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AdvisoryCwe {
+    pub cwe_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct AdvisoryCredit {
+    pub login: Option<String>,
+    pub user: Option<AdvisoryUser>,
+    #[serde(rename = "type")]
+    pub kind: Option<String>,
+}
+
+/// One package an advisory names, with its affected and patched versions.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AdvisoryVulnerability {
     pub package: Option<AdvisoryPackage>,
     pub vulnerable_version_range: Option<String>,
+    /// A repository advisory's patched versions, comma-separated.
     pub patched_versions: Option<String>,
+    /// The global database's first patched version.
+    pub first_patched_version: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -428,8 +544,7 @@ impl GitHubTransport {
     }
 
     /// One page of a repository's published security advisories, from the
-    /// start or from the `after` cursor a page named. The next cursor is read
-    /// from GitHub's `Link`; a link with none is a malformed answer, never the end.
+    /// start or from the `after` cursor a page named.
     pub async fn repository_advisories_page(
         &self,
         owner: &str,
@@ -437,22 +552,93 @@ impl GitHubTransport {
         after: Option<&str>,
         context: &RequestContext,
     ) -> Result<AdvisoryPage, ProviderError> {
-        let mut url = self
+        let url = self
             .endpoint()
             .rest(&["repos", owner, repo, "security-advisories"])?;
+        let filters = [("state", "published")];
+        self.advisory_page(url, &filters, after, context, "repository advisories")
+            .await
+            .map_err(repository_missing)
+    }
+
+    /// One page of GitHub's global advisory database for `affects` (`name` or
+    /// `name@version`) in `ecosystem` (GitHub's name), from the start or from
+    /// the `after` cursor a page named. GitHub decides which advisories affect
+    /// the version.
+    pub async fn global_advisories_page(
+        &self,
+        ecosystem: &str,
+        affects: &str,
+        after: Option<&str>,
+        context: &RequestContext,
+    ) -> Result<AdvisoryPage, ProviderError> {
+        let url = self.endpoint().rest(&["advisories"])?;
+        let filters = [("ecosystem", ecosystem), ("affects", affects)];
+        self.advisory_page(url, &filters, after, context, "global advisories")
+            .await
+    }
+
+    /// One advisory of GitHub's global database by its GHSA id; `None`: GitHub
+    /// has no such advisory.
+    pub async fn global_advisory(
+        &self,
+        ghsa_id: &str,
+        context: &RequestContext,
+    ) -> Result<Option<RepositoryAdvisory>, ProviderError> {
+        let url = self.endpoint().rest(&["advisories", ghsa_id])?;
+        match self.execute(RequestSpec::get(url), context).await {
+            Ok(page) => decode(&page.body, "global advisory").map(Some),
+            Err(error) if error.status == Some(404) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// One of a repository's own advisories by its GHSA id, published or not
+    /// yet reviewed into the global database; `None`: the repository has no
+    /// such advisory. A missing repository is `RepositoryNotFound`.
+    pub async fn repository_advisory(
+        &self,
+        owner: &str,
+        repo: &str,
+        ghsa_id: &str,
+        context: &RequestContext,
+    ) -> Result<Option<RepositoryAdvisory>, ProviderError> {
+        let url = self
+            .endpoint()
+            .rest(&["repos", owner, repo, "security-advisories", ghsa_id])?;
+        match self.execute(RequestSpec::get(url), context).await {
+            Ok(page) => decode(&page.body, "repository advisory").map(Some),
+            Err(error) if error.status == Some(404) => {
+                // GitHub answers 404 for both; the repository read tells them apart.
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// One page of advisories at `url`, `per_page=100` with `filters`, from
+    /// `after`. The next
+    /// cursor is read from GitHub's `Link`; a link with none is a malformed
+    /// answer, never the end.
+    async fn advisory_page(
+        &self,
+        mut url: url::Url,
+        filters: &[(&str, &str)],
+        after: Option<&str>,
+        context: &RequestContext,
+        what: &str,
+    ) -> Result<AdvisoryPage, ProviderError> {
         {
             let mut pairs = url.query_pairs_mut();
-            pairs
-                .append_pair("per_page", &crate::MAX_PER_PAGE.to_string())
-                .append_pair("state", "published");
+            pairs.append_pair("per_page", &crate::MAX_PER_PAGE.to_string());
+            for (key, value) in filters {
+                pairs.append_pair(key, value);
+            }
             if let Some(after) = after {
                 pairs.append_pair("after", after);
             }
         }
-        let response = self
-            .execute(RequestSpec::get(url), context)
-            .await
-            .map_err(repository_missing)?;
+        let response = self.execute(RequestSpec::get(url), context).await?;
         let next = match &response.next {
             None => None,
             Some(link) => Some(
@@ -468,7 +654,7 @@ impl GitHubTransport {
             ),
         };
         Ok(AdvisoryPage {
-            advisories: decode(&response.body, "repository advisories")?,
+            advisories: decode(&response.body, what)?,
             next,
         })
     }

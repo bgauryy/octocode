@@ -12,7 +12,7 @@
 //! ([`TailCaptures`]), so the line's ends are read once per list of threads,
 //! not once per key. A key inside a secret found before is not read.
 
-use super::code_syntax::{CodeSyntax, CommentLine, Key};
+use super::code_syntax::{CommentLine, Key};
 use super::key_facts::{KeyBits, SpanKeys};
 use super::regex_forms::{anchored_dfa, pattern_nfa};
 use super::tail_captures::{TailCaptures, group};
@@ -156,7 +156,7 @@ impl<'a> Reads<'a> {
         {
             return Vec::new();
         }
-        let end = continued_end(window, raw.secret.end);
+        let end = self.judge.value_end(window, from, &raw.secret);
         let shift = |at: usize| at + from;
         vec![(
             shift(raw.whole.start)..shift(raw.whole.end.max(end)),
@@ -198,7 +198,7 @@ impl<'a> Reads<'a> {
                     diff_start,
                     first: key.start,
                     whole_end: key.start + raw.whole.end,
-                    end: key.start + continued_end(window, raw.secret.end),
+                    end: key.start + self.judge.value_end(window, key.start, &raw.secret),
                     kept,
                     keys: SpanKeys::new(&text[key.start..secret.start]),
                     secret,
@@ -307,8 +307,9 @@ impl<'a> Reads<'a> {
 }
 
 impl Judge<'_> {
-    /// The credentials of the pattern in the comment lines of `syntax`
-    /// ([`CodeSyntax::comment_lines`]), as `(whole, secret)` ranges of `text`,
+    /// The credentials of the pattern in comment `lines`
+    /// ([`super::code_syntax::CodeSyntax::comment_lines`], at `text`'s positions), as
+    /// `(whole, secret)` ranges of `text`,
     /// with the bytes handed to the pattern and stepped over by its DFA added to
     /// `scanned`.
     ///
@@ -316,7 +317,7 @@ impl Judge<'_> {
     pub(super) fn tail_secrets(
         &self,
         text: &str,
-        syntax: &CodeSyntax<'_>,
+        lines: &[CommentLine],
         scanned: &mut usize,
     ) -> Found {
         let regex = anchored_pattern_regex(self.pattern, text.is_ascii());
@@ -335,7 +336,7 @@ impl Judge<'_> {
             scanned: 0,
         };
         let mut all = Vec::new();
-        for line in syntax.comment_lines() {
+        for line in lines {
             reads.reach.begin_line();
             reads.captures.begin_line();
             let mut covered = 0;

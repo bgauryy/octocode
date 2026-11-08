@@ -84,8 +84,8 @@ fn commonjs_bindings_admit_module_require_and_parenthesized_initializers() {
 #[test]
 fn commonjs_bindings_reject_unprovable_identities_but_keep_the_load() {
     for source in [
-        "var _ = root._ || require('./l');",
         "var x = require('./x'); x = y;",
+        "var _ = root._ || require('./l'); _ = other._;",
         "const {a = 1} = require('./m');",
         "const {...r} = require('./m');",
         "const {a, ...r} = require('./m');",
@@ -107,6 +107,30 @@ fn commonjs_bindings_reject_unprovable_identities_but_keep_the_load() {
             bindings(&facts).iter().all(Vec::is_empty),
             "{source}: {facts}"
         );
+    }
+}
+
+/// A guarded load (`E || require(x)`, `E ?? require(x)`) binds the module on
+/// the branch where the guard fails (B122): even at module scope it carries
+/// the extent of its scope, so its links stay at most medium.
+#[test]
+fn commonjs_guarded_loads_bind_over_their_scope() {
+    for source in [
+        "var _ = root._ || require('./l');",
+        "var _ = root._ ?? require('./l');",
+        // A write of the guard's own text assigns one of the two values
+        // the declaration admits: the binding stays, at medium.
+        "var _ = (root._) || require('./l'); if (c) { _ = root._; }",
+    ] {
+        let facts = graph(source, "entry.js");
+        assert_eq!(
+            bindings(&facts),
+            vec![vec![("_".to_owned(), None)]],
+            "{source}"
+        );
+        let scope = &facts["commonJs"][0]["bindings"][0]["scope"]["range"];
+        assert_eq!(scope["start_byte"], 0, "{source}: {facts}");
+        assert_eq!(scope["end_byte"], source.len(), "{source}: {facts}");
     }
 }
 

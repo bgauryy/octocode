@@ -254,6 +254,20 @@ fn transport_failure(mut error: ArtifactError, target: &str) -> ArtifactError {
     error
 }
 
+/// Why OSV did not answer, from the failure's code and HTTP status only: an
+/// error's message can hold the id asked and OSV's own text, and a sentence
+/// built from source data states neither.
+pub(super) fn unread_reason(error: &ArtifactError) -> String {
+    let code = serde_json::to_value(error.code)
+        .ok()
+        .and_then(|code| code.as_str().map(str::to_owned))
+        .unwrap_or_default();
+    match error.status {
+        Some(status) => format!("OSV did not answer: HTTP {status}, {code}"),
+        None => format!("OSV did not answer: {code}"),
+    }
+}
+
 /// A non-2xx answer under the status table GitHub answers share; the message
 /// names OSV, not a registry.
 fn status_failure(status: u16, body: &[u8], target: &str) -> ArtifactError {

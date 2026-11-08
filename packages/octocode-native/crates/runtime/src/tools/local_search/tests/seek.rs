@@ -254,9 +254,10 @@ fn every_seek_page_equals_its_fresh_page_and_the_walk_joins_once() {
         assert_eq!(rows_once(&pages).len(), 120 + 300 * 2, "{fields}");
     }
 
-    // A later match page cuts the file × match-page grid; its file's next
-    // match pages are read from the grid's frames, and its next page (match
-    // page 1, the streamed cut) from a walk again.
+    // A later match page cuts the file × match-page grid (no public call
+    // reaches one; the runtime's own tests do): its scan is kept whole and
+    // each page cut from it again, and its next page (match page 1, the
+    // streamed cut) is a walk again.
     let pages = walk_against_fresh(
         root.path(),
         serde_json::json!({"matchString":["needle"],"matchPage":2}),
@@ -387,4 +388,99 @@ fn list_pages_from_a_whole_scan_match_their_fresh_pages() {
         .collect::<Vec<_>>();
     let distinct = listed.iter().collect::<std::collections::BTreeSet<_>>();
     assert_eq!((listed.len(), distinct.len()), (200, 200));
+}
+
+/// A seekable scan is kept only when every key-block read its first page
+/// made read the bytes it stores: a key file whose read failed (here past
+/// the key-scan limit) leaves the scan unstored, and its continuation walks
+/// again, so no page serves redaction flags another read decided.
+#[test]
+fn a_scan_whose_key_read_failed_is_not_stored_by_page() {
+    let root = tempfile::tempdir().expect("fixture");
+    for file in 0..20 {
+        let body = (0..12)
+            .map(|n| format!("export const needle_{file}_{n} = {n};\n"))
+            .collect::<String>();
+        fs::write(root.path().join(format!("a{file:02}.ts")), body).expect("file");
+    }
+    fs::write(
+        root.path().join("z_key.ts"),
+        "export const pem = `\n-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEAneedleKeyBodyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n-----END RSA PRIVATE KEY-----\n`;\n",
+    )
+    .expect("key file");
+    settle();
+    let (policy, _) = policy_for(root.path());
+    let security = ContentSecurity::with_limits(crate::security::SourceLimits {
+        key_scan: 64,
+        ..crate::security::SourceLimits::REAL
+    });
+    let q = ls_query(
+        serde_json::json!({"path":root.path(),"matchString":["needle"],"sort":{"by":"path","order":"asc"}}),
+        None,
+    );
+    let first = search_in(&q, &policy, &security, Some(2_500)).expect("page 1");
+    let snapshot = first.source_snapshot.expect("snapshot");
+    assert!(
+        first
+            .pagination
+            .is_some_and(|paging| paging.total_pages > 2)
+    );
+    assert!(
+        super::super::manifest::get(&snapshot, &policy.identity()).is_none(),
+        "a scan whose key read failed is stored"
+    );
+    let continued = ls_query(serde_json::json!({"snapshot":snapshot,"page":2}), Some(&q));
+    let page = search_in(&continued, &policy, &security, Some(2_500)).expect("page 2 walks again");
+    assert!(!page.files.is_empty());
+}
+
+/// A classification page keeps its scan whole (it judged rows before its
+/// cut). A continuation without classification takes that scan, cuts its
+/// page from it again, and equals the same call served fresh.
+#[test]
+fn a_classification_page_continued_without_classification_is_cut_from_its_whole_scan() {
+    use crate::tools::test_support::selection_fake::{self, WordJudge};
+    let root = tempfile::tempdir().expect("fixture");
+    for file in 0..30 {
+        let body = (0..10)
+            .map(|n| format!("export const needle_{file}_{n} = \"keep {n}\";\n"))
+            .collect::<String>();
+        fs::write(root.path().join(format!("a{file:02}.ts")), body).expect("file");
+    }
+    settle();
+    let (policy, security) = policy_for(root.path());
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let selection = selection_fake::runtime(
+        WordJudge { fail: None },
+        executor.handle().clone(),
+        std::time::Duration::from_secs(5),
+    );
+    let fields =
+        serde_json::json!({"matchString":["needle"],"contextLines":{"before":0,"after":0}});
+    let mut classified = fields.clone();
+    classified["path"] = root.path().to_string_lossy().into_owned().into();
+    classified["classification"] = serde_json::json!({"predicates": ["Is this kept?"]});
+    let first = execute_local_search(
+        &ls_query(classified, None),
+        &policy,
+        &security,
+        &NeverCancel,
+        Some(2_500),
+        Some(&selection),
+    )
+    .expect("classification page 1");
+    let snapshot = first.source_snapshot.expect("snapshot");
+    assert!(
+        matches!(
+            super::super::manifest::get(&snapshot, &policy.identity()).map(|stored| stored.value),
+            Some(super::super::manifest::StoredValue::Whole(_))
+        ),
+        "a classification page keeps its scan whole"
+    );
+    let mut plain = fields;
+    plain["snapshot"] = snapshot.into();
+    plain["page"] = 2.into();
+    let pages = walk_against_fresh(root.path(), plain, Some(2_500));
+    assert!(pages.len() > 1, "{} pages", pages.len());
+    assert!(!rows_once(&pages).is_empty());
 }

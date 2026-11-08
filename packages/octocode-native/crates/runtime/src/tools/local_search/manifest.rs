@@ -32,7 +32,9 @@ pub(super) struct Source {
 /// A stored scan. Its parts are shared, so a page takes them from the store
 /// without copying them, and reads them outside the store's lock.
 struct Scan {
-    sources: Arc<[Source]>,
+    /// Digest of each matched file when stored, keyed by its scanned path;
+    /// shared whole with each page, never rebuilt per page.
+    digests: Arc<HashMap<PathBuf, Digest>>,
     value: Arc<Packed>,
     query_key: String,
     redaction: Option<Arc<Redaction>>,
@@ -60,6 +62,13 @@ pub(crate) struct Learned {
 impl Learned {
     fn weight(&self) -> usize {
         self.prices.weight() + self.judged.weight() + self.cuts.weight()
+    }
+
+    /// Drop the prices and the stream cut its first page made: a seekable
+    /// scan's index holds the cut, so no later page reads them.
+    fn forget_cut(&self) {
+        self.prices.clear();
+        self.cuts.clear();
     }
 
     /// Charge what its pages learn from now on to `bill`: the scan was stored
@@ -138,6 +147,10 @@ impl NamePrices {
         }
     }
 
+    fn clear(&self) {
+        self.lock().clear();
+    }
+
     fn weight(&self) -> usize {
         self.lock()
             .iter()
@@ -177,7 +190,7 @@ pub struct Stored {
     /// Digest of each matched file when stored, keyed by its scanned path.
     /// A page may show a file's values only while it still hashes to this,
     /// and its secret checks must read those bytes.
-    pub digests: HashMap<PathBuf, Digest>,
+    pub digests: Arc<HashMap<PathBuf, Digest>>,
     /// The query key the stored snapshot was derived from: a query with the
     /// same key derives the same snapshot from `value`.
     pub query_key: String,
@@ -228,7 +241,7 @@ pub fn get_checked(snapshot: &str, policy: &str, cancelled: &dyn Fn() -> bool) -
             (
                 (
                     Arc::clone(&scan.value),
-                    Arc::clone(&scan.sources),
+                    Arc::clone(&scan.digests),
                     scan.query_key.clone(),
                     scan.redaction.clone(),
                     Arc::clone(&scan.skipped),
@@ -237,17 +250,14 @@ pub fn get_checked(snapshot: &str, policy: &str, cancelled: &dyn Fn() -> bool) -
                 scan.proof.clone(),
             )
         },
-        |(value, sources, query_key, redaction, skipped, learned)| {
+        |(value, digests, query_key, redaction, skipped, learned)| {
             Some(Stored {
                 value: if value.index().is_some() {
                     StoredValue::Seek(value)
                 } else {
                     StoredValue::Whole(Box::new(value.unpack_checked(cancelled)?))
                 },
-                digests: sources
-                    .iter()
-                    .map(|source| (PathBuf::from(&source.path), source.digest))
-                    .collect(),
+                digests,
                 query_key,
                 redaction,
                 skipped,
@@ -284,21 +294,25 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
     // One file at a time, each at most what the budget could keep; the
     // request's cancellation bounds the whole pass.
     let max_file = u64::try_from(octocode_engine::memory::MEMORY.limit()).unwrap_or(u64::MAX);
-    let mut sources = Vec::with_capacity(files.len());
+    let root = if walked.root.is_file() {
+        walked.root.parent().unwrap_or(&walked.root)
+    } else {
+        &walked.root
+    };
+    // A row path as the store keys it: under the walk's root.
+    let stored_path = |path: &str| {
+        if std::path::Path::new(path).is_absolute() {
+            PathBuf::from(path)
+        } else {
+            root.join(path)
+        }
+    };
+    let mut digests = HashMap::with_capacity(files.len());
     for file in files {
         if cancelled() {
             return;
         }
-        let path = if std::path::Path::new(&file.path).is_absolute() {
-            file.path.clone()
-        } else {
-            let root = if walked.root.is_file() {
-                walked.root.parent().unwrap_or(&walked.root)
-            } else {
-                &walked.root
-            };
-            root.join(&file.path).to_string_lossy().into_owned()
-        };
+        let path = stored_path(&file.path).to_string_lossy().into_owned();
         // The search hashed the bytes it read the values from; only a file
         // it did not hash is read again here.
         let source = match file.source {
@@ -311,25 +325,34 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
         let Some(source) = source else {
             return;
         };
-        sources.push(source);
+        digests.insert(PathBuf::from(source.path), source.digest);
     }
-    // A whole scan's redaction replays on a later page only when every
-    // key-block scan it made read the stored bytes; otherwise each page
-    // redacts afresh. A seekable scan's frames hold what it redacted.
-    let redaction = (!value.seekable()
-        && redaction.key_files.iter().all(|(index, read)| {
-            read.is_some() && sources.get(*index).map(|source| source.digest) == *read
-        }))
-    .then_some(redaction);
+    // Whether every key-block scan the page made read the stored bytes.
+    let holds = redaction
+        .key_files
+        .iter()
+        .all(|key| key.read.is_some() && digests.get(&stored_path(&key.path)) == key.read.as_ref());
+    // A seekable scan's frames hold what its page redacted: kept only when
+    // that redaction read the stored bytes. A whole scan's redaction
+    // replays on a later page only then; otherwise each page redacts afresh.
+    if value.seekable() && !holds {
+        return;
+    }
+    let redaction = (!value.seekable() && holds).then_some(redaction);
+    // A seekable scan's pages are its index: what its first page learned to
+    // cut them is not read again.
+    if value.seekable() {
+        learned.forget_cut();
+    }
     // Verdicts a later page learns grow the stored scan: each is charged to
     // it when learned, as what is learned up to here is weighed below.
     {
         let snapshot = snapshot.clone();
         learned.bill_to(move |bytes| STORE.charge(&snapshot, bytes));
     }
-    let derived = sources
-        .iter()
-        .map(|source| source.path.len())
+    let derived = digests
+        .keys()
+        .map(|path| path.as_os_str().len() + std::mem::size_of::<Digest>())
         .sum::<usize>()
         + redaction.as_ref().map_or(0, Redaction::weight)
         + walked.weight()
@@ -348,7 +371,7 @@ pub fn put_checked(snapshot: String, policy: String, fresh: Fresh, cancelled: &d
         policy,
         bytes,
         Scan {
-            sources: sources.into(),
+            digests: Arc::new(digests),
             value: Arc::new(value),
             query_key,
             redaction: redaction.map(Arc::new),

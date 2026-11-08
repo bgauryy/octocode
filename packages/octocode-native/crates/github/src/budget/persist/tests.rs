@@ -354,26 +354,164 @@ fn an_unchanged_view_is_not_rewritten() {
 
 /// An owner's listing route reaches the next process; a route forgotten
 /// after a 404 leaves the file, while a newer one a peer wrote stays.
-#[test]
-fn owner_routes_reach_the_next_process_and_a_forgotten_one_leaves_the_file() {
+#[tokio::test]
+async fn owner_routes_reach_the_next_process_and_a_forgotten_one_leaves_the_file() {
     let dir = tempfile::tempdir().expect("tempdir");
     let key = LimiterKey::new("ghe.example", Some("tok"));
     let earlier = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
-    earlier.learn_owner_route("Me", "viewer");
-    earlier.learn_owner_route("acme", "organization");
+    earlier.learn_owner_route("Me", "viewer").await;
+    earlier.learn_owner_route("acme", "organization").await;
     let next = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
     assert_eq!(next.owner_route("me").as_deref(), Some("viewer"));
     assert_eq!(next.owner_route("acme").as_deref(), Some("organization"));
 
-    next.forget_owner_route("acme");
+    next.forget_owner_route("acme").await;
     let after = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
     assert_eq!(after.owner_route("acme"), None);
     assert_eq!(after.owner_route("me").as_deref(), Some("viewer"));
 
     // A peer learned a new route before this process forgot the old one.
     let peer = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
-    peer.learn_owner_route("me", "user");
-    earlier.forget_owner_route("me");
+    peer.learn_owner_route("me", "user").await;
+    earlier.forget_owner_route("me").await;
     let last = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
     assert_eq!(last.owner_route("me").as_deref(), Some("user"));
+}
+
+/// A learned route is on disk when the learning request ends, even if the
+/// process's runtime shuts down at once (a CLI call). A blocking write handed
+/// to an idle pool thread and still queued at shutdown is dropped (tokio's
+/// shutdown drain runs no queued blocking task), so this write is awaited.
+#[test]
+fn a_learned_route_survives_an_immediate_runtime_shutdown() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let key = LimiterKey::new("ghe.example", Some("tok"));
+    for round in 0..50 {
+        let owner = format!("owner{round}");
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let state = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+        runtime.block_on(async {
+            // An earlier file read leaves an idle blocking thread, as a
+            // request's own reads do before the route is learned.
+            tokio::task::spawn_blocking(|| ())
+                .await
+                .expect("warm the pool");
+            state.learn_owner_route(&owner, "organization").await;
+        });
+        drop(runtime);
+        let next = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+        assert_eq!(
+            next.owner_route(&owner).as_deref(),
+            Some("organization"),
+            "round {round}: the route was lost at shutdown"
+        );
+    }
+}
+
+/// Every fact written without awaiting reaches the next process when the
+/// process that wrote it ends right after its call, as a CLI call does: the
+/// runtime's close flushes the detached writes before the runtime stops.
+/// Each round is a fresh single-threaded runtime whose blocking pool holds an
+/// idle thread (a request's own earlier reads leave one): a write handed to
+/// it and still queued at shutdown is dropped unless the flush awaited it.
+#[test]
+fn every_detached_write_reaches_the_next_process_after_an_immediate_exit() {
+    type Write = fn(&Arc<KeyState>, u64);
+    type Holds = fn(&KeyFacts, u64) -> bool;
+    let writes: [(&str, Write, Holds); 5] = [
+        (
+            "exhaust",
+            |state, round| state.exhaust(&format!("core{round}"), now_ms() / 1000 + 600),
+            |facts, round| {
+                facts
+                    .buckets
+                    .get(&format!("core{round}"))
+                    .is_some_and(|bucket| bucket.remaining == 0)
+            },
+        ),
+        (
+            "cool_down",
+            |state, round| state.cool_down(now_ms() + 600_000 + round * 1000),
+            |facts, round| facts.cooldown_until_ms >= now_ms() + 590_000 + round * 1000,
+        ),
+        (
+            "observed quota",
+            |state, round| {
+                let mut headers = HeaderMap::new();
+                let reset = (now_ms() / 1000 + 600).to_string();
+                let resource = format!("graphql{round}");
+                for (name, value) in [
+                    ("x-ratelimit-remaining", "0"),
+                    ("x-ratelimit-reset", reset.as_str()),
+                    ("x-ratelimit-resource", resource.as_str()),
+                ] {
+                    headers.insert(name, value.parse().expect("header"));
+                }
+                state.observe(&headers, "core");
+            },
+            |facts, round| {
+                facts
+                    .buckets
+                    .get(&format!("graphql{round}"))
+                    .is_some_and(|bucket| bucket.remaining == 0)
+            },
+        ),
+        (
+            "pull request max-age",
+            |state, round| state.learn_pull_request_max_age(10_000 - round),
+            |facts, round| facts.pull_request_max_age == Some(10_000 - round),
+        ),
+        (
+            "handed-back start",
+            |state, round| {
+                let start = start_of(round);
+                state.release_reservation_detached((Group::Search, start, None, true));
+            },
+            |facts, round| facts.last_start_ms.get("search") != Some(&start_of(round)),
+        ),
+    ];
+    for (kind, write, holds) in writes {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let key = LimiterKey::new("ghe.example", Some("tok"));
+        for round in 0..50 {
+            if kind == "handed-back start" {
+                // The reservation is on disk before the call hands it back.
+                let reserving = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+                reserving
+                    .facts()
+                    .last_start_ms
+                    .insert("search".to_owned(), start_of(round));
+                reserving.persist_with(|_| {});
+            }
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+            let state = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+            runtime.block_on(async {
+                tokio::task::spawn_blocking(|| ())
+                    .await
+                    .expect("warm the pool");
+                write(&state, round);
+                // The CLI's `ToolRuntime::close`.
+                GitHubBudget::flush_detached_writes().await;
+            });
+            drop(runtime);
+            let next = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+            assert!(
+                holds(&next.facts(), round),
+                "{kind}, round {round}: the write was lost at exit"
+            );
+        }
+    }
+}
+
+/// A start stamp per round, one base for the whole test, inside the window
+/// the mirror keeps.
+fn start_of(round: u64) -> u64 {
+    static BASE: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+    BASE.get_or_init(|| now_ms() + 5_000) + round
 }

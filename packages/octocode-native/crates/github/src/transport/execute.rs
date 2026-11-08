@@ -543,7 +543,7 @@ impl GitHubTransport {
         let Some(store) = &self.answers else {
             return;
         };
-        if page.status != 200 || is_partial(page) {
+        if page.status != 200 || is_partial(page) || spec.kept_by_caller {
             return;
         }
         let Some(scope) = self.answer_scope(context) else {

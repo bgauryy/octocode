@@ -345,3 +345,31 @@ fn an_idle_entry_records_a_read_only_once_it_has_aged() {
     assert!(store.get(&key("walk", "x")).is_some());
     assert!(modified() > aged, "an aged read restarts the lifetime");
 }
+
+/// RV-CLS F3: a refresh of an `Idle` entry unused past its lifetime restarts
+/// nothing (`Disk::touch`): it reports the entry gone, and a later process
+/// misses it, instead of the touch serving it again until a scan removes it.
+#[test]
+fn refreshing_an_expired_idle_entry_restarts_nothing() {
+    use std::time::{Duration, SystemTime};
+    let dir = tempfile::tempdir().expect("dir");
+    let store: Store<String> = Store::new(CacheConfig::derived(), Some(dir.path().to_owned()));
+    let ttl = Duration::from_secs(60);
+    store.put_confirmed(key("plan", "x"), "plan".into(), 4, CacheClass::Idle { ttl });
+    let file = store.disk.as_ref().expect("disk").file(&key("plan", "x"));
+    std::fs::File::options()
+        .write(true)
+        .open(&file)
+        .expect("open")
+        .set_modified(SystemTime::now() - 2 * ttl)
+        .expect("age the entry past its lifetime");
+    assert!(
+        !store.refresh(&key("plan", "x")),
+        "an expired entry is gone"
+    );
+    let later = Store::<String>::new(CacheConfig::derived(), Some(dir.path().to_owned()));
+    assert!(
+        later.get(&key("plan", "x")).is_none(),
+        "the refresh did not revive it"
+    );
+}

@@ -28,6 +28,9 @@ pub(crate) struct Declaration {
     /// it (see `GraphFactDeclaration::return_type`).
     pub return_type: Option<String>,
     pub try_type: Option<String>,
+    /// A data member of a function type (see
+    /// `GraphFactDeclaration::function_typed`).
+    pub function_typed: bool,
 }
 
 impl Declaration {
@@ -183,6 +186,9 @@ pub(crate) struct FileFacts {
     /// The declared types of the file's TS classes, interfaces and type
     /// aliases, by declaration id.
     pub declared_types: Vec<octocode_engine::graph::GraphFactDeclaredType>,
+    /// The file's CommonJS exports hold only on some runs (see
+    /// `GraphFactsDocument::conditional_exports`).
+    pub conditional_exports: bool,
 }
 
 impl FileFacts {

@@ -56,7 +56,9 @@ async fn row(registered: Registered, github: Option<&dyn RepositoryRead>) -> Val
         release: None,
         import: None,
     };
-    read(registered, &confirmed, &net).await.apply(&mut data);
+    read(registered, &confirmed, &net)
+        .await
+        .apply(&mut data, &serde_json::Map::new());
     data
 }
 
@@ -183,9 +185,10 @@ fn the_answer_names_review_cautions_only() {
         },
         repo: Repo::Unnamed,
         advisories: None,
+        first_page: true,
     };
     let mut data = json!({"answer": "x@1: none known to OSV."});
-    trust.apply(&mut data);
+    trust.apply(&mut data, &serde_json::Map::new());
     let answer = data["answer"].as_str().expect("answer");
     assert!(answer.starts_with("x@1: none known to OSV."), "{answer}");
     assert!(answer.contains("deprecated"), "{answer}");
@@ -202,8 +205,9 @@ fn the_answer_names_review_cautions_only() {
         registered: registered(None),
         repo: Repo::Unnamed,
         advisories: None,
+        first_page: true,
     }
-    .apply(&mut note_only);
+    .apply(&mut note_only, &serde_json::Map::new());
     assert_eq!(note_only["answer"], "x@1: none known to OSV.");
 }
 

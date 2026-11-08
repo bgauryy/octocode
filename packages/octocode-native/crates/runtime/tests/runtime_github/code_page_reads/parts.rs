@@ -1,0 +1,274 @@
+//! How the parts of one search page are stated and sized: search
+//! `pagination` counts search pages, the rest of a page is the response's
+//! continuation, a part reads at most twice the rows it shows, `contentReads`
+//! counts the reads that reached GitHub, a page's shift is stated once, and
+//! a page that fits the window is shown whole.
+use super::{Call, Index, files, hit, read_path, requests, walk, walk_with};
+use crate::support::{self, Run as _, Workspace};
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
+use serde_json::{Value, json};
+use std::collections::{BTreeSet, HashMap};
+use std::sync::{Arc, Mutex};
+use wiremock::matchers::{method, path, path_regex};
+use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
+
+/// Files whose text holds `needles[path]` needle lines each: a row lists more
+/// hit lines (and takes more of the window) the more needles its file holds.
+struct Sized(HashMap<String, usize>);
+
+impl Respond for Sized {
+    fn respond(&self, request: &Request) -> ResponseTemplate {
+        let file = read_path(request);
+        let mut text = format!("fn needle() {{ /* {file} */ }}\nlet other = 1;\n");
+        for line in 0..self.0.get(&file).copied().unwrap_or(1) {
+            text.push_str(&format!(
+                "// needle {line}: a note about {file} with some padding text to make the line long enough\n"
+            ));
+        }
+        ResponseTemplate::new(200).set_body_json(json!({
+            "type": "file", "encoding": "base64", "content": STANDARD.encode(text)
+        }))
+    }
+}
+
+/// A code index whose hits can change between page reads.
+struct Moving(Arc<Mutex<Vec<Value>>>);
+
+impl Respond for Moving {
+    fn respond(&self, request: &Request) -> ResponseTemplate {
+        let items = self.0.lock().expect("index").clone();
+        Index(items).respond(request)
+    }
+}
+
+/// A repo-scoped search of `names`, every 7th file holding 40 needle lines
+/// (a large row) and the rest one to three.
+async fn mount_mixed(server: &MockServer, names: &[String]) {
+    let items = names
+        .iter()
+        .enumerate()
+        .map(|(n, file)| hit(file, n + 1))
+        .collect::<Vec<_>>();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(Index(items))
+        .mount(server)
+        .await;
+    let needles = names
+        .iter()
+        .enumerate()
+        .map(|(n, file)| (file.clone(), if n % 7 == 3 { 40 } else { 1 + n % 3 }))
+        .collect();
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/api/v3/repos/o/r/contents/"))
+        .respond_with(Sized(needles))
+        .mount(server)
+        .await;
+}
+
+fn start(limit: Option<usize>, chars: usize) -> Value {
+    let mut row = json!({"owner": "o", "repo": "r", "keywords": ["needle"]});
+    if let Some(limit) = limit {
+        row["limit"] = json!(limit);
+    }
+    json!({"queries": [row], "responseChars": chars})
+}
+
+fn shown(calls: &[Call]) -> BTreeSet<String> {
+    calls.iter().flat_map(|call| call.listed.clone()).collect()
+}
+
+/// A search of one page (`limit` 100) and of three (`limit` 20), shown in
+/// parts: `pagination` says whether more search pages exist, never whether
+/// the page has more parts; a part's continuation is
+/// `responsePagination.next`, and only the last part of a search page
+/// carries `next.nextPage` to the next search page.
+#[tokio::test]
+async fn a_part_continues_as_the_response_and_pagination_counts_search_pages() {
+    for (limit, pages) in [(100, 1), (20, 3)] {
+        let server = MockServer::builder().start().await;
+        let names = files(50, |n| format!("src/f{n:03}.rs"));
+        super::mount(&server, &names, &[]).await;
+        let workspace = Workspace::new();
+        let runtime = workspace.runtime(&support::github_api(&server));
+        let calls = walk(&server, &runtime, start(Some(limit), 5000)).await;
+        assert!(calls.len() > pages, "the window shows pages in parts");
+        assert_eq!(shown(&calls), names.iter().cloned().collect());
+        let mut page = 1;
+        for (at, call) in calls.iter().enumerate() {
+            let data = &call.output["results"][0]["data"];
+            let response_next = call.output["responsePagination"]["next"].is_object();
+            let row_next = data["next"]["nextPage"].is_object();
+            match &data["pagination"] {
+                Value::Null => assert_eq!(pages, 1, "a paged search states its page: {data}"),
+                pagination => {
+                    assert_eq!(pagination["page"], page, "call {at}: {pagination}");
+                    assert_eq!(
+                        pagination["hasMore"],
+                        page < pages,
+                        "limit {limit} call {at}: hasMore says whether a search page follows: {pagination}"
+                    );
+                }
+            }
+            assert!(
+                !(response_next && row_next),
+                "one continuation: {}",
+                call.output
+            );
+            if at + 1 == calls.len() {
+                assert!(!response_next && !row_next, "the walk ends");
+            } else {
+                assert!(response_next || row_next, "call {at} continues");
+            }
+            if row_next {
+                page += 1;
+            }
+        }
+        assert_eq!(page, pages, "limit {limit}: next.nextPage only moves pages");
+        runtime.close().await;
+    }
+}
+
+/// Mixed row sizes: every part reads at most twice the rows it shows, and
+/// the walk reaches every hit once.
+#[tokio::test]
+async fn a_part_reads_at_most_twice_the_rows_it_shows() {
+    let server = MockServer::builder().start().await;
+    let names = files(130, |n| format!("src/f{n:03}.rs"));
+    mount_mixed(&server, &names).await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&support::github_api(&server));
+    let calls = walk(&server, &runtime, start(None, 5000)).await;
+    assert_eq!(shown(&calls), names.iter().cloned().collect());
+    for (at, call) in calls.iter().enumerate() {
+        assert!(
+            call.reads.len() <= 2 * call.listed.len(),
+            "call {at} read {} files to show {}: {:?}",
+            call.reads.len(),
+            call.listed.len(),
+            call.reads
+        );
+    }
+    runtime.close().await;
+}
+
+/// `contentReads` counts the files a call read from GitHub: a file an
+/// earlier part read is answered from the walk's evidence and not counted.
+#[tokio::test]
+async fn content_reads_count_only_reads_sent_to_github() {
+    let server = MockServer::builder().start().await;
+    let names = files(130, |n| format!("src/f{n:03}.rs"));
+    mount_mixed(&server, &names).await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&support::github_api(&server));
+    let calls = walk(&server, &runtime, start(None, 5000)).await;
+    for (at, call) in calls.iter().enumerate() {
+        let counted = call.output["results"][0]["data"]["contentReads"]
+            .as_u64()
+            .unwrap_or(0);
+        assert_eq!(
+            usize::try_from(counted).expect("count"),
+            call.reads.len(),
+            "call {at}: contentReads against the reads sent: {:?}",
+            call.reads
+        );
+    }
+    let (_, reads) = requests(&server).await;
+    assert_eq!(reads.len(), names.len(), "each file is read once");
+    runtime.close().await;
+}
+
+/// The index moves after the first call, so page 2 lists a page-1 file
+/// again and states a new match count: shown in parts, that page states the
+/// shift once, on its first part.
+#[tokio::test]
+async fn a_page_shown_in_parts_states_its_shift_once() {
+    let server = MockServer::builder().start().await;
+    let names = files(50, |n| format!("src/f{n:03}.rs"));
+    let index = Arc::new(Mutex::new(
+        names
+            .iter()
+            .enumerate()
+            .map(|(n, file)| hit(file, n + 1))
+            .collect::<Vec<_>>(),
+    ));
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(Moving(Arc::clone(&index)))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path_regex(r"^/api/v3/repos/o/r/contents/"))
+        .respond_with(super::Files {
+            failing: Vec::new(),
+        })
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&support::github_api(&server));
+    let mut moved = false;
+    let calls = walk_with(&server, &runtime, start(Some(20), 5000), |_| {
+        if !moved {
+            index
+                .lock()
+                .expect("index")
+                .insert(0, hit("src/inserted.rs", 999));
+            moved = true;
+        }
+    })
+    .await;
+    let stated = |text: &str| {
+        calls
+            .iter()
+            .map(|call| call.output.to_string().matches(text).count())
+            .sum::<usize>()
+    };
+    assert!(calls.len() > 3, "pages are shown in parts");
+    assert_eq!(stated("GitHub listed again"), 1, "the dropped file once");
+    assert_eq!(stated("match count changed"), 1, "the new count once");
+    runtime.close().await;
+}
+
+/// A page whose whole answer fits the window is shown whole, with no
+/// continuation, although less than a fixed row skeleton is left over; a
+/// window just short of it still reaches every hit once.
+#[tokio::test]
+async fn a_page_that_fits_the_window_is_shown_whole() {
+    let server = MockServer::builder().start().await;
+    let names = files(50, |n| format!("src/f{n:03}.rs"));
+    super::mount(&server, &names, &[]).await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&support::github_api(&server));
+    let whole = runtime
+        .run(
+            "whole".into(),
+            "ghSearchCode".into(),
+            start(None, 1_000_000),
+        )
+        .await
+        .expect("whole page")
+        .structured_content
+        .into_value();
+    let chars = whole.to_string().chars().count();
+    let fitted = runtime
+        .run(
+            "fitted".into(),
+            "ghSearchCode".into(),
+            start(None, chars + 300),
+        )
+        .await
+        .expect("fitted page")
+        .structured_content
+        .into_value();
+    assert_eq!(super::listed(&fitted).len(), names.len(), "{fitted}");
+    assert!(fitted.get("responsePagination").is_none(), "{fitted}");
+    assert!(
+        fitted["results"][0]["data"].get("next").is_none(),
+        "{fitted}"
+    );
+    let short = walk(&server, &runtime, start(None, chars - 50)).await;
+    assert!(short.len() > 1, "a window short of the page continues");
+    assert_eq!(shown(&short), names.iter().cloned().collect());
+    runtime.close().await;
+}

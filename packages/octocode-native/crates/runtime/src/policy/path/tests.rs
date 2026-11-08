@@ -186,6 +186,34 @@ fn newly_created_allowed_root_uses_its_resolved_parent_without_allowing_siblings
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// A configured root that does not exist yet (`local.graphHome` before its
+/// first build) admits outputs at and under it, though its existing parent
+/// lies outside every root; that parent and the root's siblings stay denied.
+#[test]
+fn an_allowed_root_not_created_yet_admits_outputs_under_it_only() {
+    let root = fixture();
+    let allowed = root.join("new").join("home");
+    let policy = PathPolicy::new(PathPolicyConfig {
+        additional_roots: vec![allowed.clone()],
+        ..Default::default()
+    })
+    .expect("policy");
+    assert!(!allowed.exists());
+    let real = std::fs::canonicalize(&root)
+        .expect("fixture")
+        .join("new/home");
+    let at = policy.validate_output(&allowed).expect("the root itself");
+    assert_eq!(at.canonical, real);
+    let under = policy
+        .validate_output(allowed.join("graph/latest"))
+        .expect("under the root");
+    assert_eq!(under.canonical, real.join("graph/latest"));
+    assert!(policy.validate_output(root.join("new/other")).is_err());
+    assert!(policy.validate_output(root.join("new")).is_err());
+    assert!(!root.join("new").exists(), "validation creates nothing");
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[cfg(unix)]
 #[test]
 fn new_allowed_root_redirected_by_symlink_is_still_denied() {
@@ -200,6 +228,54 @@ fn new_allowed_root_redirected_by_symlink_is_still_denied() {
     std::fs::create_dir_all(allowed.parent().expect("parent")).expect("parent directory");
     std::os::unix::fs::symlink(&outside, &allowed).expect("redirect root");
     assert!(policy.validate_output(allowed.join("tmp/clone")).is_err());
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(outside);
+}
+
+/// RV-GRAPH2 F2: a root that is a dangling symlink is an existing entry,
+/// not a directory still to create: a write through it would land at its
+/// target outside every root, so it and everything under it are refused.
+#[cfg(unix)]
+#[test]
+fn an_allowed_root_that_is_a_dangling_symlink_is_denied() {
+    let root = fixture();
+    let outside = fixture();
+    let target = outside.join("missing");
+    let allowed = root.join("new").join("home");
+    let policy = PathPolicy::new(PathPolicyConfig {
+        additional_roots: vec![allowed.clone()],
+        ..Default::default()
+    })
+    .expect("policy");
+    std::fs::create_dir_all(root.join("new")).expect("parent directory");
+    std::os::unix::fs::symlink(&target, &allowed).expect("dangling root");
+    let at = policy.validate_output(&allowed);
+    let under = policy.validate_output(allowed.join("graph/latest"));
+    assert!(at.is_err(), "{at:?}");
+    assert!(under.is_err(), "{under:?}");
+    assert!(!target.exists(), "validation creates nothing");
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(outside);
+}
+
+/// The same inside an existing root: a dangling symlink as the final
+/// component names its outside target, so an output there is refused.
+#[cfg(unix)]
+#[test]
+fn a_dangling_symlink_inside_an_allowed_root_is_denied_as_output() {
+    let root = fixture();
+    let outside = fixture();
+    let policy = PathPolicy::new(PathPolicyConfig {
+        additional_roots: vec![root.clone()],
+        ..Default::default()
+    })
+    .expect("policy");
+    std::os::unix::fs::symlink(outside.join("planted"), root.join("lock")).expect("dangling");
+    let lock = policy.validate_output(root.join("lock"));
+    let under = policy.validate_output(root.join("lock/inner"));
+    assert!(lock.is_err(), "{lock:?}");
+    assert!(under.is_err(), "{under:?}");
+    assert!(policy.validate_output(root.join("fresh/file")).is_ok());
     let _ = std::fs::remove_dir_all(root);
     let _ = std::fs::remove_dir_all(outside);
 }

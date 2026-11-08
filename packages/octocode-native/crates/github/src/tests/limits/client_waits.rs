@@ -14,11 +14,13 @@ fn waited(context: &RequestContext, kind: ClientWaitKind) -> i64 {
         .sum()
 }
 
-/// A 403 for a spent primary quota; `reset` (epoch seconds) when GitHub sent one.
+/// A 403 for a spent search quota; `reset` (epoch seconds) when GitHub sent
+/// one. Search is the quota a request waits out: a spent core quota is
+/// disclosed at once instead (`primary.rs`).
 fn spent_quota(reset: Option<u64>) -> ResponseTemplate {
     let response = ResponseTemplate::new(403)
         .insert_header("x-ratelimit-remaining", "0")
-        .insert_header("x-ratelimit-resource", "core")
+        .insert_header("x-ratelimit-resource", "search")
         .set_body_json(serde_json::json!({"message": "API rate limit exceeded for user."}));
     match reset {
         Some(reset) => response.insert_header("x-ratelimit-reset", reset.to_string().as_str()),
@@ -62,7 +64,7 @@ async fn a_spent_quota_wait_is_disclosed_as_quota_pacing() {
     let context = with_token("spent", Duration::from_secs(10), 1024);
     transport
         .execute(
-            RequestSpec::get(endpoint.rest(&["repos", "a", "b"]).expect("route")),
+            RequestSpec::get(endpoint.rest(&["search", "issues"]).expect("route")),
             &context,
         )
         .await
@@ -198,7 +200,7 @@ async fn a_spent_quota_without_a_reset_is_disclosed_and_a_cancel_ends_its_wait()
     });
     let error = scope
         .run(transport.execute(
-            RequestSpec::get(endpoint.rest(&["repos", "a", "b"]).expect("route")),
+            RequestSpec::get(endpoint.rest(&["search", "issues"]).expect("route")),
             &context,
         ))
         .await
@@ -216,7 +218,7 @@ async fn a_spent_quota_without_a_reset_is_disclosed_and_a_cancel_ends_its_wait()
     assert_eq!(error.kind, ProviderErrorKind::Cancelled, "{error:?}");
     let lines = heard.lock().expect("lines").clone();
     assert!(
-        lines[0].contains("GitHub core limit reached: waiting"),
+        lines[0].contains("GitHub search limit reached: waiting"),
         "the wait is disclosed like one with a reset: {lines:?}"
     );
     assert!(

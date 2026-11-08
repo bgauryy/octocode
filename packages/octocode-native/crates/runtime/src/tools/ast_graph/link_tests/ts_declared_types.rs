@@ -154,3 +154,45 @@ fn declared_types_type_receivers_across_files() {
     // Same names in another file share only the spelling.
     assert_eq!(caller_edges(root, "src/decoy.ts#Scene.mutateElement"), []);
 }
+
+/// The cycle guard holds per path, not per walk: a chain may pass the same
+/// class (through an inherited member) or the same alias again.
+#[test]
+fn a_declared_type_chain_may_meet_a_class_or_alias_again() {
+    let temp = fixture(&[
+        (
+            "src/scene.ts",
+            "export class Scene {\n  mutate() { return 1; }\n}\n",
+        ),
+        (
+            "src/node.ts",
+            "import type { Scene } from \"./scene\";\nexport class Base {\n  parent: Node;\n  scene: Scene;\n}\nexport class Node extends Base {}\n",
+        ),
+        (
+            "src/app.ts",
+            "import type { Scene } from \"./scene\";\nexport class App {\n  self: App;\n  scene: Scene;\n}\nexport type AppAlias = App;\n",
+        ),
+        (
+            "src/use.ts",
+            "import type { Node } from \"./node\";\nimport type { AppAlias } from \"./app\";\nexport function one(a: Node) { a.scene.mutate(); }\nexport function two(a: Node) { a.parent.scene.mutate(); }\nexport function three(a: Node) { a.parent.parent.scene.mutate(); }\nexport function alias(a: AppAlias) { a.self.self.scene.mutate(); }\n",
+        ),
+        (
+            "src/cycle.ts",
+            "export type A = B;\nexport type B = A;\nexport function loop(x: A) { x.scene.mutate(); }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    let callers = caller_edges(root, "src/scene.ts#Scene.mutate")
+        .into_iter()
+        .map(|(id, _, _)| id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        callers,
+        [
+            "src/use.ts#alias",
+            "src/use.ts#one",
+            "src/use.ts#three",
+            "src/use.ts#two"
+        ]
+    );
+}

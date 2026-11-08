@@ -107,6 +107,75 @@ async fn a_long_context_retry_is_disclosed_with_its_billed_tokens() {
     }
 }
 
+/// A text group the default window refuses, with `longContext` omitted, is
+/// retried whole in the long window: the state is billed once more, not once
+/// per question, and no per-question request is sent. (An image group splits
+/// instead: `media::a_refused_image_group_is_answered_per_question_in_the_default_window`.)
+#[tokio::test]
+async fn a_refused_text_group_retries_whole_in_the_long_window_without_splitting() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(|request: &Request| {
+            if request
+                .headers
+                .get("typesafe-danger-zone-long-context")
+                .is_none()
+            {
+                return ResponseTemplate::new(400)
+                    .set_body_json(json!({"detail":{"error_type":"max_tokens_exceeded"}}));
+            }
+            let body: Value = request.body_json().expect("body");
+            let answers = body["questions"]
+                .as_object()
+                .expect("questions")
+                .keys()
+                .map(|id| (id.clone(), json!({"type":"noul","noul":0.8})))
+                .collect::<serde_json::Map<String, Value>>();
+            ResponseTemplate::new(200).set_body_json(json!({"model":"jev-resolved",
+                "answers":answers,"usage":{"input_tokens":1_000,"output_tokens":2}}))
+        })
+        .mount(&server)
+        .await;
+    let evaluator = evaluator(&server);
+    let budget = evaluation_budget(&evaluator);
+    let state = json!("source");
+    let questions = vec![
+        json!({"type":"noul","instructions":"Evidence?"}),
+        json!({"type":"noul","instructions":"Other evidence?"}),
+    ];
+    let judged = evaluator
+        .evaluate_prepared(
+            EvaluationInput {
+                state: &state,
+                questions: &questions,
+                assets: None,
+                long_context: LongContext::OnRefusal,
+            },
+            None,
+            &budget,
+            &evaluator.gate(),
+        )
+        .await
+        .expect("answered in the long window");
+    assert_eq!(judged.answers.len(), 2);
+    let sent = server.received_requests().await.unwrap();
+    assert_eq!(sent.len(), 2, "the refused group and its long-window retry");
+    for request in &sent {
+        let body: Value = request.body_json().expect("body");
+        assert_eq!(
+            body["questions"].as_object().expect("questions").len(),
+            2,
+            "no per-question request"
+        );
+    }
+    assert!(
+        sent[1]
+            .headers
+            .get("typesafe-danger-zone-long-context")
+            .is_some_and(|value| *value == "true")
+    );
+}
+
 mod media;
 mod sanitization;
 mod shared;

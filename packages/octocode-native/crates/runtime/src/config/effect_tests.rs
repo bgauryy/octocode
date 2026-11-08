@@ -369,3 +369,5 @@ async fn credential_files_setting_opens_local_reads_only() {
         "a graph never reads them: {built}"
     );
 }
+
+mod graph_home;

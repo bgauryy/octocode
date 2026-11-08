@@ -66,8 +66,8 @@ impl Kept {
 
 /// The graph facts of every walked file, in one engine scan: its files are
 /// parsed in parallel on the process's shared parse pool, so the files in
-/// flight (and the source bytes they hold, each at most
-/// `MAX_GRAPH_SOURCE_BYTES`) are bounded by that pool's threads, and
+/// flight (and the source bytes they hold, each within the build budget
+/// [`super::super::limits::Limits::build_bytes`]) are bounded by that pool's threads, and
 /// concurrent builds share its cores. The walk's own bounds (`was_capped`,
 /// the unlisted frontier, pruned directories) are the scan's.
 pub(super) fn scan(
@@ -77,6 +77,7 @@ pub(super) fn scan(
     map: &(dyn Fn(&GraphFactsView<'_>) -> Option<Kept> + Sync),
     stop: &(dyn Fn() -> bool + Sync),
     registry: RegistryView<'_>,
+    source_map: octocode_engine::text::analysis::MapLimits,
 ) -> Result<GraphFactsMappedScan<Kept>, octocode_engine::fact_scan::GraphScanError> {
     let walked = FileSystemQueryResult {
         entries: std::mem::take(&mut walk.entries),
@@ -90,7 +91,7 @@ pub(super) fn scan(
         map,
         stop,
         registry,
-        octocode_engine::text::analysis::MapLimits::default(),
+        source_map,
     )?;
     let mut out = GraphFactsMappedScan {
         kept: result.kept,
@@ -137,7 +138,11 @@ fn scan_options(scan: &GraphScan, root: &Path) -> GraphFactsScanOptions {
         // publish); a set `max_files` keeps the scan off the time budget.
         max_files: Some(u32::MAX),
         skip_files: None,
-        max_file_bytes: Some(octocode_engine::fact_scan::MAX_GRAPH_SOURCE_BYTES),
+        // A source larger than everything one build may hold can never be
+        // kept: past it the file is a named skip, not a refused build. Any
+        // smaller file is parsed; its parse work bound, the per-file source
+        // budget and the build's admission decide what it costs.
+        max_file_bytes: Some(scan.limits.build_bytes as u64),
         language_globs: (!scan.language_globs.is_empty())
             .then(|| crate::tools::ast_rule::language_globs(&scan.language_globs)),
         ignore: scan.walk.ignore,
@@ -158,12 +163,16 @@ impl Gaps {
     }
 }
 
-/// The skip of a file past the per-file budget.
-fn declined(relative_path: &str) -> octocode_engine::types::GraphFactsScanDiagnostic {
+/// The skip of a file whose source correspondence passed its bounds
+/// ([`capture::capture`]'s `message`).
+fn declined(
+    relative_path: &str,
+    message: String,
+) -> octocode_engine::types::GraphFactsScanDiagnostic {
     octocode_engine::types::GraphFactsScanDiagnostic {
         relative_path: relative_path.to_owned(),
         code: octocode_engine::fact_scan::SOURCE_BUDGET_EXCEEDED.to_owned(),
-        message: "file's source correspondence exceeds the per-file budget".to_owned(),
+        message,
     }
 }
 
@@ -199,13 +208,14 @@ fn keep_file(
     job: Option<&checkpoint::Job<'_>>,
     admission: &super::scope::Admission<'_>,
     gaps: &Gaps,
+    source_map: octocode_engine::text::analysis::MapLimits,
 ) -> Result<Option<Kept>, ToolError> {
-    // A file past the per-file budget is the scan's named gap
-    // (`None`); the whole-snapshot budget still ends the scan.
-    let source = match capture::capture(view, cancel) {
+    // A file whose correspondence no build could hold is the scan's named
+    // gap (`None`); the build budget still ends the scan.
+    let source = match capture::capture(view, cancel, source_map) {
         Ok(source) => source,
         Err(error) if error.code == ErrorCode::ScopeTooBroad => {
-            gaps.push(declined(view.relative_path));
+            gaps.push(declined(view.relative_path, error.message));
             return Ok(None);
         }
         Err(error) => return Err(error),
@@ -292,6 +302,7 @@ pub(super) fn extract<'a>(
     )?;
     let parsing = crate::tools::ast_graph::progress::Parsing::new(walk.entries.len());
     let admission = super::scope::Admission::new(scan, root, &walk.entries);
+    let source_map = scan.limits.source_map();
     let gaps = Gaps::default();
     let reused_files = std::sync::atomic::AtomicUsize::new(0);
     let reuse = |context: &octocode_engine::fact_scan::GraphFactsReuseContext<'_>| {
@@ -312,7 +323,7 @@ pub(super) fn extract<'a>(
                 reused_files.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
             parsing.file_done();
-            match keep_file(view, cancel, job.as_ref(), &admission, &gaps) {
+            match keep_file(view, cancel, job.as_ref(), &admission, &gaps, source_map) {
                 Ok(kept) => kept,
                 Err(error) => {
                     capture_error
@@ -325,6 +336,7 @@ pub(super) fn extract<'a>(
         },
         &stop,
         registry,
+        source_map,
     );
     if let Some(error) = capture_error
         .into_inner()

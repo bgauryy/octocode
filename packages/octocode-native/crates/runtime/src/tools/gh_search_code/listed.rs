@@ -12,13 +12,40 @@ use std::collections::HashSet;
 ///   of every search. They lead the field, one 16-hex number per search in
 ///   extension order, followed by the digests.
 ///
+/// - for a page a response window showed only part of, [`PART`] and then
+///   the files of the page its earlier parts showed: the next part reads the
+///   same page and lists the rest ([`Listed::state_within`]).
+///
 /// The state grows by the files a page lists, so it is bounded by the
 /// search window (each search's 1,000 reachable results) that also ends the
 /// walk.
 pub(super) struct Listed {
     totals: Option<Vec<usize>>,
     seen: HashSet<u64>,
-    digests: String,
+    /// The files the walk's earlier pages listed, as the state carried them.
+    earlier: String,
+    /// The files this page lists, in order.
+    listed: String,
+    /// The files of this page that earlier parts of it showed.
+    shown: HashSet<u64>,
+    /// Whether the state carried [`PART`]: this call shows a later part of
+    /// a page an earlier call began.
+    part: bool,
+}
+
+/// Separates the files of earlier pages from the files earlier parts of
+/// this page showed. No file digest takes it ([`digest`]).
+const PART: u64 = u64::MAX;
+
+/// How a page's file stands in the walk ([`Listed::insert`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Seen {
+    /// Not listed before.
+    New,
+    /// An earlier part of this page showed it.
+    Shown,
+    /// An earlier page (or this one) already listed it.
+    Repeat,
 }
 
 impl Listed {
@@ -38,12 +65,26 @@ impl Listed {
                 .map(|total| usize::try_from(total).unwrap_or(usize::MAX))
                 .collect()
         });
-        let digests = numbers.iter().map(|key| format!("{key:016x}")).collect();
+        let at = numbers.iter().position(|&key| key == PART);
+        let shown = match at {
+            Some(at) => numbers.split_off(at).into_iter().skip(1).collect(),
+            None => HashSet::new(),
+        };
+        let earlier: String = numbers.iter().map(|key| format!("{key:016x}")).collect();
         Self {
             totals,
             seen: numbers.into_iter().collect(),
-            digests,
+            earlier,
+            listed: String::new(),
+            shown,
+            part: at.is_some(),
         }
+    }
+
+    /// Whether this call shows a later part of a page an earlier call
+    /// began: what the page states once (its shift) was stated there.
+    pub(super) fn continues_page(&self) -> bool {
+        self.part
     }
 
     /// Each merged search's match count as the walk last stated it; `None`
@@ -57,39 +98,76 @@ impl Listed {
         self.totals = Some(totals);
     }
 
-    /// Record `item`; `false` when the walk already listed it.
-    pub(super) fn insert(&mut self, item: &octocode_github::CodeSearchItem) -> bool {
-        let key = digest(item);
-        let new = self.seen.insert(key);
-        if new {
-            self.digests.push_str(&format!("{key:016x}"));
+    /// Record `item` and say how it stands in the walk: a file an earlier
+    /// part of this page showed is this page's again, not a repeat.
+    pub(super) fn insert(&mut self, item: &octocode_github::CodeSearchItem) -> Seen {
+        let key = digest(&item.repository.full_name, &item.path);
+        if !self.seen.insert(key) {
+            return Seen::Repeat;
         }
-        new
+        self.listed.push_str(&format!("{key:016x}"));
+        if self.shown.contains(&key) {
+            Seen::Shown
+        } else {
+            Seen::New
+        }
     }
 
-    /// The state the next page's continuation carries; `None` while empty.
+    /// Whether an earlier part of this page showed the file at `path` in
+    /// `full_name` (`owner/repo`).
+    pub(super) fn was_shown(&self, full_name: &str, path: &str) -> bool {
+        self.shown.contains(&digest(full_name, path))
+    }
+
+    /// The state the next page's continuation carries, every file of this
+    /// page listed; `None` while empty.
     pub(super) fn state(&self) -> Option<String> {
-        let totals = self
-            .totals
+        let state = self.totals_state() + &self.earlier + &self.listed;
+        (!state.is_empty()).then_some(state)
+    }
+
+    /// The state a continuation of this same page carries once `shown` (each
+    /// `(owner, repo, path)`) are shown as well: the earlier pages' files,
+    /// then [`PART`] and every file a part of this page showed.
+    pub(super) fn state_within<'a>(
+        &self,
+        shown: impl IntoIterator<Item = (&'a str, &'a str, &'a str)>,
+    ) -> String {
+        let mut keys = self.shown.iter().copied().collect::<Vec<_>>();
+        keys.extend(
+            shown
+                .into_iter()
+                .map(|(owner, repo, path)| digest(&format!("{owner}/{repo}"), path)),
+        );
+        keys.sort_unstable();
+        keys.dedup();
+        let mut state = self.totals_state() + &self.earlier;
+        state.push_str(&format!("{PART:016x}"));
+        for key in keys {
+            state.push_str(&format!("{key:016x}"));
+        }
+        state
+    }
+
+    fn totals_state(&self) -> String {
+        self.totals
             .iter()
             .flatten()
             .map(|&total| format!("{:016x}", u64::try_from(total).unwrap_or(u64::MAX)))
-            .collect::<String>();
-        let state = totals + &self.digests;
-        (!state.is_empty()).then_some(state)
+            .collect()
     }
 }
 
-/// A file's identity across pages: its repository and path (its blob `sha`
-/// changes with the index state, so it is not part of it), as the first 8
-/// bytes of their SHA-256.
-fn digest(item: &octocode_github::CodeSearchItem) -> u64 {
+/// A file's identity across pages: its repository (`owner/repo`, any case)
+/// and path (its blob `sha` changes with the index state, so it is not part
+/// of it), as the first 8 bytes of their SHA-256; never [`PART`].
+fn digest(full_name: &str, path: &str) -> u64 {
     let mut hash = octocode_engine::digest::HashWriter::default();
-    hash.update(item.repository.full_name.to_lowercase().as_bytes());
+    hash.update(full_name.to_lowercase().as_bytes());
     hash.update([0]);
-    hash.update(item.path.as_bytes());
+    hash.update(path.as_bytes());
     let bytes: [u8; 8] = hash.finalize()[..8].try_into().unwrap_or_default();
-    u64::from_be_bytes(bytes)
+    u64::from_be_bytes(bytes).min(PART - 1)
 }
 
 #[cfg(test)]
@@ -105,5 +183,43 @@ mod tests {
         assert!(Listed::of(Some(&carried), 1).totals().is_none());
         assert!(Listed::of(None, 2).totals().is_none());
         assert!(Listed::of(None, 2).state().is_none());
+    }
+
+    fn item(path: &str) -> octocode_github::CodeSearchItem {
+        serde_json::from_value(serde_json::json!({
+            "name": path, "path": path, "sha": "1", "html_url": "https://x",
+            "repository": {"full_name": "A/b", "html_url": "https://x", "url": "https://x"}
+        }))
+        .expect("item")
+    }
+
+    /// A part's state keeps the earlier pages' files apart from the files
+    /// this page showed: reading the page again, those are `Shown` (not
+    /// repeats), and once the page is whole its state lists every file.
+    #[test]
+    fn a_part_state_separates_this_page_from_earlier_pages() {
+        let mut first = Listed::of(None, 1);
+        assert_eq!(first.insert(&item("old.rs")), Seen::New);
+        let earlier = first.state().expect("state");
+        let mut page = Listed::of(Some(&earlier), 1);
+        for path in ["a.rs", "λ/🦀.rs", "c.rs"] {
+            assert_eq!(page.insert(&item(path)), Seen::New);
+        }
+        assert_eq!(page.insert(&item("old.rs")), Seen::Repeat);
+        let within = page.state_within([("a", "b", "a.rs"), ("a", "b", "λ/🦀.rs")]);
+        assert!(within.starts_with(&earlier), "{within}");
+
+        let mut again = Listed::of(Some(&within), 1);
+        assert!(again.was_shown("A/B", "λ/🦀.rs") && !again.was_shown("a/b", "c.rs"));
+        assert_eq!(again.insert(&item("a.rs")), Seen::Shown);
+        assert_eq!(again.insert(&item("λ/🦀.rs")), Seen::Shown);
+        assert_eq!(again.insert(&item("c.rs")), Seen::New);
+        assert_eq!(again.insert(&item("old.rs")), Seen::Repeat);
+        let whole = Listed::of(again.state().as_deref(), 1);
+        for path in ["old.rs", "a.rs", "λ/🦀.rs", "c.rs"] {
+            assert!(!whole.was_shown("a/b", path), "a whole page has no part");
+        }
+        let mut next = whole;
+        assert_eq!(next.insert(&item("c.rs")), Seen::Repeat);
     }
 }

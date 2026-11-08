@@ -357,16 +357,36 @@ fn a_budget_declined_file_leaves_answers_partial() {
             )
         })
         .collect::<String>();
+    // A build budget over the dense source's size and every small file's
+    // charge, under what its source correspondence needs.
+    let build_bytes = 8 * dense.len();
     let dir = git_app(&[
         ("small.ts", "export const small = () => 1;\n"),
         ("dense.ts", &dense),
     ]);
-    let built = build(&dir.0, RegistryView::installed());
+    let built = super::super::ingest::ingest_with_registry(
+        &IngestOptions {
+            path: dir.0.join("app"),
+            workspace: Some(dir.0.to_path_buf()),
+            ..Default::default()
+        },
+        &workspace_policy(&dir.0),
+        &ContentSecurity::new(),
+        &NeverCancel,
+        None,
+        RegistryView::installed(),
+        &crate::tools::ast_graph::limits::Limits {
+            build_bytes,
+            ..*crate::tools::ast_graph::limits::LIMITS
+        },
+    );
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
     assert_eq!(built.value["scan"]["filesSkipped"], 1, "{}", built.value);
     let declined = diagnostic_of(&dir.0, "dense.ts");
     assert!(
-        declined.contains("graph.scan.sourceBudgetExceeded"),
+        declined.contains("graph.scan.sourceBudgetExceeded")
+            && declined.contains("build memory budget")
+            && declined.contains(&build_bytes.to_string()),
         "{declined}"
     );
     assert!(

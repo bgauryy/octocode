@@ -109,14 +109,20 @@ pub(super) fn inspect_checkout(
     expected_commit: &str,
     scope: Option<&[String]>,
 ) -> Result<Option<Inspection>, CloneError> {
-    let _ = joined::<()>;
-    let (clean, head, refs, listed, symlinks) = (
-        status_is_clean(context, directory),
-        read_head(context, directory),
-        no_local_refs(context, directory),
-        withheld_files(context, directory, "HEAD", scope),
-        symlinks(context, directory),
-    );
+    let (clean, head, refs, listed, symlinks) = std::thread::scope(|threads| {
+        let clean = threads.spawn(|| status_is_clean(context, directory));
+        let head = threads.spawn(|| read_head(context, directory));
+        let refs = threads.spawn(|| no_local_refs(context, directory));
+        let listed = threads.spawn(|| withheld_files(context, directory, "HEAD", scope));
+        let symlinks = threads.spawn(|| symlinks(context, directory));
+        (
+            joined(clean.join()),
+            joined(head.join()),
+            joined(refs.join()),
+            joined(listed.join()),
+            joined(symlinks.join()),
+        )
+    });
     if !(clean? && head?.eq_ignore_ascii_case(expected_commit) && refs?) {
         return Ok(None);
     }

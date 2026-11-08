@@ -106,6 +106,9 @@ impl ChannelRun {
             })
         };
         if let Some(replay) = self.replayed.take() {
+            if self.clasify {
+                self.refresh_plans(&replay.structured);
+            }
             let mut stage = self.stage(Sanitized::scrubbed(Value::Null), true);
             if let Some(saved) = stage.options.saved.as_mut() {
                 saved.replayed = true;
@@ -190,6 +193,7 @@ impl ChannelRun {
             response_query,
             rejected_at,
             mut failure,
+            continues_page,
         } = self.shape_rows(rejected, context)?;
         if !self.repairs.is_empty() {
             structured.edit(|structured| {
@@ -212,7 +216,7 @@ impl ChannelRun {
             return Ok(Rows::Answered(Err(error)));
         }
         structured.edit(|output| crate::runtime::row_indices::inherit(output, &self.origin));
-        if let Err(error) = self.hoist_walks(&mut structured, &mut pending) {
+        if let Err(error) = self.hoist_walks(&mut structured, &mut pending, continues_page) {
             return Ok(Rows::Answered(Err(error)));
         }
         if let Some(cursor) = &self.pinned
@@ -323,14 +327,12 @@ impl ChannelRun {
             Err(()) => false,
         };
         let (saved, retained) = if auth_retained {
-            self.replays
-                .0
-                .insert(
-                    self.id.as_str(),
-                    cursor,
-                    seed,
-                    crate::execution::cancel::deadline_of(context),
-                )
+            self.replays.0.insert(
+                self.id.as_str(),
+                cursor,
+                seed,
+                crate::execution::cancel::deadline_of(context),
+            )
         } else {
             (Arc::new(seed), false)
         };

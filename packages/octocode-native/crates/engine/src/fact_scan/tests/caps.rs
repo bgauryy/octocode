@@ -182,3 +182,47 @@ fn a_file_window_cut_resumes_after_the_files_it_read() {
     assert_eq!(last.scan_resume, None);
     assert!(!last.truncated);
 }
+
+/// A generated source past a mebibyte of small functions is parsed and
+/// graphed: no byte count of the scan's own decides, only the parse's work
+/// bound and the caller's read ceiling (none here).
+#[test]
+fn a_parsable_source_past_a_mebibyte_is_scanned() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let root = fixture.path().to_path_buf();
+    let functions = 40_000;
+    let source = (0..functions)
+        .map(|i| format!("pub fn generated_{i:07}() {{}}\n"))
+        .collect::<String>();
+    assert!(source.len() > 1 << 20, "the fixture is past a mebibyte");
+    fs::write(root.join("generated.rs"), &source).expect("generated");
+    let result = scan_graph_facts(GraphFactsScanOptions {
+        path: path_string(&root),
+        ..Default::default()
+    })
+    .expect("scan");
+    assert!(result.skipped.is_empty(), "{:?}", result.skipped);
+    assert_eq!(result.entries.len(), 1);
+    assert_eq!(result.entries[0].facts.declarations.len(), functions);
+}
+
+/// The caller's read ceiling skips a larger file and the skip names both
+/// sizes, so the reason is checkable.
+#[test]
+fn a_file_past_the_read_ceiling_names_its_size_and_the_ceiling() {
+    let fixture = tempfile::tempdir().expect("fixture");
+    let root = fixture.path().to_path_buf();
+    fs::write(root.join("big.rs"), "x".repeat(64)).expect("big");
+    let result = scan_graph_facts(GraphFactsScanOptions {
+        path: path_string(&root),
+        max_file_bytes: Some(48),
+        ..Default::default()
+    })
+    .expect("scan");
+    assert_eq!(result.skipped[0].code, "graph.scan.fileTooLarge");
+    let message = &result.skipped[0].message;
+    assert!(
+        message.contains("64 bytes") && message.contains("48"),
+        "{message}"
+    );
+}

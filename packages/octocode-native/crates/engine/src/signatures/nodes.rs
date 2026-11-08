@@ -15,8 +15,8 @@ pub(super) use calls::{call_callee, is_call_node, is_name_leaf, last_name_leaf};
 #[cfg(feature = "tree-sitter-scala")]
 pub(super) use calls::{scala_applied_function, scala_call_callee, scala_infix_callee};
 pub(super) use declarations::{
-    declaration, declaration_extent_from_parents, declaration_in, instance_attribute_init,
-    member_field,
+    FunctionTypes, declaration, declaration_extent_from_parents, declaration_in, function_typed,
+    init_attribute_names, instance_attribute, member_field,
 };
 
 pub(super) fn name_node(node: Node<'_>) -> Option<Node<'_>> {

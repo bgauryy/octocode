@@ -7,7 +7,9 @@ use std::path::Path;
 
 mod c_family;
 mod commonjs;
+mod commonjs_values;
 mod cpp;
+mod data_members;
 mod csharp;
 mod dead_code;
 mod families;

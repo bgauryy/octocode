@@ -185,3 +185,37 @@ async fn a_cursor_sent_to_another_tool_names_the_tool_mismatch() {
     assert!(message.contains("issued to another tool"), "{message}");
     runtime.close().await;
 }
+
+/// A cursor another Octocode build issued (its saved work is stored under
+/// that build's identity, in the same home) is refused with a cause that
+/// names the build, never resumed under this build's rows or ended silently.
+#[tokio::test]
+async fn a_cursor_another_build_issued_is_refused_naming_the_build() {
+    let home = tempfile::tempdir().unwrap();
+    let runtime = super::super::construction_tests::runtime(home.path(), PERSISTENT);
+    let other = crate::runtime::engine::cursors::Registry::new(
+        crate::cache::CacheConfig::derived(),
+        Some(crate::cache::Directory::Continuations.path(&runtime.config.home)),
+        replay_policy(&runtime.config, &runtime.input.cwd, "0123456789abcdef"),
+    );
+    let mut pending = other.pending(page_replay_key("", &[], &[], None), None);
+    let token = pending.insert(
+        ToolId::LocalFetch,
+        json!({"queries":[{"path":"must-not-be-read"}]}),
+        SavedWork::ToolResume { index: Some(0) },
+    );
+    other.retain(pending, &context()).unwrap();
+    let message = refusal(
+        &runtime,
+        "localFetch",
+        &token,
+        Channel::Cli,
+        ErrorCode::ResponseSnapshotExpired,
+    )
+    .await;
+    assert!(
+        message.contains("Octocode build (an upgrade or rebuild)"),
+        "{message}"
+    );
+    runtime.close().await;
+}

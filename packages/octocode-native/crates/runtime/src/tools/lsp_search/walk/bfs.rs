@@ -167,13 +167,27 @@ impl<'a> Walk<'a> {
     }
 }
 
+/// Whose edge a result is, so the results that are one edge merge.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum EdgeOwner {
+    /// A level-1 edge whose sites lie in the node's own file. Every level-1
+    /// parent is a root, and the roots are one symbol (the declaration and
+    /// the definition, or importer call sites), so the roots share it.
+    Roots,
+    /// A level-1 outgoing call: its sites lie in the root's file, which the
+    /// row is filed under, so roots in one file share it.
+    RootFile(String),
+    /// A deeper edge: its parent node (rows name it as `via`).
+    Parent(String),
+}
+
 /// The state of one walk: discovered edges, seen nodes, and resume points.
 struct Walker<'a> {
     keys: NodeKeys<'a>,
     walk: HierarchyWalk,
     seen: HashSet<String>,
-    /// Each edge by its (parent, node) keys; a level-1 edge by its node alone.
-    edge_index: HashMap<(Option<String>, String), usize>,
+    /// Each edge by whose it is and its node key.
+    edge_index: HashMap<(EdgeOwner, String), usize>,
     resumed: HashSet<String>,
     depth: u32,
     /// Canonical files whose level-1 results importer roots leave out.
@@ -280,10 +294,14 @@ impl<'a> Walker<'a> {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        // Every level-1 parent is a root, and roots are one symbol (the
-        // declaration and the definition, or importer call sites): a caller
-        // two roots answer is one level-1 edge holding both answers' sites.
-        let pair = ((level > 1).then(|| parent_key.to_owned()), node_key.clone());
+        let owner = if level > 1 {
+            EdgeOwner::Parent(parent_key.to_owned())
+        } else if expansion == Expansion::OutgoingCalls {
+            EdgeOwner::RootFile(self.keys.file(parent))
+        } else {
+            EdgeOwner::Roots
+        };
+        let pair = (owner, node_key.clone());
         if let Some(&index) = self.edge_index.get(&pair) {
             let edge = &mut self.walk.edges[index];
             for site in sites {

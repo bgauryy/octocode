@@ -17,6 +17,10 @@ pub(crate) use walk::DiscoveryWalk;
 pub struct PathPolicyConfig {
     pub(crate) workspace_root: Option<PathBuf>,
     pub(crate) additional_roots: Vec<PathBuf>,
+    /// Roots Octocode writes its own outputs under and reads them back
+    /// from ([`PathPolicy::validate_output`]), such as the graph snapshot
+    /// home: never read roots of the local tools.
+    pub(crate) output_roots: Vec<PathBuf>,
     pub(crate) include_home: bool,
     /// The user's home, used for `~` expansion, `~/` redaction and
     /// `include_home`; `None` turns all three off (the runtime always sets it).
@@ -37,6 +41,8 @@ pub struct ValidatedPath {
 #[derive(Clone, Debug)]
 pub struct PathPolicy {
     roots: Vec<PathBuf>,
+    /// [`PathPolicyConfig::output_roots`], lexical and resolved.
+    output_roots: Vec<PathBuf>,
     workspace_root: Option<PathBuf>,
     /// The workspace root with symlinks resolved (e.g. macOS `/var` →
     /// `/private/var`), so canonical paths still display workspace-relative.
@@ -61,6 +67,10 @@ impl PathPolicy {
         {
             add_root(&mut roots, root);
         }
+        let mut output_roots = Vec::new();
+        for root in &config.output_roots {
+            add_root(&mut output_roots, root);
+        }
         let workspace_root = config.workspace_root.map(absolutize);
         let workspace_real = workspace_root
             .as_deref()
@@ -79,6 +89,7 @@ impl PathPolicy {
         let home_forms = forms(home.clone());
         Ok(Self {
             roots,
+            output_roots,
             workspace_root,
             workspace_real,
             home_dir: home,
@@ -92,20 +103,16 @@ impl PathPolicy {
         &self,
         input: impl AsRef<Path>,
     ) -> Result<ValidatedPath, PolicyError> {
-        self.validate_impl(input.as_ref(), true)
+        self.validate_impl(input.as_ref(), Access::RegularFile)
     }
 
     /// Validate an existing path while preserving the reference validator's
     /// file-or-directory behavior. Reads use `validate_read` to require a file.
     pub fn validate(&self, input: impl AsRef<Path>) -> Result<ValidatedPath, PolicyError> {
-        self.validate_impl(input.as_ref(), false)
+        self.validate_impl(input.as_ref(), Access::Read)
     }
 
-    fn validate_impl(
-        &self,
-        input: &Path,
-        require_regular: bool,
-    ) -> Result<ValidatedPath, PolicyError> {
+    fn validate_impl(&self, input: &Path, access: Access) -> Result<ValidatedPath, PolicyError> {
         if input.as_os_str().is_empty() || input.to_string_lossy().trim().is_empty() {
             return Err(PolicyError::new(
                 PolicyErrorCode::EmptyPath,
@@ -115,7 +122,7 @@ impl PathPolicy {
         reject_nul(input)?;
         let absolute = self.expand_and_resolve(input);
         match std::fs::canonicalize(&absolute) {
-            Ok(real) => self.validate_resolved(input, &absolute, real, require_regular),
+            Ok(real) => self.validate_resolved(input, &absolute, real, access),
             Err(error) => {
                 // Canonicalization can reveal whether an outside path exists.
                 // Resolve only its nearest existing ancestor to decide the
@@ -138,13 +145,14 @@ impl PathPolicy {
         self.roots.clone()
     }
 
-    /// Digest of the allowed roots: a result stored under one policy never
-    /// serves a caller with other roots.
+    /// Digest of the allowed roots and output roots: a result stored under
+    /// one policy never serves a caller with other roots.
     pub fn identity(&self) -> String {
         crate::digest::json_sha256(
             &self
                 .roots
                 .iter()
+                .chain(&self.output_roots)
                 .map(|root| root.to_string_lossy().into_owned())
                 .collect::<Vec<_>>(),
         )
@@ -155,10 +163,10 @@ impl PathPolicy {
         input: &Path,
         lexical: &Path,
         real: PathBuf,
-        require_regular: bool,
+        access: Access,
     ) -> Result<ValidatedPath, PolicyError> {
-        if !self.allowed(&real) {
-            let lexical_allowed = self.allowed(lexical);
+        if !self.admits(access, &real) {
+            let lexical_allowed = self.admits(access, lexical);
             let (code, message) = if lexical_allowed {
                 (
                     PolicyErrorCode::SymlinkEscape,
@@ -197,7 +205,7 @@ impl PathPolicy {
             )
             .with_path(self.redact(&real)));
         }
-        if require_regular
+        if access == Access::RegularFile
             && !std::fs::metadata(&real)
                 .map_err(|error| self.io_error(error, &real))?
                 .is_file()
@@ -215,9 +223,13 @@ impl PathPolicy {
     }
 
     fn allowed(&self, path: &Path) -> bool {
-        self.roots
-            .iter()
-            .any(|root| path == root || path.starts_with(root))
+        within(&self.roots, path)
+    }
+
+    /// Whether `access` admits `path`: an output may also lie under an
+    /// output root; anything else only under the allowed roots.
+    fn admits(&self, access: Access, path: &Path) -> bool {
+        self.allowed(path) || (access == Access::Output && within(&self.output_roots, path))
     }
 
     pub(crate) fn expand_and_resolve(&self, input: &Path) -> PathBuf {
@@ -322,6 +334,24 @@ impl PathPolicy {
             .file_name()
             .map_or_else(String::new, |name| name.to_string_lossy().into_owned())
     }
+}
+
+/// What a path is validated for: which roots admit it, and what it must be.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Access {
+    /// Any existing entry under the allowed roots.
+    Read,
+    /// A regular file under the allowed roots.
+    RegularFile,
+    /// An entry Octocode writes, or reads back where it wrote it: under the
+    /// allowed roots or an output root.
+    Output,
+}
+
+fn within(roots: &[PathBuf], path: &Path) -> bool {
+    roots
+        .iter()
+        .any(|root| path == root || path.starts_with(root))
 }
 
 /// A NUL byte ends a path at the operating system: no file has that name,

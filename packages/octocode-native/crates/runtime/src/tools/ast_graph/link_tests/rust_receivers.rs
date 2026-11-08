@@ -256,7 +256,8 @@ pub fn f() {
 
 /// A `static` inside a function: its initializer's `Type::f()` is the
 /// function's call, and the static's declared type types `STATIC.m()`. An
-/// enum variant constructor (`Attempt::Done(1)`) is not a call.
+/// enum variant constructor (`Attempt::Done(1)`) constructs the variant, as
+/// `new T()` constructs a class.
 #[test]
 fn rust_static_initializers_and_declared_static_types_bind() {
     let temp = fixture(&[(
@@ -278,6 +279,11 @@ pub fn shared() -> Attempt {
     assert_eq!(
         call_edges(root, "src/lib.rs#shared"),
         [
+            edge(
+                "src/lib.rs#Attempt.Done",
+                "constructs:type-qualified",
+                "high"
+            ),
             edge("src/lib.rs#Pool.get", "receiver-type", "high"),
             edge("src/lib.rs#Pool.new", "type-qualified", "high"),
         ]

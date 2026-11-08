@@ -49,7 +49,9 @@ pub(super) async fn page(
     if let Some(split) = leads::or_split(query) {
         crate::response::result::add_hints(
             value,
-            ["keywords hold OR, which code search does not support: run the related[] ghSearchCode request, one row per alternative."],
+            [
+                "keywords hold OR, which code search does not support: run the related[] ghSearchCode request, one row per alternative.",
+            ],
         );
         value["calls"]["repair"] = split;
     }

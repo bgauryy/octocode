@@ -4,6 +4,7 @@ use super::util::github_slug;
 use super::{ArtifactItem, RepositoryStatus, http::RegistryClient};
 mod listing;
 pub(crate) use listing::TagSearch;
+pub use listing::{TreeFiles, TreeFilesFuture};
 
 /// What GitHub says of a commit (or `HEAD`) of a repository.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -70,12 +71,17 @@ impl ReleaseTags for FailedTags {
         Box::pin(async move { Err(failure) })
     }
 
-    fn tag_names<'a>(&'a self, _: &'a str, _: &'a str) -> TagNamesFuture<'a> {
+    fn tag_refs<'a>(&'a self, _: &'a str, _: &'a str) -> TagRefsFuture<'a> {
         let failure = self.0.clone();
         Box::pin(async move { Err(failure) })
     }
 
     fn commit_check<'a>(&'a self, _: &'a str, _: &'a str, _: &'a str) -> CommitFuture<'a> {
+        let failure = self.0.clone();
+        Box::pin(async move { Err(failure) })
+    }
+
+    fn tree_files<'a>(&'a self, _: &'a str, _: &'a str, _: &'a str) -> TreeFilesFuture<'a> {
         let failure = self.0.clone();
         Box::pin(async move { Err(failure) })
     }
@@ -91,9 +97,18 @@ pub type CommitFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = C
 /// repository has no such tag.
 pub type TagCommitFuture<'a> =
     std::pin::Pin<Box<dyn std::future::Future<Output = Result<Option<String>, CheckFailure>> + 'a>>;
-/// A pending read of every tag name of a repository.
-pub type TagNamesFuture<'a> =
-    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<String>, CheckFailure>> + 'a>>;
+/// A pending read of every tag of a repository.
+pub type TagRefsFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<ListedTag>, CheckFailure>> + 'a>>;
+
+/// A tag of a repository's tag list.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ListedTag {
+    pub name: String,
+    /// The commit its ref names when the tag is lightweight; `None` when
+    /// the ref names an annotated tag object, read through `tag_commit`.
+    pub commit: Option<String>,
+}
 
 /// Checks that a release tag or a recorded commit exists in a GitHub
 /// repository, through the configured GitHub API (its URL, the caller's
@@ -103,8 +118,8 @@ pub trait ReleaseTags: Send + Sync {
     /// a tag), `Ok(None)` when the repository has no such tag.
     fn tag_commit<'a>(&'a self, owner: &'a str, repo: &'a str, tag: &'a str)
     -> TagCommitFuture<'a>;
-    /// Every tag name of `owner/repo`, read whole.
-    fn tag_names<'a>(&'a self, owner: &'a str, repo: &'a str) -> TagNamesFuture<'a>;
+    /// Every tag of `owner/repo`, read whole.
+    fn tag_refs<'a>(&'a self, owner: &'a str, repo: &'a str) -> TagRefsFuture<'a>;
     /// What GitHub says of `commit` (a SHA a registry recorded, or `HEAD`) in
     /// `owner/repo`.
     fn commit_check<'a>(
@@ -113,6 +128,14 @@ pub trait ReleaseTags: Send + Sync {
         repo: &'a str,
         commit: &'a str,
     ) -> CommitFuture<'a>;
+    /// The files of `owner/repo`'s git tree at `commit`, read whole (one
+    /// recursive read): the layout that says which directories are packages.
+    fn tree_files<'a>(
+        &'a self,
+        owner: &'a str,
+        repo: &'a str,
+        commit: &'a str,
+    ) -> TreeFilesFuture<'a>;
 }
 
 /// Pins `artifact`'s source to the upstream release tag of `version` when
@@ -140,7 +163,7 @@ pub(crate) async fn pin_release_tag(
         client,
     )
     .await;
-    let ambiguous = matches!(&search, TagSearch::Unnamed(named) if !named.is_empty());
+    let ambiguous = search.ambiguous();
     search.note_on(artifact, version);
     let mut found = search.found();
     // No tag names the release: a declared tag of another release (a release
@@ -256,23 +279,27 @@ pub(crate) async fn check_commit_against_tag(
     )
     .await;
     match &search {
-        TagSearch::Found(release) if release.commit.eq_ignore_ascii_case(commit) => {
-            artifact.source_tag = true;
+        TagSearch::Found(release) | TagSearch::Named { release, .. } => {
+            if release.commit.eq_ignore_ascii_case(commit) {
+                artifact.source_tag = true;
+            } else {
+                artifact.tag_differs = Some(release.clone());
+            }
+            search.note_on(artifact, version);
         }
-        TagSearch::Found(release) => artifact.tag_differs = Some(release.clone()),
         // Tags naming the version at different commits: the one naming the
         // registry's commit proves it.
-        TagSearch::Unnamed(named)
-            if named
+        TagSearch::Unnamed { differing, .. }
+            if differing
                 .iter()
                 .any(|release| release.commit.eq_ignore_ascii_case(commit)) =>
         {
             artifact.source_tag = true;
         }
-        TagSearch::Unnamed(_) => search.note_on(artifact, version),
+        TagSearch::Unnamed { .. } => search.note_on(artifact, version),
         // The registry's commit stays its claim (`registryRef`), which says
         // no tag checked it: no absence is claimed to scope.
-        TagSearch::Unchecked | TagSearch::Unlisted(_) => {}
+        TagSearch::Unchecked | TagSearch::Unlisted { .. } => {}
     }
 }
 
@@ -288,10 +315,11 @@ pub struct ReleaseTag {
 /// one package's releases ([`tag_candidates`]); a leading `v` of `version` is
 /// the same release, and a tag the package's metadata declares is asked
 /// first. When no candidate names it (or a check fails), the repository's
-/// own tag list decides, whatever prefix its tags carry
-/// ([`listing::listed_release_tag`]); a list that cannot be read is
-/// [`TagSearch::Unlisted`] with its cause. Each lookup checks current tags;
-/// neither matches nor absences are retained.
+/// own tag list decides by what each tag's prefix names
+/// ([`listing::listed_release_tag`]); a lookup cut short is
+/// [`TagSearch::Unlisted`] with its cause and whether the candidates were
+/// checked at all. Each lookup checks current tags; neither matches nor
+/// absences are retained.
 async fn github_release_tag(
     repository: &str,
     directory: Option<&str>,
@@ -314,10 +342,15 @@ async fn github_release_tag(
     // package declares), then a monorepo package's own shapes, each round's
     // checks together.
     let (plain, own) = candidates.split_at(candidates.len().min(2 + usize::from(named)));
-    if let Ok(Some(release)) = first_existing_tag(tags, &owner, &repo, &[plain, own]).await {
-        return TagSearch::Found(release);
-    }
-    listing::listed_release_tag(tags, &owner, &repo, bare).await
+    // A failed candidate check is kept: a claim about the shapes checked
+    // holds only when they were.
+    let shapes_checked = match first_existing_tag(tags, &owner, &repo, &[plain, own]).await {
+        Ok(Some(release)) => return TagSearch::Found(release),
+        Ok(None) => true,
+        Err(_) => false,
+    };
+    let own = listing::OwnNames::new(&repo, package, directory);
+    listing::listed_release_tag(tags, &owner, &repo, bare, &own, shapes_checked).await
 }
 
 /// Whether `tag` names release `version`: it ends with the version, and the

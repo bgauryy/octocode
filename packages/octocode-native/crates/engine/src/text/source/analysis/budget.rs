@@ -9,6 +9,9 @@ pub struct MapLimits {
     pub contributors: usize,
     pub bytes: usize,
     pub work: usize,
+    /// What `bytes` stands for, named when a source passes it: the caller's
+    /// budget it was sized from.
+    pub bytes_budget: &'static str,
 }
 impl Default for MapLimits {
     fn default() -> Self {
@@ -20,6 +23,7 @@ impl Default for MapLimits {
             contributors: 524_288,
             bytes: 32 << 20,
             work: 4_000_000,
+            bytes_budget: "per-file source correspondence budget",
         }
     }
 }
@@ -134,6 +138,34 @@ impl<'a> MapBudget<'a> {
             )?;
         }
         Ok(())
+    }
+    /// What passing the limit `name` (a [`SourceError::LimitExceeded`] of
+    /// this budget) means: the limit, its ceiling and what was used when
+    /// it stopped.
+    #[must_use]
+    pub fn exceeded(&self, name: &str) -> String {
+        let (limits, usage) = (&self.limits, &self.usage);
+        let used = match name {
+            "bytes" => {
+                return format!(
+                    "needs more than the {} of {} bytes ({} charged when it stopped)",
+                    limits.bytes_budget, limits.bytes, usage.bytes
+                );
+            }
+            "work" => Some((limits.work, usage.work)),
+            "representations" => Some((limits.representations, usage.representations)),
+            "segments" => Some((limits.segments, usage.segments)),
+            "branches" => Some((limits.branches, usage.branches)),
+            "contributors" => Some((limits.contributors, usage.contributors)),
+            "depth" => Some((limits.depth, limits.depth)),
+            _ => None,
+        };
+        match used {
+            Some((limit, used)) => {
+                format!("passes its {name} limit of {limit} ({used} used when it stopped)")
+            }
+            None => format!("passes its {name} bound"),
+        }
     }
     pub fn allocate(&mut self, bytes: usize) -> Result<(), SourceError> {
         Self::charge(&mut self.usage.bytes, bytes, self.limits.bytes, "bytes")

@@ -177,6 +177,19 @@ impl Limits {
         }
     }
 
+    /// The bounds of one file's source correspondence in a build: its bytes
+    /// are the build's memory budget, which every kept file's
+    /// correspondence is then charged against ([`build_charge`]), so only a
+    /// file that no build could hold is declined, naming that budget. The
+    /// map's structural bounds are its own.
+    pub(crate) fn source_map(&self) -> octocode_engine::text::analysis::MapLimits {
+        octocode_engine::text::analysis::MapLimits {
+            bytes: self.build_bytes,
+            bytes_budget: "build memory budget",
+            ..Default::default()
+        }
+    }
+
     /// How a build whose kept files charge `charged` bytes passes its
     /// budget; a charge exactly at it builds.
     pub(crate) fn admit_build(&self, charged: usize) -> Result<(), Overfill> {

@@ -117,6 +117,7 @@ pub(crate) fn call(
                             dispatcher,
                             context,
                             gate,
+                            section_runtime.can_resume,
                         ),
                     }
                 }))
@@ -130,6 +131,7 @@ pub(crate) fn call(
     context.check()?;
     let mut outcomes = outcomes.into_iter().collect::<Result<Vec<_>, _>>()?;
     settle_shared_spend(&mut outcomes);
+    let can_resume = section_runtime.can_resume;
     let mut output = Vec::with_capacity(parsed.len());
     let mut kinds = Vec::with_capacity(parsed.len());
     for (row, outcome) in parsed.iter().zip(outcomes) {
@@ -142,8 +144,8 @@ pub(crate) fn call(
             } => {
                 kinds.push(judged.as_ref().err().map(error_kind));
                 output.push(match judged {
-                    Ok(judged) => answered(row, judged, captured, assets),
-                    Err(error) => failed(row, &error, captured.as_deref()),
+                    Ok(judged) => answered(row, judged, captured, assets, can_resume),
+                    Err(error) => failed(row, &error, captured.as_deref(), can_resume),
                 });
             }
             RowOutcome::Sections(result) => {
@@ -160,7 +162,10 @@ pub(crate) fn call(
                             .map(crate::response::result::failure_kind);
                         (outcome.output, failure)
                     }
-                    Err(error) => (failed(row, &error, None), Some(error_kind(&error))),
+                    Err(error) => (
+                        failed(row, &error, None, can_resume),
+                        Some(error_kind(&error)),
+                    ),
                 };
                 kinds.push(kind);
                 output.push(value);
@@ -172,7 +177,7 @@ pub(crate) fn call(
                         mark_default(&mut models, &evaluator.model);
                         models
                     }
-                    Err(error) => failed(row, &error, None),
+                    Err(error) => failed(row, &error, None, can_resume),
                 });
             }
         }

@@ -60,7 +60,10 @@ async fn each_release_lookup_checks_current_upstream_tags() {
                 &client
             )
             .await,
-            TagSearch::Unnamed(Vec::new())
+            TagSearch::Unnamed {
+                differing: Vec::new(),
+                foreign: Vec::new()
+            }
         );
     }
     let candidates = tag_candidates("monorepo", "widget", Some("packages/widget"), "1.0.0");
@@ -81,7 +84,10 @@ async fn each_release_lookup_checks_current_upstream_tags() {
     for _ in 0..2 {
         assert_eq!(
             github_release_tag(repository, None, "other", "2.0.0", None, &client).await,
-            TagSearch::Unlisted(super::CheckFailure::Request)
+            TagSearch::Unlisted {
+                cause: super::CheckFailure::Request,
+                shapes_checked: false
+            }
         );
     }
     // The first round's two checks fail, then the tag list is asked.
@@ -201,8 +207,8 @@ async fn listed_tags_name_one_release_or_are_stated_as_ambiguous() {
         })
     );
     let split = super::super::test_http::KnownTags::new(vec![
-        "o/r@a@1.2.6=aaa",
-        "o/r@b@1.2.6=bbb",
+        "o/r@rel/1.2.6=aaa",
+        "o/r@release-1.2.6=bbb",
         "o/r@HEAD",
     ]);
     let client = tag_client(&http, &budget, &split);
@@ -213,7 +219,7 @@ async fn listed_tags_name_one_release_or_are_stated_as_ambiguous() {
     assert_eq!(
         item.disclosures,
         [
-            "minimist: tags a@1.2.6 (commit aaa), b@1.2.6 (commit bbb) each name version 1.2.6 at different commits, so none is taken as its release tag."
+            "minimist: tags rel/1.2.6 (commit aaa), release-1.2.6 (commit bbb) each name version 1.2.6 at different commits, so none is taken as its release tag."
         ]
     );
     assert!(
@@ -238,7 +244,70 @@ async fn an_unread_tag_list_is_recorded_with_its_cause() {
     let mut item = unpinned("https://github.com/o/r");
     pin_release_tag(&mut item, "minimist", "1.2.6", None, &client).await;
     assert_eq!(item.source_ref, None);
-    assert_eq!(item.tags_unlisted, Some(failure.describe()));
+    assert_eq!(
+        item.tag_absence,
+        Some(super::super::TagAbsence::ListUnread(failure.describe()))
+    );
+}
+
+/// A lightweight tag's listed ref names its commit: the list settles it
+/// with no read of the tag itself; an annotated tag is read once.
+#[tokio::test]
+async fn a_listed_lightweight_tag_needs_no_further_read() {
+    let http = super::super::test_http::RouteHttp::new();
+    let budget = super::super::test_http::test_budget();
+    let tags = super::super::test_http::KnownTags::new(vec!["o/r@rel/1.2.1=abc"]);
+    let client = tag_client(&http, &budget, &tags);
+    let found = github_release_tag("https://github.com/o/r", None, "r", "1.2.1", None, &client)
+        .await
+        .found();
+    assert_eq!(found.map(|release| release.commit).as_deref(), Some("abc"));
+    assert!(
+        !tags.seen().iter().any(|seen| seen == "o/r@rel/1.2.1"),
+        "the listed commit is used as listed: {:?}",
+        tags.seen()
+    );
+}
+
+/// The repository's layout is read only when a scoped stem decides the
+/// release: a generic tag at the same commit already names it (no read);
+/// a stem tag at another commit is read for, and with no package of that
+/// name it names the version as well, so neither tag is chosen.
+#[tokio::test]
+async fn a_tree_is_read_only_when_a_stem_decides_the_release() {
+    use super::ReleaseTag;
+    let http = super::super::test_http::RouteHttp::new();
+    let budget = super::super::test_http::test_budget();
+    let same = super::super::test_http::KnownTags::new(vec![
+        "o/r@rel/1.2.1=abc",
+        "o/r@release-v1.2.1=abc",
+    ]);
+    let client = tag_client(&http, &budget, &same);
+    assert_eq!(
+        github_release_tag("https://github.com/o/r", None, "r", "1.2.1", None, &client).await,
+        TagSearch::Found(ReleaseTag {
+            tag: "rel/1.2.1".into(),
+            commit: "abc".into()
+        })
+    );
+    assert!(
+        !same.seen().iter().any(|seen| seen.contains("^tree@")),
+        "{:?}",
+        same.seen()
+    );
+    let split = super::super::test_http::KnownTags::new(vec![
+        "o/r@rel/1.2.1=abc",
+        "o/r@release-v1.2.1=def",
+    ]);
+    let client = tag_client(&http, &budget, &split);
+    let search =
+        github_release_tag("https://github.com/o/r", None, "r", "1.2.1", None, &client).await;
+    assert!(search.ambiguous(), "{search:?}: {:?}", split.seen());
+    assert!(
+        split.seen().iter().any(|seen| seen == "o/r^tree@def"),
+        "{:?}",
+        split.seen()
+    );
 }
 
 fn unpinned(repository: &str) -> super::ArtifactItem {

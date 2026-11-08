@@ -36,6 +36,8 @@ pub(super) struct Facts<'a> {
     pub matched: usize,
     /// Ids of advisories listed but neither matching nor clearing the version.
     pub unmatched: Vec<String>,
+    /// Other databases' records of a listed advisory that do not list the version.
+    pub disputed: Vec<String>,
 }
 
 impl Facts<'_> {
@@ -60,6 +62,12 @@ impl Facts<'_> {
             .iter()
             .flat_map(|result| &result.advisories)
             .collect::<Vec<_>>();
+        let mut disputed: Vec<String> = Vec::new();
+        for id in records.iter().flat_map(|row| &row.disputed_by) {
+            if !disputed.contains(id) {
+                disputed.push(id.clone());
+            }
+        }
         let groups = super::record::advisory_groups(&records);
         let matched = groups
             .iter()
@@ -72,6 +80,7 @@ impl Facts<'_> {
             compared_here: results.iter().any(|result| result.compared_here),
             registry_unconfirmed: false,
             unmatched,
+            disputed,
             cves,
             stopped: results.iter().any(|result| result.resume.is_some()),
             version_evaluated: true,
@@ -102,6 +111,23 @@ pub(super) fn typed(value: &str) -> String {
         .collect()
 }
 
+/// An id (an advisory's, an alias, a CVE) as a sentence states it: the id
+/// itself when the published contract takes it as an `advisory` id, otherwise
+/// words that say so. An id comes from a source, so it is data: filtering its
+/// characters would run prose together into an id that does not exist.
+pub(super) fn stated_id(id: &str) -> String {
+    let accepted = crate::contracts::validate(
+        ToolId::SecurityCheck.as_str(),
+        json!({ "queries": [{ "operation": "advisory", "id": id }] }),
+    )
+    .is_ok();
+    if accepted {
+        id.to_owned()
+    } else {
+        "an id the contract refuses".to_owned()
+    }
+}
+
 /// The CVEs the sentence lists itself; past this they stay in `cves`, so one
 /// package's long list does not bury what to upgrade to.
 const CVES_IN_SENTENCE: usize = 5;
@@ -110,7 +136,7 @@ fn cve_clause(cves: &[String]) -> String {
     if cves.is_empty() {
         String::new()
     } else if cves.len() <= CVES_IN_SENTENCE {
-        let listed = cves.iter().map(|cve| typed(cve)).collect::<Vec<_>>();
+        let listed = cves.iter().map(|cve| stated_id(cve)).collect::<Vec<_>>();
         format!(" CVEs: {}.", listed.join(", "))
     } else {
         format!(" {} CVEs, listed in cves.", cves.len())
@@ -119,7 +145,7 @@ fn cve_clause(cves: &[String]) -> String {
 
 fn ids_clause(ids: &[String]) -> String {
     ids.iter()
-        .map(|id| typed(id))
+        .map(|id| stated_id(id))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -185,6 +211,17 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
         ),
     };
     sentence.push_str(&cve_clause(&facts.cves));
+    if found && !facts.stopped && !facts.disputed.is_empty() {
+        let (noun, verb) = if facts.disputed.len() == 1 {
+            ("a record", "does")
+        } else {
+            ("records", "do")
+        };
+        sentence.push_str(&format!(
+            " Disputed by {}, {noun} of a listed advisory in another database that {verb} not list this version; see warnings.",
+            ids_clause(&facts.disputed)
+        ));
+    }
     sentence.push_str(&evaluation_clause(facts));
     if let Some(version) = facts.upgrade_to {
         sentence.push_str(&format!(
@@ -237,7 +274,7 @@ pub(super) fn advisory_lead(row: &Value) -> Value {
     let sentences = records
         .iter()
         .map(|record| {
-            let mut sentence = typed(record["id"].as_str().unwrap_or_default());
+            let mut sentence = stated_id(record["id"].as_str().unwrap_or_default());
             let aliases = strings(&record["aliases"]);
             if !aliases.is_empty() {
                 sentence.push_str(&format!(" (aliases {})", aliases.join(", ")));
@@ -268,6 +305,9 @@ pub(super) fn advisory_lead(row: &Value) -> Value {
                                 .map_or_else(String::new, |listed| format!(" ({listed})"));
                             return format!("{name} {}{listed}", ranges.join(", "));
                         }
+                        if let Some(written) = written_range(entry) {
+                            return format!("{name} {written}");
+                        }
                         format!("{name} ({})", unranged(entry))
                     })
                 })
@@ -292,11 +332,54 @@ fn unranged(entry: &Value) -> String {
         .as_array()
         .is_some_and(|ranges| ranges.iter().any(|range| range["type"] == "GIT"));
     let versions = entry["versions"].as_array().map_or(0, Vec::len);
-    match (listed_versions(versions), git) {
-        (Some(listed), _) => listed,
-        (None, true) => "git commit ranges in the record".to_owned(),
-        (None, false) => "no ranges or versions in the record".to_owned(),
+    let written = entry["ecosystemSpecific"]["vulnerable_version_range"].is_string();
+    match (listed_versions(versions), git, written) {
+        (Some(listed), _, _) => listed,
+        (None, true, _) => "git commit ranges in the record".to_owned(),
+        // A range GitHub wrote that is not comparators alone: stated in
+        // `affected`, never in the sentence.
+        (None, false, true) => "a range GitHub writes as text, in affected".to_owned(),
+        (None, false, false) => "no ranges or versions in the record".to_owned(),
     }
+}
+
+/// A vulnerable range GitHub writes as text (`>= 4.0.0, < 4.17.21`, kept under
+/// `ecosystemSpecific`), as the sentence states it: each comparator with its
+/// version typed, then the first patched version. `None` when the entry has no
+/// such range or a part of it is not a comparator, so no source prose reaches
+/// the answer.
+fn written_range(entry: &Value) -> Option<String> {
+    let specific = &entry["ecosystemSpecific"];
+    let range = specific["vulnerable_version_range"].as_str()?;
+    let parts = range
+        .split(',')
+        .map(|part| {
+            let part = part.trim();
+            let operator = part.len() - part.trim_start_matches(['<', '>', '=']).len();
+            let (operator, version) = part.split_at(operator);
+            let version = version.trim();
+            (matches!(operator, "" | "=" | "<" | "<=" | ">" | ">=")
+                && !version.is_empty()
+                && typed(version) == version)
+                .then(|| format!("{operator}{version}"))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    // A repository advisory names its fix in `patched_versions`, as text.
+    // A list (`2.0.0, 1.5.3`) states each version; a part that is not a
+    // bare version states none of it.
+    let patched = specific["patched_versions"].as_str().and_then(|patched| {
+        patched
+            .split(',')
+            .map(str::trim)
+            .map(|part| (!part.is_empty() && typed(part) == part).then(|| part.to_owned()))
+            .collect::<Option<Vec<_>>>()
+    });
+    let fix = match (specific["first_patched_version"].as_str(), patched) {
+        (Some(fixed), _) => format!("fixed {}", typed(fixed)),
+        (None, Some(listed)) => format!("fixed {}", listed.join(", ")),
+        (None, None) => "no fix named".to_owned(),
+    };
+    Some(format!("{} as GitHub writes it ({fix})", parts.join(" ")))
 }
 
 /// The one wording for an entry's explicit `versions` list, ranged or not;
@@ -426,27 +509,54 @@ pub(super) fn commit_lead(commit: &str, facts: &Facts<'_>) -> Value {
     data
 }
 
-/// Ready calls that read every listed advisory whole: what a brief row left out
-/// (details, ranges, references, CWEs) is one call away, never lost.
+/// Ready calls that read every listed advisory, and each record disputing one,
+/// whole: what a brief row left out (details, ranges, references, CWEs) is one
+/// call away, never lost.
 pub(super) fn read_whole(data: &mut Value, results: &[SourceResult], brief: &Map<String, Value>) {
-    let ids = results
+    // A GitHub twin carries its OSV record's id: one advisory, asked once. A
+    // record that disputes a listed one follows it: the warning says to read
+    // its ranges.
+    let mut ids: Vec<&str> = Vec::new();
+    for id in results
         .iter()
         .flat_map(|result| &result.advisories)
-        .map(|row| row.id.as_str())
+        .flat_map(|row| {
+            std::iter::once(row.id.as_str()).chain(row.disputed_by.iter().map(String::as_str))
+        })
+    {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    advisory_calls(data, "readWhole", &ids, brief);
+}
+
+/// Ready `advisory` calls under `{key}{index}`, one row per id the published
+/// contract takes as an `id`. An id a source states is data: one the contract
+/// refuses (a space, prose) stays named on its row and gets no call, as no
+/// call could carry it.
+pub(super) fn advisory_calls(
+    data: &mut Value,
+    key: &str,
+    ids: &[&str],
+    brief: &Map<String, Value>,
+) {
+    let rows = ids
+        .iter()
+        .map(|id| {
+            let mut row = brief.clone();
+            row.insert("operation".into(), json!("advisory"));
+            row.insert("id".into(), json!(id));
+            Value::Object(row)
+        })
+        .filter(|row| {
+            crate::contracts::validate(ToolId::SecurityCheck.as_str(), json!({ "queries": [row] }))
+                .is_ok()
+        })
         .collect::<Vec<_>>();
     let per_call = crate::response::result::rows_per_call(ToolId::SecurityCheck);
-    for (index, chunk) in ids.chunks(per_call).enumerate() {
-        let queries = chunk
-            .iter()
-            .map(|id| {
-                let mut row = brief.clone();
-                row.insert("operation".into(), json!("advisory"));
-                row.insert("id".into(), json!(id));
-                Value::Object(row)
-            })
-            .collect::<Vec<_>>();
-        data["calls"][format!("readWhole{index}")] =
-            Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": queries }))
-                .build();
+    for (index, chunk) in rows.chunks(per_call).enumerate() {
+        data["calls"][format!("{key}{index}")] =
+            Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": chunk })).build();
     }
 }

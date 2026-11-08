@@ -277,49 +277,16 @@ impl PageView {
         query: &octocode_contract_types::LocalSearchQuery,
         cancelled: &dyn Fn() -> bool,
     ) -> Option<StoredPage> {
-        use super::local_search_query;
-        use super::packed::Cut;
         let index = packed.index()?;
-        let page = local_search_query::page(query).max(1) as usize;
-        // Each entry's frame, and whether its rows are shown (a match page
-        // past a grid file's end shows none of them).
-        let entries: Vec<(u32, bool)> = match &index.cut {
-            Cut::Stream { pages } => pages.get(page - 1).map_or_else(Vec::new, |frames| {
-                frames.clone().map(|at| (at, true)).collect()
-            }),
-            Cut::Grid { page_size, files } => {
-                let skip = local_search_query::match_page(query).max(1) - 1;
-                crate::response::page_windows::count_window(
-                    page,
-                    *page_size as usize,
-                    index.total_files as usize,
-                )
-                .filter_map(|file| {
-                    let frames = files.get(file)?;
-                    let at = frames.start.checked_add(skip).filter(|at| *at < frames.end);
-                    Some(at.map_or((frames.end.checked_sub(1)?, false), |at| (at, true)))
-                })
-                .collect()
-            }
-        };
+        let page = super::local_search_query::page(query).max(1) as usize;
+        let entries = index.pages.get(page - 1).cloned().unwrap_or_default();
         let mut files = Vec::with_capacity(entries.len());
         let mut facts = Vec::with_capacity(entries.len());
         let mut shown = Vec::with_capacity(entries.len());
         let mut redacted = super::verify::Redacted::new();
         let mut key_scans = Vec::new();
-        for (at, rows_shown) in entries {
-            let mut entry = packed.entry(at, rows_shown, cancelled)?;
-            if !rows_shown {
-                // Past the file's last match page: none of its rows, all
-                // of them before this page.
-                entry.facts = EntryFacts {
-                    total: entry.facts.total,
-                    start: entry.facts.total,
-                    end: entry.facts.total,
-                    ..EntryFacts::default()
-                };
-                entry.redacted.clear();
-            }
+        for at in entries {
+            let entry = packed.entry(at, cancelled)?;
             for row in &entry.redacted {
                 let hit = entry.file.matches.get(*row as usize)?;
                 redacted.insert((entry.file.path.clone(), hit.line, hit.column));
@@ -353,8 +320,8 @@ impl PageView {
 /// `parsed` (ordered and ranked as `layout` cut it) as a seekable scan: a
 /// frame per entry of every page of the cut, each with its facts, which
 /// rows redaction changed (`redacted`) and whether its file had a key-block
-/// scan (`key_scans`, by path). `None` for a list layout (it shows no rows),
-/// past `max_raw` raw bytes, or once `cancelled`.
+/// scan (`key_scans`, by path). `None` for a list or grid layout (kept
+/// whole), past `max_raw` raw bytes, or once `cancelled`.
 pub(super) fn encode_pages(
     parsed: &TextSearchResult,
     layout: &Layout,
@@ -362,31 +329,14 @@ pub(super) fn encode_pages(
     max_raw: usize,
     cancelled: &dyn Fn() -> bool,
 ) -> Option<super::packed::Encoded> {
-    use super::packed::{Cut, FrameWriter, PageIndex};
-    if layout.list {
-        return None;
-    }
+    use super::packed::{FrameWriter, PageIndex};
     let files = &parsed.files;
-    let matches_per = layout.matches_per as usize;
-    // Every page's entries, in page order.
-    let pages: Vec<Vec<(usize, std::ops::Range<usize>)>> = match &layout.pages {
-        Some(pages) if layout.streamed => pages.iter().cloned().collect(),
-        Some(_) => return None,
-        None if layout.streamed => return None,
-        None => files
-            .iter()
-            .enumerate()
-            .map(|(index, file)| {
-                let pages = file.matches.len().div_ceil(matches_per.max(1)).max(1);
-                (0..pages)
-                    .map(|page| {
-                        let start = (page * matches_per).min(file.matches.len());
-                        (index, start..(start + matches_per).min(file.matches.len()))
-                    })
-                    .collect()
-            })
-            .collect(),
-    };
+    // Every page's entries, in page order: only a streamed cut is stored
+    // by page (see [`PageIndex`]).
+    let pages = layout
+        .pages
+        .as_deref()
+        .filter(|_| layout.streamed && !layout.list)?;
     // Each file's later lines at every end its entries take, in entry order.
     let mut ends = vec![Vec::new(); files.len()];
     for (index, rows) in pages.iter().flatten() {
@@ -402,7 +352,7 @@ pub(super) fn encode_pages(
     let mut windows = vec![None; files.len()];
     let mut out = FrameWriter::new(files.len(), max_raw);
     let mut ranges = Vec::with_capacity(pages.len());
-    for page in &pages {
+    for page in pages {
         let first = out.len();
         for (index, rows) in page {
             let file = &files[*index];
@@ -447,16 +397,8 @@ pub(super) fn encode_pages(
         }
         ranges.push(first..out.len());
     }
-    let cut = if layout.streamed {
-        Cut::Stream { pages: ranges }
-    } else {
-        Cut::Grid {
-            page_size: layout.files_per_page?,
-            files: ranges,
-        }
-    };
     let index = PageIndex {
-        cut,
+        pages: ranges,
         total_files: saturating_u32(files.len()),
         total_rows: saturating_u32(files.iter().map(|file| file.matches.len()).sum::<usize>()),
         matches_per: layout.matches_per,

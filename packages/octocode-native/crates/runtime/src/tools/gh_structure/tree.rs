@@ -109,20 +109,21 @@ pub(super) async fn execute_tree(
     }
     if !resumed && structure_is_empty(&value) && value.get("isPartial").is_none() {
         output.status = Some("empty");
-        if let Some(broader) = broaden_listing(&pinned) {
+        if let Some((broader, rebased_under)) = broaden_listing(&pinned) {
             crate::tools::leads::broaden::set_broadened(
                 &mut value,
                 &query_row(&pinned, &[]),
                 broader,
             );
-        }
-        if let Some((root, _)) = under_path(&pinned) {
-            crate::response::result::add_hints(
-                &mut value,
-                [format!(
-                    "include globs match paths from the repository root, also with path set: the first related[] request asks them under {root}/."
-                )],
-            );
+            // Said only with the request it explains.
+            if let Some(root) = rebased_under {
+                crate::response::result::add_hints(
+                    &mut value,
+                    [format!(
+                        "include globs match paths from the repository root, also with path set: the related[] ghStructure request's first query asks them under {root}/."
+                    )],
+                );
+            }
         }
     } else if value.pointer("/location/localPath").is_some() {
         // A materialized listing continues with the local tools at
@@ -142,8 +143,8 @@ pub(super) async fn execute_tree(
 /// the same commit's listing without its `include` globs, so what the tree
 /// holds names why they matched nothing; first, when a glob is written
 /// relative to the listed `path` ([`under_path`]), the same globs asked
-/// under it. Never a materialization.
-fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<Value> {
+/// under it, and the listed path it names. Never a materialization.
+fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<(Value, Option<String>)> {
     let mut lead = crate::tools::leads::broaden::broaden(
         ToolId::GhStructure,
         &query_row(pinned, &[]),
@@ -154,7 +155,8 @@ fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<Value> {
         },
         1,
     )?;
-    if let Some((_, rebased_globs)) = under_path(pinned)
+    let mut rebased_under = None;
+    if let Some((root, rebased_globs)) = under_path(pinned)
         && let Some(queries) = lead
             .pointer_mut("/input/queries")
             .and_then(Value::as_array_mut)
@@ -162,15 +164,17 @@ fn broaden_listing(pinned: &GhStructureQueryTree) -> Option<Value> {
         let mut rebased = queries[0].clone();
         rebased["include"] = rebased_globs.into();
         queries.insert(0, rebased);
+        rebased_under = Some(root);
     }
-    Some(lead)
+    Some((lead, rebased_under))
 }
 
 /// The listed `path` and the `include` globs asked under it, when a glob
 /// reads as written relative to `path`: globs match repository-relative
-/// paths also with `path` set, so a glob neither under `path` nor starting
-/// at any depth (`**`) matches nothing below it. Globs already under
-/// `path`, or at any depth, stay as written.
+/// paths also with `path` set (which carry no leading `/`), so a glob
+/// neither under `path` nor starting at any depth (`**`) matches nothing
+/// below it. Globs already under `path`, or at any depth, stay as written,
+/// less one leading `/`.
 fn under_path(pinned: &GhStructureQueryTree) -> Option<(String, Vec<String>)> {
     let root = pinned
         .path
@@ -178,21 +182,26 @@ fn under_path(pinned: &GhStructureQueryTree) -> Option<(String, Vec<String>)> {
         .and_then(|path| crate::tools::gh_shared::listing_path(path).ok())
         .filter(|root| !root.is_empty())?;
     let prefix = format!("{root}/");
-    let relative = |glob: &str| !glob.starts_with(&prefix) && !glob.starts_with("**");
-    if !pinned.include.iter().any(|glob| relative(glob.as_str())) {
+    // `None` when the glob stands as written.
+    let rebased = |glob: &str| {
+        let bare = glob.strip_prefix('/').unwrap_or(glob);
+        if bare.starts_with(&prefix) || bare.starts_with("**") {
+            (bare != glob).then(|| bare.to_owned())
+        } else {
+            Some(format!("{prefix}{bare}"))
+        }
+    };
+    if !pinned
+        .include
+        .iter()
+        .any(|glob| rebased(glob.as_str()).is_some())
+    {
         return None;
     }
     let globs = pinned
         .include
         .iter()
-        .map(|glob| {
-            let glob = glob.as_str();
-            if relative(glob) {
-                format!("{prefix}{glob}")
-            } else {
-                glob.to_owned()
-            }
-        })
+        .map(|glob| rebased(glob.as_str()).unwrap_or_else(|| glob.as_str().to_owned()))
         .collect();
     Some((root, globs))
 }

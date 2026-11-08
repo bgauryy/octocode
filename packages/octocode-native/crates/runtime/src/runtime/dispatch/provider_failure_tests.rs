@@ -121,6 +121,7 @@ fn typed_shape_mismatch_is_invalid_input_for_every_local_tool() {
             &context,
             &LocalEnv {
                 memory_only: true,
+                graph_home: None,
                 cargo: None,
                 paths: &paths,
                 security: &security,
@@ -160,6 +161,7 @@ fn a_non_local_tool_is_a_routing_error() {
             &context,
             &LocalEnv {
                 memory_only: true,
+                graph_home: None,
                 cargo: None,
                 paths: &paths,
                 security: &ContentSecurity::new(),

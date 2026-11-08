@@ -17,6 +17,14 @@ pub(crate) struct Linker<'r> {
     pub(crate) is_type: &'r dyn Fn(u32) -> bool,
     /// Declarations whose own extent was recovered (never targets).
     pub(crate) recovered: &'r dyn Fn(u32) -> bool,
+    /// Data a type declares: fields, properties, enum members and member
+    /// constants, never reached by a bare name.
+    pub(crate) member_data: &'r dyn Fn(u32) -> bool,
+    /// Enum members, which a written call constructs.
+    pub(crate) enum_member: &'r dyn Fn(u32) -> bool,
+    /// Data members whose written type is a function type
+    /// (`GraphFactDeclaration::function_typed`), by declaration node.
+    pub(crate) function_typed: &'r HashSet<u32>,
     /// Names of the `macro_rules!` the repo's Rust files declare.
     pub(crate) rust_macros: &'r HashSet<&'r str>,
     /// A Rust function's declared return type and the type `?` yields from

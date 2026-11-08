@@ -188,6 +188,9 @@ impl ResolveContext {
             self.load_workspace_members(reader, dir, &value);
             let manifest = Arc::new(Manifest::parse(dir, &value));
             if let Some(name) = value.get("name").and_then(Value::as_str) {
+                if super::workspaces::links_itself(&reader.root.join(dir), name) {
+                    self.self_linked.insert(dir.clone());
+                }
                 self.packages.insert(name.to_owned(), Arc::clone(&manifest));
             }
             self.manifests.insert(dir.clone(), manifest);
@@ -221,6 +224,9 @@ impl ResolveContext {
                 let offset = octocode_engine::text::slash_path(offset);
                 let manifest = Arc::new(Manifest::parse(".", &value).rebased(&offset));
                 if let Some(name) = value.get("name").and_then(Value::as_str) {
+                    if super::workspaces::links_itself(directory, name) {
+                        self.self_linked.insert(".".to_owned());
+                    }
                     self.packages
                         .entry(name.to_owned())
                         .or_insert_with(|| Arc::clone(&manifest));

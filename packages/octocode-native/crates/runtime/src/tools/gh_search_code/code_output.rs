@@ -8,14 +8,14 @@ use std::collections::HashMap;
 mod empty_scope;
 mod hit_commits;
 mod index_ref;
+mod line_plan;
 
 pub(super) use empty_scope::{
     empty_hints, empty_scope, owner_exists, path_mode_given_code, unsearched_ref,
 };
-pub(super) use hit_commits::{
-    Resolution, index_commits, line_commit, requested_ref, resolve_lines, row_repo,
-};
+pub(super) use hit_commits::{index_commits, line_commit, plan_lines, requested_ref, row_repo};
 pub(super) use index_ref::{disclose_index_ref, index_head};
+pub(super) use line_plan::{LinePlan, Resolution};
 
 /// Optional top-hit exploration and required reads of unresolved source.
 pub(super) struct PageReads {

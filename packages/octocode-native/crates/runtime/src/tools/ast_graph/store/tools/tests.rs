@@ -31,10 +31,10 @@ fn execute(
             &ContentSecurity::new(),
             context,
             None,
-            false,
+            &Store::default(),
         )
     } else {
-        execute_query(row, &paths, context, None)
+        execute_query(row, &paths, context, None, None)
     }
 }
 

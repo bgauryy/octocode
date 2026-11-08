@@ -159,6 +159,16 @@ impl ToolRuntime {
             crate::tools::source_capture::url::capture_root(&octocode_home),
         ];
         additional_roots.extend(fetched_code_roots.iter().cloned());
+        // `local.graphHome`: graph tools write their snapshots in their own
+        // directory there. It is where they write, not a grant to read: the
+        // local tools never read it.
+        let output_roots = local
+            .graph_home
+            .iter()
+            .map(|home| {
+                crate::tools::ast_graph::store::configured_graph_home(std::path::Path::new(home))
+            })
+            .collect();
         // Default sandbox: the configured workspace, or the process cwd when
         // unconfigured — never all of $HOME. Broad $HOME access is opt-in
         // only, via an explicit workspaceRoot or an allowedPaths entry.
@@ -170,6 +180,7 @@ impl ToolRuntime {
         let paths = PathPolicy::new(PathPolicyConfig {
             workspace_root: Some(workspace_root.clone()),
             additional_roots,
+            output_roots,
             include_home: false,
             home_dir: Some(input.os_home.clone()),
             allow_credential_files: config.resolved.security.credential_files

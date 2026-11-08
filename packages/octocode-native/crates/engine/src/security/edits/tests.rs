@@ -166,3 +166,36 @@ proptest! {
         }
     }
 }
+
+/// Positions map across composed passes both ways: a byte outside every
+/// replacement keeps its text, a byte a replacement took has no output place,
+/// and a range touching a replacement takes it whole.
+#[test]
+fn positions_map_between_the_input_and_the_output() {
+    let input = "a=SECRET1;b=c;d=SECRET22;e";
+    let (first, one) = pass(input, &[(2..9, "[R]")]);
+    let (output, two) = pass(&first, &[(12..20, "[RR]")]);
+    assert_eq!(output, "a=[R];b=c;d=[RR];e");
+    let edits = one.then(&two);
+    assert!(edits.maps(input, &output), "{output}");
+    for (at, byte) in input.bytes().enumerate() {
+        match edits.output_at(at) {
+            Some(out) => assert_eq!(output.as_bytes()[out], byte, "{at}"),
+            None => assert!(edits.overlaps(&(at..at + 1)), "{at}"),
+        }
+    }
+    for (at, byte) in output.bytes().enumerate() {
+        let back = edits.input_at(at);
+        if edits.output_at(back) == Some(at) {
+            assert_eq!(input.as_bytes()[back], byte, "{at}");
+        } else {
+            assert!(edits.overlaps(&(back..back + 1)), "{at}");
+        }
+    }
+    assert_eq!(edits.input_range(&(0..4)), 0..9);
+    assert_eq!(edits.input_range(&(5..8)), 9..12);
+    assert_eq!(edits.output_end(9), 5);
+    assert_eq!(edits.output_end(13), 9);
+    assert_eq!(edits.output_end(20), 16);
+    assert_eq!(edits.output_end(input.len()), output.len());
+}

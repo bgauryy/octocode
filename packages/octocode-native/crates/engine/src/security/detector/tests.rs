@@ -138,3 +138,20 @@ mod sampling;
 mod scope;
 mod source_names;
 mod span_keys;
+
+/// Two found ranges that overlap join into one that ends where the later
+/// one does: no tail of either stays readable (B165 round 10, R6 F5).
+#[test]
+fn overlapping_secrets_join_and_none_is_dropped() {
+    let found = vec![
+        (0..10, 4..10),
+        (6..20, 8..20),
+        (20..30, 25..30),
+        (2..9, 4..9),
+    ];
+    let joined: Vec<_> = super::joined(found)
+        .into_iter()
+        .map(|(_, secret)| secret)
+        .collect();
+    assert_eq!(joined, vec![4..20, 25..30]);
+}

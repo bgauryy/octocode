@@ -4,4 +4,5 @@ use crate::tools::gh_shared::test_support::backed::*;
 mod errors;
 mod leads;
 mod paging;
+mod stored_once;
 mod walk;

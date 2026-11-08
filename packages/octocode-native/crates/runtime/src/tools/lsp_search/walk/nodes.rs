@@ -67,6 +67,11 @@ impl<'a> NodeKeys<'a> {
         (path, range, name.to_owned())
     }
 
+    /// The canonical path of a node's file.
+    pub(super) fn file(&mut self, node: &Value) -> String {
+        self.place(node).0
+    }
+
     /// The canonical path and anchor range (start line/character, end
     /// line/character) of a node.
     fn place(&mut self, node: &Value) -> (String, [u64; 4]) {

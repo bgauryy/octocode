@@ -36,7 +36,8 @@ pub(in crate::signatures) fn value_members(
     let mut seen = HashSet::new();
     // The `return` statements of each function the chain passed through.
     let mut returns = Vec::<(SymbolId, Vec<Span>)>::new();
-    let mut allowed = HashSet::<NodeId>::new();
+    // The export's own reference, and each link of the chain, read the value.
+    let mut allowed = HashSet::<NodeId>::from_iter(reference_node(semantic, identifier));
     loop {
         if !seen.insert(symbol) {
             return None;
@@ -62,7 +63,9 @@ pub(in crate::signatures) fn value_members(
                         let (returned, spans) = returned_local(semantic, function)?;
                         for reference in scoping.get_resolved_references(returned) {
                             if spans.iter().any(|span| {
-                                span.contains_inclusive(semantic.nodes().kind(reference.node_id()).span())
+                                span.contains_inclusive(
+                                    semantic.nodes().kind(reference.node_id()).span(),
+                                )
                             }) {
                                 allowed.insert(reference.node_id());
                             }
@@ -89,13 +92,16 @@ pub(in crate::signatures) fn value_members(
             continue;
         }
         match member_write(semantic, node, scope, returned_at) {
-            Some(Some((key, function))) => {
+            Use::Defines(key, function) => {
                 keys.entry(key)
                     .and_modify(|held| *held = None)
                     .or_insert(Some(function));
             }
-            Some(None) => {}
-            None => escapes = true,
+            Use::Writes(key) => {
+                keys.insert(key, None);
+            }
+            Use::Reads => {}
+            Use::Escapes => escapes = true,
         }
     }
     let mut members = keys
@@ -116,60 +122,72 @@ fn reference_node(semantic: &Semantic<'_>, identifier: &IdentifierReference) -> 
     Some(semantic.scoping().get_reference(id).node_id())
 }
 
-/// What one reference to the value does: `Some(Some((k, f)))` for a
-/// `value.k = f` statement of `scope` before `returned_at`, `f` a function
-/// that scope declares; `Some(None)` for a member read or a write of another
-/// shape (`value.k = 1`, `value.prototype.x = …`, one in a nested scope),
-/// which changes no member a call can name; `None` when the value is passed
-/// on, aliased or written through a computed key: anything may change.
+/// What one reference to the exported value does.
+enum Use {
+    /// `value.k = f` directly in the declaring scope, before the function
+    /// returns the value, `f` a function that scope declares.
+    Defines(String, Span),
+    /// Any other write of `value.k`: the key has no single proven function.
+    Writes(String),
+    /// A member read, a nested write (`value.prototype.x = …`) or a call of
+    /// the value: no member a call names changes.
+    Reads,
+    /// Passed on, aliased or written through a computed key: any member may
+    /// change.
+    Escapes,
+}
+
 fn member_write(
     semantic: &Semantic<'_>,
     reference: NodeId,
     scope: ScopeId,
     returned_at: Option<u32>,
-) -> Option<Option<(String, Span)>> {
+) -> Use {
     let nodes = semantic.nodes();
     let scoping = semantic.scoping();
     let parent = nodes.parent_node(reference);
+    let own = nodes.kind(reference).span();
     let member = match parent.kind() {
+        AstKind::CallExpression(call) if call.callee.span() == own => return Use::Reads,
+        AstKind::NewExpression(call) if call.callee.span() == own => return Use::Reads,
         AstKind::StaticMemberExpression(member) => member,
         AstKind::ComputedMemberExpression(member) => {
             let written = matches!(nodes.parent_kind(parent.id()),
                 AstKind::AssignmentExpression(assignment) if assignment.left.span() == member.span);
-            return (!written).then_some(None);
+            return if written { Use::Escapes } else { Use::Reads };
         }
-        _ => return None,
+        _ => return Use::Escapes,
     };
-    let AstKind::AssignmentExpression(assignment) = nodes.parent_kind(parent.id()) else {
-        return Some(None);
+    let key = member.property.name.as_str().to_owned();
+    let written = match nodes.parent_kind(parent.id()) {
+        AstKind::AssignmentExpression(assignment) if assignment.left.span() == member.span => {
+            assignment
+        }
+        AstKind::UpdateExpression(_) => return Use::Writes(key),
+        AstKind::UnaryExpression(unary) if unary.operator == UnaryOperator::Delete => {
+            return Use::Writes(key);
+        }
+        _ => return Use::Reads,
     };
-    if assignment.left.span() != member.span {
-        return Some(None);
-    }
     let statement = nodes.parent_node(nodes.parent_id(parent.id()));
     let in_scope = matches!(statement.kind(), AstKind::ExpressionStatement(_))
         && statement.scope_id() == scope
-        && returned_at.is_none_or(|end| assignment.span.end <= end);
-    let Expression::Identifier(value) = inner(&assignment.right) else {
-        return Some(None);
-    };
-    let function = reference_symbol(scoping, value).filter(|function| {
-        scoping.symbol_scope_id(*function) == scope
-            && matches!(
-                nodes.kind(scoping.symbol_declaration(*function)),
-                AstKind::Function(_)
-            )
-    });
-    Some(
-        function
-            .filter(|_| in_scope && assignment.operator == AssignmentOperator::Assign)
-            .map(|function| {
-                (
-                    member.property.name.as_str().to_owned(),
-                    scoping.symbol_span(function),
+        && returned_at.is_none_or(|end| written.span.end <= end)
+        && written.operator == AssignmentOperator::Assign;
+    let function = match inner(&written.right) {
+        Expression::Identifier(value) => reference_symbol(scoping, value).filter(|function| {
+            scoping.symbol_scope_id(*function) == scope
+                && matches!(
+                    nodes.kind(scoping.symbol_declaration(*function)),
+                    AstKind::Function(_)
                 )
-            }),
-    )
+        }),
+        _ => None,
+    };
+    match function.filter(|_| in_scope) {
+        Some(function) => Use::Defines(key, scoping.symbol_span(function)),
+        None => Use::Writes(key),
+    }
 }
 
 /// The one local every top-level `return` of `function`'s body gives, and

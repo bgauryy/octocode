@@ -7,18 +7,19 @@ use super::references::count_name_references;
 use super::rust::rust_inner_unsupported;
 use super::walk::visit_node;
 use super::{GraphAccumulator, arguments, canonical_extension, go, js_fallback, languages, note};
-use crate::graph::{GraphFactCode, GraphFactsDocument};
+use crate::graph::{GraphFactCode, GraphFactDiagnostic, GraphFactsDocument};
 
-/// Graph facts from `tree` (`None`: the parse ran out of time, and the
-/// facts say they are incomplete).
+/// Graph facts from the parsed tree (an error: no tree, and the facts say
+/// they are incomplete and which bound ended the parse).
 pub(super) fn facts_from_tree(
     content: &str,
     file_path: &str,
     extension: &str,
     deadline: std::time::Instant,
     declarations_only: bool,
-    tree: Option<&tree_sitter::Tree>,
+    parsed: Result<&tree_sitter::Tree, &crate::signatures::extractor::ParseFailure>,
 ) -> Option<crate::signatures::GraphFactsExtraction> {
+    let tree = parsed.ok();
     // One spelling per language for every dispatch below: `pyi` is `py`,
     // `hpp` is `cpp`, as the language registry lists them.
     let ext = canonical_extension(extension).to_owned();
@@ -104,7 +105,7 @@ pub(super) fn facts_from_tree(
                 .collect();
         }
     } else {
-        acc.diagnostics.push(note(GraphFactCode::ParseDeadline));
+        acc.diagnostics.push(parse_failure_note(parsed.err()));
     }
 
     if acc.js_fallback {
@@ -292,4 +293,21 @@ fn language_label(ext: &str, language_id: Option<&str>) -> String {
     language_id
         .unwrap_or_else(|| canonical_extension(ext))
         .to_owned()
+}
+
+/// The note of a parse that produced no tree: [`GraphFactCode::ParseDeadline`]
+/// (the file's facts are incomplete), saying which bound ended it. A parse
+/// past its work bound is the grammar failing this source, not a clock: it
+/// ends at the same point on any machine.
+fn parse_failure_note(
+    failure: Option<&crate::signatures::extractor::ParseFailure>,
+) -> GraphFactDiagnostic {
+    match failure {
+        Some(crate::signatures::extractor::ParseFailure::Unbounded) => GraphFactDiagnostic {
+            code: GraphFactCode::ParseDeadline,
+            message: "tree-sitter's parse of this file passed its work bound, linear in the file's length (error recovery kept re-reading the source); facts are incomplete".to_owned(),
+            line: None,
+        },
+        _ => note(GraphFactCode::ParseDeadline),
+    }
 }

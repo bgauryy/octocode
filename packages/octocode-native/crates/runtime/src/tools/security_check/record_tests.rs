@@ -48,9 +48,11 @@ fn a_github_record_keeps_its_source_severity_and_ranges() {
     assert_eq!(item.cwes, ["CWE-400"]);
     assert_eq!(item.fixed_in, ["4.17.21"]);
     assert_eq!(item.aliases, ["CVE-2020-28500"]);
+    // OSV names the vector `score`; the row names it `vector` and states no
+    // score, as OSV gives none.
     assert_eq!(
         item.cvss,
-        [json!({"type": "CVSS_V3", "score": "CVSS:3.1/AV:N"})]
+        [json!({"type": "CVSS_V3", "vector": "CVSS:3.1/AV:N"})]
     );
     assert_eq!(
         item.affected,
@@ -281,7 +283,11 @@ fn a_brief_row_states_only_what_decides_an_upgrade() {
         "x",
     );
     assert_eq!(bare.brief()["summary"], "First line.");
-    assert_eq!(bare.brief()["cvss"][0]["score"], "CVSS:3.1/AV:L");
+    assert_eq!(bare.brief()["cvss"][0]["vector"], "CVSS:3.1/AV:L");
+    assert!(
+        bare.brief()["cvss"][0].get("score").is_none(),
+        "none computed"
+    );
     assert!(bare.brief().get("severity").is_none());
 }
 
@@ -292,7 +298,7 @@ fn a_recorded_record_keeps_its_vectors_and_its_word() {
     let item = row(record.clone(), ArtifactType::Npm, "lodash");
     let vectors = record["severity"].as_array().expect("OSV's severity list");
     assert!(!vectors.is_empty());
-    assert_eq!(&item.cvss, vectors);
+    assert_eq!(item.cvss, as_vectors(vectors));
     let word = record["database_specific"]["severity"]
         .as_str()
         .expect("a word");
@@ -319,5 +325,40 @@ fn a_recorded_record_with_no_word_shows_its_vector() {
         })
         .expect("a record with no word");
     let item = row(bare.clone(), ArtifactType::Pypi, "requests");
-    assert_eq!(&item.brief()["cvss"], &bare["severity"]);
+    let vectors = bare["severity"].as_array().expect("OSV's severity list");
+    assert_eq!(item.brief()["cvss"], json!(as_vectors(vectors)));
+}
+
+/// OSV's severity list as the row states it: each vector under `vector`.
+fn as_vectors(severity: &[Value]) -> Vec<Value> {
+    severity
+        .iter()
+        .map(|entry| json!({"type": entry["type"], "vector": entry["score"]}))
+        .collect()
+}
+
+/// OSV's `severity` holds CVSS vectors and, for Ubuntu's records, a priority
+/// word (`{type:"Ubuntu", score:"medium"}`). Only a CVSS vector is a `cvss`
+/// entry; the word is the record's severity when it states no other.
+#[test]
+fn a_priority_word_in_osvs_severity_is_no_cvss_vector() {
+    let vector = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N";
+    let record = json!({"id": "UBUNTU-CVE-2022-1292",
+        "severity": [{"type": "CVSS_V3", "score": vector}, {"type": "Ubuntu", "score": "medium"}],
+        "affected": [{"package": {"name": "lodash", "ecosystem": "npm"}}]});
+    let item = row(record, ArtifactType::Npm, "lodash");
+    assert_eq!(
+        item.cvss,
+        [json!({"type": "CVSS_V3", "vector": vector})],
+        "only the vector"
+    );
+    assert_eq!(item.severity.as_deref(), Some("medium"), "the word kept");
+    // A database's own word still wins over the priority.
+    let worded = json!({"id": "UBUNTU-CVE-2022-1293",
+        "severity": [{"type": "Ubuntu", "score": "low"}],
+        "database_specific": {"severity": "HIGH"},
+        "affected": [{"package": {"name": "lodash", "ecosystem": "npm"}}]});
+    let item = row(worded, ArtifactType::Npm, "lodash");
+    assert!(item.cvss.is_empty(), "{:?}", item.cvss);
+    assert_eq!(item.severity.as_deref(), Some("high"));
 }

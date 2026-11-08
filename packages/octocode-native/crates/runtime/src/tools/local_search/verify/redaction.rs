@@ -80,7 +80,11 @@ pub(in crate::tools::local_search) fn redact_scan(
                 .map(|(line, column)| (path.clone(), line, column)),
         );
         if let Some(KeyScan { digest }) = key_scan {
-            record.key_files.push((file_index, digest));
+            record.key_files.push(KeyFile {
+                index: file_index,
+                path: path.clone(),
+                read: digest,
+            });
         }
         for (match_index, line, column, value) in changes {
             redacted.insert((path.clone(), line, column));

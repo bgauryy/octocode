@@ -22,7 +22,12 @@ mod walk_scope;
 
 /// Bump when persisted linking semantics change without a binary format
 /// change: snapshots and extraction checkpoints of another version rebuild.
-const ANALYSIS_VERSION: u32 = 25;
+///
+/// 26: a data member is shadowed only by a callable of its own type; a
+/// function-typed member is called by its bare name inside its type (Scala,
+/// C#, C++); declared-type chains guard cycles per path; a workspace
+/// member reaches itself through its `node_modules` link.
+const ANALYSIS_VERSION: u32 = 26;
 
 #[cfg(test)]
 mod link_tests;

@@ -1,5 +1,5 @@
 //! One merged page across the `extensions` searches, with repeats from earlier pages dropped.
-use super::listed::Listed;
+use super::listed::{Listed, Seen};
 use super::{GhSearchCodeQuery, GhSearchCodeQueryMatchInItem, per_search, query};
 use crate::tools::gh_shared::SearchWindow;
 use octocode_github::{CodeSearchRequest, GitHubProvider, ProviderError, RequestContext};
@@ -18,7 +18,8 @@ use octocode_github::{CodeSearchRequest, GitHubProvider, ProviderError, RequestC
 /// carried totals and reads page 1 of every search for them.
 pub(super) struct SearchPage {
     /// The files this page lists: GitHub's, less those an earlier page of
-    /// the walk already listed.
+    /// the walk already listed (with those an earlier part of this page
+    /// showed, [`SearchPage::was_shown`]).
     pub(super) items: Vec<octocode_github::CodeSearchItem>,
     /// Files GitHub returned for the page, before repeats were dropped.
     pub(super) fetched: usize,
@@ -211,11 +212,22 @@ impl SearchPage {
         }
         self.fetched += data.items.len();
         for item in data.items {
-            if self.listed.insert(&item) {
-                self.items.push(item);
-            } else {
-                self.dropped += 1;
+            match self.listed.insert(&item) {
+                Seen::New | Seen::Shown => self.items.push(item),
+                Seen::Repeat => self.dropped += 1,
             }
+        }
+    }
+
+    /// Whether an earlier part of this page showed `row` (its `owner`,
+    /// `repo` and `path`): the page lists it again only to rank the rest.
+    pub(super) fn was_shown(&self, row: &serde_json::Value) -> bool {
+        let field = |name: &str| row.get(name).and_then(serde_json::Value::as_str);
+        match (field("owner"), field("repo"), field("path")) {
+            (Some(owner), Some(repo), Some(path)) => {
+                self.listed.was_shown(&format!("{owner}/{repo}"), path)
+            }
+            _ => false,
         }
     }
 

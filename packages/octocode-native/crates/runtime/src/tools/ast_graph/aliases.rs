@@ -180,6 +180,14 @@ pub(crate) struct ResolveContext {
     /// Package names local to the repository though not scanned: a sibling in
     /// an enclosing workspace, or a `workspace:`, `file:` or `link:` dependency.
     local_packages: HashSet<String>,
+    /// Package directories whose own name Node resolves to themselves: the
+    /// first `node_modules/<name>` above is a link to the package (a
+    /// workspace's or `npm link`'s).
+    self_linked: HashSet<String>,
+    /// A manifest above the scan that may list a workspace was not read (the
+    /// path policy keeps it out): whether a package is a member of it is
+    /// unknown.
+    outer_workspace_unread: bool,
     /// `(baseUrl outside the scan, specifier)` → it names a file on disk.
     outer_base_hits: std::sync::Mutex<HashMap<(PathBuf, String), bool>>,
     /// Python import roots and what could fill them.
@@ -323,10 +331,9 @@ impl ResolveContext {
             return true;
         }
         split_package(spec).is_some_and(|(package, _)| {
-            self.packages
-                .get(package)
-                .is_some_and(|manifest| self.named_from(manifest, package, importer))
-                || self.local_packages.contains(package)
+            self.packages.get(package).is_some_and(|manifest| {
+                self.named_from(manifest, package, importer) || self.outer_workspace_unread
+            }) || self.local_packages.contains(package)
         }) || self
             .ts_config_for(importer)
             .and_then(|config| config.outer_base.as_ref())
@@ -337,8 +344,10 @@ impl ResolveContext {
     /// by that name, as Node resolves it. A file of another package does,
     /// through `node_modules`. A file of the package itself does only through
     /// self-reference, which needs `exports`, or through the link a workspace
-    /// makes for its member; otherwise its `node_modules` holds whatever copy
-    /// of the name is installed, which is not this source.
+    /// (or `npm link`) makes for it in `node_modules`; otherwise its
+    /// `node_modules` holds whatever copy of the name is installed, which is
+    /// not this source. A workspace proves the link by listing the package,
+    /// an install by the link itself.
     fn named_from(&self, manifest: &Manifest, name: &str, importer: &str) -> bool {
         let own = self
             .manifest_for(importer)
@@ -346,6 +355,7 @@ impl ResolveContext {
         !own || manifest.self_reference
             || self.workspace_members.contains(&manifest.dir)
             || self.local_packages.contains(name)
+            || self.self_linked.contains(&manifest.dir)
     }
 
     /// Whether `spec` spelled from the `baseUrl` `dir` outside the scan names a

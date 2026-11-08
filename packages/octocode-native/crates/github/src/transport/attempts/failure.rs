@@ -45,6 +45,7 @@ impl Attempts<'_> {
                         .div_ceil(1000)
                 });
                 self.state.exhaust(&bucket, blocked_until);
+                let waited_out = crate::budget::waits_out_spent(&bucket);
                 error.kind = ProviderErrorKind::RateLimited;
                 error.retryable = true;
                 error.rate_limit =
@@ -57,8 +58,9 @@ impl Attempts<'_> {
                         )),
                         resource: Some(bucket.into()),
                     }));
-                // The next loop turn waits in `wait_unblocked`.
-                Some(RetryWait {
+                // A paced bucket's next loop turn waits in `wait_unblocked`;
+                // any other spent quota is this answer.
+                waited_out.then_some(RetryWait {
                     wait,
                     sleep: Duration::ZERO,
                     rate_limited: true,

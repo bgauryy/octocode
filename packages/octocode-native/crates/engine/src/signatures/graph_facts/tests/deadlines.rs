@@ -203,3 +203,27 @@ fn graph_traversal_restores_declaration_context_after_nested_scopes() {
     assert_eq!(declarations[2]["name"], "sibling");
     assert!(declarations[2]["parent"].is_null());
 }
+
+/// A source the grammar cannot parse in work linear in its length (an
+/// unclosed regex class repeated on one line) is incomplete, and its note
+/// says the parse passed its work bound rather than a deadline: no clock
+/// ran out.
+#[test]
+fn a_parse_past_its_work_bound_names_the_bound() {
+    let source = "a=/[ ".repeat(64 * 1024 / 5);
+    let extraction = super::super::extract_facts_before(
+        &source,
+        "pathological.js",
+        "js",
+        crate::signatures::extractor::whole_file_deadline(),
+        false,
+    )
+    .expect("facts");
+    let note = extraction
+        .facts
+        .diagnostics
+        .iter()
+        .find(|note| note.code == GraphFactCode::ParseDeadline)
+        .expect("an incomplete parse is noted");
+    assert!(note.message.contains("work bound"), "{}", note.message);
+}

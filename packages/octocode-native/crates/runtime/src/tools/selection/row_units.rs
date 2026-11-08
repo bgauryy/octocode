@@ -132,13 +132,25 @@ impl Rows {
         }
     }
 
+    /// The row notes of a selected page: the withheld candidates, then the
+    /// discussion sections a unit-less history-item read left unread; and
+    /// whether any such section was named.
+    pub(super) fn notes(&self, tool: ToolId, query: &Value, data: &Value) -> (Vec<String>, bool) {
+        let unread = self.unread_notes(tool, query, data);
+        let named = !unread.is_empty();
+        let notes = self.withheld_note().into_iter().chain(unread).collect();
+        (notes, named)
+    }
+
     /// When the read held no unit: the discussion sections of each pull
     /// request or issue row that may hold the entries classification judges
     /// but were not requested, so a zero-unit receipt does not read as "no
     /// entry matches". A section is named when its row counts entries in it,
-    /// or counts none at all (reviews and review comments); a section the
-    /// query requested came back empty and is not named.
-    pub(super) fn unread_notes(&self, tool: ToolId, query: &Value, data: &Value) -> Vec<String> {
+    /// or does not say: reviews and review comments are never counted, and
+    /// a row without its header (`title`; an issue section read restates
+    /// only number and state) does not count comments. A section the query
+    /// requested came back empty and is not named.
+    fn unread_notes(&self, tool: ToolId, query: &Value, data: &Value) -> Vec<String> {
         if tool != ToolId::GhGetHistoryItem || !self.units.is_empty() {
             return Vec::new();
         }
@@ -157,11 +169,12 @@ impl Rows {
         ] {
             for (_, row) in entries(data, field) {
                 let comments = row["commentsCount"].as_u64().filter(|count| *count > 0);
+                let uncounted = comments.is_none() && row.get("title").is_none();
                 let unread = judged
                     .iter()
                     .copied()
                     .filter(|section| !requested.contains(section))
-                    .filter(|section| *section != "comments" || comments.is_some())
+                    .filter(|section| *section != "comments" || comments.is_some() || uncounted)
                     .collect::<Vec<_>>();
                 if unread.is_empty() {
                     continue;
@@ -192,7 +205,7 @@ impl Rows {
     }
 
     /// The disclosure of withheld candidates, which no receipt names.
-    pub(super) fn withheld_note(&self) -> Option<String> {
+    fn withheld_note(&self) -> Option<String> {
         super::provider_page::withheld_paths_note(&self.withheld)
     }
 

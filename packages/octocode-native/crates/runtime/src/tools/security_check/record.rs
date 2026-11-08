@@ -16,10 +16,19 @@ pub(super) struct SecurityAdvisory {
     pub link: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// The GitHub account that published a repository advisory.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
+    /// Who the source credits: `{login, type}`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub credits: Vec<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub severity: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub cvss: Vec<Value>,
+    /// GitHub's EPSS (`percentage`, `percentile`); OSV states none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub epss: Option<Value>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub cwes: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,8 +74,8 @@ impl SecurityAdvisory {
     }
 
     /// What decides an upgrade: the record's id, its CVEs, one line of what it
-    /// is, the database's severity word and that database, the fixed versions,
-    /// the link. All the rest is one `advisory` call away.
+    /// is, the database's severity word, GitHub's EPSS, the database, the fixed
+    /// versions, the link. All the rest is one `advisory` call away.
     pub(super) fn brief(&self) -> Value {
         let mut row = json!({"id": self.id});
         let cves = self.cves().collect::<Vec<_>>();
@@ -81,6 +90,9 @@ impl SecurityAdvisory {
             // No word from the database: its vectors, never a computed score.
             None if !self.cvss.is_empty() => row["cvss"] = json!(self.cvss),
             None => {}
+        }
+        if let Some(epss) = &self.epss {
+            row["epss"] = epss.clone();
         }
         if let Some(source) = &self.source {
             row["source"] = json!(source);
@@ -185,6 +197,12 @@ pub(super) fn group_brief(group: &[&SecurityAdvisory]) -> Value {
         && let Some(severity) = twins.iter().find_map(|twin| twin.severity.as_deref())
     {
         row["severity"] = json!(severity);
+    }
+    // EPSS is GitHub's: its twin of an OSV record brings it.
+    if row.get("epss").is_none()
+        && let Some(epss) = twins.iter().find_map(|twin| twin.epss.as_ref())
+    {
+        row["epss"] = epss.clone();
     }
     // `link` stays last, as a brief row states it.
     if let Some(link) = row.as_object_mut().and_then(|fields| fields.remove("link")) {
@@ -343,10 +361,17 @@ pub(super) fn advisory(
                 own.iter()
                     .find_map(|entry| text(entry.pointer("/ecosystem_specific/severity")))
             })
+            .or_else(|| list(fields.get("severity")).iter().find_map(priority_word))
             .map(|label| label.to_ascii_lowercase()),
         aliases: texts(fields.get("aliases")),
         related: texts(fields.get("related")),
-        cvss: list(fields.get("severity")).to_vec(),
+        cvss: list(fields.get("severity"))
+            .iter()
+            .filter_map(cvss)
+            .collect(),
+        epss: None,
+        publisher: None,
+        credits: Vec::new(),
         cwes: texts(database.and_then(|value| value.get("cwe_ids"))),
         summary: text(fields.get("summary")),
         details: text(fields.get("details")),
@@ -360,6 +385,36 @@ pub(super) fn advisory(
         references: list(fields.get("references")).to_vec(),
         id,
     })
+}
+
+/// One OSV severity entry as the row states it: OSV names the vector `score`,
+/// the row names it `vector`. OSV gives no number, so none is stated, and none
+/// is computed here; a source that publishes one sets it on the row. Only a
+/// CVSS entry is a vector: another type (Ubuntu's priority) is a word, kept by
+/// [`priority_word`].
+fn cvss(entry: &Value) -> Option<Value> {
+    let vector = text(entry.get("score"))?;
+    let kind = text(entry.get("type")).unwrap_or_else(|| cvss_type(&vector).to_owned());
+    kind.starts_with("CVSS")
+        .then(|| json!({ "type": kind, "vector": vector }))
+}
+
+/// The word a severity entry of a type other than CVSS states (Ubuntu's
+/// `medium`): the record's severity when it states no other.
+fn priority_word(entry: &Value) -> Option<String> {
+    let kind = text(entry.get("type"))?;
+    (!kind.starts_with("CVSS"))
+        .then(|| text(entry.get("score")))
+        .flatten()
+}
+
+/// OSV's name for a CVSS vector's version, read from its prefix.
+pub(super) fn cvss_type(vector: &str) -> &'static str {
+    match vector.split('/').next() {
+        Some("CVSS:4.0") => "CVSS_V4",
+        Some("CVSS:3.1" | "CVSS:3.0") => "CVSS_V3",
+        _ => "CVSS_V2",
+    }
 }
 
 /// `fixed` events of version ranges. A `GIT` range's `fixed` is a commit, not a

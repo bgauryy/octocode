@@ -7,7 +7,7 @@ use std::ops::Range;
 use std::path::Path;
 
 /// Kind of a page that joins more than one section; its `name` is its first
-/// and last member's ([`Group::finish`]).
+/// and last member's, its count and its lines ([`Group::finish`]).
 pub(crate) const GROUP_KIND: &str = "declarations";
 
 /// A merged page holds at most this share of the section grain
@@ -30,6 +30,7 @@ pub(crate) fn visit_grouped<E>(
 ) -> Result<bool, E> {
     let mut pending: Option<Group> = None;
     let page_chars = target_chars / PAGE_SHARE;
+    let line_starts = octocode_engine::text::line_starts(source);
     let complete = visit(source, path, selected, target_chars, |section| {
         let chars = source[section.target.clone()].chars().count();
         if let Some(group) = &mut pending
@@ -40,7 +41,7 @@ pub(crate) fn visit_grouped<E>(
             return Ok(true);
         }
         if let Some(group) = pending.replace(Group::new(section, chars))
-            && !emit(group.finish())?
+            && !emit(group.finish(&line_starts))?
         {
             pending = None;
             return Ok(false);
@@ -48,7 +49,7 @@ pub(crate) fn visit_grouped<E>(
         Ok(true)
     })?;
     match pending {
-        Some(group) if complete => emit(group.finish()),
+        Some(group) if complete => emit(group.finish(&line_starts)),
         _ => Ok(complete),
     }
 }
@@ -77,21 +78,27 @@ impl Group {
         self.chars += chars;
     }
 
-    /// A merged page is named by its first and last member, with how many
-    /// declarations it joins once more than two: short, and distinct per page
-    /// since pages never overlap. Its target lines hold every member.
-    fn finish(mut self) -> Section {
+    /// A merged page is named by its first and last named member, then how
+    /// many sections it joins, named or not, and its lines: short, and
+    /// distinct per page however declaration names repeat, since pages never
+    /// overlap. Its target lines hold every member.
+    fn finish(mut self, line_starts: &[usize]) -> Section {
         if self.members > 1 {
+            let line = |byte| octocode_engine::text::line_at(line_starts, byte);
+            let target = &self.section.target;
+            let span = format!(
+                "{} {GROUP_KIND}, lines {}-{}",
+                self.members,
+                line(target.start),
+                line(target.end.saturating_sub(1).max(target.start))
+            );
             self.section.kind = GROUP_KIND.to_owned();
-            self.section.name = match self.names.as_slice() {
-                [] => None,
-                [only] => Some(only.clone()),
-                [first, last] => Some(format!("{first}, {last}")),
-                [first, .., last] => Some(format!(
-                    "{first} … {last} ({} {GROUP_KIND})",
-                    self.members
-                )),
-            };
+            self.section.name = Some(match self.names.as_slice() {
+                [] => span,
+                [only] => format!("{only} ({span})"),
+                [first, last] if self.members == 2 => format!("{first}, {last} ({span})"),
+                [first, .., last] => format!("{first} … {last} ({span})"),
+            });
         }
         self.section
     }

@@ -48,30 +48,78 @@ pub(super) fn spawn_stderr_reader(
     StderrDrain { task, exited }
 }
 
-/// A pipe's bytes read without waiting. `None` where the pipe cannot be read
-/// so; `WouldBlock` when it holds nothing while a writer still has it open.
+/// What a pipe holds once the server has exited, found without waiting.
+pub(super) enum Held {
+    /// Bytes read from it straight away (0: EOF).
+    #[cfg_attr(
+        all(not(unix), not(test)),
+        expect(dead_code, reason = "only a Unix pipe is read without waiting")
+    )]
+    Read(usize),
+    /// Bytes the stream's own read delivers (Windows reads the pipe on a
+    /// blocking thread, whose read in flight takes them), or an EOF that
+    /// follows because no writer is left.
+    #[cfg_attr(
+        all(unix, not(test)),
+        expect(dead_code, reason = "a Unix pipe is read without waiting")
+    )]
+    InStream,
+    /// Nothing, while a writer still holds the pipe open.
+    Nothing,
+}
+
+/// A pipe's bytes found without waiting on its writers.
 pub(super) trait ReadNow {
-    fn read_now(&mut self, buf: &mut [u8]) -> Option<std::io::Result<usize>>;
+    fn read_now(&mut self, buf: &mut [u8]) -> std::io::Result<Held>;
 }
 
 impl ReadNow for ChildStderr {
     #[cfg(unix)]
-    fn read_now(&mut self, buf: &mut [u8]) -> Option<std::io::Result<usize>> {
+    fn read_now(&mut self, buf: &mut [u8]) -> std::io::Result<Held> {
         use std::io::Read;
         use std::os::fd::AsFd;
         // The duplicate shares the pipe's open file, so its non-blocking mode.
-        Some(
-            self.as_fd()
-                .try_clone_to_owned()
-                .map(std::fs::File::from)
-                .and_then(|mut pipe| pipe.read(buf)),
-        )
+        let read = self
+            .as_fd()
+            .try_clone_to_owned()
+            .map(std::fs::File::from)
+            .and_then(|mut pipe| pipe.read(buf));
+        match read {
+            Ok(read) => Ok(Held::Read(read)),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(Held::Nothing),
+            Err(error) => Err(error),
+        }
     }
 
-    /// The Job Object ends every process of the tree, so EOF comes.
-    #[cfg(not(unix))]
-    fn read_now(&mut self, _buf: &mut [u8]) -> Option<std::io::Result<usize>> {
-        None
+    /// The pipe is read on a blocking thread, so this only peeks at how many
+    /// bytes it holds; a failed peek (every writer gone) waits for the EOF.
+    #[cfg(windows)]
+    fn read_now(&mut self, _buf: &mut [u8]) -> std::io::Result<Held> {
+        use std::os::windows::io::AsRawHandle;
+        let mut available = 0_u32;
+        // SAFETY: the handle is this pipe's and stays open while `self`
+        // lives. With a null buffer of size 0 the call reads no bytes and
+        // writes only the count of bytes available into `available`.
+        let peeked = unsafe {
+            windows_sys::Win32::System::Pipes::PeekNamedPipe(
+                self.as_raw_handle(),
+                std::ptr::null_mut(),
+                0,
+                std::ptr::null_mut(),
+                &raw mut available,
+                std::ptr::null_mut(),
+            )
+        };
+        Ok(if peeked != 0 && available == 0 {
+            Held::Nothing
+        } else {
+            Held::InStream
+        })
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn read_now(&mut self, _buf: &mut [u8]) -> std::io::Result<Held> {
+        Ok(Held::InStream)
     }
 }
 
@@ -102,32 +150,39 @@ impl<R: AsyncRead + ReadNow + Unpin> AsyncRead for UntilExit<R> {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
         let this = self.get_mut();
-        if let Poll::Ready(read) = Pin::new(&mut this.pipe).poll_read(cx, buf) {
-            return Poll::Ready(read);
-        }
-        if let Some(on_exit) = &mut this.on_exit {
+        if !this.exited {
+            if let Poll::Ready(read) = Pin::new(&mut this.pipe).poll_read(cx, buf) {
+                return Poll::Ready(read);
+            }
+            let Some(on_exit) = &mut this.on_exit else {
+                return Poll::Pending;
+            };
             let Poll::Ready(fired) = Pin::new(on_exit).poll(cx) else {
                 return Poll::Pending;
             };
-            this.exited = fired.is_ok();
             this.on_exit = None;
-        }
-        if !this.exited {
-            return Poll::Pending;
+            if fired.is_err() {
+                return Poll::Pending;
+            }
+            this.exited = true;
         }
         loop {
             match this.pipe.read_now(buf.initialize_unfilled()) {
-                None => return Poll::Pending,
-                Some(Ok(read)) => {
+                Ok(Held::Read(read)) => {
                     buf.advance(read);
                     return Poll::Ready(Ok(()));
                 }
-                // Nothing is left of what the server wrote: its stderr ends.
-                Some(Err(error)) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    return Poll::Ready(Ok(()));
+                Ok(Held::InStream) => return Pin::new(&mut this.pipe).poll_read(cx, buf),
+                // Nothing is left of what the server wrote: a read that
+                // already finished is delivered, and then its stderr ends.
+                Ok(Held::Nothing) => {
+                    return match Pin::new(&mut this.pipe).poll_read(cx, buf) {
+                        Poll::Ready(read) => Poll::Ready(read),
+                        Poll::Pending => Poll::Ready(Ok(())),
+                    };
                 }
-                Some(Err(error)) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Some(Err(error)) => return Poll::Ready(Err(error)),
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) => return Poll::Ready(Err(error)),
             }
         }
     }

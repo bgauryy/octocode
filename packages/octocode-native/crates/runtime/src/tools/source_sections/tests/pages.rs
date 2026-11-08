@@ -35,23 +35,62 @@ fn grouped_pages_join_small_declarations_and_keep_exact_coverage() {
     assert_eq!(offset, source.len());
     assert_eq!(pages[0].kind, grouped::GROUP_KIND);
     assert_eq!(pages[0].context, single[0].context);
-    // A merged page is named by its first and last member and how many it
-    // joins, not by every member: short, and distinct per page (B51 11a).
+    // A merged page is named by its first and last member, how many it
+    // joins and its lines, not by every member: short, and distinct per page
+    // (B51 11a).
     let mut first = 0;
     let mut names = std::collections::HashSet::new();
     for page in &pages {
         let members = source[page.target.clone()].lines().count();
         let last = first + members - 1;
+        let lines = format!("{members} declarations, lines {}-{}", first + 1, last + 1);
         let expected = match members {
             1 => format!("Item{first}"),
-            2 => format!("Item{first}, Item{last}"),
-            _ => format!("Item{first} … Item{last} ({members} declarations)"),
+            2 => format!("Item{first}, Item{last} ({lines})"),
+            _ => format!("Item{first} … Item{last} ({lines})"),
         };
         assert_eq!(page.name.as_deref(), Some(expected.as_str()));
         assert!(names.insert(expected), "page names are distinct");
         first = last + 1;
     }
     assert_eq!(first, 40);
+}
+
+/// Declaration names repeat (the same items in two places, or members with
+/// no name): a merged page's name is still distinct and states how many
+/// sections it joins, named or not (R10-5).
+#[test]
+fn grouped_page_names_are_distinct_and_count_every_member() {
+    let half = (0..20)
+        .map(|index| {
+            format!("pub struct Item{index} {{ pub value: u32 }}\nmacro_call!({index});\n")
+        })
+        .collect::<String>();
+    let source = format!("{half}{half}");
+    let path = Path::new("items.rs");
+    let selected = 0..source.len();
+    let single = plan(&source, path, std::slice::from_ref(&selected), 1_600);
+    let pages = grouped(&source, path, std::slice::from_ref(&selected), 1_600);
+    let mut names = std::collections::HashSet::new();
+    for page in &pages {
+        let members = single
+            .iter()
+            .filter(|section| {
+                page.target.start <= section.target.start && section.target.end <= page.target.end
+            })
+            .count();
+        if members < 2 {
+            continue;
+        }
+        let name = page.name.as_deref().expect("a merged page has a name");
+        let [start, end] = line_range(&source, &page.target);
+        assert!(
+            name.ends_with(&format!("({members} declarations, lines {start}-{end})")),
+            "{name}: {members} members"
+        );
+        assert!(names.insert(name.to_owned()), "{name} repeats");
+    }
+    assert!(names.len() > 1, "{} merged pages", names.len());
 }
 
 #[test]

@@ -63,7 +63,10 @@ pub(crate) mod receiver_fields;
 /// interfaces and type aliases (`declared_types`), and a member call whose
 /// receiver only such a type reaches (`x.f.m()` with `x: T`, a parameter of
 /// `const f: Alias = (p) => …`, `T["k"]`) carries it (`receiver_declared`).
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 27;
+/// v28: a data member whose written type is a function type says so
+/// (`function_typed`), and a Scala for-comprehension generator (an
+/// `enumerator` outside an `enumerator_list`) declares no enum member.
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 28;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking

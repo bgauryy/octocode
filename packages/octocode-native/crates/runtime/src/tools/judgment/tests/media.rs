@@ -316,3 +316,79 @@ async fn a_media_group_the_provider_window_rejects_is_split_until_each_part_fits
         .unwrap_err();
     assert_eq!(error.code, ErrorCode::ClassificationStateTooLarge);
 }
+
+/// The default `OnRefusal` row: the long window never takes images, so a
+/// refused image group is answered by one default-window request per
+/// question, each carrying only the images it names (what each image
+/// question is billed for anyway). The live case: two images, four
+/// questions, the group over the window and every question within it.
+#[tokio::test]
+async fn a_refused_image_group_is_answered_per_question_in_the_default_window() {
+    let questions = [
+        json!({"type":"noul","instructions":"Does `chart` show a line?"}),
+        json!({"type":"noul","instructions":"Is `chart` dark?"}),
+        json!({"type":"box","instructions":"Locate the logo in `flow`"}),
+        json!({"type":"noul","instructions":"Does `flow` have six steps?"}),
+    ];
+    // Images named only by questions: an image the state names goes with every question.
+    let state = json!("Two images.");
+    let assets = json!({
+        "chart":{"type":"image","format":"png","data_base64":"chart-bytes"},
+        "flow":{"type":"image","format":"png","data_base64":"flow-bytes"},
+    });
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(|request: &Request| {
+            let body = request.body_json::<Value>().unwrap();
+            let long = request
+                .headers
+                .get("typesafe-danger-zone-long-context")
+                .is_some_and(|value| *value == "true");
+            if long || body["questions"].as_object().unwrap().len() > 1 {
+                window_exceeded()
+            } else {
+                response(request)
+            }
+        })
+        .mount(&server)
+        .await;
+    let evaluator = evaluator(&server);
+    let budget = evaluation_budget(&evaluator);
+    let judged = evaluator
+        .evaluate_prepared(
+            EvaluationInput {
+                state: &state,
+                questions: &questions,
+                assets: Some(&assets),
+                long_context: crate::tools::judgment::LongContext::OnRefusal,
+            },
+            None,
+            &budget,
+            &evaluator.gate(),
+        )
+        .await
+        .unwrap_or_else(|error| panic!("{error:?}"));
+    assert_eq!(judged.answers.len(), questions.len());
+    assert_eq!(judged.answers[2]["type"], "box");
+    let sent = server.received_requests().await.unwrap();
+    // The refused group, then one request per question; none in the long window.
+    assert_eq!(sent.len(), 1 + questions.len());
+    assert!(sent.iter().all(|request| {
+        request
+            .headers
+            .get("typesafe-danger-zone-long-context")
+            .is_none_or(|value| *value != "true")
+    }));
+    // Each single carries only the image its question names.
+    for request in &sent[1..] {
+        let body = request.body_json::<Value>().unwrap();
+        let question = body["questions"].to_string();
+        let carried: Vec<&String> = body["assets"].as_object().unwrap().keys().collect();
+        let named: Vec<&str> = ["chart", "flow"]
+            .into_iter()
+            .filter(|key| question.contains(key))
+            .collect();
+        assert_eq!(carried, named, "{question}");
+    }
+}

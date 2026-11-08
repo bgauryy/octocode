@@ -213,7 +213,8 @@ fn a_saved_clasify_page_lives_its_stated_expiry_from_its_last_read() {
     let bytes = std::fs::read(&file).unwrap();
     let split = bytes.iter().position(|byte| *byte == b'\n').unwrap();
     let mut header: serde_json::Value = serde_json::from_slice(&bytes[..split]).unwrap();
-    let saved = crate::civil_date::unix_secs().unsigned_abs() - (ttl + Duration::from_secs(60)).as_secs();
+    let saved =
+        crate::civil_date::unix_secs().unsigned_abs() - (ttl + Duration::from_secs(60)).as_secs();
     header["storedAtUnix"] = serde_json::json!(saved);
     let mut rewritten = serde_json::to_vec(&header).unwrap();
     rewritten.extend_from_slice(&bytes[split..]);

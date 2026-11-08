@@ -5,7 +5,12 @@
 //! A guarded load (`E || require(x)`, `E ?? require(x)`) binds the module
 //! only on the branch where the guard fails: it carries the extent of the
 //! scope that holds it even at module scope, so its links stay at most
-//! medium, as a lazy load's do.
+//! medium, as a lazy load's do. A later write of the guard's own source text
+//! (`_ = root._`, compared as text, never by name) keeps the binding: it
+//! assigns the guard's value, one of the two values the declaration already
+//! admits. That value need not be the loaded module at that point (after
+//! `_.noConflict()` restores an earlier global it is not), which is why the
+//! links stay medium.
 
 use std::collections::HashMap;
 
@@ -97,7 +102,8 @@ impl Proof<'_, '_> {
             let Some(symbol) = id.symbol_id.get() else {
                 continue;
             };
-            if self.scoping.symbol_is_mutated(symbol)
+            if (self.scoping.symbol_is_mutated(symbol)
+                && !guarded.is_some_and(|guard| self.rewrites_only(symbol, guard)))
                 || !self.scoping.symbol_redeclarations(symbol).is_empty()
             {
                 continue;
@@ -105,7 +111,7 @@ impl Proof<'_, '_> {
             let held_in = self.scoping.symbol_scope_id(symbol);
             let holding = if held_in == self.scoping.root_scope_id() {
                 self.module_binding(node, id).map(|(holder, scope)| {
-                    if guarded {
+                    if guarded.is_some() {
                         (holder, Some(self.extent(held_in)))
                     } else {
                         (holder, scope)
@@ -153,6 +159,22 @@ impl Proof<'_, '_> {
             return None;
         }
         Some((self.declaration_of(id, false), Some(self.extent(held_in))))
+    }
+
+    /// Every write of `symbol` is `symbol = <the text at guard>`.
+    fn rewrites_only(&self, symbol: SymbolId, guard: Span) -> bool {
+        let source = self.semantic.source_text();
+        let text = |span: Span| source.get(span.start as usize..span.end as usize);
+        let nodes = self.semantic.nodes();
+        self.scoping
+            .get_resolved_references(symbol)
+            .filter(|reference| reference.is_write())
+            .all(|reference| {
+                matches!(nodes.parent_kind(reference.node_id()),
+                    AstKind::AssignmentExpression(assignment)
+                        if assignment.operator == AssignmentOperator::Assign
+                            && text(inner(&assignment.right).span()) == text(guard))
+            })
     }
 
     /// The source extent of `scope`.
@@ -219,8 +241,10 @@ fn inline(call: &CallExpression<'_>) -> Option<(Span, GraphFactCommonJsBinding)>
 }
 
 /// [`load_of`] for `initializer`, or for the right side of `E || load` and
-/// `E ?? load`, and whether a guard decides that the load runs.
-fn guarded_load<'a>(initializer: &'a Expression<'a>) -> Option<(Span, Option<&'a str>, bool)> {
+/// `E ?? load`, and the guard `E` that decides whether the load runs.
+fn guarded_load<'a>(
+    initializer: &'a Expression<'a>,
+) -> Option<(Span, Option<&'a str>, Option<Span>)> {
     if let Expression::LogicalExpression(logical) = inner(initializer)
         && matches!(
             logical.operator,
@@ -228,10 +252,10 @@ fn guarded_load<'a>(initializer: &'a Expression<'a>) -> Option<(Span, Option<&'a
         )
     {
         let (call, property) = load_of(&logical.right)?;
-        return Some((call, property, true));
+        return Some((call, property, Some(inner(&logical.left).span())));
     }
     let (call, property) = load_of(initializer)?;
-    Some((call, property, false))
+    Some((call, property, None))
 }
 
 /// The load call span of `require(x)` or `require(x).k`, and `k`.

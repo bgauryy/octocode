@@ -1,6 +1,7 @@
 //! A sections batch whose evaluation the default window refused and the
 //! long-context window answered says so in its row hints.
 use super::*;
+use crate::tools::judgment::LongContext;
 use crate::tools::selection::long_window_fake::{self, BILLED, LongWindow};
 use std::time::{Duration, Instant};
 

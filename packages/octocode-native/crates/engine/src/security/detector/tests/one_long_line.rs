@@ -153,7 +153,7 @@ fn replace_searching_back(
         {
             continue;
         }
-        let end = continued_end(content, secret.end());
+        let end = continued_end(content, secret.end(), |_| true);
         redacted.push_str(&content[from..secret.start()]);
         redacted.push_str(replacement);
         redacted.push_str(&kept_line_breaks(&content[secret.start()..end]));

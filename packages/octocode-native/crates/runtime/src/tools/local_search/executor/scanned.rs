@@ -192,7 +192,7 @@ pub(crate) fn search_root(
 
 /// A scan and the digests of its matched files when it was stored.
 pub(crate) type ScanDigests =
-    Option<std::collections::HashMap<std::path::PathBuf, super::super::sources::Digest>>;
+    Option<Arc<std::collections::HashMap<std::path::PathBuf, super::super::sources::Digest>>>;
 
 /// A walk's matches, the stored digests a reused scan must still hash to,
 /// and what the walk left out.
@@ -351,18 +351,17 @@ pub(crate) fn scan_in(
 }
 
 /// Whether a stored scan can serve `query`'s page. A whole scan is cut
-/// again for any page. A seekable one holds the pages of its own cut: a
-/// classification page judges every row before it cuts, so it walks
+/// again for any page. A seekable one holds only the pages of its own
+/// streamed cut: a classification page judges every row before it cuts,
+/// and a match-page grid (no public call reaches one, see
+/// [`super::super::packed::PageIndex`]) cuts other pages, so either walks
 /// again (the same snapshot then comes from the fresh scan).
 fn serves(value: &StoredValue, query: &LocalSearchQuery) -> bool {
     match value {
         StoredValue::Whole(_) => true,
-        StoredValue::Seek(packed) => {
+        StoredValue::Seek(_) => {
             !local_search_query::has_classification(query)
-                && packed.index().is_some_and(|index| {
-                    matches!(index.cut, super::super::packed::Cut::Stream { .. })
-                        == local_search_query::streamed_layout(query)
-                })
+                && local_search_query::streamed_layout(query)
         }
     }
 }

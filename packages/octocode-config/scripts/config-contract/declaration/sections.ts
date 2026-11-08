@@ -46,6 +46,14 @@ export const sections: ContractInput['sections'] = {
         description: 'Optional absolute or home-relative workspace root.',
         env: { name: 'WORKSPACE_ROOT', dotenv: 'home', normalize: 'trim' },
       },
+      graphHome: {
+        type: 'path',
+        default: null,
+        displayDefault: '<workspace>/.octocode/graph',
+        description: 'Directory that holds graphBuild snapshots in place of the workspace\'s .octocode/graph, shared by every workspace: a build then writes nothing in the repository and may scan any allowed directory, such as a ghCloneRepo checkout. It joins the allowed roots, like the checkouts Octocode fetches; a build of a path that contains it is refused.',
+        notes: 'Home-only, so a repository cannot choose where Octocode writes.',
+        env: { name: 'OCTOCODE_GRAPH_HOME', dotenv: 'home', normalize: 'trim' },
+      },
     },
   },
   tools: {

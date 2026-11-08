@@ -160,6 +160,25 @@ impl Store {
         Ok(store)
     }
 
+    /// The identity of `relative` when this snapshot already holds it: the
+    /// manifest records it and the file on disk still has exactly those
+    /// bytes. A repeat materialize keeps that copy instead of reading the
+    /// file again, so the snapshot, not a saved provider answer, owns each
+    /// body.
+    pub(super) async fn kept(&self, home: &Path, relative: &str) -> Option<FileIdentity> {
+        let identity = self.manifest.files.get(relative)?.clone();
+        let (home, file) = (home.to_path_buf(), self.root.join(relative));
+        tokio::task::spawn_blocking(move || {
+            let directory = BeneathDir::open(&home, file.parent()?).ok()?;
+            let bytes =
+                read_limited(directory.open_file(file.file_name()?).ok()?, identity.bytes).ok()?;
+            (FileIdentity::of(&bytes) == identity).then_some(identity)
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
     pub(super) async fn record(
         &mut self,
         files: Vec<(String, FileIdentity)>,

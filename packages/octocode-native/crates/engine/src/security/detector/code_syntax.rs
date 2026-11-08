@@ -143,6 +143,112 @@ impl<'a> CodeSyntax<'a> {
     }
 }
 
+impl CodeSyntax<'_> {
+    /// Whether the backslash at `at` escapes the character after it, as the
+    /// grammar reads it: an escape sequence of a string. A raw string, a Go
+    /// raw or shell single-quoted literal, a C# verbatim string or a comment
+    /// holds the backslash as text. Outside every string and comment, and in
+    /// a text that does not parse, it counts as an escape (fail closed: the
+    /// secret it ends takes one more character).
+    pub(super) fn escapes_at(&self, at: usize) -> bool {
+        let Some(tree) = self.parse() else {
+            return true;
+        };
+        let Some(mut node) = tree.root_node().descendant_for_byte_range(at, at + 1) else {
+            return true;
+        };
+        loop {
+            if node.kind().contains("escape") {
+                return true;
+            }
+            if holds_data(node) {
+                return false;
+            }
+            match node.parent() {
+                Some(parent) => node = parent,
+                None => return true,
+            }
+        }
+    }
+
+    /// Where the string literal the grammar places byte `at` in closes: the
+    /// start of its closing delimiter, or of the last piece's when literals
+    /// are joined into one value (`"Fake0" + "Moo9Zed"`, `"a" "b"`: only blanks
+    /// and one `+` between them, as [`super::credential_values`] joins pieces).
+    /// A value a rule read past it to `until` (a config line to its end:
+    /// `"…Password=x",` or `` `…Pwd=x` ``) ends there when what it took past
+    /// the literal holds no other string or comment: it took the closer and
+    /// code. Past another literal or a comment the read may be one value
+    /// written across them (a key block in `concat!` pieces), so it keeps its
+    /// extent (fail closed). `None` then, outside a string (in a comment, in
+    /// code), or without a parse.
+    #[cfg_attr(
+        octocode_clippy_ratchet,
+        expect(
+            clippy::string_slice,
+            reason = "a data span is a node's byte range, char boundaries of the text"
+        )
+    )]
+    pub(super) fn literal_end(&self, at: usize, until: usize) -> Option<usize> {
+        let tree = self.parse()?;
+        let data = self.data.get_or_init(|| data_ranges(tree.root_node()));
+        let mut index = data
+            .partition_point(|span| span.range.start <= at)
+            .checked_sub(1)?;
+        let first = data.get(index)?;
+        if at >= first.range.end || first.comment {
+            return None;
+        }
+        let mut close = first.range.end - closer_len(&self.text[first.range.clone()])?;
+        if at >= close {
+            return None;
+        }
+        while let Some(next) = data.get(index + 1).filter(|next| !next.comment) {
+            let seam = self.text[data[index].range.end..next.range.start].trim();
+            if !(seam.is_empty() || seam == "+") {
+                break;
+            }
+            let Some(len) = closer_len(&self.text[next.range.clone()]) else {
+                break;
+            };
+            close = next.range.end - len;
+            index += 1;
+        }
+        let past = data
+            .get(index + 1)
+            .is_some_and(|next| next.range.start < until);
+        (!past).then_some(close)
+    }
+}
+
+/// The length of the delimiter that closes `literal`, the whole text of a
+/// string node: the quotes that open it after any prefix (`r`, `b`, `f`, `@`,
+/// `$`), with a raw string's `#`s mirrored (`r#"` closes with `"#`), when the
+/// literal ends with them. `""` is an empty literal, not a triple quote's
+/// start. `None` when it opens with no quote (a label) or ends without its
+/// closer.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::string_slice,
+        reason = "offsets are trimmed lengths of ASCII marks at the text's start"
+    )
+)]
+fn closer_len(literal: &str) -> Option<usize> {
+    let body =
+        literal.trim_start_matches(|c: char| c.is_ascii_alphanumeric() || matches!(c, '@' | '$'));
+    let hashes = body.len() - body.trim_start_matches('#').len();
+    let quoted = &body[hashes..];
+    let quote = quoted
+        .chars()
+        .next()
+        .filter(|c| matches!(c, '"' | '\'' | '`'))?;
+    let run = quoted.len() - quoted.trim_start_matches(quote).len();
+    let quotes = if run == 2 { 1 } else { run };
+    let closer = format!("{}{}", quote.to_string().repeat(quotes), "#".repeat(hashes));
+    (body.len() >= 2 * closer.len() && body.ends_with(&closer)).then_some(closer.len())
+}
+
 /// The byte ranges of the outermost nodes under `root` that hold data
 /// ([`holds_data`]), in text order. A walk with a cursor, so a deeply nested
 /// tree does not overflow the call stack, and each node is visited once.
@@ -644,6 +750,7 @@ fn is_key_char(c: char) -> bool {
 
 /// One comment line a credential can start in
 /// ([`CodeSyntax::comment_lines`]).
+#[derive(Clone)]
 pub(super) struct CommentLine {
     /// The line's text, less the comment's closer.
     pub(super) range: Range<usize>,
@@ -654,6 +761,32 @@ pub(super) struct CommentLine {
     /// is the one listed, the nearest to the value, since a rule reads the
     /// same value from each and the value test reads the end of the key.
     pub(super) keys: Vec<Key>,
+}
+
+impl CommentLine {
+    /// This line of a source at the positions of the text `edits` made of
+    /// it: a key whose start or operator a replacement took is gone, and so
+    /// is a line left with none. A key whose value a replacement took reads
+    /// on from the placeholder's end, as a read of the rewritten text would.
+    pub(super) fn through(&self, edits: &crate::security::Edits) -> Option<Self> {
+        let keys: Vec<Key> = self
+            .keys
+            .iter()
+            .filter_map(|key| {
+                Some(Key {
+                    start: edits.output_at(key.start)?,
+                    operator: edits.output_at(key.operator)?,
+                    value: edits
+                        .output_at(key.value)
+                        .unwrap_or(edits.output_end(key.value)),
+                })
+            })
+            .collect();
+        (!keys.is_empty()).then(|| Self {
+            range: edits.output_end(self.range.start)..edits.output_end(self.range.end),
+            keys,
+        })
+    }
 }
 
 /// A key of a comment line ([`CommentLine::keys`]).

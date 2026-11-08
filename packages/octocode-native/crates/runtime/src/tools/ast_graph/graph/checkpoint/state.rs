@@ -35,17 +35,10 @@ impl Manifest {
     }
 }
 
-pub(super) fn checked_path(
-    paths: &PathPolicy,
-    target: &Path,
-    output: bool,
-) -> Result<(), ToolError> {
-    let checked = if output {
-        paths.validate_output(target)
-    } else {
-        paths.validate_read(target)
-    }
-    .map_err(ToolError::policy)?;
+/// A checkpoint path, written or read back: an output, which may lie under
+/// an output root (`local.graphHome`) that no local tool reads.
+pub(super) fn checked_path(paths: &PathPolicy, target: &Path) -> Result<(), ToolError> {
+    let checked = paths.validate_output(target).map_err(ToolError::policy)?;
     if checked.canonical != target
         || std::fs::symlink_metadata(target).is_ok_and(|metadata| metadata.file_type().is_symlink())
     {
@@ -81,11 +74,11 @@ impl<'a> Job<'a> {
             .map_err(ToolError::policy)?
             .canonical;
         let dir = job_path(&base, root);
-        checked_path(paths, &dir, true)?;
+        checked_path(paths, &dir)?;
         // Another build of this scope resets, prunes and writes this job:
         // wait for it before touching the directory.
         let lock_path = super::lock::job_lock_path(&dir);
-        checked_path(paths, &lock_path, true)?;
+        checked_path(paths, &lock_path)?;
         if let Some(jobs) = dir.parent() {
             octocode_io::atomic::create_private_dir_all(jobs)
                 .map_err(|error| failure(error.to_string()))?;
@@ -132,7 +125,7 @@ impl<'a> Job<'a> {
             stage: Stage::Extracting,
         };
         let manifest_path = dir.join("job.json");
-        checked_path(paths, &manifest_path, true)?;
+        checked_path(paths, &manifest_path)?;
         if std::fs::symlink_metadata(&manifest_path).is_ok_and(|metadata| !metadata.is_file()) {
             return Err(failure("graph checkpoint manifest must be a regular file"));
         }

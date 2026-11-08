@@ -55,26 +55,23 @@ pub(crate) fn unavailable_source_issues(
     }).collect()
 }
 
-/// A resource answer must keep its pinned reads for a subsequent call. Refuse
-/// before capture and billing when the host cannot honor that lifetime.
+/// A section plan is frozen for its later batches and its pinned reads.
+/// Refuse it before capture and billing when the host keeps nothing for a
+/// later call. A source evaluation answers in one call and offers a fresh
+/// read instead ([`crate::tools::source_capture::fresh_read`]).
 pub(super) fn unretainable_source(row: &super::Row, can_resume: bool) -> Option<super::RowOutcome> {
-    use super::{Input, RowOutcome, Target};
+    use super::{Input, RowOutcome};
     use crate::tools::judgment::ClassificationError;
     use octocode_contract_types::ErrorCode;
 
-    if can_resume
-        || !matches!(
-            row.input,
-            Input::Sections(_) | Input::Judge(Target::Source(_))
-        )
-    {
+    if can_resume || !matches!(row.input, Input::Sections(_)) {
         return None;
     }
     Some(RowOutcome::Judgment {
         judged: Err(ClassificationError::new(
             ErrorCode::ClassificationContextUnavailable,
-            "This runtime cannot retain the pinned source reads this row requires; no source was read and no classification provider was called.",
-            "Use persistent storage across CLI calls or a long-lived MCP runtime, or supply the text as literal content.",
+            "This runtime keeps nothing for a later call, so it cannot hold a section plan for its next batch or its pinned reads; no source was read and no classification provider was called.",
+            "Section plans across CLI calls need storage.mode persistent, or one running MCP server; operation:\"evaluate\" with this source answers here.",
         )),
         captured: None,
         assets: None,

@@ -1,12 +1,12 @@
 //! One bounded assessment batch over the frozen plan, saved before and
 //! after its provider requests.
-use super::emit::{answered_cell, attach_hit_reads, emit, terminal_saved};
+use super::emit::{Held, answered_cell, attach_continuations, emit, terminal_saved};
 use super::{Budget, Outcome, Runtime, Session, error_value, token};
 use crate::execution::ExecutionContext;
 use crate::providers::classification::gate::call_cap;
 use crate::response::result::{Continuation, insert_next};
 use crate::tools::judgment::stats::ClassificationUsage;
-use crate::tools::judgment::{ClassificationError, EvaluationInput, LongContext, QuestionOutcomes};
+use crate::tools::judgment::{ClassificationError, EvaluationInput, QuestionOutcomes};
 use crate::tools::source_capture::SourceReader;
 use futures_util::{StreamExt as _, stream};
 use octocode_contract_types::{
@@ -92,9 +92,11 @@ pub(super) fn assess_and_save(
         ));
     }
     let mut output = emit(session, &usage, None);
-    if runtime.can_resume {
-        attach_hit_reads(&mut output);
-    }
+    let held = if runtime.can_resume {
+        attach_continuations(&mut output, session, remaining == 0)
+    } else {
+        Held::default()
+    };
     if remaining > 0 {
         let Ok(assessment) = token(&session.id, ordinal + 1).try_into() else {
             unreachable!("a batch token is a valid assessment token");
@@ -126,7 +128,9 @@ pub(super) fn assess_and_save(
     {
         session.batches.pop();
         // Include this batch again in the full terminal result because its
-        // provisional output has not yet reached the caller.
+        // provisional output has not yet reached the caller: its quiet
+        // sections too, which no kept plan can list.
+        held.restore(&mut output);
         for resource in &mut session.resources {
             if output["resources"].get(&resource.key).is_some() {
                 resource.shown = None;
@@ -204,11 +208,7 @@ fn judge_units(
                             state: &state,
                             questions: &remaining,
                             assets: None,
-                            long_context: if session.long_context {
-                                LongContext::Always
-                            } else {
-                                LongContext::OnRefusal
-                            },
+                            long_context: session.long_context,
                         },
                         session.model.as_deref(),
                         &budget,

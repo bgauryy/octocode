@@ -10,9 +10,11 @@ use super::repository::{
 };
 use super::source::{Confirmed, Source, SourceResult};
 use crate::contracts::security::{SecurityContract, security_contract};
+use crate::id::ToolId;
 use crate::providers::artifact::ArtifactItem;
 use crate::response::paging::{self, PartialReason};
-use serde_json::{Value, json};
+use crate::response::result::Continuation;
+use serde_json::{Map, Value, json};
 
 /// What the registry states of the confirmed version.
 #[derive(Clone, Debug, Default)]
@@ -54,6 +56,9 @@ pub(super) struct Trust {
     repo: Repo,
     /// The source repository's advisories about this package, once GitHub found it.
     advisories: Option<Listing>,
+    /// The first page states every trust fact; the last page of a resumed walk
+    /// states only the advisory comparison, as the first page said the rest.
+    first_page: bool,
 }
 
 /// The source repository's advisories that name the package: a monorepo's
@@ -87,6 +92,7 @@ pub(super) async fn read(registered: Registered, confirmed: &Confirmed, net: &Ne
         registered,
         repo,
         advisories,
+        first_page: true,
     }
 }
 
@@ -168,6 +174,14 @@ fn name_review_cautions(data: &mut Value, fired: &[Value]) {
 }
 
 impl Trust {
+    /// The trust read of the last page of a resumed walk: it states the
+    /// repository's advisories compared with OSV's, and nothing the first page
+    /// already stated.
+    pub(super) fn on_last_page(mut self) -> Self {
+        self.first_page = false;
+        self
+    }
+
     /// Once OSV's walk is whole (`finished`), merges each of the repository's
     /// advisories that shares an id or alias with an OSV record into it, as
     /// GitHub's twin in `results`, and keeps the ids of the rest. Before that,
@@ -200,16 +214,22 @@ impl Trust {
     }
 
     /// Adds `cautions`, `repository`, `policy` and the GitHub `sources[]` entry.
-    pub(super) fn apply(&self, data: &mut Value) {
+    pub(super) fn apply(&self, data: &mut Value, brief: &Map<String, Value>) {
         let Ok(contract) = security_contract() else {
             return;
         };
         let now = crate::civil_date::unix_millis();
         let today = crate::civil_date::date_millis(now);
-        let mut fired = registry_cautions(contract, &self.registered);
+        let whole = self.first_page;
+        let mut fired = if whole {
+            registry_cautions(contract, &self.registered)
+        } else {
+            Vec::new()
+        };
         let mut source = None;
         match &self.repo {
             Repo::Unnamed => {}
+            Repo::Elsewhere(_) if !whole => {}
             Repo::Elsewhere(url) => {
                 source = Some(json!({
                     "source": "github", "status": "notCovered", "observedAt": today,
@@ -217,18 +237,20 @@ impl Trust {
                 }));
             }
             Repo::Github { read, status } => {
-                fired.extend(repository::cautions(contract, read, now, &today));
+                if whole {
+                    fired.extend(repository::cautions(contract, read, now, &today));
+                }
                 let mut entry = github_source(read, status, &today);
                 if let Some(listing) = &self.advisories {
-                    listed(data, &mut entry, listing, read);
+                    listed(data, &mut entry, listing, read, brief);
                 }
                 source = Some(entry);
-                if let RepoRead::Found(facts) | RepoRead::Moved(facts) = read {
+                if whole && let RepoRead::Found(facts) | RepoRead::Moved(facts) = read {
                     let mut block = repository_block(facts, &today);
                     block["provenance"] = json!("claimed");
                     data["repository"] = block;
                 }
-                if !matches!(read, RepoRead::Failed(_)) {
+                if whole && !matches!(read, RepoRead::Failed(_)) {
                     data["policy"] = policy_block(contract);
                 }
             }
@@ -263,19 +285,35 @@ impl Trust {
 }
 
 /// What the GitHub entry and the row say of the repository's advisory list.
-fn listed(data: &mut Value, entry: &mut Value, listing: &Listing, read: &RepoRead) {
+fn listed(
+    data: &mut Value,
+    entry: &mut Value,
+    listing: &Listing,
+    read: &RepoRead,
+    brief: &Map<String, Value>,
+) {
     let (RepoRead::Found(facts) | RepoRead::Moved(facts)) = read else {
         return;
     };
     let repo = format!("{}/{}", facts.owner, facts.name);
     if listing.compared && !listing.others.is_empty() {
         entry["facts"]["repositoryAdvisories"] = json!(listing.others);
+        // Ids only here: the repository row lists each with its summary,
+        // severity and fixes.
+        let mut row = brief.clone();
+        row.insert("operation".into(), json!("repository"));
+        row.insert("repo".into(), json!(repo));
+        data["calls"]["repositoryAdvisories"] = Continuation::related_input(
+            ToolId::SecurityCheck,
+            json!({ "queries": [Value::Object(row)] }),
+        )
+        .build();
     }
     if !listing.compared && !listing.rows.is_empty() {
         paging::push_warnings(
             data,
             [format!(
-                "The advisories of {repo} about this package were not compared with OSV's records: OSV's walk is not whole on this page."
+                "The advisories of {repo} about this package are compared with OSV's records on the last page of OSV's walk: next.nextPage reads on, and none is named before then."
             )],
         );
     }

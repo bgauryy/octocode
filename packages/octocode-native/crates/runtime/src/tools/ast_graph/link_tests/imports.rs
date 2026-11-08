@@ -241,6 +241,62 @@ fn a_package_names_itself_only_with_exports_or_as_a_workspace_member() {
     assert_eq!(unresolved_internal(root), 0);
 }
 
+const MEMBER_WORKSPACE: &[(&str, &str)] = &[
+    (
+        "mono/package.json",
+        r#"{"name":"mono","workspaces":["packages/*"]}"#,
+    ),
+    (
+        "mono/packages/member/package.json",
+        r#"{"name":"member","main":"index.js"}"#,
+    ),
+    ("mono/packages/member/index.js", "module.exports = 1;\n"),
+    (
+        "mono/packages/member/lib/self.js",
+        "const self = require('member');\nmodule.exports = self;\n",
+    ),
+    (
+        "mono/packages/other/package.json",
+        r#"{"name":"other","main":"index.js"}"#,
+    ),
+    ("mono/packages/other/index.js", "module.exports = 1;\n"),
+];
+
+/// A scan rooted at a workspace member reaches the member by its own name as
+/// Node does: through the workspace above it, or, when the path policy
+/// keeps that manifest unread, through the `node_modules` link the install
+/// made. With neither, membership is unknown: the import is an internal gap,
+/// never a third-party package.
+#[test]
+fn a_workspace_member_scanned_alone_names_itself() {
+    let temp = fixture(MEMBER_WORKSPACE);
+    let root = temp.0.as_path();
+    let member = root.join("mono/packages/member");
+    // The workspace above the scan is readable.
+    let out = ingest(root, &member);
+    assert_eq!(out.value.get("error"), None, "{}", out.value);
+    let deps = ask(root, "deps", Some("lib/self.js"));
+    assert_eq!(files(&deps), ["index.js"], "{deps}");
+    // Only the member is readable, and nothing is installed.
+    let out = ingest(&member, &member);
+    assert_eq!(out.value.get("error"), None, "{}", out.value);
+    let deps = ask(&member, "deps", Some("lib/self.js"));
+    assert!(files(&deps).is_empty(), "{deps}");
+    assert_eq!(unresolved_internal(&member), 1);
+    // Installed: the workspace links the member into `node_modules`.
+    #[cfg(unix)]
+    {
+        std::fs::create_dir_all(root.join("mono/node_modules")).expect("node_modules");
+        std::os::unix::fs::symlink("../packages/member", root.join("mono/node_modules/member"))
+            .expect("workspace link");
+        let out = ingest(&member, &member);
+        assert_eq!(out.value.get("error"), None, "{}", out.value);
+        let deps = ask(&member, "deps", Some("lib/self.js"));
+        assert_eq!(files(&deps), ["index.js"], "{deps}");
+        assert_eq!(unresolved_internal(&member), 0);
+    }
+}
+
 #[test]
 fn path_edges_carry_import_lines() {
     let temp = fixture(&[

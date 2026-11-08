@@ -1,27 +1,12 @@
 //! The commits a page's hits are read at, and the line hits read there.
+use super::line_plan::{LinePlan, Read, RepoCommit};
 use super::{reads_lines, withheld_row};
-use crate::security::scan::ContentScan;
 use crate::tools::gh_search_code::Withholds;
 use octocode_contract_types::GhSearchCodeQuery;
 use octocode_github::{CodeSearchItem, ProviderError};
 use octocode_github::{ProviderErrorKind, RequestContext};
 use serde_json::{Value, json};
 use std::collections::HashMap;
-
-/// Line hits for the files of a `match:"file"` page: a ref search is read
-/// at the requested ref's commit; a default-branch search (repo-scoped or
-/// owner-wide) at each hit's indexed commit (from its `html_url`), the
-/// commit the index matched.
-pub(in crate::tools::gh_search_code) struct Resolution {
-    /// Common commit for page-level verification; file rows retain their own.
-    pub(in crate::tools::gh_search_code) sha: Option<String>,
-    pub(in crate::tools::gh_search_code) reference: Option<String>,
-    /// Per row: the commit it was read at, and its hits.
-    pub(in crate::tools::gh_search_code) hits:
-        Vec<(String, crate::tools::gh_search_code::lines::FileHits)>,
-    /// Files read for the page: identical blobs are grouped within this request.
-    pub(in crate::tools::gh_search_code) reads: usize,
-}
 
 /// The owner and repository a row's reads target: the query's when it is
 /// repo-scoped, else the row's own.
@@ -34,9 +19,6 @@ pub(in crate::tools::gh_search_code) fn row_repo<'a>(
         None => Some((row.get("owner")?.as_str()?, row.get("repo")?.as_str()?)),
     }
 }
-
-/// `(owner, repo, commit)` a group of rows is read at.
-type RepoCommit = (String, String, String);
 
 /// The commit a code-search hit was indexed at: `html_url` is
 /// `…/blob/<sha>/<path>`.
@@ -106,23 +88,23 @@ pub(in crate::tools::gh_search_code) async fn line_commit(
     )
 }
 
-/// The page's line hits, read at the requested ref's commit (a ref search)
-/// or at each hit's indexed commit; `None` when the page lists no lines.
-pub(in crate::tools::gh_search_code) async fn resolve_lines(
+/// The reads of the page's line hits, at the requested ref's commit (a ref
+/// search) or at each hit's indexed commit; `None` when the page lists no
+/// lines. Nothing is read yet: [`LinePlan::read`] reads the rows a page shows.
+pub(in crate::tools::gh_search_code) async fn plan_lines(
     provider: &octocode_github::GitHubProvider,
     query: &GhSearchCodeQuery,
     items: &[Value],
     found: &[CodeSearchItem],
     commit: Option<Result<String, ProviderError>>,
     context: &RequestContext,
-    security: &(impl ContentScan + Sync),
     withholds: Withholds<'_>,
-) -> Result<Option<Resolution>, ProviderError> {
+) -> Result<Option<LinePlan>, ProviderError> {
     if items.is_empty() || !reads_lines(query) {
         return Ok(None);
     }
     let Some(reference) = requested_ref(query).filter(|_| query.repo.is_some()) else {
-        return indexed_lines(provider, query, items, found, context, security, withholds).await;
+        return indexed_lines(provider, query, items, found, context, withholds).await;
     };
     let Some(commit) = commit else {
         return Ok(None);
@@ -143,18 +125,12 @@ pub(in crate::tools::gh_search_code) async fn resolve_lines(
         query.repo.as_deref().map_or("", |repo| repo.as_str()),
     );
     let key = (owner.to_owned(), repo.to_owned(), sha.clone());
-    let mut resolution = read_groups(
-        provider,
+    Ok(Some(LinePlan::new(
         query,
         items.len(),
         vec![(key, reads)],
-        context,
-        security,
-    )
-    .await?;
-    resolution.sha = Some(sha);
-    resolution.reference = Some(reference.to_owned());
-    Ok(Some(resolution))
+        Some((reference.to_owned(), sha)),
+    )))
 }
 
 /// Line hits of a default-branch `match:"file"` page: each row is read at
@@ -168,9 +144,8 @@ async fn indexed_lines(
     items: &[Value],
     found: &[CodeSearchItem],
     context: &RequestContext,
-    security: &(impl ContentScan + Sync),
     withholds: Withholds<'_>,
-) -> Result<Option<Resolution>, ProviderError> {
+) -> Result<Option<LinePlan>, ProviderError> {
     // (repository, path) -> (indexed commit, blob SHA).
     let indexed: HashMap<(String, &str), (Option<String>, &str)> = found
         .iter()
@@ -231,16 +206,7 @@ async fn indexed_lines(
     if groups.is_empty() {
         return Ok(None);
     }
-    let mut resolution =
-        read_groups(provider, query, items.len(), groups, context, security).await?;
-    let mut shas = resolution
-        .hits
-        .iter()
-        .map(|(sha, _)| sha.as_str())
-        .filter(|sha| !sha.is_empty());
-    let first = shas.next().map(str::to_owned);
-    resolution.sha = first.filter(|sha| shas.all(|other| other == sha));
-    Ok(Some(resolution))
+    Ok(Some(LinePlan::new(query, items.len(), groups, None)))
 }
 
 /// A row's repository and path, with the commit its hit was indexed at
@@ -256,100 +222,4 @@ fn locate<'r, 'f>(
     );
     let (commit, blob) = indexed.get(&(format!("{owner}/{repo}").to_lowercase(), path))?;
     Some((owner, repo, path, commit.clone(), *blob))
-}
-
-/// One row's read: its index on the page, its path, and the key of the
-/// blob it holds (`<blob sha>.<extension>`) when the index named one.
-type Read = (usize, String, Option<String>);
-
-/// Reads each group's files at its commit, concurrently, once per distinct
-/// blob, and gives every row its hits (a row no group reads keeps its
-/// fragments: `Unavailable` at no commit).
-async fn read_groups(
-    provider: &octocode_github::GitHubProvider,
-    query: &GhSearchCodeQuery,
-    rows: usize,
-    groups: Vec<(RepoCommit, Vec<Read>)>,
-    context: &RequestContext,
-    security: &(impl ContentScan + Sync),
-) -> Result<Resolution, ProviderError> {
-    let keywords = query
-        .keywords
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
-    let window = query
-        .context_lines
-        .as_ref()
-        .map_or_else(Default::default, |lines| {
-            crate::tools::gh_search_code::lines::Window {
-                before: usize::try_from(lines.before).unwrap_or(0),
-                after: usize::try_from(lines.after).unwrap_or(0),
-            }
-        });
-    let listing = crate::tools::gh_search_code::lines::Listing {
-        keywords: &keywords,
-        goal: "",
-        window,
-    };
-    // Per group: the distinct paths read, and for each row the read it shares.
-    let plans = groups
-        .iter()
-        .map(|(_, reads)| {
-            let mut paths: Vec<String> = Vec::new();
-            let mut blobs: Vec<Option<&str>> = Vec::new();
-            let shared = reads
-                .iter()
-                .map(|(index, path, blob)| {
-                    let at = blob
-                        .as_deref()
-                        .and_then(|blob| blobs.iter().position(|seen| *seen == Some(blob)))
-                        .unwrap_or_else(|| {
-                            paths.push(path.clone());
-                            blobs.push(blob.as_deref());
-                            paths.len() - 1
-                        });
-                    (*index, at)
-                })
-                .collect::<Vec<_>>();
-            (paths, shared)
-        })
-        .collect::<Vec<_>>();
-    let reads = groups
-        .iter()
-        .zip(&plans)
-        .map(|(((owner, repo, sha), _), (paths, _))| {
-            crate::tools::gh_search_code::lines::resolve_files(
-                provider, owner, repo, sha, paths, &listing, context, security,
-            )
-        });
-    let resolved = futures_util::future::join_all(reads).await;
-    let mut hits: Vec<Option<(String, crate::tools::gh_search_code::lines::FileHits)>> =
-        (0..rows).map(|_| None).collect();
-    let mut read = 0;
-    for (((_, _, sha), _), ((paths, shared), result)) in
-        groups.iter().zip(plans.iter().zip(resolved))
-    {
-        let files = result?;
-        read += paths.len();
-        for (index, at) in shared {
-            hits[*index] = Some((sha.clone(), files[*at].clone()));
-        }
-    }
-    Ok(Resolution {
-        sha: None,
-        reference: None,
-        hits: hits
-            .into_iter()
-            .map(|hit| {
-                hit.unwrap_or_else(|| {
-                    (
-                        String::new(),
-                        crate::tools::gh_search_code::lines::FileHits::Unavailable,
-                    )
-                })
-            })
-            .collect(),
-        reads: read,
-    })
 }

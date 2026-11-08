@@ -126,6 +126,7 @@ impl FileLink<'_, '_> {
                 prototype: d.prototype,
                 return_type: d.return_type,
                 try_type: d.try_type,
+                function_typed: d.function_typed,
             });
         }
     }

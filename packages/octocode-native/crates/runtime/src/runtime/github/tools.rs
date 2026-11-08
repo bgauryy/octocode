@@ -8,7 +8,7 @@ use crate::{
     response::outcome::{DomainResult, Upstream},
     security::ContentSecurity,
     tools::{
-        gh_clone_repo::{self, CloneConfig, CloneContext, CloneFailure},
+        gh_clone_repo::{self, CloneConfig, CloneFailure, CloneSetup},
         gh_get_file_content, gh_get_history_item, gh_search_code, gh_search_history,
         gh_search_repo, gh_structure,
     },
@@ -51,9 +51,19 @@ impl GitHubServices {
             GitHubTool::GhSearchCode => {
                 let query = typed!(GhSearchCodeQuery);
                 let withholds = |path: &str| paths.withholds_repository_file(path);
+                // A page reads the files of the rows its share of the
+                // response page holds.
+                let window = Some(context.row_page_chars(self.auto_page_chars));
                 tool_row(
-                    gh_search_code::run(&self.provider, &query, request, security, &withholds)
-                        .await,
+                    gh_search_code::run(
+                        &self.provider,
+                        &query,
+                        request,
+                        security,
+                        &withholds,
+                        window,
+                    )
+                    .await,
                 )
             }
             GitHubTool::GhStructure => {
@@ -140,17 +150,17 @@ impl GitHubServices {
             Err(error) => return provider_error(error),
         };
         let config = CloneConfig::persistent(self.home.clone()).with_network_timeout(self.timeout);
-        let clone_context = CloneContext {
-            config: &config,
-            endpoint: self.provider.transport.endpoint(),
+        let setup = std::sync::Arc::new(CloneSetup {
+            config,
+            endpoint: self.provider.transport.endpoint().clone(),
             git_limiter: self.provider.transport.git_limiter().for_row(request),
-            credential: request.resolved_credential(),
-            cancellation: context,
+            credential: request.resolved_credential().cloned(),
+            cancellation: std::sync::Arc::new(context.clone()),
             deadline: crate::execution::cancel::deadline_of(context),
-            path_policy: paths,
-            git: &self.git,
-        };
-        match gh_clone_repo::run(&self.provider, query, Ok(request), &clone_context).await {
+            path_policy: paths.clone(),
+            git: self.git.clone(),
+        });
+        match gh_clone_repo::run(&self.provider, query, Ok(request), &setup).await {
             Ok(result) => {
                 DomainResult::payload(serde_json::to_value(result).unwrap_or_default(), None)
             }

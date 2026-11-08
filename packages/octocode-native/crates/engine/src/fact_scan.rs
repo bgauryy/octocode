@@ -15,13 +15,9 @@ use crate::types::{FileSystemQueryOptions, GraphFactsScanDiagnostic, GraphFactsS
 mod evaluate;
 use crate::signatures::languages::RegistryView;
 use crate::text::analysis::{AnalysisOperation, MapLimits};
-pub use evaluate::{PANICKED, SOURCE_BUDGET_EXCEEDED, panicked};
 #[cfg(test)]
 use evaluate::evaluate_walk;
-/// Largest source the graph-facts scan parses; a larger file stays an
-/// unparsed (skipped) node. One bound for graphBuild and its reuse check.
-pub const MAX_GRAPH_SOURCE_BYTES: u32 = 1_000_000;
-
+pub use evaluate::{PANICKED, SOURCE_BUDGET_EXCEEDED, over_budget_message, panicked};
 /// One parsed file, borrowed during extraction: a caller reduces it to
 /// what it keeps before the next file is read.
 pub struct GraphFactsView<'a> {

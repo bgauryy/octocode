@@ -18,6 +18,7 @@ fn partial_diagnostics_keep_their_reasons_and_full_guidance() {
     let diagnostics = crate::response::result::ToolDiagnostics {
         partial_reasons: vec![crate::response::paging::PartialReason::ProviderResultCap],
         hints: vec!["complete guidance ".repeat(100)],
+        ..Default::default()
     };
     attach_diagnostics(&mut row, diagnostics);
     let data = &row["data"];

@@ -118,8 +118,9 @@ fn is_source_code_path(path: &str) -> bool {
 }
 
 /// How the matches of one pattern in one text are judged: the pattern's value
-/// test, and for a pattern that reads configuration syntax in a source-code
-/// file, the file's syntax.
+/// test, and in a source-code file the file's syntax: where a configuration
+/// rule's match lies, what a comment holds, which backslash escapes and where
+/// a literal closes.
 pub(super) struct Judge<'a> {
     /// The pattern's index in the registry.
     pattern: usize,
@@ -127,47 +128,99 @@ pub(super) struct Judge<'a> {
     syntax: Option<SyntaxOf<'a>>,
     /// The pattern's matches in code are statements, no credentials.
     code_is_no_config: bool,
+    /// The pattern reads the text comments hold ([`READS_COMMENT_SYNTAX`]).
+    reads_comments: bool,
 }
 
-/// The syntax a [`Judge`] reads: its own parse, or the one every judge of the
-/// same text shares, so one text parses once however many patterns read it.
+/// The syntax of the source a pass judges, read at the positions of the text
+/// the earlier passes left (`edits` turn the source into it). Every pass judges
+/// the source's own syntax: a placeholder is no part of it, and a rewritten
+/// text that no longer parses would read its strings as comments.
+#[derive(Clone, Copy)]
+pub(super) struct SourceSyntax<'a> {
+    pub(super) syntax: &'a CodeSyntax<'a>,
+    pub(super) edits: &'a super::Edits,
+}
+
+/// The syntax a [`Judge`] reads: a parse of the text it judges, or the
+/// source's, which every pass over one text shares, so a text parses once
+/// however many patterns read it.
 enum SyntaxOf<'a> {
     Own(CodeSyntax<'a>),
-    Shared(&'a CodeSyntax<'a>),
+    Source(SourceSyntax<'a>),
 }
 
-impl<'a> std::ops::Deref for SyntaxOf<'a> {
-    type Target = CodeSyntax<'a>;
-
-    fn deref(&self) -> &CodeSyntax<'a> {
+impl SyntaxOf<'_> {
+    fn place_of(&self, at: &std::ops::Range<usize>) -> code_syntax::Place {
         match self {
-            Self::Own(syntax) => syntax,
-            Self::Shared(syntax) => syntax,
+            Self::Own(syntax) => syntax.place_of(at),
+            Self::Source(source) => source.syntax.place_of(&source.edits.input_range(at)),
+        }
+    }
+
+    /// The source's comment lines at the judged text's positions: a key a
+    /// replacement took is no key any more.
+    fn comment_lines(&self) -> std::borrow::Cow<'_, [code_syntax::CommentLine]> {
+        match self {
+            Self::Own(syntax) => std::borrow::Cow::Borrowed(syntax.comment_lines()),
+            Self::Source(source) if source.edits.is_empty() => {
+                std::borrow::Cow::Borrowed(source.syntax.comment_lines())
+            }
+            Self::Source(source) => std::borrow::Cow::Owned(
+                source
+                    .syntax
+                    .comment_lines()
+                    .iter()
+                    .filter_map(|line| line.through(source.edits))
+                    .collect(),
+            ),
+        }
+    }
+
+    fn escapes_at(&self, at: usize) -> bool {
+        match self {
+            Self::Own(syntax) => syntax.escapes_at(at),
+            Self::Source(source) => {
+                let back = source.edits.input_at(at);
+                // A placeholder's byte is none of the source's: fail closed.
+                source.edits.output_at(back) != Some(at) || source.syntax.escapes_at(back)
+            }
+        }
+    }
+
+    fn literal_end(&self, at: usize, until: usize) -> Option<usize> {
+        match self {
+            Self::Own(syntax) => syntax.literal_end(at, until),
+            Self::Source(source) => {
+                let read = source.edits.input_range(&(at..until));
+                let close = source.syntax.literal_end(read.start, read.end)?;
+                Some(source.edits.output_end(close))
+            }
         }
     }
 }
 
 impl<'a> Judge<'a> {
-    /// The judge of pattern `idx` over `text`; `shared` is the syntax of
-    /// that same text when the caller already holds it.
+    /// The judge of pattern `idx` over `text`; `source` is the syntax of the
+    /// source `text` was made of when the caller holds it. Without it, a
+    /// pattern that reads configuration or comments parses `text` itself.
     pub(super) fn of(
         idx: usize,
         scope: Scope<'a>,
         text: &'a str,
-        shared: Option<&'a CodeSyntax<'a>>,
+        source: Option<SourceSyntax<'a>>,
     ) -> Self {
-        let syntax = scope
-            .source_path()
-            .filter(|_| READS_COMMENT_SYNTAX[idx])
-            .and_then(|path| match shared {
-                Some(syntax) => Some(SyntaxOf::Shared(syntax)),
-                None => CodeSyntax::of(path, text).map(SyntaxOf::Own),
-            });
+        let syntax = scope.source_path().and_then(|path| match source {
+            Some(source) => Some(SyntaxOf::Source(source)),
+            None if READS_COMMENT_SYNTAX[idx] => CodeSyntax::of(path, text).map(SyntaxOf::Own),
+            None => None,
+        });
         Self {
             pattern: idx,
             value_test: VALUE_TESTS[idx],
             syntax,
             code_is_no_config: READS_CONFIG_SYNTAX[idx],
+            reads_comments: READS_COMMENT_SYNTAX[idx],
         }
     }
 
@@ -187,23 +240,60 @@ impl<'a> Judge<'a> {
         }
     }
 
+    /// Where the value of a secret found at `secret` in `text` ends, `text`
+    /// lying at `base` in the judged text: its continued lines and an escape
+    /// it ends inside ([`continued_end`]), and no further than the close of
+    /// the string literal it starts in. A config line in a literal ends with
+    /// the literal (`r"…Password=x\"`, `` `…Pwd=x` ``), so a rule reading to the
+    /// line's end never takes the closing quote or the code after it.
+    #[cfg_attr(
+        octocode_clippy_ratchet,
+        expect(
+            clippy::string_slice,
+            reason = "`secret` is a regex match and `end` a char boundary from `continued_end`"
+        )
+    )]
+    pub(super) fn value_end(
+        &self,
+        text: &str,
+        base: usize,
+        secret: &std::ops::Range<usize>,
+    ) -> usize {
+        let end = continued_end(text, secret.end, |at| {
+            self.syntax
+                .as_ref()
+                .is_none_or(|syntax| syntax.escapes_at(base + at))
+        });
+        // A literal closes with a quote: a value with none in it ends inside.
+        if !text[secret.start..end].contains(['"', '\'', '`']) {
+            return end;
+        }
+        self.syntax
+            .as_ref()
+            .and_then(|syntax| syntax.literal_end(base + secret.start, base + end))
+            .and_then(|close| close.checked_sub(base))
+            .filter(|&close| secret.start < close && close < end)
+            .unwrap_or(end)
+    }
+
     /// Calls `found(whole, secret)` for each credential `regex` finds in
     /// `text`: [`accepted_secrets`] over the text, and in a source-code file
     /// over each comment's credential-word tails, which the text's own
     /// line anchors do not reach (`x = 1; // password: …`). Ranges come in
-    /// order and none overlaps another.
+    /// order and none overlaps another: overlapping ones join.
     pub(super) fn secrets(
         &self,
         regex: &regex::Regex,
         text: &str,
         mut found: impl FnMut(std::ops::Range<usize>, std::ops::Range<usize>),
     ) {
-        let Some(syntax) = &self.syntax else {
+        let Some(syntax) = self.syntax.as_ref().filter(|_| self.reads_comments) else {
             accepted_secrets(
                 regex,
                 text,
                 line_start_of,
                 |k, s, at| self.redacts(k, s, at),
+                |secret| self.value_end(text, 0, secret),
                 found,
             );
             return;
@@ -214,20 +304,36 @@ impl<'a> Judge<'a> {
             text,
             line_start_of,
             |k, s, at| self.redacts(k, s, at),
+            |secret| self.value_end(text, 0, secret),
             |whole, secret| {
                 all.push((whole, secret));
             },
         );
-        all.extend(self.tail_secrets(text, syntax, &mut 0));
-        all.sort_by_key(|(_, secret)| (secret.start, std::cmp::Reverse(secret.end)));
-        let mut covered_to = 0;
-        for (whole, secret) in all {
-            if secret.start >= covered_to {
-                covered_to = secret.end;
-                found(whole, secret);
-            }
+        all.extend(self.tail_secrets(text, &syntax.comment_lines(), &mut 0));
+        for (whole, secret) in joined(all) {
+            found(whole, secret);
         }
     }
+}
+
+/// `found` (`(whole, secret)` ranges) in order, each secret joined with every
+/// later one it overlaps: a range that starts inside another and ends past it
+/// extends it, so no part of either stays readable.
+fn joined(
+    mut found: Vec<(std::ops::Range<usize>, std::ops::Range<usize>)>,
+) -> Vec<(std::ops::Range<usize>, std::ops::Range<usize>)> {
+    found.sort_by_key(|(_, secret)| (secret.start, std::cmp::Reverse(secret.end)));
+    let mut out: Vec<(std::ops::Range<usize>, std::ops::Range<usize>)> = Vec::new();
+    for (whole, secret) in found {
+        match out.last_mut() {
+            Some((last_whole, last)) if secret.start < last.end => {
+                last.end = last.end.max(secret.end);
+                last_whole.end = last_whole.end.max(whole.end);
+            }
+            _ => out.push((whole, secret)),
+        }
+    }
+    out
 }
 
 fn replacement_for(idx: usize) -> &'static str {
@@ -365,7 +471,8 @@ fn kept_line_breaks(secret: &str) -> String {
 /// character the escape is that character's (`Password=Pw0rd9q\";` in a code
 /// literal, where the rule stopped at the quote), so the secret takes it: a
 /// replacement that left the backslash would escape what follows it and end
-/// the literal there, and every later rule would read a text of broken syntax.
+/// the literal there. Where the backslash escapes nothing (`escapes` says, for
+/// the backslash's position: a raw string, a comment) the secret ends at it.
 #[cfg_attr(
     octocode_clippy_ratchet,
     expect(
@@ -373,7 +480,7 @@ fn kept_line_breaks(secret: &str) -> String {
         reason = "offsets are a regex match end, `find` results and ASCII break lengths"
     )
 )]
-fn continued_end(text: &str, mut end: usize) -> usize {
+fn continued_end(text: &str, mut end: usize, escapes: impl Fn(usize) -> bool) -> usize {
     loop {
         let backslashes = text.as_bytes()[..end]
             .iter()
@@ -384,6 +491,9 @@ fn continued_end(text: &str, mut end: usize) -> usize {
             return end;
         }
         let Some(len) = break_len(&text[end..]) else {
+            if !escapes(end - 1) {
+                return end;
+            }
             return end + text[end..].chars().next().map_or(0, char::len_utf8);
         };
         let next = end + len;
@@ -435,6 +545,7 @@ fn accepted_secrets(
     text: &str,
     key_start: impl Fn(usize, usize) -> usize,
     redacts: impl Fn(&str, &str, &std::ops::Range<usize>) -> bool,
+    value_end: impl Fn(&std::ops::Range<usize>) -> usize,
     mut found: impl FnMut(std::ops::Range<usize>, std::ops::Range<usize>),
 ) {
     let groups = secret_groups(regex);
@@ -465,7 +576,7 @@ fn accepted_secrets(
                 &raw.whole,
             )
         {
-            let end = continued_end(text, secret.end);
+            let end = value_end(secret);
             covered_to = end;
             found(raw.whole.start..raw.whole.end.max(end), secret.start..end);
         }
@@ -573,7 +684,14 @@ fn replace_secrets(
     redacts: impl Fn(&str, &str, &std::ops::Range<usize>) -> bool,
 ) -> (String, Vec<(std::ops::Range<usize>, usize)>) {
     replace_judged(content, replacement, |found| {
-        accepted_secrets(regex, content, line_start_of, redacts, found);
+        accepted_secrets(
+            regex,
+            content,
+            line_start_of,
+            redacts,
+            |secret| continued_end(content, secret.end, |_| true),
+            found,
+        );
     })
 }
 
@@ -703,7 +821,8 @@ pub(crate) fn redact_within(content: &str, scope: Scope<'_>, limit: usize) -> Op
     let mut sanitized: Option<String> = None;
     let mut secrets_detected = Vec::new();
     let mut edits = super::Edits::default();
-    // One parse of the original text for every judge that reads its syntax.
+    // One parse of the source for every pass: each judges the source's own
+    // syntax, at the positions of the text the earlier passes left.
     let syntax = scope
         .source_path()
         .and_then(|path| CodeSyntax::of(path, content));
@@ -717,7 +836,10 @@ pub(crate) fn redact_within(content: &str, scope: Scope<'_>, limit: usize) -> Op
                 idx,
                 scope,
                 current,
-                syntax.as_ref().filter(|_| sanitized.is_none()),
+                syntax.as_ref().map(|syntax| SourceSyntax {
+                    syntax,
+                    edits: &edits,
+                }),
             );
             replace_judged(current, replacement_for(idx), |found| {
                 judge.secrets(regex, current, found);

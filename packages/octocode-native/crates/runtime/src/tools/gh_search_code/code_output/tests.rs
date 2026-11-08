@@ -21,7 +21,6 @@ fn shaped_files_retain_repository_and_commit_identity() {
             let resolution = resolved.then(|| Resolution {
                 sha: Some(sha.clone()),
                 reference: None,
-                reads: 2,
                 hits: (0..2)
                     .map(|_| {
                         (

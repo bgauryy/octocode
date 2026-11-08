@@ -222,6 +222,7 @@ pub(super) async fn materialize_tree(
         use futures_util::StreamExt as _;
         // Up to READ_CONCURRENCY reads run ahead of the writer; a slow file
         // holds back only the writes after it, never the next reads.
+        let kept = &store;
         let mut reads = futures_util::stream::iter(&entries[offset..])
             .map(|entry| async move {
                 if entry.kind != EntryKind::File {
@@ -236,10 +237,17 @@ pub(super) async fn materialize_tree(
                 if entry.size.is_some_and(|size| size > read_limit as u64) {
                     return (entry, Acquired::Oversized);
                 }
+                // A file this snapshot already holds is not read again.
+                if crate::tools::gh_shared::is_repo_relative(&entry.path)
+                    && let Some(identity) = kept.kept(snapshot.root, &entry.path).await
+                {
+                    return (entry, Acquired::Kept(identity));
+                }
                 // Bytes, admitted by the one text rule: a file it refuses
                 // is the typed binary-file failure, skipped as unreadable.
+                // The snapshot stores them: no saved answer keeps them again.
                 let read = provider
-                    .get_file_bytes(
+                    .get_file_bytes_kept_by_caller(
                         &octocode_github::ContentRequest {
                             owner: snapshot.owner.to_owned(),
                             repo: snapshot.repo.to_owned(),

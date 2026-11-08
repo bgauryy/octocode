@@ -22,29 +22,44 @@ fn failure(message: impl Into<String>) -> GraphOutput {
     GraphOutput::error(ErrorCode::InvalidInput, message)
 }
 
-fn scope(path: &str, paths: &PathPolicy) -> Result<(PathBuf, PathBuf), GraphOutput> {
-    let resolve = |path: &str| {
-        paths
-            .validate(path)
-            .map(|p| p.canonical)
-            .map_err(|e| GraphOutput::error(e.shared_code(), e.message))
-    };
+/// The workspace, scanned root and snapshot home of a graph call on `path`.
+/// The default home is the workspace's, so the root must lie inside the
+/// workspace; a configured home (`local.graphHome`) admits any allowed
+/// directory that does not contain it.
+fn scope(
+    path: &str,
+    paths: &PathPolicy,
+    configured: Option<&Path>,
+) -> Result<(PathBuf, PathBuf, PathBuf), GraphOutput> {
+    let policy = |e: crate::policy::PolicyError| GraphOutput::error(e.shared_code(), e.message);
+    let resolve = |path: &str| paths.validate(path).map(|p| p.canonical).map_err(policy);
     let workspace = resolve(".")?;
     let root = resolve(path)?;
+    let home = graph_home(Some(&workspace), configured).map_err(failure)?;
+    let home = paths.validate_output(home).map_err(policy)?.canonical;
+    if configured.is_some() {
+        if !root.is_dir() {
+            return Err(failure("path must be a directory"));
+        }
+        if home.starts_with(&root) {
+            return Err(failure(format!(
+                "local.graphHome ({}) lies inside {}: a build would scan its own snapshots. Build a directory that does not contain it",
+                home.display(),
+                root.display()
+            )));
+        }
+        return Ok((workspace, root, home));
+    }
     if !root.is_dir() || !root.starts_with(&workspace) {
         return Err(failure(format!(
-            "path must be a directory inside the current workspace ({}): graph snapshots live in the workspace. Start Octocode inside that directory, or use astSearch and localSearch at it",
+            "path must be a directory inside the current workspace ({}): graph snapshots live in the workspace. Start Octocode inside that directory, set local.graphHome (OCTOCODE_GRAPH_HOME) to keep snapshots outside it and build any allowed directory, or use astSearch and localSearch at it",
             workspace.display()
         )));
     }
-    let home = paths
-        .validate_output(workspace.join(".octocode/graph"))
-        .map_err(|e| GraphOutput::error(e.shared_code(), e.message))?
-        .canonical;
     if !home.starts_with(&workspace) {
         return Err(failure("snapshot storage must remain inside the workspace"));
     }
-    Ok((workspace, root))
+    Ok((workspace, root, home))
 }
 
 /// Graph homes other than `home` that hold a snapshot of `root`: the
@@ -163,9 +178,12 @@ impl Snapshots<'_> {
     }
 }
 
-fn options(row: &Value, paths: &PathPolicy) -> Result<QueryOptions, GraphOutput> {
-    let (workspace, root) = scope(row["path"].as_str().unwrap_or("."), paths)?;
-    let home = graph_home(Some(&workspace)).map_err(failure)?;
+fn options(
+    row: &Value,
+    paths: &PathPolicy,
+    configured: Option<&Path>,
+) -> Result<QueryOptions, GraphOutput> {
+    let (workspace, root, home) = scope(row["path"].as_str().unwrap_or("."), paths, configured)?;
     let id = match row["graph"].as_str() {
         Some(id) => id.to_owned(),
         None => list_snapshots(&home)
@@ -202,6 +220,7 @@ fn options(row: &Value, paths: &PathPolicy) -> Result<QueryOptions, GraphOutput>
         path: Some(row["path"].as_str().unwrap_or(".").to_owned()),
         include_provenance: row["includeProvenance"] == true,
         workspace: Some(workspace),
+        home: configured.map(Path::to_path_buf),
         graph: Some(graph),
         baseline,
         target: text(row, "target").or_else(|| text(row, "cycle")),
@@ -257,15 +276,16 @@ fn build(
     security: &ContentSecurity,
     context: &ExecutionContext,
     cargo: Option<&str>,
-    memory_only: bool,
+    store: &Store<'_>,
 ) -> GraphOutput {
-    let (workspace, root) = match scope(&query.path, paths) {
+    let (workspace, root, _) = match scope(&query.path, paths, store.home) {
         Ok(scope) => scope,
         Err(error) => return error,
     };
     let options = IngestOptions {
-        memory_only,
+        memory_only: store.memory_only,
         workspace: Some(workspace),
+        home: store.home.map(Path::to_path_buf),
         ..IngestOptions::of_query(query, root.clone())
     };
     let mut out = ingest(&options, paths, security, context, cargo);
@@ -331,6 +351,16 @@ fn resume_paused(out: &mut GraphOutput, query: &GraphBuildQuery) {
     }
 }
 
+/// Where graph tools keep their state: the runtime's storage settings.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Store<'a> {
+    /// `storage.mode: memory`: extraction checkpoints stay in memory; the
+    /// requested snapshot is still published.
+    pub memory_only: bool,
+    /// `local.graphHome`: the snapshot home in place of the workspace's.
+    pub home: Option<&'a Path>,
+}
+
 /// One validated graphBuild row: ingest a snapshot of its path.
 pub(crate) fn execute_build(
     query: &GraphBuildQuery,
@@ -338,10 +368,10 @@ pub(crate) fn execute_build(
     security: &ContentSecurity,
     context: &ExecutionContext,
     cargo: Option<&str>,
-    memory_only: bool,
+    store: &Store<'_>,
 ) -> Result<DomainResult, ExecutionError> {
     context.check()?;
-    let out = build(query, paths, security, context, cargo, memory_only);
+    let out = build(query, paths, security, context, cargo, store);
     context.check()?;
     Ok(result(out))
 }
@@ -352,9 +382,10 @@ pub(crate) fn execute_query(
     paths: &PathPolicy,
     context: &ExecutionContext,
     rows: Option<std::sync::Arc<SavedRows>>,
+    home: Option<&Path>,
 ) -> Result<DomainResult, ExecutionError> {
     context.check()?;
-    let mut out = match options(row, paths) {
+    let mut out = match options(row, paths, home) {
         Ok(options) => {
             let unrecorded = record_reads(&options);
             let mut out = super::query::query_cancellable(

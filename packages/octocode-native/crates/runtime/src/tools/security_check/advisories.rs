@@ -6,7 +6,7 @@
 use super::Net;
 use super::osv::CONCURRENT_READS;
 use super::record::{self, SecurityAdvisory, Selection};
-use super::repository::{RepoFailure, RepositoryRead, Visibility};
+use super::repository::{RepoFailure, RepoRead, RepositoryRead, Visibility};
 use super::source::{self, Target};
 use crate::contracts::security::{SecurityContract, security_contract};
 use crate::providers::artifact::ArtifactError;
@@ -28,6 +28,17 @@ pub(crate) enum AdvisoryRead {
 }
 
 pub(crate) type AdvisoryFuture<'a> = Pin<Box<dyn Future<Output = AdvisoryRead> + Send + 'a>>;
+
+/// One GitHub advisory read by its GHSA id, or why there is none.
+#[derive(Clone, Debug)]
+pub(crate) enum GhsaRead {
+    Found(Box<RepositoryAdvisory>),
+    /// GitHub has no such advisory there.
+    Missing,
+    Failed(RepoFailure),
+}
+
+pub(crate) type GhsaFuture<'a> = Pin<Box<dyn Future<Output = GhsaRead> + Send + 'a>>;
 
 /// How a walk ended.
 #[derive(Debug)]
@@ -76,18 +87,32 @@ impl SavedWalk {
 /// Every page of `owner/repo`'s advisories from the start, or from where
 /// `from` stopped, each cursor asked once: a page that names a cursor already
 /// asked is a cycle, which fails the walk rather than repeating its
-/// advisories. A page that fails after this call read one saves where to read
-/// on; one that fails first does not, as asking again is the same call.
+/// advisories. A page that fails after a page was read, by this call or by
+/// the call `from` continues, saves where to read on; the first page of a
+/// fresh walk does not, as asking again is the same call.
 pub(super) async fn walk(
     owner: &str,
     repo: &str,
     github: &dyn RepositoryRead,
     from: Option<&SavedWalk>,
 ) -> Walked {
+    walk_pages(
+        |after: Option<String>| async move { github.advisories(owner, repo, after.as_deref()).await },
+        from,
+    )
+    .await
+}
+
+/// Every page `ask` answers, from the start or from where `from` stopped,
+/// each cursor asked once ([`walk`]).
+pub(super) async fn walk_pages<F: Future<Output = AdvisoryRead>>(
+    ask: impl Fn(Option<String>) -> F,
+    from: Option<&SavedWalk>,
+) -> Walked {
     let mut advisories = Vec::new();
     let mut asked = from.map(|saved| saved.asked.clone()).unwrap_or_default();
     let mut after = from.map(|saved| saved.after.clone());
-    let mut advanced = false;
+    let mut advanced = from.is_some();
     let stop = |advisories, end, after: Option<String>, asked, advanced| Walked {
         advisories,
         resume: match (&end, after) {
@@ -97,7 +122,7 @@ pub(super) async fn walk(
         end,
     };
     loop {
-        let page = match github.advisories(owner, repo, after.as_deref()).await {
+        let page = match ask(after.clone()).await {
             AdvisoryRead::Page(page) => page,
             AdvisoryRead::Missing => return stop(advisories, End::Missing, None, asked, false),
             AdvisoryRead::Failed(failure) => {
@@ -147,6 +172,9 @@ fn osv_shape(advisory: &RepositoryAdvisory, contract: &SecurityContract) -> Valu
                 "vulnerable_version_range": entry.vulnerable_version_range,
                 "patched_versions": entry.patched_versions,
             });
+            if let Some(first) = &entry.first_patched_version {
+                row["ecosystem_specific"]["first_patched_version"] = json!(first);
+            }
             row
         })
         .collect::<Vec<_>>();
@@ -162,26 +190,79 @@ fn osv_shape(advisory: &RepositoryAdvisory, contract: &SecurityContract) -> Valu
         "database_specific": {
             "severity": advisory.severity,
             "source": advisory.html_url,
-            "cwe_ids": advisory.cwe_ids,
+            "cwe_ids": advisory.cwe_list(),
         },
     });
-    if let Some(vector) = advisory
-        .cvss
-        .as_ref()
-        .and_then(|cvss| cvss.vector_string.as_deref())
-    {
-        record["severity"] = json!([{ "type": cvss_type(vector), "score": vector }]);
+    let mut references = advisory
+        .references
+        .iter()
+        .map(|url| json!({"type": "WEB", "url": url}))
+        .collect::<Vec<_>>();
+    // The record's own API address: where GitHub serves it whole.
+    if let Some(url) = &advisory.url {
+        references.push(json!({"type": "ADVISORY", "url": url}));
+    }
+    if !references.is_empty() {
+        record["references"] = json!(references);
     }
     record
 }
 
-/// OSV's name for a CVSS vector's version.
-fn cvss_type(vector: &str) -> &'static str {
-    match vector.split('/').next() {
-        Some("CVSS:4.0") => "CVSS_V4",
-        Some("CVSS:3.1" | "CVSS:3.0") => "CVSS_V3",
-        _ => "CVSS_V2",
+/// What GitHub states of a record that its row has no field for: its class in
+/// the global database when not `reviewed`. `unreviewed`: GitHub has not
+/// checked it; `malware`: the package itself is malicious. Another class is
+/// named as GitHub writes it when it is a plain word.
+pub(super) fn github_notes(advisory: &RepositoryAdvisory) -> Vec<String> {
+    let id = super::answer::stated_id(&advisory.ghsa_id);
+    match advisory.kind.as_deref() {
+        None | Some("reviewed") => Vec::new(),
+        Some("unreviewed") => vec![format!(
+            "GitHub has not reviewed {id}: its database marks it unreviewed."
+        )],
+        Some("malware") => vec![format!(
+            "GitHub classes {id} as malware: the package itself is malicious, not a flaw in it."
+        )],
+        Some(other) if other.chars().all(|c| c.is_ascii_alphabetic()) => {
+            vec![format!("GitHub's database classes {id} as {other}.")]
+        }
+        Some(_) => vec![format!(
+            "GitHub's database classes {id} in a class that is not a plain word."
+        )],
     }
+}
+
+/// GitHub's own statements beside OSV's shape: each CVSS vector with the
+/// score GitHub publishes for it, EPSS, the publisher and the credits.
+fn github_facts(row: &mut SecurityAdvisory, advisory: &RepositoryAdvisory) {
+    row.cvss = advisory
+        .cvss_all()
+        .into_iter()
+        .map(|(vector, score)| {
+            let mut cvss = json!({"type": record::cvss_type(&vector), "vector": vector});
+            if let Some(score) = score {
+                cvss["score"] = json!(score);
+            }
+            cvss
+        })
+        .collect();
+    row.epss = advisory
+        .epss
+        .map(|epss| json!({"percentage": epss.percentage, "percentile": epss.percentile}));
+    row.publisher = advisory
+        .publisher
+        .as_ref()
+        .and_then(|user| user.login.clone());
+    row.credits = advisory
+        .credit_logins()
+        .into_iter()
+        .map(|(login, kind)| {
+            let mut credit = json!({"login": login});
+            if let Some(kind) = kind {
+                credit["type"] = json!(kind);
+            }
+            credit
+        })
+        .collect();
 }
 
 /// The patched versions GitHub states, each once.
@@ -198,6 +279,7 @@ fn patched(advisory: &RepositoryAdvisory, own_package: impl Fn(&str) -> bool) ->
         for version in entry
             .patched_versions
             .iter()
+            .chain(&entry.first_patched_version)
             .flat_map(|text| text.split(','))
         {
             let version = version.trim();
@@ -227,6 +309,7 @@ pub(super) fn row(
         .filter_map(|entry| entry["packageName"].as_str())
         .collect::<BTreeSet<_>>();
     row.fixed_in = patched(advisory, |name| own.contains(name));
+    github_facts(&mut row, advisory);
     Ok(row)
 }
 
@@ -338,6 +421,12 @@ pub(super) struct Listed {
     /// Advisory ids OSV failed to answer for, with why: their rows stand on
     /// GitHub's record alone.
     pub osv_failed: Vec<(String, ArtifactError)>,
+    /// What OSV said when it was asked for at least one id: `found` when it
+    /// kept a record of one, `noneKnown` when it kept none; `None`: not asked.
+    pub osv_status: Option<&'static str>,
+    /// Advisory ids OSV was asked for and keeps no record of: GitHub's record
+    /// is the only one, read whole by an `advisory` call with `repo`.
+    pub osv_lacks: Vec<String>,
     /// Where a walk that stopped reads on.
     pub resume: Option<SavedWalk>,
 }
@@ -370,13 +459,19 @@ pub(super) async fn list(
         .await;
     let mut osv = Vec::new();
     let mut osv_failed = Vec::new();
+    let mut osv_lacks = Vec::new();
     for (id, answer) in answers {
         match answer {
             Ok(results) => osv.extend(results.into_iter().flat_map(|result| result.advisories)),
-            Err(error) if error.code == ErrorCode::NotFound => {}
+            Err(error) if error.code == ErrorCode::NotFound => osv_lacks.push(id.clone()),
             Err(error) => osv_failed.push((id.clone(), error)),
         }
     }
+    let osv_status = (ask_osv && !github.is_empty()).then_some(if osv.is_empty() {
+        "noneKnown"
+    } else {
+        "found"
+    });
     let rows = osv.iter().chain(&github).collect::<Vec<_>>();
     let advisories = record::advisory_groups(&rows)
         .iter()
@@ -387,8 +482,181 @@ pub(super) async fn list(
         end,
         osv_skipped,
         osv_failed,
+        osv_status,
+        osv_lacks,
         resume,
     })
+}
+
+/// What GitHub said of one GHSA id: its records, and each read that failed.
+pub(super) struct GhsaLookup {
+    /// GitHub was asked: the id is a GHSA and a GitHub transport exists.
+    asked: bool,
+    rows: Vec<SecurityAdvisory>,
+    /// Each read that failed, named by where it was asked.
+    failed: Vec<(String, RepoFailure)>,
+    warnings: Vec<String>,
+    /// `repo` named a repository GitHub does not have (or hides from this
+    /// read): its own advisories were not read, which is no absence.
+    repo_missing: Option<String>,
+}
+
+/// The GHSA id `id` on GitHub: the global database's record and, with `repo`,
+/// the repository's own (one GitHub has not reviewed into its database is
+/// found only there). Any other id, or no GitHub transport, asks nothing.
+pub(super) async fn ghsa(id: &str, repo: Option<&str>, net: &Net<'_>) -> GhsaLookup {
+    let mut lookup = GhsaLookup {
+        asked: false,
+        rows: Vec::new(),
+        failed: Vec::new(),
+        warnings: Vec::new(),
+        repo_missing: None,
+    };
+    let is_ghsa = id
+        .split_once('-')
+        .is_some_and(|(prefix, _)| prefix.eq_ignore_ascii_case("GHSA"));
+    let repo = match repo.map(super::repository::parse) {
+        Some(Ok(parsed)) if is_ghsa => Some(parsed),
+        Some(Ok(_)) => {
+            lookup.warnings.push(format!(
+                "repo is read for a GHSA id only; {} is not one, so no repository advisory was read.",
+                super::answer::typed(id)
+            ));
+            None
+        }
+        Some(Err(error)) => {
+            lookup
+                .warnings
+                .push(format!("{} It was not read on GitHub.", error.message));
+            None
+        }
+        None => None,
+    };
+    let Some(github) = net.github.filter(|_| is_ghsa) else {
+        return lookup;
+    };
+    lookup.asked = true;
+    let own = repo
+        .as_ref()
+        .map(|(owner, name)| (owner.as_str(), name.as_str()));
+    let (global, own) = futures_util::join!(github.ghsa(None, id), async {
+        match own {
+            Some(at) => Some((
+                format!("{}/{}", at.0, at.1),
+                github.ghsa(Some(at), id).await,
+            )),
+            None => None,
+        }
+    });
+    // GitHub answers 404 for a missing repository as for a missing advisory:
+    // the repository read tells them apart.
+    let own_missing = matches!(own, Some((_, GhsaRead::Missing)));
+    let reads = std::iter::once(("GitHub's advisory database".to_owned(), global)).chain(own);
+    for (place, read) in reads {
+        match read {
+            GhsaRead::Found(advisory) => match row(&advisory, &Selection::All) {
+                Ok(found) => {
+                    lookup.warnings.extend(github_notes(&advisory));
+                    lookup.rows.push(found);
+                }
+                Err(reason) => lookup.failed.push((
+                    place,
+                    RepoFailure {
+                        code: ErrorCode::Decode,
+                        why: format!("GitHub answered with {reason}."),
+                    },
+                )),
+            },
+            GhsaRead::Missing => {}
+            GhsaRead::Failed(failure) => lookup.failed.push((place, failure)),
+        }
+    }
+    if let (true, Some((owner, name))) = (own_missing, &repo) {
+        let place = format!("{owner}/{name}");
+        match github.read(owner, name).await {
+            RepoRead::Missing => {
+                let missing = format!(
+                    "GitHub has no repository {} (or hides it from this read), so its own advisories were not read.",
+                    super::answer::typed(&place)
+                );
+                lookup.warnings.push(missing.clone());
+                lookup.repo_missing = Some(missing);
+            }
+            RepoRead::Failed(failure) => lookup.failed.push((place, failure)),
+            RepoRead::Found(_) | RepoRead::Moved(_) => {}
+        }
+    }
+    lookup
+}
+
+impl GhsaLookup {
+    pub(super) fn found(&self) -> bool {
+        !self.rows.is_empty()
+    }
+
+    /// What OSV's "no record" adds when GitHub has none either.
+    pub(super) fn none_clause(&self) -> Option<String> {
+        (self.asked && self.rows.is_empty() && self.failed.is_empty()).then(|| {
+            match &self.repo_missing {
+                Some(missing) => {
+                    format!("GitHub's advisory database has no such advisory either. {missing}")
+                }
+                None => "GitHub has no such advisory either.".to_owned(),
+            }
+        })
+    }
+
+    /// What a failure adds when GitHub found nothing because a read failed:
+    /// each read not made, so not-found never stands for not-checked.
+    pub(super) fn failed_clause(&self) -> Option<String> {
+        (self.asked && self.rows.is_empty() && !self.failed.is_empty()).then(|| {
+            let unread = self
+                .failed
+                .iter()
+                .map(|(place, failure)| format!("{place} was not read: {}", failure.why))
+                .collect::<Vec<_>>();
+            format!("{} Whether GitHub has it is unknown.", unread.join(" "))
+        })
+    }
+
+    /// GitHub's records as a source, once it answered.
+    pub(super) fn result(&self) -> Option<source::SourceResult> {
+        (self.asked && (self.found() || self.failed.is_empty())).then(|| {
+            let mut result = source::SourceResult::new(source::Source::GitHub);
+            result.advisories = self.rows.clone();
+            result
+        })
+    }
+
+    /// Each failed read: the GitHub entry says so when nothing was found, and
+    /// the row is partial either way, never clean.
+    pub(super) fn apply(&self, data: &mut Value) {
+        if !self.found()
+            && let Some((_, failure)) = self.failed.first()
+        {
+            let entry = json!({"source": "github", "status": "failed",
+                "errorCode": failure.code, "why": failure.why});
+            match data["sources"].as_array_mut() {
+                Some(sources) => sources.push(entry),
+                None => data["sources"] = json!([entry]),
+            }
+        }
+        if !self.failed.is_empty() {
+            let why = self
+                .failed
+                .iter()
+                .map(|(place, failure)| format!("{place} was not read: {}", failure.why))
+                .collect::<Vec<_>>();
+            crate::response::paging::mark_partial(
+                data,
+                crate::response::paging::PartialReason::SourceFailed,
+                &why,
+            );
+        }
+        if !self.warnings.is_empty() {
+            crate::response::paging::push_warnings(data, self.warnings.clone());
+        }
+    }
 }
 
 #[cfg(test)]

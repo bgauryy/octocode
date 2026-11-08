@@ -2,7 +2,7 @@
 //! answers bounded questions from it without rebuilding.
 //!
 //! ```text
-//! <workspace>/.octocode/graph/
+//! <workspace>/.octocode/graph/  (or <local.graphHome>/octocode-graph when set)
 //!   latest                                   # id of the newest snapshot
 //!   20260928T101500Z-packages-app-1a2b3c/     # time, scope, root tag
 //!     manifest.json                          # scope, counts, digests, gaps
@@ -47,8 +47,8 @@ use manifest::*;
 #[cfg(test)]
 pub(crate) use query::query;
 pub use query::{QueryOptions, SavedRows};
-pub(crate) use snapshots::default_workspace;
 use snapshots::*;
+pub(crate) use snapshots::{configured_graph_home, default_workspace, graph_home};
 use staleness::*;
 
 pub(crate) const GRAPH_FILE: &str = "graph.bin";
@@ -171,6 +171,9 @@ pub struct IngestOptions {
     /// Workspace that owns `.octocode/graph`. The runtime fills it when
     /// unset ([`default_workspace`] of its working directory).
     pub workspace: Option<PathBuf>,
+    /// `local.graphHome`: the snapshot home in place of the workspace's
+    /// ([`snapshots::graph_home`]).
+    pub home: Option<PathBuf>,
     pub exclude: Vec<String>,
     /// The default prune, ignore files and dot entries the walk keeps or lifts.
     pub walk: super::walk_scope::WalkScope,
@@ -190,6 +193,7 @@ impl IngestOptions {
             memory_only: false,
             path,
             workspace: None,
+            home: None,
             exclude: query.exclude.iter().map(ToString::to_string).collect(),
             walk: super::walk_scope::WalkScope::of_query(query),
             keep: octocode_engine::num::saturating_usize(query.keep.get()),

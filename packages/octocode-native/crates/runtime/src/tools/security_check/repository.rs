@@ -3,7 +3,7 @@
 //! thresholds draw from it. Facts, never a verdict; a GitHub that did not
 //! answer leaves the row partial (`sourceFailed`), never clean.
 use super::Net;
-use super::advisories::{self, AdvisoryFuture, AdvisoryRead};
+use super::advisories::{self, AdvisoryFuture, AdvisoryRead, GhsaFuture, GhsaRead};
 use super::answer::typed;
 use super::commit::{CommitFuture, CommitLookup};
 use super::record::Selection;
@@ -107,6 +107,20 @@ pub(crate) trait RepositoryRead: Send + Sync {
         repo: &'a str,
         after: Option<&'a str>,
     ) -> AdvisoryFuture<'a>;
+
+    /// One page of GitHub's global advisory database for `affects`
+    /// (`name@version`) in `ecosystem` (GitHub's name): the first, or the one
+    /// after `after`.
+    fn global_advisories<'a>(
+        &'a self,
+        ecosystem: &'a str,
+        affects: &'a str,
+        after: Option<&'a str>,
+    ) -> AdvisoryFuture<'a>;
+
+    /// One advisory by its GHSA id: the repository's own with `repo`, else
+    /// the one GitHub's global database keeps.
+    fn ghsa<'a>(&'a self, repo: Option<(&'a str, &'a str)>, id: &'a str) -> GhsaFuture<'a>;
 }
 
 /// GitHub's limits on an account name (an Enterprise Managed User login,
@@ -154,6 +168,19 @@ impl RepositoryRead for FailedRepository {
 
     fn advisories<'a>(&'a self, _: &'a str, _: &'a str, _: Option<&'a str>) -> AdvisoryFuture<'a> {
         Box::pin(async move { AdvisoryRead::Failed(self.failure()) })
+    }
+
+    fn global_advisories<'a>(
+        &'a self,
+        _: &'a str,
+        _: &'a str,
+        _: Option<&'a str>,
+    ) -> AdvisoryFuture<'a> {
+        Box::pin(async move { AdvisoryRead::Failed(self.failure()) })
+    }
+
+    fn ghsa<'a>(&'a self, _: Option<(&'a str, &'a str)>, _: &'a str) -> GhsaFuture<'a> {
+        Box::pin(async move { GhsaRead::Failed(self.failure()) })
     }
 }
 
@@ -500,6 +527,25 @@ pub(super) async fn run(
                     typed(&format!("{}/{}", facts.owner, facts.name))
                 )],
             );
+        }
+        osv_part = listed
+            .osv_status
+            .map(|status| json!({"source": "osv", "status": status}));
+        // Each advisory OSV keeps no record of: GitHub's own, read whole with
+        // `repo`. Only asked of a repository GitHub calls public, as OSV hears
+        // the id.
+        if !listed.osv_lacks.is_empty() {
+            let mut with_repo = brief.clone();
+            with_repo.insert(
+                "repo".into(),
+                json!(format!("{}/{}", facts.owner, facts.name)),
+            );
+            let ids = listed
+                .osv_lacks
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>();
+            super::answer::advisory_calls(&mut data, "readWhole", &ids, &with_repo);
         }
         if !listed.osv_failed.is_empty() {
             let why = osv_failure(&listed.osv_failed);

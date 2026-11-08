@@ -343,3 +343,44 @@ fn an_expired_entry_left_by_the_bound_is_never_served() {
         assert!(store.get(&key(&format!("old{index}"), "x")).is_none());
     }
 }
+
+/// The maintenance sweep clears a whole backlog of expired entries in one
+/// scan of the store, under one hold of its lock, and keeps every live entry
+/// (R10-1).
+#[test]
+fn pruning_clears_every_expired_entry_in_one_scan() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = Store::<String>::new(CacheConfig::derived(), Some(dir.path().into()));
+    let backlog = 6 * crate::cache::disk::EXPIRED_PER_SCAN;
+    for index in 0..backlog {
+        store.put_confirmed(
+            key(&format!("old{index}"), "x"),
+            "v".into(),
+            1,
+            volatile(60),
+        );
+        store.put_confirmed(
+            key(&format!("live{index}"), "x"),
+            "v".into(),
+            1,
+            volatile(600),
+        );
+    }
+    age_disk_entries(dir.path(), 120);
+    let scans = crate::cache::disk::SCANS.with(std::cell::Cell::get);
+    Disk::new(dir.path().into()).prune_expired();
+    assert_eq!(
+        crate::cache::disk::SCANS.with(std::cell::Cell::get) - scans,
+        1,
+        "one scan clears the backlog"
+    );
+    assert_eq!(
+        entry_files(dir.path()).len(),
+        backlog,
+        "only live entries stay"
+    );
+    for index in 0..backlog {
+        assert!(store.get(&key(&format!("live{index}"), "x")).is_some());
+        assert!(store.get(&key(&format!("old{index}"), "x")).is_none());
+    }
+}
