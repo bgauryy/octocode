@@ -11,6 +11,8 @@ fn parse(row: &Value) -> Row {
         Input::Sections(row.clone())
     } else if row["operation"] == "models" {
         Input::Models
+    } else if row.get("resources").is_some() {
+        Input::Resources(row["resources"].clone())
     } else if row.get("content").is_some() {
         Input::Judge(Target::Content(row["content"].clone()))
     } else {

@@ -8,22 +8,7 @@ impl Found<'_> {
     /// (`.github`, `.cache`), or a dot file the default excludes match, sits
     /// behind both.
     pub(super) fn skipped_causes(&self) -> Vec<Cause> {
-        let skipped = self.skipped;
-        let excluded = skipped.hidden_excluded
-            || skipped.ignored_excluded
-            || !skipped.generated.is_empty()
-            || !skipped.pruned.is_empty();
-        [
-            (!skipped.ignored.is_empty(), Cause::Ignored),
-            (
-                !skipped.hidden.is_empty() || skipped.ignored_hidden,
-                Cause::Hidden,
-            ),
-            (excluded, Cause::DefaultExcluded),
-        ]
-        .into_iter()
-        .filter_map(|(hit, cause)| hit.then_some(cause))
-        .collect()
+        crate::tools::leads::skipped::skipped_causes(self.skipped)
     }
 
     /// The ignored, default-excluded and hidden paths on the first page, one

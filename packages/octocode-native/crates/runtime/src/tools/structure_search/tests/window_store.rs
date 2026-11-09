@@ -124,7 +124,7 @@ fn a_repeated_whole_listing_reads_its_kept_listing_until_the_scope_changes() {
         let (again, _) = with_window(WINDOW_ROWS, || first_window(&root, row.clone()));
         assert_eq!(listing_walks() - before, 0, "{operation} {extra}: {again}");
         assert_eq!(paths(&again), paths(&first), "{operation} {extra}");
-        assert_eq!(again["snapshot"], first["snapshot"], "{operation} {extra}");
+        assert_eq!(crate::tools::test_support::pinned_snapshot(&again), crate::tools::test_support::pinned_snapshot(&first), "{operation} {extra}");
         std::thread::sleep(std::time::Duration::from_millis(20));
         root.write("d0/f0.rs", "x\n".repeat(90));
         root.write("d9/new.rs", "x\n");
@@ -132,7 +132,7 @@ fn a_repeated_whole_listing_reads_its_kept_listing_until_the_scope_changes() {
         let (changed, _) = with_window(WINDOW_ROWS, || first_window(&root, row.clone()));
         assert_eq!(listing_walks() - before, 1, "{operation} {extra}");
         assert_ne!(
-            changed["snapshot"], first["snapshot"],
+            crate::tools::test_support::pinned_snapshot(&changed), crate::tools::test_support::pinned_snapshot(&first),
             "{operation} {extra}"
         );
     }

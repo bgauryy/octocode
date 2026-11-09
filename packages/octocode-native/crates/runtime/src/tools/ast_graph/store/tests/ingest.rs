@@ -106,14 +106,17 @@ fn ingest_classifies_roles_entries_and_declared_dependencies() {
     assert_eq!(ids(&uses), vec!["src/main.ts"], "{}", uses.value);
 }
 
+/// Minified sources are graphed like any other (B135: no size cut of the
+/// scan's own). A 1.28 MB one-line bundle of 160,000 `var a` declarations
+/// is either graphed whole or declined by a named budget, explicit either
+/// way; a small bundle keeps its declarations and call sites.
 #[test]
 fn admitted_minified_evidence_is_preserved_and_oversize_is_explicit() {
     let dir = fixture();
     let src = dir.0.as_path().join("app/src");
-    // Over the 1 MB parse bound: kept as an `unparsed` file node.
-    let big = format!("!function(){{{}}}();\n", "var a=1;".repeat(160_000));
+    let repeats = 160_000;
+    let big = format!("!function(){{{}}}();\n", "var a=1;".repeat(repeats));
     std::fs::write(src.join("huge.min.js"), &big).expect("huge");
-    // Under the bound, minified source retains declarations and call sites.
     let small = (0..200)
         .map(|i| format!("function a{i}(){{return 1}}var b{i}=a{i}();"))
         .collect::<String>();
@@ -131,10 +134,32 @@ fn admitted_minified_evidence_is_preserved_and_oversize_is_explicit() {
     let deps = ask(dir.0.as_path(), "deps", Some("src/uses.ts"), |_| {});
     let rows = deps.value["rows"].as_array().expect("rows");
     assert!(
-        rows.iter()
-            .any(|r| r["id"] == "src/huge.min.js" && r["via"] == "unparsed-target"),
+        rows.iter().any(|r| r["id"] == "src/huge.min.js"),
         "{}",
         deps.value
+    );
+    let symbols = ask(dir.0.as_path(), "symbols", Some("src/huge.min.js"), |o| {
+        o.limit = Some(1);
+    });
+    let graphed = symbols.value["pagination"]["totalItems"] == repeats;
+    let diagnostics = ask(dir.0.as_path(), "diagnostics", None, |o| {
+        o.limit = Some(100);
+    });
+    let declined = diagnostics.value["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|row| {
+            row["file"] == "src/huge.min.js"
+                && row["message"]
+                    .as_str()
+                    .is_some_and(|message| message.contains("budget"))
+        });
+    assert!(
+        graphed != declined,
+        "graphed whole or declined by a named budget: {} {}",
+        symbols.value,
+        diagnostics.value
     );
     let outline = ask(dir.0.as_path(), "symbols", Some("src/small.min.js"), |_| {});
     assert_eq!(

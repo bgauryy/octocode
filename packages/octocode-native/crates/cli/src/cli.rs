@@ -68,7 +68,9 @@ result as indented key: value lines; a batch heads each row with ## results[N]. 
 Errors: the JSON envelope on stdout with --json, text on stderr otherwise.
 Exits: 0 success, 1 empty, 2 invalid input (including batch rows), 3 not found,
 4 auth required, 5 execution error, 7 rate limited, 130 interrupted.
-A batch exits with its worst row; stdout still carries every row's result.
+A batch exits 2 if any row rejected its input, else its failed rows' code (5 if
+they differ), else 1 only when every row is empty or out of range, else 0;
+stdout still carries every row's result.
 More pages still exit 0: run responsePagination.next, else next.nextPage, until neither remains."#;
 
 /// How a command answers: JSON or text, and whether a pipe chose JSON.

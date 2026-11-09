@@ -165,7 +165,19 @@ impl<'a> WalkAdmission<'a> {
     /// Count one entry the path policy withheld, or a link the walk did
     /// not follow ([`Withheld::record`]).
     pub(crate) fn withhold(&self, path: &Path) {
-        self.note(|skips| skips.withheld.record(path));
+        // The `.git` file a linked worktree (every ghCloneRepo checkout) or a
+        // submodule keeps is git metadata like the `.git` directory, which
+        // the walk prunes: left out, not news in every search of the checkout.
+        let metadata = path != self.root
+            && path.file_name().is_some_and(|name| name == ".git")
+            && path.is_file()
+            && self
+                .prune
+                .as_ref()
+                .is_some_and(|prune| prune.prunes(path, false));
+        if !metadata {
+            self.note(|skips| skips.withheld.record(path));
+        }
     }
 
     /// The verdict on one walked entry: a link is never followed and a
@@ -219,10 +231,18 @@ impl<'a> WalkAdmission<'a> {
 
     /// An entry a walk rule (hidden, ignored) left out, as the skips record
     /// it: its path under the root (a directory's with a trailing `/`) and
-    /// whether the default excludes would leave it out too; `None` for one
-    /// the path policy withholds, which no flag reaches.
+    /// whether the default excludes would leave it out too. One the path
+    /// policy withholds is `None` and recorded as withheld here, as
+    /// [`Self::admit`] records it when no walk rule skips it first: the
+    /// policy is the cause no flag lifts, so it is counted once, by reason,
+    /// and never named among the entries `includeIgnored` or `includeHidden`
+    /// would reach but could not read.
     fn skipped_entry(&self, path: &Path, is_dir: bool) -> Option<(String, bool)> {
-        if !self.permits(path, None) || !self.in_scope(path, is_dir) {
+        if !self.permits(path, None) {
+            self.withhold(path);
+            return None;
+        }
+        if !self.in_scope(path, is_dir) {
             return None;
         }
         let excluded = self.excludes(path, is_dir);

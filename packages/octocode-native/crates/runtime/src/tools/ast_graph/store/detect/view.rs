@@ -207,18 +207,21 @@ impl<'a> View<'a> {
     }
 
     /// Files transitively depending on `file` through runtime imports
-    /// (modules of one Rust module tree excluded, as everywhere in the view).
-    pub(super) fn dependents(&self, file: u32) -> usize {
+    /// (modules of one Rust module tree excluded, as everywhere in the view),
+    /// and the import distance of the farthest one.
+    pub(super) fn dependents(&self, file: u32) -> (usize, u32) {
         let mut seen = BTreeSet::from([file]);
-        let mut queue = VecDeque::from([file]);
-        while let Some(id) = queue.pop_front() {
+        let mut queue = VecDeque::from([(file, 0_u32)]);
+        let mut farthest = 0;
+        while let Some((id, level)) = queue.pop_front() {
+            farthest = farthest.max(level);
             for next in &self.inc[id as usize] {
                 if seen.insert(*next) {
-                    queue.push_back(*next);
+                    queue.push_back((*next, level + 1));
                 }
             }
         }
-        seen.len() - 1
+        (seen.len() - 1, farthest)
     }
 
     /// Node-level forward reachability over every edge kind from `seeds`;

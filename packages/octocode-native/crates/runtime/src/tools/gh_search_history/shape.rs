@@ -251,8 +251,10 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
         v["pagination"]["totalItems"] = json!(total);
     }
     paging.mark_loaded(&mut v["pagination"]);
+    // The count call is the same on every page: offered once, on page 1.
     if paging.listed
         && paging.more
+        && paging.page == 1
         && let Some(count) = leads::count_listed(query)
     {
         v["calls"]["countMatches"] = count;

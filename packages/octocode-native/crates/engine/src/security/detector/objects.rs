@@ -1,7 +1,8 @@
 //! What a text's objects hold, found by walking its nesting once. A Kubernetes
 //! Secret's `kind` and a JSON Web Key's `kty` say what a member of the same object
-//! is, however much lies between them: a walk knows which object a member belongs
-//! to, where a pattern could only bound the distance.
+//! is, however much lies between them, and a Docker client config's `auths` says
+//! what the members of each registry's entry are: a walk knows which object a
+//! member belongs to, where a pattern could only bound the distance.
 //!
 //! The walk is lenient, as the text may be source code, a cut of a document or
 //! prose around one. Unmatched closers are read past, and whatever is still open
@@ -43,6 +44,12 @@ enum Role {
     Private,
     /// `oth`: RFC 7518's further primes, each of its members private.
     OtherPrimes,
+    /// `auths`, in any case: a Docker client config's registries, each mapped
+    /// to its entry.
+    RegistryAuths,
+    /// `auth` (base64 of `user:password`), `password`, `identitytoken`,
+    /// `registrytoken`, in any case: a registry entry's credentials.
+    RegistryCredential,
 }
 
 fn role_of(name: &[u8], quoted: bool) -> Option<Role> {
@@ -53,6 +60,21 @@ fn role_of(name: &[u8], quoted: bool) -> Option<Role> {
         // JSON spells these quoted; `kind: …` in code or prose is no manifest.
         b"kind" if quoted => Some(Role::Kind),
         b"data" | b"stringData" if quoted => Some(Role::SecretValues),
+        // Docker and Podman read their config with Go's `encoding/json`, which
+        // matches member names in any case: `"Auths"` and `"Auth"` log in too.
+        _ if quoted && name.eq_ignore_ascii_case(b"auths") => Some(Role::RegistryAuths),
+        _ if quoted
+            && [
+                &b"auth"[..],
+                b"password",
+                b"identitytoken",
+                b"registrytoken",
+            ]
+            .iter()
+            .any(|credential| name.eq_ignore_ascii_case(credential)) =>
+        {
+            Some(Role::RegistryCredential)
+        }
         _ => None,
     }
 }
@@ -63,6 +85,9 @@ fn role_of(name: &[u8], quoted: bool) -> Option<Role> {
 pub(super) struct Found {
     pub(super) secret_values: Vec<Range<usize>>,
     pub(super) private_members: Vec<Range<usize>>,
+    /// The credentials of a Docker client config's registry entries: they are
+    /// known at once, as the entry's place under `auths` says what it is.
+    pub(super) registry_credentials: Vec<Range<usize>>,
 }
 
 struct Held {
@@ -83,6 +108,8 @@ struct Frame {
     value_of: Option<Role>,
     key_type: bool,
     secret: bool,
+    /// It is one registry's entry: the value of a member of an `auths` object.
+    registry: bool,
 }
 
 impl Frame {
@@ -94,6 +121,7 @@ impl Frame {
             value_of: None,
             key_type: false,
             secret: false,
+            registry: false,
             held_from: 0,
         }
     }
@@ -247,7 +275,9 @@ impl Walk {
     pub(super) fn weight(&self) -> usize {
         self.frames.capacity() * std::mem::size_of::<Frame>()
             + self.held.capacity() * std::mem::size_of::<Held>()
-            + (self.found.secret_values.capacity() + self.found.private_members.capacity())
+            + (self.found.secret_values.capacity()
+                + self.found.private_members.capacity()
+                + self.found.registry_credentials.capacity())
                 * std::mem::size_of::<Range<usize>>()
             + self.carry.capacity()
     }
@@ -343,6 +373,12 @@ impl Walk {
                 Ok(after_colon)
             }
             Some(Role::Private) => self.private_value(piece, after_colon),
+            Some(Role::RegistryCredential) => {
+                if self.frames.last().is_some_and(|top| top.registry) {
+                    self.expected = Some(Role::RegistryCredential);
+                }
+                Ok(after_colon)
+            }
             Some(role) => {
                 self.expected = Some(role);
                 Ok(after_colon)

@@ -28,7 +28,7 @@ const query = (state, instructions = 'Does the evidence contain an explicit null
   operation: 'evaluate', content: state,
   questions: { answer: { type: 'noul', instructions } },
 });
-const verdicts = result => collect(result.json ?? result.sc, value => value.type === 'noul' && typeof value.noul === 'number').map(value => value.noul);
+const verdicts = result => collect(result.json ?? result.sc, value => typeof value.noul === 'number').map(value => value.noul);
 const row = result => (result.json ?? result.sc)?.results?.[0]?.data;
 const errors = result => collect(result.json ?? result.sc, value => typeof value.errorCode === 'string').map(value => value.errorCode);
 const account = key => ({ OCTOCODE_CLASSIFICATION_API: key, OCTOCODE_STORAGE_MODE: 'persistent' });
@@ -80,7 +80,7 @@ try {
   // The row shows the provider's reported usage; the throttled attempt reported none,
   // and `calls` counts both requests the row sent (retries included).
   check('retry usage reports the successful attempt without inventing tokens',
-    canon(row(retried.result)?.usage) === canon({ input_tokens: 10, output_tokens: 2, calls: 2 }),
+    canon(row(retried.result)?.usage) === canon({ inputTokens: 10, outputTokens: 2, calls: 2 }),
     JSON.stringify(row(retried.result)?.usage));
   // Retries are a runtime constant (3); a varied budget is covered by
   // transport::tests::the_retry_budget_bounds_attempts_exactly.

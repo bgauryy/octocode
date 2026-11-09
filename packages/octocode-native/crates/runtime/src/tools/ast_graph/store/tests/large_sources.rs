@@ -81,10 +81,13 @@ fn dense_sources_are_graphed_whole_by_graph_build() {
     );
     let built = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+    let skips = ask(dir.0.as_path(), "diagnostics", None, |options| {
+        options.limit = Some(100);
+    });
     assert_eq!(
         built.value["scan"]["filesSkipped"], 0,
         "{}",
-        built.value["scan"]
+        skips.value["rows"]
     );
     for name in ["generated_0039999", "f13999"] {
         let out = ask(dir.0.as_path(), "find", Some(name), |_| {});

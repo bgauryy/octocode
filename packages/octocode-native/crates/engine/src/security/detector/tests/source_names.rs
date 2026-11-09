@@ -1,7 +1,9 @@
 //! The literal check and the walks of a source that passes in pieces. Every value
 //! is fake.
-use super::super::source_names::{Named, SecretForm, SecretSpans, SourceNames, SourceWalk};
-use super::super::{objects, yaml_secret};
+use super::super::source_names::{
+    Named, Objects, SecretForm, SecretSpans, SourceNames, SourceWalk,
+};
+use super::super::{every_value_spans, objects, yaml_secret};
 
 /// What `text` names, fed in pieces of `size` bytes.
 fn named_in_pieces(path: &str, text: &[u8], size: usize) -> Named {
@@ -24,10 +26,34 @@ fn named(path: &str, text: &str) -> Named {
     whole
 }
 
+/// A source naming every family a walk of objects reads: what a walk is built from.
 const OBJECTS: Named = Named {
-    objects: true,
+    objects: Objects::ALL,
     yaml: false,
 };
+
+const fn only(objects: Objects) -> Named {
+    Named {
+        objects,
+        yaml: false,
+    }
+}
+
+const KEY: Named = only(Objects {
+    secret: false,
+    key: true,
+    registry: false,
+});
+const SECRET: Named = only(Objects {
+    secret: true,
+    key: false,
+    registry: false,
+});
+const REGISTRY: Named = only(Objects {
+    secret: false,
+    key: false,
+    registry: true,
+});
 
 /// Only a spelling a walk would act on counts.
 #[test]
@@ -41,13 +67,17 @@ fn a_name_is_a_structural_spelling() {
         "kty: EC",
         "'kty': EC",
         "kty:",
+    ] {
+        assert_eq!(named("x.json", text), KEY, "{text}");
+    }
+    for text in [
         r#"{"kind":"Secret"}"#,
         r#"{ "kind" : "Secret" }"#,
         "{\"kind\"\n:\n\"Secret\"}",
         r#"{"note":"{\"kind\":\"Secret\"}"}"#,
         r#"{"a":"{\\\"kind\\\":\\\"Secret\\\"}"}"#,
     ] {
-        assert_eq!(named("x.json", text), OBJECTS, "{text}");
+        assert_eq!(named("x.json", text), SECRET, "{text}");
     }
     for text in [
         "QUJDkty0REVG",
@@ -76,11 +106,11 @@ fn a_name_past_any_blanks_still_counts() {
     let blanks = " ".repeat(300);
     assert_eq!(
         named("x.json", &format!("{{\"kty\"{blanks}: \"EC\"}}")),
-        OBJECTS
+        KEY
     );
     assert_eq!(
         named("x.json", &format!("{{\"kind\":{blanks}\"Secret\"}}")),
-        OBJECTS
+        SECRET
     );
 }
 
@@ -88,7 +118,7 @@ fn a_name_past_any_blanks_still_counts() {
 #[test]
 fn a_yaml_kind_counts_at_a_yaml_path() {
     let yaml = Named {
-        objects: false,
+        objects: Objects::default(),
         yaml: true,
     };
     for text in [
@@ -315,4 +345,80 @@ fn a_secret_past_any_size_is_hidden_by_its_object() {
     let scan = sanitize_content(&text, Some("dump.json")).expect("scanned");
     assert!(!scan.content.contains(value));
     assert!(scan.content.contains("ordinary words"));
+}
+
+/// A source records each family it names, and keeps reading for the others: a
+/// cut of it is labelled by the family that named it.
+#[test]
+fn a_source_names_every_family_it_holds() {
+    assert_eq!(named("x.json", r#"{"auths":{}}"#), REGISTRY);
+    assert_eq!(named("x.json", r#"{"Auths":{}}"#), REGISTRY);
+    let kty_then_secret = format!(r#"{{"kty":"EC"}}{}{{"kind":"Secret"}}"#, " ".repeat(500));
+    let both = named("x.json", &kty_then_secret);
+    assert!(both.objects.key && both.objects.secret && !both.objects.registry);
+    assert_eq!(
+        named("x.json", r#"{"kty":"EC","auths":{}}"#).objects.form(),
+        SecretForm::SecretInJson
+    );
+    assert_eq!(
+        named(
+            "x.json",
+            &format!(r#"{{"kty":"EC"}}{}{{"auths":{{}}}}"#, " ".repeat(500))
+        )
+        .objects,
+        Objects {
+            secret: false,
+            key: true,
+            registry: true
+        }
+    );
+}
+
+/// A walk past its budget hides every value of the cut under the pattern of the
+/// family that named it, never another family's.
+#[test]
+fn every_value_is_labelled_by_the_family_that_named_the_source() {
+    let text = "{\"a\":\"v\",\"b\":{\"c\":\"w\"}}";
+    let several = Named {
+        objects: Objects {
+            secret: true,
+            key: true,
+            registry: false,
+        },
+        yaml: false,
+    };
+    for (named, form, pattern) in [
+        (KEY, SecretForm::JsonWebKey, "jwkPrivateMembers"),
+        (REGISTRY, SecretForm::DockerAuths, "dockerRegistryAuth"),
+        (SECRET, SecretForm::SecretInJson, "kubernetesSecretJson"),
+        (several, SecretForm::SecretInJson, "kubernetesSecretJson"),
+    ] {
+        for cut in [false, true] {
+            let spans = every_value_spans(text.as_bytes(), cut, named);
+            assert!(!spans.is_empty(), "{named:?}");
+            for span in &spans {
+                assert_eq!(span.form, form, "{named:?} cut {cut}");
+                assert_eq!(span.form.pattern(), pattern);
+            }
+        }
+    }
+}
+
+/// The same through a walk that gave up: the fallback is the walk's own.
+#[test]
+fn a_walk_that_gave_up_falls_back_to_its_family() {
+    let open = "{\n".repeat(100_000);
+    for (named, form) in [
+        (KEY, SecretForm::JsonWebKey),
+        (REGISTRY, SecretForm::DockerAuths),
+    ] {
+        let text = format!("{{\"a\":\"value\"}}\n{open}");
+        let mut walk = SourceWalk::new(named, 1024);
+        for piece in text.as_bytes().chunks(4096) {
+            walk.feed(piece);
+        }
+        assert_eq!(walk.finish(), SecretSpans::TooMany);
+        let spans = every_value_spans(text.as_bytes(), false, named);
+        assert!(spans.iter().all(|span| span.form == form), "{named:?}");
+    }
 }

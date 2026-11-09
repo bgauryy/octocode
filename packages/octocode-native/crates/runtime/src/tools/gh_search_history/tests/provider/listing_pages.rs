@@ -238,11 +238,55 @@ async fn a_rest_list_page_with_more_counts_rows_so_far_and_offers_a_count() {
                 (&json!("pullRequest"), &json!("o"), &json!("r")),
                 "{data}"
             );
-            assert!(
-                count.pointer("/filters/createdAt/from").is_some(),
-                "{data}"
-            );
+            assert!(count.pointer("/filters/createdAt/from").is_some(), "{data}");
         }
+    }
+}
+
+/// R7: a pull-request listing offers its count call once, on page 1. The
+/// call is the same on every page (the listing's filters searched, one row),
+/// so later pages that still have more do not repeat it.
+#[tokio::test]
+async fn a_pull_request_listing_offers_its_count_call_on_page_one_only() {
+    use wiremock::{
+        Mock, MockServer, ResponseTemplate,
+        matchers::{method, path},
+    };
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/o/r/pulls"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header(
+                    "link",
+                    format!(
+                        "<{}/api/v3/repos/o/r/pulls?per_page=50&page=9>; rel=\"next\"",
+                        server.uri()
+                    )
+                    .as_str(),
+                )
+                .set_body_json(json!([{"number": 4, "title": "Fix", "state": "open",
+                    "user": {"login": "dev"}, "created_at": "2026-01-01T00:00:00Z"}])),
+        )
+        .mount(&server)
+        .await;
+    let counts = |data: &Value| {
+        crate::tools::test_support::checks::find_related_call(data, "ghSearchHistory", |input| {
+            input["queries"][0]["limit"] == 1
+        })
+        .is_some()
+    };
+    let provider = one_shot_provider(&server);
+    for (page, offered) in [(1, true), (2, false), (3, false)] {
+        let query = serde_json::from_value(
+            json!({"operation":"pullRequest","owner":"o","repo":"r","page":page}),
+        )
+        .expect("query");
+        let data = execute(&provider, &query, &default_context(), &Passthrough)
+            .await
+            .expect("listing");
+        assert_eq!(data["pagination"]["hasMore"], true, "page {page}: {data}");
+        assert_eq!(counts(&data), offered, "page {page}: {data}");
     }
 }
 

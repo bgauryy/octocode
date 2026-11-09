@@ -53,7 +53,7 @@ fn copied_match_pages_reject_same_count_source_edits() {
                 assert!(next.is_object(), "{first}");
                 let copied = run_row(&next, &paths, &security);
                 assert_eq!(copied["files"][0]["matches"][0]["value"], "target(\"v1\")");
-                SCANS.evict(first["snapshot"].as_str().expect("snapshot"));
+                SCANS.evict(crate::tools::test_support::pinned_snapshot(&first).as_str().expect("snapshot"));
                 let modified = std::fs::metadata(&file)
                     .expect("metadata")
                     .modified()
@@ -92,7 +92,7 @@ fn same_runtime_match_memo_rejects_restored_mtime_edits() {
                 file.as_path()
             };
             let first = run_row(&query(scope, rule), &paths, &security);
-            let snapshot = first["snapshot"].as_str().expect("snapshot");
+            let snapshot = crate::tools::test_support::pinned_snapshot(&first).as_str().expect("snapshot");
             if cfg!(unix) {
                 assert!(SCANS.holds(snapshot), "settled scan must exercise the memo");
             }
@@ -148,7 +148,7 @@ fn a_test_scoped_match_follows_a_parent_outside_its_scope() {
             let (paths, security) = simple_policy(&root.0);
             let row = json!({"operation":"match","path":root.0.join(scope),"rule":{"pattern":"$E.unwrap()"},"testCode":test_code});
             let first = run_row(&row, &paths, &security);
-            let snapshot = first["snapshot"].as_str().expect("snapshot");
+            let snapshot = crate::tools::test_support::pinned_snapshot(&first).as_str().expect("snapshot");
             let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
             let second = run_row(&next, &paths, &security);
             assert!(
@@ -179,7 +179,7 @@ fn a_match_with_no_test_code_filter_keeps_its_scan() {
             row["testCode"] = json!(test_code);
         }
         let first = run_row(&row, &paths, &security);
-        let snapshot = first["snapshot"].as_str().expect("snapshot");
+        let snapshot = crate::tools::test_support::pinned_snapshot(&first).as_str().expect("snapshot");
         if cfg!(unix) {
             assert!(SCANS.holds(snapshot), "{test_code:?}");
         }

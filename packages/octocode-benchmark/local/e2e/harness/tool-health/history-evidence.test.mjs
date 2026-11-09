@@ -36,3 +36,10 @@ test('inventory duplicates and same-patch references retain their own identities
   const data = { pullRequests: [{ number: 3, files: ['A +1 -0 first.ts', 'A +1 -0 first.ts', { path: 'second.ts', samePatchAs: 'first.ts' }] }] };
   assert.deepEqual(historyFileRows(data), ['3:first.ts:added', '3:first.ts:added', 'shared-patch:3:second.ts:first.ts']);
 });
+
+test('a page that states its repository once on data keys its pull requests as rows that carry it', () => {
+  const pr = (identity) => ({ number: 4, ...identity, headSha: 'head', baseSha: 'base', files: [{ path: 'a.ts', patch: '1\t+x\n' }] });
+  const own = { results: [{ index: 0, data: { pullRequests: [pr({ owner: 'o', repo: 'r' })] } }] };
+  const hoisted = { results: [{ index: 0, data: { owner: 'o', repo: 'r', pullRequests: [pr({})] } }] };
+  assert.deepEqual(historyFileRows(hoisted.results[0].data, hoisted), historyFileRows(own.results[0].data, own));
+});

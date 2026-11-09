@@ -157,7 +157,7 @@ for (const tool of eligible) {
 provenance.stable = !!provenance.native && provenance.native.sha256 === nativeBinaryStamp()?.sha256;
 check('built native artifact unchanged during acceptance', provenance.stable);
 const usage = calls.flatMap(entry => (entry.tool === 'clasify' ? rowsOf(entry.output).map(row => row.data?.usage).filter(Boolean) : []));
-const spend = { calls: usage.length, inputTokens: usage.reduce((sum, row) => sum + (row.input_tokens ?? 0), 0), outputTokens: usage.reduce((sum, row) => sum + (row.output_tokens ?? 0), 0) };
+const spend = { calls: usage.length, inputTokens: usage.reduce((sum, row) => sum + (row.inputTokens ?? 0), 0), outputTokens: usage.reduce((sum, row) => sum + (row.outputTokens ?? 0), 0) };
 process.stdout.write(`NOTE [remote] paid classification: ${spend.calls} calls, ${spend.inputTokens} input and ${spend.outputTokens} output tokens\n`);
 const result = summary();
 writeResults('remote', { ...result, provenance, spend, calls, coverage: [...exercised] });

@@ -40,7 +40,19 @@ async function locationsAndReferences(ctx, surface, checks) {
 
 async function graph(ctx, surface, checks) {
   const callers = await scenario(ctx, 'lspSearch', surface, { label: 'lsp.callers', query: { ...anchor, operation: 'callers', depth: 1 }, checks, responseChars: 600 });
-  const edges = files(callers.data).flatMap(file => file.matches.map(match => [relative(ctx, file.path), match.symbolName ?? '<module>', match.sites.map(site => site.line)]));
+  // A row larger than the page splits into parts; a later part repeats the
+  // call row's identity (file, symbolName, line) and carries the rest of its
+  // sites, so the parts of one caller join into one edge (TOOL_DATA_CONTRACT).
+  const joined = new Map();
+  for (const file of files(callers.data)) {
+    for (const match of file.matches) {
+      const key = JSON.stringify([file.path, match.symbolName ?? '<module>', match.line]);
+      const edge = joined.get(key) ?? [relative(ctx, file.path), match.symbolName ?? '<module>', []];
+      edge[2].push(...match.sites.map(site => site.line));
+      joined.set(key, edge);
+    }
+  }
+  const edges = [...joined.values()];
   equal(checks, `lsp.call-sites.${surface}`, edges, [['code/model.ts', 'calculate', [19, 20]], ['code/use.ts', '<module>', [4]]]);
   const callees = await scenario(ctx, 'lspSearch', surface, { label: 'lsp.callees', query: { ...anchor, line: 18, symbolName: 'calculate', operation: 'callees' }, checks });
   equal(checks, `lsp.callees.${surface}`, files(callees.data).flatMap(file => file.matches.map(match => [match.symbolName, match.line, match.sites.map(site => site.line)])), [['add', 14, [19, 20]]]);

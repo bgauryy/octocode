@@ -1,8 +1,8 @@
 //! Server start (spawn, `initialize`, encoding check) and stop.
 
 use super::server_process::{
-    GRACEFUL_EXIT_TIMEOUT_MS, LSP_SERVER_ENV_ALLOWLIST, cleanup_failed_start, cpu_clock_for,
-    lsp_spawn_program, memory_watchdog_for, wait_for_graceful_exit,
+    GRACEFUL_EXIT_TIMEOUT_MS, LSP_SERVER_ENV_ALLOWLIST, StderrPipe, cleanup_failed_start,
+    cpu_clock_for, lsp_spawn_program, memory_watchdog_for, wait_for_graceful_exit,
 };
 use super::stderr::spawn_stderr_reader;
 use super::{NativeLspClient, REQUEST_TIMEOUT_MS};
@@ -72,10 +72,14 @@ impl NativeLspClient {
                     &self.inner.config,
                 ));
         }
-        let mut child = server_command(&self.inner.config, memory_cap)
-            .await?
-            .spawn()
-            .map_err(|err| Error::new(format!("Failed to start language server: {err}")))?;
+        let mut command = server_command(&self.inner.config, memory_cap).await?;
+        let stderr_pipe = StderrPipe::attach(&mut command).await?;
+        let spawned = command.spawn();
+        // The command holds this process's copy of the server's stderr end
+        // on Windows; the pipe reaches EOF only once it is closed.
+        drop(command);
+        let mut child =
+            spawned.map_err(|err| Error::new(format!("Failed to start language server: {err}")))?;
         let mut memory_cap_guard = match crate::process::Job::attach_async(&child, memory_cap) {
             Ok(guard) => guard,
             Err(error) => {
@@ -83,9 +87,8 @@ impl NativeLspClient {
                 return Err(error);
             }
         };
-        let stderr_task = child
-            .stderr
-            .take()
+        let stderr_task = stderr_pipe
+            .reader(&mut child)
             .map(|stderr| spawn_stderr_reader(stderr, Arc::clone(&self.inner.stderr_lines)));
         let Some(stdout) = child.stdout.take() else {
             cleanup_failed_start(&mut child, Some(&mut memory_cap_guard), stderr_task).await;
@@ -280,8 +283,9 @@ impl NativeLspClient {
 /// Returns `None` when the server omits it (which the LSP spec defines as the
 /// utf-16 default).
 /// The spawn command of the configured server: its validated program and
-/// arguments in the workspace root, piped stdio, the pre-spawn memory cap
-/// where the platform applies one, and a scrubbed environment.
+/// arguments in the workspace root, piped stdin and stdout (stderr is
+/// [`StderrPipe`]'s), the pre-spawn memory cap where the platform applies
+/// one, and a scrubbed environment.
 async fn server_command(
     config: &LspLanguageServerConfig,
     memory_cap: Option<u64>,
@@ -299,7 +303,6 @@ async fn server_command(
         .current_dir(&config.workspace_root)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
         .kill_on_drop(true);
     if let Some(cap_bytes) = memory_cap {
         spawn_limits::apply_pre_spawn_cap(&mut command, cap_bytes);

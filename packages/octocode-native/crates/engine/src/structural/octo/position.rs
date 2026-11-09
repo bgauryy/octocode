@@ -4,6 +4,7 @@ use tree_sitter::Node;
 use super::error::CompileError;
 use super::matching::{CaptureEnv, ExecutionError};
 use super::rule::{CompiledRule, Document, RawRule};
+use crate::num::saturating_u32;
 use crate::structural::language::AgLanguage;
 
 #[derive(Deserialize)]
@@ -125,11 +126,7 @@ impl Ordinal {
         let ancestors = match ancestors {
             Some(chain) => chain,
             None => {
-                owned = super::matching::ancestors_from_root(
-                    document.root,
-                    candidate,
-                    document.deadline,
-                )?;
+                owned = document.tree.ancestors(candidate, document.deadline)?;
                 &owned
             }
         };
@@ -138,7 +135,12 @@ impl Ordinal {
         };
         let mut count = 0i64;
         let mut index = None;
-        for child in parent.named_children(&mut parent.walk()) {
+        for child in document
+            .tree
+            .children(*parent)
+            .into_iter()
+            .filter(Node::is_named)
+        {
             ExecutionError::check(document.deadline)?;
             let checkpoint = captures.checkpoint();
             let eligible = match &self.filter {
@@ -178,11 +180,19 @@ impl Ordinal {
     }
 }
 
+/// A `range` end point in the units every match row prints: a 1-based line
+/// and a 1-based UTF-16 column (an end column is exclusive).
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct SourcePosition {
     line: usize,
     column: Option<usize>,
+}
+
+impl SourcePosition {
+    fn is_one_based(&self) -> bool {
+        self.line >= 1 && self.column.is_none_or(|column| column >= 1)
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -192,8 +202,24 @@ pub(super) struct ExactRange {
     end: SourcePosition,
 }
 
+/// The 1-based UTF-16 column a match row prints for `point`: the same
+/// conversion `line_index_support` applies to every match it emits.
+fn printed_column(point: tree_sitter::Point, document: &Document<'_, '_>) -> usize {
+    let column = document.line_index.row_col_to_utf16_column(
+        document.content,
+        saturating_u32(point.row),
+        saturating_u32(point.column),
+    );
+    usize::try_from(column).map_or(usize::MAX, |column| column.saturating_add(1))
+}
+
 impl ExactRange {
     pub(super) fn validate(&self) -> Result<(), CompileError> {
+        if !(self.start.is_one_based() && self.end.is_one_based()) {
+            return Err(CompileError::rule(
+                "range line and column are 1-based, as match rows print them",
+            ));
+        }
         if self.start.line > self.end.line
             || (self.start.line == self.end.line
                 && self
@@ -209,22 +235,17 @@ impl ExactRange {
     pub(super) fn matches(&self, node: Node<'_>, document: &Document<'_, '_>) -> bool {
         let start = node.start_position();
         let end = node.end_position();
-        if start.row != self.start.line || end.row != self.end.line {
+        if start.row.saturating_add(1) != self.start.line
+            || end.row.saturating_add(1) != self.end.line
+        {
             return false;
         }
-        let column = |row, byte| {
-            document
-                .line_index
-                .line_start(row)
-                .and_then(|offset| document.content.get(offset..byte))
-                .map(|s| s.chars().count())
-        };
         self.start
             .column
-            .is_none_or(|c| column(start.row, node.start_byte()) == Some(c))
+            .is_none_or(|c| printed_column(start, document) == c)
             && self
                 .end
                 .column
-                .is_none_or(|c| column(end.row, node.end_byte()) == Some(c))
+                .is_none_or(|c| printed_column(end, document) == c)
     }
 }

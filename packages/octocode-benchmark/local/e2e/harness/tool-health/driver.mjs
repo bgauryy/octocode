@@ -141,7 +141,7 @@ function leadFailure(item, cls, json) {
 }
 const capturedRows = (item, json) => item.key === 'responsePagination.next' && !json.errorCode && rowsOf(json).length > 0;
 const queryIndexOf = (lead, json) => lead.rowIndex === null ? null : rowsOf(json)[lead.rowIndex]?.index;
-const mappedRows = (rows, json, mapper, context) => rows.flatMap(row => mapper(dataOf(row), json, context));
+const mappedRows = (rows, json, mapper, context, queries) => rows.flatMap(row => mapper(dataOf(row), json, context, queries?.[row.index]));
 function attachChain({ child, item, json, rows, report, fail }) {
   const rowsFn = rows(child.tool, child.key);
   if (child.tool !== item.tool || !rowsFn) return;
@@ -160,15 +160,16 @@ function repeatReason(lead, prior, identity, item) {
 function newChain({ lead, item, json, rowsFn }, fail) {
   const queryIndex = queryIndexOf(lead, json);
   const context = new Map();
-  const first = mappedRows(queryIndex === null ? rowsOf(json) : [rowsOf(json)[lead.rowIndex]], json, rowsFn, context);
+  const queries = item.input?.queries;
+  const first = mappedRows(queryIndex === null ? rowsOf(json) : [rowsOf(json)[lead.rowIndex]], json, rowsFn, context, queries);
   if (new Set(first).size !== first.length) fail('page.exactlyOnce', `${lead.key} first page lists duplicate rows`, item.label);
-  return { key: lead.key, queryIndex, tool: lead.tool, from: item.label, pages: 1, rows: [...first], seenRows: new Set(first), rowsFn, context, ended: false };
+  return { key: lead.key, queryIndex, tool: lead.tool, from: item.label, pages: 1, rows: [...first], seenRows: new Set(first), rowsFn, context, queries, ended: false };
 }
 function recordPage(item, json, cls, fail) {
   const chain = item.chain;
   chain.pages += 1;
   const selected = rowsOf(json).filter(row => chain.queryIndex === null || row.index === chain.queryIndex);
-  const ids = mappedRows(selected, json, chain.rowsFn, chain.context);
+  const ids = mappedRows(selected, json, chain.rowsFn, chain.context, chain.queries);
   const repeated = ids.filter(id => {
     const seen = chain.seenRows.has(id);
     chain.seenRows.add(id);

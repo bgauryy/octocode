@@ -48,3 +48,48 @@ fn callee_split_handles_member_and_path_calls() {
     assert_eq!(split_callee("a.b.c"), ("a.b", "c"));
     assert_eq!(first_segment("utils::inner"), "utils");
 }
+
+/// A minified bundle repeats one name on one line thousands of times. Its
+/// keys stay unique and deterministic (`name@line`, then `.2`, `.3`, … in
+/// order), and making them unique tries each suffix once: linear in the
+/// declarations, never a probe from `.2` per repeat.
+#[test]
+fn same_name_repeats_on_one_line_get_unique_keys_in_linear_work() {
+    let dir = crate::tools::test_support::Fixture::new();
+    dir.write("x.js", "var a=1;\n");
+    let built = crate::tools::ast_graph::graph::build_graph(
+        &crate::tools::ast_graph::graph::GraphScan {
+            root: dir.0.to_path_buf(),
+            ..Default::default()
+        },
+        &crate::tools::test_support::workspace_policy(dir.0.as_path()),
+        &crate::security::ContentSecurity::new(),
+        &crate::execution::cancel::NeverCancel,
+    )
+    .expect("built");
+    let template = built.facts["x.js"].declarations[0].clone();
+    let repeats = 100_000;
+    let declarations = (0..repeats)
+        .map(|index| Declaration {
+            id: format!("decl-{index}"),
+            ..template.clone()
+        })
+        .collect::<Vec<_>>();
+    let ordered = declarations.iter().collect::<Vec<_>>();
+    let by_id = declarations
+        .iter()
+        .map(|decl| (decl.id.as_str(), decl))
+        .collect::<HashMap<_, _>>();
+    KEY_PROBES.with(|probes| probes.set(0));
+    let keys = symbol_keys("x.js", &ordered, &by_id);
+    let probes = KEY_PROBES.with(std::cell::Cell::get);
+    assert!(
+        probes < 2 * repeats,
+        "{probes} suffix probes for {repeats} repeats"
+    );
+    let line = template.line;
+    assert_eq!(keys[0], format!("x.js#a@{line}"));
+    assert_eq!(keys[1], format!("x.js#a@{line}.2"));
+    assert_eq!(keys[repeats - 1], format!("x.js#a@{line}.{repeats}"));
+    assert_eq!(keys.iter().collect::<BTreeSet<_>>().len(), repeats);
+}

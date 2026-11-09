@@ -244,12 +244,14 @@ async fn a_path_attribute_module_stays_in_reach() {
     write(&anchor, "pub(super) fn page_of() {}\n");
     let relocated = root.join("alpha/relocated.rs");
     write(&relocated, "fn r() {\n    super::cursors::page_of();\n}\n");
+    // Not under `build/`: the text scan prunes that name outside a git work
+    // tree, as every local walk does.
     write(
         &root.join("alpha/build.rs"),
-        "#[path = \"build/embed.rs\"]\nmod embed;\nfn main() {}\n",
+        "#[path = \"embedded/embed.rs\"]\nmod embed;\nfn main() {}\n",
     );
     write(
-        &root.join("alpha/build/embed.rs"),
+        &root.join("alpha/embedded/embed.rs"),
         "fn page_of() {}\nfn e() {\n    page_of();\n}\n",
     );
     let scope = checked(&root, "page_of", (&anchor, 0, 14), &[&anchor]).await;
@@ -258,4 +260,101 @@ async fn a_path_attribute_module_stays_in_reach() {
         Some(vec![shown(&relocated)])
     );
     assert_eq!(scope.out_of_reach("page_of").map(|out| out.files), Some(1));
+}
+
+/// A Python parameter is named by keyword from other files
+/// (`scale(value=3)`): a file the answer misses that spells it so stays a
+/// missed site, never out of reach (B230).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_missed_keyword_argument_in_another_file_stays_a_gap() {
+    let (_dir, root) = fixture();
+    let anchor = root.join("lib.py");
+    write(
+        &anchor,
+        "def scale(value, factor=2):\n    return value * factor\n",
+    );
+    let caller = root.join("use.py");
+    write(&caller, "from lib import scale\n\nscale(value=3)\n");
+    let scope = Scope::new(shown(&root), vec!["*.py".into()]);
+    let cancel = crate::execution::cancel::NeverCancel;
+    scope
+        .text_files("value", &workspace_policy(&root), &cancel)
+        .await
+        .expect("scan")
+        .expect("files");
+    scope.anchor_site(&shown(&anchor), 0, 10);
+    scope.answer([shown(&anchor)]);
+    scope
+        .check_code_uses("value", &cancel)
+        .await
+        .expect("checked");
+    assert_eq!(scope.text_only_files("value"), Some(vec![shown(&caller)]));
+    assert!(scope.out_of_reach("value").is_none());
+}
+
+/// A local binding (here a parameter) reaches only its function: the
+/// same-spelled parameters of the other functions in its file are no uses
+/// the answer missed, and no other file can name it, so the row is complete
+/// (D1: `value` at `num.rs:11`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_local_binding_reaches_only_its_scope() {
+    let (_dir, root) = fixture();
+    workspace(&root);
+    write(&root.join("alpha/src/lib.rs"), "mod num;\nmod other;\n");
+    let anchor = root.join("alpha/src/num.rs");
+    write(
+        &anchor,
+        "pub fn saturating_u32(value: impl TryInto<u32>) -> u32 {\n    value.try_into().unwrap_or(u32::MAX)\n}\n\npub fn saturating_i64(value: impl TryInto<i64>) -> i64 {\n    value.try_into().unwrap_or(i64::MAX)\n}\n",
+    );
+    write(
+        &root.join("alpha/src/other.rs"),
+        "fn f(value: u32) -> u32 {\n    value\n}\n",
+    );
+    let scope = checked(&root, "value", (&anchor, 0, 22), &[&anchor]).await;
+    let path = shown(&anchor);
+    scope.answer_lines(false, [(path.as_str(), 0), (path.as_str(), 1)]);
+    assert!(
+        scope.answer_gaps("value").is_empty(),
+        "same-spelled parameters are no gaps"
+    );
+    assert_eq!(scope.text_only_files("value"), Some(Vec::new()));
+    let out = scope.out_of_reach("value").expect("out of reach");
+    assert_eq!(out.files, 1, "{out:?}");
+    assert!(
+        out.bound
+            .contains("local binding reaches only lines 1-3 of"),
+        "{out:?}"
+    );
+    let query = serde_json::from_value(json!({
+        "operation": "references", "path": path, "symbolName": "value", "line": 1
+    }))
+    .expect("query");
+    let mut row = json!({"operation": "references"});
+    crate::tools::lsp_search::failure::flag_answer_gaps(
+        &mut row,
+        &query,
+        &scope,
+        &workspace_policy(&root),
+    );
+    flag_partial(
+        &mut row,
+        &query,
+        crate::tools::lsp_search::server_coverage::BUILD_SCRIPTS_REASON,
+        None,
+        &scope,
+    );
+    assert!(row.get("isPartial").is_none(), "{row}");
+    assert!(row.get("related").is_none(), "{row}");
+    assert_eq!(row["coverage"]["textOnlyFiles"], 0, "{row}");
+
+    // A use the answer leaves out inside the function is still a gap.
+    let scope = checked(&root, "value", (&anchor, 0, 22), &[&anchor]).await;
+    scope.answer_lines(false, [(path.as_str(), 0)]);
+    assert_eq!(
+        *scope.answer_gaps("value"),
+        [answered::Gap {
+            file: path.clone(),
+            lines: vec![1],
+        }]
+    );
 }

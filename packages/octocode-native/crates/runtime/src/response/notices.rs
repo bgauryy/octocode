@@ -4,15 +4,19 @@
 //! notices, and the stage places each remaining
 //! notice on the first row that carries it ([`place`]): in `warnings` on a
 //! row with evidence, in `hints.text` on an empty or failed row (where its
-//! guidance goes). No `notices` key reaches a caller.
+//! guidance goes). No `notices` (or `statedReasons`) key reaches a caller. A warning every row
+//! of a response states is said once for the call
+//! ([`state_shared_warnings`]).
 
 use serde_json::{Map, Value, json};
 
-use crate::response::paging::NOTICES;
+use crate::response::paging::{NOTICES, STATED_REASONS, TIMED_NOTICES};
 
 /// Each coverage reason a row carries, as a notice saying what it means: core
 /// authors the sentence once, and it is sent only when this response has that
-/// gap ([`place`] says it on the first row that carries it).
+/// gap ([`place`] says it on the first row that carries it), and only where
+/// the row's own text does not already state it
+/// ([`crate::response::paging::mark_stated`]).
 pub(crate) fn explain_codes(structured: &mut Value, rows_key: &str) {
     let Some(rows) = structured.get_mut(rows_key).and_then(Value::as_array_mut) else {
         return;
@@ -27,6 +31,11 @@ pub(crate) fn explain_codes(structured: &mut Value, rows_key: &str) {
             .flatten()
             .chain(data.pointer("/coverage/reason"))
             .filter_map(Value::as_str)
+            .filter(|code| {
+                !data[STATED_REASONS]
+                    .as_array()
+                    .is_some_and(|stated| stated.iter().any(|stated| stated == code))
+            })
             .map(str::to_owned)
             .collect::<Vec<_>>();
         for code in codes {
@@ -52,6 +61,7 @@ pub(crate) fn place(structured: &mut Value, rows_key: &str) {
         let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
             continue;
         };
+        data.remove(STATED_REASONS);
         let Some(Value::Array(notices)) = data.remove(NOTICES) else {
             continue;
         };
@@ -68,6 +78,91 @@ pub(crate) fn place(structured: &mut Value, rows_key: &str) {
         } else {
             append(data, "warnings", fresh);
         }
+    }
+}
+
+/// A warning every row of a response states word for word is a fact of the
+/// call, not of one row: it is said once, in the envelope's `warnings`, and
+/// each row keeps the warnings that are its own. Nothing is dropped: a
+/// warning some rows lack stays on the rows that state it, and a one-row
+/// response repeats nothing.
+pub(crate) fn state_shared_warnings(structured: &mut Value, rows_key: &str) {
+    let Some(rows) = structured.get(rows_key).and_then(Value::as_array) else {
+        return;
+    };
+    let warnings = |row: &Value| {
+        row.pointer("/data/warnings")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    };
+    let Some((first, rest)) = rows.split_first().filter(|(_, rest)| !rest.is_empty()) else {
+        return;
+    };
+    let mut shared = warnings(first);
+    for row in rest {
+        let stated = warnings(row);
+        shared.retain(|warning| stated.contains(warning));
+    }
+    if shared.is_empty() {
+        return;
+    }
+    for row in structured[rows_key].as_array_mut().into_iter().flatten() {
+        let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
+            continue;
+        };
+        if let Some(Value::Array(own)) = data.get_mut("warnings") {
+            own.retain(|warning| !shared.contains(warning));
+            if own.is_empty() {
+                data.remove("warnings");
+            }
+        }
+    }
+    if let Some(envelope) = structured.as_object_mut() {
+        append(envelope, "warnings", shared);
+    }
+}
+
+/// A measured wait ([`crate::response::paging::push_timed_notice`]) is a fact
+/// of the call, not of the row that measured it: rows of one call wait on the
+/// same server for different spans, so the stage states each distinct text
+/// once, in the envelope's `warnings`, with the longest span any row measured,
+/// and no row keeps the key.
+pub(crate) fn state_timed_notices(structured: &mut Value, rows_key: &str) {
+    let mut longest: Vec<(String, f64)> = Vec::new();
+    for row in structured
+        .get_mut(rows_key)
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        let Some(Value::Array(timed)) = row
+            .get_mut("data")
+            .and_then(Value::as_object_mut)
+            .and_then(|data| data.remove(TIMED_NOTICES))
+        else {
+            continue;
+        };
+        for notice in timed {
+            let (Some(text), Some(seconds)) = (notice["text"].as_str(), notice["seconds"].as_f64())
+            else {
+                continue;
+            };
+            match longest.iter_mut().find(|(seen, _)| seen == text) {
+                Some((_, kept)) => *kept = kept.max(seconds),
+                None => longest.push((text.to_owned(), seconds)),
+            }
+        }
+    }
+    if longest.is_empty() {
+        return;
+    }
+    if let Some(envelope) = structured.as_object_mut() {
+        let stated = longest
+            .into_iter()
+            .map(|(text, seconds)| json!(text.replacen("{}", &format!("{seconds:.1} s"), 1)))
+            .collect();
+        append(envelope, "warnings", stated);
     }
 }
 

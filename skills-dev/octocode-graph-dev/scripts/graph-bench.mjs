@@ -145,7 +145,7 @@ function ingestRow(ing, r) {
     symbols: r.counts?.nodesByKind?.symbol,
     edges: r.counts?.edges,
     callSites: r.calls?.sites,
-    callLinkRate: r.calls?.sites ? +(r.calls.linked / r.calls.sites).toFixed(3) : null,
+    callLinkRate: r.calls?.sites ? +(r.linkage.linked / r.calls.sites).toFixed(3) : null,
     unresolvedByReason: r.calls?.unresolvedByReason,
     diagnostics: r.diagnostics,
     scan: r.scan,

@@ -171,3 +171,83 @@ fn a_remote_that_ignores_the_blob_filter_is_refused() {
     assert_eq!(error.code, ErrorCode::GitFailed, "{error:?}");
     assert!(error.message.contains("ignored"), "{error:?}");
 }
+
+/// A credential blob that reached the store (a rule set that withheld less
+/// once) is never served again: the next row materializes in a fresh store
+/// generation, and the checkout that uses the old one keeps working.
+#[test]
+fn a_store_holding_a_credential_blob_is_replaced_by_a_new_generation() {
+    let fixture = fixture_with_secrets();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let old = clone_pinned(&fixture, &query(), &context).expect("first clone");
+    let stores = store_dirs(&home);
+    assert_eq!(stores.len(), 1, "{stores:?}");
+    let secret = root.0.join("secret.txt");
+    fs::write(&secret, "TOKEN=hunter2\n").expect("secret");
+    git(
+        &stores[0],
+        &["hash-object", "-w", secret.to_str().expect("utf8")],
+    );
+
+    let sparse = GhCloneRepoQuery {
+        paths: many(&[".env", "README.md"]),
+        ..query()
+    };
+    let next = clone_pinned(&fixture, &sparse, &context).expect("row after the blob arrived");
+    let stores = store_dirs(&home);
+    assert_eq!(stores.len(), 2, "{stores:?}");
+    assert!(stores[1].to_string_lossy().ends_with("__g2.git"));
+    assert!(
+        Path::new(&next.location.local_path)
+            .join("README.md")
+            .is_file()
+    );
+    let old_path = Path::new(&old.location.local_path);
+    assert_eq!(
+        git_output(old_path, &["rev-parse", "HEAD"]).trim(),
+        old.location.commit_sha
+    );
+    assert!(
+        old_path.join("README.md").is_file(),
+        "the old checkout works"
+    );
+}
+
+/// The same store, asked for a commit it does not hold yet: the fetch brings
+/// the commit, the check finds the credential blob an earlier rule set stored,
+/// and the row still succeeds on its first try, in a new generation. Only a
+/// store this call made may blame the remote for the blob.
+#[test]
+fn a_poisoned_store_serves_a_new_commit_from_a_new_generation_on_the_first_try() {
+    let fixture = fixture_with_secrets();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    clone_pinned(&fixture, &query(), &context).expect("first clone");
+    let stores = store_dirs(&home);
+    let secret = root.0.join("secret.txt");
+    fs::write(&secret, "TOKEN=hunter2\n").expect("secret");
+    git(
+        &stores[0],
+        &["hash-object", "-w", secret.to_str().expect("utf8")],
+    );
+    fixture.push_commit("two.txt");
+
+    let next = clone_pinned(&fixture, &query(), &context).expect("a new commit, first try");
+    assert!(
+        Path::new(&next.location.local_path)
+            .join("two.txt")
+            .is_file()
+    );
+    let stores = store_dirs(&home);
+    assert_eq!(stores.len(), 2, "{stores:?}");
+    assert!(stores[1].to_string_lossy().ends_with("__g2.git"));
+}

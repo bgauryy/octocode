@@ -105,6 +105,10 @@ pub(super) fn walk(
             row.insert("depth".into(), json!(level + 1));
             row.insert("from".into(), json!(g.key(id)));
             g.edge_fields(&mut row, edge);
+            // The row stands for its edge: `verify` confirms the edge.
+            if let Some(lead) = g.edge_lead(edge, cancel)? {
+                row.insert("verify".into(), json!([lead]));
+            }
             rows.push(Value::Object(row));
         }
     }

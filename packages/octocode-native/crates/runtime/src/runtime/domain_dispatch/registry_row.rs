@@ -87,10 +87,17 @@ impl DomainDispatcher {
 
 fn registry_row(tool: ToolId, query: &Value, answer: Result<Value, ArtifactError>) -> DomainResult {
     match answer {
-        Ok(data) => dispatch::data_result(data),
+        // A row a retry may complete (securityCheck's partial row when OSV did
+        // not answer) offers the same row again, as a failed one does.
+        Ok(data) => {
+            let mut row = dispatch::data_result(data);
+            dispatch::offer_retry(tool, query, &mut row.data);
+            row
+        }
         Err(error) => {
             let calls = error.calls;
             let mut row = dispatch::provider_failure(
+                tool,
                 error.message,
                 error.code,
                 error.hints,
@@ -103,5 +110,32 @@ fn registry_row(tool: ToolId, query: &Value, answer: Result<Value, ArtifactError
             dispatch::offer_retry(tool, query, &mut row.data);
             row
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// B233 (RV-W3 F4): a securityCheck row that is Ok but partial and
+    /// retryable (OSV did not answer) offers the same row again as
+    /// `next.retry`; a complete row offers none.
+    #[test]
+    fn a_retryable_partial_security_row_offers_next_retry() {
+        let query = json!({"operation":"package","ecosystem":"npm","packageName":"x"});
+        let partial = registry_row(
+            ToolId::SecurityCheck,
+            &query,
+            Ok(json!({"isPartial":true,"retryable":true})),
+        );
+        assert_eq!(partial.data["next"]["retry"]["tool"], "securityCheck");
+        assert_eq!(
+            partial.data["next"]["retry"]["input"]["queries"][0], query,
+            "{}",
+            partial.data
+        );
+        let complete = registry_row(ToolId::SecurityCheck, &query, Ok(json!({"status":"ok"})));
+        assert!(complete.data.get("next").is_none(), "{}", complete.data);
     }
 }

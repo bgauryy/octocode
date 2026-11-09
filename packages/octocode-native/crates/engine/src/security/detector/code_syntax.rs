@@ -33,6 +33,7 @@ pub(crate) struct CodeSyntax<'a> {
     tree: OnceCell<Option<Tree>>,
     lines: OnceCell<Vec<CommentLine>>,
     data: OnceCell<Vec<DataSpan>>,
+    literal_lines: OnceCell<Vec<Range<usize>>>,
 }
 
 /// Where the grammar places the first character of a match.
@@ -53,6 +54,18 @@ struct DataSpan {
     comment: bool,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The parses this thread made ([`CodeSyntax::parse`]).
+    static PARSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many texts this thread has parsed: a test reads what one judgment costs.
+#[cfg(test)]
+pub(super) fn parses() -> usize {
+    PARSES.with(std::cell::Cell::get)
+}
+
 impl<'a> CodeSyntax<'a> {
     /// `None` when `path` names no source-code file: its text is no code.
     pub(super) fn of(path: &str, text: &'a str) -> Option<Self> {
@@ -62,6 +75,7 @@ impl<'a> CodeSyntax<'a> {
             tree: OnceCell::new(),
             lines: OnceCell::new(),
             data: OnceCell::new(),
+            literal_lines: OnceCell::new(),
         })
     }
 
@@ -69,6 +83,8 @@ impl<'a> CodeSyntax<'a> {
     fn parse(&self) -> Option<&Tree> {
         self.tree
             .get_or_init(|| {
+                #[cfg(test)]
+                PARSES.with(|count| count.set(count.get() + 1));
                 crate::signatures::extractor::parse_until_stopped(
                     self.text,
                     &self.grammar.language,
@@ -171,6 +187,107 @@ impl CodeSyntax<'_> {
         }
     }
 
+    /// Whether the grammar reads an escape sequence that starts with the
+    /// backslash at `at`. Unlike [`CodeSyntax::escapes_at`] this fails toward
+    /// no escape: without a parse, in a raw string or a comment, and for a
+    /// backslash inside another escape (`\\"`) it is `false`, so a caller
+    /// reads the escape's character only where the source has one.
+    pub(super) fn escape_starts_at(&self, at: usize) -> bool {
+        self.parse()
+            .and_then(|tree| tree.root_node().descendant_for_byte_range(at, at + 1))
+            .is_some_and(|node| node.start_byte() == at && node.kind().contains("escape"))
+    }
+
+    /// The lines of text the string literals hold that a rule anchored at a
+    /// line's start and end does not reach, each up to where it ends: the
+    /// literal's first line from its opening delimiter
+    /// (`let s = "password = …";`), each line after an escaped line break
+    /// (`"a=1\npassword = …"`), and the last line of a literal over several
+    /// lines, which ends at the closer (`password = …";`). Each runs to the
+    /// next line break, escaped or not, or the closer. The other lines of a
+    /// literal start and end as lines do. Only a
+    /// line with a key that holds a credential word and an operator after it
+    /// is listed ([`names_a_credential_word`]). None without a parse: there
+    /// the whole text is text already ([`Place::Text`]).
+    #[cfg_attr(
+        octocode_clippy_ratchet,
+        expect(
+            clippy::string_slice,
+            reason = "offsets are node bounds, ASCII delimiters and line breaks: char boundaries of the text"
+        )
+    )]
+    pub(super) fn literal_lines(&self) -> &[Range<usize>] {
+        self.literal_lines.get_or_init(|| {
+            // No parse for a text no literal can hold such a line in.
+            if !has_quoted_credential_assignment(self.text) {
+                return Vec::new();
+            }
+            let Some(tree) = self.parse() else {
+                return Vec::new();
+            };
+            let data = self.data.get_or_init(|| data_ranges(tree.root_node()));
+            let mut lines = Vec::new();
+            for span in data.iter().filter(|span| !span.comment) {
+                let literal = &self.text[span.range.clone()];
+                let (Some(open), Some(close)) = (opener_len(literal), closer_len(literal)) else {
+                    continue;
+                };
+                let body = span.range.start + open..span.range.end - close;
+                if body.is_empty() {
+                    continue;
+                }
+                let mut starts = vec![body.start];
+                // The last line of a literal over several lines starts at a
+                // line's start but ends at the closer, with code after it.
+                if let Some(at) = self.text[body.clone()].rfind(['\n', '\r']) {
+                    starts.push(body.start + at + 1);
+                }
+                if let Some(node) = tree
+                    .root_node()
+                    .descendant_for_byte_range(span.range.start, span.range.end)
+                {
+                    line_break_escapes(self.text, node, &mut starts);
+                }
+                for start in starts {
+                    let end = self.literal_line_end(start, body.end);
+                    let line = &self.text[start..end];
+                    if names_a_credential_word(line) && line.contains(['=', ':']) {
+                        lines.push(start..end);
+                    }
+                }
+            }
+            lines.sort_by_key(|line| line.start);
+            lines
+        })
+    }
+
+    /// Where the literal line from `start` ends, at most at `end` (the
+    /// literal's closer): its first line break, or the first backslash that
+    /// escapes one ([`is_line_break_escape`]). Any other escape is the
+    /// line's, its escaped character too (`\\n` is a backslash and an `n`).
+    #[cfg_attr(
+        octocode_clippy_ratchet,
+        expect(
+            clippy::string_slice,
+            reason = "`at` is an ASCII backslash's offset, a char boundary of the text"
+        )
+    )]
+    fn literal_line_end(&self, start: usize, end: usize) -> usize {
+        let bytes = self.text.as_bytes();
+        let mut at = start;
+        while at < end {
+            match bytes[at] {
+                b'\n' | b'\r' => return at,
+                b'\\' if self.escape_starts_at(at) && is_line_break_escape(&self.text[at..]) => {
+                    return at;
+                }
+                b'\\' => at += 2,
+                _ => at += 1,
+            }
+        }
+        end
+    }
+
     /// Where the string literal the grammar places byte `at` in closes: the
     /// start of its closing delimiter, or of the last piece's when literals
     /// are joined into one value (`"Fake0" + "Moo9Zed"`, `"a" "b"`: only blanks
@@ -247,6 +364,53 @@ fn closer_len(literal: &str) -> Option<usize> {
     let quotes = if run == 2 { 1 } else { run };
     let closer = format!("{}{}", quote.to_string().repeat(quotes), "#".repeat(hashes));
     (body.len() >= 2 * closer.len() && body.ends_with(&closer)).then_some(closer.len())
+}
+
+/// The length of the delimiter that opens `literal`, the whole text of a
+/// string node: its prefix (`r`, `b`, `f`, `@`, `$`), a raw string's `#`s and
+/// its quotes, as many as [`closer_len`] closes it with. `None` when it has no
+/// closer.
+fn opener_len(literal: &str) -> Option<usize> {
+    let body =
+        literal.trim_start_matches(|c: char| c.is_ascii_alphanumeric() || matches!(c, '@' | '$'));
+    Some(literal.len() - body.len() + closer_len(literal)?)
+}
+
+/// Whether `text` starts with an escape of a line break (`\n`, `\r`).
+fn is_line_break_escape(text: &str) -> bool {
+    text.starts_with("\\n") || text.starts_with("\\r")
+}
+
+/// Appends where each line after an escaped line break under `node` starts:
+/// the end of each escape node that writes one ([`is_line_break_escape`]). A
+/// walk with a cursor, each node visited once.
+fn line_break_escapes(text: &str, node: Node<'_>, starts: &mut Vec<usize>) {
+    let mut cursor = node.walk();
+    loop {
+        let current = cursor.node();
+        let escape = current.kind().contains("escape");
+        if escape
+            && text
+                .get(current.start_byte()..)
+                .is_some_and(is_line_break_escape)
+        {
+            starts.push(current.start_byte() + 2);
+        }
+        if !escape && cursor.goto_first_child() {
+            continue;
+        }
+        loop {
+            if cursor.node() == node {
+                return;
+            }
+            if cursor.goto_next_sibling() {
+                break;
+            }
+            if !cursor.goto_parent() {
+                return;
+            }
+        }
+    }
 }
 
 /// The byte ranges of the outermost nodes under `root` that hold data
@@ -658,6 +822,21 @@ fn lexical_comment_lines(text: &str, grammar: &LanguageEntry, lines: &mut Vec<Co
 /// nothing parses for it.
 pub(super) fn has_credential_assignment(text: &str, grammar: &LanguageEntry) -> bool {
     credential_assignment_scan(text, grammar).0
+}
+
+/// Whether some line of `text` that holds a quote also holds a key with a
+/// credential word in it and then `=` or `:` ([`line_assigns_credential`]):
+/// a string literal may hold a config line that no line anchor reaches
+/// ([`CodeSyntax::literal_lines`]), after its opening quote or, on a
+/// literal's last line, before its closer. Each line is read once.
+pub(super) fn has_quoted_credential_assignment(text: &str) -> bool {
+    let words: Vec<&str> = crate::security::patterns::CREDENTIAL_WORDS
+        .split('|')
+        .collect();
+    let mut visited = 0;
+    text.lines().any(|line| {
+        line.contains(['"', '\'', '`']) && line_assigns_credential(line, 0, &words, &mut visited)
+    })
 }
 
 /// [`has_credential_assignment`] and the bytes its key-character scan looked

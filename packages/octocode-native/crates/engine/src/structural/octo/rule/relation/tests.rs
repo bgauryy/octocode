@@ -1,17 +1,16 @@
-//! The cursor walk behind `has` visits exactly the nodes, in exactly the
-//! order, of the node-list walk it replaced, for every field and stop.
+//! The walk behind `has` visits exactly the nodes, in exactly the order, of
+//! a node-list walk over the file's own tree, for every field and stop.
 
 use std::num::NonZeroU16;
 
 use tree_sitter::Node;
 
-use super::{Visit, walk_descendants};
 use crate::signatures::languages;
 use crate::structural::language::AgLanguage;
-use crate::structural::octo::matching::{named_children, parse_tree};
+use crate::structural::octo::expanded::{ExpandedTree, Visit};
+use crate::structural::octo::matching::{Deadline, named_children, parse_tree};
 
-/// The walk the cursor replaced: a stack filled with each visited node's
-/// collected named children.
+/// A stack filled with each visited node's collected named children.
 fn listed_walk<'t>(
     candidate: Node<'t>,
     field: Option<NonZeroU16>,
@@ -97,11 +96,19 @@ const FIXTURES: &[(&str, &str)] = &[
 ];
 
 #[test]
-fn cursor_walk_visits_what_the_node_list_walk_visited() {
+fn the_has_walk_visits_what_a_node_list_walk_visits() {
     for (ext, source) in FIXTURES {
         let lang = AgLanguage::new(languages::find_entry(ext).expect("fixture language"));
         let language = lang.tree_sitter_language();
         let tree = parse_tree(&language, source).expect("fixture parses");
+        let expanded = ExpandedTree::new(
+            tree.root_node(),
+            source,
+            &language,
+            None,
+            Deadline::UNBOUNDED,
+        )
+        .expect("no deadline");
         let fields = std::iter::once(None).chain(
             (1..=language.field_count())
                 .filter_map(|id| NonZeroU16::new(u16::try_from(id).expect("field id fits u16")))
@@ -118,11 +125,18 @@ fn cursor_walk_visits_what_the_node_list_walk_visited() {
                         policy(node)
                     });
                     let mut walked = Vec::new();
-                    let walked_found = walk_descendants(candidate, field, |node| {
-                        walked.push(node.id());
-                        Ok(policy(node))
-                    })
-                    .expect("no deadline");
+                    let walked_found = expanded
+                        .walk_below(
+                            candidate,
+                            vec![candidate],
+                            field,
+                            Deadline::UNBOUNDED,
+                            |node, _| {
+                                walked.push(node.id());
+                                Ok(policy(node))
+                            },
+                        )
+                        .expect("no deadline");
                     assert_eq!(
                         (walked_found, &walked),
                         (listed_found, &listed),
@@ -157,28 +171,31 @@ fn accepted_keeping(
     source: &str,
     kept: bool,
 ) -> (Vec<(usize, usize, u16)>, usize, usize) {
-    use crate::structural::octo::matching::{CaptureEnv, Deadline, visit_named_expanding_macros};
+    use crate::structural::octo::matching::CaptureEnv;
     use crate::structural::octo::rule::{CompiledRule, Document, EVALUATIONS, RelationMemo};
     let lang = AgLanguage::new(languages::find_entry(ext).expect("language"));
     let language = lang.tree_sitter_language();
     let tree = parse_tree(&language, source).expect("parses");
     let rule = CompiledRule::new(&lang, rule).expect("rule");
     let line_index = crate::text::LineIndex::tree_sitter(source);
-    let memo = RelationMemo::of(tree.root_node());
-    let before = EVALUATIONS.with(std::cell::Cell::get);
-    let mut found = Vec::new();
-    visit_named_expanding_macros(
+    let memo = RelationMemo::default();
+    let expanded = ExpandedTree::new(
         tree.root_node(),
         source,
         &language,
         None,
         Deadline::UNBOUNDED,
-        &mut |candidate, ancestors, root, _| {
+    )
+    .expect("no deadline");
+    let before = EVALUATIONS.with(std::cell::Cell::get);
+    let mut found = Vec::new();
+    expanded
+        .visit_nodes(Deadline::UNBOUNDED, &mut |candidate, ancestors, _| {
             let document = Document {
                 memo: kept.then_some(&memo),
                 content: source,
                 deadline: Deadline::UNBOUNDED,
-                root,
+                tree: &expanded,
                 line_index: &line_index,
             };
             let mut captures = CaptureEnv::default();
@@ -193,9 +210,8 @@ fn accepted_keeping(
                 ));
             }
             Ok(())
-        },
-    )
-    .expect("no deadline");
+        })
+        .expect("no deadline");
     let evaluations = EVALUATIONS.with(std::cell::Cell::get) - before;
     (found, evaluations, memo.answers.borrow().len())
 }

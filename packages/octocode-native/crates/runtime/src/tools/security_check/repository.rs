@@ -121,6 +121,10 @@ pub(crate) trait RepositoryRead: Send + Sync {
     /// One advisory by its GHSA id: the repository's own with `repo`, else
     /// the one GitHub's global database keeps.
     fn ghsa<'a>(&'a self, repo: Option<(&'a str, &'a str)>, id: &'a str) -> GhsaFuture<'a>;
+
+    /// A request this read built carried no credential: GitHub answered
+    /// with public data only, under the anonymous rate limit.
+    fn anonymous(&self) -> bool;
 }
 
 /// GitHub's limits on an account name (an Enterprise Managed User login,
@@ -181,6 +185,11 @@ impl RepositoryRead for FailedRepository {
 
     fn ghsa<'a>(&'a self, _: Option<(&'a str, &'a str)>, _: &'a str) -> GhsaFuture<'a> {
         Box::pin(async move { GhsaRead::Failed(self.failure()) })
+    }
+
+    /// Nothing was asked, with or without a token.
+    fn anonymous(&self) -> bool {
+        false
     }
 }
 
@@ -456,14 +465,6 @@ pub(super) fn github_source(read: &RepoRead, status: &str, today: &str) -> Value
     source
 }
 
-/// The thresholds a row's cautions used.
-pub(super) fn policy_block(contract: &SecurityContract) -> Value {
-    json!({
-        "lowTractionStars": contract.policy.low_traction_stars,
-        "unmaintainedAfterDays": contract.policy.unmaintained_after_days,
-    })
-}
-
 /// Why OSV's part of the advisories is partial: the ids it did not answer for,
 /// and what it said of the first.
 fn osv_failure(failed: &[(String, ArtifactError)]) -> String {
@@ -549,11 +550,8 @@ pub(super) async fn run(
         }
         if !listed.osv_failed.is_empty() {
             let why = osv_failure(&listed.osv_failed);
-            paging::mark_partial(
-                &mut data,
-                PartialReason::SourceFailed,
-                std::slice::from_ref(&why),
-            );
+            // `osv_part` below states why on the OSV entry.
+            super::source::source_failed(&mut data, &[]);
             osv_part = Some(json!({
                 "source": "osv",
                 "status": "partial",
@@ -563,12 +561,20 @@ pub(super) async fn run(
         }
         let (rows, stopped) = (listed.advisories, advisories::failure(&listed.end));
         let read = rows.len();
+        // A withdrawn advisory is listed with its date and never counted.
+        let withdrawn = rows
+            .iter()
+            .filter(|row| row.get("withdrawn").is_some())
+            .count();
         if read > 0 || stopped.is_none() {
-            let clause = if stopped.is_none() {
-                advisories::count_clause(read)
+            let mut clause = if stopped.is_none() {
+                advisories::count_clause(read - withdrawn)
             } else {
-                advisories::partial_count_clause(read)
+                advisories::partial_count_clause(read - withdrawn)
             };
+            if withdrawn > 0 {
+                clause.push_str(&format!("; {withdrawn} withdrawn, not counted"));
+            }
             data["answer"] = json!(format!(
                 "{} {clause}.",
                 data["answer"].as_str().unwrap_or_default()
@@ -589,24 +595,17 @@ pub(super) async fn run(
     if !fired.is_empty() {
         data["cautions"] = Value::Array(fired);
     }
-    if !matches!(read, RepoRead::Failed(_)) {
-        data["policy"] = policy_block(contract);
-    }
     data["sources"] = json!([source]);
     if let (Some(part), Some(sources)) = (osv_part, data["sources"].as_array_mut()) {
         sources.push(part);
     }
     if let Some(failure) = &failure {
-        paging::mark_partial(
-            &mut data,
-            PartialReason::SourceFailed,
-            std::slice::from_ref(&failure.why),
-        );
+        super::source::source_failed(&mut data, std::slice::from_ref(&failure.why));
     }
     if from.is_some() {
         // The facts and cautions were stated by the page that began the walk.
         if let Some(row) = data.as_object_mut() {
-            for repeated in ["repository", "cautions", "policy"] {
+            for repeated in ["repository", "cautions"] {
                 row.remove(repeated);
             }
         }

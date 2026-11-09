@@ -202,28 +202,13 @@ fn summed_source_correspondence_never_refuses_a_scope() {
     assert_eq!(built.facts.len(), 6);
 }
 
-/// A file whose source correspondence alone outgrows the build's memory
-/// budget is a scan gap, like a file past the byte limit: the build keeps
-/// every other file and names the skipped one with the limit, its use and
-/// its ceiling, never failing the scan or dropping it silently.
-#[test]
-fn a_file_past_the_build_budget_in_source_correspondence_is_a_named_scan_gap() {
-    let dir = crate::tools::test_support::Fixture::new();
-    let dense = (0..14_000)
-        .map(|id| {
-            format!(
-                "export function f{id}(a, b) {{ return f{}(b, a); }}\n",
-                id + 1
-            )
-        })
-        .collect::<String>();
-    // Over the source's own size (so it is read) and every small file's
-    // charge, under what the dense file's correspondence needs.
-    let build_bytes = 8 * dense.len();
-    dir.write("dense.ts", dense);
-    dir.write("small.ts", "export const small = () => 1;\n");
-    let root = dir.0.as_path();
-    let built = super::build_graph(
+use super::peaks::{dense_source, file_peak};
+
+fn build_within(
+    root: &std::path::Path,
+    build_bytes: usize,
+) -> Result<super::BuiltGraph, crate::response::result::ToolError> {
+    super::build_graph(
         &super::GraphScan {
             root: root.to_path_buf(),
             limits: crate::tools::ast_graph::limits::Limits {
@@ -236,8 +221,23 @@ fn a_file_past_the_build_budget_in_source_correspondence_is_a_named_scan_gap() {
         &crate::security::ContentSecurity::new(),
         &crate::execution::cancel::NeverCancel,
     )
-    .expect("one declined file never fails the build");
-    assert!(built.facts.contains_key("small.ts"));
+}
+
+/// A file whose source correspondence alone outgrows the build's memory
+/// budget, with nothing else kept, is a scan gap like a file past the byte
+/// limit: named with the limit, its ceiling and its use, never failing the
+/// scan or dropping it silently.
+#[test]
+fn a_file_past_the_build_budget_in_source_correspondence_is_a_named_scan_gap() {
+    let dir = crate::tools::test_support::Fixture::new();
+    let dense = dense_source("f", 2_000);
+    let peak = file_peak(&dense, "dense.ts");
+    // It enters the build's memory; its correspondence does not fit.
+    let build_bytes = peak.in_flight() * 3 / 4;
+    assert!(build_bytes > peak.entry);
+    dir.write("dense.ts", dense);
+    let built =
+        build_within(dir.0.as_path(), build_bytes).expect("a declined file never fails the build");
     assert!(!built.facts.contains_key("dense.ts"));
     let skip = built
         .diagnostics
@@ -252,6 +252,84 @@ fn a_file_past_the_build_budget_in_source_correspondence_is_a_named_scan_gap() {
         "{}",
         skip.message
     );
+}
+
+/// RV-GHOME R3-1: whether a file is skipped depends on the file alone. A
+/// dense file whose correspondence no build of this budget could hold is a
+/// named skip beside kept files, wherever it falls in the walk and however
+/// the workers interleave; the small files are kept on every run.
+#[test]
+fn a_file_no_build_could_hold_is_skipped_beside_kept_files_in_any_order() {
+    let dense = dense_source("f", 2_000);
+    let build_bytes = file_peak(&dense, "dense.ts").in_flight() * 3 / 4;
+    for (dense_name, smalls) in [("a_dense.ts", 4), ("z_dense.ts", 4), ("m_dense.ts", 16)] {
+        for _ in 0..3 {
+            let dir = crate::tools::test_support::Fixture::new();
+            dir.write(dense_name, &dense);
+            for index in 0..smalls {
+                let name = if index % 2 == 0 { "b" } else { "y" };
+                dir.write(
+                    &format!("{name}{index}.ts"),
+                    format!("export const s{index} = () => {index};\n"),
+                );
+            }
+            let built = build_within(dir.0.as_path(), build_bytes)
+                .unwrap_or_else(|error| panic!("{dense_name}: {}", error.message));
+            assert!(!built.facts.contains_key(dense_name), "{dense_name}");
+            assert_eq!(
+                built.facts.len(),
+                smalls,
+                "{dense_name}: {:?}",
+                built.diagnostics
+            );
+            assert!(
+                built
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| diagnostic.file == dense_name
+                        && diagnostic
+                            .message
+                            .contains("graph.scan.sourceBudgetExceeded")),
+                "{dense_name}: {:?}",
+                built.diagnostics
+            );
+        }
+    }
+}
+
+/// RV-GHOME F-B: the files in flight share the build's memory. Two dense
+/// files whose peaks fit the budget one at a time, but not one beside the
+/// other kept, are never both held, however many workers run them: the
+/// scope is refused (`scopeTooBroad`). With room for both, both are kept.
+#[test]
+fn files_in_flight_share_the_build_budget() {
+    let dir = crate::tools::test_support::Fixture::new();
+    let (a, b) = (dense_source("a", 2_000), dense_source("b", 2_000));
+    let (peak_a, peak_b) = (file_peak(&a, "a.ts"), file_peak(&b, "b.ts"));
+    let kept = peak_a.kept.max(peak_b.kept);
+    let in_flight = peak_a.in_flight().max(peak_b.in_flight());
+    dir.write("a.ts", a);
+    dir.write("b.ts", b);
+    let root = dir.0.as_path();
+    // Room for either file alone, kept or in flight; not for one in flight
+    // beside the other kept.
+    let tight = kept.max(in_flight) + in_flight / 2;
+    assert!(tight < kept + in_flight);
+    let refused = build_within(root, tight).expect_err("not both at once");
+    assert_eq!(
+        refused.code,
+        octocode_contract_types::ErrorCode::ScopeTooBroad,
+        "{}",
+        refused.message
+    );
+    assert!(
+        refused.message.contains("build budget")
+            && refused.message.contains("could not be held beside"),
+        "{}",
+        refused.message
+    );
+    let built = build_within(root, 3 * (kept + in_flight)).expect("room for both");
+    assert_eq!(built.facts.len(), 2, "{:?}", built.diagnostics);
 }
 
 /// Linking keeps the argument slots projection reads and counts the rest.

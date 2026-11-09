@@ -7,7 +7,9 @@ fn empty_linkage() -> Value {
 }
 
 fn with_scope(mut coverage: Value, scope: &str) -> Value {
-    let warning = coverage["warning"].as_str().unwrap_or("");
+    let Some(warning) = coverage["warning"].as_str() else {
+        return coverage;
+    };
     coverage["warning"] = json!(format!("{scope} {warning}").trim());
     coverage
 }
@@ -53,11 +55,6 @@ impl Graph {
         if extraction != "supported" {
             coverage["warning"] = json!(format!(
                 "Call extraction is {extraction} for this language in the selected snapshot. Empty call results do not establish absence; another language's linkage is not applicable."
-            ));
-        } else {
-            coverage["warning"] = json!(format!(
-                "Syntax linkage measures only extracted call sites selected by the stated population. It is not semantic recall. {} Inspect unresolved sites and confirm identity with lspSearch.",
-                super::super::manifest::VALUE_REFERENCES
             ));
         }
         coverage
@@ -111,13 +108,44 @@ impl Graph {
                 .cloned()
                 .unwrap_or_else(empty_linkage)
         };
-        json!({
+        let mut coverage = json!({
             "language":"", "linkage":linkage, "basis":"syntax", "callExtraction":extraction,
-            "warning":format!(
-                "{scope} Recorded call extraction: supported=[{}]; unsupported=[{}]; notAssessed=[{}]. Linkage describes only extracted syntax call sites, not semantic recall. {values} Empty results do not establish absence where extraction is unsupported or not assessed.",
-                supported.join(", "), unsupported.join(", "), unassessed.join(", "),
-                values = super::super::manifest::VALUE_REFERENCES,
-            ),
-        })
+        });
+        if extraction != "supported" {
+            coverage["warning"] = json!(format!(
+                "{scope} Recorded call extraction: supported=[{}]; unsupported=[{}]; notAssessed=[{}]. Linkage describes only extracted syntax call sites, not semantic recall. Empty results do not establish absence where extraction is unsupported or not assessed.",
+                supported.join(", "),
+                unsupported.join(", "),
+                unassessed.join(", "),
+            ));
+        }
+        coverage
+    }
+}
+
+impl Graph {
+    /// The argument-slot coverage of the selected snapshot, limited to the
+    /// languages of `sources` (a snapshot-wide answer names `sources` empty
+    /// and keeps every language): other languages concern none of the rows.
+    pub(super) fn argument_coverage(&self, sources: &[u32]) -> Value {
+        let mut coverage = self.manifest["argumentCoverage"].clone();
+        if sources.is_empty() {
+            return coverage;
+        }
+        let languages = sources
+            .iter()
+            .map(|source| {
+                let file = self.t.nodes[*source as usize].file;
+                if file == NONE {
+                    ""
+                } else {
+                    self.t.str(self.t.nodes[file as usize].detail)
+                }
+            })
+            .collect::<BTreeSet<_>>();
+        if let Some(by_language) = coverage["byLanguage"].as_object_mut() {
+            by_language.retain(|language, _| languages.contains(language.as_str()));
+        }
+        coverage
     }
 }

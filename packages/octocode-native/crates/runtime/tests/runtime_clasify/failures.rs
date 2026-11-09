@@ -266,3 +266,32 @@ async fn a_refused_credential_under_clasify_context_fails_the_row_with_its_error
     );
     runtime.close().await;
 }
+
+/// B232: no models list exists locally to refuse an unknown model before
+/// the call, so the provider's refusal (HTTP 400) names the model the row
+/// asked for. An evaluate row is not a selection: its error row offers no
+/// `next.unfiltered` read.
+#[tokio::test]
+async fn a_provider_refusal_names_the_requested_model_and_offers_no_unfiltered_lead() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(400))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let mut row = content_row();
+    row["model"] = json!("jev-nonexistent-9");
+    let out = clasify(&runtime, vec![row]).await;
+    let data = &out["results"][0]["data"];
+    assert_eq!(data["errorCode"], "classificationProviderError", "{out}");
+    assert!(
+        data["error"]
+            .as_str()
+            .is_some_and(|message| message.contains("jev-nonexistent-9")),
+        "{out}"
+    );
+    assert!(data["next"].get("unfiltered").is_none(), "{out}");
+    runtime.close().await;
+}

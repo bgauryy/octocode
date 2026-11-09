@@ -200,8 +200,16 @@ async function shapeCheck(entry) {
   check(`${entry.id}.result`, expected, expected ? '' : `${codes.join(',')}: ${errors.join(' ').slice(0, 120)}`);
   const invalid = run.outputs.map(output => validateOutput(entry.tool, output)).find(Boolean);
   check(`${entry.id}.contract`, !invalid, invalid ?? '');
-  fieldsCarried(entry, recording, run.outputs.map(outputText).join('\n'));
+  fieldsCarried(entry, recording, [...run.outputs, requestedIdentity(entry.query)].map(outputText).join('\n'));
 }
+
+/**
+ * A page states a repository once (`data.owner`, `data.repo`, which `outputText` reads) or, when
+ * the query scoped the call to one repository, leaves it to the request that named it. Either way
+ * the identity is stated for every row, so a row's own copy of it need not appear.
+ */
+const requestedIdentity = query => (typeof query?.owner === 'string' && typeof query?.repo === 'string'
+  ? { owner: query.owner, repo: query.repo } : {});
 
 /** Each field the provider sent reached `text`, or is declared `unread`. */
 function fieldsCarried(entry, recording, text) {

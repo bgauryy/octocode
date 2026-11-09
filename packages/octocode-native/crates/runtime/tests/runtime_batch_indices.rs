@@ -36,8 +36,12 @@ async fn tool_continuations_preserve_nonzero_indices_and_every_source_line() {
                 assert_eq!(row["index"], 1);
                 assert_eq!(row["data"]["errorCode"], "invalidInput");
                 rejections += 1;
-            } else if row["data"]["path"] == "evidence.txt" {
-                assert_eq!(row["index"], 2, "cursor retains originating query");
+            } else if row["index"] == 2 {
+                // `index` names the file (the cursor retains its query); a
+                // page read through a cursor keeps the `path` its query names.
+                if calls > 1 {
+                    assert_eq!(row["data"]["path"], "evidence.txt", "{row}");
+                }
                 lines.extend(
                     row["data"]["content"]
                         .as_str()

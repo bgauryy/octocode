@@ -1,24 +1,31 @@
 use super::*;
 use octocode_contract_types::{LocalFetchQuery, ReadProgressUnit};
 
+/// A default line page fills its budget as its lines render (`x\n` is three
+/// characters of JSON), and the walk resumes to the last line exactly once.
 #[test]
-fn default_line_pages_fill_the_byte_window_and_resume_completely() {
+fn default_line_pages_fill_the_rendered_budget_and_resume_completely() {
     let source = "x\n".repeat(12_000);
     let mut query: LocalFetchQuery = serde_json::from_value(serde_json::json!({
         "path":"short.txt"
     }))
     .expect("query");
+    let rendered = octocode_engine::json_size::string_body_units("x\n");
     let first = page_within(&source, &query, LineBudget::bytes(LINE_PAGE_BYTES), None);
-    assert_eq!(first.pagination.length, LINE_PAGE_BYTES / 2);
-    assert_eq!(first.text, source[..LINE_PAGE_BYTES]);
-    query = continuation(&query, &first.pagination)
-        .expect("continuation")
-        .continue_window
-        .expect("window")
-        .query;
-    let last = page_within(&source, &query, LineBudget::bytes(LINE_PAGE_BYTES), None);
-    assert_eq!(first.text + &last.text, source);
-    assert!(!last.pagination.has_more);
+    assert_eq!(first.pagination.length, LINE_PAGE_BYTES / rendered);
+    assert_eq!(first.text, source[..2 * (LINE_PAGE_BYTES / rendered)]);
+    let mut walked = first.text.clone();
+    let mut page = first;
+    while page.pagination.has_more {
+        query = continuation(&query, &page.pagination)
+            .expect("continuation")
+            .continue_window
+            .expect("window")
+            .query;
+        page = page_within(&source, &query, LineBudget::bytes(LINE_PAGE_BYTES), None);
+        walked.push_str(&page.text);
+    }
+    assert_eq!(walked, source);
 }
 
 /// A line longer than the configured line page but shorter than the
@@ -50,6 +57,41 @@ fn a_line_over_the_configured_page_resumes_line_paging_after_it() {
     }
     assert_eq!(walked, content);
     assert_eq!(units.last(), Some(&ReadProgressUnit::Lines), "{units:?}");
+}
+
+/// F1: a line within the byte budget that renders over the page's fill (its
+/// quotes escape to two characters each) is a line page of its own, and the
+/// short lines after it stay line pages: the walk never falls to byte pages
+/// for lines a line page holds, and reaches every byte once.
+#[test]
+fn a_line_rendered_over_the_fill_is_a_one_line_page_and_paging_stays_in_lines() {
+    let wide = format!("{}\n", "\"".repeat(150));
+    // Past one default byte page, so a byte page it fell to is not the last.
+    let content = format!("{wide}{wide}{}", "a\n".repeat(3_000));
+    let budget = LineBudget {
+        fill: 100,
+        line: 200,
+        gutter: 4,
+    };
+    assert!(budget.rendered(&wide) > budget.fill && wide.len() <= budget.line);
+    let mut query: LocalFetchQuery =
+        serde_json::from_value(serde_json::json!({"path":"quotes.txt"})).expect("query");
+    let mut walked = String::new();
+    let mut units = Vec::new();
+    loop {
+        let page = page_within(&content, &query, budget, None);
+        units.push(page.pagination.unit);
+        walked.push_str(&page.text);
+        let Some(next) = continuation(&query, &page.pagination) else {
+            break;
+        };
+        query = next.continue_window.expect("next").query;
+    }
+    assert_eq!(walked, content);
+    assert!(
+        units.iter().all(|unit| *unit == ReadProgressUnit::Lines),
+        "{units:?}"
+    );
 }
 
 #[test]

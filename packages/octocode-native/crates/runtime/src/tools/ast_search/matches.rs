@@ -172,6 +172,17 @@ fn run_match_under(
     let mut scope = scope;
     let grammars = compile_in_grammars(q, &scope, &scan);
     scope.inferred = infer_grammar(q, &scope, &scan, &grammars, paths, cancel)?;
+    // The parsers the walk read files with, in a grammar the query compiles in.
+    scope.compiled = scan
+        .census
+        .keys()
+        .filter(|extension| {
+            grammars
+                .iter()
+                .any(|grammar| grammar.outcome.is_ok() && grammar.extensions.contains(*extension))
+        })
+        .cloned()
+        .collect();
     let inapplicable = Inapplicable::of(q, &scan);
     let snapshot = match_snapshot_under(build, q, &scope, &scan);
     // A page number without a snapshot asks for that page of a fresh scan;
@@ -201,6 +212,9 @@ fn run_match_under(
     // the response names rows.
     grouped.recovered = grouped
         .recovered
+        .respelled(|shown| row_paths.delivered(shown));
+    grouped.recovered_bodies = grouped
+        .recovered_bodies
         .respelled(|shown| row_paths.delivered(shown));
     let page = stream::stream_page(q, &grouped.groups, budget);
     let rows = page_rows::PageRows {
@@ -268,7 +282,7 @@ fn run_match_under(
         crate::response::result::add_hints(&mut out, [hint]);
     }
     if exact_miss_scope {
-        explain_miss(q, &scope, paths, cancel, &mut out);
+        explain_miss(q, (&scope, &*scan), paths, cancel, &mut out);
     }
     if let Some(qualified) = qualified {
         qualified.attach(&mut out);
@@ -315,16 +329,19 @@ fn show_page(
     Ok(())
 }
 
-/// What an empty whole scan can say of its rule, the first that applies: its
-/// relation read only a neighbor, its text is another kind's, or its pattern
-/// differs from the declarations the scope holds.
+/// What an empty whole scan can say of its rule: the literal tokens of its
+/// patterns that look like metavariables (a note beside the rest, never in
+/// place of it), then the first that applies of: its relation read only a
+/// neighbor, its text is another kind's, or its pattern differs from the
+/// declarations the scope holds.
 fn explain_miss(
     q: MatchQuery<'_>,
-    scope: &types::Scope,
+    (scope, scan): (&types::Scope, &types::Scan),
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
     out: &mut Value,
 ) {
+    literal_miss::attach_literal_miss(q, scope, scan, cancel, out);
     if relation_miss::attach_relation_miss(q, scope, paths, cancel, out)
         || kind_miss::attach_kind_miss(q, scope, paths, cancel, out)
     {
@@ -345,6 +362,7 @@ mod gaps;
 mod groups;
 mod key_rows;
 mod kind_miss;
+mod literal_miss;
 mod memo;
 mod page_rows;
 mod qualified;
@@ -365,6 +383,8 @@ pub use query::MatchQuery;
 mod interrupted_rescan_tests;
 #[cfg(test)]
 mod language_glob_tests;
+#[cfg(test)]
+mod literal_miss_tests;
 #[cfg(test)]
 mod memo_tests;
 

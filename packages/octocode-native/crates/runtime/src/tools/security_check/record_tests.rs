@@ -222,17 +222,19 @@ fn a_withdrawn_record_keeps_the_field() {
     assert_eq!(item.withdrawn.as_deref(), Some("2024-01-01T00:00:00Z"));
 }
 
-/// A withdrawal stated by either record of one advisory counts, whichever
-/// record leads the group.
+/// A withdrawal stated by either record of one id (OSV's and GitHub's twin of
+/// it) is that record's, whichever leads the group; the advisory is withdrawn
+/// when every record in it is.
 #[test]
-fn a_withdrawal_stated_by_either_twin_is_the_groups() {
+fn a_withdrawal_stated_by_either_record_of_an_id_is_the_advisorys() {
     let osv = row(
-        json!({"id": "GO-2024-1", "aliases": ["GHSA-aaaa-bbbb-cccc"]}),
+        json!({"id": "GHSA-aaaa-bbbb-cccc", "aliases": ["CVE-2024-1"]}),
         ArtifactType::Npm,
         "a",
     );
     let github = row(
-        json!({"id": "GHSA-aaaa-bbbb-cccc", "withdrawn": "2024-01-01T00:00:00Z"}),
+        json!({"id": "GHSA-aaaa-bbbb-cccc", "aliases": ["CVE-2024-1"],
+            "withdrawn": "2024-01-01T00:00:00Z"}),
         ArtifactType::Npm,
         "a",
     );
@@ -243,7 +245,46 @@ fn a_withdrawal_stated_by_either_twin_is_the_groups() {
             "{:?}",
             group.map(|record| &record.id)
         );
+        assert!(Standing::of(&group).is_withdrawn());
     }
+}
+
+/// A live record keeps its advisory live whichever record leads the group: a
+/// withdrawn record of another id (a duplicate sharing its CVE) is stated
+/// apart, and the row is the live record's.
+#[test]
+fn a_live_record_keeps_the_advisory_live_beside_a_withdrawn_duplicate() {
+    let live = row(
+        json!({"id": "GHSA-live-yyyy-zzzz", "aliases": ["CVE-2024-1"]}),
+        ArtifactType::Npm,
+        "a",
+    );
+    let duplicate = row(
+        json!({"id": "PYSEC-2024-1", "aliases": ["CVE-2024-1"],
+            "withdrawn": "2024-01-01T00:00:00Z"}),
+        ArtifactType::Npm,
+        "a",
+    );
+    for group in [[&live, &duplicate], [&duplicate, &live]] {
+        let standing = Standing::of(&group);
+        assert!(!standing.is_withdrawn());
+        assert_eq!(standing.live.len(), 1);
+        assert_eq!(
+            standing.withdrawn,
+            [("PYSEC-2024-1", "2024-01-01T00:00:00Z")]
+        );
+        let brief = group_brief(&group);
+        assert_eq!(brief["id"], "GHSA-live-yyyy-zzzz", "{brief}");
+        assert!(brief.get("withdrawn").is_none(), "{brief}");
+        assert_eq!(brief["aliases"], json!(["PYSEC-2024-1"]), "{brief}");
+    }
+    // Every record withdrawn: the advisory is.
+    let also = row(
+        json!({"id": "GHSA-live-yyyy-zzzz", "withdrawn": "2024-02-01T00:00:00Z"}),
+        ArtifactType::Npm,
+        "a",
+    );
+    assert!(Standing::of(&[&also, &duplicate]).is_withdrawn());
 }
 
 /// A brief row leads with what decides an upgrade and names none of the record's

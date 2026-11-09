@@ -203,6 +203,80 @@ fn scala_comment_and_string_immunity() {
     );
 }
 
+/// A name the pattern spells is compared by its text, even when the
+/// candidate's name node holds a token: Scala reads a soft keyword used as a
+/// member (`extension`) as an `identifier` wrapping the keyword token, so the
+/// pattern's `sort`, a leaf, must not match it as an empty list of parts.
+#[cfg(feature = "tree-sitter-scala")]
+#[test]
+fn scala_member_call_matches_only_the_spelled_name() {
+    let src = "object Paths {\n  def ext(p: String) = PathIO.extension(p)\n  def all(p: String) = PathIO.listFiles(p)\n}\n";
+    assert!(
+        run_pattern(src, "scala", "$O.sort($X)").is_empty(),
+        "`$O.sort($X)` must not match `PathIO.extension(p)`"
+    );
+    // The soft keyword still matches where the pattern spells it.
+    let matches = run_pattern(src, "scala", "$O.extension($X)");
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].text, "PathIO.extension(p)");
+    assert_eq!(matches[0].metavars["O"], ["PathIO"]);
+    assert_eq!(matches[0].metavars["X"], ["p"]);
+    // metals `Digest.scala:89`: no `sort` anywhere in the source.
+    let digest = "object Digest {\n  def digestFile(path: AbsolutePath): Boolean = {\n    val ext = PathIO.extension(path.toNIO)\n    Set(\"sbt\", \"scala\")(ext)\n  }\n}\n";
+    assert!(run_pattern(digest, "scala", "$O.sort($X)").is_empty());
+}
+
+#[cfg(feature = "tree-sitter-scala")]
+#[test]
+fn scala_member_call_pattern_still_matches_its_call() {
+    let src =
+        "object M {\n  def f(xs: Buf) = xs.sort(f)\n  def g(p: String) = PathIO.extension(p)\n}\n";
+    let matches = run_pattern(src, "scala", "$O.sort($X)");
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].text, "xs.sort(f)");
+    assert_eq!(matches[0].metavars["O"], ["xs"]);
+    assert_eq!(matches[0].metavars["X"], ["f"]);
+}
+
+/// An over-rejection check, not a guard of the wrapped-name defect: these
+/// grammars spell these names as plain leaves, so this passes with or
+/// without the leaf-text rule. It holds that the rule still lets a spelled
+/// name or literal match its own text, and only it.
+#[test]
+fn spelled_leaves_match_their_own_text_in_other_grammars() {
+    for (ext, src) in [
+        ("ts", "xs.sort(f);\nxs.extension(f);\nsort(1);\nsort(2);\n"),
+        (
+            "rs",
+            "fn t() { xs.sort(f); xs.extension(f); sort(1); sort(2); }\n",
+        ),
+        ("py", "xs.sort(f)\nxs.extension(f)\nsort(1)\nsort(2)\n"),
+    ] {
+        let calls = run_pattern(src, ext, "$O.sort($X)");
+        assert_eq!(calls.len(), 1, "{ext}");
+        assert_eq!(calls[0].text, "xs.sort(f)", "{ext}");
+        let literal = run_pattern(src, ext, "sort(1)");
+        assert_eq!(literal.len(), 1, "{ext}");
+        assert_eq!(literal[0].text, "sort(1)", "{ext}");
+    }
+}
+
+/// C# reads a contextual keyword used as a name (`var`, `from`) as an
+/// `identifier` over the keyword token, the shape Scala gives `extension`:
+/// a spelled name matches only its own text there too.
+#[cfg(feature = "tree-sitter-c-sharp")]
+#[test]
+fn csharp_contextual_keyword_names_match_only_the_spelled_name() {
+    let calls = run_pattern("x.var(y); x.from(y); xs.sort(f);", "cs", "$O.sort($X)");
+    let texts =
+        |found: &[StructuralMatch]| found.iter().map(|m| m.text.clone()).collect::<Vec<_>>();
+    assert_eq!(calls.len(), 1, "{:?}", texts(&calls));
+    assert_eq!(calls[0].text, "xs.sort(f)");
+    let literal = run_pattern("var(1); from(1); sort(1);", "cs", "sort(1)");
+    assert_eq!(literal.len(), 1, "{:?}", texts(&literal));
+    assert_eq!(literal[0].text, "sort(1)");
+}
+
 #[cfg(feature = "tree-sitter-scala")]
 #[test]
 fn scala_extensions_are_supported() {

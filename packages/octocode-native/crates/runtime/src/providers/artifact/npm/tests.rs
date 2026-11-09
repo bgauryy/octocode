@@ -440,3 +440,83 @@ async fn a_missing_repository_found_by_the_release_tag_path_names_the_successor(
     assert_eq!(item.repository_status, Some(RepositoryStatus::Missing));
     assert_eq!(item.successor_repository.as_deref(), Some("zod-next/zod"));
 }
+
+/// ALL-TOOLS-C D7: an older version's manifest carries no upload record
+/// (`_npmOperationalInternal`), so its publish date comes from the full
+/// packument's `time[<version>]`, which npm keeps for every version. A
+/// manifest that dates itself reads nothing more.
+#[tokio::test]
+async fn an_old_version_is_dated_from_the_packument_time() {
+    let mut old = manifest("1.2.0", false);
+    old.as_object_mut()
+        .expect("manifest")
+        .remove("_npmOperationalInternal");
+    let http = routes(vec![
+        ("/zod/1.2.0", JSON, old),
+        (
+            "/zod",
+            JSON,
+            json!({"name": "zod", "versions": {"1.2.0": {"name": "zod"}},
+                "time": {"created": "2015-01-01T00:00:00.000Z",
+                    "1.2.0": "2015-08-24T13:56:27.000Z"}}),
+        ),
+    ]);
+    let page = lookup(
+        &http,
+        json!({"operation":"resolve","packageName": "zod", "version": "1.2.0"}),
+    )
+    .await
+    .expect("lookup");
+    assert_eq!(
+        page.artifacts[0].published_at.as_deref(),
+        Some("2015-08-24")
+    );
+    let dated = routes(vec![]);
+    let page = lookup(
+        &dated,
+        json!({"operation":"resolve","packageName": "zod", "version": "3.22.0"}),
+    )
+    .await
+    .expect("lookup");
+    assert_eq!(
+        page.artifacts[0].published_at.as_deref(),
+        Some("2026-09-13")
+    );
+    assert!(
+        !dated
+            .seen()
+            .iter()
+            .any(|seen| seen.accept == JSON && seen.url.path() == "/zod"),
+        "a manifest that dates itself reads no packument"
+    );
+}
+
+/// B222: a full packument that cannot be read leaves an old version undated,
+/// and the row says so, since a missing `publishedAt` is then no evidence
+/// that npm records no date. A cancelled read fails the lookup.
+#[tokio::test]
+async fn an_unread_packument_date_is_disclosed_on_the_row() {
+    let mut old = manifest("1.2.0", false);
+    old.as_object_mut()
+        .expect("manifest")
+        .remove("_npmOperationalInternal");
+    let resolve = json!({"operation":"resolve","packageName": "zod", "version": "1.2.0"});
+    let limited = routes(vec![("/zod/1.2.0", JSON, old.clone())]).status("/zod", 429, json!({}));
+    let page = lookup(&limited, resolve.clone())
+        .await
+        .expect("a rate-limited date read keeps the row");
+    let item = &page.artifacts[0];
+    assert_eq!(item.published_at, None);
+    assert!(
+        item.disclosures.iter().any(|said| said.contains("zod 1.2.0")
+            && said.contains("publish date")
+            && said.contains("packument")),
+        "{:?}",
+        item.disclosures
+    );
+    let cancelled = routes(vec![("/zod/1.2.0", JSON, old)]).fails("/zod", ErrorCode::Cancelled);
+    let error = lookup(&cancelled, resolve)
+        .await
+        .expect_err("a cancelled date read fails the lookup");
+    assert_eq!(error.code, ErrorCode::Cancelled);
+}

@@ -184,7 +184,7 @@ pub(crate) fn repository_not_found_message(owner: &str, repo: &str) -> String {
 /// one recovery for it: `findRepository`, the [`repository_search`] for its
 /// name, and, when the `owner` is known, `findRepository2`, that
 /// [`owner_listing`] (a misspelled repository is found there, a misspelled
-/// owner by the name). [`repository_search_hint`] labels them.
+/// owner by the name). [`REPOSITORY_SEARCH_HINT`] labels them.
 pub(crate) fn repository_recovery(owner: Option<&str>, repo: &str) -> Value {
     let mut calls = json!({ "findRepository": repository_search(repo) });
     if let Some(owner) = owner {
@@ -194,28 +194,20 @@ pub(crate) fn repository_recovery(owner: Option<&str>, repo: &str) -> Value {
 }
 
 /// The failure of a read whose repository did not resolve: its message,
-/// its [`repository_recovery`] leads and the [`repository_search_hint`]
+/// its [`repository_recovery`] leads and the [`REPOSITORY_SEARCH_HINT`]
 /// that labels them.
 pub(crate) fn repository_failure(error: ProviderError, owner: &str, repo: &str) -> GhFailure {
     let mut failure = GhFailure::new(error, repository_not_found_message(owner, repo))
-        .hint(repository_search_hint(Some(owner), repo));
+        .hint(REPOSITORY_SEARCH_HINT.to_owned());
     failure.calls = Some(Box::new(repository_recovery(Some(owner), repo)));
     failure
 }
 
-/// The hint beside [`repository_recovery`]: the name search lists
-/// repositories named like `repo` under any owner, not the one asked for,
-/// so its rows are candidates whose owner the caller confirms.
-pub(crate) fn repository_search_hint(owner: Option<&str>, repo: &str) -> String {
-    match owner {
-        Some(owner) => format!(
-            "The related[] ghSearchRepo calls list repositories named like `{repo}` under any owner (confirm the owner before using one) and the repositories `{owner}` holds."
-        ),
-        None => format!(
-            "The related[] ghSearchRepo call lists repositories named like `{repo}` under any owner: confirm the owner before using one."
-        ),
-    }
-}
+/// The hint beside [`repository_recovery`]: the related[] calls say what
+/// they list; the one fact they do not is that the name search's rows sit
+/// under any owner, so each is a candidate whose owner the caller confirms.
+pub(crate) const REPOSITORY_SEARCH_HINT: &str =
+    "Confirm the owner before using a related[] repository.";
 
 /// The error for an owner-wide search that found no such login. It names the
 /// login; the caller adds the spelling hint only where one helps.

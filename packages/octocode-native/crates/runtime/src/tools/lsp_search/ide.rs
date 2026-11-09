@@ -12,7 +12,7 @@
 //! to give: the rung does not apply where one would, so no editor is asked
 //! about code the server rung would refuse to open.
 //!
-//! - [`lock`]: lock files, trust and the choice among live editors
+//! - [`lock`] (shared, `tools/editor_lock`): lock files, trust and the choice among live editors
 //! - [`client`]: the authenticated HTTP call
 //! - [`ops`]: the operations asked of the bridge and shaped as server answers
 //! - [`hierarchy`]: call and type hierarchies over the shared walk
@@ -21,11 +21,11 @@ use super::level::Level;
 use super::{LspExecutionConfig, LspSearchQuery, Op, anchor, locations, lsp_search_query, receipt};
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
+use crate::tools::editor_lock as lock;
 use serde_json::{Value, json};
 
 mod client;
 mod hierarchy;
-mod lock;
 mod ops;
 mod snippets;
 #[cfg(test)]
@@ -102,18 +102,13 @@ impl Request<'_> {
         let Ok((workspace, _)) = super::resolve_workspace(query, path, paths) else {
             return Ok(None);
         };
-        if execution_config
-            .discovery()
-            .for_one_request()
-            .opens_fetched_code(path, &workspace)
-        {
-            return Ok(None);
-        }
-        let lock = match lock::discover(home, std::path::Path::new(path), lock::Hints::of_process) {
-            lock::Discovery::Absent => return Ok(None),
-            lock::Discovery::Refused(reason) => return Err(Fault::Fallback(reason)),
-            lock::Discovery::Found(lock) => lock,
-        };
+        let discovery = execution_config.discovery().for_one_request();
+        let lock =
+            match lock::editor_lock(&discovery, home, path, &workspace, lock::Hints::of_process) {
+                lock::Discovery::Absent => return Ok(None),
+                lock::Discovery::Refused(reason) => return Err(Fault::Fallback(reason)),
+                lock::Discovery::Found(lock) => lock,
+            };
         let bridge = Bridge::of(&lock, ends);
         let Ok(uri) = octocode_engine::lsp::uri::path_to_uri(path) else {
             return Ok(None);

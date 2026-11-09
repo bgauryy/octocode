@@ -30,6 +30,7 @@ mod replacement;
 mod reuse;
 mod rows;
 mod sparse;
+mod store_access;
 mod withheld;
 
 fn api_github_endpoint() -> GitHubEndpoint {
@@ -223,6 +224,53 @@ impl Fixture {
             .trim()
             .to_owned()
     }
+
+    /// A further commit on `main` that adds `name`, pushed to the origin.
+    fn push_commit(&self, name: &str) -> String {
+        fs::write(self.work.join(name), format!("{name}\n")).expect("write");
+        git(&self.work, &["add", name]);
+        git(&self.work, &["commit", "-m", name]);
+        git(&self.work, &["push", "origin", "main"]);
+        git_output(&self.work, &["rev-parse", "HEAD"])
+            .trim()
+            .to_owned()
+    }
+}
+
+/// The shared object stores a home holds, one directory per repository
+/// generation.
+fn store_dirs(home: &Path) -> Vec<PathBuf> {
+    let mut stores = Vec::new();
+    for owner in fs::read_dir(storage::store_root(home))
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        for store in fs::read_dir(owner.path()).into_iter().flatten().flatten() {
+            stores.push(store.path());
+        }
+    }
+    stores.sort();
+    stores
+}
+
+/// How many git steps whose label contains `label` the runner has run.
+fn steps(runner: &RewriteRunner, label: &str) -> usize {
+    runner
+        .seen
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .iter()
+        .filter(|call| call.contains(label))
+        .count()
+}
+
+/// Commits of history behind `HEAD` in the checkout at `path`.
+fn history(path: &str) -> usize {
+    git_output(Path::new(path), &["rev-list", "--count", "HEAD"])
+        .trim()
+        .parse()
+        .expect("count")
 }
 
 fn git(directory: &Path, args: &[&str]) {

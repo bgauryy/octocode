@@ -3,6 +3,16 @@
 
 use super::*;
 
+/// A policy whose workspace is `/repo`, the root the fake rows live in.
+fn repo_paths() -> crate::policy::path::PathPolicy {
+    use crate::policy::path::{PathPolicy, PathPolicyConfig};
+    PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some("/repo".into()),
+        ..PathPolicyConfig::default()
+    })
+    .expect("path policy")
+}
+
 #[test]
 fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
     // Nothing expanded and the provider failed: surface the error.
@@ -22,16 +32,17 @@ fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
     )
     .expect("partial expansion keeps what was found");
     let mut row = items_payload(&q, "callers", serde_json::json!(items), TEST_BUDGET);
-    mark_partial_expansion(&mut row, &q, &failures);
+    mark_partial_expansion(&mut row, &q, &failures, &repo_paths());
     assert_eq!(row["isPartial"], true);
     assert_eq!(
         row["partialReasons"],
         serde_json::json!(["callHierarchyExpansionFailed"])
     );
     assert!(
-        row["warnings"][0]
+        row["expansionFailures"][0]
             .as_str()
-            .is_some_and(|w| w.contains("deeper level"))
+            .is_some_and(|w| w.contains("deeper level")),
+        "{row}"
     );
     let retry = crate::tools::test_support::checks::related_call(&row, "lspSearch", |_| true);
     assert_eq!(
@@ -48,15 +59,13 @@ fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
         .collect::<Vec<_>>();
     failures.extend((0..4).map(|_| expansion_error("LSP error: timeout")));
     let mut row = items_payload(&q, "callers", serde_json::json!(items), TEST_BUDGET);
-    mark_partial_expansion(&mut row, &q, &failures);
-    let warnings = row["warnings"].as_array().cloned().unwrap_or_default();
-    assert_eq!(warnings.len(), 1, "{warnings:?}");
-    assert!(
-        warnings[0].as_str().is_some_and(|w| w.contains("10 items")
-            && w.contains("7 distinct")
-            && w.contains("4×")
-            && w.contains("timeout")),
-        "{warnings:?}"
+    mark_partial_expansion(&mut row, &q, &failures, &repo_paths());
+    // The failures are stated once, in `expansionFailures`: no warning
+    // restates them and no glossary line explains the reason again.
+    assert!(row.get("warnings").is_none(), "{row}");
+    assert_eq!(
+        row["statedReasons"],
+        serde_json::json!(["callHierarchyExpansionFailed"])
     );
     let listed = row["expansionFailures"]
         .as_array()
@@ -82,6 +91,29 @@ fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
     );
 }
 
+/// A failure naming a file inside the workspace spells it as rows do.
+#[test]
+fn expansion_failures_name_workspace_files_relative() {
+    let q = query(serde_json::json!({
+        "operation": "subtypes", "path": "file:///repo/a.ts", "symbolName": "Base", "line": 1
+    }));
+    let failure = LspFailure::unestablished(
+        "No definition establishes the heritage relation at /repo/src/a.ts:4:10",
+    );
+    let mut row = items_payload(
+        &q,
+        "subtypes",
+        serde_json::json!([{"name": "Child"}]),
+        TEST_BUDGET,
+    );
+    mark_partial_expansion(&mut row, &q, &[failure], &repo_paths());
+    let listed = row["expansionFailures"].to_string();
+    assert!(
+        listed.contains("src/a.ts:4:10") && !listed.contains("/repo/"),
+        "{listed}"
+    );
+}
+
 /// An optional reattempt only when asking again can change the answer: a relation
 /// the walk could not establish is partial without it; a timed-out request
 /// beside it keeps it.
@@ -93,7 +125,12 @@ fn a_partial_walk_retries_only_a_transient_failure() {
     let items = serde_json::json!([{"name": "Child"}]);
     let unestablished = LspFailure::unestablished("No resolved immediate heritage");
     let mut row = items_payload(&q, "subtypes", items.clone(), TEST_BUDGET);
-    mark_partial_expansion(&mut row, &q, std::slice::from_ref(&unestablished));
+    mark_partial_expansion(
+        &mut row,
+        &q,
+        std::slice::from_ref(&unestablished),
+        &repo_paths(),
+    );
     assert_eq!(row["isPartial"], true, "{row}");
     assert_eq!(
         row["partialReasons"],
@@ -109,7 +146,7 @@ fn a_partial_walk_retries_only_a_transient_failure() {
 
     let timeout = LspFailure::overdue("no answer in time".into());
     let mut row = items_payload(&q, "subtypes", items, TEST_BUDGET);
-    mark_partial_expansion(&mut row, &q, &[unestablished, timeout]);
+    mark_partial_expansion(&mut row, &q, &[unestablished, timeout], &repo_paths());
     let retry = crate::tools::test_support::checks::related_call(&row, "lspSearch", |_| true);
     assert_eq!(
         retry["input"]["queries"][0],

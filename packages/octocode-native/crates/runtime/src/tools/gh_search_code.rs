@@ -279,11 +279,7 @@ async fn execute_within(
     };
     // The rest of a part's page is the same page again (`add_next` names
     // the page after the one it is given), carrying what its parts showed.
-    let continued = if continues_page {
-        current - 1
-    } else {
-        current
-    };
+    let continued = if continues_page { current - 1 } else { current };
     add_next(
         &mut value,
         ToolId::GhSearchCode,
@@ -339,6 +335,7 @@ impl crate::response::output::ToolOutput for Output {
         data: &mut serde_json::Value,
         query: &serde_json::Value,
         hidden: &[serde_json::Value],
+        _removed: &[serde_json::Value],
     ) {
         finish_code_selection(data, query, hidden);
     }

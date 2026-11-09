@@ -1,5 +1,6 @@
 use super::*;
 
+mod glob_resources;
 mod key;
 
 /// A selection over one capture's memory says how to judge it in parts.

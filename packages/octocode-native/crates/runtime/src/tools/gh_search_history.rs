@@ -7,7 +7,9 @@ mod filters;
 mod leads;
 mod query;
 pub(crate) mod rows;
+mod selected;
 mod shape;
+pub(crate) use selected::Output;
 #[cfg(test)]
 mod tests;
 

@@ -34,6 +34,84 @@ pub(super) fn scope_extension(scope: &Scope) -> Option<String> {
         .and_then(crate::tools::ast_rule::primary_extension)
 }
 
+/// The grammars an empty answer reads its patterns in, as `(name, parser
+/// extension)`: the scope's one parser (a file's, `parser`'s or the inferred
+/// one), else each parser of the scan's census the query compiles in.
+pub(super) fn read_grammars(scope: &Scope) -> Vec<(String, String)> {
+    let named = |extension: String| {
+        let name = languages::find_entry(&extension)
+            .map_or_else(|| extension.clone(), |entry| entry.name.to_owned());
+        (name, extension)
+    };
+    match scope_extension(scope) {
+        Some(extension) => vec![named(extension)],
+        None => scope.compiled.iter().cloned().map(named).collect(),
+    }
+}
+
+/// The note that names the grammars a finding holds in.
+fn grammar_note(names: &str, message: &str) -> String {
+    format!("In {names}: {message}")
+}
+
+/// Push each grammar's diagnostics (`found[i]` for `grammars[i]`), each
+/// distinct one once: as it is when every grammar has it, else with its
+/// message naming the grammars that do (a grammar whose parsers disagree is
+/// named with the parser extension).
+pub(super) fn push_by_grammar(
+    out: &mut Value,
+    grammars: &[(String, String)],
+    found: Vec<Vec<Value>>,
+) {
+    let mut distinct: Vec<(Value, Vec<usize>)> = Vec::new();
+    for (index, diagnostics) in found.into_iter().enumerate() {
+        for diagnostic in diagnostics {
+            match distinct.iter_mut().find(|(seen, _)| *seen == diagnostic) {
+                Some((_, holders)) if !holders.contains(&index) => holders.push(index),
+                Some(_) => {}
+                None => distinct.push((diagnostic, vec![index])),
+            }
+        }
+    }
+    // The grammars whose parsers (`.ts`, `.tsx`) disagree on a finding.
+    let split = grammars
+        .iter()
+        .map(|(name, _)| name)
+        .filter(|name| {
+            let parsers = (0..grammars.len())
+                .filter(|index| grammars[*index].0 == **name)
+                .collect::<Vec<_>>();
+            distinct.iter().any(|(_, holders)| {
+                let held = parsers
+                    .iter()
+                    .filter(|index| holders.contains(index))
+                    .count();
+                held > 0 && held < parsers.len()
+            })
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    for (mut diagnostic, holders) in distinct {
+        if holders.len() < grammars.len() {
+            let mut names: Vec<String> = Vec::new();
+            for (name, extension) in holders.iter().filter_map(|index| grammars.get(*index)) {
+                let shown = if split.contains(name) {
+                    format!("{name} (.{extension})")
+                } else {
+                    name.clone()
+                };
+                if !names.contains(&shown) {
+                    names.push(shown);
+                }
+            }
+            if let Some(message) = diagnostic["message"].as_str() {
+                diagnostic["message"] = json!(grammar_note(&names.join(", "), message));
+            }
+        }
+        super::rows::push_diagnostic(out, diagnostic);
+    }
+}
+
 /// How the query fares in one grammar of a directory scan's walk.
 pub(super) struct GrammarCompile {
     pub(super) label: String,
@@ -226,6 +304,7 @@ pub(super) fn resolve_scope(
         inferred: None,
         extensions,
         parsers,
+        compiled: Vec::new(),
     })
 }
 

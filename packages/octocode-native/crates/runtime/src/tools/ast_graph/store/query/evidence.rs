@@ -193,10 +193,7 @@ impl Query<'_> {
             _ => None,
         };
         extra.insert("coverage".into(), self.g.evidence_coverage(scope));
-        extra.insert(
-            "argumentCoverage".into(),
-            self.g.manifest["argumentCoverage"].clone(),
-        );
+        extra.insert("argumentCoverage".into(), self.g.argument_coverage(source));
         Ok(run_page(self.options, self.g, extra, window.finish()))
     }
 }

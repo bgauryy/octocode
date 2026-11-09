@@ -17,10 +17,7 @@ fn missing_repository_names_the_repository_with_a_recovery_hint() {
     // with the shared hint that labels the name search's rows.
     assert_eq!(
         error.hints,
-        [crate::tools::gh_shared::repository_search_hint(
-            Some("fixture-owner"),
-            "fixture-repo"
-        )]
+        [crate::tools::gh_shared::REPOSITORY_SEARCH_HINT.to_owned()]
     );
     let calls = error.calls.as_deref().expect("recovery leads");
     assert_eq!(
@@ -241,4 +238,89 @@ fn reuse_reports_the_fresh_clones_completion_time() {
         "{}",
         receipt(&reused)
     );
+}
+
+fn at_depth(commit: &str, depth: u64) -> GhCloneRepoQuery {
+    GhCloneRepoQuery {
+        ref_: Some(reference(commit)),
+        history_depth: std::num::NonZeroU64::new(depth).expect("depth"),
+        ..query()
+    }
+}
+
+/// Depth 1 (the default) shares one store whatever the commit, and every
+/// worktree sees exactly the history it asked for: a shallow boundary added
+/// for one commit never shortens another's.
+#[test]
+fn depth_one_rows_of_different_commits_share_one_store() {
+    let fixture = Fixture::new();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let commits = [
+        fixture.first_commit.clone(),
+        fixture.push_commit("two.txt"),
+        fixture.push_commit("three.txt"),
+    ];
+    // Out of order, so a later fetch is an ancestor of an earlier one.
+    let rows = [2, 0, 1].map(|index| {
+        clone_pinned(&fixture, &at_depth(&commits[index], 1), &context).expect("depth 1 row")
+    });
+    assert_eq!(store_dirs(&home).len(), 1, "{:?}", store_dirs(&home));
+    for row in &rows {
+        assert_eq!(history(&row.location.local_path), 1, "{row:?}");
+    }
+}
+
+/// Shallow boundaries belong to a whole repository, so deeper history gets
+/// a store per commit and depth: fetching a descendant at the same depth
+/// must not shorten the first row's history.
+#[test]
+fn deeper_history_rows_of_different_commits_keep_their_depth() {
+    let fixture = Fixture::new();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    fixture.push_commit("two.txt");
+    let third = fixture.push_commit("three.txt");
+    let fourth = fixture.push_commit("four.txt");
+
+    let first = clone_pinned(&fixture, &at_depth(&third, 3), &context).expect("C3");
+    assert_eq!(history(&first.location.local_path), 3);
+    let second = clone_pinned(&fixture, &at_depth(&fourth, 3), &context).expect("C4");
+    assert_eq!(history(&second.location.local_path), 3);
+    assert_eq!(
+        history(&first.location.local_path),
+        3,
+        "a descendant's fetch shortened an earlier row"
+    );
+    assert_eq!(store_dirs(&home).len(), 2, "{:?}", store_dirs(&home));
+}
+
+/// A repository with fewer commits than `historyDepth` asks for is complete
+/// in the store: a second row of the same commit and depth (another scope)
+/// finds the root commit and does not fetch again.
+#[test]
+fn a_history_shorter_than_the_depth_is_not_fetched_again() {
+    let fixture = Fixture::shared();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let deep = |paths: Vec<_>| GhCloneRepoQuery {
+        history_depth: std::num::NonZeroU64::new(5).expect("depth"),
+        paths,
+        ..query()
+    };
+    clone_pinned(&fixture, &deep(Vec::new()), &context).expect("whole");
+    clone_pinned(&fixture, &deep(one("src")), &context).expect("scoped");
+    assert_eq!(steps(&runner, "fetch requested commit"), 1, "one fetch");
 }

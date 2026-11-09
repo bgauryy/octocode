@@ -31,7 +31,7 @@ pub(super) use importer_recovery::ImporterRecovery;
 pub(super) use nodes::NodeKeys;
 pub(super) use outcome::{mark_partial_expansion, mark_truncation};
 pub(super) use public::public_edge;
-pub(super) use request::{HierarchyRequest, hierarchy};
+pub(super) use request::{HierarchyRequest, hierarchy, scope_callers};
 #[cfg(test)]
 pub(super) use {
     bfs::walk_hierarchy,

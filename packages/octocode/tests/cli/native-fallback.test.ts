@@ -18,7 +18,7 @@ import { resolveNativeBin } from '../../src/cli/native-delegate.js';
 const missing = () =>
   Object.assign(new Error("platform package 'x' is not installed."), {
     code: 'OCTOCODE_PLATFORM_PACKAGE_MISSING',
-    suffix: 'linux-arm64-musl',
+    suffix: 'linux-arm64-gnu',
   });
 
 describe('resolveNativeBin fallback for a skipped platform package', () => {
@@ -31,15 +31,15 @@ describe('resolveNativeBin fallback for a skipped platform package', () => {
 
   it('fetches the pinned platform package into the Octocode home', async () => {
     mocks.fetch.mockResolvedValue(
-      '/home/.octocode/native/1.2.3/linux-arm64-musl/octocode'
+      '/home/.octocode/native/1.2.3/linux-arm64-gnu/octocode'
     );
     const env = { OCTOCODE_HOME: '/home/.octocode' };
 
     await expect(resolveNativeBin(env, '1.2.3')).resolves.toEqual({
-      bin: '/home/.octocode/native/1.2.3/linux-arm64-musl/octocode',
+      bin: '/home/.octocode/native/1.2.3/linux-arm64-gnu/octocode',
     });
     expect(mocks.fetch).toHaveBeenCalledExactlyOnceWith({
-      suffix: 'linux-arm64-musl',
+      suffix: 'linux-arm64-gnu',
       version: '1.2.3',
       home: expect.stringMatching(/[\\/]home[\\/]\.octocode$/),
       env,

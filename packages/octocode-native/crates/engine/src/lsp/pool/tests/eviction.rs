@@ -212,3 +212,50 @@ async fn eviction_skips_busy_oldest_and_takes_next_idle() {
     assert_eq!(second.stops.load(Ordering::SeqCst), 1);
     assert_eq!(pool.len(), 2);
 }
+
+/// The pool keeps a busy server over its budget; it reports that overflow to
+/// the caller until the server is idle and eviction runs again.
+#[tokio::test]
+async fn the_pool_reports_resident_memory_over_its_budget_while_a_busy_server_holds_it() {
+    let budget = 1_000;
+    let resident = budget - 100;
+    let pool = pool_with_memory_budget(budget);
+    let busy = pool
+        .acquire("1".into(), "1".into(), || async move {
+            Ok(Some(FakeClient::new(1).resident(resident)))
+        })
+        .await
+        .expect("start")
+        .expect("client");
+    assert_eq!(pool.over_budget().await, None, "within the budget");
+    busy.busy.store(true, Ordering::SeqCst);
+    let _ = pool
+        .acquire("2".into(), "2".into(), || async move {
+            Ok(Some(FakeClient::new(2).resident(resident)))
+        })
+        .await
+        .expect("start")
+        .expect("client");
+    assert_eq!(pool.over_budget().await, Some((resident * 2, budget)));
+    busy.busy.store(false, Ordering::SeqCst);
+    let _ = pool
+        .acquire("3".into(), "3".into(), || async move {
+            Ok(Some(FakeClient::new(3).resident(0)))
+        })
+        .await
+        .expect("start")
+        .expect("client");
+    assert_eq!(pool.over_budget().await, None, "eviction ran once idle");
+}
+
+#[tokio::test]
+async fn a_pool_without_a_memory_budget_is_never_over_budget() {
+    let pool = pool_with_memory_budget(0);
+    let _ = pool
+        .acquire("1".into(), "1".into(), || async {
+            Ok(Some(FakeClient::new(1).resident(u64::MAX / 2)))
+        })
+        .await
+        .expect("start");
+    assert_eq!(pool.over_budget().await, None);
+}

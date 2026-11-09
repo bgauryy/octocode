@@ -37,5 +37,6 @@ fn mapped(text: &str, segments: Vec<MapSegment>) -> SourceTemplates {
 
 mod composition;
 mod decoding;
+mod limits;
 mod profiles;
 mod validation;

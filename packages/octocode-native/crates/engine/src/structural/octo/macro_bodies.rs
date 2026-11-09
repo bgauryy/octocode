@@ -14,6 +14,17 @@
 //!   top-level source: an expression or statement reads as code, and a body
 //!   that is no code (a lone brace, a type, a token paste) yields nothing
 //!   that [`MacroBodies::is_candidate`] accepts.
+//!
+//! - A Rust body that is no Rust (a `json!` object) re-parses with recovered
+//!   syntax, and recovery can pull neighbouring text into a node or read a
+//!   key's quotes as a string around code. Each part of its flat tokens the
+//!   re-parse could not read ([`MacroBodies::parts`]: split at `,` `;` `:`
+//!   `=>`) is then re-parsed on its own, so the code in it has nodes with
+//!   their own extents; a part that still recovers is split further, by its
+//!   macro calls (`path ! group`) and bracket groups ([`MacroBodies::inner`]).
+//!
+//! [`super::expanded::ExpandedTree`] parses every body of a file once and
+//! puts it in place of its flat tokens for the walk and every relation.
 
 use tree_sitter::{Language, Node, Tree};
 
@@ -23,6 +34,28 @@ use crate::structural::language::AgLanguage;
 
 /// Nesting bound for macro bodies inside macro bodies.
 pub(super) const MAX_MACRO_DEPTH: usize = 16;
+
+/// The source the parser reads right after a part re-parsed on its own
+/// ([`MacroBodies::parts`]): an expression or statement ending the source
+/// needs its `;` (`y.len()` alone ends in a MISSING one), as a `#define`
+/// body does; a lone `name!(…)` reads as one `macro_invocation` either way
+/// (tests: `a_lone_macro_call_reparses_as_one_invocation`). The `;` is past
+/// the part's text, so nothing reaching it is a match.
+pub(super) const PART_TAIL: &str = ";";
+
+/// The flat tokens that end one part of a group and start the next: list
+/// and statement separators, and the joints of the key-value forms macros
+/// take (`"k": v` in `json!`, `k => v`). `::` is a token of its own.
+const SEPARATORS: [&str; 4] = [",", ";", ":", "=>"];
+
+/// What a part of a group's flat tokens holds below its own level, by the
+/// indexes of its tokens in the part.
+pub(super) enum Inner {
+    /// A macro call (`path ! group`): its tokens.
+    Call(std::ops::Range<usize>),
+    /// Another bracket group (a body node).
+    Group(usize),
+}
 
 /// Grammar ids for macro expansion; absent for grammars without macro bodies.
 #[derive(Clone)]
@@ -98,19 +131,23 @@ impl MacroBodies {
         if self.delimited { "" } else { ";" }
     }
 
-    /// Parse the body at `range` (its text is `content[range]`, and `content`
-    /// holds nothing the body needs after it) as source; `None` when the
-    /// parser declines it. The result's positions stay in `content`
-    /// coordinates; only a node reaching past the body, onto the
-    /// [`Self::terminator`], is outside it ([`Self::is_candidate`]).
+    /// Whether a body's text includes its delimiters (Rust token trees).
+    pub(super) fn is_delimited(&self) -> bool {
+        self.delimited
+    }
+
+    /// Parse the text at `range` (`content[range]`, and `content` holds
+    /// nothing it needs after it), followed by `tail`, as source; `None`
+    /// when the parser declines it. The result's positions stay in `content`
+    /// coordinates; only a node reaching past the range, onto `tail`, is
+    /// outside it.
     pub(super) fn parse(
-        &self,
         content: &str,
         language: &Language,
         range: tree_sitter::Range,
+        tail: &str,
         deadline: super::Deadline,
     ) -> Result<Option<Tree>, ExecutionError> {
-        let tail = self.terminator();
         let mut included = range;
         included.end_byte += tail.len();
         included.end_point.column += tail.len();
@@ -127,42 +164,205 @@ impl MacroBodies {
         Ok(tree)
     }
 
-    /// Whether a node of a re-parsed body is a real match candidate: not the
-    /// body tree's own root, not the synthetic wrapper spanning a delimited
-    /// body, nothing reaching past the body onto its terminator (a `#define`
-    /// body's whole `do { … } while (0)` statement included: its `;` is not
-    /// source), not recovered syntax, and not text inside one of the body's
-    /// string literals (`strings`, from [`string_literals`]: a DSL body such
-    /// as `json!({"k": "fn a() {}"})` can re-parse a string's text as code).
-    pub(crate) fn is_candidate(
-        &self,
-        node: Node<'_>,
-        body: &tree_sitter::Range,
-        strings: &[std::ops::Range<usize>],
-    ) -> bool {
-        node.parent().is_some()
-            && node.end_byte() <= body.end_byte
-            && !(self.delimited && node.byte_range() == (body.start_byte..body.end_byte))
-            && !node.is_error()
-            && !node.has_error()
-            && !strings
-                .iter()
-                .any(|string| string.contains(&node.start_byte()))
+    /// Whether `node` holds a body's text ([`Self::is_expandable`] checks
+    /// its parent and text).
+    pub(super) fn is_body(&self, node: Node<'_>) -> bool {
+        node.kind_id() == self.body
     }
+
+    /// How a disclosure names the body `owner` holds: the macro and `!`
+    /// (`json!`), `macro_rules!`, or `#define NAME`.
+    pub(super) fn body_name(owner: Node<'_>, content: &str) -> String {
+        let Some(parent) = owner.parent() else {
+            return String::new();
+        };
+        let text = |node: Node<'_>| content.get(node.byte_range()).unwrap_or_default();
+        match parent.kind() {
+            "macro_invocation" => parent
+                .child_by_field_name("macro")
+                .map(|name| format!("{}!", text(name)))
+                .unwrap_or_default(),
+            "macro_rule" => "macro_rules!".to_owned(),
+            _ => parent
+                .child_by_field_name("name")
+                .map(|name| format!("#define {}", text(name)))
+                .unwrap_or_default(),
+        }
+    }
+
+    /// The flat tokens of `group` (a body node) between its delimiters,
+    /// split at its own-level [`SEPARATORS`]: each part non-empty, in source
+    /// order. A nested group is one token of a part.
+    pub(super) fn parts(group: Node<'_>) -> Vec<Vec<Node<'_>>> {
+        let mut cursor = group.walk();
+        let tokens: Vec<Node<'_>> = group.children(&mut cursor).collect();
+        let inside = match tokens.as_slice() {
+            [open, inside @ .., close]
+                if matches!(open.kind(), "(" | "[" | "{")
+                    && matches!(close.kind(), ")" | "]" | "}") =>
+            {
+                inside
+            }
+            all => all,
+        };
+        inside
+            .split(|token| SEPARATORS.contains(&token.kind()))
+            .filter(|part| !part.is_empty())
+            .map(<[Node<'_>]>::to_vec)
+            .collect()
+    }
+
+    /// What `part` (of [`Self::parts`]) holds below its own level, in source
+    /// order: each macro call (`path ! group`, the path an identifier with
+    /// optional `::` parts) and each other bracket group.
+    pub(super) fn inner(&self, part: &[Node<'_>]) -> Vec<Inner> {
+        let mut found = Vec::new();
+        let mut at = 0;
+        while at < part.len() {
+            let token = part[at];
+            if token.kind() == "!"
+                && let Some(&body) = part.get(at + 1)
+                && self.is_body(body)
+                && let Some(start) = path_start(&part[..at])
+            {
+                found.push(Inner::Call(start..at + 2));
+                at += 2;
+                continue;
+            }
+            if self.is_body(token) {
+                found.push(Inner::Group(at));
+            }
+            at += 1;
+        }
+        found
+    }
+
+    /// The ranges of the body nodes strictly below `owner_body` (a token
+    /// tree's nested token trees: its delimited groups), sorted by start.
+    pub(super) fn groups_below(&self, owner_body: Node<'_>) -> Vec<std::ops::Range<usize>> {
+        let mut groups = Vec::new();
+        let mut cursor = owner_body.walk();
+        // The cursor's own depth below `owner_body` (`TreeCursor::depth`
+        // recounts its whole path).
+        let mut depth = 0usize;
+        if !cursor.goto_first_child() {
+            return groups;
+        }
+        depth += 1;
+        loop {
+            let node = cursor.node();
+            if self.is_body(node) {
+                groups.push(node.byte_range());
+            }
+            if cursor.goto_first_child() {
+                depth += 1;
+                continue;
+            }
+            while !cursor.goto_next_sibling() {
+                depth -= 1;
+                if depth == 0 || !cursor.goto_parent() {
+                    return groups;
+                }
+            }
+        }
+    }
+
+    /// Where each anchor starts in `content`, sorted: only a subtree holding
+    /// one can hold an expandable body. `None` when every body is expanded.
+    pub(super) fn anchor_starts(&self, content: &str) -> Option<Vec<usize>> {
+        let anchors = self.anchors.as_ref()?;
+        let mut starts: Vec<usize> = anchors
+            .iter()
+            .flat_map(|anchor| content.match_indices(anchor.as_str()).map(|(at, _)| at))
+            .collect();
+        starts.sort_unstable();
+        starts.dedup();
+        Some(starts)
+    }
+
+}
+
+/// Where the macro path ending `tokens` starts: an identifier, preceded by
+/// any `identifier ::` parts and an optional leading `::`.
+fn path_start(tokens: &[Node<'_>]) -> Option<usize> {
+    let mut start = tokens.len().checked_sub(1)?;
+    if tokens[start].kind() != "identifier" {
+        return None;
+    }
+    while start >= 2
+        && tokens[start - 1].kind() == "::"
+        && tokens[start - 2].kind() == "identifier"
+    {
+        start -= 2;
+    }
+    if start >= 1 && tokens[start - 1].kind() == "::" {
+        start -= 1;
+    }
+    Some(start)
+}
+
+/// The literals of `strings` (from [`string_literals`]) that the body's
+/// re-parse under `root` did not read as one string or char literal over
+/// the same text: such text may have re-parsed as code. A literal read as
+/// one keeps its own children (escape sequences, content).
+pub(super) fn misread_strings(
+    strings: Vec<std::ops::Range<usize>>,
+    root: Node<'_>,
+) -> Vec<std::ops::Range<usize>> {
+    if strings.is_empty() {
+        return strings;
+    }
+    let read = string_literals(root);
+    strings
+        .into_iter()
+        .filter(|string| {
+            !read
+                .binary_search_by_key(&string.start, |read| read.start)
+                .is_ok_and(|at| read.get(at) == Some(string))
+        })
+        .collect()
 }
 
 /// Byte ranges of the string and char literals under `root` (a token tree
-/// as parsed before its re-parse).
+/// as parsed before its re-parse, or a re-parsed body), in source order.
 pub(crate) fn string_literals(root: Node<'_>) -> Vec<std::ops::Range<usize>> {
     let mut found = Vec::new();
-    let mut stack = vec![root];
-    while let Some(node) = stack.pop() {
-        if crate::signatures::node_kinds::is_string_kind(node.kind()) {
+    let mut cursor = root.walk();
+    loop {
+        let node = cursor.node();
+        let string = crate::signatures::node_kinds::is_string_kind(node.kind());
+        if string {
             found.push(node.byte_range());
+        }
+        if !string && cursor.goto_first_child() {
             continue;
         }
-        let mut cursor = node.walk();
-        stack.extend(node.children(&mut cursor));
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return found;
+            }
+        }
     }
-    found
+}
+
+/// Byte ranges of the ERROR nodes and MISSING tokens under `root`, in
+/// source order (an ERROR node's own subtree is not searched).
+pub(super) fn recovered_ranges(root: Node<'_>) -> Vec<std::ops::Range<usize>> {
+    let mut found = Vec::new();
+    let mut cursor = root.walk();
+    loop {
+        let node = cursor.node();
+        let recovered = node.is_error() || node.is_missing();
+        if recovered {
+            found.push(node.byte_range());
+        }
+        if !recovered && node.has_error() && cursor.goto_first_child() {
+            continue;
+        }
+        while !cursor.goto_next_sibling() {
+            if !cursor.goto_parent() {
+                return found;
+            }
+        }
+    }
 }

@@ -292,6 +292,65 @@ fn an_outside_include_is_partial_without_a_build_script_rerun() {
         "{both}"
     );
 }
+/// A name a dependency crate `include!`s from outside its directory (D2:
+/// `SkippedPaths`, from `contract-types`) has no location for that reason,
+/// not for the anchor crate's build scripts: the outside-include tip with
+/// the include target as the lead, and no build-script opt-in.
+#[test]
+fn a_name_from_a_dependency_s_outside_include_is_attributed_to_that_include() {
+    let root = tempfile::tempdir().expect("workspace");
+    let root = root.path().canonicalize().expect("canonical");
+    let write = |path: &str, text: &str| {
+        let path = root.join(path);
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("dir");
+        std::fs::write(path, text).expect("write");
+    };
+    write(
+        "app/Cargo.toml",
+        "[package]\nname = \"app\"\n\n[dependencies]\ntypes = { path = \"../types\" }\n",
+    );
+    write("app/build.rs", "fn main() {}\n");
+    write(
+        "app/src/lib.rs",
+        "use types::SkippedPaths;\ninclude!(concat!(env!(\"OUT_DIR\"), \"/gen.rs\"));\n",
+    );
+    write("types/Cargo.toml", "[package]\nname = \"types\"\n");
+    write("types/src/lib.rs", "include!(\"../../shared/types.rs\");\n");
+    write("shared/types.rs", "pub struct SkippedPaths;\n");
+    let q = query(json!({
+        "operation": "definition",
+        "path": root.join("app/src/lib.rs").to_string_lossy(),
+        "symbolName": "SkippedPaths",
+        "line": 1
+    }));
+    for allowed in [false, true] {
+        let row = annotated_empty_gated(&q, "noLocations", "none", true, allowed);
+        assert_eq!(
+            row["partialReasons"],
+            json!(["includeOutsidePackage"]),
+            "{row}"
+        );
+        let hints = row["hints"].as_array().expect("hints");
+        assert_eq!(hints.len(), 1, "{row}");
+        assert!(
+            hints[0].as_str().is_some_and(
+                |hint| hint.contains("crate types include!s") && !hint.contains("build script")
+            ),
+            "{row}"
+        );
+        let lead = crate::tools::test_support::checks::related_call(&row, "localSearch", |_| true);
+        assert_eq!(
+            lead["input"]["queries"][0]["path"],
+            root.join("shared/types.rs").to_string_lossy().as_ref(),
+            "{row}"
+        );
+        assert!(
+            crate::tools::test_support::checks::find_related_call(&row, "lspSearch", |_| true)
+                .is_none(),
+            "{row}"
+        );
+    }
+}
 /// rust-analyzer indexes no Rust file outside a Cargo package (or
 /// `rust-project.json`), whatever other marker (`.git`) sits above it: an
 /// empty answer there is `noProject`, partial, not an absence. Every empty

@@ -29,12 +29,20 @@ impl Walk {
         {
             self.give_up();
         }
-        let value_of = self.expected.take().filter(|role| {
+        let expected = self.expected.take();
+        let value_of = expected.filter(|role| {
             matches!(
                 (role, byte),
-                (Role::SecretValues, b'{') | (Role::OtherPrimes, b'[')
+                (Role::SecretValues | Role::RegistryAuths, b'{') | (Role::OtherPrimes, b'[')
             )
         });
+        // A member's object inside `auths` is that registry's entry.
+        let registry = byte == b'{'
+            && expected.is_none()
+            && self
+                .frames
+                .last()
+                .is_some_and(|top| top.value_of == Some(Role::RegistryAuths));
         self.frames.push(Frame {
             closer,
             level: self.level,
@@ -42,6 +50,7 @@ impl Walk {
             value_of,
             key_type: false,
             secret: false,
+            registry,
             held_from: self.held.len(),
         });
     }

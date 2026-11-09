@@ -237,7 +237,10 @@ async fn an_unread_tag_list_is_recorded_with_its_cause() {
     use octocode_github::ProviderErrorKind;
     let http = super::super::test_http::RouteHttp::new();
     let budget = super::super::test_http::test_budget();
-    let failure = CheckFailure::Provider(ProviderErrorKind::RateLimited);
+    let failure = CheckFailure::Provider {
+        kind: ProviderErrorKind::RateLimited,
+        resets: None,
+    };
     let tags = super::super::test_http::KnownTags::new(vec!["o/r@HEAD"])
         .with_listing_failure(failure.clone());
     let client = tag_client(&http, &budget, &tags);
@@ -404,8 +407,20 @@ async fn a_commit_check_names_why_it_failed() {
     // Only a failure of the check itself is stated on the row.
     for (failure, stated) in [
         (CheckFailure::Request, true),
-        (CheckFailure::Provider(ProviderErrorKind::RateLimited), true),
-        (CheckFailure::Provider(ProviderErrorKind::Server), true),
+        (
+            CheckFailure::Provider {
+                kind: ProviderErrorKind::RateLimited,
+                resets: None,
+            },
+            true,
+        ),
+        (
+            CheckFailure::Provider {
+                kind: ProviderErrorKind::Server,
+                resets: None,
+            },
+            true,
+        ),
         (CheckFailure::Services("bad API URL".to_owned()), true),
         (CheckFailure::NotGitHub, false),
         (CheckFailure::Unavailable, false),

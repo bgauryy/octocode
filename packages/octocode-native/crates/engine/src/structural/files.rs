@@ -17,7 +17,7 @@ use crate::signatures::languages;
 use crate::stamp::SourceStamp;
 use crate::text::extension_of;
 
-mod anchors;
+pub(super) mod anchors;
 mod counts;
 mod file_scan;
 mod rebuild;
@@ -43,6 +43,32 @@ pub(crate) fn search_files_detailed(
         &|| false,
         None,
     )
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Set by [`search_files_unfiltered`]: the scan on this thread runs with
+    /// no literal prefilter and its matchers re-parse every macro body.
+    static UNFILTERED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Test helper: [`search_files_detailed`] with no literal anywhere: no
+/// prefilter (every candidate is parsed) and no macro-body gate (every
+/// body is re-parsed). The reference the literal gates must agree with.
+#[cfg(test)]
+pub(crate) fn search_files_unfiltered(
+    options: StructuralSearchFilesOptions,
+) -> Result<StructuralSearchFilesDetailedResult> {
+    UNFILTERED.with(|unfiltered| unfiltered.set(true));
+    let result = search_files_detailed(options);
+    UNFILTERED.with(|unfiltered| unfiltered.set(false));
+    result
+}
+
+/// Whether this thread runs [`search_files_unfiltered`].
+#[cfg(test)]
+pub(super) fn unfiltered() -> bool {
+    UNFILTERED.with(std::cell::Cell::get)
 }
 
 /// Detailed structural search with caller-owned descendant policy and a
@@ -134,6 +160,12 @@ pub(crate) fn search_files_with_budget(
         .map(|n| n as u64)
         .unwrap_or(crate::security::MAX_CONTENT_SIZE as u64);
     let prefilter = query.prefilter();
+    #[cfg(test)]
+    let prefilter = if unfiltered() {
+        super::query::Prefilter::None
+    } else {
+        prefilter
+    };
     let query_explanation = query.explanation_with_prefilter(&prefilter);
 
     let globs = crate::search::glob::compile(

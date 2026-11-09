@@ -1,7 +1,8 @@
 //! Public `clasify`: typed judgments and model discovery. Evaluation rows
 //! hold keyed `noul`/`choice`/`score`/`box` questions over
-//! exactly one input: the caller's literal `content`, or a `source` captured
-//! completely through the authorized readers ([`source_capture`]). The row
+//! exactly one input: the caller's literal `content`, a `source` captured
+//! completely through the authorized readers ([`source_capture`]), or
+//! `resources`, each judged whole as a `source` is. The row
 //! returns the provider's validated answers, the answering model and usage,
 //! and source provenance; never a body. Explicit image assets are captured
 //! internally as original bytes, with immutable local inspection copies.
@@ -18,6 +19,7 @@ use crate::tools::judgment::{ClassificationError, Evaluator, Judged, shared::Eva
 use crate::tools::source_capture::{Captured, SourceReader};
 use serde_json::{Value, json};
 
+mod across;
 mod admission;
 mod evaluate;
 mod recovery;
@@ -27,7 +29,7 @@ pub(crate) mod sections;
 
 pub(crate) use admission::unavailable_source_issues;
 use evaluate::evaluate_row;
-use reply::{answered, error_kind, failed, unread_resources_code};
+use reply::{answered, error_kind, failed, resources_answered, unread_resources_code};
 use rows::parse_rows;
 
 /// The finished result rows and their call-level facts.
@@ -52,6 +54,8 @@ struct Row {
 
 enum Input {
     Judge(Target),
+    /// `evaluate` with `resources`: each judged whole, with every question.
+    Resources(Value),
     Models,
     Sections(Value),
 }
@@ -109,6 +113,16 @@ pub(crate) fn call(
                                 gate,
                             )))
                         }
+                        Input::Resources(resources) => evaluate::resources_row(
+                            evaluator,
+                            evaluations,
+                            row,
+                            resources,
+                            dispatcher,
+                            context,
+                            gate,
+                            section_runtime.can_resume,
+                        ),
                         Input::Judge(target) => evaluate_row(
                             evaluator,
                             evaluations,
@@ -134,58 +148,120 @@ pub(crate) fn call(
     let can_resume = section_runtime.can_resume;
     let mut output = Vec::with_capacity(parsed.len());
     let mut kinds = Vec::with_capacity(parsed.len());
-    for (row, outcome) in parsed.iter().zip(outcomes) {
-        match outcome {
-            RowOutcome::Judgment {
-                judged,
-                captured,
-                assets,
-                ..
-            } => {
-                kinds.push(judged.as_ref().err().map(error_kind));
-                output.push(match judged {
-                    Ok(judged) => answered(row, judged, captured, assets, can_resume),
-                    Err(error) => failed(row, &error, captured.as_deref(), can_resume),
-                });
+    let mut across = across::Across::default();
+    for (index, (row, outcome)) in parsed.iter().zip(outcomes).enumerate() {
+        let (value, kind) = shaped(
+            index,
+            row,
+            outcome,
+            &evaluator.model,
+            can_resume,
+            &mut across,
+        );
+        output.push(value);
+        kinds.push(kind);
+    }
+    across.attach(&mut output, &parsed, can_resume);
+    Ok(receipts(output, kinds))
+}
+
+/// Row `index`'s result data and its failure kind, from its `outcome`; its
+/// judgments are recorded in `across`. `model` is the one a row without
+/// `model` is judged by.
+fn shaped(
+    index: usize,
+    row: &Row,
+    outcome: RowOutcome,
+    model: &str,
+    can_resume: bool,
+    across: &mut across::Across,
+) -> (Value, Option<FailureKind>) {
+    match outcome {
+        RowOutcome::Judgment {
+            judged,
+            captured,
+            assets,
+            ..
+        } => {
+            let kind = judged.as_ref().err().map(error_kind);
+            let value = match judged {
+                Ok(judged) => {
+                    let source = match &row.input {
+                        Input::Judge(Target::Source(source)) => Some(source),
+                        _ => None,
+                    };
+                    across.judged(index, row, source, None, &judged.answers);
+                    answered(row, judged, captured, assets)
+                }
+                Err(error) => failed(row, &error, captured.as_deref(), can_resume),
+            };
+            (value, kind)
+        }
+        RowOutcome::Resources {
+            resources,
+            notices,
+            related,
+        } => {
+            for resource in &resources {
+                if let RowOutcome::Judgment {
+                    judged: Ok(judged), ..
+                } = &resource.outcome
+                {
+                    across.judged(
+                        index,
+                        row,
+                        resource.source.as_ref(),
+                        Some(&resource.key),
+                        &judged.answers,
+                    );
+                }
             }
-            RowOutcome::Sections(result) => {
-                let (value, kind) = match result {
-                    Ok(mut outcome) => {
-                        let unread = unread_resources_code(&outcome.output)
-                            .filter(|_| outcome.output.get("error").is_none());
-                        if let Some(code) = unread {
-                            outcome.output["errorCode"] = json!(code);
-                            outcome.output["error"] =
-                                json!("No resource was read; nothing was judged.");
-                        }
-                        let failure = crate::id::error_code_of(&outcome.output)
-                            .map(crate::response::result::failure_kind);
-                        (outcome.output, failure)
-                    }
-                    Err(error) => (
-                        failed(row, &error, None, can_resume),
-                        Some(error_kind(&error)),
-                    ),
-                };
-                kinds.push(kind);
-                output.push(value);
+            // Each resource keeps its own error; a row none of whose
+            // resources was judged fails as they did.
+            let mut value = resources_answered(row, resources, notices, can_resume);
+            for call in related {
+                crate::response::result::attach_related(&mut value, call);
             }
-            RowOutcome::Models(result) => {
-                kinds.push(result.as_ref().err().map(error_kind));
-                output.push(match result {
-                    Ok(mut models) => {
-                        mark_default(&mut models, &evaluator.model);
-                        models
-                    }
-                    Err(error) => failed(row, &error, None, can_resume),
-                });
+            let kind = crate::id::error_code_of(&value).map(crate::response::result::failure_kind);
+            (value, kind)
+        }
+        RowOutcome::Sections(result) => match result {
+            Ok(mut outcome) => {
+                let unread = unread_resources_code(&outcome.output)
+                    .filter(|_| outcome.output.get("error").is_none());
+                if let Some(code) = unread {
+                    outcome.output["errorCode"] = json!(code);
+                    outcome.output["error"] = json!("No resource was read; nothing was judged.");
+                }
+                let failure = crate::id::error_code_of(&outcome.output)
+                    .map(crate::response::result::failure_kind);
+                (outcome.output, failure)
             }
+            Err(error) => (
+                failed(row, &error, None, can_resume),
+                Some(error_kind(&error)),
+            ),
+        },
+        RowOutcome::Models(result) => {
+            let kind = result.as_ref().err().map(error_kind);
+            let value = match result {
+                Ok(mut models) => {
+                    mark_default(&mut models, model);
+                    models
+                }
+                Err(error) => failed(row, &error, None, can_resume),
+            };
+            (value, kind)
         }
     }
-    // A call-level kind holds only when every row failed the same way.
+}
+
+/// The result rows of every row's data and failure kind, and the call-level
+/// kind, which holds only when every row failed the same way.
+fn receipts(output: Vec<Value>, kinds: Vec<Option<FailureKind>>) -> Receipts {
     let first = kinds.first().copied().flatten();
     let failure = first.filter(|kind| kinds.iter().all(|other| *other == Some(*kind)));
-    let results: Vec<_> = output
+    let rows = output
         .into_iter()
         .zip(kinds)
         .enumerate()
@@ -197,10 +273,7 @@ pub(crate) fn call(
             row
         })
         .collect();
-    Ok(Receipts {
-        rows: results,
-        failure,
-    })
+    Receipts { rows, failure }
 }
 
 /// Marks the listed model a row without `model` is judged by (the
@@ -229,6 +302,14 @@ enum RowOutcome {
     },
     Models(Result<Value, ClassificationError>),
     Sections(Result<sections::Outcome, ClassificationError>),
+    /// An `evaluate` row with `resources`: one judgment per resource, and
+    /// what the expansion's walk withheld.
+    Resources {
+        resources: Vec<evaluate::ResourceOutcome>,
+        notices: Vec<String>,
+        /// The listings of what each glob's walk left out.
+        related: Vec<Value>,
+    },
 }
 
 /// Identical rows share one provider request, and whichever asked first
@@ -236,12 +317,23 @@ enum RowOutcome {
 /// (tokens and calls); every later twin carries none, so the rows' usage
 /// sums to what was billed and reads the same on every run.
 fn settle_shared_spend(outcomes: &mut [RowOutcome]) {
+    // Every judgment, a resource's included: twins may sit in any row.
+    let mut judgments = outcomes
+        .iter_mut()
+        .flat_map(|outcome| match outcome {
+            RowOutcome::Resources { resources, .. } => resources
+                .iter_mut()
+                .map(|resource| &mut resource.outcome)
+                .collect::<Vec<_>>(),
+            other => vec![other],
+        })
+        .collect::<Vec<_>>();
     let mut lead = std::collections::HashMap::new();
-    for index in 0..outcomes.len() {
+    for index in 0..judgments.len() {
         let RowOutcome::Judgment {
             identity: Some(identity),
             ..
-        } = &outcomes[index]
+        } = &*judgments[index]
         else {
             continue;
         };
@@ -249,8 +341,8 @@ fn settle_shared_spend(outcomes: &mut [RowOutcome]) {
         if first == index {
             continue;
         }
-        let spend = take_spend(&mut outcomes[index]);
-        add_spend(&mut outcomes[first], spend);
+        let spend = take_spend(&mut *judgments[index]);
+        add_spend(&mut *judgments[first], spend);
     }
 }
 

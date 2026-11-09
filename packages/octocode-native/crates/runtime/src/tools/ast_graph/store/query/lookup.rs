@@ -104,6 +104,9 @@ impl Graph {
                 }
             }
             NodeKind::Symbol => {
+                // A point answer's keys come from lookup entries: the file's
+                // is checked against its node record before it is rendered.
+                self.node_record(node.file, cancel)?;
                 if let Some(decl) = self.declaration(id, cancel)? {
                     let file = self.key(node.file);
                     let digest = self.t.str(decl.source_digest);
@@ -189,6 +192,30 @@ impl Graph {
             crate::response::result::Continuation::related(crate::id::ToolId::LspSearch, row)
                 .build(),
         )
+    }
+
+    /// The lspSearch call that confirms an edge row's edge: references of
+    /// the symbol the edge points to, at its declaration. The edge holds
+    /// when one of them lies at the row's `edgeLine` inside the symbol the
+    /// edge leaves. `None` for a containment edge or an edge into a file or
+    /// package: such a row keeps its own declaration's lead.
+    pub(super) fn edge_lead(
+        &self,
+        edge: &EdgeRec,
+        cancel: &dyn crate::execution::cancel::CancellationCheck,
+    ) -> Result<Option<Value>, GraphOutput> {
+        if edge.kind == EdgeKind::Contains {
+            return Ok(None);
+        }
+        let target = self.node_record(edge.dst, cancel)?;
+        if target.kind != NodeKind::Symbol {
+            return Ok(None);
+        }
+        Ok(self.lsp_lead(
+            self.key(target.file),
+            self.t.str(target.name),
+            u64::from(target.line),
+        ))
     }
 
     /// A root-relative key as the workspace-relative path tools take;

@@ -1,9 +1,20 @@
 //! Choosing and loading the snapshot a query reads.
 use super::*;
 
-pub(super) fn locate(options: &QueryOptions) -> Result<(PathBuf, bool), Failure> {
-    if let Some(spec) = options.graph.as_deref() {
-        let path = PathBuf::from(spec);
+/// The snapshot directory `options` names, and whether `graph` named it by
+/// path. A `graph` path is looked at only where the path policy admits
+/// Octocode's outputs; anywhere else it is no snapshot path, the same
+/// answer whether or not something is there.
+pub(super) fn locate(
+    options: &QueryOptions,
+    paths: &PathPolicy,
+) -> Result<(PathBuf, bool), Failure> {
+    if let Some(path) = options
+        .graph
+        .as_deref()
+        .and_then(|spec| paths.validate_output(spec).ok())
+        .map(|valid| valid.canonical)
+    {
         if path.is_file() {
             return Ok((
                 path.parent().map(Path::to_path_buf).unwrap_or_default(),
@@ -142,7 +153,7 @@ pub(super) fn load_with(
     decode: Decode,
 ) -> Result<Graph, Failure> {
     let selective = decode == Decode::Selective;
-    let (dir, explicit_path) = locate(options)?;
+    let (dir, explicit_path) = locate(options, paths)?;
     // A snapshot is an output: it may lie under an output root
     // (`local.graphHome`), which no local tool reads.
     let dir = paths

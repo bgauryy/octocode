@@ -4,7 +4,8 @@ use crate::tools::gh_clone_repo::{CloneContext, CloneError};
 use std::ffi::OsString;
 use std::path::Path;
 
-/// `sparse-checkout set` arguments for `sparse_paths` at the fetched commit. Cone mode
+/// `sparse-checkout set` arguments for `sparse_paths` at the commit the
+/// `target` worktree is detached at. Cone mode
 /// always includes every file beside each cone directory, so when any path is
 /// a file every path becomes an exact anchored non-cone pattern (a directory
 /// as `/dir/`); directories alone (and paths that do not resolve, left for
@@ -24,7 +25,7 @@ pub(super) fn sparse_set_args(
         .collect::<Vec<_>>();
     // ls-tree reads tree objects only, so it never lazily fetches a blob;
     // `-z` keeps unusual paths unquoted.
-    let mut ls_tree = scoped(target, &["ls-tree", "-z", "FETCH_HEAD", "--"]);
+    let mut ls_tree = scoped(target, &["ls-tree", "-z", "HEAD", "--"]);
     ls_tree.extend(paths.iter().map(OsString::from));
     let files = run(
         context,

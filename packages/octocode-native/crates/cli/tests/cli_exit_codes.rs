@@ -138,6 +138,46 @@ fn local_rows_exit_by_outcome() {
     }
 }
 
+/// The root help states the batch exit rule the exit classification applies,
+/// and each of its clauses holds on a real batch: a rejected row decides (2),
+/// then a failed row (its code), then empty only when every row is empty
+/// (1); an answering row beside an empty one exits 0.
+#[test]
+fn root_help_states_the_batch_exit_rule_the_cli_applies() {
+    let workspace = Workspace::new();
+    let help = workspace.cli().arg("--help").output().expect("help");
+    let help = String::from_utf8_lossy(&help.stdout).split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        help.contains(
+            "A batch exits 2 if any row rejected its input, else its failed rows' code (5 if they differ), else 1 only when every row is empty or out of range, else 0; stdout still carries every row's result."
+        ),
+        "{help}"
+    );
+    let file = workspace.write("src/a.txt", "needle\n");
+    let root = file.parent().unwrap().to_string_lossy().into_owned();
+    let missing = workspace
+        .workspace
+        .join("src/missing.txt")
+        .to_string_lossy()
+        .into_owned();
+    let rejected = json!({"path":root,"bogus":1});
+    for (tool, rows, expected) in [
+        ("localSearch", json!([search(&root, "needle"), search(&root, "zzqqxx")]), 0),
+        ("localSearch", json!([search(&root, "zzqqxx"), search(&root, "qqzzxx")]), 1),
+        ("localFetch", json!([fetch(&missing), fetch(&file.to_string_lossy())]), 3),
+        ("localSearch", json!([search(&root, "zzqqxx"), rejected]), 2),
+    ] {
+        let input = json!({"queries": rows});
+        let output = run(workspace.cli(), tool, &input);
+        assert_eq!(
+            output.status.code(),
+            Some(expected),
+            "{tool} {input}: {}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+    }
+}
+
 #[test]
 fn invalid_provider_configuration_uses_the_one_config_code() {
     let workspace = Workspace::new();

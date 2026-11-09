@@ -17,6 +17,23 @@ pub(super) struct Page {
     pub(super) next: Option<Value>,
 }
 
+/// The capture's failure when the call stopped (`stop`) before its source
+/// was captured.
+pub(super) fn stopped(stop: crate::execution::ExecutionError) -> ClassificationError {
+    let (code, hint) = match stop {
+        crate::execution::ExecutionError::Timeout => (
+            ErrorCode::Timeout,
+            "Retry with more time, or supply the source text as content.",
+        ),
+        _ => (ErrorCode::Cancelled, crate::response::rows::CANCELLED_HINT),
+    };
+    ClassificationError::new(
+        code,
+        "The call stopped before its source was captured.",
+        hint,
+    )
+}
+
 pub(super) fn read_page(
     id: ToolId,
     row: &Value,
@@ -25,20 +42,7 @@ pub(super) fn read_page(
 ) -> Result<Page, ClassificationError> {
     let prepared = prepare_source(id, row, dispatcher)?;
     let tool = id.as_str();
-    context.check().map_err(|stop| {
-        let (code, hint) = match stop {
-            crate::execution::ExecutionError::Timeout => (
-                ErrorCode::Timeout,
-                "Retry with more time, or supply the source text as content.",
-            ),
-            _ => (ErrorCode::Cancelled, crate::response::rows::CANCELLED_HINT),
-        };
-        ClassificationError::new(
-            code,
-            "The call stopped before its source was captured.",
-            hint,
-        )
-    })?;
+    context.check().map_err(stopped)?;
     let result = dispatcher.execute(id, &prepared, context).map_err(|stop| {
         ClassificationError::new(
             match stop {

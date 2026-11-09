@@ -177,49 +177,40 @@ fn select_row(
         }
     };
     let shown = outcome.shown(total);
-    let (notes, hidden, unread_sections) = match &rows {
+    // An undecided view lists the units its walk left unknown, unfiltered:
+    // they are not selected evidence, so it carries no receipt and no lead.
+    let view = outcome.lists_undecided();
+    let disclosed = if view {
+        Some(super::undecided_note(shown.len()))
+    } else {
+        super::kept_note(&outcome, shown.len())
+    };
+    let (notes, hidden, removed, unread_sections) = match &rows {
         Some(rows) => {
             let (notes, unread_sections) = rows.notes(tool, query, data);
-            rows.retain(data, &shown);
-            (notes, Vec::new(), unread_sections)
+            let removed = rows.retain(data, &shown);
+            (notes, Vec::new(), removed, unread_sections)
         }
         None => {
             let note = withheld_note(&values);
             let (kept, hidden) = keep_shown(values, &hits, &shown, &outcome);
             data["files"] = Value::Array(kept);
-            (note.into_iter().collect(), hidden, false)
+            (note.into_iter().collect(), hidden, Vec::new(), false)
         }
     };
-    data["selection"] = receipt(&outcome, unread_sections);
+    if !view {
+        data["selection"] = receipt(&outcome, unread_sections);
+    }
     strip_plan_from_tool_continuations(data, tool);
-    // The unfiltered page reaches what selection left out; a page that
-    // kept every candidate (or had none, or shows every one because the
-    // provider could not answer) leaves nothing out.
-    if outcome.leaves_out() {
-        crate::response::result::set_next(
-            data,
-            "unfiltered",
-            provider_page_unfiltered(tool, query),
-        );
-    }
-    if let Some(token) = outcome.next_candidates()
-        && let Some(call) = crate::response::paging::next_page_call(
-            tool,
-            (**query).clone(),
-            "selection",
-            token,
-            &[],
-        )
-    {
-        crate::response::result::set_next(data, "nextCandidatePage", call);
-    }
-    output.finish_selection(data, query, &hidden);
+    set_leads(data, tool, query, &outcome);
+    output.finish_selection(data, query, &hidden, &removed);
     crate::response::paging::push_warnings(
         data,
         provider
             .as_ref()
             .map(|error| unclassified_notice(error, Unclassified::Page))
             .into_iter()
+            .chain(disclosed)
             .chain(outcome.long_context_notice.clone())
             .chain(notes),
     );
@@ -232,6 +223,56 @@ fn select_row(
     }
 
     Ok(())
+}
+
+/// The leads of a classified page. The unfiltered page reaches what selection
+/// left out (a page that kept every candidate, had none, or shows every one
+/// because the provider could not answer leaves nothing out); then the same
+/// page replaying the selection, unbilled: the units judged later, and
+/// exactly the units the walk left unknown. An undecided view is that list
+/// itself and leads nowhere.
+fn set_leads(
+    data: &mut Value,
+    tool: ToolId,
+    query: &crate::security::CheckedQuery,
+    outcome: &super::Outcome,
+) {
+    if outcome.lists_undecided() {
+        return;
+    }
+    // A page the provider failed shows every unit already: only a page that
+    // left units out leads to the whole or the undecided ones.
+    let leaves_out = outcome.leaves_out();
+    if leaves_out {
+        crate::response::result::set_next(
+            data,
+            "unfiltered",
+            provider_page_unfiltered(tool, query),
+        );
+    }
+    let replays = [
+        (
+            "nextCandidatePage",
+            outcome.next_candidates().map(str::to_owned),
+        ),
+        (
+            "unfilteredUnknown",
+            outcome.undecided_view().filter(|_| leaves_out),
+        ),
+    ];
+    for (channel, token) in replays {
+        if let Some(token) = token
+            && let Some(call) = crate::response::paging::next_page_call(
+                tool,
+                (**query).clone(),
+                "selection",
+                token,
+                &[],
+            )
+        {
+            crate::response::result::set_next(data, channel, call);
+        }
+    }
 }
 
 /// The row's selection receipt. A read that held none of the entries this

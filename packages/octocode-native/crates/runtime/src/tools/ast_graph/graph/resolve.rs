@@ -42,16 +42,18 @@ pub(super) fn add_edge(
 
 /// A Rust `use` path that unambiguously targets the current crate, so failing to
 /// resolve it means the intra-crate edge graph is incomplete — never a benign
-/// external dependency. `crate::`/`self::`/`super::` and leading `::` qualify.
+/// external dependency. `crate::`/`self::`/`super::` and leading `::` qualify,
+/// except a leading `::` naming a standard crate (`::std::vec::Vec`), which is
+/// that external crate.
 pub(super) fn rust_internal_specifier(spec: &str) -> bool {
-    if spec.starts_with("::") {
-        return true;
-    }
     let first = spec
         .trim_start_matches("::")
         .split("::")
         .next()
         .unwrap_or("");
+    if spec.starts_with("::") {
+        return !matches!(first, "std" | "core" | "alloc");
+    }
     matches!(first, "crate" | "self" | "super")
 }
 

@@ -208,10 +208,11 @@ fn osv_shape(advisory: &RepositoryAdvisory, contract: &SecurityContract) -> Valu
     record
 }
 
-/// What GitHub states of a record that its row has no field for: its class in
-/// the global database when not `reviewed`. `unreviewed`: GitHub has not
-/// checked it; `malware`: the package itself is malicious. Another class is
-/// named as GitHub writes it when it is a plain word.
+/// What GitHub states of a record beyond its row: its class in the global
+/// database when not `reviewed`. `unreviewed`: GitHub has not checked it.
+/// `malware` is the row's `githubType` and, on a package row, the contract's
+/// `malware` caution, so it takes no note here. Another class is named as
+/// GitHub writes it when it is a plain word.
 pub(super) fn github_notes(advisory: &RepositoryAdvisory) -> Vec<String> {
     let id = super::answer::stated_id(&advisory.ghsa_id);
     match advisory.kind.as_deref() {
@@ -219,9 +220,7 @@ pub(super) fn github_notes(advisory: &RepositoryAdvisory) -> Vec<String> {
         Some("unreviewed") => vec![format!(
             "GitHub has not reviewed {id}: its database marks it unreviewed."
         )],
-        Some("malware") => vec![format!(
-            "GitHub classes {id} as malware: the package itself is malicious, not a flaw in it."
-        )],
+        Some("malware") => Vec::new(),
         Some(other) if other.chars().all(|c| c.is_ascii_alphabetic()) => {
             vec![format!("GitHub's database classes {id} as {other}.")]
         }
@@ -245,6 +244,11 @@ fn github_facts(row: &mut SecurityAdvisory, advisory: &RepositoryAdvisory) {
             cvss
         })
         .collect();
+    // Only a class the contract names; another stays in `github_notes`.
+    row.github_type = advisory
+        .kind
+        .clone()
+        .filter(|kind| matches!(kind.as_str(), "reviewed" | "unreviewed" | "malware"));
     row.epss = advisory
         .epss
         .map(|epss| json!({"percentage": epss.percentage, "percentile": epss.percentile}));
@@ -631,27 +635,30 @@ impl GhsaLookup {
     /// Each failed read: the GitHub entry says so when nothing was found, and
     /// the row is partial either way, never clean.
     pub(super) fn apply(&self, data: &mut Value) {
-        if !self.found()
-            && let Some((_, failure)) = self.failed.first()
-        {
-            let entry = json!({"source": "github", "status": "failed",
-                "errorCode": failure.code, "why": failure.why});
-            match data["sources"].as_array_mut() {
-                Some(sources) => sources.push(entry),
-                None => data["sources"] = json!([entry]),
-            }
-        }
         if !self.failed.is_empty() {
             let why = self
                 .failed
                 .iter()
                 .map(|(place, failure)| format!("{place} was not read: {}", failure.why))
                 .collect::<Vec<_>>();
-            crate::response::paging::mark_partial(
-                data,
-                crate::response::paging::PartialReason::SourceFailed,
-                &why,
-            );
+            // The one GitHub entry names every read that failed, with its
+            // place: `failed` when nothing was found, else `partial`.
+            if !data["sources"].is_array() {
+                data["sources"] = json!([]);
+            }
+            if let Some(sources) = data["sources"].as_array_mut() {
+                let at = match sources.iter().position(|entry| entry["source"] == "github") {
+                    Some(at) => at,
+                    None => {
+                        sources.push(json!({"source": "github", "status": "failed"}));
+                        sources.len() - 1
+                    }
+                };
+                for ((_, failure), why) in self.failed.iter().zip(&why) {
+                    super::source::note_failure(&mut sources[at], failure.code, why);
+                }
+            }
+            super::source::source_failed(data, &why);
         }
         if !self.warnings.is_empty() {
             crate::response::paging::push_warnings(data, self.warnings.clone());

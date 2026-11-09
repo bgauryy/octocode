@@ -28,7 +28,7 @@ fn held_memo_is_evicted_when_an_external_ignore_dependency_appears() {
         settle();
         let first = run_row(&query(&scope, false), &paths, &security);
         assert_eq!(first["matchCount"], 3, "{first}");
-        let snapshot = first["snapshot"].as_str().expect("snapshot");
+        let snapshot = crate::tools::test_support::pinned_snapshot(&first).as_str().expect("snapshot");
         assert!(SCANS.holds(snapshot), "exercise a held no-repository memo");
         let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
         assert_eq!(run_row(&next, &paths, &security)["matchCount"], 3);
@@ -113,7 +113,7 @@ fn repository_rules_keep_the_memo_and_an_edit_drops_it() {
     for (kind, _root, scope, rules, paths, security) in fixtures {
         let first = run_row(&query(&scope, false), &paths, &security);
         assert_eq!(first["matchCount"], 2, "{kind}: {first}");
-        let snapshot = first["snapshot"].as_str().expect("snapshot");
+        let snapshot = crate::tools::test_support::pinned_snapshot(&first).as_str().expect("snapshot");
         assert!(SCANS.holds(snapshot), "a repository scan is stored: {kind}");
         let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
         let unchanged = run_row(&next, &paths, &security);
@@ -147,7 +147,7 @@ fn include_ignored_keeps_settled_repository_memo_reuse() {
     settle();
     let first = run_row(&query(&scope, true), &paths, &security);
     assert_eq!(first["matchCount"], 3, "{first}");
-    let snapshot = first["snapshot"].as_str().expect("snapshot");
+    let snapshot = crate::tools::test_support::pinned_snapshot(&first).as_str().expect("snapshot");
     assert!(
         SCANS.holds(snapshot),
         "ignored rules cannot affect this selection"
@@ -180,7 +180,7 @@ fn ignore_symlinks_never_reuse_unobserved_rules() {
             if include_ignored { 3 } else { 2 },
             "{first}"
         );
-        let snapshot = first["snapshot"].as_str().expect("snapshot");
+        let snapshot = crate::tools::test_support::pinned_snapshot(&first).as_str().expect("snapshot");
         let held_before = SCANS.holds(snapshot);
         let next = first["next"]["nextPage"]["input"]["queries"][0].clone();
         let unchanged = run_row(&next, &paths, &security);
@@ -224,7 +224,7 @@ fn broken_ignore_symlinks_do_not_pin_absent_external_rules() {
     settle();
     let first = run_row(&query(&scope, false), &paths, &security);
     assert_eq!(first["matchCount"], 3, "{first}");
-    let snapshot = first["snapshot"].as_str().expect("snapshot");
+    let snapshot = crate::tools::test_support::pinned_snapshot(&first).as_str().expect("snapshot");
     assert!(
         !SCANS.holds(snapshot),
         "an unobservable rule is not cacheable"

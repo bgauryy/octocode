@@ -10,7 +10,7 @@ use octocode_contract_types::ErrorCode;
 use octocode_contract_types::{Selection, SelectionScope, SelectionStatus, SelectionUnit};
 use serde_json::Value;
 
-/// Add missing failure receipts and the notice for inspecting filtered evidence.
+/// Add the `unavailable` receipt a classified row that failed lacks.
 ///
 /// `response_query` contains only admitted rows. Contract-rejected siblings
 /// are skipped while pairing those rows with the indexed result envelope.

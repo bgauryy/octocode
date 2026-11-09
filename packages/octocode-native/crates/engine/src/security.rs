@@ -9,8 +9,10 @@ pub(crate) mod patterns;
 pub mod sanitizer;
 pub mod types;
 
+#[cfg(feature = "test-hooks")]
+pub use detector::set_walk_budget;
 pub use detector::{
-    LONG_LINE_BYTES, LONGEST_BOUNDED_MATCH, LongLine, MAX_CONTENT_SIZE, Named, SecretForm,
+    LONG_LINE_BYTES, LONGEST_BOUNDED_MATCH, LongLine, MAX_CONTENT_SIZE, Named, Objects, SecretForm,
     SecretSpan, SecretSpans, SourceNames, SourceWalk, WholeSourcePatterns, every_value_spans,
     hide_jwk_members,
 };

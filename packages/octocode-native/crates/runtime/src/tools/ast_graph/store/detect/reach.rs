@@ -325,7 +325,5 @@ fn note_unjudged_exports(notes: &mut Vec<Value>, unjudged: &BTreeMap<&str, BTree
         "exports of {files} production file(s) not judged ({languages}): only languages with named-import linking ({}) are checked; confirm with lspSearch references",
         NAMED_IMPORT_LANGUAGES.join(", ")
     );
-    for detector in ["unused-export", "export-only-local"] {
-        note(notes, detector, &reason);
-    }
+    note_detectors(notes, &["unused-export", "export-only-local"], &reason);
 }

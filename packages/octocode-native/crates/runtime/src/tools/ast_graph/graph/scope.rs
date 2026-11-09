@@ -84,6 +84,29 @@ impl<'a> Admission<'a> {
         Err(refused)
     }
 
+    /// The scope's refusal for the file the build's shared memory could not
+    /// hold beside the files admitted so far
+    /// ([`octocode_engine::fact_scan::ScanMemory::refused`]): it is one more
+    /// file past the build budget, worded as [`Self::admit`] words it.
+    pub(super) fn refuse_build(&self, refusal: &octocode_engine::fact_scan::Refusal) -> ToolError {
+        let mut charged = self.charged.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(refused) = &charged.refused {
+            return refused.clone();
+        }
+        let over = super::super::limits::Overfill::BuildMemory {
+            needed: refusal.needed,
+            budget: self.limits.build_bytes,
+        };
+        let refused = self.too_broad(&format!(
+            "the first {} of {} files are too many for one graph snapshot: they {over} ({} could not be held beside the files before it)",
+            charged.files + 1,
+            self.walked.len(),
+            refusal.relative_path
+        ));
+        charged.refused = Some(refused.clone());
+        refused
+    }
+
     /// What the admitted files certainly project, carried into linking.
     pub(super) fn tally(&self) -> Tally {
         self.charged

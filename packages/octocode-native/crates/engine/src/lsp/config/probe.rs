@@ -40,7 +40,7 @@ impl std::fmt::Display for ProbeError {
 
 /// Run `command args..` with null stdio; `Ok` when it exited successfully.
 /// See [`probe_command`]. Blocking: call from a blocking thread.
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) fn probe_command_succeeds(command: &str, args: &[&str]) -> Result<(), ProbeError> {
     let mut probe = Command::new(command);
     probe.args(args);

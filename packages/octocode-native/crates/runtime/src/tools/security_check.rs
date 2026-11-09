@@ -9,6 +9,7 @@ mod ecosystem;
 #[cfg(test)]
 pub(crate) mod github_double;
 mod global;
+mod malware;
 mod osv;
 #[cfg(test)]
 pub(crate) mod osv_double;
@@ -106,6 +107,29 @@ fn brief(query: &SecurityCheckQuery) -> Map<String, Value> {
 }
 
 async fn run(query: &SecurityCheckQuery, net: &Net<'_>) -> Result<Value, ArtifactError> {
+    let mut data = operation(query, net).await?;
+    mark_anonymous(&mut data, net);
+    Ok(data)
+}
+
+/// Every writer of the row's `github` source shares one mark: a GitHub read
+/// made without a token saw public data only, under the anonymous limit.
+fn mark_anonymous(data: &mut Value, net: &Net<'_>) {
+    if !net
+        .github
+        .is_some_and(repository::RepositoryRead::anonymous)
+    {
+        return;
+    }
+    let sources = data.get_mut("sources").and_then(Value::as_array_mut);
+    for entry in sources.into_iter().flatten() {
+        if entry["source"] == "github" {
+            entry["anonymous"] = json!(true);
+        }
+    }
+}
+
+async fn operation(query: &SecurityCheckQuery, net: &Net<'_>) -> Result<Value, ArtifactError> {
     match query {
         SecurityCheckQuery::Package(row) => {
             package::run(
@@ -256,12 +280,16 @@ async fn advisory(id: &str, repo: Option<&str>, net: &Net<'_>) -> Result<Value, 
             "{}; GitHub's record stands alone. Retry later.",
             osv::unread_reason(&failed)
         );
-        let entry = json!({"source": "osv", "status": "failed", "errorCode": failed.code, "why": why.clone()});
+        let entry =
+            json!({"source": "osv", "status": "failed", "errorCode": failed.code, "why": why});
         match data["sources"].as_array_mut() {
             Some(sources) => sources.insert(0, entry),
             None => data["sources"] = json!([entry]),
         }
-        paging::mark_partial(&mut data, PartialReason::SourceFailed, &[why]);
+        // OSV may answer a retry, as on a package row.
+        data["retryable"] = json!(true);
+        // The OSV entry states why; the warnings do not repeat it.
+        source::source_failed(&mut data, &[]);
     }
     github.apply(&mut data);
     // The answer leads; the whole record follows it, paged and uncapped.
@@ -278,6 +306,7 @@ async fn advisory(id: &str, repo: Option<&str>, net: &Net<'_>) -> Result<Value, 
             )],
         );
     }
+    malware::fire(&mut data, &malware::reports(&results), false, None);
     crate::response::result::finish_calls(&mut data);
     Ok(data)
 }
@@ -297,7 +326,6 @@ async fn commit(
         resume: resume.map(str::to_owned),
     };
     let mut results = source::ask_all(&target, net).await?;
-    let lead = answer::commit_lead(commit, &answer::Facts::of(&results));
     // Only a repository GitHub hosts is read there. A resumed call repeats
     // nothing GitHub already said until OSV's walk is complete: then the row is
     // whole, with GitHub's advisories compared with all of OSV's records.
@@ -315,6 +343,9 @@ async fn commit(
         }
         _ => None,
     };
+    // The lead counts after GitHub's twins merged: a withdrawal either twin
+    // states is the advisory's, on a commit row as on every other.
+    let lead = answer::commit_lead(commit, &answer::Facts::of(&results));
     let mut data = source::into_row(lead, &results, View::Brief);
     answer::read_whole(&mut data, &results, &brief);
     if let Some((owner, name, read)) = &github {
@@ -363,6 +394,17 @@ fn other_repository(repo: &str, results: &[source::SourceResult]) -> Option<Stri
 #[cfg(test)]
 #[path = "security_check/tests.rs"]
 pub(crate) mod tests;
+
+
+/// This tool's recovery for the shared response stages.
+pub(crate) struct Output;
+impl crate::response::output::ToolOutput for Output {
+    /// A miss names each source asked (OSV, GitHub, the registry) and says
+    /// that it proves nothing about any other source.
+    fn error_hint(&self, code: ErrorCode, _query: &serde_json::Value) -> Option<&'static str> {
+        (code == ErrorCode::NotFound).then_some(crate::response::output::NO_HINT)
+    }
+}
 
 #[cfg(test)]
 mod advisory_id_tests {

@@ -129,11 +129,11 @@ async fn a_next_page_past_the_registry_reach_states_a_terminal_limit() {
         ]),
         "{data}"
     );
-    crate::tools::test_support::validate_sealed(
-        ToolId::ArtifactSearch.as_str(),
-        &json!({"results": [{"index": 0, "data": data}]}),
-    )
-    .expect("contract-valid terminal page");
+    // The response stage strips the internal `statedReasons` marker.
+    let mut placed = json!({"results": [{"index": 0, "data": data}]});
+    crate::response::notices::place(&mut placed, "results");
+    crate::tools::test_support::validate_sealed(ToolId::ArtifactSearch.as_str(), &placed)
+        .expect("contract-valid terminal page");
 }
 
 /// A discovery page states the shared page facts: the page, its size,
@@ -212,6 +212,40 @@ async fn a_total_past_the_reach_states_the_reachable_window() {
         .expect("contract-valid capped page");
 }
 
+/// The cap notice states what `providerResultCap` means (the matched total,
+/// the reach), so the response stage adds no glossary line for the same
+/// reason: a capped page, continuing or terminal, says the fact once.
+#[tokio::test]
+async fn a_capped_page_states_the_cap_once() {
+    let server = npm_window(146_295, 146_295).await;
+    let deadline = Instant::now() + std::time::Duration::from_secs(300);
+    for page in [1, 251] {
+        let data = execute(npm_page(&server, page), call(deadline, true))
+            .await
+            .expect("discovery succeeds");
+        assert_eq!(
+            data["partialReasons"],
+            json!(["providerResultCap"]),
+            "{data}"
+        );
+        let mut staged = json!({"results": [{"index": 0, "data": data}]});
+        crate::response::notices::explain_codes(&mut staged, "results");
+        crate::response::notices::place(&mut staged, "results");
+        let warnings = staged["results"][0]["data"]["warnings"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(warnings.len(), 1, "page {page}: {staged}");
+        assert!(
+            !warnings[0]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with("providerResultCap:"),
+            "page {page}: {staged}"
+        );
+    }
+}
+
 /// npm ranks rows that match one term of several, so 2+ `keywords` keep only
 /// rows holding every term in `name`, `description` or `keywords`. Windows
 /// stay npm's: `matching` holds the row positions that hold both terms, each
@@ -272,35 +306,99 @@ async fn npm_terms(total: u64, matching: &'static [u64]) -> wiremock::MockServer
     server
 }
 
+/// Every page of an ANDed `["json","parser"]` walk from page 1 at `limit`
+/// rows, each next page taken from the previous page's `next.nextPage`:
+/// the rows' names in order and the number of pages.
+async fn npm_terms_walk(server: &wiremock::MockServer, limit: u64) -> (Vec<String>, usize) {
+    let mut query = json!({"operation":"search",
+        "ecosystem": "npm",
+        "keywords": ["json", "parser"],
+        "limit": limit,
+        "registryUrl": format!("http://127.0.0.1:{}", server.address().port())});
+    let (mut names, mut pages) = (Vec::new(), 0);
+    loop {
+        pages += 1;
+        let deadline = Instant::now() + std::time::Duration::from_secs(300);
+        let data = execute(typed(&query), call(deadline, true))
+            .await
+            .expect("discovery succeeds");
+        for row in data["artifacts"].as_array().expect("rows") {
+            names.push(row["packageName"].as_str().expect("name").to_owned());
+        }
+        let Some(next) = data.pointer("/next/nextPage/input/queries/0") else {
+            return (names, pages);
+        };
+        query = next.clone();
+    }
+}
+
+/// The `size` of every npm search request `server` received, in order.
+async fn npm_sizes(server: &wiremock::MockServer) -> Vec<u64> {
+    server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|request| {
+            request
+                .url
+                .query_pairs()
+                .find(|(key, _)| key == "size")
+                .and_then(|(_, value)| value.parse().ok())
+        })
+        .collect()
+}
+
 /// A window holding no row with every term is not absence: it says more
 /// remains, and the walk reaches each match exactly once, whichever of
 /// `name`, `description` or `keywords` spells the terms.
 #[tokio::test]
 async fn npm_keywords_are_anded_and_a_window_without_a_match_is_not_absence() {
-    let server = npm_terms(60, &[21, 25, 45]).await;
+    let server = npm_terms(600, &[321, 325, 545]).await;
     let first = npm_terms_page(&server, 1).await;
     assert_eq!(first["artifacts"], json!([]), "{first}");
     assert!(first.get("status").is_none(), "{first}");
     assert_eq!(first["pagination"]["hasMore"], true, "{first}");
     assert!(first["next"]["nextPage"].is_object(), "{first}");
     assert!(first["pagination"].get("totalItems").is_none(), "{first}");
-    let mut names = Vec::new();
-    for page in 1..=3 {
-        let data = npm_terms_page(&server, page).await;
-        for row in data["artifacts"].as_array().expect("rows") {
-            names.push(row["packageName"].as_str().expect("name").to_owned());
-        }
-        assert_eq!(data["next"]["nextPage"].is_object(), page < 3, "{data}");
-    }
-    // Position 21 % 3 == 0: scoped name; 25 % 3 == 1: keywords; 45 % 3 == 0: scoped name.
+    let (names, _) = npm_terms_walk(&server, 20).await;
+    // 321 % 3 == 0: scoped name; 325 % 3 == 1: keywords; 545 % 3 == 2: description.
+    assert_eq!(
+        names,
+        ["@acme/json-parser-321", "by-keywords-325", "by-text-545"]
+    );
+}
+
+/// ALL-TOOLS-C D13: npm matches any one keyword, so an ANDed page reads
+/// npm's widest window (250 rows) whatever its `limit`, and the walk to
+/// the end costs one request per window (plus each later page's 2-row
+/// reach probe), not one per `limit` rows: 544 rows at `limit:2` end on
+/// page 3, where pages of 2 npm rows would take 272.
+#[tokio::test]
+async fn an_anded_npm_walk_reads_whole_windows_to_the_end() {
+    let server = npm_terms(544, &[7, 300, 543]).await;
+    let (names, pages) = npm_terms_walk(&server, 2).await;
     assert_eq!(
         names,
         [
-            "@acme/json-parser-21",
-            "by-keywords-25",
-            "@acme/json-parser-45"
+            "by-keywords-7",
+            "@acme/json-parser-300",
+            "@acme/json-parser-543"
         ]
     );
+    assert_eq!(pages, 3);
+    assert_eq!(npm_sizes(&server).await, [250, 250, 2, 250, 2]);
+}
+
+/// A page the matching rows fill stops right after the row that fills it:
+/// the next page starts at the npm row after it, so no match is skipped or
+/// shown twice, and no page holds more than `limit` rows.
+#[tokio::test]
+async fn an_anded_npm_page_filled_early_resumes_after_its_last_row() {
+    let server = npm_terms(10, &[1, 2, 3]).await;
+    let (names, pages) = npm_terms_walk(&server, 2).await;
+    assert_eq!(names, ["by-keywords-1", "by-text-2", "@acme/json-parser-3"]);
+    assert_eq!(pages, 2);
 }
 
 /// The walk's last window with no match ends it: that is what empty means.

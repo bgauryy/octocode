@@ -87,8 +87,8 @@ function parseOutput(stdout) {
 // Whether stdout is an answer: exit 0, exit 1 (empty), or any exit status from a batch envelope (`results`).
 const answered = (err, stdout) => !err || err.code === 1 || (Number.isInteger(err.code) && Array.isArray(parseOutput(stdout)?.results));
 
-// `octocode` exits 1 on an empty result but still prints one JSON object, and a batch exits with its worst row
-// while stdout still carries every row: both are answers. `partial: true` callers (graph pages among them) follow
+// `octocode` exits 1 on an empty result but still prints one JSON object, and a batch exits with a rejected or
+// failed row's code (1 only when every row is empty) while stdout still carries every row: both are answers. `partial: true` callers (graph pages among them) follow
 // their own continuations; every other caller gets only complete evidence. No wall-clock or output cap: the runtime owns its
 // deadlines. `timeout` (ms) is only for a caller that explicitly asks for one.
 // The parsed answer, or the error to reject with (and to report to the tool hook).

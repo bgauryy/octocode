@@ -13,7 +13,7 @@ mod records;
 #[cfg(test)]
 mod validation;
 use lookup::Degrees;
-pub(super) use lookup::{encode_lookup, validate_lookup};
+pub(super) use lookup::{encode_lookup, validate_indexes, validate_lookup};
 #[cfg(test)]
 pub(crate) use validation::full_validation;
 
@@ -31,7 +31,9 @@ pub(crate) struct SnapshotReader {
     blocks: BTreeMap<[u8; 4], (usize, Vec<blocks::Block>)>,
     checked: BTreeSet<([u8; 4], Option<usize>)>,
     degrees: Vec<Degrees>,
-    node_cache: Option<(usize, Vec<NodeRec>)>,
+    /// Decoded `NODE` blocks by index: a point answer reads a row's block
+    /// and its file's and parent's blocks, each decoded and checked once.
+    node_cache: BTreeMap<usize, Vec<NodeRec>>,
     declaration_cache: Option<(usize, Vec<DeclarationRec>)>,
     sources: Option<sources::SourceTable>,
     pub(crate) bytes_read: u64,
@@ -118,7 +120,7 @@ impl SnapshotReader {
             blocks: BTreeMap::new(),
             checked: BTreeSet::new(),
             degrees: Vec::new(),
-            node_cache: None,
+            node_cache: BTreeMap::new(),
             declaration_cache: None,
             sources: None,
             bytes_read: (HEADER_LEN + directory.len()) as u64,
@@ -235,10 +237,12 @@ impl SnapshotReader {
         let tags = self.sections.keys().copied().collect::<Vec<_>>();
         for tag in tags {
             // Evidence is authenticated and decoded only for the records an
-            // answer renders. Topology traversals need none of these bodies.
+            // answer renders. Topology traversals need none of these bodies,
+            // and no lookup entry: they render nodes, edges and degrees from
+            // the node and edge records.
             if matches!(
                 &tag,
-                b"STRE" | b"WITN" | b"UNRS" | b"SRCE" | b"SRCO" | b"DECL"
+                b"STRE" | b"WITN" | b"UNRS" | b"SRCE" | b"SRCO" | b"DECL" | b"LOOK"
             ) {
                 continue;
             }
@@ -258,6 +262,19 @@ impl SnapshotReader {
         self.decoded_nodes = tables.nodes.len();
         self.decoded_edges = tables.edges.len();
         Ok(tables)
+    }
+
+    /// Checks the lookup section against topology `t` from
+    /// [`Self::topology_tables`]: a topology answer never reads it, but point
+    /// answers render its degrees, so a snapshot kept for reuse proves it
+    /// first.
+    pub(crate) fn check_lookup(
+        &mut self,
+        t: &GraphTables,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<(), String> {
+        let bytes = self.section(*b"LOOK", cancel)?;
+        lookup::check_lookup(Reader::new(&bytes, "LOOK"), t)
     }
 
     pub(crate) fn point_tables(

@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 mod cargo;
 mod rust;
+pub(in super::super) use cargo::{local_packages, package_name, package_of};
 
 /// The module files of `relocated` (declaring file, module file) that
 /// belong to `territory`: declared from one of its files, or from a module
@@ -44,8 +45,82 @@ pub(super) struct Site {
     pub(super) character: u32,
 }
 
-/// The reach of the declaration the anchor starts.
-pub(super) struct Reach {
+/// The reach of the declaration the anchor names.
+pub(super) enum Reach {
+    /// A local binding: only `lines` (zero-based, inclusive) of `file`
+    /// (canonical) can name it.
+    Local {
+        file: String,
+        lines: std::ops::RangeInclusive<u32>,
+    },
+    /// An item, bounded by its written visibility.
+    Item(ItemReach),
+}
+
+impl Reach {
+    /// The reach of what the anchor `site` names by `symbol`: a local
+    /// binding's scope, else the declaration it starts; `None` when no
+    /// bound is known (see the module docs).
+    pub(super) fn of(site: &Site, symbol: &str) -> Option<Self> {
+        let path = Path::new(&site.path);
+        let bytes = crate::tools::source::read_bounded(
+            path,
+            crate::security::SourceLimits::REAL.whole_source,
+        )
+        .ok()?;
+        let content = super::super::source::admitted_text(&bytes).ok()?;
+        if let Some((first, last)) = octocode_engine::lsp::resolver::local_binding_lines(
+            &site.path,
+            &content,
+            symbol,
+            site.line,
+            site.character,
+        ) {
+            let line = |line| u32::try_from(line).unwrap_or(u32::MAX);
+            return Some(Self::Local {
+                file: site.path.clone(),
+                lines: line(first)..=line(last),
+            });
+        }
+        ItemReach::of(site, symbol, &content).map(Self::Item)
+    }
+
+    /// Whether `file` (canonical) could reference it. A walk `stopped`
+    /// before it decided keeps the file in reach.
+    pub(super) fn reaches(&self, file: &str, stopped: &dyn Fn() -> bool) -> bool {
+        match self {
+            Self::Local { file: own, .. } => own == file,
+            Self::Item(item) => item.reaches(file, stopped),
+        }
+    }
+
+    /// Whether zero-based `line` of `file` (canonical) could reference it.
+    pub(super) fn reaches_line(&self, file: &str, line: u32) -> bool {
+        match self {
+            Self::Local { file: own, lines } => own == file && lines.contains(&line),
+            Self::Item(item) => item.reaches(file, &|| false),
+        }
+    }
+
+    /// The bound as a reader checks it, paths relative to `root`.
+    pub(super) fn describe(&self, root: &str) -> String {
+        match self {
+            Self::Local { file, lines } => format!(
+                "a local binding reaches only lines {}-{} of {}",
+                lines.start() + 1,
+                lines.end() + 1,
+                Path::new(file)
+                    .strip_prefix(root)
+                    .unwrap_or(Path::new(file))
+                    .to_string_lossy()
+            ),
+            Self::Item(item) => item.describe(root),
+        }
+    }
+}
+
+/// The reach of the item declaration the anchor starts.
+pub(super) struct ItemReach {
     bound: rust::Bound,
     /// The defining package (canonical manifest directory) and its name.
     package: PathBuf,
@@ -60,22 +135,17 @@ pub(super) struct Reach {
     dependents: std::sync::Mutex<std::collections::HashMap<PathBuf, bool>>,
 }
 
-impl Reach {
+impl ItemReach {
     /// The reach of the declaration of `symbol` that the anchor `site`
-    /// starts; `None` when no bound is known (see the module docs).
-    pub(super) fn of(site: &Site, symbol: &str) -> Option<Self> {
+    /// starts, `content` its file's text; `None` when no bound is known
+    /// (see the module docs).
+    fn of(site: &Site, symbol: &str, content: &str) -> Option<Self> {
         let path = Path::new(&site.path);
         if path.extension().is_none_or(|ext| ext != "rs") {
             return None;
         }
-        let bytes = crate::tools::source::read_bounded(
-            path,
-            crate::security::SourceLimits::REAL.whole_source,
-        )
-        .ok()?;
-        let content = super::super::source::admitted_text(&bytes).ok()?;
-        let document = crate::tools::declarations::file_document(&content, &site.path)?;
-        let declared = rust::declared(&document, &content, (site.line, site.character), symbol)?;
+        let document = crate::tools::declarations::file_document(content, &site.path)?;
+        let declared = rust::declared(&document, content, (site.line, site.character), symbol)?;
         let package = cargo::package_of(path)?;
         let name = cargo::package_name(&package)?;
         let roots = cargo::target_roots(&package);
@@ -91,7 +161,7 @@ impl Reach {
 
     /// Whether `file` (canonical) could reference the declaration. A walk
     /// `stopped` before it decided keeps the file in reach.
-    pub(super) fn reaches(&self, file: &str, stopped: &dyn Fn() -> bool) -> bool {
+    fn reaches(&self, file: &str, stopped: &dyn Fn() -> bool) -> bool {
         let file = Path::new(file);
         let Some(package) = cargo::package_of(file) else {
             // No Cargo package compiles it: nothing bounds what it names.
@@ -134,7 +204,7 @@ impl Reach {
     }
 
     /// The bound as a reader checks it, paths relative to `root`.
-    pub(super) fn describe(&self, root: &str) -> String {
+    fn describe(&self, root: &str) -> String {
         let shown = |path: &Path| {
             path.strip_prefix(root)
                 .unwrap_or(path)

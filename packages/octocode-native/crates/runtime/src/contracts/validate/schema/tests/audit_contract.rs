@@ -33,3 +33,14 @@ fn the_audit_refuses_a_corrupt_schema() {
         assert!(validate_in(&root, &corrupt).is_err(), "accepted {corrupt}");
     }
 }
+
+/// `x-patternMessage` is the message core authored for a pattern: the audit
+/// takes it as a string, and refuses any other value.
+#[test]
+fn the_audit_takes_a_pattern_message_as_a_string() {
+    let root = json!({"$defs":{}});
+    let stated = json!({"type":"string","pattern":"^a:b$","x-patternMessage":"Use a:b."});
+    validate_in(&root, &stated).unwrap_or_else(|error| panic!("{stated}: {error:?}"));
+    let corrupt = json!({"type":"string","pattern":"^a:b$","x-patternMessage":3});
+    assert!(validate_in(&root, &corrupt).is_err(), "accepted {corrupt}");
+}

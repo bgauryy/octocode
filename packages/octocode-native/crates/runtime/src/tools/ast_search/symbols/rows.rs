@@ -236,12 +236,12 @@ pub(super) fn compact_declarations(
                 // 1-based, like every column.
                 row["character"] = json!(character + 1);
             }
-            let start = d.range.start.line + 1;
-            if start < line {
+            let starts = crate::tools::declarations::StartLines::of(d);
+            if let Some(start) = starts.start_line {
                 row["startLine"] = json!(start);
             }
-            if let Some(doc) = d.doc_line {
-                row["docStartLine"] = json!(doc + 1);
+            if let Some(doc) = starts.doc_start_line {
+                row["docStartLine"] = json!(doc);
             }
             let end = d.range.end.line + 1;
             if end != line {

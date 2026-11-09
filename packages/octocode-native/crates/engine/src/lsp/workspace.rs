@@ -6,8 +6,10 @@ mod cargo;
 mod includes;
 mod modules;
 pub use cargo::{cargo_manifest, cargo_workspace_root, declares_cargo_workspace};
+#[cfg(all(test, unix))]
+use includes::PACKAGE_FILES_READ;
 #[cfg(test)]
-use includes::{PACKAGE_FILES_READ, cargo_package_build_script};
+use includes::cargo_package_build_script;
 pub use includes::{PackageIncludes, cargo_package_includes};
 
 const MARKERS: [&str; 12] = [

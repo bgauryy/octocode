@@ -84,6 +84,11 @@ impl CaptureEnv {
         }
     }
 
+    /// The trees the captured nodes sit in ([`super::super::source_context::tree_id`]).
+    pub(in crate::structural::octo) fn trees(&self) -> impl Iterator<Item = usize> + '_ {
+        self.ranges.values().flatten().map(|range| range.6)
+    }
+
     pub(in crate::structural::octo) fn into_maps(
         self,
     ) -> (HashMap<String, Vec<String>>, HashMap<String, Vec<RawRange>>) {

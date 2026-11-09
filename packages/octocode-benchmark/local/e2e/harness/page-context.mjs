@@ -100,3 +100,11 @@ export function laterPartContext(tool, segments, { row, original, skip = () => f
   return Object.keys(original).filter(key => contextKind(tool, [...segments, key]) === 'required').every(key => Object.hasOwn(row, key))
     && Object.entries(row).every(([key, value]) => skip(key) || (Object.hasOwn(original, key) && laterPartValue(tool, [...segments, key], value, original[key])));
 }
+
+/**
+ * The values of identity `fields` for one listed row: its own, else the page's `data`, else the
+ * query that asked. A fresh response states a repository shared by every row once on `data`, or
+ * leaves it to the query when the page's value equals it; a cursor page keeps it on `data`. All
+ * three name the same repository, so row keys resolve it the same way on every page.
+ */
+export const resolvedIdentity = (fields, { row, data, query }) => fields.map(field => row?.[field] ?? data?.[field] ?? query?.[field]);

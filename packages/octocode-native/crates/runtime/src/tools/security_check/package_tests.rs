@@ -340,22 +340,48 @@ async fn the_answer_takes_no_free_text_from_a_source() {
     let data = answer(&http, Some("4.17.20"), None).await.expect("row");
     let lead = data["answer"].as_str().expect("answer");
     assert!(!lead.contains("Ignore"), "{lead}");
-    assert_eq!(data["cves"], json!(["CVE-2020-0001"]));
+    // CVEs are stated once in structure, on each advisory (check C R4).
+    assert!(data.get("cves").is_none(), "{data}");
+    assert_eq!(data["advisories"][0]["cves"], json!(["CVE-2020-0001"]));
     assert_eq!(
         data["advisories"][0]["summary"], injected,
         "kept in its field"
     );
 }
 
-/// An OSV failure is an error, with no `advisories` key to read as clean.
+/// OSV fails on a first page: the row keeps the registry's facts, names OSV
+/// as a failed source and is partial and retryable, with no `advisories` key
+/// to read as clean when no other source lists one.
 #[tokio::test]
-async fn an_osv_failure_on_the_first_page_is_an_error() {
+async fn an_osv_failure_on_the_first_page_keeps_the_registrys_facts() {
     let http = registry().osv_pages(vec![(503, json!({}))]);
-    let error = answer(&http, Some("4.17.20"), None)
-        .await
-        .expect_err("error");
-    assert_eq!(error.status, Some(503));
-    assert!(error.message.contains("OSV"), "{}", error.message);
+    let data = answer(&http, Some("4.17.20"), None).await.expect("a row");
+    assert_eq!(
+        data["sources"][0],
+        json!({"source": "osv", "status": "failed", "errorCode": "server",
+            "why": "OSV did not answer: HTTP 503, server. Retry later."}),
+        "{data}"
+    );
+    assert_eq!(data["isPartial"], true, "{data}");
+    assert!(
+        data.get("affected").is_none(),
+        "never clean, never counted: {data}"
+    );
+    assert!(
+        data.get("advisories").is_none(),
+        "absent: not checked: {data}"
+    );
+    assert_eq!(
+        data["latestVersion"], "4.18.1",
+        "the registry's facts stay: {data}"
+    );
+    assert_eq!(data["retryable"], true, "OSV may answer a retry: {data}");
+    let answer = data["answer"].as_str().expect("answer");
+    assert!(
+        answer.contains("OSV did not answer") && answer.contains("not checked"),
+        "{answer}"
+    );
+    crate::tools::test_support::assert_row_contract(ToolId::SecurityCheck, &data);
 }
 
 /// The first lines answer: the target, whether it is affected, what to upgrade
@@ -377,7 +403,10 @@ async fn the_row_leads_with_the_answer() {
     assert_eq!(keys[..3], ["answer", "affected", "upgradeTo"], "{data}");
     assert_eq!(data["affected"], true);
     assert_eq!(data["upgradeTo"], "4.17.23");
-    assert_eq!(data["cves"], json!(["CVE-2020-0001", "CVE-2020-0002"]));
+    assert!(
+        data.get("cves").is_none(),
+        "one structured copy, on each advisory: {data}"
+    );
     let lead = data["answer"].as_str().expect("answer");
     for said in [
         "lodash@4.17.20",
@@ -958,10 +987,18 @@ fn global_record(id: &str, extra: Value) -> octocode_github::RepositoryAdvisory 
 
 /// The monorepo row with GitHub's database answering `records` at the version.
 async fn global_page_row(records: Vec<octocode_github::RepositoryAdvisory>) -> Value {
+    global_page_row_of("OSV-1", records).await
+}
+
+/// The same, with OSV's record of the advisory under the id `osv_id`.
+async fn global_page_row_of(
+    osv_id: &str,
+    records: Vec<octocode_github::RepositoryAdvisory>,
+) -> Value {
     use crate::tools::security_check::AdvisoryRead;
     let http = monorepo_registry().osv_pages(vec![(
         200,
-        json!({"vulns": [{"id": "OSV-1", "aliases": ["GHSA-glob-twin-aaaa"],
+        json!({"vulns": [{"id": osv_id, "aliases": ["GHSA-glob-twin-aaaa"],
             "affected": [{"package": {"name": "lodash", "ecosystem": "npm"}}]}]}),
     )]);
     let github = monorepo_github("GHSA-mono-twin-aaaa").global_page(
@@ -1013,19 +1050,41 @@ async fn a_withdrawn_global_advisory_is_stated_as_withdrawn_never_as_a_match() {
     );
 }
 
-/// GitHub classes an advisory as malware: the row says so in its own words.
+/// GitHub classes an advisory it matches to the version as malware: the row
+/// fires the contract's `malware` caution (level, basis and rule from the
+/// contract), the record states `githubType`, and no interim warning repeats
+/// it; a withdrawn malware record is no match and fires nothing (ASEC-2).
 #[tokio::test]
-async fn a_malware_global_advisory_is_stated_as_malware() {
-    let data = global_page_row(vec![global_record(
-        "GHSA-glob-only-bbbb",
-        json!({"type": "malware"}),
-    )])
+async fn a_malware_global_advisory_is_a_caution_and_a_typed_field() {
+    let data = global_page_row(vec![
+        global_record("GHSA-glob-twin-aaaa", json!({"type": "malware"})),
+        global_record(
+            "GHSA-glob-gone-cccc",
+            json!({"type": "malware", "withdrawn_at": "2021-10-01T22:04:28Z"}),
+        ),
+    ])
     .await;
-    let text = data["warnings"].to_string();
+    let cautions = data["cautions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|caution| caution["rule"] == "malware")
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(cautions.len(), 1, "{data}");
+    assert_eq!(cautions[0]["level"], "review", "{data}");
+    assert_eq!(cautions[0]["basis"], "reported", "{data}");
+    let why = cautions[0]["why"].as_str().expect("why");
     assert!(
-        text.contains("GitHub classes GHSA-glob-only-bbbb as malware"),
-        "{text}"
+        why.contains("GHSA-glob-twin-aaaa") && !why.contains("GHSA-glob-gone-cccc"),
+        "{why}"
     );
+    assert_eq!(data["advisories"][0]["githubType"], "malware", "{data}");
+    assert!(
+        !data["warnings"].to_string().contains("as malware"),
+        "the caution replaces the interim warning: {data}"
+    );
+    crate::tools::test_support::assert_row_contract(ToolId::SecurityCheck, &data);
 }
 
 /// GitHub's database read fails on a row whose GitHub entry the repository
@@ -1051,4 +1110,1065 @@ async fn a_failed_global_read_never_leaves_a_found_status() {
     let entry = github_entry(&data);
     assert_eq!(entry["status"], "partial", "{entry}");
     assert_eq!(entry["errorCode"], "rateLimited", "{entry}");
+    // The entry states why; `source_failed` keeps it out of the warnings
+    // (RV-SEC R6-C).
+    let why = entry["why"].as_str().expect("why").to_owned();
+    assert!(
+        !data["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|warning| warning == &why),
+        "{data}"
+    );
+}
+
+/// OSV does not answer the first page while GitHub and the registry do: the
+/// row keeps the registry's facts, the repository read and GitHub's database
+/// at the version (its records as rows, GitHub's word), names OSV as a failed
+/// source once, and is partial; it never counts or calls the version clean
+/// (coordinator live check D-1).
+#[tokio::test]
+async fn an_osv_failure_keeps_what_github_and_the_registry_answered() {
+    use crate::tools::security_check::AdvisoryRead;
+    let http = monorepo_registry().osv_pages(vec![(503, json!({}))]);
+    let github = monorepo_github("GHSA-mono-twin-aaaa").global_page(
+        None,
+        AdvisoryRead::Page(octocode_github::AdvisoryPage {
+            advisories: vec![global_record("GHSA-glob-only-bbbb", json!({}))],
+            next: None,
+        }),
+    );
+    let data = monorepo_page(&http, &github, None).await;
+    assert_eq!(data["sources"][0]["source"], "osv", "{data}");
+    assert_eq!(data["sources"][0]["status"], "failed", "{data}");
+    assert_eq!(github_entry(&data)["status"], "found", "{data}");
+    assert_eq!(
+        github.global_asked(),
+        [("npm".to_owned(), "lodash@4.17.20".to_owned(), None)],
+        "GitHub's database is read at the version: {data}"
+    );
+    let ids = data["advisories"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| row["id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, [json!("GHSA-glob-only-bbbb")], "{data}");
+    assert!(data.get("affected").is_none(), "{data}");
+    assert!(
+        github_entry(&data)["facts"]
+            .get("globalAdvisories")
+            .is_none(),
+        "no 'OSV does not list' when OSV did not answer: {data}"
+    );
+    let answer = data["answer"].as_str().expect("answer");
+    assert!(
+        answer.contains("OSV did not answer")
+            && answer.contains("GitHub's advisory database matches 1 advisory")
+            && answer.contains("GHSA-glob-only-bbbb"),
+        "{answer}"
+    );
+    assert_eq!(data["isPartial"], true, "{data}");
+    let why = data["sources"][0]["why"].as_str().expect("why");
+    assert!(
+        !data["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|warning| warning == why),
+        "stated once, on the source: {data}"
+    );
+    crate::tools::test_support::assert_row_contract(ToolId::SecurityCheck, &data);
+}
+
+/// OSV fails on a first page: the repository's own advisories are never named
+/// as ones "OSV does not list" (it did not answer); the row says they were not
+/// compared and keeps the call that reads them (RV-SEC R6-B, probe Q1).
+#[tokio::test]
+async fn an_osv_failure_never_names_the_repositorys_advisories_as_unlisted_by_osv() {
+    use crate::tools::security_check::AdvisoryRead;
+    let http = monorepo_registry().osv_pages(vec![(503, json!({}))]);
+    let github = monorepo_github("GHSA-mono-twin-aaaa").global_page(
+        None,
+        AdvisoryRead::Page(octocode_github::AdvisoryPage {
+            advisories: vec![global_record("GHSA-glob-only-bbbb", json!({}))],
+            next: None,
+        }),
+    );
+    let data = monorepo_page(&http, &github, None).await;
+    assert!(
+        github_entry(&data)["facts"]
+            .get("repositoryAdvisories")
+            .is_none(),
+        "{}",
+        github_entry(&data)
+    );
+    let warnings = data["warnings"].to_string();
+    assert!(
+        warnings.contains("were not compared with OSV, which did not answer")
+            && warnings.contains("GHSA-mono-twin-aaaa")
+            && warnings.contains("GHSA-mono-only-bbbb"),
+        "{warnings}"
+    );
+    assert!(
+        data["related"].to_string().contains("\"repository\""),
+        "the repository row reads them: {data}"
+    );
+    crate::tools::test_support::assert_row_contract(ToolId::SecurityCheck, &data);
+}
+
+/// A resumed page whose OSV read fails stays an error: it holds nothing of
+/// its own to keep (RV-SEC R6-D, probe Q2).
+#[tokio::test]
+async fn a_resumed_page_whose_osv_read_fails_is_still_an_error() {
+    let twin = json!({"id": "OSV-1", "aliases": ["GHSA-mono-twin-aaaa"],
+        "affected": [{"package": {"name": "lodash", "ecosystem": "npm"}}]});
+    let http = monorepo_registry().osv_pages(vec![
+        (200, json!({"vulns": [twin], "next_page_token": "t1"})),
+        (503, json!({})),
+    ]);
+    let github = monorepo_github("GHSA-mono-twin-aaaa");
+    let first = monorepo_page(&http, &github, None).await;
+    let resume = first["next"]["nextPage"]["input"]["queries"][0]["resume"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a next page: {first}"))
+        .to_owned();
+    let http = monorepo_registry().osv_pages(vec![(503, json!({}))]);
+    let budget = test_budget();
+    let reused = ReusedSince::default();
+    let config = crate::tools::security_check::tests::default_config();
+    let outcome = run(
+        &Package {
+            ecosystem: crate::providers::artifact::query::artifact_type::osv_ecosystem(
+                ArtifactType::Npm,
+            ),
+            release: None,
+            name: "lodash",
+            version: Some("4.17.20"),
+            resume: Some(&resume),
+            brief: Map::new(),
+        },
+        &crate::tools::security_check::github_double::net(
+            &http, &budget, &reused, &config, &github,
+        ),
+    )
+    .await;
+    let error = outcome.expect_err("a resumed page with no OSV answer");
+    assert_eq!(error.status, Some(503), "{error:?}");
+}
+
+/// OSV fails and GitHub's database returns a withdrawn record beside a live
+/// one: only the live one is counted and listed; the withdrawn one is stated
+/// apart, as the OSV-up path does, and its CVE is not among the row's CVEs
+/// (RV-SEC R6-A, probe Q3).
+#[tokio::test]
+async fn an_osv_failure_never_counts_a_withdrawn_record_as_a_match() {
+    use crate::tools::security_check::AdvisoryRead;
+    let http = monorepo_registry().osv_pages(vec![(503, json!({}))]);
+    let github = monorepo_github("GHSA-mono-twin-aaaa").global_page(
+        None,
+        AdvisoryRead::Page(octocode_github::AdvisoryPage {
+            advisories: vec![
+                global_record("GHSA-glob-only-bbbb", json!({})),
+                global_record(
+                    "GHSA-8p5q-j9m2-g8wr",
+                    json!({"withdrawn_at": "2021-10-01T22:04:28Z", "type": "unreviewed",
+                        "cve_id": "CVE-2021-41720"}),
+                ),
+            ],
+            next: None,
+        }),
+    );
+    let data = monorepo_page(&http, &github, None).await;
+    let answer = data["answer"].as_str().expect("answer");
+    assert!(
+        answer.contains("matches 1 advisory to it, GitHub's word: GHSA-glob-only-bbbb."),
+        "{answer}"
+    );
+    let ids = data["advisories"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|row| row["id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(ids, [json!("GHSA-glob-only-bbbb")], "{data}");
+    assert!(
+        !data["cves"].to_string().contains("CVE-2021-41720"),
+        "{data}"
+    );
+    assert!(
+        data["warnings"]
+            .to_string()
+            .contains("GitHub withdrew GHSA-8p5q-j9m2-g8wr at 2021-10-01T22:04:28Z: not a match"),
+        "{data}"
+    );
+    assert!(
+        read_whole_ids(&data).contains(&"GHSA-8p5q-j9m2-g8wr".to_owned()),
+        "still one call away: {data}"
+    );
+}
+
+/// minimist@1.2.0 names `substack/minimist`, which GitHub no longer has; its
+/// latest release, 1.2.8, names `minimistjs/minimist`.
+fn moved_registry() -> RouteHttp {
+    let manifest = |version: &str, repo: &str| {
+        json!({"name": "minimist", "version": version,
+            "repository": {"type": "git", "url": format!("git+https://github.com/{repo}.git")}})
+    };
+    RouteHttp::new()
+        .json(
+            "/minimist",
+            json!({"name": "minimist", "dist-tags": {"latest": "1.2.8"},
+                "versions": {"1.2.0": {"name": "minimist", "version": "1.2.0"},
+                    "1.2.8": {"name": "minimist", "version": "1.2.8"}}}),
+        )
+        .json("/minimist/1.2.0", manifest("1.2.0", "substack/minimist"))
+        .json("/minimist/1.2.8", manifest("1.2.8", "minimistjs/minimist"))
+        .json("/minimist/latest", manifest("1.2.8", "minimistjs/minimist"))
+        .osv_pages(vec![(200, json!({}))])
+}
+
+/// The minimist@1.2.0 row against `github`.
+async fn moved_row(github: &crate::tools::security_check::github_double::Double) -> Value {
+    let http = moved_registry();
+    let budget = test_budget();
+    let reused = ReusedSince::default();
+    let config = crate::tools::security_check::tests::default_config();
+    run(
+        &Package {
+            ecosystem: crate::providers::artifact::query::artifact_type::osv_ecosystem(
+                ArtifactType::Npm,
+            ),
+            release: None,
+            name: "minimist",
+            version: Some("1.2.0"),
+            resume: None,
+            brief: Map::new(),
+        },
+        &crate::tools::security_check::github_double::net(&http, &budget, &reused, &config, github),
+    )
+    .await
+    .expect("row")
+}
+
+fn caution_rules(data: &Value) -> Vec<String> {
+    data["cautions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|caution| caution["rule"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// A version whose repository GitHub lacks is checked against the
+/// repository its latest release names: there the project lives, so the row
+/// says the repository moved, which one and where, and reads the new one.
+#[tokio::test]
+async fn a_missing_repository_is_followed_to_the_one_the_latest_release_names() {
+    use crate::tools::security_check::github_double::Double;
+    use crate::tools::security_check::repository::{RepoFacts, RepoRead, Visibility};
+    let github = Double::repo(RepoRead::Missing)
+        .repo_at(
+            "minimistjs/minimist",
+            RepoRead::Found(RepoFacts {
+                owner: "minimistjs".into(),
+                name: "minimist".into(),
+                stars: 500,
+                default_branch: "main".into(),
+                pushed_at: Some("2999-01-01T00:00:00Z".into()),
+                visibility: Visibility::Public,
+                ..RepoFacts::default()
+            }),
+        )
+        // The followed repository answers its advisory list too (none): every
+        // read GitHub was asked answered, so its entry is `found`.
+        .page(None, Vec::new(), None);
+    let data = moved_row(&github).await;
+    assert_eq!(
+        github.repos_asked(),
+        ["substack/minimist", "minimistjs/minimist"],
+        "{data}"
+    );
+    assert_eq!(caution_rules(&data), ["repositoryMoved"], "{data}");
+    let why = data["cautions"][0]["why"].as_str().expect("why");
+    for named in ["substack/minimist", "minimistjs/minimist", "1.2.8"] {
+        assert!(why.contains(named), "{named} in {why}");
+    }
+    // GitHub's 404 for the old name is also its answer for a private repository.
+    assert!(why.contains("private repository"), "{why}");
+    assert_eq!(data["repository"]["owner"], "minimistjs", "{data}");
+    assert_eq!(github_entry(&data)["status"], "found", "{data}");
+    assert!(
+        !data["answer"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("repositoryMissing"),
+        "{data}"
+    );
+}
+
+/// When the latest release's repository is gone as well, the caution stays
+/// and names both: the version's and the latest release's.
+#[tokio::test]
+async fn both_repositories_missing_keep_the_caution_and_name_both() {
+    use crate::tools::security_check::github_double::Double;
+    use crate::tools::security_check::repository::RepoRead;
+    let github = Double::repo(RepoRead::Missing);
+    let data = moved_row(&github).await;
+    assert_eq!(caution_rules(&data), ["repositoryMissing"], "{data}");
+    let why = data["cautions"][0]["why"].as_str().expect("why");
+    for named in ["substack/minimist", "minimistjs/minimist", "1.2.8"] {
+        assert!(why.contains(named), "{named} in {why}");
+    }
+    assert!(data.get("repository").is_none(), "{data}");
+}
+
+/// The latest release's repository is itself redirected: one `repositoryMoved`
+/// caution names the version's repository, the latest release's and where
+/// GitHub sends it, and the answer names the rule once.
+#[tokio::test]
+async fn a_followed_repository_github_redirects_is_one_moved_caution() {
+    use crate::tools::security_check::github_double::Double;
+    use crate::tools::security_check::repository::{RepoFacts, RepoRead, Visibility};
+    let github = Double::repo(RepoRead::Missing).repo_at(
+        "minimistjs/minimist",
+        RepoRead::Moved(RepoFacts {
+            owner: "neworg".into(),
+            name: "minimist".into(),
+            stars: 500,
+            default_branch: "main".into(),
+            pushed_at: Some("2999-01-01T00:00:00Z".into()),
+            visibility: Visibility::Public,
+            ..RepoFacts::default()
+        }),
+    );
+    let data = moved_row(&github).await;
+    assert_eq!(caution_rules(&data), ["repositoryMoved"], "{data}");
+    let why = data["cautions"][0]["why"].as_str().expect("why");
+    for named in [
+        "substack/minimist",
+        "minimistjs/minimist",
+        "neworg/minimist",
+        "1.2.8",
+        "private repository",
+    ] {
+        assert!(why.contains(named), "{named} in {why}");
+    }
+    let answer = data["answer"].as_str().expect("answer");
+    assert_eq!(answer.matches("repositoryMoved").count(), 1, "{answer}");
+}
+
+/// The npm registry of minimist: 1.2.0 names `substack/minimist`, and the
+/// latest release answers as `latest` does (`None`: it fails).
+fn minimist_registry(latest: Option<Value>) -> RouteHttp {
+    let http = RouteHttp::new()
+        .json(
+            "/minimist",
+            json!({"name": "minimist", "dist-tags": {"latest": "1.2.8"},
+                "versions": {"1.2.0": {"name": "minimist", "version": "1.2.0"},
+                    "1.2.8": {"name": "minimist", "version": "1.2.8"}}}),
+        )
+        .json(
+            "/minimist/1.2.0",
+            json!({"name": "minimist", "version": "1.2.0",
+                "repository": {"type": "git", "url": "git+https://github.com/substack/minimist.git"}}),
+        );
+    match latest {
+        Some(latest) => http.json("/minimist/latest", latest),
+        None => http.fails("/minimist/latest", ErrorCode::Timeout),
+    }
+}
+
+/// The minimist@1.2.0 row at `resume` against `http` and `github`.
+async fn minimist_page(
+    http: &RouteHttp,
+    github: &crate::tools::security_check::github_double::Double,
+    resume: Option<&str>,
+) -> Value {
+    let budget = test_budget();
+    let reused = ReusedSince::default();
+    let config = crate::tools::security_check::tests::default_config();
+    run(
+        &Package {
+            ecosystem: crate::providers::artifact::query::artifact_type::osv_ecosystem(
+                ArtifactType::Npm,
+            ),
+            release: None,
+            name: "minimist",
+            version: Some("1.2.0"),
+            resume,
+            brief: Map::new(),
+        },
+        &crate::tools::security_check::github_double::net(http, &budget, &reused, &config, github),
+    )
+    .await
+    .expect("row")
+}
+
+/// On the last page of a resumed walk the moved repository's advisories are
+/// compared with OSV's records; when the latest release that names it cannot
+/// be read again, the page says they were not compared and is partial.
+#[tokio::test]
+async fn a_last_page_that_cannot_read_the_latest_release_says_its_repository_was_not_compared() {
+    use crate::tools::security_check::github_double::Double;
+    use crate::tools::security_check::repository::{RepoFacts, RepoRead};
+    let github = || {
+        Double::repo(RepoRead::Missing).repo_at(
+            "minimistjs/minimist",
+            RepoRead::Found(RepoFacts {
+                owner: "minimistjs".into(),
+                name: "minimist".into(),
+                ..RepoFacts::default()
+            }),
+        )
+    };
+    let record = |id: &str| json!({"id": id, "affected": [{"package": {"name": "minimist", "ecosystem": "npm"}}]});
+    let latest = json!({"name": "minimist", "version": "1.2.8",
+        "repository": {"type": "git", "url": "git+https://github.com/minimistjs/minimist.git"}});
+    let first_http = minimist_registry(Some(latest)).osv_pages(vec![
+        (
+            200,
+            json!({"vulns": [record("OSV-1")], "next_page_token": "t1"}),
+        ),
+        (503, json!({})),
+    ]);
+    let first = minimist_page(&first_http, &github(), None).await;
+    let resume = first["next"]["nextPage"]["input"]["queries"][0]["resume"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a next page: {first}"))
+        .to_owned();
+    let last_http =
+        minimist_registry(None).osv_pages(vec![(200, json!({"vulns": [record("OSV-2")]}))]);
+    let gh = github();
+    let last = minimist_page(&last_http, &gh, Some(&resume)).await;
+    assert_eq!(gh.repos_asked(), ["substack/minimist"], "{last}");
+    assert_eq!(last["isPartial"], true, "{last}");
+    let registry = last["sources"]
+        .as_array()
+        .and_then(|sources| sources.iter().find(|source| source["source"] == "registry"))
+        .unwrap_or_else(|| panic!("the registry is a failed source: {last}"));
+    assert_eq!(registry["status"], "failed", "{last}");
+    let why = registry["why"].as_str().expect("why");
+    assert!(
+        why.contains("latest release") && why.contains("not compared"),
+        "{why}"
+    );
+}
+
+/// A last page can follow a repository no earlier page named: here the first
+/// page could not read the latest release. The page that compares that
+/// repository's advisories with OSV's records says which repository it was.
+#[tokio::test]
+async fn a_last_page_names_the_repository_whose_advisories_it_compared() {
+    use crate::tools::security_check::github_double::Double;
+    use crate::tools::security_check::repository::{RepoFacts, RepoRead};
+    let github = || {
+        Double::repo(RepoRead::Missing)
+            .repo_at(
+                "minimistjs/minimist",
+                RepoRead::Found(RepoFacts {
+                    owner: "minimistjs".into(),
+                    name: "minimist".into(),
+                    ..RepoFacts::default()
+                }),
+            )
+            .page(None, Vec::new(), None)
+    };
+    let record = |id: &str| json!({"id": id, "affected": [{"package": {"name": "minimist", "ecosystem": "npm"}}]});
+    let first_http = minimist_registry(None).osv_pages(vec![
+        (
+            200,
+            json!({"vulns": [record("OSV-1")], "next_page_token": "t1"}),
+        ),
+        (503, json!({})),
+    ]);
+    let first_github = github();
+    let first = minimist_page(&first_http, &first_github, None).await;
+    assert_eq!(first_github.repos_asked(), ["substack/minimist"], "{first}");
+    let resume = first["next"]["nextPage"]["input"]["queries"][0]["resume"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a next page: {first}"))
+        .to_owned();
+    let latest = json!({"name": "minimist", "version": "1.2.8",
+        "repository": {"type": "git", "url": "git+https://github.com/minimistjs/minimist.git"}});
+    let last_http =
+        minimist_registry(Some(latest)).osv_pages(vec![(200, json!({"vulns": [record("OSV-2")]}))]);
+    let last_github = github();
+    let last = minimist_page(&last_http, &last_github, Some(&resume)).await;
+    assert_eq!(
+        last_github.repos_asked(),
+        ["substack/minimist", "minimistjs/minimist"],
+        "{last}"
+    );
+    let named = last["warnings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .find(|warning| warning.contains("minimistjs/minimist"))
+        .unwrap_or_else(|| panic!("a warning names the compared repository: {last}"));
+    assert!(
+        named.contains("1.2.8") && named.contains("substack/minimist"),
+        "{named}"
+    );
+}
+
+/// The last page follows a successor GitHub found, but its advisory list
+/// fails to read: the page says so, and never says it compared that list
+/// (RV-C3eE R3-1, the reviewer's probe
+/// `rv3_compared_warning_when_the_successors_advisories_fail`).
+#[tokio::test]
+async fn a_last_page_never_says_it_compared_advisories_it_could_not_read() {
+    use crate::tools::security_check::github_double::Double;
+    use crate::tools::security_check::repository::{RepoFacts, RepoRead};
+    // No advisory page: the successor's list fails to read.
+    let github = || {
+        Double::repo(RepoRead::Missing).repo_at(
+            "minimistjs/minimist",
+            RepoRead::Found(RepoFacts {
+                owner: "minimistjs".into(),
+                name: "minimist".into(),
+                ..RepoFacts::default()
+            }),
+        )
+    };
+    let record = |id: &str| json!({"id": id, "affected": [{"package": {"name": "minimist", "ecosystem": "npm"}}]});
+    let latest = || {
+        json!({"name": "minimist", "version": "1.2.8",
+            "repository": {"type": "git", "url": "git+https://github.com/minimistjs/minimist.git"}})
+    };
+    let first_http = minimist_registry(Some(latest())).osv_pages(vec![
+        (
+            200,
+            json!({"vulns": [record("OSV-1")], "next_page_token": "t1"}),
+        ),
+        (503, json!({})),
+    ]);
+    let first = minimist_page(&first_http, &github(), None).await;
+    let resume = first["next"]["nextPage"]["input"]["queries"][0]["resume"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a next page: {first}"))
+        .to_owned();
+    let last_http = minimist_registry(Some(latest()))
+        .osv_pages(vec![(200, json!({"vulns": [record("OSV-2")]}))]);
+    let gh = github();
+    let last = minimist_page(&last_http, &gh, Some(&resume)).await;
+    assert_eq!(
+        gh.repos_asked(),
+        ["substack/minimist", "minimistjs/minimist"],
+        "{last}"
+    );
+    assert_eq!(last["isPartial"], true, "{last}");
+    assert!(github_entry(&last).get("errorCode").is_some(), "{last}");
+    let warnings = last["warnings"].to_string();
+    assert!(!warnings.contains("This page compared"), "{last}");
+}
+
+/// The `repository` block says which release named it: the one the latest
+/// release names carries `namedBy: "latestRelease"`, and one the version
+/// itself names carries no `namedBy` (core row C3eE-2).
+#[tokio::test]
+async fn a_followed_repository_block_says_the_latest_release_named_it() {
+    use crate::tools::security_check::github_double::Double;
+    use crate::tools::security_check::repository::{RepoFacts, RepoRead, Visibility};
+    let facts = |owner: &str| RepoFacts {
+        owner: owner.into(),
+        name: "minimist".into(),
+        stars: 500,
+        default_branch: "main".into(),
+        pushed_at: Some("2999-01-01T00:00:00Z".into()),
+        visibility: Visibility::Public,
+        ..RepoFacts::default()
+    };
+    let followed = Double::repo(RepoRead::Missing)
+        .repo_at("minimistjs/minimist", RepoRead::Found(facts("minimistjs")));
+    let data = moved_row(&followed).await;
+    assert_eq!(data["repository"]["owner"], "minimistjs", "{data}");
+    assert_eq!(data["repository"]["namedBy"], "latestRelease", "{data}");
+    crate::tools::test_support::assert_row_contract(crate::id::ToolId::SecurityCheck, &data);
+    let own = Double::repo(RepoRead::Found(facts("substack")));
+    let data = moved_row(&own).await;
+    assert_eq!(data["repository"]["owner"], "substack", "{data}");
+    assert!(data["repository"].get("namedBy").is_none(), "{data}");
+    crate::tools::test_support::assert_row_contract(crate::id::ToolId::SecurityCheck, &data);
+}
+
+/// The repository's advisory list and GitHub's database both fail on one
+/// package row: its one GitHub entry is partial and states both reasons, the
+/// first read's code kept, and no reason is left only in `warnings`
+/// (RV-SEC round 8 N8-2).
+#[tokio::test]
+async fn every_failed_github_read_of_a_package_row_is_stated_on_its_entry() {
+    use crate::tools::security_check::AdvisoryRead;
+    use crate::tools::security_check::github_double::Double;
+    use crate::tools::security_check::repository::{RepoFacts, RepoFailure, RepoRead, Visibility};
+    let http = monorepo_registry().osv_pages(vec![(
+        200,
+        json!({"vulns": [{"id": "OSV-1",
+            "affected": [{"package": {"name": "lodash", "ecosystem": "npm"}}]}]}),
+    )]);
+    let failed = |why: &str| {
+        AdvisoryRead::Failed(RepoFailure {
+            code: octocode_contract_types::ErrorCode::RateLimited,
+            why: why.to_owned(),
+        })
+    };
+    let github = Double::repo(RepoRead::Found(RepoFacts {
+        owner: "o".into(),
+        name: "mono".into(),
+        stars: 5000,
+        default_branch: "main".into(),
+        pushed_at: Some("2999-01-01T00:00:00Z".into()),
+        visibility: Visibility::Public,
+        ..RepoFacts::default()
+    }))
+    .page_read(None, failed("the repository list was refused"))
+    .global_page(None, failed("the database was refused"));
+    let data = monorepo_page(&http, &github, None).await;
+    let entry = github_entry(&data);
+    assert_eq!(entry["status"], "partial", "{entry}");
+    assert_eq!(entry["errorCode"], "rateLimited", "{entry}");
+    let why = entry["why"].as_str().unwrap_or_default();
+    assert!(
+        why.contains("the repository list was refused") && why.contains("the database was refused"),
+        "both reasons on the entry: {entry}"
+    );
+    let warnings = data["warnings"].to_string();
+    assert!(
+        !warnings.contains("the repository list was refused")
+            && !warnings.contains("the database was refused"),
+        "stated once, on the entry: {warnings}"
+    );
+}
+
+/// The last page of a resumed walk claims the repository comparison only when
+/// it ran: OSV's list is whole and the repository's advisory list was read in
+/// full. A list that failed to read is not "compared" (RV-C3eE).
+#[tokio::test]
+async fn the_last_page_claims_no_comparison_when_the_repository_list_failed() {
+    use crate::tools::security_check::AdvisoryRead;
+    use crate::tools::security_check::repository::RepoFailure;
+    let twin = json!({"id": "OSV-1", "aliases": ["GHSA-mono-twin-aaaa"],
+        "affected": [{"package": {"name": "lodash", "ecosystem": "npm"}}]});
+    let http = monorepo_registry().osv_pages(vec![
+        (200, json!({"vulns": [twin], "next_page_token": "t1"})),
+        // The walk stops here, so the call ends with a next page.
+        (503, json!({})),
+    ]);
+    let first = monorepo_page(&http, &monorepo_github("GHSA-mono-twin-aaaa"), None).await;
+    let resume = first["next"]["nextPage"]["input"]["queries"][0]["resume"]
+        .as_str()
+        .unwrap_or_else(|| panic!("a next page: {first}"))
+        .to_owned();
+    let http = monorepo_registry().osv_pages(vec![(200, json!({"vulns": []}))]);
+    let refused = crate::tools::security_check::github_double::Double::repo(
+        crate::tools::security_check::repository::RepoRead::Found(
+            crate::tools::security_check::repository::RepoFacts {
+                owner: "o".into(),
+                name: "mono".into(),
+                visibility: crate::tools::security_check::repository::Visibility::Public,
+                ..Default::default()
+            },
+        ),
+    )
+    .page_read(
+        None,
+        AdvisoryRead::Failed(RepoFailure {
+            code: octocode_contract_types::ErrorCode::RateLimited,
+            why: "refused".into(),
+        }),
+    );
+    let last = monorepo_page(&http, &refused, Some(&resume)).await;
+    let warnings = last["warnings"].to_string();
+    assert!(
+        warnings.contains("this page ends the advisory list"),
+        "{warnings}"
+    );
+    assert!(
+        !warnings.contains("compares the source repository's advisories"),
+        "no comparison ran: {warnings}"
+    );
+}
+
+/// OSV answers, but not with records this tool can read: the row says what
+/// happened, never that OSV did not answer, and states none of OSV's text
+/// (RV-SEC harness review).
+#[tokio::test]
+async fn an_osv_answer_that_cannot_be_read_is_said_as_such() {
+    // Passed through as OSV sent it: a result that is no record list.
+    let http = registry().osv_pages(vec![(
+        200,
+        json!({"results": ["Fixture page, not records"]}),
+    )]);
+    let data = answer(&http, Some("4.17.20"), None).await.expect("a row");
+    let answer = data["answer"].as_str().expect("answer");
+    assert!(
+        answer.contains(
+            "OSV's answer could not be read, so lodash@4.17.20 was not checked against it."
+        ),
+        "{answer}"
+    );
+    assert!(!answer.contains("did not answer"), "{answer}");
+    let why = data["sources"][0]["why"].as_str().expect("why");
+    assert!(
+        why.starts_with("OSV answered, but not with records this tool could read")
+            && !why.contains("Fixture"),
+        "{why}"
+    );
+}
+
+/// An OSV malicious-packages report (`MAL-`) of the package at the version is
+/// a malware report in its own right: it fires the contract's `malware`
+/// caution from OSV, names the id, and the answer names the caution (gate #3
+/// live check N-3).
+#[tokio::test]
+async fn an_osv_malicious_packages_report_fires_the_malware_caution() {
+    let report = json!({"id": "MAL-2026-3249", "summary": "Malicious code in lodash (npm)",
+        "affected": [{"package": {"name": "lodash", "ecosystem": "npm"},
+            "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}]}]}],
+        "database_specific": {"malicious-packages-origins": [{"source": "ossf-package-analysis"}]}});
+    let http = registry().osv_pages(vec![(200, json!({"vulns": [report]}))]);
+    let data = answer(&http, Some("4.17.20"), None).await.expect("row");
+    let malware = data["cautions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|caution| caution["rule"] == "malware")
+        .cloned()
+        .collect::<Vec<_>>();
+    assert_eq!(malware.len(), 1, "{data}");
+    assert_eq!(malware[0]["level"], "review", "{data}");
+    assert_eq!(malware[0]["basis"], "reported", "{data}");
+    let why = malware[0]["why"].as_str().expect("why");
+    assert!(
+        why.contains(
+            "OSV lists MAL-2026-3249, a malicious-packages report, at this version: the record reports malicious code in this version, not a vulnerability in it."
+        ),
+        "only what the record says (RV-SEC R10-1): {why}"
+    );
+    assert!(
+        data["answer"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("malware; see cautions."),
+        "{data}"
+    );
+    crate::tools::test_support::assert_row_contract(ToolId::SecurityCheck, &data);
+}
+
+/// npm's takedown placeholder (`0.0.1-security`) under a malicious-packages
+/// report: the caution says what the report says and what the version is,
+/// npm's placeholder for a package it removed, not more (gate #3 N-3).
+#[tokio::test]
+async fn npms_takedown_placeholder_is_named_beside_a_malware_report() {
+    let report = json!({"id": "MAL-2026-3249", "summary": "Malicious code in lodash (npm)",
+        "affected": [{"package": {"name": "lodash", "ecosystem": "npm"},
+            "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}]}]}]});
+    let placeholder = json!({"name": "lodash", "version": "0.0.1-security"});
+    let http = RouteHttp::new()
+        .json(
+            LODASH,
+            json!({"name": "lodash", "dist-tags": {"latest": "0.0.1-security"},
+                "versions": {"0.0.1-security": placeholder.clone()}}),
+        )
+        .json("/lodash/0.0.1-security", placeholder.clone())
+        .json("/lodash/latest", placeholder)
+        .osv_pages(vec![(200, json!({"vulns": [report]}))]);
+    let data = answer(&http, Some("0.0.1-security"), None)
+        .await
+        .expect("row");
+    let why = data["cautions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|caution| caution["rule"] == "malware")
+        .and_then(|caution| caution["why"].as_str())
+        .unwrap_or_else(|| panic!("a malware caution: {data}"))
+        .to_owned();
+    assert!(
+        why.contains("0.0.1-security is npm's placeholder for a package it removed for security"),
+        "{why}"
+    );
+    // The placeholder holds none of the reported code: the record's range
+    // covers it, which is all it says of this version (RV-SEC N11-1).
+    assert!(
+        why.contains(": the record's range covers it; 0.0.1-security is npm's placeholder")
+            && !why.contains("malicious code in this version"),
+        "{why}"
+    );
+}
+
+/// `o/mono` last pushed long ago (the `unmaintained` caution fires), with an
+/// empty advisory list.
+fn unmaintained_mono() -> crate::tools::security_check::github_double::Double {
+    use crate::tools::security_check::github_double::Double;
+    use crate::tools::security_check::repository::{RepoFacts, RepoRead, Visibility};
+    Double::repo(RepoRead::Found(RepoFacts {
+        owner: "o".into(),
+        name: "mono".into(),
+        stars: 5000,
+        default_branch: "main".into(),
+        pushed_at: Some("2001-01-01T00:00:00Z".into()),
+        visibility: Visibility::Public,
+        ..RepoFacts::default()
+    }))
+    .page(None, Vec::new(), None)
+}
+
+fn rules(data: &Value) -> Vec<String> {
+    data["cautions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|caution| caution["rule"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// GitHub classes a record as malware and OSV lists a `MAL-` report for the
+/// same package: one `malware` caution naming both, worded in the plural, and
+/// the review line keeps the repository's own caution (RV-SEC probe P10a,
+/// R10-1).
+#[tokio::test]
+async fn github_and_osv_reports_are_one_malware_caution_in_the_plural() {
+    use crate::tools::security_check::AdvisoryRead;
+    let report = json!({"id": "MAL-2026-1", "aliases": [],
+        "affected": [{"package": {"name": "lodash", "ecosystem": "npm"},
+            "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}]}]}]});
+    let http = monorepo_registry().osv_pages(vec![(200, json!({"vulns": [report]}))]);
+    let github = unmaintained_mono().global_page(
+        None,
+        AdvisoryRead::Page(octocode_github::AdvisoryPage {
+            advisories: vec![global_record(
+                "GHSA-malw-same-aaaa",
+                json!({"type": "malware"}),
+            )],
+            next: None,
+        }),
+    );
+    let data = monorepo_page(&http, &github, None).await;
+    let fired = rules(&data);
+    assert_eq!(
+        fired.iter().filter(|rule| *rule == "malware").count(),
+        1,
+        "{fired:?}"
+    );
+    assert!(fired.iter().any(|rule| rule == "unmaintained"), "{fired:?}");
+    let why = data["cautions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|caution| caution["rule"] == "malware")
+        .and_then(|caution| caution["why"].as_str())
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        why.contains("GHSA-malw-same-aaaa")
+            && why.contains("MAL-2026-1")
+            && why.ends_with(
+                "the records report malicious code in this version, not a vulnerability in it."
+            ),
+        "{why}"
+    );
+    assert!(
+        data["answer"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Review before relying on it: unmaintained, malware; see cautions."),
+        "{data}"
+    );
+}
+
+/// A withdrawn GitHub malware record that is OSV's twin is merged into OSV's
+/// row and reports nothing: no `malware` caution (RV-SEC R10-2).
+#[tokio::test]
+async fn a_withdrawn_malware_twin_fires_no_malware_caution() {
+    let data = global_page_row(vec![global_record(
+        "GHSA-glob-twin-aaaa",
+        json!({"type": "malware", "withdrawn_at": "2021-10-01T22:04:28Z"}),
+    )])
+    .await;
+    assert!(!rules(&data).iter().any(|rule| rule == "malware"), "{data}");
+}
+
+/// OSV does not answer and the repository is unmaintained: the rewritten
+/// answer keeps the "Review before relying on it" line (RV-SEC R10-3, probe
+/// P10b).
+#[tokio::test]
+async fn an_osv_failure_answer_keeps_the_review_line() {
+    let http = monorepo_registry().osv_pages(vec![(503, json!({}))]);
+    let data = monorepo_page(&http, &unmaintained_mono(), None).await;
+    assert!(
+        rules(&data).iter().any(|rule| rule == "unmaintained"),
+        "{data}"
+    );
+    let answer = data["answer"].as_str().unwrap_or_default();
+    assert!(
+        answer.starts_with("OSV did not answer")
+            && answer.ends_with("Review before relying on it: unmaintained; see cautions."),
+        "{answer}"
+    );
+}
+
+/// A withdrawal either record of one id states is the advisory's on a
+/// package row too: OSV's record whose GitHub twin of the same id is withdrawn
+/// is not counted (check C D2, one shared rule).
+#[tokio::test]
+async fn a_package_row_never_counts_an_advisory_whose_twin_github_withdrew() {
+    let data = global_page_row_of(
+        "GHSA-glob-twin-aaaa",
+        vec![global_record(
+            "GHSA-glob-twin-aaaa",
+            json!({"withdrawn_at": "2021-10-01T22:04:28Z"}),
+        )],
+    )
+    .await;
+    assert_ne!(data["affected"], true, "{data}");
+    let answer = data["answer"].as_str().unwrap_or_default();
+    assert!(!answer.contains("is affected"), "{answer}");
+    assert!(answer.contains("withdrawn"), "{answer}");
+}
+
+/// A group of records is withdrawn only when every advisory in it is: a
+/// withdrawn duplicate that shares a CVE with a live advisory never hides it
+/// (RVSEC P15a). GitHub withdraws duplicates this way.
+#[tokio::test]
+async fn a_withdrawn_duplicate_never_hides_the_live_advisory() {
+    use crate::tools::security_check::AdvisoryRead;
+    let http = monorepo_registry().osv_pages(vec![(
+        200,
+        json!({"vulns": [{"id": "GHSA-live-yyyy-zzzz", "aliases": ["CVE-2023-0001"],
+            "affected": [{"package": {"name": "lodash", "ecosystem": "npm"},
+                "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "9.0.0"}]}]}]}]}),
+    )]);
+    let github = monorepo_github("GHSA-mono-twin-aaaa").global_page(
+        None,
+        AdvisoryRead::Page(octocode_github::AdvisoryPage {
+            advisories: vec![global_record(
+                "GHSA-dupl-xxxx-wwww",
+                json!({"withdrawn_at": "2023-02-01T00:00:00Z", "cve_id": "CVE-2023-0001"}),
+            )],
+            next: None,
+        }),
+    );
+    let data = monorepo_page(&http, &github, None).await;
+    assert_eq!(
+        data["affected"], true,
+        "the live advisory is hidden: {data}"
+    );
+    // No registry version carries the fix, so none is named; the note names the
+    // live advisory's fix and never the withdrawn record's.
+    let note = data["upgradeNote"].as_str().unwrap_or_default();
+    assert!(
+        note.contains("GHSA-live-yyyy-zzzz") && note.contains("9.0.0"),
+        "{data}"
+    );
+    let answer = data["answer"].as_str().unwrap_or_default();
+    assert!(
+        answer.contains("Withdrawn and not counted: GHSA-dupl-xxxx-wwww"),
+        "the withdrawn duplicate is stated apart: {answer}"
+    );
+    assert!(
+        !answer.contains("GHSA-live-yyyy-zzzz (withdrawn"),
+        "the live advisory is never named withdrawn: {answer}"
+    );
+}
+
+/// OSV lists a live GHSA and a withdrawn PYSEC record of the same CVE (PYSEC
+/// withdrew its duplicate): the live record stays counted (RVSEC P15b).
+#[tokio::test]
+async fn a_withdrawn_osv_twin_never_hides_the_live_record() {
+    let range = json!([{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "9.0.0"}]}]);
+    let http = registry().osv_pages(vec![(
+        200,
+        json!({"vulns": [
+            {"id": "GHSA-live-yyyy-zzzz", "aliases": ["CVE-2023-0001"],
+                "affected": [{"package": {"name": "lodash", "ecosystem": "npm"}, "ranges": range}]},
+            {"id": "PYSEC-2023-1", "aliases": ["CVE-2023-0001"], "withdrawn": "2023-02-01T00:00:00Z",
+                "affected": [{"package": {"name": "lodash", "ecosystem": "npm"}, "ranges": range}]}
+        ]}),
+    )]);
+    let data = answer(&http, Some("4.17.20"), None).await.expect("row");
+    assert_eq!(data["affected"], true, "{data}");
+    // No registry version carries the fix, so none is named; the note names the
+    // live advisory's fix and never the withdrawn record's.
+    let note = data["upgradeNote"].as_str().unwrap_or_default();
+    assert!(
+        note.contains("GHSA-live-yyyy-zzzz") && note.contains("9.0.0"),
+        "{data}"
+    );
+    let rows = data["advisories"].as_array().expect("advisories");
+    assert_eq!(rows.len(), 1, "one advisory: {data}");
+    assert!(rows[0].get("withdrawn").is_none(), "the live row: {data}");
+    assert_eq!(rows[0]["id"], "GHSA-live-yyyy-zzzz", "{data}");
+}
+
+/// A live record that comes after a withdrawn twin of its advisory still
+/// leads the row, with its own fixes (the withdrawn record states none).
+#[tokio::test]
+async fn a_live_record_after_a_withdrawn_twin_leads_the_advisory_row() {
+    let range = json!([{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "9.0.0"}]}]);
+    let http = registry().osv_pages(vec![(
+        200,
+        json!({"vulns": [
+            {"id": "PYSEC-2023-1", "aliases": ["CVE-2023-0001"], "withdrawn": "2023-02-01T00:00:00Z",
+                "affected": [{"package": {"name": "lodash", "ecosystem": "npm"}, "ranges": range}]},
+            {"id": "GHSA-live-yyyy-zzzz", "aliases": ["CVE-2023-0001"],
+                "affected": [{"package": {"name": "lodash", "ecosystem": "npm"}, "ranges": range}]}
+        ]}),
+    )]);
+    let data = answer(&http, Some("4.17.20"), None).await.expect("row");
+    assert_eq!(data["affected"], true, "{data}");
+    let rows = data["advisories"].as_array().expect("advisories");
+    assert_eq!(rows.len(), 1, "{data}");
+    assert_eq!(rows[0]["id"], "GHSA-live-yyyy-zzzz", "{data}");
+    assert!(rows[0].get("withdrawn").is_none(), "{data}");
+    assert!(
+        rows[0]["aliases"].to_string().contains("PYSEC-2023-1"),
+        "{data}"
+    );
+}
+
+/// Twin records whose ids differ are one advisory: one ready read asks the
+/// row's own id, and the twin's id stays on the row as an alias, one `advisory`
+/// call away (a second ready call would return the same advisory again).
+#[tokio::test]
+async fn twin_records_of_one_advisory_are_offered_for_one_read() {
+    let range = json!([{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "9.0.0"}]}]);
+    let http = registry().osv_pages(vec![(
+        200,
+        json!({"vulns": [
+            {"id": "GHSA-twin-aaaa-bbbb", "aliases": ["PYSEC-2026-1"],
+                "affected": [{"package": {"name": "lodash", "ecosystem": "npm"}, "ranges": range}]},
+            {"id": "PYSEC-2026-1", "aliases": ["GHSA-twin-aaaa-bbbb"],
+                "affected": [{"package": {"name": "lodash", "ecosystem": "npm"}, "ranges": range}]}
+        ]}),
+    )]);
+    let data = answer(&http, Some("4.17.20"), None).await.expect("row");
+    assert_eq!(read_whole_ids(&data), ["GHSA-twin-aaaa-bbbb"], "{data}");
+    assert_eq!(
+        data["advisories"][0]["aliases"],
+        json!(["PYSEC-2026-1"]),
+        "the twin stays named on the row: {data}"
+    );
+}
+
+/// The ready calls do not grow with the advisory list: every advisory is on
+/// the row (the response pager reaches all of them), so related asks one call
+/// of the row limit, not one call per five advisories.
+#[tokio::test]
+async fn the_ready_reads_do_not_enumerate_every_advisory() {
+    let range = json!([{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "9.0.0"}]}]);
+    let per_call = crate::response::result::rows_per_call(ToolId::SecurityCheck);
+    let count = per_call * 4;
+    let vulns = (0..count)
+        .map(|at| {
+            json!({"id": format!("GHSA-many-{at:04}-aaaa"),
+                "affected": [{"package": {"name": "lodash", "ecosystem": "npm"}, "ranges": range}]})
+        })
+        .collect::<Vec<_>>();
+    let http = registry().osv_pages(vec![(200, json!({"vulns": vulns}))]);
+    let data = answer(&http, Some("4.17.20"), None).await.expect("row");
+    assert_eq!(data["advisories"].as_array().expect("rows").len(), count);
+    assert_eq!(read_whole_ids(&data).len(), per_call, "{data}");
 }

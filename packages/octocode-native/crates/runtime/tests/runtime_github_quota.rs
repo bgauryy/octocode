@@ -339,7 +339,7 @@ async fn a_continuation_page_carries_none_of_the_first_pages_waits() {
 /// the warm-up's wait as its own `secondaryLimit`. (A spent core quota is
 /// not waited out at all: D1.)
 #[tokio::test]
-async fn file_rows_disclose_the_batch_warm_ups_quota_wait() {
+async fn file_rows_disclose_the_batch_warm_ups_cooldown_wait() {
     const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))

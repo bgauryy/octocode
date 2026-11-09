@@ -42,16 +42,36 @@ async function everyRegistry(ctx, surface, record) {
   }
 }
 
+/**
+ * OSV failed on a package row's first page: the row keeps what the registry and
+ * GitHub answered, and still never reads as clean. OSV is the first source,
+ * `failed`, with the code and (when it answered at all) the HTTP status in its
+ * `why`, which holds none of OSV's own text; the row is partial (`sourceFailed`)
+ * and retryable, with the same row as `next.retry`; it states no `affected`, no
+ * `status: "empty"`, no upgrade and no advisories GitHub did not match; and the
+ * answer says what happened (OSV did not answer, or answered with what could
+ * not be read) and that the package was not checked against it.
+ */
+const unanswered = (failed, status, code, httpStatus, said = /OSV did not answer/) => {
+  const osv = failed.sources?.[0] ?? {};
+  return osv.source === 'osv' && osv.status === 'failed' && osv.errorCode === code
+    && (httpStatus === undefined ? !/HTTP \d/.test(osv.why ?? '') : (osv.why ?? '').includes(`HTTP ${httpStatus}`))
+    && typeof osv.why === 'string' && !osv.why.includes('Fixture') && !osv.why.includes('not json')
+    && failed.isPartial === true && (failed.partialReasons ?? []).includes('sourceFailed') && failed.retryable === true && !!failed.next?.retry
+    && !('affected' in failed) && status !== 'empty' && failed.status !== 'empty' && !('upgradeTo' in failed) && !('advisories' in failed)
+    && said.test(failed.answer ?? '') && /not checked against it/.test(failed.answer ?? '');
+};
+
 async function failures(ctx, surface, record) {
   for (const [status, code] of [[429, 'rateLimited'], [503, 'server']]) {
     ctx.registry.failures.set('api.osv.dev', { status, body: { message: `Fixture ${status}` }, headers: { 'retry-after': '60' } });
     try {
-      const { row: failed } = await asked(ctx, surface, row('pypi'));
-      record(`osv.http${status}`, surface, failed.errorCode === code && failed.httpStatus === status && !('advisories' in failed) && /OSV/.test(failed.error) && /not checked/.test(failed.error) && !!failed.next?.retry, json(failed));
+      const { row: failed, status: rowStatus } = await asked(ctx, surface, row('pypi'));
+      record(`osv.http${status}`, surface, unanswered(failed, rowStatus, code, status), json(failed));
     } finally { ctx.registry.failures.delete('api.osv.dev'); }
   }
   const malformed = await asked(ctx, surface, row('pypi'), [{ body: 'not json' }]);
-  record('osv.malformed', surface, malformed.row.errorCode === 'providerError' && !('advisories' in malformed.row), json(malformed.row));
+  record('osv.malformed', surface, unanswered(malformed.row, malformed.status, 'providerError', undefined, /OSV's answer could not be read/), json(malformed.row));
   ctx.registry.failures.set('pypi.org', { status: 503, body: { error: 'Fixture outage' } });
   try {
     const down = await asked(ctx, surface, row('pypi'));

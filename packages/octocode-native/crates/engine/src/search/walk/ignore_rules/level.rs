@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
 use super::IGNORE_FILES;
+use super::git_dir::{checkout_git_dir, common_git_dir};
 
 /// The ignore rules of one directory.
 pub(super) struct Level {
@@ -89,21 +90,6 @@ fn rules_file(dir: &Path, file: &Path) -> Gitignore {
 /// directory, or a `.git` file pointing at a worktree's git directory (and
 /// through its `commondir` at the shared one).
 pub(super) fn git_exclude_file(dir: &Path) -> Option<PathBuf> {
-    let dot_git = dir.join(".git");
-    let metadata = std::fs::metadata(&dot_git).ok()?;
-    let git_dir = if metadata.is_dir() {
-        dot_git
-    } else {
-        let pointer = std::fs::read_to_string(&dot_git).ok()?;
-        let target = pointer
-            .lines()
-            .find_map(|line| line.strip_prefix("gitdir:"))?
-            .trim();
-        let git_dir = dir.join(target);
-        match std::fs::read_to_string(git_dir.join("commondir")) {
-            Ok(common) => git_dir.join(common.trim()),
-            Err(_) => git_dir,
-        }
-    };
+    let git_dir = common_git_dir(&checkout_git_dir(dir)?);
     Some(git_dir.join("info").join("exclude"))
 }

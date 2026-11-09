@@ -14,4 +14,5 @@ mod declarations;
 mod declared_lines;
 mod line_arithmetic;
 mod lines_and_budget;
+mod local_bindings;
 mod named_heritage;

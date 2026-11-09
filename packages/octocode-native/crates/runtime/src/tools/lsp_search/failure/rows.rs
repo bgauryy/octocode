@@ -57,12 +57,10 @@ pub(in super::super) fn still_indexing(query: &LspSearchQuery) -> Value {
         "The language server is still indexing the project; semantic results are not ready yet.",
         true,
     );
-    partial_with_related_rerun(
-        &mut row,
-        query,
-        crate::response::paging::PartialReason::LanguageServerIndexing,
-        &[],
-    );
+    let reason = crate::response::paging::PartialReason::LanguageServerIndexing;
+    partial_with_related_rerun(&mut row, query, reason, &[]);
+    // The row's reason and its rerun state the reason's meaning.
+    crate::response::paging::mark_stated(&mut row, reason);
     row
 }
 
@@ -105,22 +103,49 @@ pub(in super::super) fn annotate_empty_includes(
     if let Some(path) = lsp_search_query::path(query) {
         // Incoming rows get the evidence-based include disclosure instead
         // (see `server_coverage`).
-        if row["category"] == "noLocations"
-            && path.ends_with(".rs")
-            && !super::super::inferred_project::is_incoming(lsp_search_query::operation(query))
-            && let Some(includes) =
-                super::super::server_coverage::package_includes(&uri_to_path(path), stopped)
+        if row["category"] != "noLocations"
+            || !path.ends_with(".rs")
+            || super::super::inferred_project::is_incoming(lsp_search_query::operation(query))
         {
+            return;
+        }
+        let anchor = uri_to_path(path);
+        // The crate that defines the name decides: a name an outside
+        // include! declares (in the anchor's crate or one it depends on)
+        // never resolves, whatever build scripts the anchor's crate has.
+        if let Some(name) =
+            lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty())
+            && let Some(found) =
+                super::super::server_coverage::include_declaring(&anchor, name, stopped)
+        {
+            let reason = super::super::server_coverage::OUTSIDE_INCLUDE_REASON;
+            crate::response::paging::mark_partial(row, reason, &[]);
+            crate::response::paging::mark_stated(row, reason);
+            let target = found.target.to_string_lossy().into_owned();
+            if let Some(lead) =
+                text_search_lead(name, &target, &[], Some(std::slice::from_ref(&target)))
+            {
+                crate::response::result::attach_related(row, lead.build());
+            }
+            crate::response::result::add_hints(
+                row,
+                [format!(
+                    "`{name}` is declared in a file crate {} include!s from outside its directory, which rust-analyzer never loads: no build context gives it a location. The related localSearch reads it there.",
+                    found.package
+                )],
+            );
+            return;
+        }
+        if let Some(includes) = super::super::server_coverage::package_includes(&anchor, stopped) {
             // Each cause a tip states is the row's partial reason too, as on
             // incoming rows (`server_coverage`): empty is no absence there.
             let mut tips = Vec::new();
+            // Each tip states its reason's meaning: no glossary line repeats it.
             if !includes.outside.is_empty() {
                 tips.push(OUTSIDE_INCLUDE_TIP.to_owned());
-                crate::response::paging::mark_partial(
-                    row,
-                    super::super::server_coverage::OUTSIDE_INCLUDE_REASON,
-                    &[],
-                );
+                let reason = super::super::server_coverage::OUTSIDE_INCLUDE_REASON;
+                crate::response::paging::mark_partial(row, reason, &[]);
+                crate::response::paging::mark_stated(row, reason);
             }
             if !includes.generated.is_empty() && !rust.build_scripts {
                 // With an outside include as well, the name may be defined
@@ -131,6 +156,7 @@ pub(in super::super) fn annotate_empty_includes(
                 let rerun = includes.outside.is_empty() && allowed;
                 let reason = super::super::server_coverage::BUILD_SCRIPTS_REASON;
                 crate::response::paging::mark_partial(row, reason, &[]);
+                crate::response::paging::mark_stated(row, reason);
                 if rerun && let Some(action) = next_action(query, reason) {
                     crate::response::result::attach_related(row, action);
                 }

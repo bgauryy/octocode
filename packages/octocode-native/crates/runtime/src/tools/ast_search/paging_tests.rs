@@ -350,3 +350,69 @@ fn a_syntax_tree_page_reuses_its_walk_and_past_the_end_is_out_of_range() {
     assert_eq!(out["pagination"]["outOfRange"], true, "{out}");
     assert_eq!(out["pagination"]["totalPages"], pages, "{out}");
 }
+
+/// Every match row of a page, by file and line.
+fn match_lines(out: &Value) -> Vec<String> {
+    out["files"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|file| {
+            let path = file["path"].as_str().unwrap_or_default().to_owned();
+            file["matches"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(move |hit| format!("{path}:{}", hit["line"]))
+        })
+        .collect()
+}
+
+/// A match walk with matches states no prefilter count (it decides no next
+/// call); a scan with none states it once, on its first page.
+#[test]
+fn a_match_walk_with_matches_states_no_prefilter_count() {
+    let root = Fixture::new();
+    for index in 0..6 {
+        root.write(
+            &format!("hit{index}.rs"),
+            "fn a() { hit(1); }\nfn b() { hit(2); }\n",
+        );
+    }
+    for index in 0..3 {
+        root.write(&format!("miss{index}.rs"), "fn c() {}\n");
+    }
+    let pages = walk(
+        &root.0,
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"hit($A)"},"limit":3}),
+        match_lines,
+    );
+    assert!(pages.len() > 1, "pages: {pages:?}");
+    for page in &pages {
+        let notes = page["diagnostics"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|diagnostic| diagnostic["code"] == "structural.prefilter.skipped")
+            .count();
+        assert_eq!(notes, 0, "{page}");
+    }
+}
+
+/// astSearch has one engine: no match page states it.
+#[test]
+fn a_match_page_states_no_engine_name() {
+    let root = Fixture::new();
+    for index in 0..4 {
+        root.write(&format!("hit{index}.rs"), "fn a() { hit(1); }\n");
+    }
+    let pages = walk(
+        &root.0,
+        json!({"operation":"match","path":root.0,"parser":"rust","rule":{"pattern":"hit($A)"},"limit":2}),
+        match_lines,
+    );
+    assert!(pages.len() > 1, "pages: {pages:?}");
+    for page in &pages {
+        assert!(page.get("searchEngine").is_none(), "{page}");
+    }
+}

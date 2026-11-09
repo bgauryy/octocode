@@ -57,10 +57,13 @@ fn settle_value(
     crate::response::selection_errors::decorate(tool, structured, response_query);
     super::notices::explain_codes(structured, "results");
     super::notices::place(structured, "results");
+    super::notices::state_shared_warnings(structured, "results");
+    super::notices::state_timed_notices(structured, "results");
     // Hosts show agents this JSON: source reads carry their line numbers in
     // `content` itself. Numbering precedes validation so an unpaged
     // response is exactly what was checked.
     crate::response::numbered::number_read_rows(tool, structured);
+    super::pages::state_shared_identity(tool, structured);
     super::pages::publish_rows(structured);
     // Validate the complete, sanitized rows before deriving error state or a
     // pagination snapshot from them.

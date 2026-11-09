@@ -265,7 +265,7 @@ fn paused_page(q: MatchQuery<'_>, scan: &Scan) -> Result<Value, ToolError> {
         .iter()
         .map(|file| file.matches.len() as u64)
         .sum::<u64>();
-    let mut out = json!({"searchEngine": "structural", "matchCount": matches});
+    let mut out = json!({"matchCount": matches});
     let at = super::super::scan_window::expand_scan(scan.truncated, scan.scan_resume)
         .map(|window| window.scan_offset);
     insert_expand_scan(

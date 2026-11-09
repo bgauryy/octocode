@@ -115,6 +115,7 @@ pub fn execute_local_fetch(
             beside: 0,
             interior: false,
             byte_origin: None,
+            file_lines: None,
         },
         security,
         cancel,

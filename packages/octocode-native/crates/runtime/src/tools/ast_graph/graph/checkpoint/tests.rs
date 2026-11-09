@@ -329,6 +329,7 @@ fn quotas_and_io_failures_do_not_commit_incomplete_artifacts() {
         source: &bound,
         reference_counts: &[],
         reused: false,
+        memory: None,
     };
     let source = capture::capture(&view, &NeverCancel, LIMITS.source_map()).unwrap();
     // Past the budget for encoded in-memory copies the file is still linked,

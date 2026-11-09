@@ -1,7 +1,7 @@
 //! The language server's OS process: spawn program, environment, CPU clock,
 //! memory watchdog, and teardown.
 
-use super::stderr::StderrDrain;
+use super::stderr::{StderrDrain, StderrReader};
 use crate::error::{Error, Result};
 use crate::lsp::spawn_limits;
 use crate::lsp::transport::{CpuClock, JsonRpcConnection};
@@ -238,6 +238,80 @@ pub(super) fn memory_watchdog_for(
     _resident: Arc<AtomicU64>,
 ) -> Option<spawn_limits::AbortOnDrop> {
     None
+}
+
+/// The server's stderr: set on its command before the spawn, with the
+/// parent's end taken after it.
+pub(super) struct StderrPipe {
+    #[cfg(windows)]
+    reader: tokio::net::windows::named_pipe::NamedPipeServer,
+}
+
+impl StderrPipe {
+    /// The child's own pipe, non-blocking on the parent's side.
+    #[cfg(not(windows))]
+    pub(super) async fn attach(command: &mut tokio::process::Command) -> Result<Self> {
+        command.stderr(std::process::Stdio::piped());
+        Ok(Self {})
+    }
+
+    /// An overlapped named pipe this process creates. Its inbound end is
+    /// ours, read through the reactor; the child gets a synchronous write
+    /// end, which the spawn duplicates as inheritable. The command keeps our
+    /// copy of that end until it is dropped, so drop it right after the
+    /// spawn: the pipe reaches EOF only when every writer is gone.
+    #[cfg(windows)]
+    pub(super) async fn attach(command: &mut tokio::process::Command) -> Result<Self> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use tokio::net::windows::named_pipe::ServerOptions;
+        static NEXT_PIPE: AtomicU64 = AtomicU64::new(0);
+        let failed = |error: std::io::Error| {
+            Error::new(format!(
+                "Could not create the language server's stderr pipe: {error}"
+            ))
+        };
+        let started = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.subsec_nanos());
+        let name = format!(
+            r"\\.\pipe\octocode-lsp-stderr-{}-{}-{started}",
+            std::process::id(),
+            NEXT_PIPE.fetch_add(1, Ordering::Relaxed)
+        );
+        // The name's first and only instance, local clients only: a process
+        // that took the name or connected first fails this start instead of
+        // reading the server's stderr.
+        let reader = ServerOptions::new()
+            .access_inbound(true)
+            .access_outbound(false)
+            .first_pipe_instance(true)
+            .max_instances(1)
+            .reject_remote_clients(true)
+            .create(&name)
+            .map_err(failed)?;
+        let writer = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&name)
+            .map_err(failed)?;
+        // The writer is connected, so this returns at once; it starts the
+        // reactor's read.
+        reader.connect().await.map_err(failed)?;
+        command.stderr(std::process::Stdio::from(writer));
+        Ok(Self { reader })
+    }
+
+    /// The parent's end, after the spawn.
+    #[cfg(not(windows))]
+    pub(super) fn reader(self, child: &mut Child) -> Option<StderrReader> {
+        let Self {} = self;
+        child.stderr.take()
+    }
+
+    /// The parent's end, after the spawn.
+    #[cfg(windows)]
+    pub(super) fn reader(self, _child: &mut Child) -> Option<StderrReader> {
+        Some(super::stderr::Overlapped(self.reader))
+    }
 }
 
 pub(super) async fn cleanup_failed_start(

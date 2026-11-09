@@ -1,7 +1,7 @@
 //! A hit on one very long line: what a row shows of it. The line is judged whole, so
 //! no value sits across an edge; the row keeps a window around the hit, with only
 //! a secret's own bytes hidden.
-use super::long_text::secret_spans;
+use super::long_text::{Judged, secret_spans, secret_spans_within};
 use super::{Scope, replacement_for};
 use std::ops::Range;
 
@@ -15,6 +15,7 @@ const WINDOW_SIDE_BYTES: usize = 8 * 1024;
 /// One long line's secrets, judged once for all the rows it gives.
 pub struct LongLine {
     spans: Vec<(Range<usize>, usize)>,
+    every_value: bool,
 }
 
 impl LongLine {
@@ -22,9 +23,29 @@ impl LongLine {
     #[must_use]
     pub fn judged(text: &str, path: Option<&str>) -> Self {
         let scope = path.map_or(Scope::Pathless, Scope::File);
+        Self::of(secret_spans(text, scope))
+    }
+
+    /// [`Self::judged`] with a document walk held to `budget` bytes.
+    #[must_use]
+    pub fn judged_within(text: &str, path: Option<&str>, budget: usize) -> Self {
+        let scope = path.map_or(Scope::Pathless, Scope::File);
+        Self::of(secret_spans_within(text, scope, budget))
+    }
+
+    fn of(judged: Judged) -> Self {
         Self {
-            spans: secret_spans(text, scope),
+            spans: judged.spans,
+            every_value: judged.every_value,
         }
+    }
+
+    /// Whether the line names a Kubernetes Secret or a JSON Web Key whose walk
+    /// outgrew the memory budget, so a row hides every value it shows of it,
+    /// secret or not.
+    #[must_use]
+    pub fn every_value(&self) -> bool {
+        self.every_value
     }
 
     /// `text[hit]` as a row shows it, each secret's part of it replaced by its

@@ -9,11 +9,8 @@ The internal Rust crates compile into that binary; none is published to a Cargo 
 | Suffix | Rust target |
 |---|---|
 | `darwin-arm64` | `aarch64-apple-darwin` |
-| `darwin-x64` | `x86_64-apple-darwin` |
 | `linux-arm64-gnu` | `aarch64-unknown-linux-gnu` |
-| `linux-arm64-musl` | `aarch64-unknown-linux-musl` |
 | `linux-x64-gnu` | `x86_64-unknown-linux-gnu` |
-| `linux-x64-musl` | `x86_64-unknown-linux-musl` |
 | `win32-arm64-msvc` | `aarch64-pc-windows-msvc` |
 | `win32-x64-msvc` | `x86_64-pc-windows-msvc` |
 
@@ -33,7 +30,7 @@ yarn workspace @octocodeai/octocode-native check:target win32-x64-msvc  # one pl
 
 Every script runs `scripts/build-native.cjs`, which builds the `octocode-cli` binary in one Cargo invocation with the committed lockfile, then stages it atomically into `npm/<platform>/`. Staging replaces the file's inode instead of overwriting it in place, so a running MCP server does not crash. Target builds use `target/platforms/<platform>/`; Linux targets cross-link with cargo-zigbuild and zig, Windows with cargo-xwin. Cross-linked gnu targets link against glibc 2.28, Node 24's own floor (`GLIBC_FLOOR` in the script), so the binary runs wherever Node does. Check the floor with `llvm-readelf -V npm/<platform>/octocode`: no `GLIBC_` version above 2.28. A native Linux build links the host's glibc instead. When the target is the host, staging runs the binary in a subprocess.
 
-A cross-built artifact is not runtime proof. CI's Release workflow (`.github/workflows/release.yml`, manual dispatch) builds every platform and runs `scripts/smoke-binary.cjs` on the platform's own OS and CPU: musl in Alpine, and each gnu binary also in a glibc 2.28 image. Locally, run `node scripts/smoke-binary.cjs npm/<platform>` on a machine of that platform; `--container <image>` runs the binary in a Linux image and `--static` checks only its identity, on any host. The smoke checks format, CPU and libc (gnu: no `GLIBC_` above `GLIBC_FLOOR`), the embedded and the reported contract fingerprint, `--version`, `schema`, and `localSearch`/`localFetch` through the CLI and a stdio `octocode mcp` session, and prints a JSON report.
+A cross-built artifact is not runtime proof. CI's Release workflow (`.github/workflows/release.yml`, manual dispatch) builds every platform and runs `scripts/smoke-binary.cjs` on the platform's own OS and CPU, and each gnu binary also in a glibc 2.28 image. Locally, run `node scripts/smoke-binary.cjs npm/<platform>` on a machine of that platform; `--container <image>` runs the binary in a Linux image and `--static` checks only its identity, on any host. The smoke checks format, CPU and libc (gnu: no `GLIBC_` above `GLIBC_FLOOR`), the embedded and the reported contract fingerprint, `--version`, `schema`, and `localSearch`/`localFetch` through the CLI and a stdio `octocode mcp` session, and prints a JSON report.
 
 ## Version
 

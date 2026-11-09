@@ -10,7 +10,7 @@ use super::super::response::response_error;
 use super::{Attempts, RetryWait};
 use crate::budget::{
     CircuitCause, ExecutorConfig, GitHubResource, KeyState, is_primary_rate_limit,
-    is_secondary_rate_limit, now_ms,
+    is_secondary_rate_limit, names_secondary_limit, now_ms,
 };
 use crate::{ProviderError, ProviderErrorKind, RateLimit};
 
@@ -31,7 +31,25 @@ impl Attempts<'_> {
         }
         let resource = self.resource;
         let backoff = match failure {
-            Failure::Primary { reset, wait } => {
+            Failure::Primary {
+                reset,
+                wait,
+                secondary,
+            } => {
+                if secondary {
+                    // GitHub named a secondary limit too: the key cools down
+                    // for its documented wait beside the spent bucket, since
+                    // requests sent during a secondary limit can get the
+                    // integration banned. The spent bucket still answers
+                    // this request at once when it is not paced (D1).
+                    *self.failed = Some(CircuitCause::Secondary);
+                    secondary_cooldown(
+                        &self.state,
+                        headers,
+                        secondary_wait(headers, self.config),
+                        resource,
+                    );
+                }
                 let bucket = headers
                     .get("x-ratelimit-resource")
                     .and_then(|value| value.to_str().ok())
@@ -111,8 +129,13 @@ impl Attempts<'_> {
 }
 
 enum Failure {
-    /// Primary limit: bucket exhausted until `reset` (epoch seconds).
-    Primary { reset: u64, wait: Duration },
+    /// Primary limit: bucket exhausted until `reset` (epoch seconds);
+    /// `secondary` when GitHub's message names a secondary limit as well.
+    Primary {
+        reset: u64,
+        wait: Duration,
+        secondary: bool,
+    },
     /// Secondary limit: key-wide cooldown for `wait`.
     Secondary { wait: Duration },
     /// 5xx or 408: retried with jittered backoff or `retry-after`.
@@ -125,18 +148,28 @@ enum Failure {
 const MAX_PROVIDER_RETRY_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// How long a secondary limit answered with `headers` holds: what GitHub says,
-/// else until an exhausted bucket resets, else the documented default.
+/// else the documented default. A spent bucket's reset is not a secondary
+/// wait: such an answer is that bucket's limit ([`spent_bucket_reset`]).
 pub(in crate::transport) fn secondary_wait(
     headers: &HeaderMap,
     config: &ExecutorConfig,
 ) -> Duration {
-    let remaining = header_u64(headers, "x-ratelimit-remaining");
-    let reset = header_u64(headers, "x-ratelimit-reset");
-    match (provider_retry_after(headers), remaining, reset) {
-        (Some(requested), _, _) => requested,
-        (None, Some(0), Some(reset)) => config.reset_wait(reset),
-        _ => config.secondary_default,
+    provider_retry_after(headers).unwrap_or(config.secondary_default)
+}
+
+/// The reset of the bucket a rate-limited answer's headers say is spent
+/// (`x-ratelimit-remaining: 0` with `x-ratelimit-reset`) when they name no
+/// `retry-after`. GitHub's rule for any limit is then to wait until that
+/// reset, so the answer is that bucket's limit whatever its message calls
+/// it, and the one rule for a spent bucket
+/// ([`crate::budget::waits_out_spent`]) decides whether it is waited out.
+pub(in crate::transport) fn spent_bucket_reset(headers: &HeaderMap) -> Option<u64> {
+    if header_u64(headers, "x-ratelimit-remaining") != Some(0)
+        || provider_retry_after(headers).is_some()
+    {
+        return None;
     }
+    header_u64(headers, "x-ratelimit-reset")
 }
 
 /// Start the key's cooldown for a secondary limit, whatever status carried it.
@@ -185,6 +218,17 @@ fn classify_failure(
     let retry_after = requested.map(crate::budget::ceil_secs);
     let reset = header_u64(headers, "x-ratelimit-reset");
     let text = String::from_utf8_lossy(body);
+    // The headers decide first: a spent bucket is that bucket's limit, even
+    // under a message naming a secondary limit, which then also cools the key.
+    if matches!(code, 403 | 429)
+        && let Some(reset) = spent_bucket_reset(headers)
+    {
+        return Failure::Primary {
+            reset,
+            wait: config.reset_wait(reset),
+            secondary: names_secondary_limit(&text),
+        };
+    }
     if is_secondary_rate_limit(code, remaining, retry_after, &text) {
         return Failure::Secondary {
             wait: secondary_wait(headers, config),
@@ -197,6 +241,7 @@ fn classify_failure(
         return Failure::Primary {
             reset,
             wait: requested.unwrap_or_else(|| config.reset_wait(reset)),
+            secondary: false,
         };
     }
     if classify_status(code).is_retryable() {

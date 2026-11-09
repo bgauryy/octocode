@@ -228,3 +228,18 @@ async fn no_match_in_a_large_file_leads_to_a_repository_search() {
         "{data}"
     );
 }
+
+/// A symbols read no outline can serve names its own recovery (the
+/// related read). The shared hint would send a GitHub read to the local
+/// filesystem tools, so this tool states none.
+#[test]
+fn a_symbols_failure_gets_no_local_tool_hint() {
+    use crate::response::output::ToolOutput;
+    for code in [ErrorCode::SymbolsUnsupported, ErrorCode::LanguageUnsupported] {
+        assert_eq!(
+            super::super::Output.error_hint(code, &serde_json::Value::Null),
+            Some(crate::response::output::NO_HINT),
+            "{code:?}"
+        );
+    }
+}

@@ -21,8 +21,15 @@ astSearch fileTooLarge: the row's own hint and lead name only readers that serve
 astSearch invalidPattern: names the pattern/rule shape and the syntaxTree check
 astSearch languageUnsupported: names when parser applies, beside the text fallbacks
 astSearch symbolsUnsupported: routes documents to localFetch view:symbols
+ghGetFileContent languageUnsupported: the shared hint names local tools; the related[] plain read is the recovery
+ghGetFileContent notFound: the message names the repository, path and ref; the related[] parent listing is the recovery
+ghGetFileContent symbolsUnsupported: the shared hint names local tools; the related[] plain read is the recovery
 ghGetHistoryItem notFound: the message names the repository, number or refs
 ghSearchRepo notFound: the message names the login; findRepository is the lead
+ghStructure notFound: the message names the repository, path and ref; the related[] listing is the recovery
+graphBuild notFound: the message names the snapshot and the graphBuild that makes one
+graphQuery notFound: the message names graphQuery find; related[] lists the nearest nodes
+securityCheck notFound: the message names each source asked and that a miss proves nothing elsewhere
 localFetch fileAccessFailed: a read names one path: list it as a file first
 localFetch invalidPagination: the message names the bad offset
 localSearch fileAccessFailed: no file under the path was readable: broadening reads the same files

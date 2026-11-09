@@ -42,11 +42,15 @@ impl FileLink<'_, '_> {
                     || self.inputs.js_modules.named_by(spec).next().is_some()
             }
             Linker::Python => self.inputs.ctx.python_may_be_internal(spec),
-            Linker::Rust => spec.split("::").next().is_some_and(|head| {
-                self.inputs
-                    .cargo_crates
-                    .may_name_local_crate(&self.file, head)
-            }),
+            Linker::Rust => spec
+                .trim_start_matches("::")
+                .split("::")
+                .next()
+                .is_some_and(|head| {
+                    self.inputs
+                        .cargo_crates
+                        .may_name_local_crate(&self.file, head)
+                }),
             _ => false,
         }
     }

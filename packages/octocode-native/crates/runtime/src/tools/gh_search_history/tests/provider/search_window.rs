@@ -272,6 +272,67 @@ async fn a_capped_search_names_one_narrowing_lead() {
     }
 }
 
+/// D2: a keyword-less pullRequest search runs newest created first, as the
+/// sort's documented default says ("Omit: relevance with keywords, else
+/// newest created"), the same as an issue search. So GitHub is asked with
+/// `sort=created&order=desc`, and a capped page's lead narrows the window
+/// to its last row's creation date instead of only re-adding that default.
+#[tokio::test]
+async fn a_capped_keyword_less_pull_request_search_narrows_its_window() {
+    use wiremock::MockServer;
+
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/search/issues",
+        200,
+        json!({"total_count": 2567, "incomplete_results": false, "items": [
+            {"number": 9, "title": "a", "state": "open", "user": {"login": "dev"},
+                "created_at": "2026-03-02T10:00:00Z"},
+            {"number": 8, "title": "b", "state": "open", "user": {"login": "dev"},
+                "created_at": "2026-03-01T09:30:00+02:00"}
+        ]}),
+    )
+    .await;
+    let provider = one_shot_provider(&server);
+    let row =
+        json!({"operation":"pullRequest","owner":"o","repo":"r","filters":{"labels":["bug"]}});
+    let query: GhSearchHistoryQuery = serde_json::from_value(row).expect("query");
+    let data = execute(&provider, &query, &default_context(), &Passthrough)
+        .await
+        .expect("capped search");
+    assert_eq!(
+        data["partialReasons"],
+        json!(["providerResultCap"]),
+        "{data}"
+    );
+    let asked = server.received_requests().await.unwrap_or_default();
+    let search = asked
+        .iter()
+        .find(|request| request.url.path() == "/api/v3/search/issues")
+        .expect("a search");
+    let pairs: std::collections::HashMap<_, _> = search.url.query_pairs().into_owned().collect();
+    assert_eq!(
+        (
+            pairs.get("sort").map(String::as_str),
+            pairs.get("order").map(String::as_str)
+        ),
+        (Some("created"), Some("desc")),
+        "{}",
+        search.url
+    );
+    let lead =
+        crate::tools::test_support::checks::related_call(&data, "ghSearchHistory", |input| {
+            input["queries"][0]["operation"] == "pullRequest"
+        });
+    let lead = &lead["input"]["queries"][0];
+    assert_eq!(
+        lead["filters"]["createdAt"]["to"], "2026-03-01T07:30:00Z",
+        "the lead narrows the window: {lead}"
+    );
+    assert_eq!(lead["filters"]["labels"], json!(["bug"]), "{lead}");
+}
+
 /// The last page of a multi-page issue search keeps the page block every
 /// earlier page carried, with `hasMore:false`: only a lone first page
 /// states nothing.

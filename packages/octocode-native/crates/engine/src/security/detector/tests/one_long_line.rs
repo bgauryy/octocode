@@ -11,50 +11,21 @@ fn line_of_tokens(count: usize) -> String {
         .collect()
 }
 
-fn fastest_redact(content: &str) -> std::time::Duration {
-    (0..3)
-        .map(|_| {
-            let started = std::time::Instant::now();
-            std::hint::black_box(redact(content, Scope::Pathless));
-            started.elapsed()
-        })
-        .min()
-        .expect("three runs")
+/// A redaction of `content` with no path, as a scan [`assert_scales_linearly`] times.
+fn redact_pathless(content: &str) {
+    std::hint::black_box(redact(content, Scope::Pathless));
 }
 
-/// Eight times the tokens: a linear scan takes about eight times as long, one
-/// that walks back to the line start from each match about sixty-four.
+/// Eight times the tokens: a linear scan reads them in the time of eight
+/// scans of the few, one that walks back to the line start from each match
+/// in that of sixty-four.
 #[test]
 fn tokens_on_one_line_scan_in_linear_time() {
-    let (few, many) = (line_of_tokens(4_000), line_of_tokens(32_000));
-    // A busy machine can inflate one measurement; a scan that walks back misses
-    // on every one.
-    let mut measured = Vec::new();
-    for _ in 0..3 {
-        let (few, many) = (fastest_redact(&few), fastest_redact(&many));
-        let ratio = many.as_secs_f64() / few.as_secs_f64().max(f64::EPSILON);
-        if ratio < 24.0 {
-            return;
-        }
-        measured.push(format!("{few:?} to {many:?}: {ratio:.1}x"));
-    }
-    panic!("{measured:?}");
-}
-
-/// The measured form of a scan: eight times the input in about eight times the
-/// time. A busy machine can inflate one measurement; a scan that walks back
-/// misses on every one.
-fn assert_scales_linearly(few: &str, many: &str) {
-    let mut measured = Vec::new();
-    for _ in 0..3 {
-        let (few, many) = (fastest_redact(few), fastest_redact(many));
-        let ratio = many.as_secs_f64() / few.as_secs_f64().max(f64::EPSILON);
-        if ratio < 24.0 {
-            return;
-        }
-        measured.push(format!("{few:?} to {many:?}: {ratio:.1}x"));
-    }
-    panic!("{measured:?}");
+    assert_scales_linearly(
+        &line_of_tokens(4_000),
+        &line_of_tokens(32_000),
+        redact_pathless,
+    );
 }
 
 /// Object nesting costs what its bytes cost: to the end of the deepest object,
@@ -77,8 +48,8 @@ fn deeply_nested_objects_scan_in_linear_time() {
             .sanitized
             .contains(VALUE)
     );
-    assert_scales_linearly(&few, &many);
-    assert_scales_linearly(&open(40_000), &open(320_000));
+    assert_scales_linearly(&few, &many, redact_pathless);
+    assert_scales_linearly(&open(40_000), &open(320_000), redact_pathless);
 }
 
 /// As many mappings as lines, each closing the last, and a block that holds them.
@@ -91,28 +62,10 @@ fn yaml_mappings_scan_in_linear_time() {
             "- a: b\n  c:\n    d: e\n".repeat(count)
         )
     };
-    let (few, many) = (items(40_000), items(320_000));
-    let scan = |text: &str| {
-        (0..3)
-            .map(|_| {
-                let started = std::time::Instant::now();
-                let found = redact(text, Scope::File("a.yaml")).expect("hidden");
-                assert!(!found.sanitized.contains(VALUE));
-                started.elapsed()
-            })
-            .min()
-            .expect("three runs")
-    };
-    let mut measured = Vec::new();
-    for _ in 0..3 {
-        let (few, many) = (scan(&few), scan(&many));
-        let ratio = many.as_secs_f64() / few.as_secs_f64().max(f64::EPSILON);
-        if ratio < 24.0 {
-            return;
-        }
-        measured.push(format!("{few:?} to {many:?}: {ratio:.1}x"));
-    }
-    panic!("{measured:?}");
+    assert_scales_linearly(&items(40_000), &items(320_000), |text| {
+        let found = redact(text, Scope::File("a.yaml")).expect("hidden");
+        assert!(!found.sanitized.contains(VALUE));
+    });
 }
 
 /// What the replacement took before it carried the line start forward: each
@@ -143,7 +96,7 @@ fn replace_searching_back(
         let line_start = content[..whole.start()]
             .rfind(LINE_END_CHARS)
             .map_or(0, |at| at + 1);
-        if secret.start() < from
+        if secret.end() <= from
             || diff_lines.outside_hunk(diff_lines.prefixed(&captures), line_start)
             || !redacts(
                 &content[line_start..secret.start()],
@@ -154,10 +107,15 @@ fn replace_searching_back(
             continue;
         }
         let end = continued_end(content, secret.end(), |_| true);
-        redacted.push_str(&content[from..secret.start()]);
-        redacted.push_str(replacement);
-        redacted.push_str(&kept_line_breaks(&content[secret.start()..end]));
-        from = end;
+        if secret.start() < from {
+            // It starts inside the secret before it, which it extends.
+            redacted.push_str(&kept_line_breaks(&content[from..end.max(from)]));
+        } else {
+            redacted.push_str(&content[from..secret.start()]);
+            redacted.push_str(replacement);
+            redacted.push_str(&kept_line_breaks(&content[secret.start()..end]));
+        }
+        from = end.max(from);
     }
     redacted.push_str(&content[from..]);
     redacted

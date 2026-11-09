@@ -170,7 +170,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "type": "path",
     "resolved": true,
     "credential": false,
-    "description": "Directory that holds graphBuild snapshots in place of the workspace's .octocode/graph, shared by every workspace: a build then writes nothing in the repository and may scan any allowed directory, such as a ghCloneRepo checkout. It joins the allowed roots, like the checkouts Octocode fetches; a build of a path that contains it is refused.",
+    "description": "Directory in which graphBuild keeps its snapshots, in place of the workspace's .octocode/graph, shared by every workspace: a build then writes nothing in the repository and may scan any allowed directory, such as a ghCloneRepo checkout. Octocode creates the directory if needed and writes only in its own octocode-graph folder there, never reading or removing anything else; the setting grants local tools no read access to it. A build of a path that contains it is refused.",
     "notes": "Home-only, so a repository cannot choose where Octocode writes.",
     "env": {
       "name": "OCTOCODE_GRAPH_HOME",

@@ -31,25 +31,56 @@ fn ordinal_counts_filtered_named_siblings_and_supports_reverse_and_formula() {
     );
 }
 
+/// `range` takes the units every match row prints: a 1-based line and a
+/// 1-based UTF-16 column, the end exclusive. The emoji before `foo` is two
+/// UTF-16 units, so character columns (6..9) miss and UTF-16 columns (7..10)
+/// hit.
 #[test]
-fn exact_range_uses_zero_based_unicode_scalar_boundaries_and_optional_columns() {
-    let source = "\"😀\"; foo();\r\n";
-    let found = matches(
-        source,
-        serde_json::json!({"kind":"identifier","range":{"start":{"line":0,"column":5},"end":{"line":0,"column":8}}}),
-    );
-    assert_eq!(found.len(), 1);
-    assert_eq!(found[0].text, "foo");
-    assert_eq!(found[0].start_col, 6);
-    assert!(matches(source, serde_json::json!({"kind":"identifier","range":{"start":{"line":0,"column":0},"end":{"line":0,"column":11}}})).is_empty());
-    assert_eq!(
+fn exact_range_takes_one_based_lines_and_utf16_columns_with_optional_columns() {
+    let source = "\"😀\"; foo();\r\nbar();\n";
+    let range = |start: serde_json::Value, end: serde_json::Value| {
         matches(
             source,
-            serde_json::json!({"kind":"identifier","range":{"start":{"line":0},"end":{"line":0}}})
+            serde_json::json!({"kind":"identifier","range":{"start":start,"end":end}}),
         )
-        .len(),
-        1
+    };
+    let found = range(
+        serde_json::json!({"line":1,"column":7}),
+        serde_json::json!({"line":1,"column":10}),
     );
+    assert_eq!(
+        found.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(),
+        ["foo"]
+    );
+    assert_eq!((found[0].start_line, found[0].start_col + 1), (1, 7));
+    assert_eq!((found[0].end_line, found[0].end_col + 1), (1, 10));
+    // Character columns and the old 0-based units find nothing.
+    assert!(
+        range(
+            serde_json::json!({"line":1,"column":6}),
+            serde_json::json!({"line":1,"column":9})
+        )
+        .is_empty()
+    );
+    assert!(
+        range(
+            serde_json::json!({"line":1,"column":1}),
+            serde_json::json!({"line":1,"column":12})
+        )
+        .is_empty()
+    );
+    // Lines alone select every node on that 1-based line.
+    let on = |line: usize| {
+        range(
+            serde_json::json!({"line":line}),
+            serde_json::json!({"line":line}),
+        )
+        .into_iter()
+        .map(|m| m.text)
+        .collect::<Vec<_>>()
+    };
+    assert_eq!(on(1), ["foo"]);
+    assert_eq!(on(2), ["bar"]);
 }
 
 #[test]
@@ -96,11 +127,32 @@ fn malformed_positions_selectors_and_nested_filter_metadata_are_rejected() {
         serde_json::json!({"kind":"identifier:is("}),
         serde_json::json!({"kind":"identifier","nthChild":{"position":1,"ofRule":{"kind":"identifier","field":"name"}}}),
         serde_json::json!({"kind":"identifier","range":{"start":{"line":2},"end":{"line":1}}}),
+        serde_json::json!({"kind":"identifier","range":{"start":{"line":1,"column":4},"end":{"line":1,"column":2}}}),
     ] {
         assert!(
             search("foo(a);", "ts", None, Some(&rule)).is_err(),
             "{rule}"
         );
+    }
+    // Positions are 1-based: a 0 line or column is an input error that says so.
+    for (start, end) in [
+        (serde_json::json!({"line":0}), serde_json::json!({"line":1})),
+        (serde_json::json!({"line":1}), serde_json::json!({"line":0})),
+        (
+            serde_json::json!({"line":1,"column":0}),
+            serde_json::json!({"line":1,"column":4}),
+        ),
+        (
+            serde_json::json!({"line":1,"column":1}),
+            serde_json::json!({"line":1,"column":0}),
+        ),
+    ] {
+        let rule = serde_json::json!({"kind":"identifier","range":{"start":start,"end":end}});
+        let error = search("foo(a);", "ts", None, Some(&rule))
+            .err()
+            .unwrap_or_else(|| panic!("a 0 position is rejected: {rule}"))
+            .to_string();
+        assert!(error.contains("1-based"), "{rule}: {error}");
     }
 }
 

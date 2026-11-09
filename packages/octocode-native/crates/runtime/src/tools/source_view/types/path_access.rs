@@ -171,20 +171,35 @@ fn missing_search_root(
 }
 
 /// Whether `path` lies in a git worktree with sparse checkout enabled (as a
-/// `ghCloneRepo` clone with `path` is).
+/// `ghCloneRepo` clone with `path` is). A linked worktree (its `.git` is a
+/// file) keeps its sparse list in its own git directory and, with
+/// `extensions.worktreeConfig`, `core.sparseCheckout` in `config.worktree`
+/// beside it; the shared `config` may hold it too.
 fn in_sparse_checkout(path: &Path) -> bool {
+    use octocode_engine::search::walk::{checkout_git_dir, common_git_dir};
+    let sparse_enabled = |file: PathBuf| {
+        std::fs::read_to_string(file).is_ok_and(|config| {
+            config.lines().any(|line| {
+                line.split_whitespace()
+                    .collect::<String>()
+                    .eq_ignore_ascii_case("sparseCheckout=true")
+            })
+        })
+    };
     path.ancestors()
         .skip(1)
-        .map(|dir| dir.join(".git"))
-        .find(|git| git.is_dir())
-        .is_some_and(|git| {
-            git.join("info/sparse-checkout").is_file()
-                && std::fs::read_to_string(git.join("config")).is_ok_and(|config| {
-                    config.lines().any(|line| {
-                        line.split_whitespace()
-                            .collect::<String>()
-                            .eq_ignore_ascii_case("sparseCheckout=true")
-                    })
-                })
+        .find_map(checkout_git_dir)
+        .is_some_and(|git_dir| {
+            git_dir.join("info/sparse-checkout").is_file()
+                && [
+                    git_dir.join("config.worktree"),
+                    git_dir.join("config"),
+                    common_git_dir(&git_dir).join("config"),
+                ]
+                .into_iter()
+                .any(sparse_enabled)
         })
 }
+
+#[cfg(test)]
+mod tests;

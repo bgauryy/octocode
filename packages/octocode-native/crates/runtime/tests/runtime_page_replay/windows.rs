@@ -92,22 +92,50 @@ async fn assert_complete(runtime: &octocode_native::runtime::ToolRuntime, tool: 
 /// B105 (i): a fresh first page drops the fields that echo its query after
 /// the cut. A page the cut flagged only for those fields fits once they go,
 /// so `oversized` holds exactly when the delivered page is wider than its
-/// budget. A long echoed `path` puts the flag's edge inside the scan.
+/// budget. A long echoed `path` puts the flag's edge inside the scan: the
+/// scan runs from below the whole file's delivered page, where pages are
+/// wider than their budget, to past that page plus the echo the cut counts.
 #[tokio::test]
 async fn a_fresh_first_page_is_oversized_only_when_what_it_delivers_is() {
     let workspace = Workspace::new();
     let file = format!("{}/f.txt", "d".repeat(200));
     workspace.write(&file, "one\ntwo\nthree\n");
     let runtime = workspace.runtime(&[]);
+    let read = |budget: Option<usize>| {
+        let mut query = json!({"queries":[{"path":file}]});
+        if let Some(budget) = budget {
+            query["responseChars"] = json!(budget);
+        }
+        let runtime = &runtime;
+        async move {
+            runtime
+                .run("echo-page".into(), "localFetch".into(), query)
+                .await
+                .expect("read")
+                .structured_content
+                .into_value()
+        }
+    };
+    // The whole file delivered on one page, and the echoed `path` entry the
+    // cut measures beside it before the echo goes.
+    let default = read(None).await;
+    let row = &default["results"][0]["data"];
+    assert_eq!(
+        row["content"].as_str().expect("content"),
+        "1\tone\n2\ttwo\n3\tthree\n",
+        "the default read holds the whole file: {default}"
+    );
+    assert!(
+        row.get("pagination").is_none() && row.get("hasMore").is_none(),
+        "{default}"
+    );
+    let whole = octocode_native::response::pager::budgeted_chars(&default).expect("page");
+    let echo = serde_json::to_string(&json!({ "path": file }))
+        .expect("echo")
+        .len();
     let mut flagged = 0;
-    for budget in (300..=700).step_by(10) {
-        let input = json!({"queries":[{"path":file}],"responseChars":budget});
-        let output = runtime
-            .run("echo-page".into(), "localFetch".into(), input)
-            .await
-            .expect("read")
-            .structured_content
-            .into_value();
+    for budget in (whole / 2..=whole + 2 * echo).step_by(5) {
+        let output = read(Some(budget)).await;
         let chars = octocode_native::response::pager::budgeted_chars(&output).expect("page");
         flagged += usize::from(output.get("oversized").is_some());
         assert_eq!(

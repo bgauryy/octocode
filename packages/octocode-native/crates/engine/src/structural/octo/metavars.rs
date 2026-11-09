@@ -182,7 +182,7 @@ fn meta_from_text(text: &str, expando: Expando) -> Option<MetaVar<'_>> {
     }
 }
 
-fn is_capture_name(name: &str) -> bool {
+pub(super) fn is_capture_name(name: &str) -> bool {
     !name.is_empty()
         && name
             .chars()

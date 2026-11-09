@@ -56,27 +56,11 @@ pub(super) use unix::{call, run, stop_all, stop_all_and_wait};
 
 /// Whether `tool` runs on the warm server: every read-only tool, so a
 /// graphQuery reuses the snapshot an earlier call decoded. A tool that
-/// writes a clone checkout or a graph snapshot runs in process, which also
-/// prints a build's progress on this process's stderr.
+/// writes workspace artifacts (contract `mutatesWorkspace`: a clone
+/// checkout, a graph snapshot) runs in process, which also prints a
+/// build's progress on this process's stderr.
 pub(super) const fn runs_on_server(tool: ToolId) -> bool {
-    match tool {
-        ToolId::GhCloneRepo | ToolId::GraphBuild => false,
-        ToolId::GraphQuery
-        | ToolId::Clasify
-        | ToolId::GhSearchRepo
-        | ToolId::GhSearchCode
-        | ToolId::GhStructure
-        | ToolId::GhGetFileContent
-        | ToolId::GhSearchHistory
-        | ToolId::GhGetHistoryItem
-        | ToolId::ArtifactSearch
-        | ToolId::SecurityCheck
-        | ToolId::LocalSearch
-        | ToolId::StructureSearch
-        | ToolId::AstSearch
-        | ToolId::LocalFetch
-        | ToolId::LspSearch => true,
-    }
+    !tool.mutates_workspace()
 }
 
 #[cfg(not(unix))]

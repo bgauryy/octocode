@@ -168,6 +168,15 @@ fn each_hit_is_judged_and_counts_describe_the_kept_hits() {
     );
     assert_eq!(result.stats.total_occurrences, Some(2));
     assert_eq!(result.stats.matched_lines, Some(2));
+    // Every count states the kept hits: one file holds them. The two files
+    // classification kept no hit of are said, with the call that lists them.
+    assert_eq!(result.stats.matched_files, Some(1));
+    assert!(
+        result.warnings.iter().any(|note| note
+            == "2 of 3 matched files kept no hit: next.unfiltered lists them."),
+        "{:?}",
+        result.warnings
+    );
     let next = result.next.as_ref().expect("leads");
     let unknown = &next["unfilteredUnknown"]["input"]["queries"][0];
     assert!(unknown.get("include").is_none(), "{next}");

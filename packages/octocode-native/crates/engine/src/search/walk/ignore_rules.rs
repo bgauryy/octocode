@@ -8,8 +8,10 @@ use std::sync::{Arc, PoisonError, RwLock};
 use ignore::Match;
 use ignore::gitignore::Gitignore;
 
+mod git_dir;
 mod level;
 
+pub use git_dir::{checkout_git_dir, common_git_dir};
 #[cfg(test)]
 pub(crate) use level::LEVELS_STATED;
 pub use level::ListedRules;

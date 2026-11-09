@@ -10,6 +10,9 @@ use std::sync::Mutex;
 
 pub(crate) struct Double {
     repo: RepoRead,
+    /// Reads by `owner/name`; a repository not given here reads as `repo`.
+    repos: Vec<(String, RepoRead)>,
+    repos_asked: Mutex<Vec<String>>,
     commit: CommitLookup,
     pages: Vec<(Option<String>, AdvisoryRead)>,
     asked: Mutex<Vec<Option<String>>>,
@@ -19,12 +22,16 @@ pub(crate) struct Double {
     global: Vec<(Option<String>, AdvisoryRead)>,
     global_asked: Mutex<Vec<(String, String, Option<String>)>>,
     ghsa_asked: Mutex<Vec<(Option<String>, String)>>,
+    /// Every read answers as one made without a token.
+    anonymous: bool,
 }
 
 impl Double {
     pub(crate) fn repo(repo: RepoRead) -> Self {
         Self {
             repo,
+            repos: Vec::new(),
+            repos_asked: Mutex::new(Vec::new()),
             commit: CommitLookup::Missing,
             pages: Vec::new(),
             asked: Mutex::new(Vec::new()),
@@ -32,7 +39,25 @@ impl Double {
             ghsa_asked: Mutex::new(Vec::new()),
             global: Vec::new(),
             global_asked: Mutex::new(Vec::new()),
+            anonymous: false,
         }
+    }
+
+    /// Reads answer as ones made without a token.
+    pub(crate) fn read_anonymously(mut self) -> Self {
+        self.anonymous = true;
+        self
+    }
+
+    /// What GitHub answers for `repo` (`owner/name`) alone.
+    pub(crate) fn repo_at(mut self, repo: &str, read: RepoRead) -> Self {
+        self.repos.push((repo.to_owned(), read));
+        self
+    }
+
+    /// Every repository read received, as `owner/name`, in order.
+    pub(crate) fn repos_asked(&self) -> Vec<String> {
+        self.repos_asked.lock().expect("asked").clone()
     }
 
     /// The global database's page asked by `after` (`None`: the first).
@@ -94,8 +119,14 @@ impl Double {
 }
 
 impl RepositoryRead for Double {
-    fn read<'a>(&'a self, _: &'a str, _: &'a str) -> RepoFuture<'a> {
-        let read = self.repo.clone();
+    fn read<'a>(&'a self, owner: &'a str, name: &'a str) -> RepoFuture<'a> {
+        let repo = format!("{owner}/{name}");
+        let read = self
+            .repos
+            .iter()
+            .find(|(at, _)| *at == repo)
+            .map_or_else(|| self.repo.clone(), |(_, read)| read.clone());
+        self.repos_asked.lock().expect("asked").push(repo);
         Box::pin(async move { read })
     }
 
@@ -171,6 +202,10 @@ impl RepositoryRead for Double {
             .find(|(at, known, _)| *at == repo && known == id)
             .map_or(GhsaRead::Missing, |(_, _, read)| read.clone());
         Box::pin(async move { read })
+    }
+
+    fn anonymous(&self) -> bool {
+        self.anonymous
     }
 }
 

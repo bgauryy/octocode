@@ -135,7 +135,9 @@ async fn unloaded_includes_flag_unanswered_files() {
     )
     .await;
     assert!(ran.get("isPartial").is_none(), "{ran}");
-    assert_eq!(ran["coverage"]["textOnlyFiles"], 1, "{ran}");
+    // The server's own project speaks for itself: `user.rs` is settled, so a
+    // complete row counts no file it does not lead to.
+    assert_eq!(ran["coverage"]["textOnlyFiles"], 0, "{ran}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -163,7 +165,7 @@ async fn rust_coverage_uses_inherited_settings_and_preserves_explicit_overrides(
     .await;
     assert_eq!(inherited, explicit);
     assert!(inherited.get("partialReasons").is_none(), "{inherited}");
-    assert_eq!(inherited["coverage"]["textOnlyFiles"], 1);
+    assert_eq!(inherited["coverage"]["textOnlyFiles"], 0, "{inherited}");
     assert!(
         crate::tools::test_support::checks::find_related_call(&inherited, "lspSearch", |_| true)
             .is_none(),
@@ -297,10 +299,11 @@ async fn outside_includes_keep_partial_coverage_without_build_script_reruns() {
     .await;
     assert!(symbols.get("isPartial").is_none(), "{symbols}");
 
-    // A package whose includes all load: checked, complete, and says so.
+    // A package whose includes all load: checked, complete, and says so; its
+    // own files the server left out are settled, not counted.
     let plain = rust_row(&root, method, json!({}), &["lib.rs"]).await;
     assert!(plain.get("isPartial").is_none(), "{plain}");
-    assert_eq!(plain["coverage"]["textOnlyFiles"], 1, "{plain}");
+    assert_eq!(plain["coverage"]["textOnlyFiles"], 0, "{plain}");
 }
 
 fn include_fixture() -> tempfile::TempDir {

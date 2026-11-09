@@ -138,6 +138,10 @@ pub(crate) fn quota_exhausted() -> ClassificationError {
     )
 }
 
+/// What a 400 or 422 asks of the caller; [`ClassificationError::naming_model`]
+/// recognises the error it names the request's model on by this hint.
+pub(super) const BAD_REQUEST_HINT: &str = "Check state, questions and request size; list models with clasify {\"operation\":\"models\"} before naming one.";
+
 /// Maps a non-success status to its error; the provider body only picks
 /// the code (`max_tokens_exceeded`) and is never kept or rendered.
 pub(super) fn status_error(
@@ -149,9 +153,7 @@ pub(super) fn status_error(
     }
     let hint = match status.as_u16() {
         401 | 403 => "Check OCTOCODE_CLASSIFICATION_API and account access.",
-        400 | 422 => {
-            "Check state, questions and request size; list models with clasify {\"operation\":\"models\"} before naming one."
-        }
+        400 | 422 => BAD_REQUEST_HINT,
         300..=399 => "Redirects are disabled; check OCTOCODE_CLASSIFICATION_API_HOST.",
         _ => "Check provider availability and OCTOCODE_CLASSIFICATION_API_HOST.",
     };

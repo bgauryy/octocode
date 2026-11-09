@@ -169,6 +169,7 @@ impl GitHubServices {
                 // Only a timed-out git transfer can succeed unchanged.
                 let upstream = Upstream {
                     retryable: error.code == ErrorCode::Timeout,
+                    http_status: error.http_status,
                     ..Upstream::default()
                 };
                 DomainResult::provider(

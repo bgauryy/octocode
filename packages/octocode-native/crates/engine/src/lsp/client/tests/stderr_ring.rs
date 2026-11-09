@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::lsp::client::stderr::{
-    Held, ReadNow, STDERR_LINE_MAX_CHARS, STDERR_RING_CAPACITY, UntilExit, drain_stderr,
-    push_stderr_line, read_capped_line,
+    CancelRead, Overlapped, READ_CANCELLED, ReadNow, STDERR_LINE_MAX_CHARS, STDERR_RING_CAPACITY,
+    UntilExit, drain_stderr, push_stderr_line, read_capped_line,
 };
 use tokio::io::BufReader;
 
@@ -100,7 +100,8 @@ fn capped_line_reader_discards_the_overflow_without_buffering_it() {
 }
 
 /// A pipe a leftover process holds open: its stream never answers, and it
-/// holds `held` unread (read without waiting, then `WouldBlock`).
+/// holds `held` unread (read without waiting, then `WouldBlock`), as a Unix
+/// pipe read with a non-blocking `read`.
 struct HeldPipe {
     held: Vec<u8>,
 }
@@ -116,14 +117,15 @@ impl tokio::io::AsyncRead for HeldPipe {
 }
 
 impl ReadNow for HeldPipe {
-    fn read_now(&mut self, buf: &mut [u8]) -> std::io::Result<Held> {
-        if self.held.is_empty() {
-            return Ok(Held::Nothing);
-        }
-        let read = buf.len().min(self.held.len());
-        buf[..read].copy_from_slice(&self.held[..read]);
+    fn poll_read_now(
+        mut self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let read = buf.remaining().min(self.held.len());
+        buf.put_slice(&self.held[..read]);
         self.held.drain(..read);
-        Ok(Held::Read(read))
+        std::task::Poll::Ready(Ok(()))
     }
 }
 
@@ -149,60 +151,102 @@ async fn an_exited_servers_drain_reads_what_the_pipe_holds_and_ends() {
     );
 }
 
-/// A pipe read on a blocking thread (Windows): the stream hands over a
-/// chunk only once the peek has found bytes held (the read in flight
-/// finishing); it never ends, as a writer that left the Job Object keeps the
-/// pipe open.
-struct ThreadReadPipe {
-    held: VecDeque<Vec<u8>>,
-    peeked: bool,
+/// The reactor's read in flight on an overlapped pipe (Windows).
+enum InFlight {
+    /// Parked on an empty pipe: only a writer or a cancel completes it.
+    Parked,
+    /// Completed with the bytes it took, or cancelled (`None`). `queued`
+    /// while its completion has not yet reached the stream.
+    Done { took: Option<Vec<u8>>, queued: bool },
 }
 
-impl tokio::io::AsyncRead for ThreadReadPipe {
+/// An overlapped pipe (Windows) that a leftover writer holds open, so it
+/// never reaches EOF. A read is always in flight: it takes the next chunk as
+/// soon as the pipe holds one, and the stream hands it over one reactor turn
+/// later. A read that took the last chunk therefore looks, for that turn,
+/// like a read parked on an empty pipe.
+struct OverlappedPipe {
+    held: VecDeque<Vec<u8>>,
+    read: InFlight,
+}
+
+impl OverlappedPipe {
+    fn new(held: &[&[u8]]) -> Self {
+        let mut pipe = Self {
+            held: held.iter().map(|chunk| chunk.to_vec()).collect(),
+            read: InFlight::Parked,
+        };
+        pipe.schedule_read();
+        pipe
+    }
+
+    fn schedule_read(&mut self) {
+        self.read = match self.held.pop_front() {
+            Some(chunk) => InFlight::Done {
+                took: Some(chunk),
+                queued: true,
+            },
+            None => InFlight::Parked,
+        };
+    }
+}
+
+impl tokio::io::AsyncRead for OverlappedPipe {
     fn poll_read(
         mut self: std::pin::Pin<&mut Self>,
         _: &mut std::task::Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> std::task::Poll<std::io::Result<()>> {
-        if !std::mem::take(&mut self.peeked) {
-            return std::task::Poll::Pending;
+        match &mut self.read {
+            InFlight::Parked => std::task::Poll::Pending,
+            InFlight::Done { queued, .. } if *queued => {
+                *queued = false;
+                std::task::Poll::Pending
+            }
+            InFlight::Done { took, .. } => {
+                let took = took.take();
+                self.schedule_read();
+                std::task::Poll::Ready(match took {
+                    Some(chunk) => {
+                        buf.put_slice(&chunk);
+                        Ok(())
+                    }
+                    None => Err(std::io::Error::from_raw_os_error(READ_CANCELLED)),
+                })
+            }
         }
-        let Some(chunk) = self.held.pop_front() else {
-            return std::task::Poll::Pending;
-        };
-        buf.put_slice(&chunk);
-        std::task::Poll::Ready(Ok(()))
     }
 }
 
-impl ReadNow for ThreadReadPipe {
-    fn read_now(&mut self, _: &mut [u8]) -> std::io::Result<Held> {
-        self.peeked = !self.held.is_empty();
-        Ok(if self.peeked {
-            Held::InStream
-        } else {
-            Held::Nothing
-        })
+impl CancelRead for OverlappedPipe {
+    fn cancel_read(&mut self) {
+        if matches!(self.read, InFlight::Parked) {
+            self.read = InFlight::Done {
+                took: None,
+                queued: true,
+            };
+        }
     }
 }
 
-/// Once the server has exited, a pipe whose bytes only its stream delivers
-/// is read until the peek finds it empty, and the drain ends while a
-/// leftover writer still holds it open.
-#[tokio::test]
-async fn an_exited_servers_drain_takes_the_streams_bytes_until_the_pipe_is_empty() {
-    let pipe = ThreadReadPipe {
-        held: VecDeque::from([b"first\nsec".to_vec(), b"ond\nlast".to_vec()]),
-        peeked: false,
-    };
+/// Once the server has exited, the drain of an overlapped pipe keeps the
+/// chunk its read in flight took while the pipe looked empty, and it ends on
+/// the cancelled read while a leftover writer still holds the pipe open.
+#[test]
+fn an_exited_servers_overlapped_drain_keeps_the_read_in_flight_and_ends() {
+    let pipe = Overlapped(OverlappedPipe::new(&[b"first\nsec", b"ond\nlast"]));
     let (exited, on_exit) = tokio::sync::oneshot::channel();
     let lines = Arc::new(StdMutex::new(VecDeque::new()));
-    let drain = tokio::spawn(drain_stderr(
+    let mut drain = std::pin::pin!(drain_stderr(
         UntilExit::new(pipe, on_exit),
         Arc::clone(&lines),
     ));
     exited.send(()).expect("drain listens");
-    drain.await.expect("drain ends");
+    // Each poll is one reactor turn. A drain that waits for a writer never
+    // ends; one that ends on the empty-looking pipe loses "last".
+    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+    let turns = (1..=64).find(|_| drain.as_mut().poll(&mut cx).is_ready());
+    assert!(turns.is_some(), "the drain waits for the pipe's writer");
     let lines = lines.lock().unwrap();
     assert_eq!(
         lines.iter().map(String::as_str).collect::<Vec<_>>(),
@@ -225,8 +269,12 @@ async fn a_running_servers_drain_reads_to_eof() {
         }
     }
     impl ReadNow for Stream {
-        fn read_now(&mut self, _: &mut [u8]) -> std::io::Result<Held> {
-            Ok(Held::Nothing)
+        fn poll_read_now(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            _: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Ok(()))
         }
     }
     let (mut writer, reader) = tokio::io::duplex(64);

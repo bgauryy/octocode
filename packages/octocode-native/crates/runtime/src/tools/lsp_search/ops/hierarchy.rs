@@ -107,8 +107,18 @@ impl Operation<'_, '_> {
         } else {
             "heritage"
         });
-        super::super::walk::mark_partial_expansion(&mut row, query, &walk.failures);
-        super::super::walk::mark_truncation(&mut row, query, &[(expansion, &walk)]);
+        super::super::walk::mark_partial_expansion(
+            &mut row,
+            query,
+            &walk.failures,
+            self.sources.policy(),
+        );
+        super::super::walk::mark_truncation(
+            &mut row,
+            query,
+            &[(expansion, &walk)],
+            self.sources.policy(),
+        );
         if let Some(window) = &candidates
             && window.has_more
         {
@@ -175,16 +185,9 @@ impl Operation<'_, '_> {
             && !rows.is_empty()
             && row.get("errorCode").is_none()
         {
-            // The label's meaning lives in the contract; the whole answer's
-            // count is said once, on page 1.
+            // Each row's `source` and `partialReasons` state it; the
+            // reason's meaning lives in the contract.
             crate::response::paging::mark_partial(&mut row, SCAN_ONLY, &[]);
-            crate::response::paging::push_notice(
-                &mut row,
-                format!(
-                    "{} implementation(s) are source:\"{SCAN_SOURCE}\" (matched by name).",
-                    rows.len()
-                ),
-            );
         }
         Ok(row)
     }

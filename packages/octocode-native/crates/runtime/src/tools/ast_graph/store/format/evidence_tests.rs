@@ -52,7 +52,7 @@ pub(crate) fn origins_fixture(ranges: &[(u32, u32)]) -> sources::SourceTable {
 pub(super) fn evidence_fixture() -> GraphTables {
     let mut t = GraphTables {
         sources: source_fixture(),
-        strings: vec![
+        strings: [
             "a.py".into(),
             "run".into(),
             "function".into(),
@@ -65,7 +65,9 @@ pub(super) fn evidence_fixture() -> GraphTables {
             "null".into(),
             r#"{"status":"notAssessed","reason":"assessmentUnavailable"}"#.into(),
             "a".repeat(64),
-        ],
+        ]
+        .into_iter()
+        .collect::<Strings>(),
         nodes: vec![
             NodeRec {
                 kind: NodeKind::File,

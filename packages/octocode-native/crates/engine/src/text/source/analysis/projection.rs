@@ -85,6 +85,19 @@ impl BoundSource<'_> {
             .temporary_size(|temporary| self.project(span, temporary).map(|origin| price(&origin)))
     }
 
+    /// The bytes projecting `span` allocates, measured in a temporary
+    /// budget and freed again: what keeping that projection holds.
+    pub fn projected_bytes(
+        &self,
+        span: ObservedSpan,
+        budget: &mut MapBudget<'_>,
+    ) -> Result<usize, SourceError> {
+        budget.temporary_size(|temporary| {
+            self.project(span, temporary)?;
+            Ok(temporary.usage.bytes)
+        })
+    }
+
     fn boundaries(
         &self,
         input: RepresentationHandle,

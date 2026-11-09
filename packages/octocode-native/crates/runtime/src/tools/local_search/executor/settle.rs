@@ -4,7 +4,7 @@ use crate::tools::local_search::local_search_query::View;
 
 use super::super::coverage::Coverage;
 use super::super::layout::Layout;
-use super::super::leads::{Found, scope_listing, workspace_root_lead};
+use super::super::leads::{Found, restart_lead, scope_listing, workspace_root_lead};
 use super::super::types::{
     FileErrors, FilePagination, LocalSearchResult, SearchStats, SearchStatus,
 };
@@ -35,6 +35,9 @@ pub(super) struct Page<'a> {
     pub(super) unverified: bool,
     /// Rows remain in the shown files.
     pub(super) leftover_matches: bool,
+    /// Classification judged hits of this scan: a page it kept none of is
+    /// no absence (its counts describe the kept hits, so they say zero).
+    pub(super) classified_hits: bool,
 }
 
 /// The row of one page: its status, coverage warnings, leads and limits.
@@ -54,9 +57,7 @@ pub(super) fn settle_row(
         ..
     } = *scope;
     let (layout, total_files) = (page.layout, page.total_files);
-    let empty = total_files == 0
-        && !(local_search_query::has_classification(query)
-            && page.scanned.files_matched.unwrap_or(0) > 0);
+    let empty = total_files == 0 && !page.classified_hits;
     let mut stats = search_stats(local_search_query::view(query), page.scanned, total_files);
     // Rows name paths from the workspace; so does the first unreadable one.
     if let Some(errors) = &mut stats.file_errors {
@@ -102,6 +103,11 @@ pub(super) fn settle_row(
         )
     {
         hints.push(hint);
+        // The hint's advice as a call: the same scope with case ignored.
+        let lead = restart_lead(query, json!({"caseMode": "insensitive"}))?;
+        if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
+            map.insert("asInsensitive".into(), lead);
+        }
     }
     // Leads go in after the status is settled: they are optional follow-ups
     // and never stand in for a page.

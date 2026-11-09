@@ -330,15 +330,23 @@ fn listing_page<Q: Listing>(
         requested,
         q.early_exit(),
         (q.scan_offset(), q.walk_offset()),
-        snapshot.clone(),
+        snapshot,
     );
     let shown = pages.get(page - 1).cloned().unwrap_or(total..total);
     let shown_rows = rows::page_entries(&walk.rows[shown.clone()], q.view(), detail, cancel)?;
-    let files = rows::dir_groups(&shown_rows, prefix);
+    let files = rows::dir_groups(
+        &shown_rows,
+        prefix,
+        matches!(
+            super::files::sort_key(&q.sort()),
+            None | Some(octocode_contract_types::StructureSearchSortAnyOrderBy::Path)
+        ),
+    );
+    // The listing's snapshot rides its continuations' cursors only: no
+    // input takes it from the row.
     let mut out = json!({
         "path": prefix,
         "files": files,
-        "snapshot": snapshot,
     });
     // Every page states its block; the response stage keeps it unless the
     // block is one complete first page (`response::pages::publish`'s
@@ -380,6 +388,16 @@ fn listing_page<Q: Listing>(
     // states them when it ends (its paused windows carry them there).
     if page == 1 && walk.meta.time_window != super::cut::TimeWindow::Paused {
         walk.meta.disclose(&mut out, root)?;
+        // An empty listing's zero totals restate its `files:[]` and its
+        // `empty` status.
+        if out["status"] == "empty"
+            && out["summary"]
+                .as_object()
+                .is_some_and(|summary| summary.values().all(|count| count == 0))
+            && let Some(fields) = out.as_object_mut()
+        {
+            fields.remove("summary");
+        }
         lead_to_skipped(&mut out, q, &walk.meta.uncovered, q.walk(), q.filtered());
         if let Some(read) = rows::read_lead(&walk.rows[shown], root) {
             out["calls"]["read"] = read;

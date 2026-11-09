@@ -675,3 +675,170 @@ fn a_key_block_written_in_literal_pieces_stays_hidden() {
     );
     hidden_in_files(&[("a.rs", &content)], &body);
 }
+
+/// A literal's escaped line break (`\n`) ends the line the program holds,
+/// and a connection string's value with it: the next line's fields are
+/// shown. Where the backslash escapes nothing (a raw string) the value runs
+/// on (B190 item 2).
+#[test]
+fn an_escaped_line_break_ends_a_connection_string_value() {
+    let content = "fn f() {\n    let s = \"CONN=Server=db;Password=Hunter2x\\nNEXT=Server=db;User=sa\\n\";\n}\n";
+    for scope in [Scope::File("a.rs"), Scope::Stored(Some("a.rs"))] {
+        let redacted = hides(content, scope, &["Hunter2x"]);
+        assert!(
+            redacted.contains("]\\nNEXT=Server=db;User=sa\\n\";"),
+            "{scope:?}: {redacted}"
+        );
+    }
+    // The text past the clip is searched again: a field there is judged.
+    let next = "fn f() {\n    let s = \"CONN3=Server=db;User=sa;Password=x\\nCONN4=Pwd=ab12;Server=db\\n\";\n}\n";
+    hidden_in_files(&[("a.rs", next)], &["ab12"]);
+    let raw = "fn f() {\n    let s = r\"CONN=Server=db;Password=Hunter2x\\nNEXT=Hunter3y\";\n}\n";
+    hidden_in_files(&[("a.rs", raw)], &["Hunter2x", "Hunter3y"]);
+}
+
+/// A config line written in a one-line literal (`"password = …"`), or after
+/// one of its escaped line breaks, is read from where the literal's line
+/// starts, as the same line in a multi-line literal is: the code before the
+/// opening quote is no part of its key, and the closer stays (B190, R6 N1).
+#[test]
+fn a_config_line_in_a_one_line_literal_is_read_from_the_literal_start() {
+    for (path, content) in [
+        (
+            "a.rs",
+            "fn f() {\n    let s = \"password = Zq7xK2mPlanted9\";\n}\n",
+        ),
+        (
+            "a.py",
+            "def f():\n    y = \"jwt_secret = Zq7xK2mPlanted9\"\n",
+        ),
+        (
+            "a.rs",
+            "fn f() {\n    let t = \"password: CORRECT_HORSE_BATTERY_STAPLE\";\n}\n",
+        ),
+        (
+            "a.rs",
+            "fn f() {\n    let u = \"a=1\\npassword = Zq7xK2mPlanted9\";\n}\n",
+        ),
+    ] {
+        for scope in [Scope::File(path), Scope::Stored(Some(path))] {
+            let redacted = hides(
+                content,
+                scope,
+                &["Zq7xK2mPlanted9", "CORRECT_HORSE_BATTERY_STAPLE"],
+            );
+            assert!(
+                redacted
+                    .lines()
+                    .nth(1)
+                    .is_some_and(|line| line.trim_end_matches(';').ends_with("]\"")),
+                "{scope:?}: closer lost: {redacted}"
+            );
+        }
+    }
+}
+
+/// The last line of a literal written over several lines ends at its
+/// closer, with code after it on the same physical line
+/// (`password = …";`): a rule anchored at the line's end does not reach it
+/// there, so it is read up to the closer (B190, the R6 N1 class).
+#[test]
+fn the_last_line_of_a_multiline_literal_is_read_up_to_its_closer() {
+    for (path, content) in [
+        (
+            "a.rs",
+            "fn f() {\n    let u = \"a=1\npassword = Zq7xK2mPlanted9\";\n}\n",
+        ),
+        ("a.ts", "const u = `a=1\npassword: Zq7xK2mPlanted9`;\n"),
+    ] {
+        for scope in [Scope::File(path), Scope::Stored(Some(path))] {
+            let redacted = hides(content, scope, &["Zq7xK2mPlanted9"]);
+            assert!(
+                redacted.contains("]\";") || redacted.contains("]`;"),
+                "{scope:?}: closer lost: {redacted}"
+            );
+        }
+    }
+}
+
+/// A literal's line is a literal of code first: its value is a credential
+/// only as a code literal is one (long enough, or a chosen secret), a
+/// file-class rule does not read it as a dotenv file, and a line written
+/// with escapes (`\"`) is not read as one (B190, the measured cost of R6 N1).
+#[test]
+fn a_config_line_in_a_one_line_literal_is_judged_as_a_code_literal() {
+    for path in ["a.rs", "a.ts"] {
+        for scope in [Scope::File(path), Scope::Stored(Some(path))] {
+            for content in [
+                "f(\"GITHUB_TOKEN: set\");\n",
+                "f('GH_TOKEN=project-secret');\n",
+                "f(\"KEY=one\\n\");\n",
+                "f(\"PASS: installed and validated the archive\");\n",
+                "f(\"  access_token: \\\"replace with your access token\\\"\\n\");\n",
+            ] {
+                keeps(content, scope);
+            }
+        }
+    }
+}
+
+/// Shell has no grammar the engine parses, so a backslash in a `.sh` file
+/// counts as an escape: a single-quoted value ending in one takes the quote,
+/// and the value stays hidden (fail closed; B190 item 3, a pin, no fix).
+#[test]
+fn a_shell_single_quoted_value_stays_hidden() {
+    hidden_in_files(
+        &[("a.sh", "export DB_PASSWORD='Zq7xK2mPlanted9\\'\nNEXT=1\n")],
+        &["Zq7xK2mPlanted9"],
+    );
+}
+
+/// A literal that holds a backslash as text (a raw string, a C# verbatim
+/// string, a Go raw string, a shell or Python raw single-quoted value) may
+/// end in one: its value closes at the quote after the backslash and is
+/// hidden. Read with escapes, that quote is escaped and no literal closes,
+/// so the value was shown (B190, found by the item 3 pin).
+#[test]
+fn a_literal_ending_in_a_backslash_it_does_not_escape_is_hidden() {
+    hidden_in_files(
+        &[
+            (
+                "a.rs",
+                "fn f() {\n    let api_key = r\"Zq7xK2mPlanted9\\\";\n}\n",
+            ),
+            (
+                "a.rs",
+                "fn f() {\n    let api_key = r#\"Zq7xK2mPlanted9\\\"#;\n}\n",
+            ),
+            ("a.go", "package a\nvar apiKey = `Zq7xK2mPlanted9\\`\n"),
+            (
+                "a.cs",
+                "class A {\n    string apiKey = @\"Zq7xK2mPlanted9\\\";\n}\n",
+            ),
+            ("a.py", "API_KEY = r'Zq7xK2mPlanted9\\\\'\n"),
+            ("a.sh", "DB_PASSWORD='Zq7xK2mPlanted9\\'\n"),
+        ],
+        &["Zq7xK2mPlanted9"],
+    );
+}
+
+/// RV pins (round 2): an escaped backslash before `n` is no line break, so
+/// the whole password stays hidden; a single-quoted bytes literal under a
+/// credential name is hidden.
+#[test]
+fn rv_an_escaped_backslash_before_n_and_a_bytes_literal_stay_hidden() {
+    for scope in [Scope::File("a.rs"), Scope::Stored(Some("a.rs"))] {
+        hides(
+            "fn f() { let s = \"Server=db;Password=ab\\\\nZq7xK2mPlanted9;\"; }\n",
+            scope,
+            &["Zq7xK2mPlanted9"],
+        );
+    }
+    for scope in [Scope::File("a.py"), Scope::Stored(Some("a.py"))] {
+        hides(
+            "secret_key = b'Zq7xK2mPlanted9xx'\n",
+            scope,
+            &["Zq7xK2mPlanted9xx"],
+        );
+    }
+}

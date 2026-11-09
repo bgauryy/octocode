@@ -14,6 +14,9 @@ pub(super) struct Scope {
     pub(super) extensions: Option<std::collections::BTreeSet<String>>,
     /// `parserGlobs`: the parser of files whose names select none.
     pub(super) parsers: GlobParsers,
+    /// Without `parser`: the parser extensions of the scan's own census whose
+    /// grammar the query compiles in ([`super::scope::read_grammars`]).
+    pub(super) compiled: Vec<String>,
 }
 
 /// One scanned file.
@@ -30,6 +33,8 @@ pub(super) struct ScannedFile {
     pub(super) status: String,
     /// The file parsed with recovered syntax that could hide a match.
     pub(super) recovered: bool,
+    /// Macro bodies whose re-parse could hide a match.
+    pub(super) recovered_bodies: Vec<octocode_engine::structural::RecoveredBody>,
     /// The scanned path and the digest of the bytes it was matched in:
     /// where a page rebuilds a priced file's matches.
     pub(super) source: Option<(std::path::PathBuf, String)>,
@@ -134,6 +139,60 @@ impl NamedFiles {
             self.examples.iter().cloned().collect::<Vec<_>>().join(", ")
         )
     }
+}
+
+/// Macro bodies, by file, line and macro, whose re-parse could hide a
+/// match: how many, and the first few.
+#[derive(Default)]
+pub(super) struct NamedBodies {
+    pub(super) count: u32,
+    pub(super) examples: std::collections::BTreeSet<(String, u32, String)>,
+}
+
+impl NamedBodies {
+    pub(super) fn record(&mut self, path: &str, body: &octocode_engine::structural::RecoveredBody) {
+        self.count = self.count.saturating_add(1);
+        self.examples
+            .insert((path.to_owned(), body.line, body.name.clone()));
+        if self.examples.len() > NAMED_EXAMPLES {
+            self.examples.pop_last();
+        }
+    }
+
+    /// The same tally with each path respelled by `spell`.
+    pub(super) fn respelled(&self, spell: impl Fn(&str) -> String) -> Self {
+        Self {
+            count: self.count,
+            examples: self
+                .examples
+                .iter()
+                .map(|(path, line, name)| (spell(path), *line, name.clone()))
+                .collect(),
+        }
+    }
+}
+
+/// The warning that names the macro bodies whose re-parse could hide a
+/// match: `path:line macro!`, the first few.
+pub(super) fn recovered_bodies_notice(bodies: &NamedBodies) -> Option<String> {
+    let noun = match bodies.count {
+        0 => return None,
+        1 => "macro body",
+        _ => "macro bodies",
+    };
+    let mut names: Vec<String> = bodies
+        .examples
+        .iter()
+        .map(|(path, line, name)| format!("{path}:{line} {name}"))
+        .collect();
+    if bodies.count as usize > names.len() {
+        names.push("…".to_owned());
+    }
+    Some(format!(
+        "{} {noun} re-parsed with recovered syntax that could hide a match ({}); matches inside them may be missing.",
+        bodies.count,
+        names.join(", ")
+    ))
 }
 
 /// The files a walk passed over because no grammar parses their names.
@@ -263,6 +322,8 @@ pub(super) struct Grouped {
     pub(super) skipped_grammars: Option<Value>,
     /// Files whose recovered parse could hide a match.
     pub(super) recovered: NamedFiles,
+    /// Macro bodies whose recovered re-parse could hide a match.
+    pub(super) recovered_bodies: NamedBodies,
 }
 
 /// Diagnostic codes of a file the scan skipped unread.

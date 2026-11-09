@@ -4,6 +4,7 @@ import path from 'node:path';
 import { sourceLines } from '../responses.mjs';
 import { classificationAnswer } from './mock-routes.mjs';
 import { data, display, noul, PNG, providerSession, readCaptured, same } from './classification-checks.mjs';
+import { canon } from './calls.mjs';
 import { sectionChecks, unreadSectionsChecks, memorySectionsChecks } from './classification-sections.mjs';
 import { inlineChecks } from './classification-inline.mjs';
 import { githubImageChecks, urlPolicyChecks } from './classification-network.mjs';
@@ -151,12 +152,13 @@ async function answerPages(ctx, surface, provider) {
   const before = provider.sent.length;
   const pages = await display(ctx, surface, 'clasify', { queries: [query], responseChars: 3000 });
   const entries = pages.rows.flatMap(row => Object.entries(row.answers ?? {}));
-  const expected = classificationAnswer({ questions }).answers;
+  // The mock answers in the provider's wire shape; a client answer names its type by its value key (C3eM-2).
+  const expected = Object.fromEntries(Object.entries(classificationAnswer({ questions }).answers).map(([key, { type: _type, ...answer }]) => [key, answer]));
   const packets = provider.sent.slice(before);
   const judged = packets.flatMap(entry => Object.values(entry.request.questions));
   const sentOnce = judged.length === 12 && Object.values(questions).every(question => judged.filter(value => same(value, question)).length === 1);
   const after = provider.sent.length;
-  const checks = [['answers.completeWalk', pages.results.length > 1 && entries.length === 12 && new Set(entries.map(([key]) => key)).size === 12 && entries.every(([key, answer]) => same(answer, expected[key])) && sentOnce, { pages: pages.results.length, answers: entries.length, providerCalls: packets.length }]];
+  const checks = [['answers.completeWalk', pages.results.length > 1 && entries.length === 12 && new Set(entries.map(([key]) => key)).size === 12 && entries.every(([key, answer]) => canon(answer) === canon(expected[key])) && sentOnce, { pages: pages.results.length, answers: entries.length, providerCalls: packets.length }]];
   const next = pages.results[0].json.responsePagination.next;
   const replay = await display(ctx, surface, 'clasify', next.input);
   checks.push(['answers.savedReplay', provider.sent.length === after && same(replay.rows.flatMap(row => Object.entries(row.answers ?? {})), pages.rows.slice(1).flatMap(row => Object.entries(row.answers ?? {}))), { pages: replay.results.length }]);
@@ -208,8 +210,8 @@ function batchEvidence(at) {
   const answer = index => at(index).flatMap(row => Object.entries(row.data.answers ?? {}));
   const failure = (index, code) => at(index).length === 1 && at(index)[0].data.errorCode === code;
   return failure(0, 'invalidInput') && failure(3, 'pathNotFound')
-    && same(answer(1), [['sameKey', { type: 'noul', noul: 0.1 }]])
-    && same(answer(4), [['sameKey', { type: 'noul', noul: 0.8 }]]);
+    && same(answer(1), [['sameKey', { noul: 0.1 }]])
+    && same(answer(4), [['sameKey', { noul: 0.8 }]]);
 }
 
 async function boundaryQuestions(ctx, surface, provider) {
@@ -219,7 +221,7 @@ async function boundaryQuestions(ctx, surface, provider) {
   const answers = pages.rows.flatMap(row => Object.entries(row.answers ?? {}));
   const sent = provider.sent.slice(before).flatMap(packet => Object.values(packet.request.questions));
   return [['questions.boundaryComplete', same(answers.map(([key]) => key).toSorted(), Object.keys(questions).toSorted())
-    && answers.every(([, answer]) => answer.type === 'noul' && answer.noul === 0.9)
+    && answers.every(([, answer]) => answer.noul === 0.9 && !('type' in answer))
     && sent.length === 25 && Object.values(questions).every(question => sent.filter(value => same(value, question)).length === 1),
   { pages: pages.results.length, answers: answers.length, questionsSent: sent.length }]];
 }

@@ -371,3 +371,100 @@ fn an_empty_rust_answer_with_unconfirmed_spellings_is_partial() {
     let elsewhere = references_with("rust", "rs", true, false, &crate_file, &[], true);
     assert_ne!(elsewhere["isPartial"], true, "{elsewhere}");
 }
+
+/// `references helper` from `a.rs` with a sibling project `dist/` whose
+/// `copy.rs` calls `helper` (a build copy, not ignored), inside a git work
+/// tree when `repository`.
+fn references_beside_dist(repository: bool) -> Value {
+    let dir = crate::tools::test_support::Fixture::new();
+    let root = dir.0.canonicalize().expect("canonical root");
+    if repository {
+        std::fs::create_dir_all(root.join(".git")).expect("repository");
+    }
+    let script = root.join("fake-lsp.js");
+    // The server did not load the copy: `definition` there names nothing.
+    let server = SERVER
+        .replace(BEHAVIOUR, "const elsewhere = false; const empty = false;")
+        .replace("'/b.'", "'/dist/'");
+    assert!(
+        server.contains("'/dist/'"),
+        "the server script names b.* files"
+    );
+    crate::tools::lsp_search::tests::write_executable(&script, server.as_bytes());
+    let anchor = root.join("a.rs");
+    std::fs::write(&anchor, "function helper() {}\nhelper();\n").expect("anchor");
+    std::fs::create_dir_all(root.join("dist")).expect("dist");
+    let (name, content) = project_file("rs");
+    std::fs::write(root.join("dist").join(name), content).expect("project file");
+    std::fs::write(root.join("dist/copy.rs"), "helper();\n").expect("build copy");
+    std::fs::write(
+        root.join("lsp-servers.json"),
+        json!({"languageServers": {".rs": {
+            "command": script.to_string_lossy(), "args": [], "languageId": "rust"
+        }}})
+        .to_string(),
+    )
+    .expect("config");
+    let execution = crate::tools::lsp_search::LspExecutionConfig {
+        octocode_home: Some(root.clone()),
+        ..crate::tools::lsp_search::LspExecutionConfig::default()
+    };
+    let pool = LspClientPool::new(LspPoolOptions {
+        client: LspClientOptions {
+            settle_cap: Some(Duration::ZERO),
+        },
+        ..LspPoolOptions::default()
+    });
+    let paths = crate::tools::test_support::workspace_policy(&root);
+    let runtime = tokio::runtime::Runtime::new().expect("rt");
+    let row = runtime
+        .block_on(crate::tools::lsp_search::execute(
+            query(json!({
+                "operation": "references",
+                "path": anchor.to_string_lossy(),
+                "symbolName": "helper",
+                "line": 1
+            })),
+            &NeverCancel,
+            &pool,
+            &paths,
+            &execution,
+            None,
+            crate::tools::lsp_search::test_answers(),
+        ))
+        .expect("row");
+    runtime.block_on(pool.clear_all());
+    row
+}
+
+/// RFC Validation 10: the text scan prunes what every local walk prunes. Outside
+/// a git work tree a `dist/` copy that spells the name is never walked, so
+/// coverage names no text-only file there. Inside one, where a tracked `dist/` is walked by every local tool,
+/// the same copy is the text-only file the answer misses. (An include naming
+/// `dist/**` lifts the prune: lspSearch takes no include, so that half is
+/// `scope::tests::listing::the_text_scan_prunes_the_directories_every_local_walk_prunes`.)
+#[test]
+fn a_build_copy_in_a_pruned_directory_is_no_text_only_file() {
+    if !crate::tools::test_support::require_node() {
+        return;
+    }
+    let pruned = references_beside_dist(false);
+    assert_eq!(pruned["matchCount"], 2, "{pruned}");
+    // The row stays partial for its own reason (no `.git` bounds the
+    // project), but no text-only file is counted and `dist/` is never named.
+    assert_eq!(
+        pruned.pointer("/coverage/textOnlyFiles"),
+        Some(&json!(0)),
+        "{pruned}"
+    );
+    assert!(!pruned.to_string().contains("dist/"), "{pruned}");
+    let walked = references_beside_dist(true);
+    assert_eq!(walked["matchCount"], 2, "{walked}");
+    assert_eq!(walked["isPartial"], true, "{walked}");
+    assert_eq!(
+        walked.pointer("/coverage/textOnlyFiles"),
+        Some(&json!(1)),
+        "{walked}"
+    );
+    assert!(walked.to_string().contains("dist/copy.rs"), "{walked}");
+}

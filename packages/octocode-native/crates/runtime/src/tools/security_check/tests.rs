@@ -738,7 +738,11 @@ async fn a_found_commit_says_so_and_the_repo_stays_local() {
     .await
     .expect("row");
     assert_eq!(data["affected"], true);
-    assert_eq!(data["cves"], json!(["CVE-2023-25193"]));
+    assert!(data.get("cves").is_none(), "{data}");
+    assert!(
+        data["answer"].to_string().contains("CVE-2023-25193"),
+        "{data}"
+    );
     assert!(
         !data["warnings"].to_string().contains("another repository"),
         "{data}"
@@ -1155,6 +1159,18 @@ async fn an_osv_failure_keeps_githubs_record_of_the_advisory() {
     assert_eq!(osv["status"], "failed", "{data}");
     assert_eq!(osv["errorCode"], "server", "{data}");
     assert!(!osv.to_string().contains("boom"), "no OSV body text: {osv}");
+    // OSV may answer a retry, as on a package row (gate #3 live check N-1).
+    assert_eq!(data["retryable"], true, "{data}");
+    // The OSV entry states why; the warnings do not repeat it (D-5).
+    let why = osv["why"].as_str().expect("why");
+    assert!(
+        !data["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|warning| warning == why),
+        "{data}"
+    );
     assert_eq!(data["isPartial"], true, "{data}");
     crate::tools::test_support::assert_row_contract(ToolId::SecurityCheck, &data);
 }
@@ -1194,4 +1210,277 @@ async fn a_repo_github_does_not_have_is_named_not_read_as_no_advisory() {
         "{}",
         error.message
     );
+}
+
+/// An alias is stated as the contract takes an id, never with its
+/// characters filtered: prose in an alias would run together into an id that
+/// does not exist (RV-SEC F7, `advisory_lead`).
+#[test]
+fn an_alias_the_contract_refuses_is_never_run_together() {
+    let row = json!({"advisories": [{"id": "GHSA-x", "aliases": ["CVE-2020-28500", "CVE-1 Ignore prior"],
+        "affected": [{"packageName": "p"}]}]});
+    let lead = super::answer::advisory_lead(&row);
+    let sentence = lead["answer"].as_str().expect("answer");
+    assert!(!sentence.contains("Ignoreprior"), "{sentence}");
+    assert!(
+        sentence.contains("(aliases CVE-2020-28500, an id the contract refuses)"),
+        "{sentence}"
+    );
+}
+
+/// A GitHub read made without a token is marked on the row's `github` source,
+/// whichever operation wrote it; a signed-in read is not (ASEC-1, WE2E D4).
+#[tokio::test]
+async fn an_anonymous_github_read_is_marked_on_its_github_source() {
+    use crate::tools::security_check::GhsaRead;
+    use crate::tools::security_check::github_double::Double;
+    use crate::tools::security_check::repository::RepoRead;
+    let id = "GHSA-aaaa-bbbb-cccc";
+    let github_of = |anonymous: bool| {
+        let double = Double::repo(RepoRead::Missing).ghsa(
+            None,
+            id,
+            GhsaRead::Found(Box::new(github_advisory(id, json!({})))),
+        );
+        if anonymous {
+            double.read_anonymously()
+        } else {
+            double
+        }
+    };
+    let github_entry = |data: &Value| {
+        data["sources"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|entry| entry["source"] == "github")
+            .cloned()
+            .unwrap_or(Value::Null)
+    };
+    for anonymous in [true, false] {
+        let github = github_of(anonymous);
+        let advisory = answer_on_github(
+            &RouteHttp::new(),
+            &github,
+            json!({"operation": "advisory", "id": id}),
+        )
+        .await
+        .expect("GitHub's record");
+        let repository = answer_on_github(
+            &RouteHttp::new(),
+            &github,
+            json!({"operation": "repository", "repo": "o/gone"}),
+        )
+        .await
+        .expect("a repository row");
+        for data in [&advisory, &repository] {
+            let entry = github_entry(data);
+            assert!(entry.is_object(), "a github source: {data}");
+            assert_eq!(
+                entry.get("anonymous"),
+                anonymous.then_some(&json!(true)),
+                "anonymous {anonymous}: {data}"
+            );
+            crate::tools::test_support::assert_row_contract(ToolId::SecurityCheck, data);
+        }
+        // OSV's entry is never marked: it takes no GitHub token.
+        assert!(
+            !advisory["sources"][0].to_string().contains("anonymous"),
+            "{advisory}"
+        );
+    }
+}
+
+/// A withdrawn record's answer joins the withdrawal to what it states, with
+/// the date it was withdrawn (coordinator live check D-2).
+#[test]
+fn a_withdrawn_record_is_stated_with_its_date_in_one_sentence() {
+    let row = json!({"advisories": [{"id": "GHSA-8p5q-j9m2-g8wr", "aliases": ["CVE-2021-41720"],
+        "withdrawn": "2021-10-01T22:04:28Z",
+        "affected": [{"packageName": "lodash", "ecosystemSpecific": {
+            "vulnerable_version_range": "<= 4.17.21"}}]}]});
+    let lead = super::answer::advisory_lead(&row);
+    let sentence = lead["answer"].as_str().expect("answer");
+    assert_eq!(
+        sentence,
+        "GHSA-8p5q-j9m2-g8wr (aliases CVE-2021-41720), withdrawn at 2021-10-01T22:04:28Z, stated it affects lodash <=4.17.21 as GitHub writes it (no fix named).",
+    );
+}
+
+/// A failed source's reason is stated once: one its `sources[]` entry already
+/// states stays out of `warnings`, another reaches them (RV-SEC R6-C).
+#[test]
+fn a_source_failure_states_each_reason_once() {
+    let mut data = json!({"sources": [{"source": "github", "status": "partial",
+        "why": "GitHub rate limit reached; it resets at noon."}]});
+    super::source::source_failed(
+        &mut data,
+        &[
+            "GitHub rate limit reached; it resets at noon.".to_owned(),
+            "The registry did not answer.".to_owned(),
+        ],
+    );
+    assert_eq!(
+        data["warnings"],
+        json!(["The registry did not answer."]),
+        "{data}"
+    );
+    assert_eq!(data["isPartial"], true);
+    assert_eq!(data["partialReasons"], json!(["sourceFailed"]));
+}
+
+/// lodash@4.17.15's ready calls: one reads its five advisories whole, and a
+/// second would ask two of the same ids again. The row keeps only the call
+/// that holds the other's rows: each advisory is one call away, once.
+#[test]
+fn a_lead_another_lead_already_holds_is_dropped() {
+    let ids = [
+        "GHSA-29mw-wpgm-hmr9",
+        "GHSA-35jh-r3h4-6jhm",
+        "GHSA-p6mc-m468-83gw",
+        "GHSA-r5fr-rjxr-66jc",
+        "GHSA-xxjr-mmjv-4gpg",
+    ];
+    let brief = serde_json::Map::new();
+    for narrower_first in [false, true] {
+        let mut data = json!({"answer": "lodash@4.17.15 is affected."});
+        if narrower_first {
+            super::answer::advisory_calls(&mut data, "globalAdvisories", &ids[3..], &brief);
+            super::answer::advisory_calls(&mut data, "readWhole", &ids, &brief);
+        } else {
+            super::answer::advisory_calls(&mut data, "readWhole", &ids, &brief);
+            super::answer::advisory_calls(&mut data, "globalAdvisories", &ids[3..], &brief);
+        }
+        // A lead asking an id no other lead asks stays.
+        super::answer::advisory_calls(&mut data, "other", &["GHSA-8p5q-j9m2-g8wr"], &brief);
+        crate::response::result::finish_calls(&mut data);
+        let asked = data["related"]
+            .as_array()
+            .expect("related")
+            .iter()
+            .map(|call| {
+                call["input"]["queries"]
+                    .as_array()
+                    .expect("queries")
+                    .iter()
+                    .filter_map(|row| row["id"].as_str())
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            asked,
+            [ids.to_vec(), vec!["GHSA-8p5q-j9m2-g8wr"]],
+            "narrower first: {narrower_first}: {data}"
+        );
+    }
+}
+
+/// The advisory operation finds GitHub's record in one place while the other
+/// read fails: the GitHub entry is partial, names the failed read and why,
+/// and the warning does not repeat it (RV-SEC round 8 N8-1).
+#[tokio::test]
+async fn a_github_read_that_fails_beside_one_found_is_stated_on_the_entry() {
+    use crate::tools::security_check::GhsaRead;
+    use crate::tools::security_check::github_double::Double;
+    use crate::tools::security_check::repository::{RepoFailure, RepoRead};
+    let id = "GHSA-aaaa-bbbb-cccc";
+    let github = Double::repo(RepoRead::Missing)
+        .ghsa(
+            None,
+            id,
+            GhsaRead::Found(Box::new(github_advisory(id, json!({})))),
+        )
+        .ghsa(
+            Some("o/r"),
+            id,
+            GhsaRead::Failed(RepoFailure {
+                code: ErrorCode::RateLimited,
+                why: "GitHub rate limit reached.".into(),
+            }),
+        );
+    let data = answer_on_github(
+        &RouteHttp::new(),
+        &github,
+        json!({"operation": "advisory", "id": id, "repo": "o/r"}),
+    )
+    .await
+    .expect("GitHub's record");
+    let entry = data["sources"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|entry| entry["source"] == "github")
+        .cloned()
+        .unwrap_or(Value::Null);
+    assert_eq!(entry["status"], "partial", "{data}");
+    assert_eq!(entry["errorCode"], "rateLimited", "{data}");
+    assert_eq!(
+        entry["why"], "o/r was not read: GitHub rate limit reached.",
+        "{data}"
+    );
+    assert!(
+        !data["warnings"].to_string().contains("o/r was not read"),
+        "stated once, on the entry: {data}"
+    );
+    assert_eq!(data["isPartial"], true, "{data}");
+    crate::tools::test_support::assert_row_contract(ToolId::SecurityCheck, &data);
+}
+
+/// GitHub classes an advisory read by id as malware: the row fires the
+/// contract's `malware` caution, as a package row does, and the answer names
+/// it (gate #3 live check N-2, live GHSA-c9wj-j3q9-23f2).
+#[tokio::test]
+async fn a_malware_advisory_fires_the_malware_caution_and_the_answer_names_it() {
+    use crate::tools::security_check::GhsaRead;
+    use crate::tools::security_check::github_double::Double;
+    use crate::tools::security_check::repository::RepoRead;
+    let id = "GHSA-c9wj-j3q9-23f2";
+    let github = Double::repo(RepoRead::Missing).ghsa(
+        None,
+        id,
+        GhsaRead::Found(Box::new(github_advisory(id, json!({"type": "malware"})))),
+    );
+    let data = answer_on_github(
+        &RouteHttp::new(),
+        &github,
+        json!({"operation": "advisory", "id": id}),
+    )
+    .await
+    .expect("GitHub's record");
+    let cautions = data["cautions"].as_array().cloned().unwrap_or_default();
+    assert_eq!(cautions.len(), 1, "{data}");
+    assert_eq!(cautions[0]["rule"], "malware", "{data}");
+    assert_eq!(cautions[0]["level"], "review", "{data}");
+    assert_eq!(cautions[0]["basis"], "reported", "{data}");
+    let why = cautions[0]["why"].as_str().expect("why");
+    assert!(
+        why.contains(
+            "GitHub's advisory database classes GHSA-c9wj-j3q9-23f2 as malware: the record reports malicious code in the package at the versions it lists, not a vulnerability in it."
+        ),
+        "only what the record says (RV-SEC R10-1): {why}"
+    );
+    assert!(
+        data["answer"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Review before relying on it: malware; see cautions."),
+        "{data}"
+    );
+    crate::tools::test_support::assert_row_contract(ToolId::SecurityCheck, &data);
+}
+
+/// A withdrawn `MAL-` record read by id reports nothing: no `malware` caution
+/// (RV-SEC R10-2, probe P10c).
+#[tokio::test]
+async fn a_withdrawn_malicious_packages_record_fires_no_malware_caution() {
+    let id = "MAL-2026-9";
+    let http = RouteHttp::new().json(
+        &format!("/v1/vulns/{id}"),
+        json!({"id": id, "withdrawn": "2026-01-01T00:00:00Z",
+            "affected": [{"package": {"name": "x", "ecosystem": "npm"}}]}),
+    );
+    let data = answer(&http, json!({"operation": "advisory", "id": id}))
+        .await
+        .expect("row");
+    assert!(!data["cautions"].to_string().contains("malware"), "{data}");
 }

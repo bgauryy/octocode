@@ -23,6 +23,26 @@ fn canonical_match_wire_keeps_source_coordinates() {
     crate::tools::test_support::published(crate::id::ToolId::LocalFetch, &wire);
 }
 
+/// C3eK A-R9 / B-R6: a read whose matchString selects nothing states its
+/// zero once: `content:""` beside the row's `empty` status (and, on GitHub,
+/// `matchNotFound`), not again as `matchedLines:[]`, `selectedMatchCount:0`
+/// and `returnedLines:0`. A page with text keeps them.
+#[test]
+fn an_empty_match_read_states_its_zero_once() {
+    let fixture = Fixture::new();
+    let path = fixture.write("a.txt", "zero\none\nneedle\n");
+    let req = qj(&path, serde_json::json!({"matchString":["zzqq_absent"]}));
+    let result = fetch(&req, &Paths(fixture.0.clone()));
+    let wire = serde_json::to_value(&result).expect("result");
+    assert_eq!(wire["content"], "", "{wire}");
+    assert_eq!(wire["totalLines"], 3, "{wire}");
+    for restated in ["matchedLines", "selectedMatchCount", "returnedLines"] {
+        assert!(wire.get(restated).is_none(), "{restated}: {wire}");
+    }
+    assert_eq!(format!("{:?}", result.status), "Empty", "the row's status states it");
+    crate::tools::test_support::published(crate::id::ToolId::LocalFetch, &wire);
+}
+
 #[test]
 fn canonical_reader_rejects_aliases_and_incompatible_views() {
     for fields in [

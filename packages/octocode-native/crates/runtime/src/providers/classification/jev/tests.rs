@@ -214,6 +214,49 @@ fn a_single_question_response_reads_its_answer_model_and_usage() {
     assert_eq!(super::JEV.read(&request, &invalid).usage, None);
 }
 
+/// One listed model as the output contract types it (`ClasifyModelMetadata`).
+fn listed(name: &str, description: &str, release_date: &str) -> Value {
+    serde_json::to_value(octocode_contract_types::ClasifyModelMetadata {
+        default: None,
+        description: description.to_owned(),
+        name: name.to_owned(),
+        release_date: release_date.to_owned(),
+    })
+    .expect("model metadata")
+}
+
+/// A listing value that cannot be serialized fails the listing with a
+/// typed response error; it is never listed as `null`.
+#[test]
+fn a_listing_value_that_cannot_serialize_is_a_response_error_not_null() {
+    struct Unserializable;
+    impl serde::Serialize for Unserializable {
+        fn serialize<S: serde::Serializer>(&self, _: S) -> Result<S::Ok, S::Error> {
+            Err(serde::ser::Error::custom("refused"))
+        }
+    }
+    let error = super::wire_value(&Unserializable).expect_err("a serialize error is surfaced");
+    assert!(!error.request, "{error:?}");
+    assert!(error.message.contains("refused"), "{error:?}");
+}
+
+/// The listing leaves the vendor wire spelled as the output contract's
+/// generated type spells it, never as the wire does, so a contract rename
+/// reaches every listed model (ALL-TOOLS-C D12).
+#[test]
+fn model_listing_spells_its_fields_as_the_output_contract_types_them() {
+    let wire = json!({"models":[{"name":"m","description":"d","release_date":"2026-01-01"}]});
+    assert_eq!(
+        super::JEV.models(&wire).unwrap(),
+        json!({"models":[listed("m", "d", "2026-01-01")]})
+    );
+    let local = json!({"data":[{"id":"m"}]});
+    assert_eq!(
+        super::JEV.models(&local).unwrap(),
+        json!({"models":[listed("m", "", "")]})
+    );
+}
+
 #[test]
 fn model_discovery_accepts_live_timestamp_strings_and_rejects_missing_fields() {
     let response = json!({"object":"list","models":[{"name":"jev-preview","description":"Preview",
@@ -221,8 +264,7 @@ fn model_discovery_accepts_live_timestamp_strings_and_rejects_missing_fields() {
     // Only the clasify output fields leave the vendor wire.
     assert_eq!(
         super::JEV.models(&response).unwrap(),
-        json!({"models":[{"name":"jev-preview","description":"Preview",
-                "release_date":"2026-09-10T18:39:06.057655+00:00"}]})
+        json!({"models":[listed("jev-preview", "Preview", "2026-09-10T18:39:06.057655+00:00")]})
     );
     assert_eq!(
         super::JEV.models(&json!({"models":[]})).unwrap(),
@@ -247,6 +289,6 @@ fn model_discovery_reads_a_local_servers_openai_list_without_inventing_fields() 
     ]});
     assert_eq!(
         super::JEV.models(&response).unwrap(),
-        json!({"models":[{"name":"strands-decider:2b-nvfp4","description":"","release_date":""}]})
+        json!({"models":[listed("strands-decider:2b-nvfp4", "", "")]})
     );
 }

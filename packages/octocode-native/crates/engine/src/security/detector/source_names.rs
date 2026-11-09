@@ -20,11 +20,22 @@ const KEPT: usize = 2 * REACH + 8;
 
 const KEY_TYPE: &[u8] = b"kty";
 const SECRET: &[u8] = b"\"Secret";
+const AUTHS: &[u8] = b"\"auths";
 const KIND_LINE: &[u8] = b"kind:";
 
 #[expect(clippy::expect_used, reason = "built from static literals")]
 static OBJECT_LITERALS: LazyLock<AhoCorasick> =
     LazyLock::new(|| AhoCorasick::new([KEY_TYPE, SECRET]).expect("literal automaton"));
+
+/// The object literals matched in any ASCII case: Go's `encoding/json` reads a
+/// Docker config's `"Auths"` as its `"auths"`.
+#[expect(clippy::expect_used, reason = "built from static literals")]
+static FOLDED_OBJECT_LITERALS: LazyLock<AhoCorasick> = LazyLock::new(|| {
+    AhoCorasickBuilder::new()
+        .ascii_case_insensitive(true)
+        .build([AUTHS])
+        .expect("literal automaton")
+});
 
 #[expect(clippy::expect_used, reason = "built from static literals")]
 static KIND_LINES: LazyLock<AhoCorasick> = LazyLock::new(|| {
@@ -34,11 +45,50 @@ static KIND_LINES: LazyLock<AhoCorasick> = LazyLock::new(|| {
         .expect("literal automaton")
 });
 
+/// Which families of objects a source names: each is what the walk of its
+/// objects finds under one spelling.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Objects {
+    /// A `"kind": "Secret"`: a Kubernetes Secret's values.
+    pub secret: bool,
+    /// A `kty`: a JSON Web Key's private members.
+    pub key: bool,
+    /// An `"auths"` key: a Docker config's registry credentials.
+    pub registry: bool,
+}
+
+impl Objects {
+    /// Every family: a source whose walk reads them all, whatever it names.
+    pub const ALL: Self = Self {
+        secret: true,
+        key: true,
+        registry: true,
+    };
+
+    /// Whether any family is named.
+    #[must_use]
+    pub const fn any(self) -> bool {
+        self.secret || self.key || self.registry
+    }
+
+    /// The pattern a value of these objects is hidden under when no walk placed
+    /// it: the form of the one family named, and when several are named the
+    /// Secret's, the pattern of a value with no family of its own.
+    #[must_use]
+    pub const fn form(self) -> SecretForm {
+        match (self.secret, self.key, self.registry) {
+            (false, true, false) => SecretForm::JsonWebKey,
+            (false, false, true) => SecretForm::DockerAuths,
+            _ => SecretForm::SecretInJson,
+        }
+    }
+}
+
 /// What a source names, and so which walk could find something in it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Named {
-    /// A `kty` or a `"kind": "Secret"` key: the walk of its objects.
-    pub objects: bool,
+    /// The families of objects it names: the walk of its objects.
+    pub objects: Objects,
     /// `kind: Secret` at a path whose YAML is judged: the walk of its mappings.
     pub yaml: bool,
 }
@@ -46,7 +96,7 @@ pub struct Named {
 impl Named {
     #[must_use]
     pub fn any(self) -> bool {
-        self.objects || self.yaml
+        self.objects.any() || self.yaml
     }
 }
 
@@ -74,7 +124,7 @@ impl SourceNames {
     }
 
     fn settled(&self) -> bool {
-        self.named.objects && (self.named.yaml || !self.yaml)
+        self.named.objects == Objects::ALL && (self.named.yaml || !self.yaml)
     }
 
     /// Take the source's next `bytes`.
@@ -112,15 +162,24 @@ impl SourceNames {
     fn judge(&mut self, text: &[u8], from_start: bool, last: bool) {
         // Away from a start, a literal sooner than its reach was judged in the seam.
         let usable = |at: usize| from_start || at >= REACH;
-        if !self.named.objects {
-            self.named.objects = OBJECT_LITERALS.find_iter(text).any(|hit| {
-                usable(hit.start())
-                    && if hit.end() - hit.start() == KEY_TYPE.len() {
-                        names_a_key_type(text, hit.start(), last)
-                    } else {
-                        names_a_secret(text, hit.start(), from_start)
-                    }
-            });
+        let objects = &mut self.named.objects;
+        if !(objects.key && objects.secret) {
+            for hit in OBJECT_LITERALS.find_iter(text) {
+                if !usable(hit.start()) {
+                    continue;
+                }
+                if hit.end() - hit.start() == KEY_TYPE.len() {
+                    objects.key = objects.key || names_a_key_type(text, hit.start(), last);
+                } else {
+                    objects.secret =
+                        objects.secret || names_a_secret(text, hit.start(), from_start);
+                }
+            }
+        }
+        if !objects.registry {
+            objects.registry = FOLDED_OBJECT_LITERALS
+                .find_iter(text)
+                .any(|hit| usable(hit.start()) && names_registry_auths(text, hit.start(), last));
         }
         if self.yaml && !self.named.yaml {
             self.named.yaml = KIND_LINES
@@ -166,6 +225,24 @@ fn names_a_key_type(text: &[u8], at: usize, last: bool) -> bool {
         [] => outran(reach),
         [b':'] => outran(reach) || last,
         [b':', b':', ..] => false,
+        [b':', ..] => true,
+        _ => false,
+    }
+}
+
+/// `"auths` at `at`, in any case, is a member's name: its string closes, quotes
+/// held at any depth, and a colon follows. A Docker client config's `auths` map
+/// has it.
+fn names_registry_auths(text: &[u8], at: usize, last: bool) -> bool {
+    let reach = &text[at + AUTHS.len()..(at + AUTHS.len() + REACH).min(text.len())];
+    let rest = after_blanks(reach, |byte| byte == b'\\');
+    let rest = match rest.split_first() {
+        Some((b'"', closed)) => closed,
+        Some(_) => return false,
+        None => return outran(reach),
+    };
+    match after_blanks(rest, is_space) {
+        [] => outran(reach) || last,
         [b':', ..] => true,
         _ => false,
     }
@@ -240,6 +317,7 @@ pub enum SecretForm {
     SecretInJson,
     JsonWebKey,
     SecretInYaml,
+    DockerAuths,
 }
 
 impl SecretForm {
@@ -250,6 +328,7 @@ impl SecretForm {
             Self::SecretInJson => "kubernetesSecretJson",
             Self::JsonWebKey => super::jwk::PATTERN,
             Self::SecretInYaml => "kubernetesSecrets",
+            Self::DockerAuths => super::document::DOCKER_AUTHS,
         }
     }
 }
@@ -283,7 +362,7 @@ impl SourceWalk {
     #[must_use]
     pub fn new(named: Named, budget: usize) -> Self {
         Self {
-            objects: named.objects.then(|| objects::Walk::within(budget)),
+            objects: named.objects.any().then(|| objects::Walk::within(budget)),
             yaml: named.yaml.then(yaml_secret::Blocks::default),
             budget,
             over: false,
@@ -334,6 +413,12 @@ impl SourceWalk {
                     .private_members
                     .into_iter()
                     .map(spanned(SecretForm::JsonWebKey)),
+            );
+            spans.extend(
+                found
+                    .registry_credentials
+                    .into_iter()
+                    .map(spanned(SecretForm::DockerAuths)),
             );
         }
         if let Some(blocks) = self.yaml {

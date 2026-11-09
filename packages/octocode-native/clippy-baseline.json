@@ -20,10 +20,8 @@
       "crates/engine/src/structural/files.rs": 1
     },
     "runtime": {
-      "crates/runtime/src/providers/artifact/npm/search.rs": 1,
       "crates/runtime/src/providers/artifact/versions.rs": 1,
       "crates/runtime/src/response/symbol_outline.rs": 1,
-      "crates/runtime/src/tools/ast_graph/store/format/sections.rs": 1,
       "crates/runtime/src/tools/empty_walk/tagged.rs": 1,
       "crates/runtime/src/tools/gh_get_history_item/inventory/review.rs": 1,
       "crates/runtime/src/tools/gh_get_history_item/patch/locate.rs": 1,

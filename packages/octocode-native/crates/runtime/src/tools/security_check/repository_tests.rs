@@ -142,14 +142,7 @@ async fn a_found_repository_states_facts_policy_and_the_day_read() {
     let data = row(read, "https://github.com/o/r").await.expect("row");
     assert_eq!(data["repository"]["owner"], "o");
     assert!(data["repository"]["observedAt"].is_string());
-    assert_eq!(
-        data["policy"]["lowTractionStars"],
-        policy.low_traction_stars
-    );
-    assert_eq!(
-        data["policy"]["unmaintainedAfterDays"],
-        policy.unmaintained_after_days
-    );
+    assert!(data.get("policy").is_none(), "{data}");
     assert_eq!(data["cautions"][0]["rule"], "lowTraction");
     assert_eq!(data["sources"][0]["status"], "found");
 }

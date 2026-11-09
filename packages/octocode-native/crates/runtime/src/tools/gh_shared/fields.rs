@@ -68,14 +68,16 @@ pub(crate) fn pick_rows(value: &mut Value, rows: &str, id: &[&str], fields: &[St
     // still answers, and the warning names the keys the rows do carry
     // instead of leaving the missing key to read as an empty value.
     if !listed.is_empty() && !absent.is_empty() {
-        push_warnings(
-            value,
-            [format!(
-                "No row has {}; these rows have: {}.",
-                absent.join(", "),
+        let absent = absent.join(", ");
+        let warning = if carried.is_empty() {
+            format!("No row has {absent}.")
+        } else {
+            format!(
+                "No row has {absent}; these rows have: {}.",
                 carried.join(", ")
-            )],
-        );
+            )
+        };
+        push_warnings(value, [warning]);
     }
 }
 

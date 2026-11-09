@@ -5,6 +5,7 @@ fn latest(version: &str) -> Latest {
     Latest {
         version: version.to_owned(),
         published_at: Some("2026-01-02".to_owned()),
+        repository: None,
     }
 }
 

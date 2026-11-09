@@ -6,11 +6,15 @@ use super::{jwk, objects, yaml_secret};
 use crate::security::patterns::PATTERNS;
 use std::ops::Range;
 
+/// The pattern that names a Docker client config's `auths`.
+pub(super) const DOCKER_AUTHS: &str = "dockerRegistryAuth";
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Form {
     SecretInYaml,
     SecretInJson,
     JsonWebKey,
+    DockerAuths,
 }
 
 impl Form {
@@ -20,6 +24,7 @@ impl Form {
             "kubernetesSecrets" => Some(Self::SecretInYaml),
             "kubernetesSecretJson" => Some(Self::SecretInJson),
             jwk::PATTERN => Some(Self::JsonWebKey),
+            DOCKER_AUTHS => Some(Self::DockerAuths),
             _ => None,
         }
     }
@@ -35,6 +40,7 @@ impl Form {
             Self::SecretInYaml => yaml_secret::secret_blocks(text),
             Self::SecretInJson => objects::walk(text).secret_values,
             Self::JsonWebKey => objects::walk(text).private_members,
+            Self::DockerAuths => objects::walk(text).registry_credentials,
         };
         replace_ranges(text, ranges, placeholder)
     }

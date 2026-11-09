@@ -47,7 +47,7 @@ async function cursorReplay(ctx) {
   const fixture = {
     tool: 'clasify',
     input: { queries: [{ operation: 'evaluate', content: 'Concurrent persistent cursor evidence', questions }], responseChars: 1 },
-    expected: new Map(Object.keys(questions).map(key => [key, { type: 'noul', noul: 0.9 }])),
+    expected: new Map(Object.keys(questions).map(key => [key, { noul: 0.9 }])),
   };
   const checks = [];
   for (const surface of ctx.surfaces) {

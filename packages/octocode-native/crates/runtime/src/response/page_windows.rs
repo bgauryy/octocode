@@ -157,12 +157,20 @@ pub(crate) fn page_budget(response_window: Option<usize>) -> usize {
     page_chars(response_window, ROW_SKELETON_CHARS)
 }
 
-/// The smallest response window whose [`page_budget`] holds `chars`: the
-/// window an internal reader passes when it keeps every page it reads, so
-/// a selection within `chars` is one page (one read of the source) instead
-/// of one default-sized page per read.
+/// A response window whose [`page_budget`] holds `chars` source characters
+/// however they render: the window an internal reader passes when it keeps
+/// every page it reads, so a selection within `chars` is one page (one read
+/// of the source) instead of one default-sized page per read. A reader counts
+/// a page's lines as they render, so each character is charged its widest
+/// escape (`\u0000`) and each line, which holds one character at least, the
+/// widest gutter (`<line>\t`) a line number has: the selection may sit at any
+/// line of its source, however long.
 pub(crate) fn window_holding(chars: usize) -> usize {
-    chars.saturating_add(ROW_SKELETON_CHARS)
+    const WIDEST_ESCAPE: usize = 6;
+    let gutter = usize::MAX.to_string().len() + 2;
+    chars
+        .saturating_mul(WIDEST_ESCAPE + gutter)
+        .saturating_add(ROW_SKELETON_CHARS)
 }
 
 /// Fallback when a caller has no configured response window. Runtime calls
@@ -178,7 +186,7 @@ const ROW_SKELETON_CHARS: usize = 2_000;
 /// page leaves room for the row around it ([`reserve_chars`]); a tiny window
 /// still gets half of itself, so a walk keeps moving (its pages then split
 /// into row parts). Without one, pages take [`FALLBACK_PAGE_CHARS`].
-fn page_chars(window: Option<usize>, reserve: usize) -> usize {
+pub(crate) fn page_chars(window: Option<usize>, reserve: usize) -> usize {
     match window {
         Some(window) => window.saturating_sub(reserve).max(window / 2).max(1),
         None => FALLBACK_PAGE_CHARS,

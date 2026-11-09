@@ -348,10 +348,22 @@ mod tests {
             .iter()
             .map(|branch| Variant::of(branch, defs))
             .collect::<Vec<_>>();
-        let value = |operation, field, keyword| declared_value(&variants, Some(operation), field, keyword);
-        assert_eq!(value("definition", "view", "default"), Some(&serde_json::json!("content")));
-        assert_eq!(value("callers", "depth", "default"), None, "optional variants disagree");
-        assert_eq!(value("hover", "line", "default"), None, "no optional variant remains");
+        let value =
+            |operation, field, keyword| declared_value(&variants, Some(operation), field, keyword);
+        assert_eq!(
+            value("definition", "view", "default"),
+            Some(&serde_json::json!("content"))
+        );
+        assert_eq!(
+            value("callers", "depth", "default"),
+            None,
+            "optional variants disagree"
+        );
+        assert_eq!(
+            value("hover", "line", "default"),
+            None,
+            "no optional variant remains"
+        );
         assert_eq!(
             value("hover", "line", "minimum"),
             Some(&serde_json::json!(1)),

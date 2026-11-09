@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 /// One match row, an object: `line`, `column` (1-based), `endLine` for a
 /// multi-line match, and `value` (source text or a structural header). With
-/// `includeCaptures` the row also carries `endColumn` for a multi-line span, and each capture once in `metavarRanges` (text plus
+/// `includeCaptures` the row also carries `endColumn` (exclusive), and each capture once in `metavarRanges` (text plus
 /// 1-based position; the engine `metavars` map is a fallback for a capture
 /// without a range).
 pub(super) struct MatchRow {
@@ -57,12 +57,14 @@ fn display_value(m: &StructuralDetailedMatch, capture_text: bool) -> MatchRow {
         };
     }
     use crate::num::one_based_column;
+    // Every expanded row states its end, so `line`, `column`, `endLine`
+    // (else `line`) and `endColumn` are the `rule.range` that selects it.
     let mut value =
         json!({"line":m.start_line,"value":text,"column":one_based_column(m.start_col)});
     if m.end_line != m.start_line {
         value["endLine"] = json!(m.end_line);
-        value["endColumn"] = json!(one_based_column(m.end_col));
     }
+    value["endColumn"] = json!(one_based_column(m.end_col));
     let mut ranges = serde_json::Map::new();
     for (name, values) in &m.metavar_ranges {
         let rows = values

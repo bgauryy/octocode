@@ -6,18 +6,31 @@ use super::query::MatchQuery;
 use super::reads::row_file;
 use super::rows::diag;
 use super::stream::StreamPage;
-use super::types::{Group, Grouped, Scan, ScanCut, Scope, recovered_notice};
+use super::types::{
+    Group, Grouped, Scan, ScanCut, Scope, recovered_bodies_notice, recovered_notice,
+};
 use serde_json::{Value, json};
 
-/// Scan-level coverage diagnostics the per-file groups do not carry.
-pub(super) fn scan_diagnostics(scope: &Scope, scan: &Scan) -> Vec<Value> {
+/// Scan-level coverage diagnostics the per-file groups do not carry. The
+/// prefilter's count is the scan's census, said on the scan's first `page`
+/// like the rest of it: a later page of the same scan (same snapshot)
+/// reads the same files, while a scan window starts its own page 1. The
+/// count only explains a result with no match (the skipped files hold none
+/// by construction); beside matches it is an optimisation note that decides
+/// no next call, so it is not said.
+pub(super) fn scan_diagnostics(
+    scope: &Scope,
+    scan: &Scan,
+    page: u32,
+    has_matches: bool,
+) -> Vec<Value> {
     let mut diagnostics = vec![];
-    if scan.skipped_by_prefilter > 0 {
+    if scan.skipped_by_prefilter > 0 && page <= 1 && !has_matches {
         diagnostics.push(json!({
             "code":"structural.prefilter.skipped",
             "severity":"info",
             "stage":"scan",
-            "message":format!("Literal-anchor prefilter skipped AST parsing for {} file(s) that cannot contain the anchor.", scan.skipped_by_prefilter),
+            "message":format!("Literal prefilter skipped AST parsing for {} file(s) that lack a literal every match needs.", scan.skipped_by_prefilter),
         }));
     }
     diagnostics.extend(scan.diagnostics.iter().map(diag));
@@ -49,14 +62,18 @@ pub(super) fn render_match_page(
     let truncated = scan.truncated;
     let diagnostics = crate::tools::ast_rule::group_diagnostics(merge_diagnostics(
         std::mem::take(&mut grouped.diagnostics),
-        scan_diagnostics(scope, scan),
+        scan_diagnostics(scope, scan, q.page(), grouped.total_matches > 0),
     ));
     let groups = std::mem::take(&mut grouped.groups);
-    let narrow = narrowing_notice(grouped.total_matches, groups.len(), page);
+    // A caller who set `limit` chose the page size: advice to read fewer is noise.
+    let narrow = q
+        .limit()
+        .is_none()
+        .then(|| narrowing_notice(grouped.total_matches, groups.len(), page))
+        .flatten();
     let page_groups = &groups[page.window.clone()];
     let more = page.more;
-    let mut out =
-        json!({"searchEngine":"structural","snapshot":snapshot,"matchCount":grouped.total_matches});
+    let mut out = json!({"matchCount":grouped.total_matches});
     if let Some(inferred) = &scope.inferred {
         out["inferredLanguage"] = json!(inferred);
     }
@@ -105,7 +122,12 @@ pub(super) fn render_match_page(
             .disclosed(one_language, grouped.skipped_grammars.clone());
         push_census(
             &mut out,
-            [unparsed, recovered_notice(&grouped.recovered), narrow],
+            [
+                unparsed,
+                recovered_notice(&grouped.recovered),
+                recovered_bodies_notice(&grouped.recovered_bodies),
+                narrow,
+            ],
             skipped_grammars,
         );
     }
@@ -167,6 +189,11 @@ pub(super) fn render_match_page(
     if empty {
         attach_syntax_lead(q, scope, &mut out, grouped.first_parsed.as_deref());
     }
+    // A first window with no match and no page after it says how each pattern
+    // parsed, beside the syntax lead: a reader compares the two in one step.
+    if groups.is_empty() && !more && q.scan_offset() == 0 {
+        attach_pattern_shapes(q, scope, &mut out);
+    }
     attach_source_evidence(&mut out, page_groups, cancel)?;
     Ok(out)
 }
@@ -180,7 +207,7 @@ fn mark_coverage_cuts(out: &mut Value, scan: &Scan, grouped: &Grouped) -> bool {
     let skipped = skips.0 + skips.1 + skips.2 > 0
         || grouped.skipped_files > 0
         || scan.walk_errors.skipped > 0;
-    let recovered = grouped.recovered.count > 0;
+    let recovered = grouped.recovered.count > 0 || grouped.recovered_bodies.count > 0;
     let incomplete = scan.truncated || skipped || recovered || grouped.unevaluated_files > 0;
     let unproven = crate::tools::test_code::unread_note(&scan.test_code_unread);
     let incomplete = incomplete || unproven.is_some();
@@ -201,6 +228,39 @@ fn mark_coverage_cuts(out: &mut Value, scan: &Scan, grouped: &Grouped) -> bool {
         }
     }
     incomplete
+}
+
+/// The message stating how `pattern` parsed.
+fn shape_note(pattern: &str, shape: &str) -> String {
+    format!("Pattern `{pattern}` parsed as {shape}.")
+}
+
+/// One `structural.pattern.shape` note per pattern the rule spells, nested
+/// ones included, in each grammar the scope reads
+/// ([`super::scope::push_by_grammar`]); a pattern spelled twice is stated
+/// once.
+fn attach_pattern_shapes(q: MatchQuery<'_>, scope: &Scope, out: &mut Value) {
+    let grammars = super::scope::read_grammars(scope);
+    let patterns = q.patterns();
+    let found = grammars
+        .iter()
+        .map(|(_, extension)| {
+            patterns
+                .iter()
+                .filter_map(|found| {
+                    let pattern = found.written()?;
+                    let shape = octocode_engine::structural::pattern_shape(pattern, extension)?;
+                    Some(json!({
+                        "code": "structural.pattern.shape",
+                        "severity": "info",
+                        "stage": "match",
+                        "message": shape_note(pattern.text(), &shape),
+                    }))
+                })
+                .collect()
+        })
+        .collect();
+    super::scope::push_by_grammar(out, &grammars, found);
 }
 
 /// An empty match leads to the syntax tree where the query's node shape is
@@ -265,7 +325,11 @@ pub(super) fn merge_diagnostics(mut diagnostics: Vec<Value>, scan: Vec<Value>) -
 /// A first page's census: the static notes (files without a grammar,
 /// recovered parses, how to narrow a multi-page set), which the response
 /// stage says once, and the skipped-grammar counts.
-fn push_census(out: &mut Value, notices: [Option<String>; 3], skipped_grammars: Option<Value>) {
+fn push_census<const N: usize>(
+    out: &mut Value,
+    notices: [Option<String>; N],
+    skipped_grammars: Option<Value>,
+) {
     for notice in notices.into_iter().flatten() {
         crate::response::paging::push_notice(out, notice);
     }

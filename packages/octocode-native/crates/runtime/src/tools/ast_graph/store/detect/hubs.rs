@@ -17,7 +17,7 @@ pub(super) fn detect_critical(c: &mut Ctx) {
     let take = (v.files.len() / 50).clamp(1, 10);
     let pending = ranked.into_iter().take(take).collect::<Vec<_>>();
     for file in pending {
-        let dependents = c.v.dependents(file);
+        let (dependents, farthest) = c.v.dependents(file);
         if dependents < 5 {
             continue;
         }
@@ -35,10 +35,11 @@ pub(super) fn detect_critical(c: &mut Ctx) {
                 controls: vec![
                     "informational: changes here need wide test coverage",
                     "only the top 2% of imported files by PageRank (1 to 10) are checked",
+                    "transitiveDependents counts production runtime importers at every depth (test, type-only and deferred imports, support code and imports within one Rust module tree left out); the verify lead walks every importer to the same depth",
                 ],
                 verify: vec![step(
                     ToolId::GraphQuery,
-                    json!({"operation": "dependents", "target": c.v.key(file), "depth": 3}),
+                    json!({"operation": "dependents", "target": c.v.key(file), "depth": farthest.max(1)}),
                 )],
             },
         );

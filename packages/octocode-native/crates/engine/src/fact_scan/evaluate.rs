@@ -5,6 +5,7 @@ use std::{path::Path, sync::Arc};
 mod facts;
 mod ordered;
 mod outcome;
+use super::memory::{FileHold, ScanMemory};
 use super::{
     FactsSource, GraphFactsMappedScan, GraphFactsView, GraphScanError, ParserOverride, ScanHold,
     parser_overrides_with_registry,
@@ -42,7 +43,7 @@ pub(super) fn evaluate_walk<T: Send>(
         stop,
         (budget, None),
         RegistryView::installed(),
-        MapLimits::default(),
+        (MapLimits::default(), None),
     )
 }
 
@@ -55,7 +56,7 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
     stop: &Stop<'_>,
     (budget, hold): (Option<std::time::Duration>, Option<&ScanHold<'_, T>>),
     registry: RegistryView<'_>,
-    map_limits: MapLimits,
+    (map_limits, memory): (MapLimits, Option<&ScanMemory<'_>>),
 ) -> Result<GraphFactsMappedScan<T>, GraphScanError> {
     let root = std::path::PathBuf::from(&options.path);
     let overrides =
@@ -81,6 +82,7 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
         settle_now: crate::stamp::settle_clock(),
         registry,
         map_limits,
+        memory,
         overrides: &overrides,
         max_file_bytes,
         source,
@@ -208,6 +210,7 @@ struct EntryEvaluator<'s, T> {
     root: Root<'s>,
     registry: RegistryView<'s>,
     map_limits: MapLimits,
+    memory: Option<&'s ScanMemory<'s>>,
     settle_now: std::time::SystemTime,
     overrides: &'s [ParserOverride],
     max_file_bytes: u64,
@@ -242,6 +245,7 @@ macro_rules! extracted {
     };
 }
 
+#[derive(Clone, Copy)]
 struct MappedFacts<'a> {
     facts: &'a crate::graph::GraphFactsDocument,
     reference_counts: &'a [crate::graph::GraphReferenceCount],
@@ -482,6 +486,14 @@ impl<T> EntryEvaluator<'_, T> {
             .flatten()
     }
 
+    /// Binds the file's source and runs the caller's map. Under a shared
+    /// [`ScanMemory`] the file first fits its facts beside what the scan
+    /// kept (else the scan is refused, as its caller's admission would
+    /// refuse them), then draws every byte of its correspondence; a draw
+    /// refused only because other files held the memory runs the file again
+    /// alone. A file whose correspondence does not fit even so is the scan's
+    /// refusal when the scan kept files (the scope is too broad for the
+    /// build), else its named skip (no build could hold it).
     fn map_facts(
         &self,
         mapped: MappedFacts<'_>,
@@ -491,10 +503,61 @@ impl<T> EntryEvaluator<'_, T> {
         source_stamp: Option<SourceStamp>,
         map_budget: &mut crate::text::analysis::MapBudget<'_>,
     ) -> Result<Mapped<T>, GraphScanError> {
+        let file = (admitted, relative_path, content_digest, source_stamp);
+        let Some(memory) = self.memory else {
+            return self.bind_and_map(mapped, file, map_budget, None);
+        };
+        let base = memory.base(mapped.facts);
+        let kept = memory.committed();
+        if kept.saturating_add(base) > memory.budget() {
+            memory.refuse(relative_path, kept.saturating_add(base));
+            return Ok(Mapped::Refused);
+        }
+        let hold = FileHold::priced(memory, base);
+        let attempt = || {
+            use crate::text::analysis::Draw;
+            if hold.draw(base).is_err() {
+                return Ok(Mapped::OverBudget(
+                    "bytes",
+                    format!(
+                        "needs more than the {} bytes the scan may hold ({} for its facts)",
+                        memory.budget(),
+                        base
+                    ),
+                ));
+            }
+            let mut budget = map_budget.fresh().drawing(Some(&hold));
+            self.bind_and_map(mapped, file, &mut budget, Some(&hold))
+        };
+        let mut outcome = attempt()?;
+        if hold.take_contended() {
+            outcome = memory.alone(&hold, attempt)?;
+        }
+        // Only the shared bytes depend on what else the scan kept; a file
+        // past a limit of its own shape is its skip wherever it is built.
+        if matches!(outcome, Mapped::OverBudget("bytes", _)) && memory.committed() > 0 {
+            memory.refuse(relative_path, hold.needed());
+            return Ok(Mapped::Refused);
+        }
+        Ok(outcome)
+    }
+
+    fn bind_and_map(
+        &self,
+        mapped: MappedFacts<'_>,
+        (admitted, relative_path, content_digest, source_stamp): (
+            &crate::text::analysis::AdmittedSource<'_>,
+            &str,
+            &str,
+            Option<SourceStamp>,
+        ),
+        map_budget: &mut crate::text::analysis::MapBudget<'_>,
+        hold: Option<&FileHold<'_>>,
+    ) -> Result<Mapped<T>, GraphScanError> {
         let source = match mapped.facts.source_templates.bind(admitted, map_budget) {
             Ok(source) => source,
             Err(crate::text::analysis::SourceError::LimitExceeded(name)) => {
-                return Ok(Mapped::OverBudget(map_budget.exceeded(name)));
+                return Ok(Mapped::OverBudget(name, map_budget.exceeded(name)));
             }
             Err(error) => return Err(GraphScanError::Source(error)),
         };
@@ -508,6 +571,7 @@ impl<T> EntryEvaluator<'_, T> {
             facts: mapped.facts,
             reference_counts: mapped.reference_counts,
             reused: mapped.reused,
+            memory: hold,
         })))
     }
 }

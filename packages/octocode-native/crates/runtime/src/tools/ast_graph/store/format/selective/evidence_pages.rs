@@ -9,7 +9,7 @@ use crate::tools::ast_graph::store::format::evidence::{Checks, read_unresolved, 
 pub(super) struct EvidenceStrings {
     /// Record strings (`STRS`); evidence string ids follow them.
     records: u32,
-    blocks: BTreeMap<usize, Vec<String>>,
+    blocks: BTreeMap<usize, Strings>,
 }
 
 impl SnapshotReader {
@@ -140,7 +140,7 @@ impl SnapshotReader {
             .as_ref()
             .and_then(|strings| strings.blocks.get(&index))
             .and_then(|block| block.get((local - first) as usize))
-            .cloned()
+            .map(str::to_owned)
             .ok_or_else(|| "graph evidence string block is inconsistent".to_owned())
     }
 }

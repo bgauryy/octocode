@@ -1,0 +1,297 @@
+//! `evaluate` with `resources` end to end (C3e-5.2, C3eF R3): each resource
+//! judged whole with every question, one provider request per resource, a
+//! failure kept with its resource, and a glob expanded to one resource per
+//! file whose keys never take another key.
+
+use super::sources::window_provider;
+use super::{clasify, noul, provider, sent};
+use crate::support::{Workspace, clasify_runtime};
+use serde_json::{Value, json};
+
+fn local(path: &str) -> Value {
+    json!({"tool":"localFetch","query":{"path":path}})
+}
+
+fn evaluate(resources: Value) -> Value {
+    json!({"operation":"evaluate","resources":resources,
+        "questions":{"set":noul("Is a value set?")}})
+}
+
+/// The row's `resources` map, its keys in order.
+fn resources(out: &Value) -> (&serde_json::Map<String, Value>, Vec<&str>) {
+    let data = &out["results"][0]["data"];
+    let map = data["resources"]
+        .as_object()
+        .unwrap_or_else(|| panic!("a resources row: {out:#}"));
+    (map, map.keys().map(String::as_str).collect())
+}
+
+/// Three files, one missing: two answers, one `pathNotFound`, and exactly
+/// one provider request per file read; the row validates as served.
+#[tokio::test]
+async fn each_resource_is_judged_once_and_a_missing_one_keeps_its_error() {
+    let server = provider(2).await;
+    let workspace = Workspace::new();
+    workspace.write("a.toml", "a = 1\n");
+    workspace.write("b.toml", "b = 2\n");
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let out = clasify(
+        &runtime,
+        vec![evaluate(json!({
+            "a":local("a.toml"),"gone":local("gone.toml"),"b":local("b.toml")
+        }))],
+    )
+    .await;
+    assert!(out["results"][0].get("status").is_none(), "{out:#}");
+    let (map, keys) = resources(&out);
+    assert_eq!(keys, ["a", "gone", "b"], "{out:#}");
+    for key in ["a", "b"] {
+        assert_eq!(map[key]["answers"]["set"]["noul"], 0.9, "{out:#}");
+        assert_eq!(map[key]["usage"]["calls"], 1, "{out:#}");
+    }
+    assert_eq!(map["gone"]["errorCode"], "pathNotFound", "{out:#}");
+    assert!(map["gone"].get("answers").is_none(), "{out:#}");
+    assert_eq!(out["results"][0]["data"]["model"], "jev-1.13.0", "{out:#}");
+    assert_eq!(sent(&server).await.len(), 2, "one request per file read");
+    runtime.close().await;
+}
+
+/// A glob is one resource per matching file, `<key>/<path>`, in walk
+/// order, each judged by its own request; a caller's own key is never taken
+/// by an expanded one (`d/a.md` beside the glob `d` keeps its file, and the
+/// glob's `a.md` takes `d/a.md-2`).
+#[tokio::test]
+async fn a_glob_is_one_judged_resource_per_file_and_never_takes_a_callers_key() {
+    let server = provider(3).await;
+    let workspace = Workspace::new();
+    workspace.write("docs/a.md", "short\n");
+    workspace.write("docs/b.md", "also short\n");
+    workspace.write("docs/c.txt", "not matched\n");
+    workspace.write("other/z.rs", "fn longer_than_the_others() {}\n");
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let out = clasify(
+        &runtime,
+        vec![evaluate(json!({
+            "d":local("docs/*.md"),"d/a.md":local("other/z.rs")
+        }))],
+    )
+    .await;
+    let (map, keys) = resources(&out);
+    assert_eq!(keys, ["d/a.md-2", "d/b.md", "d/a.md"], "{out:#}");
+    let chars = |key: &str| map[key]["readChars"].as_u64().unwrap_or_default();
+    assert_eq!(
+        chars("d/a.md"),
+        "fn longer_than_the_others() {}\n".len() as u64,
+        "{out:#}"
+    );
+    assert_eq!(chars("d/a.md-2"), "short\n".len() as u64, "{out:#}");
+    assert_eq!(sent(&server).await.len(), 3, "one request per file");
+    runtime.close().await;
+}
+
+/// The hints of the row's data.
+fn hints(out: &Value) -> Vec<&str> {
+    out["results"][0]["data"]["hints"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect()
+}
+
+/// A glob on `sections` keys each file `<key>/<path>` and the row validates
+/// as served; on both operations the hint names what the walk left out.
+#[tokio::test]
+async fn a_glob_keys_each_file_on_sections_and_both_operations_disclose_its_skips() {
+    let server = provider(2).await;
+    let workspace = Workspace::new();
+    workspace.write("docs/a.md", "visible\n");
+    workspace.write("docs/.h.md", "hidden\n");
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let glob = json!({"d":local("docs/*.md")});
+    let sections = clasify(
+        &runtime,
+        vec![json!({"operation":"sections","resources":glob,
+            "questions":{"set":noul("Is a value set?")}})],
+    )
+    .await;
+    let (map, keys) = resources(&sections);
+    assert_eq!(keys, ["d/a.md"], "{sections:#}");
+    assert_eq!(map["d/a.md"]["status"], "ready", "{sections:#}");
+    let evaluated = clasify(&runtime, vec![evaluate(glob.clone())]).await;
+    assert_eq!(resources(&evaluated).1, ["d/a.md"], "{evaluated:#}");
+    for out in [&sections, &evaluated] {
+        assert!(
+            hints(out)
+                .iter()
+                .any(|hint| hint.contains("`docs/.h.md` (hidden)")),
+            "{out:#}"
+        );
+    }
+    runtime.close().await;
+}
+
+/// A row none of whose resources was read fails as they did: the row is an
+/// error with their one code, and nothing reached the provider.
+#[tokio::test]
+async fn a_row_none_of_whose_resources_was_read_fails_like_them() {
+    let server = provider(0).await;
+    let workspace = Workspace::new();
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let out = clasify(
+        &runtime,
+        vec![evaluate(
+            json!({"a":local("gone-a.md"),"b":local("gone-b.md")}),
+        )],
+    )
+    .await;
+    assert_eq!(out["results"][0]["status"], "error", "{out:#}");
+    assert_eq!(
+        out["results"][0]["data"]["errorCode"], "pathNotFound",
+        "{out:#}"
+    );
+    assert_eq!(resources(&out).1, ["a", "b"], "{out:#}");
+    runtime.close().await;
+}
+
+/// RV-SEC round 12 (F12-1): credential files no name rule withholds (a Docker
+/// client config, a kubeconfig copied out of `.kube/`, a GCP service-account
+/// key named `<project>-<hex>.json`) reach the provider through a glob with
+/// only their secrets hidden: no registry credential, user key, token or
+/// private key is in any request, and what says where and who still is.
+#[tokio::test]
+async fn a_glob_in_source_leads_with_the_resources_call() {
+    let server = provider(0).await;
+    let workspace = Workspace::new();
+    workspace.write("w/a.md", "a\n");
+    workspace.write("w/b.md", "b\n");
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let glob = local("w/*.md");
+    let out = clasify(
+        &runtime,
+        vec![json!({"operation":"evaluate","source":glob,
+            "questions":{"set":noul("Is a value set?")}})],
+    )
+    .await;
+    let data = &out["results"][0]["data"];
+    assert_eq!(data["errorCode"], "pathNotFound", "{out:#}");
+    let related = data["related"].as_array().expect("related calls");
+    assert_eq!(related[0]["tool"], "clasify", "first: {out:#}");
+    assert_eq!(
+        related[0]["input"]["queries"][0]["resources"],
+        json!({"source":glob}),
+        "{out:#}"
+    );
+    assert!(
+        related
+            .iter()
+            .any(|call| call["input"]["queries"][0]["operation"] == "tree"),
+        "{out:#}"
+    );
+    assert!(!out.to_string().contains("[*]"), "{out:#}");
+    runtime.close().await;
+}
+
+/// RV-SEC round 12 (F12-1): credential files no name rule withholds (a Docker
+/// client config, a kubeconfig copied out of `.kube/`, a GCP service-account
+/// key named `<project>-<hex>.json`) reach the provider through a glob with
+/// only their secrets hidden: no registry credential, user key, token or
+/// private key is in any request, and what says where and who still is.
+#[tokio::test]
+async fn credential_files_a_glob_sends_carry_no_secret_to_the_provider() {
+    let server = provider(3).await;
+    let workspace = Workspace::new();
+    let secrets = [
+        "cm9ib3Q6czNjcjN0LXBhc3N3b3JkLTk4NzY1",
+        "Zq7xK2mPlanted9RegistryTok",
+        "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlFb3dJQkFBS0NBUUVBN3E5",
+        "Zq7xK2mPlanted9OpaqueTok",
+        "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b",
+        "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7Zq7xK2mPlanted9",
+    ];
+    workspace.write(
+        "creds/docker/config.json",
+        format!(
+            "{{\n  \"auths\": {{\n    \"registry.example.com\": {{ \"auth\": \"{}\" }},\n    \"ghcr.io\": {{ \"registrytoken\": \"{}\" }}\n  }},\n  \"credHelpers\": {{ \"123.dkr.ecr.us-east-1.amazonaws.com\": \"ecr-login\" }}\n}}\n",
+            secrets[0], secrets[1]
+        ),
+    );
+    workspace.write(
+        "creds/kube/config",
+        format!(
+            "apiVersion: v1\nkind: Config\nclusters:\n- cluster:\n    server: https://10.0.0.1:6443\n  name: prod\nusers:\n- name: admin\n  user:\n    client-key-data: {}\n- name: static\n  user:\n    token: {}\n",
+            secrets[2], secrets[3]
+        ),
+    );
+    workspace.write(
+        "creds/gcp/my-proj-1a2b3c4d5e6f.json",
+        format!(
+            "{{\n  \"type\": \"service_account\",\n  \"project_id\": \"my-proj\",\n  \"private_key_id\": \"{}\",\n  \"private_key\": \"-----BEGIN PRIVATE KEY-----\\n{}\\n-----END PRIVATE KEY-----\\n\",\n  \"token_uri\": \"https://oauth2.googleapis.com/token\"\n}}\n",
+            secrets[4], secrets[5]
+        ),
+    );
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let glob = workspace
+        .workspace
+        .join("creds/**/*")
+        .to_string_lossy()
+        .into_owned();
+    let out = clasify(&runtime, vec![evaluate(json!({"c": local(&glob)}))]).await;
+    let bodies = sent(&server).await;
+    let wire = serde_json::to_string(&bodies).unwrap_or_default();
+    assert_eq!(bodies.len(), 3, "one request per file: {out:#}");
+    for secret in secrets {
+        assert!(!wire.contains(secret), "{secret} reached the provider");
+    }
+    for kept in [
+        "registry.example.com",
+        "ecr-login",
+        "https://10.0.0.1:6443",
+        "my-proj",
+        "https://oauth2.googleapis.com/token",
+    ] {
+        assert!(wire.contains(kept), "{kept} did not reach the provider");
+    }
+    runtime.close().await;
+}
+
+/// A resource past the provider's windows fails on its own (C3eF check 5,
+/// regression guard: it passed at lib level only): the failure keeps its
+/// attempted spend and names its recovery, and a sibling keeps its answer.
+#[tokio::test]
+async fn a_resource_too_large_for_the_window_fails_alone_and_says_how_to_split() {
+    let server = window_provider(100_000, 100_000).await;
+    let workspace = Workspace::new();
+    workspace.write(
+        "big.txt",
+        "x".repeat(80) + &"\nfiller line of text".repeat(14_000),
+    );
+    workspace.write("ok.txt", "a = 1\n");
+    let runtime = clasify_runtime(&workspace, &server, &[]);
+    let out = clasify(
+        &runtime,
+        vec![evaluate(
+            json!({"big":local("big.txt"),"ok":local("ok.txt")}),
+        )],
+    )
+    .await;
+    let (map, _) = resources(&out);
+    assert_eq!(
+        map["big"]["errorCode"], "classificationStateTooLarge",
+        "{out:#}"
+    );
+    assert_eq!(map["big"]["usage"]["inputTokens"], 0, "{out:#}");
+    assert_eq!(map["big"]["usage"]["outputTokens"], 0, "{out:#}");
+    assert!(
+        map["big"]["usage"]["calls"].as_u64().unwrap_or(0) >= 1,
+        "{out:#}"
+    );
+    assert_eq!(map["ok"]["answers"]["set"]["noul"], 0.9, "{out:#}");
+    let related = &out["results"][0]["data"]["related"];
+    assert_eq!(related[0]["tool"], "clasify", "{out:#}");
+    assert_eq!(
+        related[0]["input"]["queries"][0]["operation"], "sections",
+        "{out:#}"
+    );
+    runtime.close().await;
+}

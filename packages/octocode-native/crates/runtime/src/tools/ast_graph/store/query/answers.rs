@@ -20,7 +20,7 @@ pub(super) fn stats(
         Ok(hubs(g, filter, Some(kind), Direction::In, 0..5, cancel)?.rows)
     };
     let m = &g.manifest;
-    let mut answer = json!({
+    let answer = json!({
         "graph": g.summary(),
         "operation": "stats",
         "octocodeVersion": m["octocodeVersion"],
@@ -41,7 +41,6 @@ pub(super) fn stats(
         "testEdges": "excluded",
         "evidence": m["evidence"],
     });
-    super::super::manifest::disclose_value_references(&mut answer);
     Ok(GraphOutput::ok(answer))
 }
 
@@ -63,6 +62,9 @@ pub(super) fn node(
     let record = g.node_record(id, cancel)?;
     let mut out = g.node_json(id, cancel)?;
     if record.kind == NodeKind::Symbol && record.parent != NONE {
+        // A point answer's keys come from lookup entries: the parent's is
+        // checked against its node record before it is rendered.
+        g.node_record(record.parent, cancel)?;
         out.insert("parent".into(), json!(g.key(record.parent)));
     }
     if let Some(reader) = &g.selective

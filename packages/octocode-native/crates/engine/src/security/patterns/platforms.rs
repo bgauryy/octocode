@@ -42,6 +42,18 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         regex: r###"dckr_pat_[a-zA-Z0-9_]{36}"###,
     },
     SecretPattern {
+        name: "dockerRegistryAuth",
+        file_context: None,
+        // A text naming a Docker client config's `auths` map, as `config.json`
+        // or a `dockerconfigjson` (held escaped in a string) writes it, under
+        // any file name and in any case (Go's `encoding/json` reads `"Auths"`
+        // too). `detector::document` hides the credentials of each registry's
+        // entry and keeps the rest. The match starts at the quote, so its
+        // prefix `"auths` gates it: backslashes before the quote change no text
+        // it matches, and an optional lead would leave it no literal gate.
+        regex: r###""(?i:auths)\\*"\s*:\s*\{"###,
+    },
+    SecretPattern {
         name: "pypiApiToken",
         file_context: None,
         regex: r###"pypi-[a-zA-Z0-9_-]{84}"###,

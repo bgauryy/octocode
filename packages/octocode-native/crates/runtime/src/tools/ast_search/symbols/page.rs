@@ -111,11 +111,6 @@ pub(crate) fn render_page(
         out["path"] = json!(row_paths.delivered(&set.path));
         out["symbols"] = Value::Array(declaration_rows(rows));
     }
-    // The snapshot only pins later pages to the same source; a single page
-    // has nothing to pin.
-    if cut.more || page > 1 {
-        out["snapshot"] = json!(set.snapshot);
-    }
     out["pagination"] = cut.pagination;
     if skipped > 0 || unreadable {
         crate::response::paging::terminal_limit(
@@ -188,7 +183,7 @@ fn outline_diagnostics(set: &SymbolSet) -> Vec<Value> {
 }
 
 /// `next`: the next page, the scan resume on the window's last page, and
-/// the outline's leads (references, text search and read on page 1).
+/// the outline's leads (references and text search on page 1).
 fn attach_symbol_leads(
     q: &AstSearchQuerySymbols,
     set: &SymbolSet,
@@ -243,9 +238,6 @@ fn attach_symbol_leads(
     }
     if let Some(lead) = set.text_search.as_ref().filter(|_| page == 1) {
         out["calls"]["findText"] = lead.clone();
-    }
-    if let Some(lead) = set.read.as_ref().filter(|_| page == 1) {
-        out["calls"]["read"] = lead.clone();
     }
 }
 

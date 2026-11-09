@@ -259,3 +259,44 @@ fn ranked_read_numbers_backwards_source_windows_and_keeps_gap_markers() {
     let data = &response["results"][0]["data"];
     assert_eq!(data["content"], "10\tlate\n--\n3\tearlier\n");
 }
+
+/// A symbols outline states each declaration's span in its gutter (`N-M`),
+/// so every page of it drops the window fields the gutter repeats, as a page
+/// of single-line rows does: `returnedLines` is the gutter's row count on
+/// every page, never on some.
+#[test]
+fn a_symbols_outline_page_states_its_lines_in_the_gutter_on_every_page() {
+    for content in [
+        "10\tuse … (lines 10-14)\n18-25\tpub struct A {\n20\t    a: u8,\n27-41\timpl A {\n27-30\t    fn a() {}\n",
+        "325\tmod tests;",
+    ] {
+        let mut page = json!({"results":[{"index":0,"data":{
+                "path":"a.rs","view":"symbols","content":content,"totalLines":325,
+                "returnedLines":content.lines().count(),
+                "pagination":{"unit":"lines","offset":0,"length":content.lines().count(),"total":43,"hasMore":true}}}]});
+        number_read_rows(ToolId::LocalFetch, &mut page);
+        let data = &page["results"][0]["data"];
+        assert!(data.get("returnedLines").is_none(), "{data}");
+        assert_eq!(data["content"], content, "the outline stays verbatim");
+    }
+    // A span that ends before it starts is no gutter.
+    let mut broken = json!({"results":[{"index":0,"data":{
+            "view":"symbols","content":"9-3\tfn a() {}\n","returnedLines":1}}]});
+    number_read_rows(ToolId::LocalFetch, &mut broken);
+    assert_eq!(broken["results"][0]["data"]["returnedLines"], 1);
+}
+
+/// Only a span gutter (`N-M`) may start on the previous line: a repeated
+/// plain number is a malformed view, not a numbered one.
+#[test]
+fn a_repeated_plain_line_number_is_no_gutter() {
+    let mut repeated = json!({"results":[{"index":0,"data":{
+            "view":"compact","content":"5\tfn a() {}\n5\tfn b() {}\n","returnedLines":2}}]});
+    number_read_rows(ToolId::LocalFetch, &mut repeated);
+    assert_eq!(repeated["results"][0]["data"]["returnedLines"], 2);
+    // A plain number after a span that starts on its line is no gutter either.
+    let mut after_span = json!({"results":[{"index":0,"data":{
+            "view":"symbols","content":"5-9\tfn a() {}\n5\tfn b() {}\n","returnedLines":2}}]});
+    number_read_rows(ToolId::LocalFetch, &mut after_span);
+    assert_eq!(after_span["results"][0]["data"]["returnedLines"], 2);
+}

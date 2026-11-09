@@ -89,3 +89,35 @@ fn cancellation_preserves_its_failure_class() {
         ExecutionError::Cancelled
     );
 }
+
+/// A warning is the call's when every row states it: said once in the
+/// envelope. One some rows state, and one a single row states, stays where
+/// it is, as does every warning of a one-row response.
+#[test]
+fn a_warning_every_row_states_is_said_once_and_the_rest_stay_on_their_rows() {
+    let row = |warnings: &[&str]| json!({"path": "a.txt", "content": "exact\n", "totalLines": 1, "warnings": warnings});
+    let response = crate::tools::test_support::staged_response(
+        ToolId::LocalFetch,
+        vec![
+            row(&["shared", "two of three"]),
+            row(&["two of three", "shared", "own"]),
+            row(&["shared"]),
+        ],
+    );
+    assert_eq!(response["warnings"], json!(["shared"]), "{response}");
+    let kept = |index: usize| response["results"][index]["data"]["warnings"].clone();
+    assert_eq!(kept(0), json!(["two of three"]), "{response}");
+    assert_eq!(kept(1), json!(["two of three", "own"]), "{response}");
+    assert!(
+        response["results"][2]["data"].get("warnings").is_none(),
+        "{response}"
+    );
+    let single =
+        crate::tools::test_support::staged_response(ToolId::LocalFetch, vec![row(&["shared"])]);
+    assert!(single.get("warnings").is_none(), "{single}");
+    assert_eq!(
+        single["results"][0]["data"]["warnings"],
+        json!(["shared"]),
+        "{single}"
+    );
+}

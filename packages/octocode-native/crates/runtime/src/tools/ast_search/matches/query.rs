@@ -37,6 +37,57 @@ impl OwnedMatch {
     }
 }
 
+/// A pattern a rule spells, at any depth: the JSON pointer of the rule object
+/// that holds it (`""` for the rule itself, `/has/all/0` nested), and its text
+/// or `{context, selector}` object.
+pub(super) struct RulePattern {
+    pub(super) at: String,
+    pub(super) pattern: Value,
+}
+
+impl RulePattern {
+    /// The pattern as the engine reads it; `None` for a value that is
+    /// neither text nor a `{context, selector}` object.
+    pub(super) fn written(&self) -> Option<octocode_engine::structural::WrittenPattern<'_>> {
+        use octocode_engine::structural::WrittenPattern;
+        match &self.pattern {
+            Value::String(text) => Some(WrittenPattern::Text(text)),
+            pattern => Some(WrittenPattern::Context {
+                context: pattern.get("context")?.as_str()?,
+                selector: pattern.get("selector")?.as_str()?,
+            }),
+        }
+    }
+}
+
+/// Each pattern of `rule` (a rule object, or a list or field inside one)
+/// under the pointer `at`, in the rule's field order.
+fn collect_patterns(rule: &Value, at: &str, found: &mut Vec<RulePattern>) {
+    match rule {
+        Value::Object(fields) => {
+            for (key, value) in fields {
+                if key == "pattern" {
+                    if !value.is_null() {
+                        found.push(RulePattern {
+                            at: at.to_owned(),
+                            pattern: value.clone(),
+                        });
+                    }
+                    continue;
+                }
+                let key = key.replace('~', "~0").replace('/', "~1");
+                collect_patterns(value, &format!("{at}/{key}"), found);
+            }
+        }
+        Value::Array(items) => {
+            for (index, item) in items.iter().enumerate() {
+                collect_patterns(item, &format!("{at}/{index}"), found);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Binds `$field` from whichever form `$query` is.
 macro_rules! either_form {
     ($query:expr, $field:ident => $value:expr) => {
@@ -66,6 +117,14 @@ impl<'a> MatchQuery<'a> {
     }
     pub fn pattern_text(self) -> Option<String> {
         self.rule()?.get("pattern")?.as_str().map(str::to_owned)
+    }
+    /// Every pattern the rule spells, nested ones included ([`RulePattern`]).
+    pub(super) fn patterns(self) -> Vec<RulePattern> {
+        let mut found = Vec::new();
+        if let Some(rule) = self.rule() {
+            collect_patterns(&rule, "", &mut found);
+        }
+        found
     }
     pub fn include(self) -> Option<Vec<String>> {
         either_form!(self, include => non_empty(include))

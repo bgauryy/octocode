@@ -111,7 +111,11 @@ fn lowercase_order(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-pub(super) fn validate_indexes(t: &GraphTables) -> Result<(), String> {
+/// The key and name indexes are each a permutation of the nodes, in the
+/// order their binary searches assume. Node keys are record strings, whose
+/// dictionary [`read_strings`] proved strictly sorted, so key ids order the
+/// keys as the strings do. Equal name ids are equal names.
+pub(in super::super) fn validate_indexes(t: &GraphTables) -> Result<(), String> {
     let n = t.nodes.len();
     for index in [&t.key_index, &t.name_index] {
         if index.len() != n {
@@ -131,14 +135,16 @@ pub(super) fn validate_indexes(t: &GraphTables) -> Result<(), String> {
     if !t
         .key_index
         .windows(2)
-        .all(|p| t.str(t.nodes[p[0] as usize].key) < t.str(t.nodes[p[1] as usize].key))
+        .all(|p| t.nodes[p[0] as usize].key < t.nodes[p[1] as usize].key)
         || !t.name_index.windows(2).all(|p| {
-            lowercase_order(
-                t.str(t.nodes[p[0] as usize].name),
-                t.str(t.nodes[p[1] as usize].name),
-            )
-            .then(p[0].cmp(&p[1]))
-            .is_le()
+            let (a, b) = (t.nodes[p[0] as usize].name, t.nodes[p[1] as usize].name);
+            if a == b {
+                p[0] < p[1]
+            } else {
+                lowercase_order(t.str(a), t.str(b))
+                    .then(p[0].cmp(&p[1]))
+                    .is_le()
+            }
         })
     {
         return Err("graph lookup indexes are not sorted".into());
@@ -146,11 +152,22 @@ pub(super) fn validate_indexes(t: &GraphTables) -> Result<(), String> {
     Ok(())
 }
 
+/// The whole lookup section against the node and edge records it was
+/// encoded from, then the index order. The full decode runs it; a reused
+/// snapshot runs the lookup part ([`check_lookup`]) before its point answers
+/// are served again; a query load checks only the entries it renders
+/// against the records behind them (`SnapshotReader::node`).
 pub(in super::super) fn validate_lookup(
     sections: &Sections,
     t: &GraphTables,
 ) -> Result<(), String> {
-    let mut r = sections.get(b"LOOK", "LOOK")?;
+    check_lookup(sections.get(b"LOOK", "LOOK")?, t)?;
+    validate_indexes(t)
+}
+
+/// Every lookup entry's kind, key and name against its node record, and
+/// its degrees against the edges: the degrees point answers render.
+pub(super) fn check_lookup(mut r: Reader<'_>, t: &GraphTables) -> Result<(), String> {
     if r.count()? != t.nodes.len() {
         return Err("graph lookup differs from node population".into());
     }
@@ -176,7 +193,7 @@ pub(in super::super) fn validate_lookup(
     if r.at != r.bytes.len() {
         return Err("graph lookup has trailing data".into());
     }
-    validate_indexes(t)
+    Ok(())
 }
 
 #[cfg(test)]

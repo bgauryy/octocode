@@ -66,11 +66,15 @@ fn canonical(path: &str) -> PathBuf {
 
 /// A file that spells the name in code and is not in the answer may be one the
 /// server never loaded: partial, with the lexical lead. With `project` (the
-/// server's root), only files of another project count: one the server indexed
-/// and left out holds no use. Without it (an answer listing no use, from a server
-/// that may have loaded nothing), every such file counts; `page::run_target` has
-/// asked the server about each and marked those whose name resolves elsewhere
-/// answered, so a truly unused name stays clean however common it is.
+/// server's root), only files of another project that may use the anchor count:
+/// one the server indexed and left out holds no use, and neither does a `.rs`
+/// file of its project that no module declares (it is not compiled), so both are
+/// settled ([`answer_settled_files`]) and `coverage.textOnlyFiles` stops
+/// counting them; every file it still counts is flagged and led to. Without it
+/// (an answer listing no use, from a server that may have loaded nothing), every
+/// such file counts; `unanswered::check` has asked the server about each and
+/// marked those whose name resolves elsewhere answered, so a truly unused name
+/// stays clean however common it is.
 pub(super) fn annotate_unanswered(
     row: &mut Value,
     query: &LspSearchQuery,
@@ -84,6 +88,13 @@ pub(super) fn annotate_unanswered(
     else {
         return;
     };
+    if let Some(root) = project {
+        answer_settled_files(scope, name, root);
+        if row.pointer("/coverage/textOnlyFiles").is_some() {
+            let left = scope.text_only_files(name).map_or(0, |files| files.len());
+            super::super::failure::record_text_only(row, scope, name, left);
+        }
+    }
     let files = scope.text_only_files(name).unwrap_or_default();
     // Ignored files are judged as the visible ones are: only a file the server
     // may not have loaded counts, so with the server's root known, one of another
@@ -91,7 +102,9 @@ pub(super) fn annotate_unanswered(
     let ignored = scope.ignored_only_files(name).map(|mut found| {
         if let Some(root) = project {
             let outside = other_projects(&found.files, root);
-            found.files.retain(|file| outside.values().any(|own| own.contains(file)));
+            found
+                .files
+                .retain(|file| outside.values().any(|own| own.contains(file)));
         }
         found
     });
@@ -135,12 +148,8 @@ fn flag_with_ignored(
     }
     super::super::failure::flag_partial(row, query, UNANSWERED_REASON, Some(&note), scope);
     if let Some(found) = ignored
-        && let Some(lead) = super::super::failure::ignored_text_lead(
-            name,
-            scope,
-            &found.files,
-            found.unfinished,
-        )
+        && let Some(lead) =
+            super::super::failure::ignored_text_lead(name, scope, &found.files, found.unfinished)
     {
         crate::response::result::attach_related(row, lead);
     }

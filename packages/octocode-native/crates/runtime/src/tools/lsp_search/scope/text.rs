@@ -236,7 +236,9 @@ impl Scope {
         cancel: &dyn CancellationCheck,
     ) -> Result<(), LspFailure> {
         let skip = self.answered_files();
-        let found = self.ignored_text_files(symbol, &skip, policy, cancel).await?;
+        let found = self
+            .ignored_text_files(symbol, &skip, policy, cancel)
+            .await?;
         self.classify_files(symbol, found.files.clone(), cancel)
             .await?;
         let files = found
@@ -266,7 +268,7 @@ impl Scope {
             .filter(|found| found.symbol == symbol)
     }
 
-    fn site(&self) -> Option<reach::Site> {
+    pub(super) fn site(&self) -> Option<reach::Site> {
         self.site
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -382,7 +384,7 @@ fn classify(
 }
 
 /// The reach `slot` holds for `symbol`, read from `site` on first use.
-fn reach_in(
+pub(super) fn reach_in(
     slot: &ReachSlot,
     site: Option<&reach::Site>,
     symbol: &str,

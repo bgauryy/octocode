@@ -4,6 +4,8 @@
 use super::*;
 
 mod discussion;
+mod kept;
+mod leads;
 
 /// Keeps the candidates whose state mentions `fix`; excludes the rest.
 struct FixJudge;

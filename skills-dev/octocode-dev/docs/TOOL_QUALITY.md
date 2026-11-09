@@ -91,6 +91,7 @@ node packages/octocode/out/octocode.js schema localFetch --view query
 | `ghGetHistoryItem` | PR/issue, commit, compare, selected content. | Each of files, comments, reviews, commits, bodies, patches traversed alone; omitted-patch/error state; immutable refs. |
 | `ghCloneRepo` | Default ref, full SHA, sparse paths, history depth, availability gates. | Ref resolved to a commit on every call; a clean checkout at that commit reused without a fetch; local edits refused and preserved; concurrent mutation, rollback, cleanup; crash recovery apart. |
 | `artifactSearch` | Exact, scoped, keyword; reject mixed or empty selectors. | Keyword continuations, repo subdirectory, registry failures, authenticated registries. |
+| `securityCheck` | Every `operation`, `url` forms (purl, registry page, GitHub repository, commit, advisory), `release` on distributions only. | Verdict equals OSV's own answer; repository facts, cautions, commit refs and advisories equal GitHub's REST record; cvss `vector` never a number, `score` only as GitHub publishes it; anonymous and authenticated, with a refused GitHub read disclosed (`sourceFailed`), never clean. Live: the `security-live` e2e suite. |
 
 ## Minification and smart-window matrix
 

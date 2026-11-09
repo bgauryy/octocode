@@ -3,7 +3,9 @@
 //! node's relations read from the tree-sitter facts of the files that spell it.
 use super::hierarchy::{self, Found};
 use super::*;
-use crate::tools::lsp_search::walk::{Expansion, HierarchyEdge, call_items_payload, public_edge};
+use crate::tools::lsp_search::walk::{
+    Expansion, HierarchyEdge, call_items_payload, public_edge, scope_callers,
+};
 use std::collections::HashSet;
 
 impl Request<'_> {
@@ -40,12 +42,15 @@ impl Request<'_> {
             }
             frontier = next;
         }
-        let items = edges
+        let mut items = edges
             .iter()
             .map(|edge| public_edge(expansion, edge, None))
             .collect::<Vec<_>>();
         Ok(if expansion.is_call() {
-            call_items_payload(self.query, &items, None, self.budget, self.paths)
+            let excluded = scope_callers(self.query, self.paths, &mut items);
+            let mut row = call_items_payload(self.query, &items, None, self.budget, self.paths);
+            crate::tools::lsp_search::test_scope::disclose(&mut row, excluded);
+            row
         } else {
             items_payload(self.query, op.name(), json!(items), self.budget)
         })

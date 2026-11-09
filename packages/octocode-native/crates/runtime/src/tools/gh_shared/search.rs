@@ -1,6 +1,7 @@
 //! GitHub search paging: the 1,000-result window, next pages, completeness and repair leads.
 use super::{
-    GhFailure, RepoPath, repository_not_found, repository_recovery, repository_search_hint,
+    GhFailure, REPOSITORY_SEARCH_HINT, RepoPath, repository_not_found,
+    repository_not_found_message, repository_recovery,
 };
 use crate::id::ToolId;
 use crate::response::result::query_row;
@@ -106,7 +107,7 @@ impl SearchReach {
 /// [`SearchWindow::PageStart`] search serves (`repair`; a code search
 /// re-points it at its own last page); a repository that did not resolve
 /// leads to its [`repository_recovery`] (a search for its name and the
-/// `owner`'s listing), labelled by its [`repository_search_hint`]. Any other
+/// `owner`'s listing), labelled by its [`REPOSITORY_SEARCH_HINT`]. Any other
 /// failure is returned unchanged.
 pub(crate) fn with_search_repair(
     mut failure: GhFailure,
@@ -119,11 +120,18 @@ pub(crate) fn with_search_repair(
     let (leads, hints) = if failure.error.reason == Some(ProviderErrorReason::SearchWindowExceeded)
     {
         let last = page_replay(tool, query, SearchWindow::PageStart.last_page(per));
-        (last.map_or_else(|| json!({}), |last| json!({ "repair": last })), Vec::new())
+        (
+            last.map_or_else(|| json!({}), |last| json!({ "repair": last })),
+            Vec::new(),
+        )
     } else if let Some(repo) = repo.filter(|_| repository_not_found(&failure.error)) {
+        // Named as on every GitHub read when the owner is known.
+        if let Some(owner) = owner {
+            failure.message = repository_not_found_message(owner, repo);
+        }
         (
             repository_recovery(owner, repo),
-            vec![repository_search_hint(owner, repo)],
+            vec![REPOSITORY_SEARCH_HINT.to_owned()],
         )
     } else {
         return failure;
@@ -205,7 +213,7 @@ pub(crate) fn apply_partial(
     query: &impl serde::Serialize,
     facts: &SearchCompleteness<'_>,
 ) {
-    use crate::response::paging::{mark_partial, terminal_limit};
+    use crate::response::paging::{PartialReason, mark_partial, mark_stated, terminal_limit};
     let SearchCompleteness {
         tool,
         matched,
@@ -227,25 +235,15 @@ pub(crate) fn apply_partial(
             pagination.insert("totalItemsCapped".into(), Value::Bool(true));
         }
         if has_more {
-            mark_partial(
-                value,
-                crate::response::paging::PartialReason::ProviderResultCap,
-                &warnings,
-            );
+            mark_partial(value, PartialReason::ProviderResultCap, &warnings);
         } else {
-            terminal_limit(
-                value,
-                crate::response::paging::PartialReason::ProviderResultCap,
-                &warnings,
-            );
+            terminal_limit(value, PartialReason::ProviderResultCap, &warnings);
         }
+        // The warning states what the cap means: no glossary line restates it.
+        mark_stated(value, PartialReason::ProviderResultCap);
     }
     if incomplete {
-        mark_partial(
-            value,
-            crate::response::paging::PartialReason::ProviderIncompleteResults,
-            &[],
-        );
+        mark_partial(value, PartialReason::ProviderIncompleteResults, &[]);
         if let Some(retry) = page_replay(tool, query, page) {
             value["calls"]["retry"] = retry;
         }

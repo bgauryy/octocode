@@ -16,10 +16,24 @@ fn workspace_coverage_preserves_errors_and_avoids_a_directory_document_hint() {
     let scope = Scope::new("/w".into(), vec!["*.ts".into()]);
     let mut stale = json!({"status":"error","errorCode":"staleSnapshot"});
     let before = stale.clone();
-    workspace_symbols(&mut stale, "Shared", &scope, Some("/w/a.ts"), None);
+    workspace_symbols(
+        &mut stale,
+        &first_page("Shared"),
+        "Shared",
+        &scope,
+        Some("/w/a.ts"),
+        None,
+    );
     assert_eq!(stale, before);
     let mut empty = json!({"status":"empty"});
-    workspace_symbols(&mut empty, "Shared", &scope, None, None);
+    workspace_symbols(
+        &mut empty,
+        &first_page("Shared"),
+        "Shared",
+        &scope,
+        None,
+        None,
+    );
     assert!(empty.get("isPartial").is_none(), "{empty}");
     assert!(empty.get("partialReasons").is_none(), "{empty}");
     let notice = empty["notices"][0].as_str().unwrap_or_default();
@@ -35,7 +49,14 @@ fn workspace_coverage_preserves_errors_and_avoids_a_directory_document_hint() {
     // The query term is searched as typed: a partial term (servers match
     // it as a prefix) is no whole word.
     let mut partial = json!({"kind":"symbols"});
-    workspace_symbols(&mut partial, "ToolRunt", &scope, None, None);
+    workspace_symbols(
+        &mut partial,
+        &first_page("ToolRunt"),
+        "ToolRunt",
+        &scope,
+        None,
+        None,
+    );
     let text = &crate::tools::test_support::checks::related_call(&partial, "localSearch", |_| true)
         ["input"]["queries"][0];
     assert_eq!(text["matchString"], json!(["ToolRunt"]), "{partial}");
@@ -53,6 +74,54 @@ fn workspace_coverage_preserves_errors_and_avoids_a_directory_document_hint() {
         "a directory is not a document"
     );
     assert!(empty.get("terminalLimit").is_none());
+}
+
+/// A first-page workspaceSymbol query for `term`.
+fn first_page(term: &str) -> LspSearchQuery {
+    serde_json::from_value(json!({
+        "operation": "workspaceSymbol", "symbolQuery": term, "workspaceRoot": "/w"
+    }))
+    .expect("query")
+}
+
+/// A later page of a workspace-symbol answer repeats neither the note nor
+/// the leads its first page carried (R4, R7); a server cap stays, a fact of
+/// every page.
+#[test]
+fn a_later_workspace_symbol_page_repeats_no_note_or_lead() {
+    let scope = Scope::new("/w".into(), vec!["*.ts".into()]);
+    let later: LspSearchQuery = serde_json::from_value(json!({
+        "operation": "workspaceSymbol", "symbolQuery": "Shared", "workspaceRoot": "/w",
+        "page": 2, "snapshot": "lsp-v3:abc"
+    }))
+    .expect("query");
+    let mut row = json!({"kind": "symbols"});
+    workspace_symbols(
+        &mut row,
+        &later,
+        "Shared",
+        &scope,
+        Some("/w/a.ts"),
+        Some((100, "raise it")),
+    );
+    assert!(row.get("notices").is_none(), "{row}");
+    assert!(row.get("related").is_none(), "{row}");
+    assert_eq!(
+        row["partialReasons"],
+        json!(["workspaceSymbolCoverageUnknown"]),
+        "{row}"
+    );
+    let mut first = json!({"kind": "symbols"});
+    workspace_symbols(
+        &mut first,
+        &first_page("Shared"),
+        "Shared",
+        &scope,
+        Some("/w/a.ts"),
+        None,
+    );
+    assert!(first.get("notices").is_some(), "{first}");
+    assert!(first.get("related").is_some(), "{first}");
 }
 
 /// `scope` after its text scan of `name`, as a request runs it before

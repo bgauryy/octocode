@@ -92,5 +92,13 @@ pub(in crate::tools::gh_get_history_item) fn pr_metadata(
         }
     }
     remove_nulls(&mut row);
+    // A later page continues a row whose first page delivered the header:
+    // it names the pull request and keeps what the contract requires, with
+    // no empty placeholder for the rest.
+    if crate::tools::gh_get_history_item::gh_get_history_item_query::later_page(query)
+        && let Some(fields) = row.as_object_mut()
+    {
+        fields.retain(|key, _| matches!(key.as_str(), "number" | "state" | "headSha"));
+    }
     row
 }

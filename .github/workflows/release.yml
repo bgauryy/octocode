@@ -97,8 +97,8 @@ jobs:
           if-no-files-found: error
 
   # Each binary on its own OS and CPU (scripts/smoke-binary.cjs: identity,
-  # --version, fingerprint, schema, CLI and stdio MCP tool calls). musl runs in
-  # Alpine; every gnu platform also runs in an image whose glibc is the floor.
+  # --version, fingerprint, schema, CLI and stdio MCP tool calls). Every gnu
+  # platform also runs in an image whose glibc is the floor.
   verify:
     name: Verify ${{ matrix.name }}
     needs: [setup, build]

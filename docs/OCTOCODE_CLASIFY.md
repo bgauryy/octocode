@@ -359,7 +359,9 @@ sequenceDiagram
   A `localFetch` or `ghGetFileContent` source evaluation still answers; its read is a fresh call
   in `related[]` (a GitHub read stays at the captured commit, a local read rereads the path),
   not a `next.read` handle. Literal content works too. URL and image captures need persistent
-  storage. Use persistent storage or a running MCP server for section plans.
+  storage. Use persistent storage or a running MCP server for section plans. A source larger
+  than one response pages its read in `related[]`; run that read with `storage.mode`
+  `persistent`, or in one running MCP server.
 
 ## Examples
 
@@ -391,7 +393,7 @@ answers:
     choice: unknown
     confidence: 0.79
     probabilities: 400 0.04 403 0.12 404 0.0 unknown 0.84
-usage: input_tokens 1082 output_tokens 71
+usage: inputTokens 1082 outputTokens 71
 next.read: (a ghGetFileContent cursor call for the judged file)
 ```
 
@@ -431,7 +433,7 @@ octocode clasify '{"queries":[{"operation":"evaluate","source":{"tool":"ghGetFil
 model: jev-1.14.0
 answers:
   preview: type noul noul 0.95
-usage: input_tokens 588 output_tokens 20
+usage: inputTokens 588 outputTokens 20
 ```
 
 Line 55 confirms it: the option name is built from `isPreview ? 'preview' : 'server'`.

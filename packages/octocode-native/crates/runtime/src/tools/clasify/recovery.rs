@@ -12,6 +12,9 @@ const IMAGE_WINDOW_HINT: &str = "Each image question re-reads its images: ask fe
 /// What a binary source needs when it is an image.
 const IMAGE_SOURCE_HINT: &str = "source takes text; a PNG or JPEG image is judged under assets, as the clasify call in related[] does.";
 
+/// What a `source` whose path is a glob needs: it reads one file.
+const GLOB_SOURCE_HINT: &str = "A source reads one file; a glob goes in resources, one resource per file, as the clasify call in related[] does.";
+
 /// What a fresh read larger than one response needs
 /// ([`Captured::read_pages`]): the runtime that runs it pages it, which a
 /// command that exits after one call refuses.
@@ -29,8 +32,9 @@ pub(super) fn disclose_paged_read(row: &mut Value, captured: &Captured) {
 /// captured failed in its reader: that error and its own hints say what
 /// happened, nothing was classified, and the requested read is offered only
 /// when repeating it can succeed (not for a missing path or a refusal). A
-/// selection too large to judge offers no read of itself: its hints say how
-/// to judge it.
+/// refused input (an `invalidInput`-class code) was never judged either: it
+/// keeps only its own input-fix hints. A selection too large to judge offers
+/// no read of itself: its hints say how to judge it.
 pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value, can_resume: bool) {
     if matches!(row.input, Input::Models) {
         return;
@@ -55,6 +59,25 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value, c
         crate::response::result::attach_related(failure, call);
         crate::response::result::prepend_hints(failure, [IMAGE_SOURCE_HINT]);
     }
+    // A localFetch source path with glob characters that names no file is a
+    // glob: its files are read as resources.
+    if acquisition
+        && crate::id::error_code_of(failure) == Some(ErrorCode::PathNotFound)
+        && let Input::Judge(Target::Source(source)) = &row.input
+        && source["tool"] == ToolId::LocalFetch.as_str()
+        && source["query"]["path"]
+            .as_str()
+            .is_some_and(|path| path.contains(octocode_engine::search::glob::GLOB_META))
+        && let Some(call) = rerun_resource(row, "source", source)
+    {
+        // The way to the files leads the reader's own recovery.
+        match failure.get_mut("related").and_then(Value::as_array_mut) {
+            Some(related) if !related.contains(&call) => related.insert(0, call),
+            Some(_) => {}
+            None => crate::response::result::attach_related(failure, call),
+        }
+        crate::response::result::prepend_hints(failure, [GLOB_SOURCE_HINT]);
+    }
     let read = captured
         .map(|capture| capture.read.clone())
         .or_else(|| {
@@ -72,7 +95,12 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value, c
             disclose_paged_read(failure, captured);
         }
     }
-    if acquisition {
+    // A refused input judged nothing: its own hints say how to fix it, and
+    // no judgment failed that another tool could stand in for.
+    let refused = failure["errorCode"]
+        .as_str()
+        .is_some_and(|code| error_class(code) == ErrorClass::InvalidInput);
+    if acquisition || refused {
         return;
     }
     let notice = crate::contracts::classification_notice;
@@ -91,14 +119,10 @@ pub(super) fn add(row: &Row, captured: Option<&Captured>, failure: &mut Value, c
     crate::response::result::prepend_hints(failure, tips);
 }
 
-/// The same questions over `source` as a ready `sections` call: where each
-/// answer sits, and the way to judge a source too large for one state. A box
-/// has no text to read, so it stays out. A runtime that keeps nothing for a
-/// later call (`can_resume` false) refuses a plan, so it offers none.
+/// The same questions over `source` as a ready `sections` call: the way to
+/// judge a source too large for one state. A box has no text to read, so it
+/// stays out.
 pub(super) fn sections_call(row: &Row, source: &Value, can_resume: bool) -> Option<Value> {
-    if !can_resume {
-        return None;
-    }
     let questions = row
         .keys
         .iter()
@@ -106,17 +130,101 @@ pub(super) fn sections_call(row: &Row, source: &Value, can_resume: bool) -> Opti
         .filter(|(_, question)| question["type"] != "box")
         .map(|(key, question)| (key.clone(), question.clone()))
         .collect::<serde_json::Map<_, _>>();
-    if questions.is_empty() {
+    sections_over(
+        questions,
+        row.context.as_deref(),
+        row.model.as_deref(),
+        vec![(None, source.clone())],
+        can_resume,
+    )
+}
+
+/// `questions` over every one of `sources` as one ready `sections` call. A
+/// source with a resource key keeps it when the input contract admits it as
+/// a key, so the call names what the row shows; any other source (a row's
+/// own `source`, or a key the contract refuses, such as a glob's
+/// `<key>/<path>`) is keyed `source` when it is the only one, else
+/// `source1`.. in order. A runtime that keeps nothing for a later call
+/// (`can_resume` false) refuses a plan, so it offers none.
+pub(super) fn sections_over(
+    questions: serde_json::Map<String, Value>,
+    context: Option<&str>,
+    model: Option<&str>,
+    sources: Vec<(Option<String>, Value)>,
+    can_resume: bool,
+) -> Option<Value> {
+    if !can_resume || questions.is_empty() || sources.is_empty() {
         return None;
     }
-    let mut call =
-        json!({"operation":"sections","resources":{"source":source},"questions":questions});
+    let admitted = |key: &str, source: &Value| {
+        let mut probe = serde_json::Map::new();
+        probe.insert(key.to_owned(), source.clone());
+        crate::contracts::validate_built_query(
+            ToolId::Clasify.as_str(),
+            json!({"operation":"sections","resources":probe,"questions":&questions}),
+        )
+        .is_ok()
+    };
+    let sources = sources
+        .into_iter()
+        .map(|(key, source)| (key.filter(|key| admitted(key, &source)), source))
+        .collect::<Vec<_>>();
+    let unkeyed = sources.iter().filter(|(key, _)| key.is_none()).count();
+    let mut resources = serde_json::Map::new();
+    let mut ordinal = 0;
+    for (key, source) in sources {
+        let wanted = key.unwrap_or_else(|| {
+            ordinal += 1;
+            if unkeyed > 1 {
+                format!("source{ordinal}")
+            } else {
+                "source".to_owned()
+            }
+        });
+        // Two rows may show one key for different sources: the later one
+        // takes the first free `<key>-<n>`.
+        let key = crate::tools::source_capture::glob::free_key(&wanted, |key| {
+            resources.contains_key(key)
+        });
+        resources.insert(key, source);
+    }
+    let mut call = json!({"operation":"sections","resources":resources,"questions":questions});
+    if let Some(context) = context {
+        call["context"] = json!(context);
+    }
+    if let Some(model) = model {
+        call["model"] = json!(model);
+    }
+    Some(crate::response::result::Continuation::related(ToolId::Clasify, call).build())
+}
+
+/// `row` again over its one resource `key` (`source`): the way to the files
+/// of a glob, one the call stopped before it expanded or one given as a
+/// `source`, which reads one file. Offered only when the contract admits the
+/// call.
+pub(super) fn rerun_resource(row: &Row, key: &str, source: &Value) -> Option<Value> {
+    let questions = row
+        .keys
+        .iter()
+        .cloned()
+        .zip(row.questions.iter().cloned())
+        .collect::<serde_json::Map<_, _>>();
+    let mut resources = serde_json::Map::new();
+    resources.insert(key.to_owned(), source.clone());
+    let mut call = json!({"operation":"evaluate","resources":resources,"questions":questions});
     if let Some(context) = &row.context {
         call["context"] = json!(context);
     }
     if let Some(model) = &row.model {
         call["model"] = json!(model);
     }
+    if let Some(long_context) = row.long_context {
+        call["longContext"] = json!(long_context);
+    }
+    if let Some(assets) = &row.assets {
+        call["assets"] = assets.clone();
+    }
+    crate::contracts::validate_built_query(ToolId::Clasify.as_str(), call.clone()).ok()?;
     Some(crate::response::result::Continuation::related(ToolId::Clasify, call).build())
 }
 
@@ -281,6 +389,28 @@ mod tests {
         assert!(!other.to_string().contains(IMAGE_WINDOW_HINT), "{other}");
     }
 
+    /// An input refusal judged nothing: it keeps only its own input-fix
+    /// guidance, never the notices for a failed judgment or for inspecting
+    /// the images some other way.
+    #[test]
+    fn an_input_refusal_carries_only_its_input_fix() {
+        let mut row = source_row();
+        row.input = Input::Judge(Target::Content(json!("literal")));
+        row.assets = Some(json!({"pic":{}}));
+        let notice = crate::contracts::classification_notice;
+        for code in ["invalidClassificationContext", "invalidClassificationRequest"] {
+            let mut refused = json!({"errorCode":code,"hints":["Fix the input."]});
+            add(&row, None, &mut refused, true);
+            assert_eq!(refused["hints"], json!(["Fix the input."]), "{refused}");
+        }
+        // A judgment that failed still says so, with the image route.
+        let mut failed = json!({"errorCode":"classificationProviderError"});
+        add(&row, None, &mut failed, true);
+        let hints = failed["hints"].as_array().unwrap();
+        assert!(hints.contains(&json!(notice("failed"))), "{failed}");
+        assert!(hints.contains(&json!(notice("imageInspection"))), "{failed}");
+    }
+
     /// An image given as a text source gets the same questions as a ready
     /// call with it under assets.
     #[test]
@@ -307,6 +437,41 @@ mod tests {
         );
         assert_eq!(query["content"], "image");
         assert_eq!(query["questions"]["q"], row.questions[0]);
+    }
+
+    /// Live check D4: a glob in `source` names no file; the row says globs go
+    /// in `resources` and offers the same row with the glob there.
+    #[test]
+    fn a_glob_in_source_points_to_resources() {
+        let mut row = source_row();
+        row.keys = vec!["q".into()];
+        row.questions = vec![json!({"type":"noul","instructions":"Is it set?"})];
+        let glob = json!({"tool":"localFetch","query":{"path":"w/*.md"}});
+        row.input = Input::Judge(Target::Source(glob.clone()));
+        let tree = json!({"tool":"structureSearch","kind":"related",
+            "input":{"queries":[{"operation":"tree","path":"w"}]}});
+        let mut failure = json!({"errorCode":"pathNotFound","error":"Path does not exist: w/*.md",
+            "related":[tree]});
+        add(&row, None, &mut failure, true);
+        let hints = failure["hints"].as_array().cloned().unwrap_or_default();
+        assert!(
+            hints
+                .iter()
+                .any(|hint| hint.as_str().is_some_and(|hint| hint.contains("resources"))),
+            "{failure:#}"
+        );
+        // The way to the files leads; the directory listing stays after it.
+        let call = &failure["related"][0];
+        assert_eq!(call["tool"], "clasify", "first: {failure:#}");
+        assert_eq!(failure["related"][1], tree, "{failure:#}");
+        let query = &call["input"]["queries"][0];
+        assert_eq!(query["operation"], "evaluate", "{call:#}");
+        assert_eq!(query["resources"], json!({"source":glob}), "{call:#}");
+        // A literal missing path is no glob: nothing points to resources.
+        let mut plain =
+            json!({"errorCode":"pathNotFound","error":"Path does not exist: source.rs"});
+        add(&source_row(), None, &mut plain, true);
+        assert!(!plain.to_string().contains("resources"), "{plain:#}");
     }
 
     #[test]

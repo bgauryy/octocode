@@ -96,7 +96,7 @@ impl Job {
                 job,
                 JobObjectExtendedLimitInformation,
                 (&raw const info).cast(),
-                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                crate::num::saturating_u32(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>()),
             )
         } != 0;
         // SAFETY: attach callers keep the Child owning raw alive during this call.

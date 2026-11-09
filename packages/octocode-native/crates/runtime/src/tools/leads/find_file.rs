@@ -11,9 +11,15 @@ use std::path::Path;
 /// A listing of files named like `requested` from `root`: its stem (the name
 /// without its extension) under any extension, at any depth, so a moved file
 /// or a changed extension shows. Never every name merely containing the
-/// stem. A name without an extension is matched as written.
+/// stem. A name without an extension is matched as written. A name with a
+/// wildcard (`*`, `?`) is a glob, which no file is literally named after, so
+/// it offers none; a class or alternation (`[id].tsx`, `{a,b}`) is a real
+/// route-file spelling and is looked for as written.
 pub(crate) fn find_file(root: &str, requested: &str) -> Option<Value> {
     let name = Path::new(requested).file_name()?.to_string_lossy();
+    if name.contains(['*', '?']) {
+        return None;
+    }
     let include = match name.split_once('.') {
         Some((stem, _)) if !stem.is_empty() => format!("{}.*", glob::name(stem)),
         _ if name.is_empty() => return None,
@@ -182,5 +188,14 @@ mod tests {
         assert_eq!(closest_name(names(), "sr").as_deref(), Some("src"));
         assert_eq!(closest_name(names(), "src"), None);
         assert_eq!(closest_name(names(), "bench"), None);
+    }
+
+    /// A name with a wildcard (`*`, `?`) is a glob, not a file that moved:
+    /// no listing of files literally so named is offered.
+    #[test]
+    fn a_wildcard_name_offers_no_listing() {
+        for requested in ["w/*.md", "src/a?.rs", "*"] {
+            assert!(find_file("pkg", requested).is_none(), "{requested}");
+        }
     }
 }

@@ -70,7 +70,9 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
     assert_eq!(row["changedFilesCount"], 250, "{row}");
     assert_eq!(row["additions"], 5000);
     assert_eq!(row["labels"], json!(["refactor"]));
-    assert_eq!(row["contentPagination"]["files"]["totalItems"], 250);
+    // One page holds the whole inventory: it states no block, and the
+    // count is the list itself.
+    assert!(row["contentPagination"].get("files").is_none(), "{row}");
     let groups = row["files"].as_array().expect("files");
     let rows = groups
         .iter()
@@ -161,7 +163,9 @@ async fn pr_file_filter_narrows_the_inventory_and_its_counts() {
     .await;
     let row = &data["pullRequests"][0];
     assert_eq!(row["files"], json!(["M +30 -2 docs/guide.md"]), "{row}");
-    assert_eq!(row["contentPagination"]["files"]["totalItems"], 1, "{row}");
+    // The one matching file is the complete filtered inventory: no block.
+    assert!(row["contentPagination"].get("files").is_none(), "{row}");
+    assert_eq!(row["changedFilesCount"], 250, "{row}");
     let data = run(
         &server,
         json!({"sections":["files"],
@@ -246,21 +250,17 @@ async fn pr_inventory_page_reports_the_provider_total() {
     )
     .await;
     let data = run(&server, json!({"sections":["files"]})).await;
-    let page = &data["pullRequests"][0]["contentPagination"]["files"];
-    assert_eq!(page["totalItems"], 250, "{page}");
-    assert_eq!(page["totalPages"], 1, "{page}");
-    assert_eq!(page["hasMore"], false, "{page}");
-    // The cursor rides `next`, never the page block.
-    assert!(page.get("nextPage").is_none(), "{page}");
+    // The provider total (250) is listed in full on this one page: the
+    // row states it as `changedFilesCount` and lists every file, and no
+    // pagination block restates either.
+    let row = &data["pullRequests"][0];
+    assert_eq!(row["changedFilesCount"], 250, "{row}");
+    assert!(row["contentPagination"].get("files").is_none(), "{row}");
     assert_eq!(
         support::inventory_len(&data["pullRequests"][0]["files"]),
         250
     );
-    assert!(
-        data["pullRequests"][0]["contentPagination"]["files"]["next"]
-            .get("nextPage")
-            .is_none()
-    );
+    assert!(data["pullRequests"][0].get("next").is_none(), "{data}");
 }
 
 /// An `include` scope that matches no changed file is an empty row (a

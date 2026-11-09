@@ -382,3 +382,33 @@ async fn commit_rows_without_a_named_pull_request_find_it_by_sha() {
         "{data}"
     );
 }
+
+/// A merge commit's headline (`Merge pull request #N from …`) names its PR
+/// as a squash headline's `(#N)` does: the lead reads that PR, not a SHA
+/// keyword search whose best match can be another PR.
+#[tokio::test]
+async fn a_merge_commit_headline_leads_to_the_pull_request_it_names() {
+    use wiremock::MockServer;
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/commits",
+        200,
+        json!([{"sha": "aaa", "commit": {
+            "message": "Merge pull request #6 from someone/patch-1\n\nFix cache",
+            "author": {"name": "Dev", "date": "2026-01-01T00:00:00Z"}}}]),
+    )
+    .await;
+    let provider = one_shot_provider(&server);
+    let query = serde_json::from_value(json!({"operation":"commit","owner":"o","repo":"r"}))
+        .expect("query");
+    let data = execute(&provider, &query, &default_context(), &Passthrough)
+        .await
+        .expect("commit listing");
+    let read =
+        crate::tools::test_support::checks::related_call(&data, "ghGetHistoryItem", |input| {
+            input["queries"][0]["operation"] == "pullRequest"
+        });
+    assert_eq!(read["input"]["queries"][0]["number"], 6, "{data}");
+    assert!(data["next"].get("findPullRequest").is_none(), "{data}");
+}

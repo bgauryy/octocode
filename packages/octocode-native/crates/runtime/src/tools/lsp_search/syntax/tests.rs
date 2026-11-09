@@ -353,3 +353,51 @@ fn collect_sites(value: &Value, lines: &mut Vec<u64>) {
         _ => {}
     }
 }
+
+/// Syntax `callers` keeps the callers the query's `testCode` keeps, as a
+/// server's walk does: `exclude` leaves the test file's caller out and counts
+/// it in `testCodeExcluded`, `only` keeps only that caller.
+#[cfg(unix)]
+#[tokio::test(flavor = "current_thread")]
+async fn syntax_callers_honor_test_code() {
+    let (_dirs, file, execution) = fixture(
+        "a.ts",
+        "export function target() {}\nexport function caller() { target(); }\n",
+        ".ts",
+    );
+    let root = file.parent().expect("root").to_path_buf();
+    std::fs::write(
+        root.join("a.test.ts"),
+        "import {target} from './a';\nexport function in_test() { target(); }\n",
+    )
+    .expect("test file");
+    octocode_engine::stamp::settle_written_so_far();
+    let path = file.to_string_lossy().into_owned();
+    let query = |test_code: &str| {
+        json!({
+            "operation": "callers", "path": path, "symbolName": "target", "line": 1,
+            "testCode": test_code
+        })
+    };
+    let every = walk(&root, &execution, query("include"), None).await;
+    let text = every[0].to_string();
+    assert!(
+        text.contains("in_test") && text.contains("\"caller\""),
+        "{text}"
+    );
+    let excluded = walk(&root, &execution, query("exclude"), None).await;
+    assert_syntax(&excluded[0]);
+    let text = excluded[0].to_string();
+    assert!(
+        !text.contains("in_test") && text.contains("\"caller\""),
+        "{text}"
+    );
+    assert!(excluded[0].get("testCodeExcluded").is_some(), "{text}");
+    let only = walk(&root, &execution, query("only"), None).await;
+    assert_syntax(&only[0]);
+    let text = only[0].to_string();
+    assert!(
+        text.contains("in_test") && !text.contains("\"caller\""),
+        "{text}"
+    );
+}

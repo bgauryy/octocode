@@ -16,8 +16,8 @@
 // owner, never stray stdout/stderr prints; deliberate sites carry `#[expect]`.
 #![deny(clippy::print_stdout, clippy::print_stderr)]
 
-pub(crate) mod cache;
 mod build_identity;
+pub(crate) mod cache;
 mod civil_date;
 pub mod config;
 pub(crate) mod content;

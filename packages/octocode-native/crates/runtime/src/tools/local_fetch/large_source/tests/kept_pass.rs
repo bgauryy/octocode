@@ -4,8 +4,8 @@ use super::*;
 const LINE: usize = 80;
 const LINES: usize = 40_000;
 
-/// Numbered lines, distinct per `seed`: the store is keyed by digest and shared
-/// by tests running at once.
+/// Numbered lines, distinct per `seed` (the store keeps each file's pass under
+/// its own path, so equal bytes would not collide either).
 fn lines(seed: u8) -> Vec<u8> {
     let mut source: Vec<u8> = (0..LINES)
         .flat_map(|index| format!("{index:0width$}\n", width = LINE - 1).into_bytes())
@@ -50,6 +50,29 @@ fn a_later_page_of_a_settled_file_reads_only_its_window() {
     assert_eq!(kept.total_lines, whole.total_lines);
     assert_eq!(kept.start_line, whole.start_line);
     assert_eq!(kept.end_line, whole.end_line);
+}
+
+/// Two files with the same bytes at different paths keep their passes side by
+/// side: reading the second does not evict the first's, so a later page of
+/// the first still reads only its window. (The store was keyed by digest
+/// alone, and each file's pass replaced the other's.)
+#[test]
+fn identical_files_at_two_paths_keep_their_passes_apart() {
+    let one = temp(&lines(b'i'));
+    let two = temp(&lines(b'i'));
+    octocode_engine::stamp::settle_written_so_far();
+    let (first, next) = pages(&one);
+    let (other, _) = pages(&two);
+    assert_eq!(first.source_sha256, other.source_sha256, "the same bytes");
+    let before = source_bytes_read();
+    let page = fetch(&one, &next, Some(2_000));
+    let read = source_bytes_read() - before;
+    assert_eq!(page.status, ReadStatus::Success, "{page:?}");
+    assert!(
+        read < 2 * 1024 * 1024,
+        "reads about one checkpoint and window of {} bytes, read {read}",
+        LINE * LINES
+    );
 }
 
 #[test]

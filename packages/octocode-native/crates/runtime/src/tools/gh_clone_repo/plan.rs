@@ -42,6 +42,18 @@ impl Plan<'_> {
         Ok(clone_dir)
     }
 
+    /// The shared store that holds `commit` for this row ([`storage::StoreKey`]).
+    pub(super) fn store_key(&self, commit: &str) -> storage::StoreKey {
+        storage::StoreKey::new(
+            &self.context.config.home,
+            &self.query.owner,
+            &self.query.repo,
+            &self.host,
+            self.depth,
+            commit,
+        )
+    }
+
     pub(super) fn result(&self, commit: &str, clone_dir: &Path, checkout: Checkout) -> CloneResult {
         let bytes = checkout.size;
         let paths = self.sparse.as_ref().map(Sparse::paths);

@@ -90,15 +90,32 @@ impl<'a> Projector<'a> {
         self.edges
             .sort_by_key(|e| (e.src, e.kind, e.dst, e.test, e.line, e.detail, e.confidence));
         let built = self.built;
+        // An import relinked to an unparsed file is resolved: it leaves the
+        // unresolved diagnostics and the unresolved tally together, so both
+        // answers share this one decision.
+        let relinked_diag = |diag: &crate::tools::ast_graph::types::Diagnostic| {
+            diag.code == DiagnosticCode::UnresolvedInternal
+                && diag
+                    .line
+                    .is_some_and(|line| relinked.contains(&(diag.file.as_str(), line)))
+        };
+        let mut imports = built.imports;
+        let relinked_statements = built
+            .diagnostics
+            .iter()
+            .filter(|diag| relinked_diag(diag))
+            .map(|diag| (diag.file.as_str(), diag.line, diag.message.as_str()))
+            .collect::<BTreeSet<_>>()
+            .len();
+        let relinked_statements = octocode_engine::num::saturating_u32(relinked_statements);
+        let unresolved = &mut imports[ImportOutcome::UnresolvedInternal as usize];
+        let moved = relinked_statements.min(*unresolved);
+        *unresolved -= moved;
+        imports[ImportOutcome::Resolved as usize] += moved;
         let mut diagnostics = built
             .diagnostics
             .iter()
-            .filter(|diag| {
-                !(diag.code == DiagnosticCode::UnresolvedInternal
-                    && diag
-                        .line
-                        .is_some_and(|line| relinked.contains(&(diag.file.as_str(), line))))
-            })
+            .filter(|diag| !relinked_diag(diag))
             .map(|diag| DiagRec {
                 file: self.strings.id(&diag.file),
                 line: diag.line.unwrap_or(NONE),
@@ -160,7 +177,7 @@ impl<'a> Projector<'a> {
             sources: self.sources.table,
             components,
             entries,
-            strings: self.strings.strings,
+            strings: self.strings.strings.into(),
             nodes: self.nodes,
             edges: self.edges,
             witnesses: self.witnesses,
@@ -172,6 +189,10 @@ impl<'a> Projector<'a> {
             ..Default::default()
         };
         tables.index();
-        Projection { tables, calls }
+        Projection {
+            tables,
+            calls,
+            imports,
+        }
     }
 }

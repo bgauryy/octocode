@@ -110,6 +110,7 @@ pub(super) fn api_refusal(
     reference: &str,
     api: ProviderError,
 ) -> Result<CloneFailure, ProviderError> {
+    let status = api.status;
     match (api.kind, api.reason) {
         (_, Some(ProviderErrorReason::RefNotFound)) => {
             Ok(CloneFailure::Clone(CloneError {
@@ -126,9 +127,12 @@ pub(super) fn api_refusal(
                         query.owner, query.repo
                     ),
                 )
-            }))
+            }
+            .answered(status)))
         }
-        (ProviderErrorKind::NotFound, _) => Ok(CloneFailure::Clone(repository_not_found(query))),
+        (ProviderErrorKind::NotFound, _) => Ok(CloneFailure::Clone(
+            repository_not_found(query).answered(status),
+        )),
         (ProviderErrorKind::Authentication | ProviderErrorKind::Permission, _) => {
             Ok(CloneFailure::Provider(api))
         }

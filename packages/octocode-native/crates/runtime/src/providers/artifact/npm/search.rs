@@ -1,6 +1,7 @@
 //! npm keyword search: one window per page, checked against the window
 //! ending just before it, since npm answers a `from` past its reach with
-//! earlier rows.
+//! earlier rows. Several keywords are ANDed here (npm matches any one), so
+//! such a page reads npm's widest window and keeps its matching rows.
 use super::registry::trim_registry;
 use crate::providers::artifact::http::{DnsPin, JSON, RegistryClient};
 use crate::providers::artifact::query::artifact_search_query;
@@ -14,6 +15,10 @@ use crate::providers::artifact::{
 use octocode_contract_types::{ArtifactSearchQuery, ArtifactType, ErrorCode};
 use serde_json::Value;
 
+/// The widest window npm's search serves in one request (its documented
+/// `size` maximum: <https://github.com/npm/registry/blob/main/docs/REGISTRY-API.md#get-v1search>).
+const NPM_SEARCH_WINDOW: usize = 250;
+
 pub(super) async fn search(
     query: &ArtifactSearchQuery,
     state: &ArtifactProviderState,
@@ -21,12 +26,26 @@ pub(super) async fn search(
     client: &RegistryClient<'_>,
     dns_pin: Option<DnsPin>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
-    let offset = state.offset.unwrap_or(0);
+    // An ANDed walk resumes at the npm row after the last one it showed,
+    // which its continuation carries (`registryCursor`); a page asked by
+    // number starts where pages of `limit` rows tile.
+    let offset = state
+        .token
+        .as_deref()
+        .and_then(|token| token.parse::<u64>().ok())
+        .or(state.offset)
+        .unwrap_or(0);
     let size = artifact_search_query::page_size(query);
+    let terms = artifact_search_query::keyword_list(query);
+    let anded = terms.len() > 1;
     let window = |from: u64, size: usize| {
         search_window(query, registry, client, dns_pin.clone(), from, size)
     };
-    let (total_found, objects) = window(offset, size).await?;
+    // npm's own rows match any one keyword, so an ANDed page reads the
+    // widest window and fills from its matching rows: a walk to the end
+    // costs one request per npm window, not one per `limit` rows.
+    let (total_found, objects) =
+        window(offset, if anded { NPM_SEARCH_WINDOW } else { size }).await?;
     // npm serves a deep window from an undocumented reach on and answers a
     // `from` past it with earlier rows instead of an error. The page is its
     // own rows only when the two rows ending just before it are the row
@@ -53,11 +72,21 @@ pub(super) async fn search(
         }
     }
     let mut artifacts = Vec::with_capacity(objects.len().min(size));
-    let terms = artifact_search_query::keyword_list(query);
-    let read = objects.len().min(size) as u64;
     let mut matched = Vec::with_capacity(objects.len().min(size));
-    for entry in objects.iter().take(size) {
-        matched.push(terms_matched(&terms, entry.get("package")));
+    // The npm rows this page consumed: an ANDed page stops right after the
+    // row that fills it, so the next page starts at the row after it and no
+    // matching row is skipped.
+    let mut read = 0_u64;
+    for entry in &objects {
+        if artifacts.len() == size {
+            break;
+        }
+        read += 1;
+        let count = terms_matched(&terms, entry.get("package"));
+        if anded && count < terms.len() {
+            continue;
+        }
+        matched.push(count);
         let package = object_for(
             object_for(entry, ArtifactType::Npm)?
                 .get("package")
@@ -93,24 +122,17 @@ pub(super) async fn search(
     }
     rank_by_terms(&mut artifacts, &matched);
     // Keywords are ANDed, as on every other search tool, and npm alone returns
-    // rows matching one term of several. Paging stays on npm's raw window, so a
-    // window with no row holding every term still leads to the next one, and
-    // its total, which counts one-term rows, is not the count of these.
-    let anded = terms.len() > 1;
-    if anded {
-        // Ranked most terms first, so the rows holding every term lead the page.
-        artifacts.truncate(
-            matched
-                .iter()
-                .filter(|count| **count == terms.len())
-                .count(),
-        );
-    }
+    // rows matching one term of several: only rows holding every term are
+    // kept. Paging stays on npm's raw rows, so a window with no row holding
+    // every term still leads to the next one, and npm's total, which counts
+    // one-term rows, is not the count of these.
     let has_more = offset.saturating_add(read) < total_found;
     let terminal_limit = (has_more && read == 0).then(|| unreachable_rows(offset, total_found));
+    let next = offset + read;
     Ok(ArtifactProviderPage {
         next_state: (has_more && read > 0).then(|| ArtifactProviderState {
-            offset: Some(offset + read),
+            offset: Some(next),
+            token: anded.then(|| next.to_string()),
             ..Default::default()
         }),
         artifacts,

@@ -23,7 +23,8 @@ mod ignore_rules;
 #[cfg(test)]
 pub(crate) use ignore_rules::LEVELS_STATED;
 pub use ignore_rules::{
-    DirRules, IGNORE_FILES, IgnoreReason, IgnoreRules, ListedRules, external_ignore_inputs,
+    DirRules, IGNORE_FILES, IgnoreReason, IgnoreRules, ListedRules, checkout_git_dir,
+    common_git_dir, external_ignore_inputs,
 };
 
 /// A walk's cancellation: polled between entries; `true` ends the walk.
@@ -110,11 +111,13 @@ impl std::fmt::Debug for RootedPrune {
 }
 
 impl RootedPrune {
-    /// Whether the walk prunes `path`, an entry below its root.
+    /// Whether the walk prunes `path`, an entry below its root. A `.git`
+    /// entry is git metadata whether it is a directory or the pointer file a
+    /// linked worktree or submodule keeps: both are pruned alike.
     pub fn prunes(&self, path: &Path, is_dir: bool) -> bool {
         let Some(name) = path
             .file_name()
-            .filter(|name| is_dir && self.names.names(name))
+            .filter(|name| (is_dir || *name == ".git") && self.names.names(name))
         else {
             return false;
         };

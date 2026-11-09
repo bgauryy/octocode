@@ -238,6 +238,7 @@ fn a_file_without_a_source_is_unprobed_and_the_rest_still_count() {
         diagnostics: Vec::new(),
         status: "ok".to_owned(),
         recovered: false,
+        recovered_bodies: Vec::new(),
         source,
     };
     let digest = octocode_engine::digest::sha256(text.as_bytes());
@@ -255,6 +256,7 @@ fn a_file_without_a_source_is_unprobed_and_the_rest_still_count() {
         inferred: None,
         extensions: None,
         parsers: Default::default(),
+        compiled: Vec::new(),
     };
     let pattern = "fn $N($A: Foo) {}";
     let rule = json!({"pattern": pattern});

@@ -102,7 +102,7 @@ Input failures report `errorCode:"invalidInput"` and the invalid fields. Correct
 | 7 | Rate limited |
 | 130 | Interrupted |
 
-A batch reports its most severe outcome; inspect every row. Exit zero does not prove complete evidence coverage; follow required continuations before making an all-or-none claim.
+A batch exits 2 if any row rejected its input, else with its failed rows' code (5 if they fail differently), else 1 only when every row is empty or out of range, else 0: a batch where one row answered and another found nothing exits 0, so inspect every row. Exit zero does not prove complete evidence coverage; follow required continuations before making an all-or-none claim.
 
 ## `ghCloneRepo` — materialize a GitHub repository
 

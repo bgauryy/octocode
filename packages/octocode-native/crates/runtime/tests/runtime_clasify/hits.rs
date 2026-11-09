@@ -198,9 +198,17 @@ async fn each_hit_line_is_sent_once() {
             .as_object()
             .expect("questions")
             .values()
-            .map(|question| question["instructions"]["target"].as_str().unwrap_or_default())
+            .map(|question| {
+                question["instructions"]["target"]
+                    .as_str()
+                    .unwrap_or_default()
+            })
             .collect::<Vec<_>>();
-        for (line, text) in [(1, "needle KEEP one"), (3, "needle drop two"), (9, "needle KEEP five")] {
+        for (line, text) in [
+            (1, "needle KEEP one"),
+            (3, "needle drop two"),
+            (9, "needle KEEP five"),
+        ] {
             assert_eq!(
                 state
                     .lines()
@@ -209,7 +217,10 @@ async fn each_hit_line_is_sent_once() {
                 1,
                 "context {context}: the state holds line {line} once: {request}"
             );
-            let quoting = labels.iter().filter(|label| label.contains(text)).collect::<Vec<_>>();
+            let quoting = labels
+                .iter()
+                .filter(|label| label.contains(text))
+                .collect::<Vec<_>>();
             assert_eq!(
                 quoting,
                 [&format!("line {line}: {text}")],

@@ -256,6 +256,37 @@ impl Graph {
     }
 }
 
+/// A graph reference no node matches: the snapshot, not a registry, is
+/// where it was looked up.
+const NOT_FOUND_HINT: &str = "No node in this snapshot has that key or name: run the find lead, or rebuild with graphBuild when the file is newer than the snapshot.";
+
+impl Query<'_> {
+    /// The name a reference's last segment holds (after its last `#`, else
+    /// its file name without extension), and whether it names a file: its
+    /// extension is one of the snapshot's file extensions.
+    fn reference_name(&self, text: &str) -> (String, bool) {
+        if let Some((_, name)) = text.rsplit_once('#') {
+            return (name.to_owned(), false);
+        }
+        let base = text.rsplit('/').next().unwrap_or(text);
+        if let Some((stem, extension)) = base.rsplit_once('.')
+            && !stem.is_empty()
+            && !extension.is_empty()
+        {
+            let suffix = format!(".{extension}");
+            let g = self.g;
+            if g.t
+                .nodes
+                .iter()
+                .any(|node| node.kind == NodeKind::File && g.t.str(node.key).ends_with(&suffix))
+            {
+                return (stem.to_owned(), true);
+            }
+        }
+        (base.to_owned(), false)
+    }
+}
+
 /// A reference as written, without surrounding space or a leading `./`.
 fn normalize(reference: &str) -> String {
     reference.trim().trim_start_matches("./").to_owned()
@@ -302,10 +333,12 @@ impl Query<'_> {
         kind: Option<NodeKind>,
     ) -> Result<u32, GraphOutput> {
         let not_found = || {
-            GraphOutput::error(
+            let mut out = GraphOutput::error(
                 ErrorCode::NotFound,
                 format!("no node matches {reference:?}; locate it with graphQuery operation find"),
-            )
+            );
+            crate::response::result::add_hints(&mut out.value, [NOT_FOUND_HINT]);
+            out
         };
         // Nothing to match, so nothing to suggest.
         if names_nothing(&normalize(reference)) {
@@ -323,7 +356,11 @@ impl Query<'_> {
             // A missed path suggests only nodes under its deepest directory
             // the snapshot holds, never same-word nodes elsewhere.
             let (text, prefix) = self.g.suggestion_scope(&matches.normalized);
-            let suggestions = ranked(self.g, &text, kind, self.cancel)?
+            // A path suggests by its name, not by the directory words every
+            // node under it shares; a file path suggests only files.
+            let (name, file_path) = self.reference_name(&text);
+            let kind = kind.or(file_path.then_some(NodeKind::File));
+            let suggestions = ranked(self.g, &name, kind, self.cancel)?
                 .into_iter()
                 .map(|hit| self.g.key(hit.id).to_owned())
                 .filter(|key| prefix.as_ref().is_none_or(|prefix| key.starts_with(prefix)))
@@ -331,6 +368,9 @@ impl Query<'_> {
                 .collect::<Vec<_>>();
             if !suggestions.is_empty() {
                 out.value["suggestions"] = json!(suggestions);
+            }
+            if !name.is_empty() {
+                out.value["find"] = json!(name);
             }
             return Err(out);
         }

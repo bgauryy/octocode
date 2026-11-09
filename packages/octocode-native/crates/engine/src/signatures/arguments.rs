@@ -52,6 +52,18 @@ impl ArgumentAdapter {
         }
     }
 
+    /// Whether a call site can name a parameter by keyword (`f(value=1)`,
+    /// `f(value: 1)`, `f(value = 1)`): text outside the callable, in any
+    /// file that reaches it, then names the parameter binding.
+    pub(super) fn keyword_arguments(self) -> bool {
+        match self {
+            Self::Python | Self::Scala => true,
+            #[cfg(feature = "tree-sitter-c-sharp")]
+            Self::CSharp => true,
+            _ => false,
+        }
+    }
+
     pub(super) fn binding_visible_after_name(self) -> bool {
         self.is_c_family() || self.implicit_members()
     }

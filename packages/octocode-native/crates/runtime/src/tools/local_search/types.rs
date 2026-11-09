@@ -80,6 +80,13 @@ pub struct Enclosing {
     pub kind: String,
     pub line: u32,
     pub end_line: u32,
+    /// First line of its attributes or decorators, when before `line`
+    /// ([`crate::tools::declarations::StartLines`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_line: Option<u32>,
+    /// First line of its doc comment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc_start_line: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

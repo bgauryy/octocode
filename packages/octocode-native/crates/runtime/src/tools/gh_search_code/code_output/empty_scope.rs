@@ -10,14 +10,6 @@ use octocode_github::{
 };
 use serde_json::{Value, json};
 
-/// An empty repository search with a listing lead: the row names only what it
-/// has, and what the index does not hold (the contract says what that is) is
-/// read by name.
-const UNINDEXED_LISTED_HINT: &str = "No indexed match is unproven absence: list the repository with the related[] ghStructure request, then read a file there with matchString.";
-
-/// An empty repository search whose lead is another search.
-const UNINDEXED_NO_LISTING_HINT: &str = "No indexed match is unproven absence: a file the index does not hold can still have it, so read a known file with matchString.";
-
 /// GitHub answers a code search of a login that does not exist with an empty,
 /// incomplete page. An empty, incomplete owner-wide search therefore checks
 /// the login: a missing one is a not-found failure, not an empty search.
@@ -91,18 +83,17 @@ pub(in crate::tools::gh_search_code) async fn empty_scope(
         // The repository exists: a scoped path is listed; a repo-wide search
         // gets the root layout to verify against.
         _ => {
+            // No hint: the tool description says an empty search never
+            // rules out an unindexed file and names the next steps (browse
+            // ghStructure, read with matchString); the leads are the row's.
             let Some(scope) = query.path.as_deref().map(std::string::String::as_str) else {
                 // A path search of code leads to the same search of file
                 // contents (`findCode`): that targeted lead keeps the slots.
                 if !path_mode_given_code(query) && !broadened {
                     add_root_lead(value, query, owner.as_str(), repo.as_str());
-                    diagnostics.hint(UNINDEXED_LISTED_HINT);
-                } else {
-                    diagnostics.hint(UNINDEXED_NO_LISTING_HINT);
                 }
                 return Ok(default_branch);
             };
-            diagnostics.hint(UNINDEXED_LISTED_HINT);
             // `path` is a directory prefix: list the directory, or for a
             // file's path its parent, and read the file for the keywords.
             let listed = match file_scope(scope) {

@@ -11,7 +11,7 @@ use super::*;
 /// missing from the answer, the lexical lead names them, and the reason
 /// says which load is missing: `includeOutsidePackage` (no build context
 /// loads it) or `buildScriptsOff` (with its rerun). The prose is static: a
-/// notice, said once ([`flag_noted`]).
+/// notice, said once ([`flag_stated`]).
 pub(super) fn annotate_includes(
     row: &mut Value,
     query: &LspSearchQuery,
@@ -39,7 +39,7 @@ pub(super) fn annotate_includes(
             },
             text_check()
         );
-        flag_noted(row, query, OUTSIDE_INCLUDE_REASON, note, scope);
+        flag_stated(row, query, OUTSIDE_INCLUDE_REASON, note, scope);
     }
     // Several files declare the anchor as a module (`#[path]` from a bench
     // and a test): each crate compiles its own copy, and rust-analyzer
@@ -64,7 +64,7 @@ pub(super) fn annotate_includes(
                 .join(", "),
             text_check()
         );
-        flag_noted(row, query, SHARED_MODULE_REASON, note, scope);
+        flag_stated(row, query, SHARED_MODULE_REASON, note, scope);
     }
     if includes.generated.is_empty() || rust.build_scripts {
         return;
@@ -95,7 +95,7 @@ pub(super) fn annotate_includes(
             "rust-analyzer did not run this package's build scripts, so uses through the types they generate are missing; the rerun with rustContext.buildScripts enabled {BUILD_SCRIPTS_COST}."
         )
     };
-    flag_noted(row, query, BUILD_SCRIPTS_REASON, note, scope);
+    flag_stated(row, query, BUILD_SCRIPTS_REASON, note, scope);
     // The rerun repeats the whole walk: offered once, on its first page,
     // and only where the reason holds alone.
     if allowed
@@ -132,4 +132,61 @@ pub(in super::super) fn package_includes(
     stopped: &dyn Fn() -> bool,
 ) -> Option<octocode_engine::lsp::workspace::PackageIncludes> {
     octocode_engine::lsp::workspace::cargo_package_includes(Path::new(anchor), stopped)
+}
+
+/// Where an outside `include!` declares a name: the include target and the
+/// package that includes it.
+#[derive(Debug)]
+pub(in super::super) struct IncludedDeclaration {
+    pub(in super::super) target: std::path::PathBuf,
+    pub(in super::super) package: String,
+}
+
+/// The outside `include!` target that declares `name`, of the package of
+/// `anchor` or of a package it reaches through local path dependencies
+/// (the anchor's own first): the crate that defines a name decides why it
+/// has no location, not the anchor's crate. `None` when no such target
+/// declares it, or `stopped` ended the look.
+pub(in super::super) fn include_declaring(
+    anchor: &str,
+    name: &str,
+    stopped: &dyn Fn() -> bool,
+) -> Option<IncludedDeclaration> {
+    let start = super::super::scope::package_of(Path::new(anchor))?;
+    for package in super::super::scope::local_packages(&start) {
+        if stopped() {
+            return None;
+        }
+        let Some(includes) =
+            package_includes(&package.join("Cargo.toml").to_string_lossy(), stopped)
+        else {
+            continue;
+        };
+        for target in includes.outside {
+            if declares(&target, name) {
+                return Some(IncludedDeclaration {
+                    target,
+                    package: super::super::scope::package_name(&package)?,
+                });
+            }
+        }
+    }
+    None
+}
+
+/// Whether the Rust source at `file` declares `name` (a read or parse that
+/// fails declares nothing).
+fn declares(file: &Path, name: &str) -> bool {
+    let Ok(bytes) =
+        crate::tools::source::read_bounded(file, crate::security::SourceLimits::REAL.whole_source)
+    else {
+        return false;
+    };
+    let Ok(text) = super::super::source::admitted_text(&bytes) else {
+        return false;
+    };
+    // Most targets never spell the name: they are not parsed.
+    super::super::words::spells_word(text.as_bytes(), name.as_bytes(), true, true)
+        && crate::tools::declarations::file_document(&text, &file.to_string_lossy())
+            .is_some_and(|facts| facts.declarations.iter().any(|item| item.name == name))
 }

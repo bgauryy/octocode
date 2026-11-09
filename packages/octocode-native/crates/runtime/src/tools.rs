@@ -7,6 +7,7 @@ pub(crate) mod clasify;
 #[cfg(test)]
 mod contract_bounds_tests;
 pub(crate) mod declarations;
+pub(crate) mod editor_lock;
 pub(crate) mod empty_walk;
 pub(crate) mod gh_clone_repo;
 pub(crate) mod gh_get_file_content;

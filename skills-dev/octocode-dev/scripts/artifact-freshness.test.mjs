@@ -20,7 +20,7 @@ test('an artifact that lacks the current contract fingerprint is stale', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-fresh-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const fresh = stage(root, 'darwin-arm64', 'octocode', `x"fingerprint":"${FINGERPRINT}" ${VERSION}`);
-  const old = stage(root, 'darwin-x64', 'octocode', `x"fingerprint":"deadbeef" ${VERSION}`);
+  const old = stage(root, 'linux-arm64-gnu', 'octocode', `x"fingerprint":"deadbeef" ${VERSION}`);
   assert.deepEqual(staleArtifacts([fresh, old], FINGERPRINT, VERSION), [old]);
 });
 

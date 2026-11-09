@@ -91,7 +91,8 @@ macro_rules! split_literal {
 
 /// The string literals a credential assignment may end in, the secret in a
 /// `secret…` group: double-quoted, single-quoted or backtick, each with an
-/// optional prefix (`r#"…"#`, `b"…"`) and, for the pieces of one literal
+/// optional prefix (`r#"…"#`, `b"…"`, `r'…'`, `@"…"`), read with escapes and,
+/// where that read finds no close, as raw text, and, for the pieces of one literal
 /// joined with `+` or only written side by side (`"Fake0" + 'Moo9Zed'`,
 /// `"Fake0" "Moo9Zed"`), the pieces, of any quote types, as one secret. A
 /// single literal is eight characters or more; a joined one is judged on its
@@ -157,9 +158,16 @@ macro_rules! literals {
             split_literal!("`", body!(bt), "`", "secret_split_bs", "'", body!(sq), "'"),
             "|",
             split_literal!("`", body!(bt), "`", "secret_split_bb", "`", body!(bt), "`"),
-            r###"|[A-Za-z]{0,2}#*"(?P<secret>(?:\\[^\r\n]|[^"\\\r\n]){8,})""###,
-            r###"|'(?P<secret_single>(?:\\[^\r\n]|[^'\\\r\n]){8,})'"###,
-            r###"|`(?P<secret_backtick>(?:\\[^\r\n]|[^`\\\r\n]){8,})`)"###
+            r###"|[A-Za-z@$]{0,2}#*"(?P<secret>(?:\\[^\r\n]|[^"\\\r\n]){8,})""###,
+            r###"|[A-Za-z]{0,2}'(?P<secret_single>(?:\\[^\r\n]|[^'\\\r\n]){8,})'"###,
+            r###"|`(?P<secret_backtick>(?:\\[^\r\n]|[^`\\\r\n]){8,})`"###,
+            // The same literals read with no escape, after the reads above
+            // found none that closes: a raw string (`r"…\"`, `@"…\"`), a Go
+            // raw string or a shell single-quoted value holds a backslash as
+            // text, so a body that ends in one closes at the quote after it.
+            r###"|[A-Za-z@$]{0,2}#*"(?P<secret_raw>[^"\r\n]{8,})""###,
+            r###"|[A-Za-z]{0,2}'(?P<secret_single_raw>[^'\r\n]{8,})'"###,
+            r###"|`(?P<secret_backtick_raw>[^`\r\n]{8,})`)"###
         )
     };
 }
@@ -476,7 +484,8 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         file_context: None,
         // A YAML scalar of any length under a credential-named key: quoted, or
         // plain, which runs to the end of the line less a trailing comment
-        // (`password: correct horse 9`). The key may sit under a slash-separated path
+        // (`password: correct horse 9`) and holds a colon that no blank
+        // follows (`password: Zq7x:mPlanted`). The key may sit under a slash-separated path
         // (`secret/data/app/api_token:`). A bare `key:` is too common in YAML
         // (label selectors, tolerations) to count, and the key's credential
         // word ends its name (`secretName:` is no credential). Which values
@@ -484,7 +493,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         regex: concat!(
             r###"(?m)^[ \t]*"###,
             comment_lead!(),
-            r###"(?:-[ \t]+)?(?:[A-Za-z0-9_.-]+/)*(?:(?:[A-Za-z0-9]+[_.-])*(?i:secret|password|passwd|passphrase|token|api[_-]?key|access[_-]?key|private[_-]?key|auth[_-]?key|credential)s?(?:[_.-][A-Za-z0-9]+)*|[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Token|ApiKey|AccessKey|PrivateKey|AuthKey|Credential)s?(?:[A-Z][a-z0-9]*)*)[ \t]*:[ \t]+(?:"(?P<secret>[^"\\\s$\{](?:\\[^\r\n]|[^"\\\r\n])*)"|'(?P<secret_single>[^'\s$\{][^'\r\n]*)'|(?P<secret_bare>[^\s"'#$&*!|>{}\[\]:%@`][^\r\n:#]*?))[ \t]*(?:#.*)?\r?$"###
+            r###"(?:-[ \t]+)?(?:[A-Za-z0-9_.-]+/)*(?:(?:[A-Za-z0-9]+[_.-])*(?i:secret|password|passwd|passphrase|token|api[_-]?key|access[_-]?key|private[_-]?key|auth[_-]?key|credential)s?(?:[_.-][A-Za-z0-9]+)*|[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Token|ApiKey|AccessKey|PrivateKey|AuthKey|Credential)s?(?:[A-Z][a-z0-9]*)*)[ \t]*:[ \t]+(?:"(?P<secret>[^"\\\s$\{](?:\\[^\r\n]|[^"\\\r\n])*)"|'(?P<secret_single>[^'\s$\{][^'\r\n]*)'|(?P<secret_bare>[^\s"'#$&*!|>{}\[\]:%@`](?:[^\r\n:#]|:[^\s#])*?))[ \t]*(?:#.*)?\r?$"###
         ),
     },
 ];

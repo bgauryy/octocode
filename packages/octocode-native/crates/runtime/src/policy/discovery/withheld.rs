@@ -86,6 +86,42 @@ impl Withheld {
             .map(|((kind, holder), count)| (*kind, holder.as_str(), *count))
     }
 
+    /// What this walk withheld beyond `stated`, an earlier count of the same
+    /// root (a re-run that lifted walk rules, beyond the page's own walk):
+    /// each count less the stated one, so no entry is disclosed twice.
+    #[must_use]
+    pub fn beyond(&self, stated: &Self) -> Self {
+        let less = |mine: usize, theirs: usize| mine.saturating_sub(theirs);
+        Self {
+            dirs: self
+                .dirs
+                .iter()
+                .map(|(name, count)| {
+                    (
+                        *name,
+                        less(*count, stated.dirs.get(name).copied().unwrap_or(0)),
+                    )
+                })
+                .filter(|(_, count)| *count > 0)
+                .collect(),
+            files: less(self.files, stated.files),
+            git_files: less(self.git_files, stated.git_files),
+            symlinks: less(self.symlinks, stated.symlinks),
+            other: less(self.other, stated.other),
+            holders: self
+                .holders
+                .iter()
+                .map(|(key, count)| {
+                    (
+                        key.clone(),
+                        less(*count, stated.holders.get(key).copied().unwrap_or(0)),
+                    )
+                })
+                .filter(|(_, count)| *count > 0)
+                .collect(),
+        }
+    }
+
     pub fn total(&self) -> usize {
         self.dirs.values().sum::<usize>() + self.files + self.git_files + self.symlinks + self.other
     }

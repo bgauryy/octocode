@@ -25,11 +25,8 @@ fn plan_1_call_answers_report_coverage() {
     let coverage = &out.value["coverage"];
     let recall = coverage["linkage"]["ratio"].as_f64().expect("recall");
     assert!(recall < 1.0, "{}", out.value);
-    assert!(
-        coverage["warning"].as_str().is_some_and(|w| !w.is_empty()),
-        "{}",
-        out.value
-    );
+    assert_eq!(coverage["callExtraction"], "supported", "{}", out.value);
+    assert!(coverage.get("warning").is_none(), "{}", out.value);
     let impact = ask(
         dir.0.as_path(),
         "impact",
@@ -304,10 +301,10 @@ fn plan_4_typed_this_field_calls_are_member_calls_not_local_matches() {
 }
 
 /// A function taken as a value has no call site, so a ratio of 1.0 over the
-/// sites there are still says nothing of it: every answer that shows the
-/// ratio says so.
+/// sites there are says nothing of it. graphQuery's description states
+/// that once; graphBuild, stats and coverage do not repeat it.
 #[test]
-fn a_full_ratio_does_not_read_as_every_use_linked() {
+fn a_full_ratio_caveat_lives_in_the_description_not_in_every_answer() {
     let dir = fixture();
     write_under(
         &dir,
@@ -317,22 +314,20 @@ fn a_full_ratio_does_not_read_as_every_use_linked() {
             "export function target() { return 1; }\nexport function direct() { return target(); }\nexport const held = target;\n",
         )],
     );
+    let presentation = crate::contracts::cli_presentation().expect("presentation");
+    let description = presentation["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|tool| tool["name"] == "graphQuery")
+        .map(|tool| tool["mcp"]["description"].to_string())
+        .unwrap_or_default();
+    assert!(
+        description.contains("a function used as a value has no edge"),
+        "{description}"
+    );
     let built = ingest_fixture(dir.0.as_path(), None);
     assert_eq!(built.class, ExitClass::Success);
-    let says_values = |warning: &serde_json::Value| {
-        warning
-            .as_str()
-            .is_some_and(|w| w.contains("taken as a value"))
-    };
-    assert!(
-        built.value["warnings"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(says_values),
-        "{}",
-        built.value
-    );
     let callers = ask(
         dir.0.as_path(),
         "callers",
@@ -344,19 +339,23 @@ fn a_full_ratio_does_not_read_as_every_use_linked() {
         "{}",
         callers.value
     );
-    assert!(
-        says_values(&callers.value["coverage"]["warning"]),
-        "{}",
-        callers.value
-    );
     let stats = ask(dir.0.as_path(), "stats", None, |_| {});
-    assert!(
-        stats.value["warnings"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(says_values),
-        "{}",
-        stats.value
-    );
+    for answer in [&built.value, &callers.value, &stats.value] {
+        assert!(!answer.to_string().contains("taken as a value"), "{answer}");
+    }
+}
+
+/// `linkage.linked` is the linked call-site count; `calls` states the sites
+/// and their resolutions without repeating it.
+#[test]
+fn the_linked_call_count_is_stated_once() {
+    let dir = fixture();
+    let built = ingest_fixture(dir.0.as_path(), None);
+    assert_eq!(built.class, ExitClass::Success);
+    let stats = ask(dir.0.as_path(), "stats", None, |_| {});
+    for answer in [&built.value, &stats.value] {
+        assert!(answer["linkage"]["linked"].is_u64(), "{answer}");
+        assert!(answer["calls"]["sites"].is_u64(), "{answer}");
+        assert!(answer["calls"].get("linked").is_none(), "{answer}");
+    }
 }

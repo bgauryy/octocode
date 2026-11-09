@@ -1,13 +1,14 @@
 //! The role of each reference site (`role`): the symbol's declaration, a
 //! call of it, an import or re-export binding, or another use. A site that
 //! starts a declaration of the file's declarations parse is a declaration
-//! ([`lands`]). JS/TS sites read one oxc parse of their file
+//! ([`lands`]), and one on a name its imports bind is an import
+//! ([`imports_at`], each line of a multi-line import group). JS/TS sites read one oxc parse of their file
 //! ([`classify_sites`]); every other site, and a name the parse holds no
 //! node for, reads the text rule of its own line.
 use super::call_sites::classify_sites;
 use super::call_sites::text_rule::is_call_site;
 use super::failure::LspFailure;
-use super::recovery::{Landing, lands};
+use super::recovery::{Landing, imports_at, lands};
 use super::render::uri_to_path;
 use super::source::SourceCache;
 use crate::execution::cancel::CancellationCheck;
@@ -47,7 +48,7 @@ pub(super) async fn assign_roles(
             .iter()
             .map(|index| point(&rows[*index], "start"))
             .collect::<Vec<_>>();
-        let declared = declared_sites(cancel, &path, &source, &starts).await?;
+        let parsed_roles = parsed_roles(cancel, &path, &source, &starts).await?;
         let parsed = classify_sites(cancel, &source, &path, starts).await?;
         let lines = LineIndex::new(&source.content);
         for (position, index) in indices.into_iter().enumerate() {
@@ -68,15 +69,15 @@ pub(super) async fn assign_roles(
                     "reference"
                 }
             };
-            let role = match site {
-                _ if declared.get(position) == Some(&true) => "declaration",
-                Some(site) if site.is_import == Some(true) => "import",
-                Some(site) => match site.is_call {
+            let role = match (parsed_roles.get(position).copied().flatten(), site) {
+                (Some(role), _) => role,
+                (None, Some(site)) if site.is_import == Some(true) => "import",
+                (None, Some(site)) => match site.is_call {
                     Some(true) => "call",
                     Some(false) if site.is_import == Some(false) => "reference",
                     _ => text(),
                 },
-                None => text(),
+                (None, None) => text(),
             };
             row["role"] = json!(role);
         }
@@ -84,33 +85,39 @@ pub(super) async fn assign_roles(
     Ok(())
 }
 
-/// Whether each of `starts` begins a declaration (its name or its start) of
-/// the file's digest-cached declarations parse, read off the async workers;
-/// all `false` for a file without one.
-async fn declared_sites(
+/// The role the file's digest-cached declarations parse gives each of
+/// `starts`, read off the async workers: `declaration` where it begins a
+/// declaration (its name or its start), `import` on a name an import
+/// binds, else `None`; all `None` for a file without one.
+async fn parsed_roles(
     cancel: &dyn CancellationCheck,
     path: &str,
     source: &std::sync::Arc<super::source::Source>,
     starts: &[GraphPosition],
-) -> Result<Vec<bool>, LspFailure> {
+) -> Result<Vec<Option<&'static str>>, LspFailure> {
     let (path, source) = (path.to_owned(), std::sync::Arc::clone(source));
     let starts = starts
         .iter()
         .map(|start| (start.line, start.character))
         .collect::<Vec<_>>();
-    let declared = super::blocking_cancellable(cancel, move |_| {
+    let roles = super::blocking_cancellable(cancel, move |_| {
         let document = crate::tools::declarations::file_document(&source.content, &path);
         starts
             .iter()
             .map(|&(line, character)| {
-                document.as_ref().is_some_and(|document| {
-                    lands(document, line, character) == Landing::Declaration
-                })
+                let document = document.as_ref()?;
+                if lands(document, line, character) == Landing::Declaration {
+                    Some("declaration")
+                } else if imports_at(document, line, character) {
+                    Some("import")
+                } else {
+                    None
+                }
             })
             .collect::<Vec<_>>()
     })
     .await?;
-    Ok(declared.unwrap_or_default())
+    Ok(roles.unwrap_or_default())
 }
 
 /// The text of 0-based `line` of `content`, without its line break.
@@ -128,7 +135,7 @@ fn line_text<'a>(content: &'a str, lines: &LineIndex, line: u32) -> &'a str {
 /// The text rule of an import: the site's line opens a statement that
 /// brings names from another module (`use`, `import`, `from … import`,
 /// `export … from`, `#include`). A line inside a multi-line import group
-/// opens no statement, so it reads as a reference.
+/// opens no statement: the declarations parse places it ([`imports_at`]).
 fn imports_on(line: &str) -> bool {
     let line = line.trim_start();
     let line = ["pub(crate) ", "pub(super) ", "pub(self) ", "pub "]

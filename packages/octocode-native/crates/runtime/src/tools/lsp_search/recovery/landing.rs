@@ -46,25 +46,15 @@ pub(in super::super) fn lands(
     line: u32,
     character: u32,
 ) -> Landing {
-    let within = |range: &octocode_engine::graph::GraphRange| {
-        spans(
-            (range.start.line, range.start.character),
-            (range.end.line, range.end.character),
-            (line, character),
-        )
-    };
     let starts = |range: &octocode_engine::graph::GraphRange| {
         (range.start.line, range.start.character) == (line, character)
     };
-    let imported = document.imports.iter().any(|import| {
-        import.local_range.as_ref().is_some_and(within)
-            || import.imported_range.as_ref().is_some_and(within)
-    });
+    // An `impl` block names the type it implements: no declaration of it.
     let declared = || {
-        document
-            .declarations
-            .iter()
-            .any(|declaration| starts(&declaration.selection_range) || starts(&declaration.range))
+        document.declarations.iter().any(|declaration| {
+            declaration.kind != "impl"
+                && (starts(&declaration.selection_range) || starts(&declaration.range))
+        })
     };
     // A declaration export (`export function f`) names no other binding;
     // a specifier carries its local name or source module.
@@ -74,7 +64,7 @@ pub(in super::super) fn lands(
                 && export.line == line.saturating_add(1)
         })
     };
-    if imported {
+    if imports_at(document, line, character) {
         Landing::Alias
     } else if declared() {
         Landing::Declaration
@@ -83,6 +73,27 @@ pub(in super::super) fn lands(
     } else {
         Landing::Unknown
     }
+}
+
+/// Whether zero-based `(line, character)` lies on a name an import of
+/// `document` binds or brings (`import { f }`, each name of a multi-line
+/// `use a::{…}` group).
+pub(in super::super) fn imports_at(
+    document: &octocode_engine::graph::GraphFactsDocument,
+    line: u32,
+    character: u32,
+) -> bool {
+    let within = |range: &octocode_engine::graph::GraphRange| {
+        spans(
+            (range.start.line, range.start.character),
+            (range.end.line, range.end.character),
+            (line, character),
+        )
+    };
+    document.imports.iter().any(|import| {
+        import.local_range.as_ref().is_some_and(within)
+            || import.imported_range.as_ref().is_some_and(within)
+    })
 }
 
 #[cfg(test)]

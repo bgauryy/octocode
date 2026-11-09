@@ -3,7 +3,8 @@
 use super::super::masks::{Judged, cover_every_value, judge, with_placeholders};
 use super::super::stream::stream_pass;
 use super::*;
-use octocode_engine::security::Named;
+use crate::tools::source_view::PartialReason;
+use octocode_engine::security::{Named, Objects};
 
 const VALUE: &str = "RmFrZTBWYWx1ZTlOb3Q0UmVhbDhCbG9iN0xvbmc2RW5vdWdo";
 const JSON: &str = "[REDACTED-KUBERNETESSECRETJSON]";
@@ -11,6 +12,11 @@ const YAML: &str = "[REDACTED-KUBERNETESSECRETS]";
 
 fn every_value(text: &str, cut: bool, objects: bool, yaml: bool) -> String {
     let mut window = text.as_bytes().to_vec();
+    let objects = if objects {
+        Objects::ALL
+    } else {
+        Objects::default()
+    };
     cover_every_value(&mut window, cut, Named { objects, yaml });
     assert_eq!(window.len(), text.len(), "a mask keeps the view's length");
     with_placeholders(std::str::from_utf8(&window).expect("utf8")).into_owned()
@@ -84,7 +90,7 @@ fn a_walk_over_its_budget_falls_back_to_every_value() {
     let text = secret_source();
     let file = temp(text.as_bytes());
     let named = Named {
-        objects: true,
+        objects: Objects::ALL,
         yaml: false,
     };
     let digest = hex::encode(Sha256::digest(text.as_bytes()));
@@ -110,7 +116,7 @@ fn a_walk_over_its_budget_falls_back_to_every_value() {
 fn a_walk_of_other_bytes_fails_the_read() {
     let file = temp(secret_source().as_bytes());
     let named = Named {
-        objects: true,
+        objects: Objects::ALL,
         yaml: false,
     };
     let walked = judge(
@@ -301,6 +307,29 @@ fn walk_ranges_every_value(
     pages
 }
 
+/// A page of the every-value fallback names the memory budget as a terminal
+/// limit once core declares its reason (B47); before that, only its note does.
+fn assert_every_value_disclosed(page: &LocalFetchResult) {
+    let hidden = page
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("every value on this page is hidden"));
+    match PartialReason::walk_memory_budget() {
+        Some(reason) if hidden => {
+            assert!(page.partial_reasons.contains(&reason), "{page:?}");
+            assert_eq!(page.terminal_limit, Some(true), "{page:?}");
+            assert!(
+                !page
+                    .partial_reasons
+                    .contains(&PartialReason::SecuritySelectedView),
+                "the scan bound is not the cause: {:?}",
+                page.partial_reasons
+            );
+        }
+        _ => {}
+    }
+}
+
 /// The disclosure a withheld line's page owes: terminal, with its reason and the
 /// warning naming the unread scope, and no note promising pages of it.
 fn assert_withheld(pages: &[LocalFetchResult], line: usize) {
@@ -318,13 +347,15 @@ fn assert_withheld(pages: &[LocalFetchResult], line: usize) {
         })
         .expect("a page says the line's rest is not read");
     assert_eq!(page.terminal_limit, Some(true), "{:?}", page.warnings);
+    // The memory budget once core declares its reason (B47), else the old one.
+    let reason = PartialReason::walk_memory_budget().unwrap_or(PartialReason::SecuritySelectedView);
     assert!(
-        page.partial_reasons
-            .contains(&crate::tools::source_view::PartialReason::SecuritySelectedView),
+        page.partial_reasons.contains(&reason),
         "{:?}",
         page.partial_reasons
     );
     for page in pages {
+        assert_every_value_disclosed(page);
         assert!(
             !page.warnings.iter().any(|warning| warning
                 .contains("later pages read that range alone")
@@ -463,12 +494,20 @@ fn an_every_value_long_line_is_never_paged_from_another_view() {
         assert_eq!(page.status, ReadStatus::Success, "{page:?}");
         let content = page.content.clone().expect("a page");
         assert!(!content.contains("\"v0"), "no value shows");
-        if page.terminal_limit == Some(true) {
+        // Every page of the fallback is terminal once core declares its
+        // reason (B47); the withheld page is the one that names line 1.
+        if page
+            .warnings
+            .iter()
+            .any(|warning| warning.starts_with("Line 1 is not read"))
+        {
+            assert_eq!(page.terminal_limit, Some(true), "{:?}", page.warnings);
             terminal = Some(page.warnings.clone());
             // The line's tail is not read: its byte pages end here (F-C).
             let bytes = page.pagination.as_ref().expect("a byte page");
             assert!(!bytes.has_more && bytes.next_offset.is_none(), "{bytes:?}");
         }
+        assert_every_value_disclosed(&page);
         pages.push(content);
         assert!(pages.len() < 64, "the walk ends");
         let Some(call) = page.next.and_then(|next| next.continue_window) else {

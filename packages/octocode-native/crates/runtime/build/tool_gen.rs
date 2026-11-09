@@ -43,6 +43,7 @@ struct ToolArms {
     github: Vec<String>,
     lsp_servers: Vec<String>,
     row_page_window: Vec<String>,
+    mutates_workspace: Vec<String>,
     output_defaults: Vec<bool>,
 }
 
@@ -77,6 +78,13 @@ impl ToolArms {
             &format!("{path}.rowPageWindow"),
         )? {
             self.row_page_window.push(format!("Self::{variant}"));
+        }
+        if bool_value(
+            tool.get("mutatesWorkspace"),
+            false,
+            &format!("{path}.mutatesWorkspace"),
+        )? {
+            self.mutates_workspace.push(format!("Self::{variant}"));
         }
         let facts = match tool.get("hostFacts") {
             None => &[][..],
@@ -162,6 +170,11 @@ impl ToolArms {
              \x20   /// automatic window every call of a walk shares.\n\
              \x20   #[must_use]\n\
              \x20   pub const fn pages_by_row_window(self) -> bool {{\n        {row_page_window}\n    }}\n\n\
+             \x20   /// Tools that write or remove workspace artifacts, such as a clone\n\
+             \x20   /// checkout or a graph snapshot (contract `mutatesWorkspace`, which\n\
+             \x20   /// also clears the MCP `readOnlyHint`).\n\
+             \x20   #[must_use]\n\
+             \x20   pub const fn mutates_workspace(self) -> bool {{\n        {mutates_workspace}\n    }}\n\n\
              \x20   /// The GitHub-family identity, so GitHub routing matches only its own tools.\n\
              \x20   #[must_use]\n\
              \x20   pub const fn github(self) -> Option<GitHubTool> {{\n        match self {{\n{github_arms}            _ => None,\n        }}\n    }}\n\
@@ -192,6 +205,7 @@ impl ToolArms {
             beta = set(&self.beta),
             lsp_servers = set(&self.lsp_servers),
             row_page_window = set(&self.row_page_window),
+            mutates_workspace = set(&self.mutates_workspace),
             github_arms = github
                 .iter()
                 .map(|v| format!("            Self::{v} => Some(GitHubTool::{v}),\n"))

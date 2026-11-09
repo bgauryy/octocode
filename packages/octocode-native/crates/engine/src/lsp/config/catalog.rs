@@ -91,7 +91,15 @@ fn server_for_file(
         options,
         anchor,
         native_typescript,
-        || resolve_route(&extension, workspace_root, options, anchor, native_typescript),
+        || {
+            resolve_route(
+                &extension,
+                workspace_root,
+                options,
+                anchor,
+                native_typescript,
+            )
+        },
     )?;
     Some(route.finished(options))
 }

@@ -51,7 +51,7 @@ fn second_page(
     first: &serde_json::Value,
     change: serde_json::Value,
 ) -> serde_json::Value {
-    let mut row = json!({"operation":"symbols","path":root.to_string_lossy(),"limit":3,"page":2,"snapshot":first["snapshot"]});
+    let mut row = json!({"operation":"symbols","path":root.to_string_lossy(),"limit":3,"page":2,"snapshot":crate::tools::test_support::pinned_snapshot(first)});
     row.as_object_mut()
         .expect("object")
         .extend(change.as_object().expect("object").clone());
@@ -94,7 +94,7 @@ fn a_changed_directory_restarts_the_continuation() {
         let root = Fixture::new();
         settled_files(&root.0);
         let first = empty_outline(&root.0, json!({"limit":3}));
-        assert!(first["snapshot"].is_string(), "{first}");
+        assert!(crate::tools::test_support::pinned_snapshot(&first).is_string(), "{first}");
         match change {
             "edit" => {
                 std::fs::write(
@@ -186,7 +186,7 @@ fn an_edited_file_restarts_its_continuation() {
         let page = |first: &serde_json::Value, page: u64| {
             run_lead(
                 &root.0,
-                json!({"operation":"symbols","path":file,"limit":3,"page":page,"snapshot":first["snapshot"]}),
+                json!({"operation":"symbols","path":file,"limit":3,"page":page,"snapshot":crate::tools::test_support::pinned_snapshot(first)}),
             )
         };
         let first = run_lead(
@@ -249,10 +249,10 @@ fn a_test_scoped_file_outline_follows_its_parent_module() {
     octocode_engine::stamp::settle_written_so_far();
     let row = json!({"operation":"symbols","path":file,"testCode":"exclude","limit":3});
     let first = run_lead(&root.0, row.clone());
-    assert!(first["snapshot"].is_string(), "{first}");
+    assert!(crate::tools::test_support::pinned_snapshot(&first).is_string(), "{first}");
     let mut next = row;
     next["page"] = json!(2);
-    next["snapshot"] = first["snapshot"].clone();
+    next["snapshot"] = crate::tools::test_support::pinned_snapshot(&first).clone();
     let second = run_lead(&root.0, next.clone());
     assert!(second.get("errorCode").is_none(), "{second}");
     std::fs::write(&parent, "#[cfg(test)]\npub mod big;\n").expect("gate");
@@ -290,10 +290,10 @@ fn a_test_scoped_directory_outline_follows_a_parent_outside_its_scope() {
         let parent = module_beside_its_parent(&root.0, before);
         let row = json!({"operation":"symbols","path":root.0.join("src/sub"),"testCode":test_code,"limit":3});
         let first = run_lead(&root.0, row.clone());
-        assert!(first["snapshot"].is_string(), "{test_code}: {first}");
+        assert!(crate::tools::test_support::pinned_snapshot(&first).is_string(), "{test_code}: {first}");
         let mut next = row;
         next["page"] = json!(2);
-        next["snapshot"] = first["snapshot"].clone();
+        next["snapshot"] = crate::tools::test_support::pinned_snapshot(&first).clone();
         let second = run_lead(&root.0, next.clone());
         assert!(second.get("errorCode").is_none(), "{test_code}: {second}");
         std::fs::write(&parent, after).expect("edit");
@@ -316,7 +316,7 @@ fn an_outline_with_no_test_code_filter_keeps_its_stored_set() {
         let first = run_lead(&root.0, row.clone());
         let mut next = row;
         next["page"] = json!(2);
-        next["snapshot"] = first["snapshot"].clone();
+        next["snapshot"] = crate::tools::test_support::pinned_snapshot(&first).clone();
         let parsed = parses(&root.0);
         std::fs::write(&parent, GATED).expect("gate");
         let second = run_lead(&root.0, next);

@@ -143,11 +143,6 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         regex: r###""client_secret":\s*"(?P<secret>[a-zA-Z0-9-_]{24})""###,
     },
     SecretPattern {
-        name: "gcpServiceAccountEmail",
-        file_context: None,
-        regex: r###"\b[a-z0-9-]+@[a-z0-9-]+\.iam\.gserviceaccount\.com\b"###,
-    },
-    SecretPattern {
         name: "azureStorageConnectionString",
         file_context: None,
         regex: r###"\bDefaultEndpointsProtocol=https?;AccountName=[a-z0-9]+;AccountKey=[a-zA-Z0-9+/]+={0,2};EndpointSuffix=core\.windows\.net\b"###,

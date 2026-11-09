@@ -23,7 +23,7 @@ mod landing;
 pub(super) use aliases::may_rename;
 pub(super) use aliases::{AliasSearch, recover_aliases};
 use landing::landing;
-pub(super) use landing::{Landing, lands};
+pub(super) use landing::{Landing, imports_at, lands};
 
 const DEFINITION_ALIAS_SETTLE_MS: u64 = 50;
 

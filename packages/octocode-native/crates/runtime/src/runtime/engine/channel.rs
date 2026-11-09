@@ -248,6 +248,9 @@ impl ChannelRun {
             }
             self.register_page(outcome, next, &mut pending)?;
             self.retain_pending(pending, context)?;
+            // Only the first response to a fresh request drops the fields
+            // that repeat its queries; a page read through a cursor keeps
+            // them, because its request names none of them.
             if self.fresh {
                 outcome.structured_content.edit(|output| {
                     crate::response::pages::drop_echoes(

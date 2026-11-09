@@ -29,6 +29,22 @@ mod walk_scope;
 /// member reaches itself through its `node_modules` link.
 const ANALYSIS_VERSION: u32 = 26;
 
+/// graphBuild's and graphQuery's recovery for the shared response stages.
+pub(crate) struct Output;
+impl crate::response::output::ToolOutput for Output {
+    /// A missing node names its recovery (graphQuery operation find) and
+    /// leads to the nearest nodes; a missing snapshot names the graphBuild
+    /// that makes one and carries its own hints.
+    fn error_hint(
+        &self,
+        code: octocode_contract_types::ErrorCode,
+        _query: &serde_json::Value,
+    ) -> Option<&'static str> {
+        (code == octocode_contract_types::ErrorCode::NotFound)
+            .then_some(crate::response::output::NO_HINT)
+    }
+}
+
 #[cfg(test)]
 mod link_tests;
 #[cfg(test)]

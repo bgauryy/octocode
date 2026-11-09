@@ -58,7 +58,7 @@ async fn the_anchor_keeps_every_direct_result_and_capped_parents_resume() {
     // One page: the parents and their continuations go on the last page.
     let mut row = items_payload(&q, "callers", serde_json::json!(items), 1_000_000);
     assert!(row["next"].get("nextPage").is_none(), "{}", row["next"]);
-    mark_truncation(&mut row, &q, &[(Expansion::IncomingCalls, &deep)]);
+    mark_truncation(&mut row, &q, &[(Expansion::IncomingCalls, &deep)], &paths);
     assert_eq!(row["clipped"], true);
     assert_eq!(row["isPartial"], true);
     assert!(row.get("terminalLimit").is_none(), "{row}");
@@ -157,7 +157,7 @@ async fn hierarchy_node_cap_truncates_with_an_executable_continuation() {
         .map(|edge| public_edge(Expansion::IncomingCalls, edge, None))
         .collect::<Vec<_>>();
     let mut row = items_payload(&q, "callers", serde_json::json!(items), TEST_BUDGET);
-    mark_truncation(&mut row, &q, &[(Expansion::IncomingCalls, &walk)]);
+    mark_truncation(&mut row, &q, &[(Expansion::IncomingCalls, &walk)], &paths);
     // Every page is clipped and warns; only the last lists the parents and
     // their continuations, so pages never repeat them.
     let pages = row["pagination"]["totalPages"].as_u64().expect("pages");
@@ -174,7 +174,12 @@ async fn hierarchy_node_cap_truncates_with_an_executable_continuation() {
     );
     let last = requery(&q, serde_json::json!({ "page": pages }));
     let mut row = items_payload(&last, "callers", serde_json::json!(items), TEST_BUDGET);
-    mark_truncation(&mut row, &last, &[(Expansion::IncomingCalls, &walk)]);
+    mark_truncation(
+        &mut row,
+        &last,
+        &[(Expansion::IncomingCalls, &walk)],
+        &paths,
+    );
     assert!(row["next"].get("nextPage").is_none(), "{}", row["next"]);
     assert_eq!(row["clipped"], true);
     assert_eq!(
@@ -291,7 +296,7 @@ async fn a_walk_at_its_depth_offers_the_next_level() {
             .map(|edge| public_edge(Expansion::IncomingCalls, edge, None))
             .collect::<Vec<_>>();
         let mut row = items_payload(&q, "callers", serde_json::json!(items), TEST_BUDGET);
-        mark_truncation(&mut row, &q, &[(Expansion::IncomingCalls, walk)]);
+        mark_truncation(&mut row, &q, &[(Expansion::IncomingCalls, walk)], &paths);
         row
     };
     let walk = |depth: u32| {
@@ -343,5 +348,74 @@ async fn a_walk_at_its_depth_offers_the_next_level() {
             .any(|call| call["tool"] == "lspSearch"
                 && call["input"]["queries"][0]["depth"] == far + 1),
         "{row}"
+    );
+}
+
+/// A frontier the row's `testCode` left out is no frontier of this answer:
+/// a walk whose last-level callers were all excluded leads to the call that
+/// lists them (`testCode:"include"`), never to a deeper walk that answers the
+/// same empty row. A frontier the scope keeps still leads one level deeper.
+#[tokio::test(flavor = "current_thread")]
+async fn an_excluded_frontier_leads_to_its_callers_not_deeper() {
+    let (_dir, root, paths) = temp_workspace();
+    let file = root.join("graph.test.ts");
+    std::fs::write(&file, "// graph\n").expect("graph.test.ts");
+    let uri = octocode_engine::lsp::uri::path_to_uri(&file.to_string_lossy()).expect("uri");
+    let mut chain = graph(&[("root", &["child"])]);
+    chain.uri = Some(uri.clone());
+    let walk = walk_from(
+        &chain,
+        node_at("root", Some(&uri)),
+        1,
+        &paths,
+        &crate::execution::cancel::NeverCancel,
+    )
+    .await
+    .expect("walk");
+    let row_for = |test_code: &str| {
+        let q = query(serde_json::json!({
+            "operation": "callers", "path": file.to_string_lossy(),
+            "symbolName": "root", "line": 1, "testCode": test_code
+        }));
+        let mut items = walk
+            .edges
+            .iter()
+            .map(|edge| public_edge(Expansion::IncomingCalls, edge, None))
+            .collect::<Vec<_>>();
+        let left = super::super::test_scope::retain_callers(&q, &paths, &mut items);
+        let mut row = items_payload(&q, "callers", serde_json::json!(items), TEST_BUDGET);
+        super::super::test_scope::disclose(&mut row, left);
+        mark_truncation(&mut row, &q, &[(Expansion::IncomingCalls, &walk)], &paths);
+        row
+    };
+    let leads = |row: &serde_json::Value| {
+        row["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|call| call["tool"] == "lspSearch")
+            .map(|call| call["input"]["queries"][0].clone())
+            .collect::<Vec<_>>()
+    };
+
+    let excluded = row_for("exclude");
+    assert!(excluded.get("testCodeExcluded").is_some(), "{excluded}");
+    let excluded_leads = leads(&excluded);
+    assert!(
+        excluded_leads
+            .iter()
+            .all(|lead| lead.get("depth").is_none()),
+        "a deeper walk answers the same empty row: {excluded}"
+    );
+    assert_eq!(excluded_leads.len(), 1, "{excluded}");
+    assert_eq!(excluded_leads[0]["testCode"], "include", "{excluded}");
+    assert_eq!(excluded_leads[0]["symbolName"], "root", "{excluded}");
+
+    let kept = row_for("only");
+    assert!(
+        leads(&kept)
+            .iter()
+            .any(|lead| lead["depth"] == 2 && lead["testCode"] == "only"),
+        "{kept}"
     );
 }

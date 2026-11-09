@@ -39,6 +39,10 @@ const SHARED_LAYERS: &[&[(&str, &str)]] = &[
             "single-file declaration facts, kept by text digest in the one process store",
         ),
         (
+            "editor_lock",
+            "the editor extension's lock files: trust, liveness, and whether an editor answers for a file",
+        ),
+        (
             "empty_walk",
             "why an empty local walk is empty: the skip causes that held matches, the rules that named them, the flags that lift them",
         ),
@@ -71,10 +75,6 @@ const SHARED_LAYERS: &[&[(&str, &str)]] = &[
             "selection",
             "bounded relevance ordering for local search files and fetch windows, judged through the judgment evaluator",
         ),
-        (
-            "source_capture",
-            "one complete source selection captured through the authorized readers as a classification state",
-        ),
         // Plans over declarations's outlines.
         (
             "source_sections",
@@ -86,10 +86,17 @@ const SHARED_LAYERS: &[&[(&str, &str)]] = &[
             "the one test-code rule (paths, Rust mounts, cfg(test) lines) every local search scopes by",
         ),
     ],
-    &[(
-        "source_view",
-        "the one view engine over fetched source text: localFetch and ghGetFileContent render through it, and local_search sizes its read leads by its limits",
-    )],
+    &[
+        // Discloses a glob's skips through leads's skipped-path record.
+        (
+            "source_capture",
+            "one complete source selection captured through the authorized readers as a classification state",
+        ),
+        (
+            "source_view",
+            "the one view engine over fetched source text: localFetch and ghGetFileContent render through it, and local_search sizes its read leads by its limits",
+        ),
+    ],
 ];
 
 /// Where `module` sits in [`SHARED_LAYERS`], or `None` for a tool.

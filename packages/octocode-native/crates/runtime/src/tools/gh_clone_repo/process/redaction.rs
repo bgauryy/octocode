@@ -10,7 +10,7 @@ pub(super) fn basic_credential(token: &str) -> String {
 }
 
 /// `text` without the token, its HTTP Basic form, any authorization header
-/// or a checkout stage under `home`.
+/// a checkout stage or the shared object store under `home`.
 pub(super) fn scrub(text: &str, token: Option<&str>, home: &Path) -> String {
     let mut result = text.to_owned();
     if let Some(token) = token {
@@ -20,14 +20,22 @@ pub(super) fn scrub(text: &str, token: Option<&str>, home: &Path) -> String {
             .replace(&basic_credential(token), "[REDACTED]")
             .replace(token, "[REDACTED]");
     }
-    // A checkout stage is an internal path under the Octocode home; the
-    // error names what failed, not where it was staged.
-    let stages = [Some(home.to_path_buf()), home.canonicalize().ok()];
-    for home in stages.into_iter().flatten() {
-        let stage = home.join("tmp").join("clone-tmp");
-        let pattern = format!(r"{}[^\s'\x22]*", regex::escape(&stage.to_string_lossy()));
-        if let Ok(stage) = regex::Regex::new(&pattern) {
-            result = stage.replace_all(&result, "<checkout>").into_owned();
+    // A checkout stage and the object store are internal paths under the
+    // Octocode home (git names a linked worktree's common directory); the
+    // error names what failed, not where it was staged or stored.
+    let homes = [Some(home.to_path_buf()), home.canonicalize().ok()];
+    for home in homes.into_iter().flatten() {
+        for (internal, name) in [
+            (home.join("tmp").join("clone-tmp"), "<checkout>"),
+            (
+                crate::tools::gh_clone_repo::storage::store_root(&home),
+                "<store>",
+            ),
+        ] {
+            let pattern = format!(r"{}[^\s'\x22]*", regex::escape(&internal.to_string_lossy()));
+            if let Ok(internal) = regex::Regex::new(&pattern) {
+                result = internal.replace_all(&result, name).into_owned();
+            }
         }
     }
     // Redact any authorization header regardless of scheme. Git sends the

@@ -1,7 +1,7 @@
+use super::route::Route;
 use super::types::{LspDiscoveryOptions, ServerSpec};
 use crate::lsp::bundled_tsgo::bundled_tsgo;
 use crate::lsp::commands::{command_resolves_to_executable, is_executable_path};
-use super::route::Route;
 use crate::lsp::module_path::install_anchor;
 use crate::lsp::types::{LspLanguageServerConfig, ServerSource};
 use std::ffi::OsStr;
@@ -14,11 +14,11 @@ pub(in crate::lsp) use typescript_cli::current_node_command;
 #[cfg(all(test, unix))]
 pub(super) use typescript_cli::workspace_is_invocation_root;
 pub(super) use typescript_cli::{
-    TypeScriptServerSearch, is_node_executable, is_typescript_server_command, resolve_typescript_server_cli,
-    typescript_cli_from_command,
+    TypeScriptServerSearch, is_node_executable, is_typescript_server_command,
+    resolve_typescript_server_cli, typescript_cli_from_command,
 };
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(super) use typescript_cli::pin_tsserver as typescript_cli_pin_for_tests;
 
 /// [`typescript_cli::pin_tsserver`] under `options`' trust of `workspace_root`.

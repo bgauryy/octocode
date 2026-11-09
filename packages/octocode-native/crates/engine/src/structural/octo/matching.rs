@@ -14,10 +14,7 @@ pub(super) use capture::CaptureEnv;
 #[cfg(test)]
 pub(in crate::structural) use walk::INTERRUPT_NEXT_COMPILE_PARSE;
 pub(in crate::structural) use walk::parse_tree_with_deadline;
-pub(super) use walk::{
-    CandidateVisitor, ancestors_from_root, collect_kind_matches, parse_tree, visit_named,
-    visit_named_expanding_macros,
-};
+pub(super) use walk::{ancestors_from_root, collect_kind_matches, parse_tree, visit_named};
 
 /// The code of a parse cut short by its deadline or cancellation.
 pub const PARSE_INTERRUPTED: &str = "structural.parse.interrupted";
@@ -117,17 +114,39 @@ pub(in crate::structural) struct Found<'a> {
     source_error: Option<crate::text::analysis::SourceError>,
     kept: Kept<'a>,
     recovered: bool,
+    /// Macro bodies whose re-parse could not read a node the query matched,
+    /// sorted, each once.
+    recovered_bodies: Vec<crate::structural::types::RecoveredBody>,
     /// Which 1-based start lines a scope keeps; `None` keeps every match.
     keep_line: Option<&'a (dyn Fn(u32) -> bool + Sync)>,
+    /// Every match pushed, kept or not: what the prefilter audit reads.
+    #[cfg(test)]
+    pushed: u32,
 }
 
+/// Each kept match or price with its node's [`SourceOrder`].
 enum Kept<'a> {
-    Matches(Vec<MatchWithKind>),
+    Matches(Vec<(SourceOrder, MatchWithKind)>),
     Priced(
         &'a (dyn Fn(&StructuralDetailedMatch) -> u32 + Sync),
-        Vec<u32>,
+        Vec<(SourceOrder, u32)>,
     ),
     Counted(u32),
+}
+
+/// Where a matched node sits in its file: by start, an enclosing node
+/// first. The walk reaches a macro body's re-parsed parts after the body's
+/// own nodes, so a file's matches are put in this order when it is done.
+type SourceOrder = (usize, std::cmp::Reverse<usize>);
+
+fn source_order(node: Node<'_>) -> SourceOrder {
+    (node.start_byte(), std::cmp::Reverse(node.end_byte()))
+}
+
+/// `kept` in source order (a stable sort: equal spans keep walk order).
+fn in_source_order<T>(mut kept: Vec<(SourceOrder, T)>) -> Vec<T> {
+    kept.sort_by_key(|(order, _)| *order);
+    kept.into_iter().map(|(_, item)| item).collect()
 }
 
 impl<'a> Found<'a> {
@@ -142,8 +161,17 @@ impl<'a> Found<'a> {
             source: None,
             source_error: None,
             recovered: false,
+            recovered_bodies: Vec::new(),
             keep_line: None,
+            #[cfg(test)]
+            pushed: 0,
         }
+    }
+
+    /// How many matches were pushed, kept or not.
+    #[cfg(test)]
+    pub(in crate::structural) fn pushed(&self) -> u32 {
+        self.pushed
     }
 
     /// Keep only the matches whose 1-based start line `keep` admits.
@@ -166,6 +194,10 @@ impl<'a> Found<'a> {
     /// One match of `node`; `build` makes it only when this demand keeps
     /// or prices it.
     pub(super) fn push(&mut self, node: Node<'_>, build: impl FnOnce() -> StructuralMatch) {
+        #[cfg(test)]
+        {
+            self.pushed += 1;
+        }
         if self.source_error.is_some() {
             return;
         }
@@ -184,7 +216,9 @@ impl<'a> Found<'a> {
         };
         match &mut self.kept {
             Kept::Matches(matches) => match build() {
-                Ok(matched) => matches.push(MatchWithKind::new(node, matched)),
+                Ok(matched) => {
+                    matches.push((source_order(node), MatchWithKind::new(node, matched)));
+                }
                 Err(error) => self.source_error = Some(error),
             },
             Kept::Priced(price, prices) => {
@@ -196,10 +230,13 @@ impl<'a> Found<'a> {
                     }
                 };
                 let found = MatchWithKind::new(node, matched);
-                prices.push(price(&StructuralDetailedMatch::from_match(
-                    found.matched,
-                    found.node_kind,
-                )));
+                prices.push((
+                    source_order(node),
+                    price(&StructuralDetailedMatch::from_match(
+                        found.matched,
+                        found.node_kind,
+                    )),
+                ));
             }
             Kept::Counted(count) => *count = count.saturating_add(1),
         }
@@ -215,10 +252,25 @@ impl<'a> Found<'a> {
         self.recovered
     }
 
+    /// A macro body whose re-parse could not read a node the query matched:
+    /// a match inside it may be missing.
+    pub(super) fn mark_recovered_body(&mut self, body: &crate::structural::types::RecoveredBody) {
+        if let Err(at) = self.recovered_bodies.binary_search(body) {
+            self.recovered_bodies.insert(at, body.clone());
+        }
+    }
+
+    /// The macro bodies whose re-parse could hide a match, sorted.
+    pub(in crate::structural) fn recovered_bodies(
+        &self,
+    ) -> &[crate::structural::types::RecoveredBody] {
+        &self.recovered_bodies
+    }
+
     /// The kept matches (empty for a count or a price demand).
     pub(in crate::structural) fn into_matches(self) -> Vec<MatchWithKind> {
         match self.kept {
-            Kept::Matches(matches) => matches,
+            Kept::Matches(matches) => in_source_order(matches),
             Kept::Priced(..) | Kept::Counted(_) => Vec::new(),
         }
     }
@@ -227,12 +279,12 @@ impl<'a> Found<'a> {
     pub(in crate::structural) fn into_file_matches(self) -> FileMatches {
         match self.kept {
             Kept::Matches(matches) => FileMatches::Held(
-                matches
+                in_source_order(matches)
                     .into_iter()
                     .map(|m| StructuralDetailedMatch::from_match(m.matched, m.node_kind))
                     .collect(),
             ),
-            Kept::Priced(_, prices) => FileMatches::Priced(prices),
+            Kept::Priced(_, prices) => FileMatches::Priced(in_source_order(prices)),
             Kept::Counted(count) => FileMatches::Counted(count),
         }
     }

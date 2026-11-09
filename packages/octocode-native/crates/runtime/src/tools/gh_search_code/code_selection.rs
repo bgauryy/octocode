@@ -86,25 +86,9 @@ pub(super) fn finish_code_selection(
         }
     }
 
-    let retain_read = |lead: &mut Value| {
-        if lead["tool"] != ToolId::GhGetFileContent.as_str() {
-            return true;
-        }
-        let Some(rows) = lead
-            .pointer_mut("/input/queries")
-            .and_then(Value::as_array_mut)
-        else {
-            return false;
-        };
-        rows.retain(|read| read_identity(read).is_some_and(|id| selected.contains(&id)));
-        !rows.is_empty()
-    };
-    if let Some(leads) = value.get_mut("next").and_then(Value::as_object_mut) {
-        leads.retain(|_, lead| retain_read(lead));
-    }
-    if let Some(leads) = value.get_mut("related").and_then(Value::as_array_mut) {
-        leads.retain_mut(retain_read);
-    }
+    crate::response::output::retain_lead_reads(value, ToolId::GhGetFileContent, |read| {
+        read_identity(read).is_some_and(|id| selected.contains(&id))
+    });
 
     for batch in judged.chunks(crate::response::result::rows_per_call(
         ToolId::GhGetFileContent,

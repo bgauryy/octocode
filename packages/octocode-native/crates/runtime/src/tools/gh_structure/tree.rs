@@ -39,12 +39,14 @@ pub(super) async fn execute_tree(
         "repo": query.repo,
         "files": build_structure(page.entries),
         "summary": summary(&traversal.entries),
-        "resolvedRef": resolved_branch,
     });
-    // A caller-supplied full SHA is not restated.
+    // `commitSha` is the listed commit on every page; `resolvedRef` names the
+    // branch or tag that resolved to it, never the commit itself, so a later
+    // page (its cursor pins the commit) renames nothing.
     if !resolved_branch.eq_ignore_ascii_case(&commit_sha) {
-        value["commitSha"] = json!(commit_sha);
+        value["resolvedRef"] = json!(resolved_branch);
     }
+    value["commitSha"] = json!(commit_sha);
     page.paginate(&mut value);
     let mut output = ToolData::from(Value::Null);
     let materialize_resume = if query.materialize == Some(true) {

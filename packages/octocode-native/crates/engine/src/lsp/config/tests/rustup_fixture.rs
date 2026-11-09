@@ -61,7 +61,11 @@ impl FakeRustup {
     /// the log files are made now, so neither holding nor a run changes an
     /// entry of the `PATH` directory, only files in it.
     pub(super) fn hold(&self) {
-        for file in [self.hold_file(), self.bin.join("runs"), self.bin.join("ran-in")] {
+        for file in [
+            self.hold_file(),
+            self.bin.join("runs"),
+            self.bin.join("ran-in"),
+        ] {
             if !file.exists() {
                 std::fs::write(file, "").expect("hold");
             }

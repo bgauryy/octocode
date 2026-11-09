@@ -114,6 +114,7 @@ pub(super) async fn execute_page(
         Ok(mut row) | Err(Exit::Row(mut row)) => {
             failure::stamp_coverage(&mut row);
             level::stamp(&mut row);
+            level::omit_healthy_receipt(&mut row);
             Ok(row)
         }
         Err(Exit::Failed(failure)) if failure.lexical_fallback => {

@@ -9,14 +9,25 @@ use super::document::Form;
 use super::every_value::every_value_spans;
 use super::source_names::{Named, SecretSpan, SecretSpans, SourceNames, SourceWalk};
 use super::{
-    DetectResult, Judge, PATTERNS, Scope, applicable_patterns, pattern_regex_for, secret_groups,
+    CodeSyntax, DetectResult, Judge, PATTERNS, Scope, SourceSyntax, applicable_patterns,
+    pattern_regex_for, secret_groups,
 };
 use std::ops::Range;
 
 /// The spans of one pattern in `text`: a `secret` group's when it names one, else
-/// its whole match, past what the pattern's value test turns away.
-fn pattern_spans(idx: usize, text: &str, scope: Scope<'_>, out: &mut Vec<(Range<usize>, usize)>) {
-    pattern_matches(idx, text, scope, false, |_, secret| out.push((secret, idx)));
+/// its whole match, past what the pattern's value test turns away. `source` is
+/// the syntax of `text`, parsed once for every pattern that judges it.
+fn pattern_spans(
+    idx: usize,
+    text: &str,
+    scope: Scope<'_>,
+    source: Option<SourceSyntax<'_>>,
+    out: &mut Vec<(Range<usize>, usize)>,
+) {
+    let judge = Judge::of(idx, scope, text, source);
+    judge.secrets(pattern_regex_for(idx, text), text, |_, secret| {
+        out.push((secret, idx));
+    });
 }
 
 /// Canonical capture and value exclusions, shared by text and structured data:
@@ -37,25 +48,86 @@ pub(super) fn pattern_matches(
     judge.secrets(regex, text, found_secret);
 }
 
-/// The document walks of `text`, as `named` says it needs. Past `budget`, every
-/// value of what it names.
-fn document_spans(text: &str, named: Named, budget: usize) -> Vec<SecretSpan> {
+/// The document walks of `text`, as `named` says it needs, and whether the walk
+/// outgrew `budget`: then every value of what it names, secret or not.
+fn document_spans(text: &str, named: Named, budget: usize) -> (Vec<SecretSpan>, bool) {
     let mut walk = SourceWalk::new(named, budget);
     walk.feed(text.as_bytes());
     match walk.finish() {
-        SecretSpans::Exact(spans) => spans,
-        SecretSpans::TooMany => every_value_spans(text.as_bytes(), false, named),
+        SecretSpans::Exact(spans) => (spans, false),
+        SecretSpans::TooMany => (every_value_spans(text.as_bytes(), false, named), true),
     }
+}
+
+/// The walk budgets a test set, by the directory whose files they judge at.
+#[cfg(feature = "test-hooks")]
+static WALK_BUDGETS: std::sync::Mutex<Vec<(std::path::PathBuf, usize)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Judge the long texts of files under `dir` at walk budget `budget` (`None`:
+/// the process's), in place of the memory budget. Scoped to a directory so a
+/// test's override reaches no other test's files.
+#[cfg(feature = "test-hooks")]
+pub fn set_walk_budget(dir: &std::path::Path, budget: Option<usize>) {
+    let mut set = WALK_BUDGETS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    set.retain(|(held, _)| held != dir);
+    if let Some(budget) = budget {
+        set.push((dir.to_owned(), budget));
+    }
+}
+
+/// The memory a walk of a text's structure may hold before it falls back to
+/// hiding every value.
+fn walk_budget(scope: Scope<'_>) -> usize {
+    #[cfg(feature = "test-hooks")]
+    if let Some(path) = scope.source_path() {
+        let set = WALK_BUDGETS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some((_, budget)) = set
+            .iter()
+            .find(|(dir, _)| std::path::Path::new(path).starts_with(dir))
+        {
+            return *budget;
+        }
+    }
+    #[cfg(not(feature = "test-hooks"))]
+    let _ = scope;
+    crate::memory::MEMORY.limit()
+}
+
+/// What judging a long text found: the spans to hide, and whether they are every
+/// value of a named structure because its walk outgrew the memory budget.
+pub(super) struct Judged {
+    pub(super) spans: Vec<(Range<usize>, usize)>,
+    pub(super) every_value: bool,
 }
 
 /// Every span `scope` says is secret in `text`, in order, none overlapping; each
 /// with the pattern index it goes under.
-pub(super) fn secret_spans(text: &str, scope: Scope<'_>) -> Vec<(Range<usize>, usize)> {
+pub(super) fn secret_spans(text: &str, scope: Scope<'_>) -> Judged {
+    secret_spans_within(text, scope, walk_budget(scope))
+}
+
+/// [`secret_spans`] with a document walk held to `budget`.
+pub(super) fn secret_spans_within(text: &str, scope: Scope<'_>, budget: usize) -> Judged {
     let candidates = applicable_patterns(text, scope);
     let mut spans = Vec::new();
+    // One parse for every judge: each pattern reads the same text, so its
+    // syntax is the source's, through no edit, as in the in-memory pass.
+    let syntax = scope
+        .source_path()
+        .and_then(|path| CodeSyntax::of(path, text));
+    let edits = crate::security::Edits::default();
     for idx in candidates.iter() {
         if Form::of(idx).is_none() {
-            pattern_spans(idx, text, scope, &mut spans);
+            let source = syntax.as_ref().map(|syntax| SourceSyntax {
+                syntax,
+                edits: &edits,
+            });
+            pattern_spans(idx, text, scope, source, &mut spans);
         }
     }
     let mut names = SourceNames::for_path("");
@@ -66,9 +138,11 @@ pub(super) fn secret_spans(text: &str, scope: Scope<'_>) -> Vec<(Range<usize>, u
             Form::of(idx) == Some(Form::SecretInYaml) && pattern_regex_for(idx, text).is_match(text)
         }),
     };
+    let mut every_value = false;
     if named.any() {
-        let budget = crate::memory::MEMORY.limit();
-        for span in document_spans(text, named, budget) {
+        let (found, outgrown) = document_spans(text, named, budget);
+        every_value = outgrown;
+        for span in found {
             let idx = PATTERNS
                 .iter()
                 .position(|pattern| pattern.name == span.form.pattern());
@@ -88,7 +162,10 @@ pub(super) fn secret_spans(text: &str, scope: Scope<'_>) -> Vec<(Range<usize>, u
         }
         apart.push((range, idx));
     }
-    apart
+    Judged {
+        spans: apart,
+        every_value,
+    }
 }
 
 /// `text` with each of `spans` replaced by its pattern's placeholder, a line break
@@ -130,5 +207,5 @@ pub(super) fn with_spans_hidden(
 /// [`super::redact`] of a text past [`super::MAX_CONTENT_SIZE`]: one pass, no copy
 /// per pattern, and a walk within the memory budget.
 pub(super) fn redact_long(text: &str, scope: Scope<'_>) -> Option<DetectResult> {
-    with_spans_hidden(text, &secret_spans(text, scope))
+    with_spans_hidden(text, &secret_spans(text, scope).spans)
 }

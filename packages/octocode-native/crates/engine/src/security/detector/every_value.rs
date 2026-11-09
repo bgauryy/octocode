@@ -16,8 +16,8 @@ pub fn every_value_spans(bytes: &[u8], cut: bool, named: Named) -> Vec<SecretSpa
         0
     };
     let mut spans = Vec::new();
-    let form = if named.objects {
-        SecretForm::SecretInJson
+    let form = if named.objects.any() {
+        named.objects.form()
     } else {
         SecretForm::SecretInYaml
     };
@@ -27,8 +27,8 @@ pub fn every_value_spans(bytes: &[u8], cut: bool, named: Named) -> Vec<SecretSpa
             form,
         });
     }
-    if named.objects {
-        strings(bytes, first_line, &mut spans);
+    if named.objects.any() {
+        strings(bytes, first_line, form, &mut spans);
     }
     if named.yaml {
         yaml_values(bytes, first_line, &mut spans);
@@ -44,7 +44,7 @@ fn push(spans: &mut Vec<SecretSpan>, range: Range<usize>, form: SecretForm) {
 
 /// Every JSON string that is not a member's name, from `from` on. No string spans
 /// a raw line, so one left open ends at the line's end.
-fn strings(bytes: &[u8], from: usize, spans: &mut Vec<SecretSpan>) {
+fn strings(bytes: &[u8], from: usize, form: SecretForm, spans: &mut Vec<SecretSpan>) {
     let mut at = from;
     while let Some(open) = bytes[at..].iter().position(|byte| *byte == b'"') {
         let start = at + open + 1;
@@ -67,7 +67,7 @@ fn strings(bytes: &[u8], from: usize, spans: &mut Vec<SecretSpan>) {
         let is_name =
             closed && bytes.get(after) == Some(&b':') && bytes.get(after + 1) != Some(&b':');
         if !is_name {
-            push(spans, start..end, SecretForm::SecretInJson);
+            push(spans, start..end, form);
         }
         at = (end + usize::from(closed)).min(bytes.len());
     }

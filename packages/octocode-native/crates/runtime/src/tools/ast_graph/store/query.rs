@@ -285,7 +285,10 @@ fn run_with(
     if failed {
         return Err(output);
     }
-    if options.edges.iter().any(|edge| edge == "passes") && first_page(options) {
+    if options.edges.iter().any(|edge| edge == "passes")
+        && first_page(options)
+        && output.value.get("argumentCoverage").is_none()
+    {
         output.value["argumentCoverage"] = graph.manifest["argumentCoverage"].clone();
     }
     if let Some(freshness) = freshness {
@@ -331,6 +334,8 @@ struct Query<'q> {
 
 #[cfg(test)]
 mod evidence_list_tests;
+#[cfg(test)]
+mod load_tests;
 #[cfg(test)]
 mod traversal_limits_tests;
 

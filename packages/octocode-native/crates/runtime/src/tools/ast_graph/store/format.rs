@@ -50,6 +50,7 @@ mod reader;
 mod sections;
 mod selective;
 pub(crate) mod sources;
+mod strings;
 mod writer;
 use super::super::limits::{LIMITS, Limits, MAX_SECTIONS};
 pub(crate) use limits::validate_counts;
@@ -62,6 +63,7 @@ use sections::*;
 pub(crate) use selective::SnapshotReader;
 #[cfg(test)]
 pub(crate) use selective::full_validation;
+pub(crate) use strings::Strings;
 #[cfg(test)]
 pub(crate) use writer::encode_for_publish;
 pub(crate) use writer::write_for_publish;
@@ -330,7 +332,7 @@ pub(crate) struct DeclarationRec {
 #[derive(Debug, Default)]
 pub(crate) struct GraphTables {
     pub sources: sources::SourceTable,
-    pub strings: Vec<String>,
+    pub strings: Strings,
     pub nodes: Vec<NodeRec>,
     pub edges: Vec<EdgeRec>,
     pub witnesses: Vec<WitnessRec>,

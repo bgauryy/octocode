@@ -81,6 +81,7 @@ const fn mask_byte(form: SecretForm) -> u8 {
         SecretForm::SecretInJson => 1,
         SecretForm::JsonWebKey => 2,
         SecretForm::SecretInYaml => 3,
+        SecretForm::DockerAuths => 4,
     }
 }
 
@@ -91,6 +92,7 @@ pub(super) fn with_placeholders(text: &str) -> std::borrow::Cow<'_, str> {
             SecretForm::SecretInJson,
             SecretForm::JsonWebKey,
             SecretForm::SecretInYaml,
+            SecretForm::DockerAuths,
         ]
         .into_iter()
         .find(|form| mask_byte(*form) == byte)

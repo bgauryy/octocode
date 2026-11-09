@@ -16,9 +16,10 @@ shared	policy/discovery/withheld.rs	{} outside the allowed roots or unresolvable
 shared	policy/discovery/withheld.rs	{} withheld by path policy: {}.
 shared	policy/include.rs	Nothing searched: include/exclude matched no file. A glob with `/` matches from `path`, not the workspace root, so `src/*.rs` is `path`/src/*.rs: start it with `**/` to match at any depth. The related[] structureSearch request lists the names to fix the globs.
 shared	providers/artifact/go/search.rs	Follow an earlier page's nextPage to continue with its exact registry token (one request each).
+shared	providers/artifact/npm.rs	{} {version}: {what} ({}); {so}.
 shared	providers/artifact/release_ref/listing.rs	{} (commit {})
-shared	providers/artifact/release_ref/listing.rs	{}: tags {tags} each name version {version} at different commits, so none is taken as its release tag.
 shared	providers/artifact/release_ref/listing.rs	{}: tag {} is taken as its release tag: {stem} in its prefix is none of this package's names, and {unattested}.
+shared	providers/artifact/release_ref/listing.rs	{}: tags {tags} each name version {version} at different commits, so none is taken as its release tag.
 shared	providers/artifact/types.rs	{}: {what} could not be checked on GitHub ({}), so what it shows is unknown, not confirmed.
 shared	providers/classification/transport.rs	Check OCTOCODE_CLASSIFICATION_API_HOST.
 shared	providers/classification/transport.rs	Remove paths, credentials, query strings, and fragments from the configured API root.
@@ -38,11 +39,13 @@ shared	providers/classification/transport/errors.rs	Split it: narrower ranges, o
 shared	providers/classification/transport/request.rs	Reduce the supplied state or question count.
 shared	providers/github/auth/resolver.rs	[octocode] warning: no GitHub credential for {host} and the secure credential store is unavailable; GitHub tools run unauthenticated (60 requests/hour). Set GITHUB_TOKEN or run octocode auth login for a higher limit.
 shared	response/notices.rs	{code}: {meaning}
+shared	response/notices.rs	{seconds:.1} s
 shared	response/output.rs	Outside allowed roots (the workspace is WORKSPACE_ROOT, else the directory octocode started in): run from inside that project or set WORKSPACE_ROOT to it, or add the dir to ALLOWED_PATHS (comma list) in the env or ~/.octocode/.env, not a workspace file.
 shared	response/output.rs	Path did not open as a file: list it with structureSearch operation:"files", then retry with one exact listed file.
 shared	response/output.rs	Path not found: list its parent directory (the related[] listing request when one is given), then retry with the exact listed path.
 shared	response/rows/recovery.rs	Check httpStatus and the message; this status is not a network failure.
 shared	response/rows/recovery.rs	Check storage configuration and access; use GitHub read tools when a persistent local checkout is unavailable.
+shared	response/rows/recovery.rs	Check the exact name, where it was looked up, and access to it.
 shared	response/rows/recovery.rs	Check the package name, registry and manifest/lockfile version; discover published versions before choosing another version.
 shared	response/rows/recovery.rs	Choose a supported evidence view or inspect the source without classification.
 shared	response/rows/recovery.rs	Choose an existing project directory as workspaceRoot and verify it contains the anchor file before retrying.
@@ -63,11 +66,11 @@ shared	response/rows/recovery.rs	Let the active request finish before retrying; 
 shared	response/rows/recovery.rs	Locate a bounded region with localSearch, then read exact ranges with localFetch. Full-file structural analysis may remain unavailable.
 shared	response/rows/recovery.rs	Narrow paths, ranges or filters; split independent scopes into separate queries. State what remains unchecked.
 shared	response/rows/recovery.rs	Narrow the classification source scope, or inspect bounded source ranges directly; preserve unknown candidates as a coverage gap.
-shared	response/rows/recovery.rs	Not found: verify the exact name, its repository or registry, the revision or version, and access rights; a miss here is not proof it exists nowhere else.
 shared	response/rows/recovery.rs	Preserve local changes in the checkout; use its current source or a separate checkout rather than overwriting it.
 shared	response/rows/recovery.rs	Read the current source and locate the exact symbol and line before retrying; do not guess a different identity.
 shared	response/rows/recovery.rs	Refresh tool discovery and check availability. Use an available tool that answers the same question, or report the missing capability.
 shared	response/rows/recovery.rs	Report the errorCode and failing call as a tool failure. Follow applicable recovery calls; do not infer absence or retry unchanged repeatedly.
+shared	response/rows/recovery.rs	Restart the original request without its cursor; never invent or edit a cursor.
 shared	response/rows/recovery.rs	Restore access to the credential store or supply the provider token through its supported environment setting.
 shared	response/rows/recovery.rs	Restore provider quota before retrying classification, or inspect the original sources without classification.
 shared	response/rows/recovery.rs	Retry once only if retryable is true; if it persists, check provider availability and report the coverage gap.
@@ -81,13 +84,12 @@ shared	response/rows/recovery.rs	The provider blocks this resource for legal rea
 shared	response/rows/recovery.rs	The provider returned an invalid classification. Inspect original sources; do not treat unclassified candidates as excluded.
 shared	response/rows/recovery.rs	The source could not be processed safely. Choose a smaller supported source; do not bypass the security check.
 shared	response/rows/recovery.rs	Use a reader for this file format or inspect its metadata with structureSearch; text and AST tools cannot read binary content.
-shared	response/rows/recovery.rs	Use an emitted restart call, or restart the original request. Discard stale coordinates and never invent or edit a cursor.
 shared	response/rows/recovery.rs	Use localFetch for exact text or document outlines and localSearch for text candidates; these do not verify semantic identity.
 shared	response/rows/recovery.rs	Use the canonical allowed host and repository.
 shared	response/rows/recovery.rs	Verify access and token scopes; do not treat denial as absence.
 shared	response/rows/recovery.rs	Verify the exact path, read permissions and text encoding; retry only after correcting the cause.
 shared	response/rows/recovery.rs	Verify the requested revision and checkout commit; do not substitute a different revision as evidence.
-shared	response/rows/recovery.rs	Wait for Retry-After or the rate-limit reset before retrying.
+shared	response/rows/recovery.rs	Wait for the provider's limit to reset before retrying.
 shared	runtime/domain_dispatch/source_reader.rs	Check source access, then start a fresh request explicitly.
 shared	runtime/domain_dispatch/source_reader.rs	Inspect the localFetch schema.
 shared	runtime/domain_dispatch/source_reader.rs	Retry the request explicitly.
@@ -103,6 +105,7 @@ shared	tools/ast_graph/graph/scope.rs	graphBuild {call}  # {}
 shared	tools/ast_graph/store/detect/reach.rs	exports of {files} production file(s) not judged ({languages}): only languages with named-import linking ({}) are checked; confirm with lspSearch references
 shared	tools/ast_graph/store/detect/reach.rs	{language}: {}
 shared	tools/ast_graph/store/ingest.rs	extraction committed so far is kept; build this scope again to resume from it
+shared	tools/ast_graph/store/query/references.rs	No node in this snapshot has that key or name: run the find lead, or rebuild with graphBuild when the file is newer than the snapshot.
 shared	tools/ast_graph/store/tools.rs	A file changed while the graph was being built, so no snapshot was published. This is not a tool failure: run the same graphBuild again once the edits settle.
 shared	tools/ast_graph/store/tools.rs	Repeat the query with graph {successor}, or omit graph for the newest snapshot of this path. Offsets and pages of {id} do not carry over to a rebuilt snapshot.
 shared	tools/ast_graph/store/tools.rs	Snapshots of this path exist under {others}: the snapshot home is <workspace>/.octocode/graph, and the workspace follows where Octocode runs. Run Octocode from the directory holding that .octocode, or build here.
@@ -115,11 +118,22 @@ astSearch	tools/ast_search/language.rs	{} parses as C with {c} syntax error(s) a
 astSearch	tools/ast_search/language.rs	{} spells C++ `{keyword}`, which the C parser reads as a name; {repair}
 astSearch	tools/ast_search/matches/continuations.rs	The includeCaptures lead reads the whole scope: this page's withheld rows are in more files than include holds, or in a name no glob spells. It returns every match of the scope, those rows among them.
 astSearch	tools/ast_search/matches/exact_miss.rs	The pattern spells a {} without the parts of a {fuller}, so it matches only the former. Spell the missing part (a body, `{{ $$$ }}`) or use rule {{"kind":"{fuller}"}}.
+astSearch	tools/ast_search/matches/literal_miss.rs	Match the node and test its text: rule {rewritten}.
+astSearch	tools/ast_search/matches/literal_miss.rs	Match the whole node with a capture and test its text with `regex`.
+astSearch	tools/ast_search/matches/literal_miss.rs	Spell the name in upper case: `{}`.
+astSearch	tools/ast_search/matches/literal_miss.rs	`{token}` is literal text, not a metavariable: a metavariable is a whole node, `$` or `$$$` plus upper-case letters, digits or `_`.
+astSearch	tools/ast_search/matches/literal_miss.rs	{rule} The repair call runs the rule with this rewrite.
 astSearch	tools/ast_search/matches/render.rs	No{language} file under this path was parsed.
+astSearch	tools/ast_search/matches/render.rs	Pattern `{pattern}` parsed as {shape}.
 astSearch	tools/ast_search/matches/render.rs	{matches} matches in {} fill {pages} pages; to read fewer, narrow the rule (pattern, has, inside, not) or the scope (include, exclude, a deeper path).
+astSearch	tools/ast_search/matches/scope.rs	In {names}: {message}
 astSearch	tools/ast_search/matches/types.rs	1 file skipped: no AST grammar for its name ({names}); it was not searched, so absence there is unproven; if it is source code, parserGlobs maps its name to a grammar.
+astSearch	tools/ast_search/matches/types.rs	macro bodies
+astSearch	tools/ast_search/matches/types.rs	macro body
 astSearch	tools/ast_search/matches/types.rs	{count} files skipped: no AST grammar for their names ({names}); they were not searched, so absence there is unproven; if they are source code, parserGlobs maps their names to a grammar.
 astSearch	tools/ast_search/matches/types.rs	{count} {noun} parsed with syntax errors that could hide a match ({names}); astSearch syntaxTree shows where.
+astSearch	tools/ast_search/matches/types.rs	{path}:{line} {name}
+astSearch	tools/ast_search/matches/types.rs	{} {noun} re-parsed with recovered syntax that could hide a match ({}); matches inside them may be missing.
 astSearch	tools/ast_search/output.rs	For a single file, use parser instead of parserGlobs.
 astSearch	tools/ast_search/output.rs	Set parser to the grammar of the source files (e.g. "typescript", "rust").
 astSearch	tools/ast_search/output.rs	Use localFetch to read the file or localSearch to search its text. Set parser only when the source is written in a supported grammar.
@@ -136,8 +150,10 @@ astSearch	tools/ast_search/symbols/page.rs	0 declarations {named}in {files_scann
 astSearch	tools/ast_search/symbols/page.rs	named {} 
 shared	tools/bounded_process/capture.rs	[stderr cut: {error}]
 shared	tools/bounded_process/capture.rs	[stderr truncated at {STDERR_BYTES} bytes]
+clasify	tools/clasify/across.rs	Every answer to `{key}` is unsure ({low:.2}–{high:.2}): the question may be vague; ask one observable fact, or a choice with named options.
 clasify	tools/clasify/admission.rs	Section plans across CLI calls need storage.mode persistent, or one running MCP server; operation:"evaluate" with this source answers here.
 clasify	tools/clasify/evaluate.rs	Supply the text to judge.
+clasify	tools/clasify/recovery.rs	A source reads one file; a glob goes in resources, one resource per file, as the clasify call in related[] does.
 clasify	tools/clasify/recovery.rs	Each image question re-reads its images: ask fewer image questions per call, or crop the image.
 clasify	tools/clasify/recovery.rs	This source is larger than one response, so its read in related[] pages: run it with storage.mode persistent, or in one running MCP server.
 clasify	tools/clasify/recovery.rs	source takes text; a PNG or JPEG image is judged under assets, as the clasify call in related[] does.
@@ -147,19 +163,16 @@ clasify	tools/clasify/sections/capture.rs	Use its pinned raw reader or assess a 
 clasify	tools/clasify/sections/capture.rs	Use raw readers or a smaller resource set.
 clasify	tools/clasify/sections/capture.rs	Use the pinned raw reader or a smaller resource selection.
 clasify	tools/clasify/sections/capture.rs	Use the resource's read call to inspect the sanitized source; for a new evaluation, select complete lines.
-ghCloneRepo	tools/gh_clone_repo/checkout.rs	Move your edits out of this managed checkout, restore it to clean, then retry; cloning never discards local files.
+ghCloneRepo	tools/gh_clone_repo/checkout.rs	Move your edits out of this managed checkout, restore it to clean, then retry; cloning never discards local files. If its shared store was deleted, git cannot read it: delete the directory to have it cloned again.
 ghCloneRepo	tools/gh_clone_repo/checkout.rs	Verify the path with ghStructure, or omit path for a full clone.
 ghCloneRepo	tools/gh_clone_repo/pin.rs	Verify the branch, tag, or SHA (ghStructure lists a ref), or omit ref for the default branch.
 ghCloneRepo	tools/gh_clone_repo/process.rs	Resolve the reported Git process or resource failure before retrying.
 ghGetFileContent	tools/gh_get_file_content/timestamp.rs	lastModified is absent: the last-change read failed ({})
 ghSearchCode	tools/gh_search_code.rs	Check the owner spelling: a user or organization login.
-ghSearchCode	tools/gh_search_code/page_facts.rs	GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 `{branch}`
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	 with `path:"{}"`
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	Code search indexes only the default branch{branch}; `{reference}` was not searched.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	No indexed match across the owner is unproven absence: the index may not cover every repository; list them with the related[] ghSearchRepo request, then search or read one.
-ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	No indexed match is unproven absence: a file the index does not hold can still have it, so read a known file with matchString.
-ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	No indexed match is unproven absence: list the repository with the related[] ghStructure request, then read a file there with matchString.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	Repository is archived, and GitHub's code search does not index archived repositories: list its files with the related[] ghStructure request.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	`path:"{}"` is a directory scope: to search one file there, set `nameContains` to its name and `path` to its parent.
 ghSearchCode	tools/gh_search_code/code_output/empty_scope.rs	`path` is a directory prefix and `{}` looks like a file: search it by `nameContains:"{}"`{under}, or read it with matchString.
@@ -167,6 +180,7 @@ ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	 at {}
 ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	; `lines` read at {reference}
 ghSearchCode	tools/gh_search_code/code_output/index_ref.rs	Files from the default-branch index{index}, not {reference}{lines}.
 ghSearchCode	tools/gh_search_code/empty.rs	keywords hold OR, which code search does not support: run the related[] ghSearchCode request, one row per alternative.
+ghSearchCode	tools/gh_search_code/page_facts.rs	GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.
 ghSearchCode	tools/gh_search_code/page_facts.rs	{} file(s) on this page are larger than the line-scan read bound ({} bytes: the scan limit, or the request's smaller response budget), so their lines were not resolved (`lineResolved:false`): read them with ghGetFileContent at the commit.
 ghSearchCode	tools/gh_search_code/page_facts.rs	{} file(s) on this page are withheld by the security path policy (a credential file name or a sensitive directory): their rows list the path only, with no lines, and nothing of them was read. No query field lifts it.
 ghSearchHistory	tools/gh_search_history/shape.rs	No commit touches `{path}` on {at} of GitHub: history covers only what was pushed there, so a file or commit that exists only in your checkout (never pushed, or on an unpushed branch) has none here; read it with local git history, or retry with the ref that holds it. The related[] ghStructure request lists the path's parent to check it exists at that ref.
@@ -181,8 +195,7 @@ shared	tools/gh_shared/failed_read.rs	The submodule's repository is not on GitHu
 shared	tools/gh_shared/failure.rs	A login in a user qualifier (author, assignee, reviewed-by, …) does not resolve: fix its spelling or drop it.
 shared	tools/gh_shared/failure.rs	Authorize this token for the organization (SAML SSO) at the row's ssoUrl, then retry.
 shared	tools/gh_shared/failure.rs	Check the owner/repo spelling and this token's access.
-shared	tools/gh_shared/failure.rs	The related[] ghSearchRepo call lists repositories named like `{repo}` under any owner: confirm the owner before using one.
-shared	tools/gh_shared/failure.rs	The related[] ghSearchRepo calls list repositories named like `{repo}` under any owner (confirm the owner before using one) and the repositories `{owner}` holds.
+shared	tools/gh_shared/failure.rs	Confirm the owner before using a related[] repository.
 ghStructure	tools/gh_structure/failures.rs	Only the path's case differs.
 ghStructure	tools/gh_structure/failures.rs	The path names a file (its case differs).
 ghStructure	tools/gh_structure/listing.rs	One or more repository subdirectories could not be read; retry the same page or narrow the path/depth.
@@ -201,15 +214,20 @@ shared	tools/judgment/stats.rs	{retried} refused in the default window retried i
 shared	tools/judgment/stats.rs	{retried} refused in the default window retried in the long-context window (slower, less accurate): {tokens} input tokens billed{origin}. longContext:false refuses instead.
 shared	tools/leads/broaden.rs	No match with these filters: each related[] request drops one; run it only if the wider scope still answers the question.
 shared	tools/leads/broaden.rs	No match: search terms are ANDed, so every word must match; try one distinctive word, or a different spelling.
+shared	tools/leads/skipped.rs	 ({reason})
 shared	tools/leads/skipped.rs	At least 
-shared	tools/leads/skipped.rs	Skipped paths ({}) were not checked within the probe budget, so absence there is unproven. {WALKS_ALL_SKIPPED}
-shared	tools/leads/skipped.rs	{text} {WALKS_ALL_SKIPPED}
+shared	tools/leads/skipped.rs	Skipped paths ({}) were not checked within the probe budget, so absence there is unproven. {}
+shared	tools/leads/skipped.rs	`{shown}` ({cause})
+shared	tools/leads/skipped.rs	`{shown}` ({cause}: {reason})
+shared	tools/leads/skipped.rs	`{shown}` and {} more {cause}{reason}
+shared	tools/leads/skipped.rs	{count} {cause} under `{shown}`{reason}
+shared	tools/leads/skipped.rs	{text} {}
 shared	tools/leads/skipped.rs	{}{} {} behind skipped paths ({why}).
 localFetch	tools/local_fetch/executor.rs	Convert a copy to UTF-8 or split the source into smaller text files; line ranges do not lift this decoding limit.
 localFetch	tools/local_fetch/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and next reads on: first the rest of those lines, then the other ranges after them.
 localFetch	tools/local_fetch/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and their later pages read that range alone.
 localFetch	tools/local_fetch/large_source/ranges.rs	This page ends inside lines {start}-{end}, whose rest no page reads (see the warnings); next reads the other ranges after them.
-localFetch	tools/local_fetch/large_source/window.rs	redactedContent: this source names a Kubernetes Secret or a JSON Web Key, and its nesting outgrew the memory budget before the walk that places their values finished, so every value on this page is hidden, secret or not. Split the source to read it.
+localFetch	tools/local_fetch/large_source/window.rs	redactedContent: this source names a Kubernetes Secret, a JSON Web Key or a Docker registry config, and its nesting outgrew the memory budget before the walk that places their values finished, so every value on this page is hidden, secret or not. Split the source to read it.
 localSearch	tools/local_search/coverage.rs	No matches where searched; the withheld entries in skippedPaths may hold it (unproven).
 localSearch	tools/local_search/coverage.rs	Nothing searched: no file under path; check the path, or set includeHidden/includeIgnored when the files are dot or ignored entries.
 localSearch	tools/local_search/coverage.rs	Nothing searched: the target file was skipped ({reasons}). Read it with localFetch.
@@ -224,6 +242,7 @@ localSearch	tools/local_search/leads.rs	{total} matches: run the related[] view:
 localSearch	tools/local_search/output.rs	Check read access to the path; a broader search reads the same files.
 localSearch	tools/local_search/output.rs	Correct the regex named in the error. If the intended match is literal text, set regexEngine to literal and keep matchString unchanged.
 localSearch	tools/local_search/probes.rs	Skipped paths ({counts}) hold no {what} either; the check searched them.
+localSearch	tools/local_search/probes.rs	Skipped paths ({counts}) hold no {what} outside what the path policy withheld (skippedPaths).
 localSearch	tools/local_search/probes.rs	Skipped paths ({counts}) hold no {what} outside what their check withheld (warnings).
 localSearch	tools/local_search/probes.rs	Skipped paths: {notice}
 localSearch	tools/local_search/probes.rs	file that lacks a match
@@ -232,6 +251,7 @@ localSearch	tools/local_search/probes.rs	files that lack a match
 localSearch	tools/local_search/probes.rs	files that match
 localSearch	tools/local_search/probes/alternates.rs	No case-sensitive match, but {found} file(s) match with case ignored; caseMode:"insensitive" finds them.
 localSearch	tools/local_search/probes/alternates.rs	No literal match, but {found} file(s) match this read as a regex; the related[] call sets regexEngine:"rust".
+localSearch	tools/local_search/selection/accounting.rs	{} of {} matched files kept no hit: next.unfiltered lists them.
 lspSearch	tools/lsp_search/failure/leads.rs	coverage.outOfReachFiles counts files that spell `{name}` outside its reach ({}): they cannot reference it, so they are neither missed sites nor leads.
 lspSearch	tools/lsp_search/failure/paging.rs	{stage}: {total} server {requests} failed ({} distinct errors; most frequent, {count}×: {message}); the locations they would add are missing.
 lspSearch	tools/lsp_search/failure/paging.rs	{stage}: {total} server {requests} failed: {message}; the locations they would add are missing.
@@ -239,6 +259,7 @@ lspSearch	tools/lsp_search/failure/rows.rs	A name a build script generates (incl
 lspSearch	tools/lsp_search/failure/rows.rs	A name a build script generates (include! of OUT_DIR) has no location while build scripts do not run; rustContext {{buildScripts:true}}, which {BUILD_SCRIPTS_COST}, is refused until you opt in: {opt_in}.
 lspSearch	tools/lsp_search/failure/rows.rs	A name a build script generates (include! of OUT_DIR) resolves only with rustContext {{buildScripts:true}}, which {BUILD_SCRIPTS_COST}.
 lspSearch	tools/lsp_search/failure/rows.rs	A name defined in source this package include!s from outside its directory never resolves in rust-analyzer: read it with localSearch.
+lspSearch	tools/lsp_search/failure/rows.rs	`{name}` is declared in a file crate {} include!s from outside its directory, which rust-analyzer never loads: no build context gives it a location. The related localSearch reads it there.
 lspSearch	tools/lsp_search/importers.rs	The scan for gitignored files that spell this name did not finish, so importers among them are unverified; a localSearch with includeIgnored reads them.
 lspSearch	tools/lsp_search/importers/coverage.rs	 The scan for gitignored files did not finish, so more may exist.
 lspSearch	tools/lsp_search/importers/coverage.rs	 and 
@@ -253,7 +274,6 @@ lspSearch	tools/lsp_search/importers/coverage.rs	{} could not be checked for an 
 lspSearch	tools/lsp_search/inferred_project/compile_database.rs	Generate compile_commands.json for clangd (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON), or use astSearch/localSearch.
 lspSearch	tools/lsp_search/level.rs	No {name} server answered: {hint}.
 lspSearch	tools/lsp_search/ops/diagnostics.rs	Proc-macros and build scripts are off by default (they run repository code), so rust-analyzer reports unexpanded macros; pass rustContext {buildScripts:true, procMacros:true} to expand them once lsp.allowBuildScripts is on (home .octocoderc, or OCTOCODE_LSP_ALLOW_BUILD_SCRIPTS=true in the process environment or the home .env); until then such a query is refused.
-lspSearch	tools/lsp_search/ops/hierarchy.rs	{} implementation(s) are source:"{SCAN_SOURCE}" (matched by name).
 lspSearch	tools/lsp_search/ops/lookups.rs	workspaceRoot-only search found no {searched} source file to load a project; pass path for a file in the symbol's project.
 lspSearch	tools/lsp_search/ops/lookups.rs	workspaceRoot-only search used the {searched} server; this root also holds {} unsearched projects.
 lspSearch	tools/lsp_search/ops/lookups.rs	workspaceRoot-only search: the {searched} server searched the project of {}; for another project, pass path there.
@@ -268,15 +288,20 @@ lspSearch	tools/lsp_search/output.rs	This server cannot prove type hierarchy; in
 lspSearch	tools/lsp_search/output.rs	Use astSearch symbols/match or localSearch for candidates, then localFetch exact source.
 lspSearch	tools/lsp_search/output.rs	Use the advertised LSP operations, or fall back to astSearch/localSearch and exact source reads.
 lspSearch	tools/lsp_search/output.rs	Use the related source read or text search; semantic results remain unavailable. Retry LSP only after configuring a server for this file.
+lspSearch	tools/lsp_search/responses.rs	The language server was still loading the project after {} ms; results may be incomplete.
 lspSearch	tools/lsp_search/server_coverage.rs	Files that import the name are missing from the answer: the server did not resolve their import here.
 lspSearch	tools/lsp_search/server_coverage.rs	No .git or workspace file says where this project ends, so only the server's root was searched
 lspSearch	tools/lsp_search/server_coverage.rs	workspace/symbol has no completeness marker: declarations the server did not index or return are unknown, and no page of this list completes it; confirm with a localSearch of the name.
 lspSearch	tools/lsp_search/server_coverage.rs	{base}; no project beside it was found. If the repository holds more, widen workspaceRoot to the folder that holds it.
 lspSearch	tools/lsp_search/server_coverage.rs	{base}; projects beside it may use this name: {names}. Widen (not narrow) workspaceRoot to {} to search them, or search them with the related text search.
 lspSearch	tools/lsp_search/server_coverage.rs	{base}; the projects beside it were not looked for, as the request stopped first. Widen workspaceRoot to the folder that holds the repository to include them.
-lspSearch	tools/lsp_search/session/waits.rs	This call waited {} for the {server} language server to load the project; later calls reuse the loaded server without that wait.
-lspSearch	tools/lsp_search/session/waits.rs	This call waited {} for the {server} language server to start; later calls reuse the running server without that wait.
+lspSearch	tools/lsp_search/session/waits.rs	The language server pool holds about {} MiB, over its {} MiB budget, because servers busy with requests are never stopped; the pool stops them once they are idle.
+lspSearch	tools/lsp_search/session/waits.rs	This call waited {{}} for the {server} language server to load the project; later calls reuse the loaded server without that wait.
+lspSearch	tools/lsp_search/session/waits.rs	This call waited {{}} for the {server} language server to start; later calls reuse the running server without that wait.
 lspSearch	tools/lsp_search/walk/outcome.rs	{out_of_policy} hierarchy items the path policy does not let this tool read were omitted.
+securityCheck	tools/security_check/advisories.rs	GitHub has not reviewed {id}: its database marks it unreviewed.
+securityCheck	tools/security_check/advisories.rs	GitHub's database classes {id} as {other}.
+securityCheck	tools/security_check/advisories.rs	GitHub's database classes {id} in a class that is not a plain word.
 shared	tools/selection.rs	 (none on this page)
 shared	tools/selection.rs	 ({shown} on this page)
 shared	tools/selection.rs	 An empty classified result is not absence: next.unfiltered lists them all.
@@ -302,10 +327,18 @@ shared	tools/source_capture.rs	No read returns it: a file in a sensitive directo
 shared	tools/source_capture.rs	Read an allowed path.
 shared	tools/source_capture/assets.rs	Check the file path and permissions.
 shared	tools/source_capture/assets.rs	Enable the referenced reader before classifying its images.
+shared	tools/source_capture/assets.rs	Name each asset key in the question that judges it.
 shared	tools/source_capture/assets.rs	Reference an explicit PNG or JPEG image by its asset key.
 shared	tools/source_capture/assets.rs	Retry once the image is stable.
 shared	tools/source_capture/assets.rs	Use a smaller image or fewer assets; images are never resized or truncated silently.
 shared	tools/source_capture/assets/fit.rs	Pad the image to the minimum size yourself and retry.
+shared	tools/source_capture/glob.rs	A glob walks as local searches do: it skips dot entries, git-ignored files and default-excluded directories, and matches names case-sensitively. Write a literal [ as \[, or name a file by its path.
+shared	tools/source_capture/glob.rs	Correct the glob: * and ? stay inside one directory, ** spans directories, [...] is a class and {a,b} alternates.
+shared	tools/source_capture/glob.rs	Start the glob at a directory inside the allowed roots.
+shared	tools/source_capture/glob.rs	The glob '{pattern}' left out paths it could match: {shown}. A hidden, ignored or default-excluded file is judged when named by its path.
+shared	tools/source_capture/glob.rs	The glob's directory `{dir}` does not exist; start the glob at one that does.
+shared	tools/source_capture/glob.rs	The structureSearch call in related[] lists every file the glob matches, with those skips lifted.
+shared	tools/source_capture/glob.rs	{lost} more that cannot be named
 shared	tools/source_capture/page.rs	Check the ranges and the path.
 shared	tools/source_capture/page.rs	Run the same read directly to inspect it.
 shared	tools/source_capture/resource.rs	Check the source ranges or omit them to select the complete text.

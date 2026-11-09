@@ -241,3 +241,50 @@ pub(super) fn into_row(mut data: Value, results: &[SourceResult], view: View) ->
     }
     data
 }
+
+/// Marks `row` partial for a failed source with each of `whys` that its
+/// `sources[]` entries do not already state: a reason is stated once, on
+/// its source, never again in `warnings`.
+pub(super) fn source_failed(row: &mut Value, whys: &[String]) {
+    let stated = row
+        .get("sources")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("why").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let unstated = whys
+        .iter()
+        .filter(|why| {
+            !stated
+                .iter()
+                .any(|on_source| on_source.contains(why.as_str()))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    crate::response::paging::mark_partial(
+        row,
+        crate::response::paging::PartialReason::SourceFailed,
+        &unstated,
+    );
+}
+
+/// Records one failed read on a source's `sources[]` entry, so the entry
+/// names every failure (`sourceFailed`'s meaning): a `found` or `noneKnown`
+/// entry becomes `partial`, the first failure's code is kept, and each reason
+/// joins `why`, never overwriting one already there.
+pub(super) fn note_failure(entry: &mut Value, code: octocode_contract_types::ErrorCode, why: &str) {
+    if entry["status"] == "found" || entry["status"] == "noneKnown" {
+        entry["status"] = serde_json::json!("partial");
+    }
+    if entry.get("errorCode").is_none() {
+        entry["errorCode"] = serde_json::json!(code);
+    }
+    let joined = match entry.get("why").and_then(Value::as_str) {
+        Some(stated) if stated.contains(why) => return,
+        Some(stated) => [stated, why].join(" "),
+        None => why.to_owned(),
+    };
+    entry["why"] = serde_json::json!(joined);
+}

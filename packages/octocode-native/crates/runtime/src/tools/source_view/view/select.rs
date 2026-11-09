@@ -55,14 +55,15 @@ pub(super) fn select_view(
             ext.source_lines.as_deref(),
             cancel,
         );
-        // Like with like: what the content view serves for these lines,
-        // gutters included. The first page says both, so the agent can
-        // choose either: no threshold decides for it.
+        // Like with like: what the content view serves for the same
+        // selection (every page of it, not the page that says it), gutters
+        // included. The first page says both, so the agent can choose
+        // either: no threshold decides for it.
         let content = compact::content_bytes(&selected, ext.source_lines.as_deref());
         let smaller = text.len() < content;
         let hundredths = text.len().saturating_mul(10_000) / content.max(1);
         let kept = format!(
-            "compact view: {} of {} bytes the content view serves for these lines ({}.{:02}%).",
+            "compact view: {} of {} bytes the content view serves for the selected lines, all pages ({}.{:02}%).",
             text.len(),
             content,
             hundredths / 100,

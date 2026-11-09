@@ -19,6 +19,42 @@ fn rsa_key(body_lines: usize) -> String {
     format!("-----BEGIN RSA PRIVATE KEY-----\n{body}-----END RSA PRIVATE KEY-----")
 }
 
+/// That `scan` costs what its bytes cost: `many`, `r` times the bytes of
+/// `few`, against `few` scanned `r` times over. Both read the same bytes in
+/// about the same time, so a busy machine slows both alike; each is the
+/// fastest of five runs, taken in turn. A linear scan's ratio is about 1, a
+/// quadratic one's about `r`; the bar is their geometric mean, `√r`. A spike
+/// of load can still inflate one measurement, so three rounds are taken, and
+/// a quadratic scan misses on every one.
+fn assert_scales_linearly(few: &str, many: &str, scan: impl Fn(&str)) {
+    let times = ((many.len() + few.len() / 2) / few.len().max(1)).max(2);
+    let bar = (times as f64).sqrt();
+    let fastest = |text: &str, repeat: usize| {
+        (0..5)
+            .map(|_| {
+                let started = std::time::Instant::now();
+                for _ in 0..repeat {
+                    scan(text);
+                }
+                started.elapsed()
+            })
+            .min()
+            .expect("five runs")
+    };
+    let mut measured = Vec::new();
+    for _ in 0..3 {
+        let (few, many) = (fastest(few, times), fastest(many, 1));
+        let ratio = many.as_secs_f64() / few.as_secs_f64().max(f64::EPSILON);
+        if ratio < bar {
+            return;
+        }
+        measured.push(format!(
+            "{times}x the bytes: {few:?} for few {times} times, {many:?} for many: {ratio:.2}x (bar {bar:.2}x)"
+        ));
+    }
+    panic!("{measured:?}");
+}
+
 /// Post-condition assertion: for every reported pattern, its regex must no
 /// longer match the sanitized output — the airtight guarantee.
 fn assert_no_pattern_matches(result: &DetectResult) {
@@ -124,12 +160,14 @@ fn b64(text: &str) -> String {
 
 mod ascii_boundaries;
 mod comment_tails;
+mod credential_files;
 mod credential_values;
 mod document_forms;
 mod every_pattern;
 mod glued_tags;
 mod key_armors;
 mod large_input;
+mod long_line_every_value;
 mod markerless;
 mod one_long_line;
 mod prescan;
@@ -154,4 +192,24 @@ fn overlapping_secrets_join_and_none_is_dropped() {
         .map(|(_, secret)| secret)
         .collect();
     assert_eq!(joined, vec![4..20, 25..30]);
+}
+
+/// A match whose secret starts inside an earlier secret's continued lines
+/// (a value ending in `\` before a line break goes on at the next line) and
+/// ends past them joins that secret: no tail of it stays readable (B190
+/// item 4). No built-in pattern is known to reach this, so the scanner is
+/// driven by a pattern of its own.
+#[test]
+fn a_match_starting_inside_a_continued_secret_joins_it() {
+    let regex =
+        regex::Regex::new(r"(?P<secret>[a-z]+\\)|(?P<secret_b>q[a-z\n ]+)").expect("test pattern");
+    let content = "ab\\\nxx qrs\ntail more\n";
+    let (redacted, replaced) = replace_secrets(&regex, content, "[R]", |_, _, _| true);
+    assert!(!redacted.contains("tail"), "{redacted:?}");
+    assert_eq!(
+        redacted.lines().count(),
+        content.lines().count(),
+        "{redacted:?}"
+    );
+    assert_eq!(replaced.len(), 1, "{replaced:?}");
 }

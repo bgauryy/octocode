@@ -116,7 +116,7 @@ fn owners(tables: &format::GraphTables, index: usize) -> Vec<String> {
         .into_iter()
         .filter_map(|file| tables.nodes.get(file as usize))
         .filter(|node| node.kind == NodeKind::File)
-        .filter_map(|node| tables.strings.get(node.key as usize).cloned())
+        .filter_map(|node| tables.strings.get(node.key as usize).map(str::to_owned))
         .collect::<Vec<_>>();
     named.sort_unstable();
     named.dedup();
@@ -175,7 +175,7 @@ pub(in crate::tools::ast_graph::store) fn redact_secrets(
         let scan = || -> Vec<(usize, String)> {
             let text = scanned
                 .clone()
-                .map(|index| strings[index].as_str())
+                .map(|index| &strings[index])
                 .collect::<Vec<_>>()
                 .join("\n");
             if sanitize(security, &text).is_none() {
@@ -208,9 +208,7 @@ pub(in crate::tools::ast_graph::store) fn redact_secrets(
     if redacted.is_empty() {
         return Ok(());
     }
-    for (index, content) in redacted {
-        tables.strings[index] = content;
-    }
+    tables.strings.replace(redacted);
     tables.index();
     Ok(())
 }

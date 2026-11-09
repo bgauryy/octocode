@@ -307,6 +307,28 @@ pub fn may_name_supertypes(content: &str, file_path: &str) -> bool {
         .is_none_or(|(_, grammar)| graph_facts::names_supertypes(&grammar))
 }
 
+/// The byte range of the scope of the local binding (a parameter no call
+/// site names by keyword, or a variable bound inside a callable) that `name`
+/// at byte `at` of `content`
+/// names, read with `file_path`'s grammar; `None` when it names no local
+/// binding, or the grammar or a recovered parse cannot tell.
+pub(crate) fn local_binding_scope(
+    content: &str,
+    file_path: &str,
+    name: &str,
+    at: usize,
+    deadline: std::time::Instant,
+) -> Option<std::ops::Range<usize>> {
+    let (entry, _) = graph_facts_grammar(content, file_path)?;
+    let adapter = entry.argument_adapter?;
+    let tree = extractor::parse_before(content, &entry.language, deadline)?;
+    let root = tree.root_node();
+    if root.has_error() {
+        return None;
+    }
+    arguments::binding::Bindings::collect(root, adapter, content, deadline).local_scope(name, at)
+}
+
 pub(crate) fn graph_facts_grammar(
     content: &str,
     file_path: &str,

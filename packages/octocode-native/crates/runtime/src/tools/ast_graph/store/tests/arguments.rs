@@ -295,7 +295,7 @@ fn wide_argument_lists_keep_every_slot_across_pages() {
         );
         assert_eq!(built.value["counts"]["nodesByKind"]["symbol"], 3);
         assert_eq!(built.value["calls"]["sites"], 1);
-        assert_eq!(built.value["calls"]["linked"], 1);
+        assert_eq!(built.value["linkage"]["linked"], 1);
         let calls = ask(&dir.0, "witnesses", Some("wide.rs"), |o| {
             o.include_provenance = true;
             o.edges = vec!["calls".into()];

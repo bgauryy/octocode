@@ -67,7 +67,6 @@ fn every_pr_view_keeps_source_target_and_merge_commits() {
         json!({"sections":["patches"]}),
         json!({"sections":["files"]}),
         json!({"sections":["patches"],"matchString":["x"]}),
-        json!({"sections":["patches"],"page":2}),
     ] {
         let query = HistoryItemRequest::from_row(merge(
             json!({"operation":"pullRequest","owner":"o","repo":"r","number":1}),
@@ -93,6 +92,40 @@ fn every_pr_view_keeps_source_target_and_merge_commits() {
     assert!(open.get("mergeCommitSha").is_none(), "{open}");
     assert!(open.get("reviewThreadsCount").is_none(), "{open}");
     assert_eq!(open["baseSha"], "b1", "{open}");
+}
+
+/// A later page (`page` past 1, or a char `offset`) continues a row whose
+/// first page already delivered the header: it names the pull request
+/// (`number`) and the state the contract requires (`state`, `headSha`), and
+/// carries no empty placeholder for the rest.
+#[test]
+fn a_later_page_restates_only_the_pull_request_identity() {
+    let raw = json!({"number":1,"title":"t","user":{"login":"a"},"state":"closed",
+        "merged_at":"2026-01-04T00:00:00Z","merge_commit_sha":"m1",
+        "head":{"sha":"h1","ref":"feat"},"base":{"sha":"b1","ref":"main"},
+        "created_at":"2026-01-01T00:00:00Z","changed_files":3,"additions":5,"deletions":1,
+        "commits":4});
+    for fields in [json!({"page":2}), json!({"offset":480})] {
+        let query = HistoryItemRequest::from_row(merge(
+            json!({"operation":"pullRequest","owner":"o","repo":"r","number":1,
+                "sections":["patches"]}),
+            fields.clone(),
+        ))
+        .expect("query");
+        let row = pr_metadata(&raw, &query);
+        let mut keys = row
+            .as_object()
+            .expect("object")
+            .keys()
+            .cloned()
+            .collect::<Vec<_>>();
+        keys.sort();
+        assert_eq!(keys, ["headSha", "number", "state"], "{fields}: {row}");
+        crate::tools::test_support::assert_row_contract(
+            crate::id::ToolId::GhGetHistoryItem,
+            &json!({"pullRequests": [row]}),
+        );
+    }
 }
 
 /// More labels than the GraphQL read holds: the row says so in the field

@@ -137,3 +137,30 @@ async fn a_missing_ref_of_a_renamed_repository_names_it_canonically() {
         "{lead}"
     );
 }
+
+/// Three rows of one call on a renamed repository: the rename is one fact
+/// of the call, stated once for it, not once per row.
+#[tokio::test]
+async fn a_rename_every_row_shares_is_stated_once_for_the_call() {
+    let server = renamed_server("languages", 200, json!({"Rust": 10})).await;
+    let mut rows = Vec::new();
+    for _ in 0..3 {
+        let out = list(
+            &server,
+            json!({"owner":"a","repo":"b","operation":"languages"}),
+        )
+        .await
+        .expect("languages");
+        rows.push(out.data);
+    }
+    let response =
+        crate::tools::test_support::staged_response(crate::id::ToolId::GhStructure, rows);
+    let warning = crate::tools::gh_shared::renamed_warning("a", "b", &("c".into(), "d".into()));
+    assert_eq!(response["warnings"], json!([warning]), "{response}");
+    let rows = response["results"].as_array().expect("rows");
+    assert_eq!(rows.len(), 3, "{response}");
+    for row in rows {
+        assert_eq!(row["data"]["languages"], json!({"Rust": 10}), "{response}");
+        assert!(row["data"].get("warnings").is_none(), "{response}");
+    }
+}

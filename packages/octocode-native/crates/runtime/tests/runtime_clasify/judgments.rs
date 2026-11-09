@@ -45,13 +45,16 @@ async fn a_content_row_sends_the_questions_unchanged_and_returns_provider_answer
     assert_eq!(result["model"], "jev-1.13.0");
     assert_eq!(
         result["usage"],
-        json!({"input_tokens":40,"output_tokens":7,"calls":1})
+        json!({"inputTokens":40,"outputTokens":7,"calls":1})
     );
     assert_eq!(
         result["answers"]["restart"],
-        json!({"type":"noul","noul":0.9})
+        json!({"noul":0.9})
     );
-    assert_eq!(result["answers"]["route"]["type"], "choice");
+    assert!(
+        result["answers"]["route"].get("type").is_none(),
+        "an answer names its type by its value key, not a type field"
+    );
     assert_eq!(result["answers"]["route"]["choice"], "restart");
     assert_eq!(
         result["answers"]["route"]["probabilities"],
@@ -134,7 +137,7 @@ async fn an_identical_evaluation_reaches_the_provider_every_time() {
     );
     assert_eq!(
         again["results"][0]["data"]["usage"],
-        json!({"input_tokens":40,"output_tokens":7,"calls":1}),
+        json!({"inputTokens":40,"outputTokens":7,"calls":1}),
         "a repeat is new spend"
     );
     // A different question is a different evaluation.
@@ -183,11 +186,7 @@ async fn identical_rows_in_one_call_share_one_provider_request() {
             .sum::<u64>()
     };
     assert_eq!(
-        (
-            total("input_tokens"),
-            total("output_tokens"),
-            total("calls")
-        ),
+        (total("inputTokens"), total("outputTokens"), total("calls")),
         (40, 7, 1),
         "{out}"
     );

@@ -121,7 +121,7 @@ fn a_memory_stop_lands_on_the_same_file_every_time() {
         (
             out["filesScanned"].clone(),
             out["next"]["expandScan"]["input"]["queries"][0]["scanOffset"].clone(),
-            out["snapshot"].clone(),
+            crate::tools::test_support::pinned_snapshot(&out).clone(),
         )
     };
     let first = stop();

@@ -48,7 +48,7 @@ fn read_names(
         cancel.check().map_err(VerifyReadError::Cancelled)?;
         let read = reader.read(&mut chunk)?;
         if read == 0 {
-            return Ok(names.finish().objects);
+            return Ok(names.finish().objects.any());
         }
         names.feed(&chunk[..read]);
     }

@@ -1,4 +1,5 @@
-//! B101: per-call provider facts (`rateLimit`, `clientWaits`, `observedAt`) differ between
+//! B101: per-call provider facts (`rateLimit`, `clientWaits`, `observedAt`,
+//! `contentReads`) differ between
 //! executions of one request, present on one run and absent on the next. A
 //! pinned page re-executed after its saved replay is gone must cut where the
 //! first run cut, or the walk gets gaps or duplicates.
@@ -28,7 +29,7 @@ fn run(field: &str, facts: Option<Value>) -> Value {
 
 /// Each volatile field, and a provider resource name longer than any the
 /// contract bounds: metadata is never measured against the page target.
-fn variants() -> [(&'static str, Value); 4] {
+fn variants() -> [(&'static str, Value); 5] {
     [
         (
             "rateLimit",
@@ -43,6 +44,7 @@ fn variants() -> [(&'static str, Value); 4] {
             json!([{"kind": "quotaPacing", "ms": 1307}, {"kind": "spacing", "ms": 4}]),
         ),
         ("observedAt", json!("1970-01-02T00:00:00Z")),
+        ("contentReads", json!(3)),
     ]
 }
 
@@ -192,6 +194,23 @@ fn volatile_presence_moves_neither_page_edges_nor_the_snapshot() {
             assert!(with.len() > 1, "{field} at {budget}: a split walk");
             assert_eq!(with, without, "{field} at {budget}: page edges");
         }
+    }
+}
+
+/// C3eK B-D3: one request read twice, once fetching its file contents
+/// (`contentReads:3`, then 2) and once reusing them (absent), has one
+/// snapshot digest, and each run's count still reaches its row once.
+#[test]
+fn content_reads_leave_the_digest_of_identical_requests_equal() {
+    let runs = [Some(json!(3)), Some(json!(2)), None].map(|reads| run("contentReads", reads));
+    for budget in [600, 900, 1500, 2600] {
+        let digest = content_snapshot(&runs[0], budget);
+        assert!(digest.is_some(), "a digest at {budget}");
+        for other in &runs[1..] {
+            assert_eq!(content_snapshot(other, budget), digest, "digest at {budget}");
+        }
+        assert_eq!(row_values(&runs[0], budget, "contentReads"), [json!(3)]);
+        assert_eq!(row_values(&runs[2], budget, "contentReads"), Vec::<Value>::new());
     }
 }
 

@@ -79,6 +79,61 @@ fn a_tree_page_groups_each_directory_once() {
     assert_eq!(dirs.len(), unique.len(), "{query}: {out}");
 }
 
+/// A `traversal` (walk-order) `files` page names each directory once, on
+/// every page of the walk: a directory whose own files sit on both sides of
+/// a subdirectory in the walk (`memory.rs`, `memory/tests.rs`, `tests.rs`)
+/// is one group, and so is a `path`-ranked page. Name, size, line and time
+/// ranks keep their global order exactly, so a directory the rank returns to
+/// opens a new group ([`sorted_pages_walk_one_global_order_exactly_once`]).
+#[test]
+fn a_traversal_files_page_names_each_directory_once() {
+    let root = Fixture::new();
+    for path in [
+        "f/evaluate.rs",
+        "f/evaluate/facts.rs",
+        "f/evaluate/ordered.rs",
+        "f/evaluate/outcome.rs",
+        "f/memory.rs",
+        "f/memory/tests.rs",
+        "f/tests.rs",
+        "f/tests/a.rs",
+        "f/tests/b.rs",
+        "f/z.rs",
+    ] {
+        root.write(path, "line\n");
+    }
+    let start = json!({"operation":"files","path":root.0.join("f"),"limit":5,
+        "sort":{"by":"traversal","order":"asc"}});
+    let pages = walk_pages(&root.0, start.clone());
+    assert!(pages.len() > 1, "{start}: pages");
+    for page in &pages {
+        let dirs = group_dirs(page);
+        let mut unique = dirs.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(dirs.len(), unique.len(), "{start}: {page}");
+    }
+}
+
+/// A `path`-ranked page names each directory once even where the rank
+/// returns to it (`memory.rs` < `memory/tests.rs` < `tests.rs`).
+#[test]
+fn a_path_ranked_page_names_each_directory_once() {
+    let root = Fixture::new();
+    for path in ["f/memory.rs", "f/memory/tests.rs", "f/tests.rs"] {
+        root.write(path, "line\n");
+    }
+    let start = json!({"operation":"files","path":root.0.join("f"),
+        "sort":{"by":"path","order":"asc"}});
+    for page in walk_pages(&root.0, start) {
+        let dirs = group_dirs(&page);
+        let mut unique = dirs.clone();
+        unique.sort();
+        unique.dedup();
+        assert_eq!(dirs.len(), unique.len(), "{page}");
+    }
+}
+
 /// A sorted view is one global order: walking every page lists each file
 /// once, in exact rank order across pages, whatever the key and direction.
 /// A page groups only adjacent entries of one directory, so a directory the

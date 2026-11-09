@@ -15,7 +15,7 @@ use octocode_engine::num::saturating_usize;
 use std::path::Path;
 
 /// Why a page of a source whose structure outran the memory budget hides its values.
-const EVERY_VALUE_NOTE: &str = "redactedContent: this source names a Kubernetes Secret or a JSON Web Key, and its nesting outgrew the memory budget before the walk that places their values finished, so every value on this page is hidden, secret or not. Split the source to read it.";
+const EVERY_VALUE_NOTE: &str = "redactedContent: this source names a Kubernetes Secret, a JSON Web Key or a Docker registry config, and its nesting outgrew the memory budget before the walk that places their values finished, so every value on this page is hidden, secret or not. Split the source to read it.";
 
 /// Drop the byte continuation of a page of a source each of whose windows hides
 /// every value on its own: the next window's offsets would count another view,
@@ -47,7 +47,23 @@ fn withhold_byte_page(result: &mut LocalFetchResult, line: usize, reads_on: bool
     result.warnings.push(format!(
         "Line {line} is not read past byte {end} of this page's view: the source's nesting outgrew the memory budget, so each window hides every value on its own and no later byte page shares these offsets.{rest}"
     ));
-    result.terminal_limit(PartialReason::SecuritySelectedView);
+    // Every page of the fallback names the memory budget once core declares
+    // it ([`every_value_reason`]); until then the withhold keeps its old reason.
+    if !result
+        .partial_reasons
+        .contains(&PartialReason::SecurityWalkMemoryBudget)
+    {
+        result.terminal_limit(PartialReason::SecuritySelectedView);
+    }
+}
+
+/// Disclose a page of the every-value fallback: its values are hidden, secret
+/// or not, because the structure walk outgrew the memory budget. A terminal
+/// limit under core's reason for it, once the contract declares that reason.
+fn every_value_reason(result: &mut LocalFetchResult) {
+    if let Some(reason) = PartialReason::walk_memory_budget() {
+        result.terminal_limit(reason);
+    }
 }
 
 /// The file lines one streamed window of `q` holds.
@@ -292,6 +308,7 @@ pub(super) fn serve_window(
                 beside: 0,
                 interior: streamed.first > 1 || streamed.origin.base > 0,
                 byte_origin: Some(streamed.origin.clone()),
+                file_lines: Some(total),
             },
             security,
             cancel,
@@ -305,6 +322,7 @@ pub(super) fn serve_window(
                 .warnings
                 .retain(|warning| !warning.starts_with("redactedContent"));
             result.warnings.push(EVERY_VALUE_NOTE.to_owned());
+            every_value_reason(&mut result);
         }
         if !chunked && requested_last > total {
             // The in-memory read states the same clamp.

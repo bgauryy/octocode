@@ -7,6 +7,9 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 mod channels;
+mod fill;
+mod row_parts;
+mod shares;
 
 const STORAGE: [(&str, &str); 1] = [("OCTOCODE_STORAGE_MODE", "persistent")];
 
@@ -158,7 +161,15 @@ async fn a_whole_read_over_the_automatic_page_says_it_reads_on() {
     )
     .await;
     assert!(pages.len() > 1, "more than one page");
-    assert_eq!(pages[0]["responsePagination"]["hasMore"], true);
+    // The first page says it reads on: its row fits the window (X3), so the
+    // row's own walk continues it, or a response page when one is cut.
+    assert!(
+        pages[0]["responsePagination"]["hasMore"] == true
+            || pages[0]["results"][0]["data"]["pagination"]["hasMore"] == true,
+        "{}",
+        pages[0]
+    );
+    assert!(the_next_call(&pages[0]).is_some(), "a way on");
     let read = pages
         .iter()
         .flat_map(|page| page["results"].as_array().into_iter().flatten())

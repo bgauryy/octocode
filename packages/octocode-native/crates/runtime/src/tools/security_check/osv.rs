@@ -264,8 +264,21 @@ pub(super) fn unread_reason(error: &ArtifactError) -> String {
         .unwrap_or_default();
     match error.status {
         Some(status) => format!("OSV did not answer: HTTP {status}, {code}"),
+        None if answered_unreadably(error) => {
+            format!("OSV answered, but not with records this tool could read: {code}")
+        }
         None => format!("OSV did not answer: {code}"),
     }
+}
+
+/// How [`malformed`] opens its message: OSV answered, with what this tool
+/// could not read.
+const ANSWERED_WITH: &str = "OSV answered with ";
+
+/// OSV answered, but not with records this tool could read ([`malformed`]),
+/// unlike an answer that never came.
+pub(super) fn answered_unreadably(error: &ArtifactError) -> bool {
+    error.status.is_none() && error.message.starts_with(ANSWERED_WITH)
 }
 
 /// A non-2xx answer under the status table GitHub answers share; the message
@@ -285,9 +298,7 @@ fn status_failure(status: u16, body: &[u8], target: &str) -> ArtifactError {
 pub(super) fn malformed(reason: &str, target: &str) -> ArtifactError {
     ArtifactError::new(
         ErrorCode::ProviderError,
-        format!(
-            "OSV answered with {reason}: advisories for {target} were not checked. Retry later."
-        ),
+        format!("{ANSWERED_WITH}{reason}: advisories for {target} were not checked. Retry later."),
     )
 }
 

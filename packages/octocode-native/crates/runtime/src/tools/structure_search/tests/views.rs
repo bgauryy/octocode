@@ -21,7 +21,7 @@ fn explicit_details_preserves_the_default_listing() {
         query["view"] = json!("details");
         let detailed = run(&root.0, query).expect("details");
         assert_eq!(detailed["files"], default["files"]);
-        assert_eq!(detailed["snapshot"], default["snapshot"]);
+        assert_eq!(crate::tools::test_support::pinned_snapshot(&detailed), crate::tools::test_support::pinned_snapshot(&default));
         assert_eq!(listed(&detailed)[0]["totalLines"], 2);
     }
 }

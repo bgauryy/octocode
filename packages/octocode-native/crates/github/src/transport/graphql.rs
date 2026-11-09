@@ -7,7 +7,7 @@ use octocode_io::{
 use serde_json::Value;
 use std::time::Instant;
 
-use super::attempts::{secondary_cooldown, secondary_wait};
+use super::attempts::{secondary_cooldown, secondary_wait, spent_bucket_reset};
 use super::execute::Obtained;
 use super::{GitHubTransport, GraphQlError, GraphQlPage, RequestContext, RequestSpec};
 use crate::budget::{CircuitCause, GitHubResource, now_ms, rate_limited_error};
@@ -138,7 +138,9 @@ impl GitHubTransport {
             }
             // Before the primary check: a secondary limit's `type` can say
             // RATE_LIMITED too, and it blocks the whole key, not one bucket.
-            if parsed.errors.iter().any(GraphQlError::is_secondary_limit) {
+            // A spent bucket in the headers is that bucket's limit, as on REST.
+            let spent = spent_bucket_reset(&page.headers);
+            if spent.is_none() && parsed.errors.iter().any(GraphQlError::is_secondary_limit) {
                 let state = self.key_state(context.resolved_credential());
                 let config = self.budget.config();
                 let wait = secondary_wait(&page.headers, config);
@@ -156,10 +158,25 @@ impl GitHubTransport {
                     limit,
                 ));
             }
-            if parsed.errors.iter().any(GraphQlError::is_rate_limited) {
+            let secondary_on_spent =
+                spent.is_some() && parsed.errors.iter().any(GraphQlError::is_secondary_limit);
+            if secondary_on_spent || parsed.errors.iter().any(GraphQlError::is_rate_limited) {
                 // GraphQL primary limit arrives as HTTP 200 + errors[].type.
                 let state = self.key_state(context.resolved_credential());
-                let reset = header_u64(&page.headers, "x-ratelimit-reset")
+                if secondary_on_spent {
+                    // As on REST: the named secondary limit cools the key
+                    // beside the spent bucket.
+                    let config = self.budget.config();
+                    secondary_cooldown(
+                        &state,
+                        &page.headers,
+                        secondary_wait(&page.headers, config),
+                        GitHubResource::Graphql,
+                    );
+                    state.record_circuit_failure(config, CircuitCause::Secondary);
+                }
+                let reset = spent
+                    .or_else(|| header_u64(&page.headers, "x-ratelimit-reset"))
                     .unwrap_or_else(|| now_ms() / 1000 + 60);
                 state.exhaust(GitHubResource::Graphql.bucket(), reset);
                 let wait = self.budget.config().reset_wait(reset);

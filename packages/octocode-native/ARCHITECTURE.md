@@ -120,8 +120,11 @@ retain extraction checkpoints only for interrupted work; successful publication
 retires the matching job generation. Published snapshots are authoritative outputs.
 Graph topology uses dense node/string IDs and bidirectional compressed adjacency
 arrays; queries decode only their required tables and selected evidence blocks.
-Clone outputs use fresh staging and atomic publication under `<home>/clones/`,
-replace only clean destinations, and have no TTL or eviction.
+Clone outputs are linked git worktrees of one shared partial store per repository
+(`<home>/clone-store/`, system Git 2.36 or newer). Each is staged as a worktree and
+published by an atomic `git worktree move` under `<home>/clones/`; only clean
+destinations are replaced, and neither outputs nor stores have a TTL or eviction.
+A store that held a credential-named blob is superseded by a new generation.
 
 Live language servers, synchronized documents, request IDs, HTTP connections,
 rate-limit admission, compiled grammar/regex programs and installed toolchains are

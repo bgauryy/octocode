@@ -6,6 +6,8 @@ use super::*;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct CallStats {
     pub sites: u64,
+    /// Stated as `linkage.linked`.
+    #[serde(skip)]
     pub linked: u64,
     pub unresolved: u64,
     pub by_resolution: BTreeMap<String, u64>,

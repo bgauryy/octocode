@@ -85,4 +85,3 @@ pub(super) fn directory(dir: &Path) -> Directory {
     };
     Directory::Files(files)
 }
-

@@ -80,7 +80,8 @@ pub struct RequestSpec {
     /// is not an error for it.
     first_page_only: bool,
     /// The caller stores the answer's body itself: no saved answer keeps it
-    /// a second time ([`GitHubTransport::keep`]).
+    /// a second time ([`GitHubTransport::keep`]), and no continuation's
+    /// evidence does either (`Journal::record_page`).
     kept_by_caller: bool,
 }
 impl RequestSpec {

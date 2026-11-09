@@ -1,4 +1,4 @@
-//! Parsing with a deadline and walking named nodes, Rust macro bodies included.
+//! Parsing with a deadline and walking named nodes.
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -6,10 +6,8 @@ use std::time::Instant;
 use tree_sitter::{Language, Node, Tree};
 
 use crate::signatures::extractor::{ParseFailure, parse_with_deadline, whole_file_deadline};
-use crate::structural::octo::macro_bodies::{MAX_MACRO_DEPTH, MacroBodies};
-
+use crate::structural::octo::expanded::{ExpandedTree, Seen};
 use crate::structural::octo::line_index_support::to_structural_match_with_context;
-use crate::structural::octo::source_context::SourceContext;
 use crate::text::LineIndex;
 
 use super::{ExecutionError, Found, PARSE_INTERRUPTED};
@@ -82,112 +80,6 @@ pub(in crate::structural::octo) fn visit_named<'tree>(
     }
 }
 
-/// A candidate callback that works on the file tree and on every re-parsed
-/// macro body: `(candidate, ancestors root-first, root of candidate's tree)`.
-pub(in crate::structural::octo) type CandidateVisitor<'f> = dyn for<'n> FnMut(Node<'n>, &[Node<'n>], Node<'n>, &SourceContext) -> Result<(), ExecutionError>
-    + 'f;
-
-/// [`visit_named`] that also hands each named node its ancestor chain (the
-/// cursor path: O(1) per step, not an O(depth) `Node::parent()` search) and
-/// walks Rust macro bodies: an expandable token tree is visited itself, then re-parsed and walked in
-/// place of its flat tokens. Ancestors of a body node continue the chain of
-/// its invocation, so `inside` rules see the enclosing items.
-pub(in crate::structural::octo) fn visit_named_expanding_macros(
-    root: Node<'_>,
-    content: &str,
-    language: &Language,
-    macros: Option<&MacroBodies>,
-    deadline: super::Deadline,
-    f: &mut CandidateVisitor<'_>,
-) -> Result<(), ExecutionError> {
-    let source = SourceContext::root(root, content);
-    walk_expanding(
-        &source,
-        root,
-        &[],
-        None,
-        &[],
-        0,
-        content,
-        language,
-        macros,
-        deadline,
-        f,
-    )
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the recursive walk threads the macro-body frame and the file context flat, like the matcher (see clippy.toml)"
-)]
-fn walk_expanding<'tree>(
-    source: &SourceContext,
-    root: Node<'tree>,
-    prefix: &[Node<'tree>],
-    body: Option<&tree_sitter::Range>,
-    strings: &[std::ops::Range<usize>],
-    depth: usize,
-    content: &str,
-    language: &Language,
-    macros: Option<&MacroBodies>,
-    deadline: super::Deadline,
-    f: &mut CandidateVisitor<'_>,
-) -> Result<(), ExecutionError> {
-    let mut cursor = root.walk();
-    let mut ancestors: Vec<Node<'tree>> = prefix.to_vec();
-    loop {
-        ExecutionError::check(deadline)?;
-        let current = cursor.node();
-        let candidate = match (body, macros) {
-            (Some(body), Some(macros)) => macros.is_candidate(current, body, strings),
-            _ => true,
-        };
-        if current.is_named() && candidate {
-            f(current, &ancestors, root, source)?;
-        }
-        let mut descend = true;
-        if let Some(macros) = macros
-            && depth < MAX_MACRO_DEPTH
-            && macros.is_expandable(current, ancestors.last().copied(), content)
-        {
-            let range = current.range();
-            if let Some(tree) = macros.parse(content, language, range, deadline)? {
-                let mut chain: Vec<Node<'_>> = ancestors.clone();
-                chain.push(current);
-                let body_strings = crate::structural::octo::macro_bodies::string_literals(current);
-                let nested_source = source.region(tree.root_node(), range, macros.terminator())?;
-                walk_expanding(
-                    &nested_source,
-                    tree.root_node(),
-                    &chain,
-                    Some(&range),
-                    &body_strings,
-                    depth + 1,
-                    content,
-                    language,
-                    Some(macros),
-                    deadline,
-                    f,
-                )?;
-                descend = false;
-            }
-        }
-        if descend && cursor.goto_first_child() {
-            ancestors.push(current);
-            continue;
-        }
-        loop {
-            if cursor.goto_next_sibling() {
-                break;
-            }
-            if !cursor.goto_parent() {
-                return Ok(());
-            }
-            ancestors.pop();
-        }
-    }
-}
-
 /// Ancestor chain of `node` (root first, parent last) computed with one
 /// top-down descent from `root`, the same search `ts_node_parent` performs for
 /// a single step. Used when a caller has no cursor path for `node`.
@@ -213,35 +105,36 @@ pub(in crate::structural::octo) fn ancestors_from_root<'tree>(
 }
 
 pub(in crate::structural::octo) fn collect_kind_matches(
-    root: Node<'_>,
+    tree: &ExpandedTree<'_>,
     kind: &str,
     content: &str,
-    language: &Language,
-    macros: Option<&MacroBodies>,
     deadline: super::Deadline,
     found: &mut Found<'_>,
 ) -> Result<(), ExecutionError> {
     let line_index = LineIndex::tree_sitter(content);
-    visit_named_expanding_macros(
-        root,
-        content,
-        language,
-        macros,
-        deadline,
-        &mut |candidate, _, _, source| {
-            if candidate.kind() == kind {
-                found.push(candidate, || {
-                    to_structural_match_with_context(
-                        source,
-                        candidate,
-                        content,
-                        &line_index,
-                        HashMap::new(),
-                        HashMap::new(),
-                    )
-                });
+    tree.visit_nodes(deadline, &mut |candidate, _, seen| {
+        if candidate.kind() != kind {
+            return Ok(());
+        }
+        if seen == Seen::Unreadable {
+            if let Some(body) = tree.disclosed_body(candidate) {
+                found.mark_recovered_body(body);
             }
-            Ok(())
-        },
-    )
+            return Ok(());
+        }
+        {
+            let source = tree.source_for(candidate, [])?;
+            found.push(candidate, || {
+                to_structural_match_with_context(
+                    &source,
+                    candidate,
+                    content,
+                    &line_index,
+                    HashMap::new(),
+                    HashMap::new(),
+                )
+            });
+        }
+        Ok(())
+    })
 }

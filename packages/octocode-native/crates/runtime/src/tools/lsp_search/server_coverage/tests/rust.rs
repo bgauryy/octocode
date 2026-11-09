@@ -183,3 +183,31 @@ fn an_incomplete_gate_scan_is_noted_once_per_response() {
         assert_eq!(row["data"]["partialReasons"], json!([CFG_REASON]), "{row}");
     }
 }
+
+/// A file of the server's own Cargo project that spells the name in code and
+/// is out of the answer holds no use: the server indexed its project, and a
+/// `.rs` file no module declares is not compiled. A complete row then counts
+/// no such file: `coverage.textOnlyFiles` counts only files it flags and leads
+/// to, never a number with no way to the files.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_own_project_file_left_out_is_not_counted_on_a_complete_row() {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("root");
+    let package = root.join("pkg");
+    std::fs::create_dir_all(package.join("src")).expect("src");
+    // Outside git, generated-output dirs (`build/`, `dist/`) are pruned from
+    // the scan; an orphan anywhere else is read.
+    std::fs::create_dir_all(package.join("scratch")).expect("scratch");
+    std::fs::write(package.join("Cargo.toml"), "[package]\nname = \"p\"\n").expect("manifest");
+    std::fs::write(
+        package.join("scratch/copy.rs"),
+        "fn copy() { crate::include_diff(); }\n",
+    )
+    .expect("orphan");
+    let row = rust_row(&root, "pub fn include_diff() {}\n", json!({}), &["lib.rs"]).await;
+    assert!(row.get("isPartial").is_none(), "{row}");
+    assert_eq!(
+        row["coverage"]["textOnlyFiles"], 0,
+        "a counted file must be flagged and led to: {row}"
+    );
+}

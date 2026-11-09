@@ -170,6 +170,5 @@ pub(super) fn receipt(id: &str, dir: &Path, manifest: &Value, started: Instant) 
     if manifest["diagnostics"]["total"].as_u64().unwrap_or(0) > 0 {
         receipt["diagnostics"] = manifest["diagnostics"]["byCode"].clone();
     }
-    super::super::manifest::disclose_value_references(&mut receipt);
     receipt
 }

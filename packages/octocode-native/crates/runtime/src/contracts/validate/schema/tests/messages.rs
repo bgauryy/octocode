@@ -279,3 +279,49 @@ fn a_misplaced_field_names_every_operation_that_takes_it() {
     assert!(shown.contains("\"evaluate\""), "{shown}");
     assert!(shown.contains("\"sections\""), "{shown}");
 }
+
+/// A pattern core explained with a message (`.regex(pattern, message)`,
+/// carried as `x-patternMessage` beside the pattern) refuses a value with
+/// that message, read after the numeric-token and repository-path rules.
+#[test]
+fn a_pattern_states_the_message_core_authored_for_it() {
+    let schema = json!({
+        "type": "string",
+        "pattern": "^[^:@=/\\s]+:[^:@=/\\s]+$",
+        "x-patternMessage": "Use group:artifact and put the version in version."
+    });
+    let shown = super::super::validate_input_schema(
+        &schema,
+        &schema,
+        &mut json!("commons-lang3"),
+        &mut vec!["packageName".into()],
+    )
+    .unwrap_err();
+    assert!(
+        format!("{shown:?}").contains(
+            r#"\"commons-lang3\" is not a valid value for packageName: Use group:artifact and put the version in version."#
+        ),
+        "{shown:?}"
+    );
+    // A repository path's own rule still comes first.
+    let path = json!({
+        "type": "string",
+        "pattern": r"^(?:[^/\\.\sA-Za-z][^/\\]*|[A-Za-z](?:[^/\\:][^/\\]*)?|\.[^/\\.][^/\\]*|\.\.[^/\\]+|\s+[^/\\\s][^/\\]*)(?:\/(?:[^/\\.][^/\\]*|\.[^/\\.][^/\\]*|\.\.[^/\\]+))*\/?$",
+        "x-patternMessage": "Not this one."
+    });
+    let shown = validate_input_schema_for_test(&path, json!("../x"));
+    let messages = shown
+        .issues
+        .iter()
+        .map(|issue| issue.message.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("repository-relative"))
+            && messages
+                .iter()
+                .all(|message| !message.contains("Not this one.")),
+        "{messages:?}"
+    );
+}

@@ -147,11 +147,11 @@ async fn an_empty_owner_search_states_unproven_absence_and_lists_repositories() 
     );
 }
 
-/// An empty row's hint names only the leads the row has: a search that offers
-/// `broadenSearch` has no root listing to point at. Either way it names the next
-/// step for what the index may not hold, a read of a known file by matchString.
+/// An empty repository row's leads are only those it has: a search that
+/// offers `broadenSearch` has no root listing. Neither row restates the tool
+/// description in a hint (R3).
 #[tokio::test]
-async fn an_empty_hint_names_only_a_lead_the_row_has() {
+async fn an_empty_row_offers_only_its_own_leads_and_no_restated_hint() {
     for (row, listed) in [
         (
             json!({"owner":"octo","repo":"demo","keywords":["zzqq"],"nameContains":"x"}),
@@ -175,12 +175,6 @@ async fn an_empty_hint_names_only_a_lead_the_row_has() {
             "{row}: {}",
             out.data
         );
-        assert_eq!(
-            hints.contains("related[] ghStructure"),
-            listed,
-            "{row}: {hints}"
-        );
-        assert!(hints.contains("unproven absence"), "{row}: {hints}");
-        assert!(hints.contains("matchString"), "{row}: {hints}");
+        assert!(!hints.contains("unproven absence"), "{row}: {hints}");
     }
 }

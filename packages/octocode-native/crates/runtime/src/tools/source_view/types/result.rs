@@ -239,16 +239,23 @@ impl LocalFetchResult {
     /// Where the returned text sits in the source: totals, the line span,
     /// and the hits on this page, each only when not derivable from another.
     /// A page with no text (nothing selected, minified away or past the
-    /// end) locates nothing: its leads carry the coordinates to read.
+    /// end) locates nothing: its leads carry the coordinates to read, and
+    /// its zeros (no hit line, no selected match) are what `content:""` and
+    /// the row's `empty` status already say; a count of matches selected on
+    /// other pages stays.
     fn serialize_anchors<M: serde::ser::SerializeMap>(&self, map: &mut M) -> Result<(), M::Error> {
         opt(map, "totalLines", &self.total_lines)?;
+        if self.has_no_text() {
+            if !self.matched_lines.is_empty() {
+                map.serialize_entry("matchedLines", &self.matched_lines)?;
+            }
+            let selected = self.selected_match_count.filter(|count| *count > 0);
+            return opt(map, "selectedMatchCount", &selected);
+        }
         // Hit identity is not derivable from the text: a match-selected
         // page can contain only context, including text identical to a hit.
         if self.selected_match_count.is_some() || !self.matched_lines.is_empty() {
             map.serialize_entry("matchedLines", &self.matched_lines)?;
-        }
-        if self.content.as_deref().is_some_and(str::is_empty) {
-            return opt(map, "selectedMatchCount", &self.selected_match_count);
         }
         if !self.window_is_source_range() {
             opt(map, "startLine", &self.start_line)?;
@@ -275,7 +282,14 @@ impl LocalFetchResult {
     /// needs, and the reader only measures with them.
     fn serialize_counters<M: serde::ser::SerializeMap>(&self, map: &mut M) -> Result<(), M::Error> {
         opt(map, "modified", &self.modified)?;
-        opt(map, "returnedLines", &self.returned_lines)
+        // `content:""` states that no line returned.
+        let returned = self.returned_lines.filter(|lines| *lines > 0 || !self.has_no_text());
+        opt(map, "returnedLines", &returned)
+    }
+
+    /// The page returned no text: `content` is present and empty.
+    fn has_no_text(&self) -> bool {
+        self.content.as_deref().is_some_and(str::is_empty)
     }
 }
 

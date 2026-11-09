@@ -32,14 +32,39 @@ pub enum CheckFailure {
     /// No GitHub credential or request could be prepared.
     Request,
     /// GitHub answered with this failure (a rate limit, an authorization or
-    /// a network failure).
-    Provider(octocode_github::ProviderErrorKind),
+    /// a network failure). `resets` says when a rate limit lifts, as GitHub
+    /// stated it ("at <ISO time>" or "in N seconds"), so the row says when
+    /// to ask again ([`Self::provider`]).
+    Provider {
+        kind: octocode_github::ProviderErrorKind,
+        resets: Option<String>,
+    },
     /// The GitHub services could not be built (a malformed API URL, a bad
     /// setting): every check of the call fails the same way, with this message.
     Services(String),
 }
 
 impl CheckFailure {
+    /// The failure GitHub answered with: its kind and, for a rate limit,
+    /// when it lifts (its reset, else its `retry-after`).
+    pub fn provider(error: &octocode_github::ProviderError) -> Self {
+        let resets = error.rate_limit.as_deref().and_then(|limit| {
+            limit
+                .reset_epoch_seconds
+                .and_then(|secs| i64::try_from(secs).ok())
+                .map(|secs| format!("at {}", crate::civil_date::iso8601_secs(secs)))
+                .or_else(|| {
+                    limit
+                        .retry_after_seconds
+                        .map(|secs| format!("in {secs} seconds"))
+                })
+        });
+        Self::Provider {
+            kind: error.kind,
+            resets,
+        }
+    }
+
     /// The cause, as a clause a disclosure can carry.
     pub fn describe(&self) -> String {
         use octocode_github::ProviderErrorKind as Kind;
@@ -51,11 +76,18 @@ impl CheckFailure {
             Self::NotGitHub => "the repository is not on GitHub".to_owned(),
             Self::Unavailable => "GitHub is not available to this call".to_owned(),
             Self::Request => "no GitHub request could be prepared (credentials)".to_owned(),
-            Self::Provider(Kind::RateLimited) => "GitHub's rate limit stopped it".to_owned(),
-            Self::Provider(Kind::Authentication | Kind::Permission) => {
-                "GitHub refused the credential".to_owned()
-            }
-            Self::Provider(kind) => format!("GitHub failed it ({})", kind.code()),
+            Self::Provider {
+                kind: Kind::RateLimited,
+                resets,
+            } => match resets {
+                Some(resets) => format!("GitHub's rate limit stopped it; it resets {resets}"),
+                None => "GitHub's rate limit stopped it".to_owned(),
+            },
+            Self::Provider {
+                kind: Kind::Authentication | Kind::Permission,
+                ..
+            } => "GitHub refused the credential".to_owned(),
+            Self::Provider { kind, .. } => format!("GitHub failed it ({})", kind.code()),
         }
     }
 }

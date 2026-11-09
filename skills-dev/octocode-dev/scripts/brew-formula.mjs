@@ -20,8 +20,9 @@ import { ROOT } from './lib/workspaces.mjs';
 const REGISTRY = 'https://registry.npmjs.org';
 const PACKAGE = '@octocodeai/octocode-native';
 // Homebrew os/arch → npm platform package. Linux uses the glibc builds (glibc ≥ 2.30).
+// macOS ships Apple Silicon only: there is no Intel build.
 const TARGETS = {
-  macos: { arm: 'darwin-arm64', intel: 'darwin-x64' },
+  macos: { arm: 'darwin-arm64' },
   linux: { arm: 'linux-arm64-gnu', intel: 'linux-x64-gnu' },
 };
 
@@ -83,7 +84,6 @@ class Octocode < Formula
 
   on_macos do
 ${arch('macos', 'arm')}
-${arch('macos', 'intel')}
   end
 
   on_linux do

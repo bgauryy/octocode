@@ -4,9 +4,7 @@
 [graph]
 targets = [
     { triple = "aarch64-apple-darwin" },
-    { triple = "x86_64-apple-darwin" },
     { triple = "x86_64-unknown-linux-gnu" },
-    { triple = "x86_64-unknown-linux-musl" },
     { triple = "aarch64-unknown-linux-gnu" },
     { triple = "x86_64-pc-windows-msvc" },
     { triple = "aarch64-pc-windows-msvc" },

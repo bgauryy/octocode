@@ -96,7 +96,13 @@ pub(super) fn reuse(
         manifest["graph"]["sha256"].as_str()?,
         cancel,
     )
-    .and_then(|mut reader| reader.topology_tables(cancel))
+    .and_then(|mut reader| {
+        // Reuse serves the snapshot to every later answer, point answers
+        // included: its lookup must agree with its topology.
+        let tables = reader.topology_tables(cancel)?;
+        reader.check_lookup(&tables, cancel)?;
+        Ok(tables)
+    })
     .ok()?;
     if !snapshot_changes(paths, &root, &tables, &manifest, true)
         .changes

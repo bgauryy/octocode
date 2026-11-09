@@ -72,7 +72,15 @@ pub(super) fn evaluate_row(
         .assets
         .as_ref()
         .map(|assets| {
-            source_capture::assets::capture(assets, &state, &row.questions, dispatcher, context)
+            let field = matches!(target, Target::Content(_)).then_some("content");
+            source_capture::assets::capture(
+                assets,
+                &state,
+                field,
+                &row.questions,
+                dispatcher,
+                context,
+            )
         })
         .transpose()
     {
@@ -108,4 +116,116 @@ pub(super) fn evaluate_row(
         assets: assets.map(|assets| assets.provenance),
         identity,
     }
+}
+
+/// One resource of an `evaluate` row with `resources`: its key, the source
+/// judged (none when it could not be expanded), and its outcome.
+pub(super) struct ResourceOutcome {
+    pub key: String,
+    pub source: Option<serde_json::Value>,
+    pub outcome: RowOutcome,
+}
+
+/// An `evaluate` row with `resources`: every glob expanded
+/// ([`source_capture::glob`]), then each resource judged whole with all the
+/// row's questions, as a `source` is: one grouped request per resource, run
+/// in parallel under the gate.
+pub(super) fn resources_row(
+    evaluator: &Evaluator,
+    evaluations: &Evaluations,
+    row: &Row,
+    resources: &serde_json::Value,
+    dispatcher: &dyn SourceReader,
+    context: &ExecutionContext,
+    gate: &crate::providers::classification::gate::GateLease,
+    can_resume: bool,
+) -> RowOutcome {
+    let none = serde_json::Map::new();
+    let expanded =
+        source_capture::glob::expand(resources.as_object().unwrap_or(&none), dispatcher, context);
+    // The width the provider gate grants one call: more workers would only
+    // wait for it.
+    let width = crate::providers::classification::gate::call_cap(evaluator.max_concurrency);
+    let resources = each_resource(expanded.resources, width, |source| {
+        let _enter = dispatcher.handle().enter();
+        evaluate_row(
+            evaluator,
+            evaluations,
+            row,
+            &Target::Source(source.clone()),
+            dispatcher,
+            context,
+            gate,
+            can_resume,
+        )
+    });
+    RowOutcome::Resources {
+        resources,
+        notices: expanded.notices,
+        related: expanded.related,
+    }
+}
+
+/// Judge every resource whole with `judge`, `width` at a time, in input
+/// order; a resource that could not be expanded keeps its error.
+pub(super) fn each_resource(
+    resources: Vec<(String, Result<serde_json::Value, ClassificationError>)>,
+    width: usize,
+    judge: impl Fn(&serde_json::Value) -> RowOutcome + Sync,
+) -> Vec<ResourceOutcome> {
+    let width = width.clamp(1, resources.len().max(1));
+    // Each resource is taken once, by whichever worker reaches it first, and
+    // leaves exactly one outcome with its input position.
+    let queue = resources
+        .into_iter()
+        .map(|resource| std::sync::Mutex::new(Some(resource)))
+        .collect::<Vec<_>>();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let (queue, next, judge) = (&queue, &next, &judge);
+    let mut judged = std::thread::scope(|scope| {
+        let workers = (0..width)
+            .map(|_| {
+                scope.spawn(octocode_io::notice::carried(move || {
+                    let mut done = Vec::new();
+                    loop {
+                        let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(slot) = queue.get(index) else {
+                            break done;
+                        };
+                        let taken = slot
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .take();
+                        let Some((key, entry)) = taken else {
+                            continue;
+                        };
+                        let outcome = match entry {
+                            Ok(source) => ResourceOutcome {
+                                key,
+                                outcome: judge(&source),
+                                source: Some(source),
+                            },
+                            Err(error) => ResourceOutcome {
+                                key,
+                                source: None,
+                                outcome: rejected(error, None),
+                            },
+                        };
+                        done.push((index, outcome));
+                    }
+                }))
+            })
+            .collect::<Vec<_>>();
+        // A worker's panic goes on as the panic it is, as a row's does.
+        workers
+            .into_iter()
+            .flat_map(|worker| {
+                worker
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect::<Vec<_>>()
+    });
+    judged.sort_unstable_by_key(|(index, _)| *index);
+    judged.into_iter().map(|(_, outcome)| outcome).collect()
 }

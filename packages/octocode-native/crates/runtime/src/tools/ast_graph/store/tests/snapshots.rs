@@ -210,7 +210,14 @@ fn settled_sources_prove_freshness_and_a_same_size_edit_is_detected() {
     // Record strings only: their ids prefix the full dictionary, which adds
     // the strings only occurrence evidence references.
     assert!(files.strings.len() < tables.strings.len());
-    assert_eq!(files.strings[..], tables.strings[..files.strings.len()]);
+    assert_eq!(
+        files.strings.iter().collect::<Vec<_>>(),
+        tables
+            .strings
+            .iter()
+            .take(files.strings.len())
+            .collect::<Vec<_>>()
+    );
     assert_eq!(files.digests, tables.digests);
     assert_eq!(files.stamps, tables.stamps);
     assert_eq!(files.nodes.len(), tables.nodes.len());

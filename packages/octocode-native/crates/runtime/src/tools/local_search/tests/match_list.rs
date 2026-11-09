@@ -76,6 +76,18 @@ fn an_empty_case_sensitive_search_names_case_mode_when_case_decided_it() {
     }
 }
 
+/// The hint's advice is a typed related call: the same search, same path,
+/// with `caseMode:"insensitive"`, not a wider scope.
+#[test]
+fn the_case_hint_comes_with_the_insensitive_request_as_related() {
+    let out = run(
+        &[("a.txt", "hello world\n")],
+        serde_json::json!({"matchString":["HELLO"]}),
+    );
+    let text = out.to_string();
+    assert!(text.contains("\"caseMode\":\"insensitive\""), "{out}");
+}
+
 /// The read lead around hits near the end of a file stops at its last line.
 #[test]
 fn a_read_lead_never_ends_past_the_last_line() {

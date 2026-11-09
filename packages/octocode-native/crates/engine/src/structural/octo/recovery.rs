@@ -22,7 +22,9 @@
 //!   match would be, so any file with recovered syntax counts.
 //!
 //! Only the file's own parse counts: a macro body that is not code re-parses
-//! with errors by design ([`super::MacroBodies`]).
+//! with errors by design ([`super::MacroBodies`]). A body node its re-parse
+//! could not read is disclosed by itself, naming the macro and line, when the
+//! query matches it ([`super::expanded::Seen::Unreadable`]).
 
 use tree_sitter::{Node, Tree};
 

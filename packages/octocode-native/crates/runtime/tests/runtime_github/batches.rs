@@ -169,17 +169,12 @@ async fn gh_search_picked_repositories_are_contract_valid() {
         row_data(&outcome)["repositories"],
         json!([{"owner":"o","repo":"r","stars":0}])
     );
-    // The top repository's tree lead is a hint, not a page.
-    let lead = &crate::support::checks::related_call(row_data(&outcome), "ghStructure", |input| {
-        input["queries"][0]["operation"] != "refs"
-    });
-    assert_eq!(lead["tool"], "ghStructure", "{}", row_data(&outcome));
-    assert_eq!(
-        (
-            &lead["input"]["queries"][0]["owner"],
-            &lead["input"]["queries"][0]["repo"]
-        ),
-        (&json!("o"), &json!("r"))
+    // A search page offers no one repository's tree: any row may be the
+    // one worth opening (`get` leads to a repository's tree and refs).
+    assert!(
+        row_data(&outcome).get("related").is_none(),
+        "{}",
+        row_data(&outcome)
     );
     assert!(row_data(&outcome).get("next").is_none());
     runtime.close().await;

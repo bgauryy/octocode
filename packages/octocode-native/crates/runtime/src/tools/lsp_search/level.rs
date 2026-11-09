@@ -61,6 +61,42 @@ pub(super) fn stamp(row: &mut Value) {
     }
 }
 
+/// Drop the `lsp` receipt of a row it only reassures about: the server
+/// answered at the `server` level and reported no errors. The receipt
+/// decides a next step only when it deviates (another level, an
+/// unavailable server, a degraded `source`, diagnostics that are errors,
+/// truncated or unavailable), so every such row keeps it whole; so does
+/// every error row.
+pub(super) fn omit_healthy_receipt(row: &mut Value) {
+    // An error row's `serverAvailable` says whether its server would launch.
+    let healthy = row.get("status").and_then(Value::as_str) != Some("error")
+        && row
+            .get("lsp")
+            .and_then(Value::as_object)
+            .is_some_and(|lsp| {
+                lsp.get("serverAvailable") == Some(&json!(true))
+                    && lsp.get("level") == Some(&json!(Level::Server.name()))
+                    && lsp.get("analysisContext").is_none_or(clean_analysis)
+                    && lsp.keys().all(|key| {
+                        ["serverAvailable", "level", "provider", "analysisContext"]
+                            .contains(&key.as_str())
+                    })
+            });
+    if healthy && let Some(row) = row.as_object_mut() {
+        row.shift_remove("lsp");
+    }
+}
+
+fn clean_analysis(context: &Value) -> bool {
+    context.as_object().is_some_and(|context| {
+        context.len() == 4
+            && context.get("diagnostics") == Some(&json!("noErrorsReported"))
+            && context.get("diagnosticsComplete") == Some(&json!(true))
+            && context.get("errorCount") == Some(&json!(0))
+            && context.get("anchorErrorCount") == Some(&json!(0))
+    })
+}
+
 /// How to install the server a failed row's receipt names, as a warning;
 /// `None` when the catalog knows no hint or `error` already states it.
 pub(super) fn install_hint(receipt: Option<&Value>, error: &str) -> Option<String> {

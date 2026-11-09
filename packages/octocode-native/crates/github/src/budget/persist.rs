@@ -21,35 +21,90 @@ const WRITE_LOCK_WAIT: Duration = Duration::from_secs(1);
 /// and it must not hold the group until its own time arrives.
 const PEER_STAMP_HORIZON_MS: u64 = 120_000;
 
-/// Detached writes of every key of every budget in this process that may
-/// still be queued or running ([`KeyState::persist_detached`]).
-static DETACHED: std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>> =
-    std::sync::Mutex::new(Vec::new());
+/// One write on the blocking pool, awaitable by every party that waits for
+/// it: the request that started it and any flush. A write whose runtime
+/// already stopped ends as cancelled: there is nothing left to wait for.
+type Write = futures_util::future::Shared<
+    futures_util::future::Map<tokio::task::JoinHandle<()>, fn(Result<(), tokio::task::JoinError>)>,
+>;
 
-fn detached() -> std::sync::MutexGuard<'static, Vec<tokio::task::JoinHandle<()>>> {
-    DETACHED
+/// A tracked write and, in tests, the key state that started it
+/// ([`KeyState::has_running_write`]).
+struct Tracked {
+    write: Write,
+    #[cfg(test)]
+    by: usize,
+}
+
+/// Writes of every key of every budget in this process that may still be
+/// queued or running: detached ones ([`KeyState::persist_detached`]) and
+/// awaited ones ([`KeyState::persist_awaited`]), whose request may be
+/// dropped (cancelled) before they end.
+static WRITES: std::sync::Mutex<Vec<Tracked>> = std::sync::Mutex::new(Vec::new());
+
+fn writes() -> std::sync::MutexGuard<'static, Vec<Tracked>> {
+    WRITES
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-fn track_detached(write: tokio::task::JoinHandle<()>) {
-    let mut writes = detached();
-    writes.retain(|write| !write.is_finished());
-    writes.push(write);
+/// Whether `write` has not ended yet (polled once, without waiting).
+fn running(write: &Write) -> bool {
+    use futures_util::FutureExt as _;
+    write.clone().now_or_never().is_none()
 }
 
-/// Await every detached write, including those a finishing write started.
+impl KeyState {
+    /// Track `write`, which this key state started, until it ends; the
+    /// returned handle awaits it too.
+    #[cfg_attr(
+        not(test),
+        expect(
+            clippy::unused_self,
+            reason = "only tests read which key state started a write (`has_running_write`)"
+        )
+    )]
+    fn track(self: &Arc<Self>, write: tokio::task::JoinHandle<()>) -> Write {
+        use futures_util::FutureExt as _;
+        let ended: fn(Result<(), tokio::task::JoinError>) = |_| {};
+        let write = write.map(ended).shared();
+        let mut tracked = writes();
+        tracked.retain(|tracked| running(&tracked.write));
+        tracked.push(Tracked {
+            write: write.clone(),
+            #[cfg(test)]
+            by: Arc::as_ptr(self).addr(),
+        });
+        write
+    }
+
+    /// Whether a write this key state started is tracked and still running:
+    /// what a test checks of its own write, whatever else the process writes.
+    #[cfg(test)]
+    pub(super) fn has_running_write(self: &Arc<Self>) -> bool {
+        let by = Arc::as_ptr(self).addr();
+        writes()
+            .iter()
+            .any(|tracked| tracked.by == by && running(&tracked.write))
+    }
+}
+
+/// Await every tracked write, including those a finishing write started.
+/// Writes are awaited through shared handles, so a flush running beside
+/// another (or beside the request that started a write) still waits for
+/// each one.
 pub(super) async fn flush_detached() {
     loop {
-        let writes = std::mem::take(&mut *detached());
-        if writes.is_empty() {
+        let pending: Vec<Write> = writes()
+            .iter()
+            .filter(|tracked| running(&tracked.write))
+            .map(|tracked| tracked.write.clone())
+            .collect();
+        if pending.is_empty() {
+            writes().retain(|tracked| running(&tracked.write));
             return;
         }
-        for write in writes {
-            // A write whose runtime already stopped ends as cancelled: there
-            // is nothing left to wait for.
-            let _ = write.await;
-        }
+        futures_util::future::join_all(pending).await;
     }
 }
 
@@ -322,9 +377,14 @@ impl KeyState {
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => {
                 let state = Arc::clone(self);
-                track_detached(handle.spawn_blocking(octocode_io::notice::carried(move || {
-                    state.persist_with(adjust);
-                })));
+                // Tracked until it ends; nothing here waits for it. The task
+                // runs once spawned and `track` keeps its own handle, so the
+                // returned one is dropped on purpose.
+                drop(
+                    self.track(handle.spawn_blocking(octocode_io::notice::carried(move || {
+                        state.persist_with(adjust);
+                    }))),
+                );
             }
             Err(_) => self.persist_with(adjust),
         }
@@ -333,14 +393,18 @@ impl KeyState {
     /// [`Self::persist_with`] on the blocking pool, awaited by the request: it
     /// is on disk (or deferred to the next write, past `WRITE_LOCK_WAIT`) before
     /// the request ends, so a process that exits next still leaves it behind.
+    /// It is tracked like a detached write, so a request dropped mid-write
+    /// (a cancel) still leaves it to the flush before exit.
     pub(super) async fn persist_awaited(
         self: &Arc<Self>,
         adjust: impl FnOnce(&mut KeyFacts) + Send + 'static,
     ) {
         let state = Arc::clone(self);
-        let _ = tokio::task::spawn_blocking(octocode_io::notice::carried(move || {
-            state.persist_with(adjust);
-        }))
+        self.track(tokio::task::spawn_blocking(octocode_io::notice::carried(
+            move || {
+                state.persist_with(adjust);
+            },
+        )))
         .await;
     }
 

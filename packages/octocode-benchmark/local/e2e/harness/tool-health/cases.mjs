@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { declarations, lspLocations, structureFiles, sourceView } from '../responses.mjs';
-import { laterPartContext } from '../page-context.mjs';
+import { laterPartContext, resolvedIdentity } from '../page-context.mjs';
 import { canon } from './calls.mjs';
 import { historyFileRows } from './history-evidence.mjs';
 
@@ -18,7 +18,7 @@ const source = { tool: 'localFetch', query: { path: 'src/greeter.ts', ranges: [{
 const questions = { named: { type: 'noul', instructions: 'Does this declare a field named text?' } };
 const LSP_PAGE_CALLS = 24;
 
-function codeSearchRows(data, json, context = new Map()) {
+function codeSearchRows(data, json, context = new Map(), query) {
   const row = json?.results?.find(result => result.data === data);
   // The marker names the innermost continued array; a file continues when the marker is `/data/files` or lies
   // under one of its files (`/data/files/<i>/…`), since every element on the marker's path continues.
@@ -26,11 +26,12 @@ function codeSearchRows(data, json, context = new Map()) {
   const continued = row?.rowPart?.part > 1 && (array === '/data/files' || array.startsWith('/data/files/'));
   return (data.files ?? []).flatMap((file, index) => {
     const { matches, lines, ...metadata } = file;
-    const key = canon([row?.index ?? 0, file.owner, file.repo, file.path]);
+    const [owner, repo] = resolvedIdentity(['owner', 'repo'], { row: file, data, query });
+    const key = canon([row?.index ?? 0, owner, repo, file.path]);
     const original = context.get(key);
     const repeated = continued && index === 0 && laterPartContext('ghSearchCode', ['data', 'files', String(index)], { row: metadata, original });
-    const revision = file.commitSha ?? (repeated ? original.commitSha : undefined);
-    const evidenceKey = canon([row?.index ?? 0, file.owner, file.repo, file.path, revision]);
+    const revision = file.commitSha ?? data.commitSha ?? (repeated ? original.commitSha : undefined);
+    const evidenceKey = canon([row?.index ?? 0, owner, repo, file.path, revision]);
     const own = repeated ? [] : [`file:${key}:${canon(metadata)}`];
     if (!context.has(key)) context.set(key, metadata);
     return [...own, ...(matches ?? []).map(match => `match:${evidenceKey}:${canon(match)}`), ...(lines ?? []).map(line => `line:${evidenceKey}:${canon(line)}`)];
@@ -108,7 +109,9 @@ export const CASES = {
   localFetch: {
     budgetMs: LOCAL, workspace: readerWorkspace,
     happy: { query: { path: 'src/greeter.ts' }, fields: ['content', 'totalLines'], rows: data => numbered(data.content), min: 18 },
-    page: { query: { path: 'large.txt' }, lead: 'responsePagination.next', expect: () => Array.from({ length: 1500 }, (_, i) => i + 1) },
+    // A whole read whose row fits the response pages on the row's own walk
+    // (docs/TOOL_DATA_CONTRACT.md: responsePagination appears only when a response pages).
+    page: { query: { path: 'large.txt' }, lead: 'nextPage', expect: () => Array.from({ length: 1500 }, (_, i) => i + 1) },
     empty: { query: { path: 'src/greeter.ts', matchString: ['zzzNoSuchText'] } },
     invalid: { query: { path: 'src/greeter.ts', ranges: ['1-4'] } },
     explore: [
@@ -137,7 +140,7 @@ export const CASES = {
   ghGetFileContent: {
     budgetMs: REMOTE,
     happy: { query: { ...repo, path: 'src/greeter.ts' }, fields: ['content', 'totalLines'], rows: data => numbered(data.content), min: 18 },
-    page: { query: { owner: 'octo', repo: 'demo-docs', path: 'guide.txt' }, lead: 'responsePagination.next', expect: ctx => lineNumbers(ctx.mock.model.repos.find(r => r.name === 'demo-docs').files['guide.txt']) },
+    page: { query: { owner: 'octo', repo: 'demo-docs', path: 'guide.txt' }, lead: 'nextPage', expect: ctx => lineNumbers(ctx.mock.model.repos.find(r => r.name === 'demo-docs').files['guide.txt']) },
     empty: { query: { ...repo, path: 'src/greeter.ts', matchString: ['zzzNoSuchText'] } },
     invalid: { query: repo },
     explore: [{ label: 'ranges', query: { ...repo, path: 'src/app.ts', ranges: [{ startLine: 1, endLine: 3 }] } }],

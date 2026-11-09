@@ -395,3 +395,76 @@ async fn a_stem_tag_is_another_packages_only_when_githubs_tree_holds_it() {
         runtime.close().await;
     }
 }
+
+/// RV-GH M2: a tag check GitHub's spent core quota stops states when the
+/// quota resets, as securityCheck and ghSearchRepo do, and the row answers
+/// at once (D1) with no caller budget, keeping the registry's evidence.
+#[tokio::test]
+async fn a_tag_check_stopped_by_a_spent_quota_states_its_reset() {
+    // 2100-01-01T00:00:00Z: any reset is disclosed, never waited out.
+    const RESET: u64 = 4_102_444_800;
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/left-pad/1.3.0"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "name": "left-pad",
+            "version": "1.3.0",
+            "repository": {"type": "git", "url": "https://github.com/a/b"}
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(wiremock::matchers::path_regex("^/api/v3/repos/a/b"))
+        .respond_with(
+            ResponseTemplate::new(403)
+                .insert_header("x-ratelimit-remaining", "0")
+                .insert_header("x-ratelimit-reset", RESET.to_string().as_str())
+                .insert_header("x-ratelimit-resource", "core")
+                .set_body_json(json!({"message": "API rate limit exceeded"})),
+        )
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let mut env = support::github_api(&server).to_vec();
+    env.push(("OCTOCODE_ALLOW_PRIVATE_REGISTRY", "true".to_string()));
+    let runtime = workspace.runtime(&env);
+    let outcome = call(
+        &runtime,
+        "artifactSearch",
+        json!({
+            "operation": "resolve", "ecosystem": "npm",
+            "packageName": "left-pad", "version": "1.3.0",
+            "registryUrl": server.uri()
+        }),
+    )
+    .await
+    .expect("artifactSearch");
+    let data = row_data(&outcome);
+    assert_eq!(data["artifacts"][0]["packageName"], "left-pad", "{data}");
+    let warnings = data["warnings"].to_string();
+    assert!(
+        warnings.contains("rate limit") && warnings.contains("2100-01-01T00:00:00Z"),
+        "the warning states when the quota resets: {data}"
+    );
+    // GitHub received exactly the first round's two tag probes, sent
+    // together before either answered; every later check (the tag list, the
+    // repository) was refused unsent on the spent quota.
+    let mut asked: Vec<String> = server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .map(|request| request.url.path().to_owned())
+        .filter(|path| path.starts_with("/api/v3/"))
+        .collect();
+    asked.sort();
+    assert_eq!(
+        asked,
+        [
+            "/api/v3/repos/a/b/git/ref/tags/1.3.0",
+            "/api/v3/repos/a/b/git/ref/tags/v1.3.0"
+        ],
+        "{data}"
+    );
+    runtime.close().await;
+}

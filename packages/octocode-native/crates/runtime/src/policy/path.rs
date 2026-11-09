@@ -1,7 +1,7 @@
 use octocode_engine::text::lexical;
 use std::path::{Path, PathBuf};
 
-use super::discovery::{EntryKind, withheld_message};
+use super::discovery::{EntryKind, withheld_link_message, withheld_message};
 use super::{PolicyError, PolicyErrorCode};
 
 mod credentials;
@@ -41,6 +41,9 @@ pub struct ValidatedPath {
 #[derive(Clone, Debug)]
 pub struct PathPolicy {
     roots: Vec<PathBuf>,
+    /// Directories no read admits though an allowed root contains them
+    /// ([`Self::closing`]), lexical and resolved.
+    closed_roots: Vec<PathBuf>,
     /// [`PathPolicyConfig::output_roots`], lexical and resolved.
     output_roots: Vec<PathBuf>,
     workspace_root: Option<PathBuf>,
@@ -89,6 +92,7 @@ impl PathPolicy {
         let home_forms = forms(home.clone());
         Ok(Self {
             roots,
+            closed_roots: Vec::new(),
             output_roots,
             workspace_root,
             workspace_real,
@@ -97,6 +101,14 @@ impl PathPolicy {
             octocode_home,
             home_forms,
         })
+    }
+
+    /// This policy with `root` closed: nothing under it is read, even inside
+    /// an allowed root (a workspace that contains the Octocode home must not
+    /// open its stores, whose files are no checkout).
+    pub(crate) fn closing(mut self, root: &Path) -> Self {
+        add_root(&mut self.closed_roots, root);
+        self
     }
 
     pub(crate) fn validate_read(
@@ -153,6 +165,7 @@ impl PathPolicy {
                 .roots
                 .iter()
                 .chain(&self.output_roots)
+                .chain(&self.closed_roots)
                 .map(|root| root.to_string_lossy().into_owned())
                 .collect::<Vec<_>>(),
         )
@@ -196,14 +209,12 @@ impl PathPolicy {
             .with_path(self.redact(lexical)));
         }
         if self.withholds(&real, EntryKind::stat(&real)) {
+            // Named by the link the caller asked for, never by the target.
             return Err(PolicyError::new(
                 PolicyErrorCode::IgnoredPath,
-                format!(
-                    "Symlink target: {}",
-                    withheld_message(&self.redact(&real), &real)
-                ),
+                withheld_link_message(&self.redact(lexical), &real),
             )
-            .with_path(self.redact(&real)));
+            .with_path(self.redact(lexical)));
         }
         if access == Access::RegularFile
             && !std::fs::metadata(&real)
@@ -223,7 +234,7 @@ impl PathPolicy {
     }
 
     fn allowed(&self, path: &Path) -> bool {
-        within(&self.roots, path)
+        within(&self.roots, path) && !within(&self.closed_roots, path)
     }
 
     /// Whether `access` admits `path`: an output may also lie under an

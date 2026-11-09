@@ -18,7 +18,13 @@ fn match_selection_preserves_empty_context_and_missed_matches() {
         result.selected_match_count = Some(count);
         result.matched_lines = hits.clone();
         let wire = serde_json::to_value(result).expect("read result");
-        assert_eq!(wire["matchedLines"], serde_json::json!(hits), "{wire}");
+        if content.is_empty() {
+            // C3eK A-R9: a page with no text states no zero hit list or count.
+            assert!(wire.get("matchedLines").is_none(), "{wire}");
+            assert!(wire.get("selectedMatchCount").is_none(), "{wire}");
+        } else {
+            assert_eq!(wire["matchedLines"], serde_json::json!(hits), "{wire}");
+        }
     }
     let plain = serde_json::to_value(LocalFetchResult::blank(ReadStatus::Success))
         .expect("unselected read");

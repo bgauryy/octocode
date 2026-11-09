@@ -1,6 +1,7 @@
 //! The owned matcher core: context selection, field and sibling relations, custom stops.
 
 use super::*;
+use crate::structural::query::Prefilter;
 
 #[test]
 fn owned_core_context_selects_only_the_requested_node() {
@@ -173,11 +174,19 @@ fn owned_core_stop_rule_depth_and_interruption_remain_explicit() {
     )
     .unwrap();
     let line_index = crate::text::LineIndex::tree_sitter("first(); middle(); last();");
+    let expanded = crate::structural::octo::expanded::ExpandedTree::new(
+        tree.root_node(),
+        "first(); middle(); last();",
+        &language,
+        None,
+        Deadline::UNBOUNDED,
+    )
+    .unwrap();
     let document = Document {
         memo: None,
         line_index: &line_index,
         content: "first(); middle(); last();",
-        root: tree.root_node(),
+        tree: &expanded,
         deadline: Deadline::at(Instant::now()),
     };
     let error = rule

@@ -68,7 +68,8 @@ pub(super) fn run_page(
 
 /// A listed symbol row's `verify`: the lspSearch call that confirms it at
 /// its declaration, since graph rows are syntax candidates. A row that
-/// already states its verify steps (an issue) keeps them.
+/// already states its verify steps (an issue, or an edge row's
+/// [`Graph::edge_lead`]) keeps them.
 fn verify_symbol(graph: &Graph, row: &mut Value) {
     if row["kind"] != "symbol" || row.get("verify").is_some() {
         return;

@@ -190,7 +190,50 @@ pub(crate) fn published(tool: ToolId, row: &Value) -> Value {
     let shaped = crate::response::rows::result_row(0, row.clone(), row["status"].as_str());
     let mut output = serde_json::json!({"results":[shaped]});
     crate::response::notices::place(&mut output, "results");
+    crate::response::notices::state_timed_notices(&mut output, "results");
     publish_for_assertion(tool.as_str(), &output)
+}
+
+/// One call's response over `rows` (each a row's `data`), as a caller
+/// receives it: the sealed envelope through the response stage (notices,
+/// validation, paging) that every tool's rows pass.
+pub(crate) fn staged_response(tool: ToolId, rows: Vec<Value>) -> Value {
+    use crate::response::stage::{StageInput, respond, settle};
+    let queries = serde_json::json!({ "queries": rows.iter().map(|_| serde_json::json!({})).collect::<Vec<_>>() });
+    let rows = rows
+        .into_iter()
+        .enumerate()
+        .map(|(index, data)| {
+            let status = data["status"].as_str().map(str::to_owned);
+            crate::response::rows::result_row(index, data, status.as_deref())
+        })
+        .collect::<Vec<_>>();
+    let mut structured = crate::security::Sanitized::sealed(serde_json::json!({ "results": rows }));
+    let mut failure = None;
+    settle(tool, &mut structured, &queries, &mut failure).expect("settled");
+    let context = crate::execution::ExecutionContext {
+        cancellation: octocode_io::cancellation::Cancellation::new(),
+        deadline: None,
+        response_window: None,
+        github_credential: None,
+    };
+    respond(
+        StageInput {
+            tool,
+            structured,
+            options: crate::response::page_model::ResponsePageOptions::default(),
+            failure,
+            auto_page_chars: 20_000,
+            allow_auto_paging: true,
+        },
+        None,
+        &context,
+    )
+    .expect("staged")
+    .result
+    .expect("valid response")
+    .structured_content
+    .into_value()
 }
 
 pub(crate) fn published_next_page(tool: ToolId, row: &Value) -> Value {
@@ -360,4 +403,18 @@ pub(crate) fn skipped_reasons(out: &Value, cause: &str) -> Vec<(String, u64)> {
             )
         })
         .collect()
+}
+
+/// The snapshot a raw tool row's continuations pin: the `snapshot` of the
+/// first `next` call that carries one (a row states none itself), or
+/// `Null` when no continuation pins one.
+pub(crate) fn pinned_snapshot(out: &Value) -> &Value {
+    static NONE: Value = Value::Null;
+    out["next"]
+        .as_object()
+        .into_iter()
+        .flat_map(|calls| calls.values())
+        .map(|call| &call["input"]["queries"][0]["snapshot"])
+        .find(|snapshot| snapshot.is_string())
+        .unwrap_or(&NONE)
 }

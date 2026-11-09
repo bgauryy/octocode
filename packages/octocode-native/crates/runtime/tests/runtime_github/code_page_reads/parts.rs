@@ -1,8 +1,9 @@
 //! How the parts of one search page are stated and sized: search
 //! `pagination` counts search pages, the rest of a page is the response's
 //! continuation, a part reads at most twice the rows it shows, `contentReads`
-//! counts the reads that reached GitHub, a page's shift is stated once, and
-//! a page that fits the window is shown whole.
+//! counts the reads that reached GitHub, a page's shift is stated once, a
+//! page that fits the window is shown whole, and a cursor page states the
+//! repository its rows share once, on its `data`.
 use super::{Call, Index, files, hit, read_path, requests, walk, walk_with};
 use crate::support::{self, Run as _, Workspace};
 use base64::Engine as _;
@@ -75,6 +76,28 @@ fn start(limit: Option<usize>, chars: usize) -> Value {
     json!({"queries": [row], "responseChars": chars})
 }
 
+/// A window holding about half of a 20-file search page of `names`,
+/// measured on a server of its own: it shows such a page in parts whatever
+/// a published row takes.
+async fn half_a_page(names: &[String]) -> usize {
+    let server = MockServer::builder().start().await;
+    super::mount(&server, names, &[]).await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&support::github_api(&server));
+    let page = runtime
+        .run(
+            "measure".into(),
+            "ghSearchCode".into(),
+            start(Some(20), 1_000_000),
+        )
+        .await
+        .expect("measured page")
+        .structured_content
+        .into_value();
+    runtime.close().await;
+    page.to_string().chars().count() / 2
+}
+
 fn shown(calls: &[Call]) -> BTreeSet<String> {
     calls.iter().flat_map(|call| call.listed.clone()).collect()
 }
@@ -92,7 +115,8 @@ async fn a_part_continues_as_the_response_and_pagination_counts_search_pages() {
         super::mount(&server, &names, &[]).await;
         let workspace = Workspace::new();
         let runtime = workspace.runtime(&support::github_api(&server));
-        let calls = walk(&server, &runtime, start(Some(limit), 5000)).await;
+        let window = half_a_page(&names).await;
+        let calls = walk(&server, &runtime, start(Some(limit), window)).await;
         assert!(calls.len() > pages, "the window shows pages in parts");
         assert_eq!(shown(&calls), names.iter().cloned().collect());
         let mut page = 1;
@@ -208,7 +232,8 @@ async fn a_page_shown_in_parts_states_its_shift_once() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&support::github_api(&server));
     let mut moved = false;
-    let calls = walk_with(&server, &runtime, start(Some(20), 5000), |_| {
+    let window = half_a_page(&names).await;
+    let calls = walk_with(&server, &runtime, start(Some(20), window), |_| {
         if !moved {
             index
                 .lock()
@@ -270,5 +295,50 @@ async fn a_page_that_fits_the_window_is_shown_whole() {
     let short = walk(&server, &runtime, start(None, chars - 50)).await;
     assert!(short.len() > 1, "a window short of the page continues");
     assert_eq!(shown(&short), names.iter().cloned().collect());
+    runtime.close().await;
+}
+
+/// The rows of one repository state `owner` and `repo` once, on the page.
+/// A fresh page drops them as echoes of its query; a cursor page keeps
+/// them (its query is only the cursor), so each page alone names its
+/// rows' repository, and no row repeats it.
+#[tokio::test]
+async fn a_cursor_page_states_its_rows_repository_once() {
+    let server = MockServer::builder().start().await;
+    let names = files(50, |n| format!("src/f{n:03}.rs"));
+    super::mount(&server, &names, &[]).await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&support::github_api(&server));
+    let window = half_a_page(&names).await;
+    let query = start(Some(20), window);
+    let calls = walk(&server, &runtime, query.clone()).await;
+    assert!(calls.len() > 1, "the walk reaches cursor pages");
+    assert_eq!(shown(&calls), names.iter().cloned().collect());
+    for (at, call) in calls.iter().enumerate() {
+        let data = &call.output["results"][0]["data"];
+        for file in data["files"].as_array().expect("files") {
+            for field in ["owner", "repo"] {
+                assert!(
+                    file.get(field).is_none(),
+                    "call {at}: a row repeats {field}: {file}"
+                );
+            }
+        }
+        for field in ["owner", "repo"] {
+            let stated = data.get(field);
+            if at == 0 {
+                assert!(
+                    stated.is_none(),
+                    "the fresh page drops the {field} echo: {data}"
+                );
+            } else {
+                assert_eq!(
+                    stated,
+                    Some(&query["queries"][0][field]),
+                    "call {at}: a cursor page states {field}: {data}"
+                );
+            }
+        }
+    }
     runtime.close().await;
 }

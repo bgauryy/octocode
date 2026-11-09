@@ -126,6 +126,13 @@ impl LspClientPool {
         self.inner.clear_all().await;
     }
 
+    /// The servers' resident bytes and the budget (`max_resident_bytes`) when
+    /// they exceed it. The pool never stops a busy server, so it can stay over
+    /// budget until the servers are idle.
+    pub async fn over_budget(&self) -> Option<(u64, u64)> {
+        self.inner.over_budget().await
+    }
+
     pub fn len(&self) -> usize {
         self.inner.len()
     }

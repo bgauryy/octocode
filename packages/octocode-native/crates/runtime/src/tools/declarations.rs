@@ -12,6 +12,30 @@ use crate::tools::page_memo::PageMemo;
 use octocode_engine::graph::{GraphFactCode, GraphFactsDocument};
 use std::sync::Arc;
 
+/// Where a declaration starts before its name line, 1-based: the one rule
+/// every producer that lists a declaration prints it by (astSearch
+/// `symbols`, localSearch `declarations[]`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct StartLines {
+    /// `startLine`: the first line of its attributes or decorators, when
+    /// its range starts before its name line.
+    pub(crate) start_line: Option<u32>,
+    /// `docStartLine`: the first line of the comment block directly above.
+    pub(crate) doc_start_line: Option<u32>,
+}
+
+impl StartLines {
+    /// The start lines of `declaration`.
+    pub(crate) fn of(declaration: &octocode_engine::graph::GraphFactDeclaration) -> Self {
+        let line = declaration.selection_range.start.line.saturating_add(1);
+        let start = declaration.range.start.line.saturating_add(1);
+        Self {
+            start_line: (start < line).then_some(start),
+            doc_start_line: declaration.doc_line.map(|doc| doc.saturating_add(1)),
+        }
+    }
+}
+
 /// Every analysis's documents, by [`Analysis`], digest and path; a text no
 /// analysis can read is kept as `None`, so it is not tried again either.
 static DOCUMENTS: PageMemo<Option<Arc<GraphFactsDocument>>> = PageMemo::new();

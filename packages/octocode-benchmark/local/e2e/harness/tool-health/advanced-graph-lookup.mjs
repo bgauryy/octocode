@@ -17,7 +17,11 @@ export function prepareGraphLookup(cwd) {
 
 const queryRows = report => report.responses.filter(entry => entry.tool === 'graphQuery')
   .flatMap(entry => entry.result.json?.results ?? []).map(row => row.data);
-const candidateIds = report => queryRows(report).flatMap(row => row.candidates ?? (row.operation === 'candidates' ? row.rows ?? [] : []))
+// Every page drops the fields its sealed query states (C3eK B-D4), so the
+// candidates continuation carries `rows` without the `operation` it was asked
+// for; the error's own preview is the only row with `candidates`.
+const continuedRows = rows => rows.filter(row => !row.candidates && Array.isArray(row.rows));
+const candidateIds = report => queryRows(report).flatMap(row => row.candidates ?? continuedRows([row]).flatMap(page => page.rows))
   .map(row => row.id);
 
 async function candidates(ctx, graph, checks, { target, label }) {
@@ -36,7 +40,7 @@ async function ambiguity(ctx, graph, checks, { query, label }) {
     && report.failures.length === 0, detail]);
   equal(checks, `graph.lookup.${label}.complete-once`, actual, ids);
   const rows = queryRows(report);
-  const continued = rows.filter(row => row.operation === 'candidates');
+  const continued = continuedRows(rows);
   // The candidates continuation starts after the 20 the error previews; each
   // page is sized to fit its window, so its number advances and the last page
   // says nothing is left. The tail check below proves the rows are contiguous.

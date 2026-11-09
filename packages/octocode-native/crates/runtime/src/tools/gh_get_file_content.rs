@@ -332,8 +332,19 @@ pub(crate) async fn execute<S: ContentScan + Clone + Send + Sync + 'static>(
 pub(crate) struct Output;
 impl crate::response::output::ToolOutput for Output {
     fn error_hint(&self, code: ErrorCode, _query: &serde_json::Value) -> Option<&'static str> {
-        // The message names the item; `repair` is the corrected read.
-        (code == ErrorCode::InvalidPattern).then_some(crate::response::output::NO_HINT)
+        // The message names the item; `repair` is the corrected read. A
+        // missing path names its repository, path and ref, and its related[]
+        // listing at that commit is the recovery. A symbols read no outline
+        // can serve carries the plain read as its related lead; the shared
+        // hint names the local filesystem tools, which cannot read this file.
+        matches!(
+            code,
+            ErrorCode::InvalidPattern
+                | ErrorCode::NotFound
+                | ErrorCode::SymbolsUnsupported
+                | ErrorCode::LanguageUnsupported
+        )
+            .then_some(crate::response::output::NO_HINT)
     }
 }
 

@@ -143,6 +143,9 @@ pub(super) fn finish_pr(
     // A patch read's next step is the code at either side of its numbered
     // diff: those reads rank ahead of the section menu.
     let merge_read = files.merge_read.filter(|_| patches);
+    // A miss already leads to its recovery reads; the menu would offer the
+    // whole-PR patches the miss was narrowing away from.
+    let menu = menu.filter(|_| out["status"] != "empty");
     attach_leads(&mut out, files.side_reads, menu, merge_read);
     lead_with_comment_reads(&mut out, comment_reads);
     push_warnings(&mut out, graphql_warnings);

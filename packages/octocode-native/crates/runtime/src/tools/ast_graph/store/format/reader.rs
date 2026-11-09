@@ -227,7 +227,13 @@ pub(super) fn decode_tables(
         return Err("graph index sections are inconsistent".into());
     }
     read_file_tables(sections, &mut tables, records)?;
-    selective::validate_lookup(sections, &tables)?;
+    if scope == Scope::Full {
+        selective::validate_lookup(sections, &tables)?;
+    } else {
+        // A topology answer renders no lookup entry; its searches run over
+        // the key and name indexes.
+        selective::validate_indexes(&tables)?;
+    }
     Ok(tables)
 }
 

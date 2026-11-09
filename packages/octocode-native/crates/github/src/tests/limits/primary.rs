@@ -234,7 +234,7 @@ async fn a_headerless_rate_limit_body_is_a_primary_limit() {
 /// over an hour, so waiting for its reset would hold the call for up to an
 /// hour; the caller gets `rateLimited` with the reset instead and decides.
 /// A known spent bucket refuses the next core read the same way, unsent.
-/// Should the call wait anyway, the host hears it and the watcher cancels
+/// Should the call wait anyway, the host hears it and the listener cancels
 /// it, so the old behavior fails on the error kind rather than hanging.
 #[tokio::test]
 async fn a_spent_core_quota_is_disclosed_at_once_however_far_the_deadline() {
@@ -248,19 +248,7 @@ async fn a_spent_core_quota_is_disclosed_at_once_however_far_the_deadline() {
     let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let mut context = with_token("spent-far", Duration::from_secs(5), 1024);
     context.budget.wait_until = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
-    let heard = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
-    let sink = Arc::clone(&heard);
-    let scope = octocode_io::notice::Scope::with_progress(move |line| {
-        sink.lock().expect("lines").push(line.to_owned());
-    });
-    let cancellation = context.budget.cancellation.clone();
-    let lines = Arc::clone(&heard);
-    let watcher = tokio::spawn(async move {
-        while lines.lock().expect("lines").is_empty() {
-            tokio::task::yield_now().await;
-        }
-        cancellation.cancel();
-    });
+    let (scope, heard) = cancel_on_announced_wait(context.budget.cancellation.clone());
     for path in [["repos", "a", "b"], ["repos", "a", "c"]] {
         let error = scope
             .run(transport.execute(
@@ -282,7 +270,6 @@ async fn a_spent_core_quota_is_disclosed_at_once_however_far_the_deadline() {
             "{path:?}: {rate:?}"
         );
     }
-    watcher.abort();
     assert!(
         heard.lock().expect("lines").is_empty(),
         "no wait was announced: {:?}",

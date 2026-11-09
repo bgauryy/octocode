@@ -243,12 +243,106 @@ fn literal_anchor_skips_metavars_and_prefers_identifier_literals() {
         StructuralQuery::new(Some("console.log($$$ARGS)"), None)
             .expect("valid query")
             .prefilter(),
-        Prefilter::Single("console".to_owned())
+        Prefilter::All(vec![vec!["console".to_owned()], vec!["log".to_owned()]])
     );
     assert_eq!(
         StructuralQuery::new(Some("foo($X)"), None)
             .expect("valid query")
             .prefilter(),
         Prefilter::Single("foo".to_owned())
+    );
+}
+
+/// A pattern needs each of its safe literals, so the prefilter requires all
+/// of them (an AND), and the explanation names the kind.
+#[test]
+fn a_pattern_requires_every_safe_literal() {
+    let query = StructuralQuery::new(Some("$X.map_err(|$E| format!($$$))"), None).unwrap();
+    let explanation = query.explanation();
+    assert_eq!(explanation.pre_filter, "all-anchors");
+    assert_eq!(
+        explanation.literal_anchor.as_deref(),
+        Some("format & map_err")
+    );
+}
+
+/// A rule keeps every conjunct: its own pattern, `all`, `has` and `inside`
+/// each add their groups, and an `any` adds one union group.
+#[test]
+fn a_rule_requires_every_conjunct_and_any_stays_a_union() {
+    let rule = json!({
+        "all": [
+            {"any": [{"pattern": "foo_a($X)"}, {"pattern": "bar_b($X)"}]},
+            {"inside": {"pattern": "fn outer_c() { $$$ }", "stopBy": "end"}}
+        ],
+        "has": {"pattern": "qux_d", "stopBy": "end"},
+        "not": {"pattern": "never_e($X)"},
+        "precedes": {"pattern": "after_f($X)"}
+    });
+    let explanation = StructuralQuery::new(None, Some(&rule))
+        .unwrap()
+        .explanation();
+    assert_eq!(explanation.pre_filter, "all-anchors");
+    assert_eq!(
+        explanation.literal_anchor.as_deref(),
+        Some("outer_c & qux_d & bar_b|foo_a")
+    );
+}
+
+/// Recovery still reads by the one narrowest group: a pattern's longest
+/// literal, a rule's group with the fewest literals.
+#[test]
+fn recovery_reads_by_the_narrowest_group() {
+    let pattern = StructuralQuery::new(Some("$X.map_err(|$E| format!($$$))"), None).unwrap();
+    assert_eq!(pattern.recovery_anchors(), Some(vec!["map_err".to_owned()]));
+    let rule = json!({
+        "all": [{"any": [{"pattern": "foo_a($X)"}, {"pattern": "bar_b($X)"}]}],
+        "has": {"pattern": "qux_d", "stopBy": "end"}
+    });
+    assert_eq!(
+        StructuralQuery::new(None, Some(&rule))
+            .unwrap()
+            .recovery_anchors(),
+        Some(vec!["qux_d".to_owned()])
+    );
+}
+
+/// A macro body is re-parsed when it spells a literal of the match's own
+/// node or of any `has` target, wherever that `has` sits in the rule; a
+/// `has` target that needs no literal re-parses every body.
+#[test]
+fn macro_anchors_hold_every_has_target_literal() {
+    let anchors = |rule: Value| {
+        StructuralQuery::new(None, Some(&rule))
+            .unwrap()
+            .macro_anchors()
+    };
+    assert_eq!(
+        anchors(json!({
+            "kind": "function_item",
+            "regex": "^fn k",
+            "not": {"has": {"pattern": "check($A)", "stopBy": "end"}}
+        })),
+        Some(vec!["check".to_owned(), "fn k".to_owned()])
+    );
+    assert_eq!(
+        anchors(json!({
+            "pattern": "start_job()",
+            "precedes": {"kind": "expression_statement", "has": {"pattern": "check($A)", "stopBy": "end"}}
+        })),
+        Some(vec!["check".to_owned(), "start_job".to_owned()])
+    );
+    assert_eq!(
+        anchors(
+            json!({"pattern": "outer_fn($$$)", "has": {"kind": "call_expression", "stopBy": "end"}})
+        ),
+        None
+    );
+    // An `inside` ancestor's literal never gates a body.
+    assert_eq!(
+        anchors(
+            json!({"pattern": "check($A)", "inside": {"pattern": "assert!($$$)", "stopBy": "end"}})
+        ),
+        Some(vec!["check".to_owned()])
     );
 }

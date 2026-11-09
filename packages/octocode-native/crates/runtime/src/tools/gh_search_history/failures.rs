@@ -103,10 +103,7 @@ pub(super) fn missing_scope_failure(
                 Some(owner),
                 repo,
             )),
-            hints: vec![crate::tools::gh_shared::repository_search_hint(
-                Some(owner),
-                repo,
-            )],
+            hints: vec![crate::tools::gh_shared::REPOSITORY_SEARCH_HINT.to_owned()],
         };
     };
     error.message =

@@ -34,6 +34,7 @@ mod tree;
 mod views;
 mod walk_windows;
 mod window_store;
+mod worktrees;
 
 thread_local! {
     /// A test's walk window in place of the core one, so window cuts are

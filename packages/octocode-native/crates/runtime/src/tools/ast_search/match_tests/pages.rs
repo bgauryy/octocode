@@ -143,12 +143,16 @@ fn a_file_split_across_match_pages_is_paging_not_partial_coverage() {
 #[test]
 fn an_out_of_range_private_page_is_distinct_from_a_stale_snapshot() {
     let root = Fixture::new();
-    root.write("a.rs", "fn f(){hit(1);}");
-    let base = json!({"operation":"match","path":root.0,"rule":{"pattern":"hit($A)"}});
+    root.write("a.rs", "fn f(){hit(1);hit(2);}");
+    let base = json!({"operation":"match","path":root.0,"rule":{"pattern":"hit($A)"},"limit":1});
     let first = run(&root.0, base.clone()).expect("first");
+    // C3eK A-R6: the snapshot rides the page's continuation, never the row.
+    assert!(first.get("snapshot").is_none(), "{first}");
+    let snapshot = crate::tools::test_support::pinned_snapshot(&first).clone();
+    assert!(snapshot.is_string(), "{first}");
     let mut beyond = base.clone();
     beyond["page"] = json!(99);
-    beyond["snapshot"] = first["snapshot"].clone();
+    beyond["snapshot"] = snapshot;
     let out = run(&root.0, beyond).expect("past end");
     assert_eq!(out["pagination"]["outOfRange"], true);
     assert_eq!(out["files"], json!([]));

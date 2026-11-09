@@ -106,6 +106,7 @@ pub(super) fn scan_file(
             diagnostics: r.diagnostics,
             status: r.status,
             recovered: r.recovered,
+            recovered_bodies: r.recovered_bodies,
             source: None,
         }],
         sources: vec![canonical.clone()],
@@ -261,6 +262,7 @@ pub(super) fn scan_directory(
                 diagnostics: f.diagnostics,
                 status: f.status,
                 recovered: f.recovered,
+                recovered_bodies: f.recovered_bodies,
             })
             .collect(),
         truncated: r.scan_truncated,

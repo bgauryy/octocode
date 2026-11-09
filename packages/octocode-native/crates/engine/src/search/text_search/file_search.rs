@@ -184,6 +184,9 @@ pub(super) struct FileOutcome {
     pub(super) copied: Option<CopiedRead>,
     /// A returned line was not UTF-8 (see [`CollectSink::not_utf8`]).
     pub(super) not_utf8: bool,
+    /// A returned long line hid every value of a named structure (see
+    /// [`CollectSink::every_value`]).
+    pub(super) every_value: bool,
     /// A matched file starts with a UTF-8 byte-order mark the searcher
     /// dropped: line 1's columns and byte offsets count the text after it.
     pub(super) utf8_bom: bool,
@@ -211,6 +214,7 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
             generated_header: None,
             copied: None,
             not_utf8: sink.not_utf8,
+            every_value: sink.every_value,
             utf8_bom: false,
             term_counts: sink.term_counts,
             test_lines_excluded: sink.test_lines_excluded,

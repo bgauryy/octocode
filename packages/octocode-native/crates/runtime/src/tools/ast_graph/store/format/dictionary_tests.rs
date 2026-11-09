@@ -4,8 +4,23 @@
 use super::evidence_tests::evidence_fixture;
 use super::*;
 
-fn sorted(run: &[String]) -> bool {
+fn sorted(run: &[&str]) -> bool {
     run.windows(2).all(|pair| pair[0] < pair[1])
+}
+
+/// A string section is its entries and nothing more, like `LOOK` and `NODE`.
+#[test]
+fn a_string_section_with_trailing_bytes_is_refused() {
+    // One entry, "a", then a byte no entry accounts for.
+    let bytes = [1, 0, 1, b'a', 0];
+    let mut t = GraphTables::default();
+    assert_eq!(
+        read_strings(&mut Reader::new(&bytes, "STRS"), &mut t, &LIMITS),
+        Err("graph section STRS has trailing data".into())
+    );
+    let mut t = GraphTables::default();
+    read_strings(&mut Reader::new(&bytes[..4], "STRS"), &mut t, &LIMITS).unwrap();
+    assert_eq!(t.str(0), "a");
 }
 
 #[test]
@@ -14,17 +29,18 @@ fn record_strings_precede_evidence_only_strings() {
     // Only an unresolved site names this reason; only occurrences name the
     // derivation version `local`.
     let reason = t.strings.len() as u32;
-    t.strings.push("only-evidence-reason".into());
+    t.strings.push("only-evidence-reason");
     t.unresolved[0].reason = reason;
     let (bytes, _) = encode(&t);
     let (full, _) = decode(&bytes).unwrap();
     let (files, _) = decode_files(&bytes).unwrap();
     let records = files.strings.len();
     assert!(records < full.strings.len(), "{:?}", full.strings);
-    assert_eq!(full.strings[..records], files.strings[..]);
-    assert!(sorted(&full.strings[..records]) && sorted(&full.strings[records..]));
+    let all = full.strings.iter().collect::<Vec<_>>();
+    assert_eq!(all[..records], files.strings.iter().collect::<Vec<_>>());
+    assert!(sorted(&all[..records]) && sorted(&all[records..]));
     for evidence_only in ["only-evidence-reason", "local"] {
-        assert!(full.strings[records..].iter().any(|s| s == evidence_only));
+        assert!(all[records..].contains(&evidence_only));
         assert!(!files.strings.iter().any(|s| s == evidence_only));
     }
     // A string both a declaration and a witness reference is a record string, once.
@@ -79,7 +95,7 @@ fn record_reference_into_evidence_dictionary_is_rejected() {
     let mut t = evidence_fixture();
     // The symbol's detail sorts last among record strings.
     let detail = t.strings.len() as u32;
-    t.strings.push("~last-record".into());
+    t.strings.push("~last-record");
     t.nodes[1].detail = detail;
     let mut encoder = writer::Encoder::new(&t);
     assert_eq!(encoder.texts[encoder.records - 1], "~last-record");

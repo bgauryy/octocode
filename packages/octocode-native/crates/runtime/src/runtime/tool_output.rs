@@ -17,15 +17,12 @@ impl ToolId {
             Self::GhSearchCode => &crate::tools::gh_search_code::Output,
             Self::GhGetFileContent => &crate::tools::gh_get_file_content::Output,
             Self::GhGetHistoryItem => &crate::tools::gh_get_history_item::Output,
-            Self::GraphBuild
-            | Self::GraphQuery
-            | Self::StructureSearch
-            | Self::GhStructure
-            | Self::GhCloneRepo
-            | Self::GhSearchHistory
-            | Self::ArtifactSearch
-            | Self::SecurityCheck
-            | Self::Clasify => &SharedOutput,
+            Self::GhStructure => &crate::tools::gh_structure::Output,
+            Self::GraphBuild | Self::GraphQuery => &crate::tools::ast_graph::Output,
+            Self::SecurityCheck => &crate::tools::security_check::Output,
+            Self::StructureSearch => &crate::tools::structure_search::Output,
+            Self::GhSearchHistory => &crate::tools::gh_search_history::Output,
+            Self::GhCloneRepo | Self::ArtifactSearch | Self::Clasify => &SharedOutput,
         }
     }
 }

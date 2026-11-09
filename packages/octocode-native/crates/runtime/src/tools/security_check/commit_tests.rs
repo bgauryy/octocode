@@ -672,3 +672,60 @@ async fn a_repo_that_is_not_on_github_says_it_was_not_read_there() {
         "no GitHub entry for a repository GitHub was never asked about: {data}"
     );
 }
+
+/// GitHub withdrew the repository advisory that is the twin of OSV's record
+/// of the commit (live: CVE-2024-51999 / GHSA-pj86-cfqh-vqx6): the advisory is
+/// withdrawn, stated as such, and never counted (check C D2).
+#[tokio::test]
+async fn a_commit_row_never_counts_an_advisory_github_withdrew() {
+    let published = recorded_advisories(1);
+    let mut twin = published[0].clone();
+    twin.withdrawn_at = Some("2025-12-02T15:11:19Z".into());
+    let record = json!({"id": twin.ghsa_id, "aliases": ["CVE-2024-51999"], "affected": [{
+        "ranges": [{"type": "GIT", "repo": "https://github.com/lodash/lodash",
+            "events": [{"introduced": "0"}, {"fixed": "abc"}]}]}]});
+    let github = Double::repo(found())
+        .commit(signed(&["main"], Some(true)))
+        .page(None, vec![twin.clone()], None);
+    let data = row_with_osv_record(&github, record).await;
+    let rows = data["advisories"].as_array().expect("advisories");
+    assert_eq!(rows.len(), 1, "{data}");
+    assert_eq!(rows[0]["withdrawn"], "2025-12-02T15:11:19Z", "{data}");
+    assert!(data.get("affected").is_none(), "never counted: {data}");
+    let answer = data["answer"].as_str().unwrap_or_default();
+    assert!(
+        !answer.contains("affected range of 1") && answer.contains("withdrawn"),
+        "{answer}"
+    );
+    assert!(!answer.contains("CVEs: CVE-2024-51999"), "{answer}");
+}
+
+/// GitHub withdrew a duplicate repository advisory that shares its CVE with
+/// the live OSV record of the commit: the live advisory stays counted.
+#[tokio::test]
+async fn a_withdrawn_duplicate_never_hides_the_commits_live_advisory() {
+    let published = recorded_advisories(1);
+    let mut duplicate = published[0].clone();
+    duplicate.ghsa_id = "GHSA-dupl-xxxx-wwww".into();
+    duplicate.cve_id = Some("CVE-2024-0001".into());
+    duplicate.withdrawn_at = Some("2025-12-02T15:11:19Z".into());
+    let record = json!({"id": "OSV-LIVE-1", "aliases": ["CVE-2024-0001"], "affected": [{
+        "ranges": [{"type": "GIT", "repo": "https://github.com/lodash/lodash",
+            "events": [{"introduced": "0"}, {"fixed": "abc"}]}]}]});
+    let github = Double::repo(found())
+        .commit(signed(&["main"], Some(true)))
+        .page(None, vec![duplicate], None);
+    let data = row_with_osv_record(&github, record).await;
+    assert_eq!(
+        data["affected"], true,
+        "the live advisory is hidden: {data}"
+    );
+    let rows = data["advisories"].as_array().expect("advisories");
+    assert_eq!(rows.len(), 1, "{data}");
+    assert!(rows[0].get("withdrawn").is_none(), "{data}");
+    let answer = data["answer"].as_str().unwrap_or_default();
+    assert!(
+        answer.contains("affected range of 1") && answer.contains("GHSA-dupl-xxxx-wwww"),
+        "{answer}"
+    );
+}

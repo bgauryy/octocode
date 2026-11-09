@@ -16,6 +16,10 @@ mod frame;
 
 pub(crate) use frame::Frame;
 
+/// How to cite an asset (the `assets` field text: "name each asset key in
+/// its question").
+const UNCITED_HINT: &str = "Name each asset key in the question that judges it.";
+
 pub(crate) struct CapturedAssets {
     pub provider: Value,
     pub(crate) provenance: Value,
@@ -23,9 +27,12 @@ pub(crate) struct CapturedAssets {
     pub(crate) frames: BTreeMap<String, Frame>,
 }
 
+/// `state_field` names the request field that wrote `state` (`content`),
+/// or is `None` when the state is a read source the caller did not write.
 pub(crate) fn capture(
     assets: &Value,
     state: &Value,
+    state_field: Option<&str>,
     questions: &[Value],
     dispatcher: &dyn SourceReader,
     context: &ExecutionContext,
@@ -35,9 +42,15 @@ pub(crate) fn capture(
     };
     for key in assets.keys() {
         if !referenced(state, key) && !questions.iter().any(|question| referenced(question, key)) {
-            return Err(invalid(&format!(
-                "Image asset {key} is not referenced in state or questions; nothing was judged."
-            )));
+            let cited = state_field.map_or_else(
+                || "any question".to_owned(),
+                |field| format!("{field} or any question"),
+            );
+            return Err(ClassificationError::new(
+                ErrorCode::InvalidClassificationContext,
+                format!("Image asset {key} is not named in {cited}; nothing was judged."),
+                UNCITED_HINT,
+            ));
         }
     }
     let store = url::Store::open(dispatcher)?;

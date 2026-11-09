@@ -64,10 +64,9 @@ fn evidence_source_scope_distinguishes_supported_empty_unsupported_and_unknown()
         assert_eq!(empty.value["pagination"]["totalItems"], 0);
         assert_eq!(empty.value["coverage"]["linkage"]["linked"], 2);
         assert!(
-            empty.value["coverage"]["warning"]
-                .as_str()
-                .unwrap()
-                .contains("whole-language population")
+            empty.value["coverage"].get("warning").is_none(),
+            "supported extraction needs no warning: {}",
+            empty.value
         );
     }
 
@@ -213,5 +212,67 @@ fn aggregate_evidence_capability_uses_snapshot_values_and_survives_paging() {
                 }
             }
         }
+    }
+}
+
+/// The supported-case sentence repeats the tool description; only a language
+/// whose call extraction is unsupported or not assessed changes what an empty
+/// answer means, so only it carries a warning.
+#[test]
+fn a_warning_accompanies_only_coverage_that_changes_the_conclusion() {
+    let (dir, _) = mixed_sources();
+    for operation in ["witnesses", "unresolved", "callers", "callees"] {
+        let supported = evidence(&dir.0, operation, Some("linked.ts"), None);
+        assert_eq!(
+            supported.value["coverage"]["callExtraction"], "supported",
+            "{operation}: {}",
+            supported.value
+        );
+        assert!(
+            supported.value["coverage"].get("warning").is_none(),
+            "{operation}: {}",
+            supported.value
+        );
+        let unsupported = evidence(&dir.0, operation, Some("labels.asm"), None);
+        assert!(
+            unsupported.value["coverage"]["warning"].is_string(),
+            "{operation}: {}",
+            unsupported.value
+        );
+    }
+}
+
+/// `argumentCoverage` describes the languages of the selected sources; the
+/// snapshot's other languages concern none of the rows.
+#[test]
+fn argument_coverage_lists_only_the_selected_sources_languages() {
+    let (dir, _) = mixed_sources();
+    let stats = ask(&dir.0, "stats", None, |_| {});
+    let all = stats.value["argumentCoverage"]["byLanguage"]
+        .as_object()
+        .unwrap();
+    for operation in ["witnesses", "unresolved"] {
+        let whole = evidence(&dir.0, operation, None, None);
+        assert_eq!(
+            whole.value["argumentCoverage"]["byLanguage"]
+                .as_object()
+                .unwrap(),
+            all,
+            "{operation}"
+        );
+        let one = evidence(&dir.0, operation, Some("linked.ts"), None);
+        let languages = one.value["argumentCoverage"]["byLanguage"]
+            .as_object()
+            .unwrap();
+        assert!(
+            languages.keys().all(|language| language == "typescript"),
+            "{operation}: {}",
+            one.value["argumentCoverage"]
+        );
+        assert_eq!(
+            languages.get("typescript"),
+            all.get("typescript"),
+            "{operation}"
+        );
     }
 }

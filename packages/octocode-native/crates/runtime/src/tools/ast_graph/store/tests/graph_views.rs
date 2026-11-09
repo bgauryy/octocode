@@ -147,11 +147,13 @@ fn modules_view_pages_reconstruct_every_pair_once() {
 }
 
 /// A path-shaped reference that names nothing suggests only nodes under its
-/// deepest directory the snapshot holds, never same-word nodes elsewhere.
+/// deepest directory the snapshot holds that share its name, never
+/// same-word nodes elsewhere and never the directory's other nodes; its
+/// `find` lead looks for the name everywhere.
 #[test]
 fn not_found_path_suggests_only_nodes_under_its_directory() {
     let dir = built();
-    let out = ask(dir.0.as_path(), "deps", Some("config/fmt"), |_| {});
+    let out = ask(dir.0.as_path(), "deps", Some("config/schem"), |_| {});
     assert_eq!(out.value["errorCode"], "notFound", "{}", out.value);
     let suggestions = out.value["suggestions"]
         .as_array()
@@ -159,17 +161,25 @@ fn not_found_path_suggests_only_nodes_under_its_directory() {
         .unwrap_or_default();
     assert!(!suggestions.is_empty(), "{}", out.value);
     for key in &suggestions {
+        let key = key.as_str().unwrap();
         assert!(
-            key.as_str().unwrap().starts_with("config/"),
-            "{key} is outside config/: {}",
+            key.starts_with("config/schema.ts"),
+            "{key} is outside config/ or does not share the name: {}",
             out.value
         );
     }
+    // `fmt` lives in util/: nothing under config/ shares the name, so
+    // nothing is suggested, and the find lead names it.
+    let out = ask(dir.0.as_path(), "deps", Some("config/fmt"), |_| {});
+    assert_eq!(out.value["errorCode"], "notFound", "{}", out.value);
+    assert!(out.value.get("suggestions").is_none(), "{}", out.value);
+    assert_eq!(out.value["find"], "fmt", "{}", out.value);
 }
 
-/// Every symbol row of `find`, `symbols`, `callers` and `hubs` carries a
-/// runnable lspSearch lead at its declaration, its path workspace-relative
-/// (the snapshot's root is `app`, below the workspace).
+/// Every symbol row of `find`, `symbols` and `hubs` carries a runnable
+/// lspSearch lead at its declaration, its path workspace-relative (the
+/// snapshot's root is `app`, below the workspace). Edge rows (`callers`)
+/// verify their edge instead: see the test after this one.
 #[test]
 fn symbol_rows_carry_a_workspace_relative_lsp_lead() {
     let dir = built();
@@ -188,7 +198,6 @@ fn symbol_rows_carry_a_workspace_relative_lsp_lead() {
             o.kind = Some("symbol".into());
         }),
         ask(root, "symbols", Some("util/box.ts"), |_| {}),
-        ask(root, "callers", Some("util/fmt.ts#fmt"), |_| {}),
         ask(root, "hubs", None, |o| o.edges = vec!["calls".into()]),
     ];
     for out in &answers {
@@ -208,6 +217,67 @@ fn symbol_rows_carry_a_workspace_relative_lsp_lead() {
             assert_eq!(lead["line"], row["line"], "{row}");
         }
     }
+}
+
+/// An edge row's `verify` confirms the edge, not the row's own symbol:
+/// lspSearch references of the symbol the edge points to, at its
+/// declaration. The edge holds when one of those references lies at the
+/// row's `edgeLine` inside the calling symbol: a `callers` row's own span, a
+/// `callees` row's `from`.
+#[test]
+fn an_edge_row_verifies_its_edge_by_the_references_of_its_target() {
+    let dir = built();
+    let root = dir.0.as_path();
+    let lead = |row: &Value| row["verify"][0]["input"]["queries"][0].clone();
+    let declared = |path: &str, name: &str, line: u64| json!({"operation": "references", "path": path, "symbolName": name, "line": line});
+    // Callers of `fmt`: every row's lead is the references of `fmt`, and
+    // the row's span holds the call.
+    let callers = ask(root, "callers", Some("util/fmt.ts#fmt"), |_| {});
+    let rows = callers.value["rows"].as_array().unwrap();
+    assert!(rows.len() >= 2, "{}", callers.value);
+    for row in rows {
+        assert_eq!(lead(row), declared("app/util/fmt.ts", "fmt", 1), "{row}");
+        let (line, edge) = (
+            row["line"].as_u64().unwrap(),
+            row["edgeLine"].as_u64().unwrap(),
+        );
+        let end = row["endLine"].as_u64().unwrap_or(line);
+        assert!(
+            (line..=end).contains(&edge),
+            "the call lies in the caller: {row}"
+        );
+    }
+    // Callees of `main`: each row is the edge's target, so its lead is the
+    // references of the row's own symbol.
+    let callees = ask(root, "callees", Some("main.ts#main"), |_| {});
+    let rows = callees.value["rows"].as_array().unwrap();
+    assert!(!rows.is_empty(), "{}", callees.value);
+    for row in rows {
+        let file = row["file"].as_str().unwrap();
+        let expected = declared(
+            &format!("app/{file}"),
+            row["name"].as_str().unwrap(),
+            row["line"].as_u64().unwrap(),
+        );
+        assert_eq!(lead(row), expected, "{row}");
+    }
+    // Two levels of callers of `schema`: `main` reaches it through `load`,
+    // so `main`'s edge is `main -> load`, verified by `load`'s references.
+    let walk = ask(root, "callers", Some("config/schema.ts#schema"), |o| {
+        o.depth = Some(2);
+    });
+    let main = walk.value["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"] == "main.ts#main")
+        .unwrap_or_else(|| panic!("main at depth 2: {}", walk.value));
+    assert_eq!(main["from"], "config/load.ts#load", "{main}");
+    assert_eq!(
+        lead(main),
+        declared("app/config/load.ts", "load", 3),
+        "{main}"
+    );
 }
 
 /// Two sub-modules importing one shared file, a `config.ts` beside a
@@ -454,9 +524,9 @@ fn absolute_miss_suggests_like_its_relative_form() {
         assert_eq!(out.value["errorCode"], "notFound", "{}", out.value);
         out.value["suggestions"].clone()
     };
-    let relative = suggestions("config/fmt");
+    let relative = suggestions("config/schem");
     assert!(relative.as_array().is_some_and(|keys| !keys.is_empty()));
-    let absolute = root.join("app/config/fmt").to_string_lossy().into_owned();
+    let absolute = root.join("app/config/schem").to_string_lossy().into_owned();
     assert_eq!(suggestions(&absolute), relative);
 }
 
@@ -505,4 +575,49 @@ fn witnesses_count_calls_filtered_by_confidence() {
         "{}",
         low.value
     );
+}
+
+/// Every edge kind the graph stores answers with rows that follow one lead
+/// rule: a row that is a symbol carries a runnable lspSearch lead, a file or
+/// package row carries none. The test walks `EdgeKind::ALL`, so a new kind
+/// must appear in the fixture and obey the rule.
+#[test]
+fn every_edge_kind_leads_its_symbol_rows_and_only_them() {
+    let dir = git_app(&[
+        (
+            "lib.ts",
+            "export class Box {}\nexport function fmt() {}\nexport function take(f: unknown) { return f; }\n",
+        ),
+        (
+            "app.ts",
+            "import { Box, fmt, take } from './lib';\nimport path from 'node:path';\nexport class Crate extends Box {}\nexport function main() { fmt(); take(fmt); return path; }\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    let built = ingest_fixture(root, None);
+    assert_eq!(built.class, ExitClass::Success, "{}", built.value);
+    for kind in super::super::format::EdgeKind::ALL {
+        let name = kind.as_str();
+        let mut rows = Vec::<Value>::new();
+        for target in ["app.ts", "app.ts#main", "app.ts#Crate", "lib.ts"] {
+            let out = ask(root, "deps", Some(target), |o| {
+                o.edges = vec![name.into()];
+            });
+            rows.extend(out.value["rows"].as_array().cloned().unwrap_or_default());
+        }
+        assert!(!rows.is_empty(), "no {name} row in the fixture");
+        for row in &rows {
+            assert_eq!(row["edge"], name, "{row}");
+            let lead = row["verify"][0]["tool"].as_str();
+            if row["kind"] == "symbol" {
+                assert_eq!(
+                    lead,
+                    Some("lspSearch"),
+                    "{name} symbol row has no lead: {row}"
+                );
+            } else {
+                assert_eq!(lead, None, "{name} non-symbol row has a lead: {row}");
+            }
+        }
+    }
 }

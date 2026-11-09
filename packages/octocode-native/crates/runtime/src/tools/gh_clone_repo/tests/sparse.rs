@@ -308,3 +308,81 @@ fn sparse_path_validation_rejects_traversal_absolute_and_backslash() {
         );
     }
 }
+
+/// Sparse sets of one commit are separate linked worktrees of one store,
+/// each with its own sparse scope; a full worktree of the commit coexists,
+/// and every one of them is reused on repeat.
+#[test]
+fn sparse_sets_of_one_commit_are_separate_worktrees_of_one_store() {
+    let fixture = Fixture::shared();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let rows = [
+        GhCloneRepoQuery {
+            paths: one("src"),
+            ..query()
+        },
+        GhCloneRepoQuery {
+            paths: one("README.md"),
+            ..query()
+        },
+        query(),
+    ];
+    let first = rows
+        .each_ref()
+        .map(|row| clone_pinned(&fixture, row, &context).expect("clone"));
+    let local = first
+        .each_ref()
+        .map(|row| PathBuf::from(&row.location.local_path));
+    let [src, readme, full] = &local;
+
+    assert_eq!(store_dirs(&home).len(), 1, "{:?}", store_dirs(&home));
+    assert_eq!(steps(&runner, "initialize shared store"), 1);
+    assert_eq!(steps(&runner, "fetch requested commit"), 1, "one fetch");
+    // Cone mode keeps the root's files beside the requested directory.
+    assert!(src.join("src/lib.rs").is_file() && src.join("README.md").is_file());
+    assert!(readme.join("README.md").is_file() && !readme.join("src").exists());
+    assert!(full.join("src/lib.rs").is_file() && full.join("README.md").is_file());
+    let list = |path: &Path| git_output(path, &["sparse-checkout", "list"]);
+    assert!(list(src).contains("src") && !list(src).contains("README.md"));
+    assert!(list(readme).contains("README.md") && !list(readme).contains("src"));
+
+    for row in &rows {
+        let again = clone_pinned(&fixture, row, &context).expect("repeat");
+        assert!(again.location.reused, "{again:?}");
+    }
+}
+
+/// The D3 gotcha: a bare store whose `core.bare` leaked into the shared
+/// config would make every linked worktree read as bare. After a sparse
+/// checkout the worktree is a work tree and the store is bare.
+#[test]
+fn a_linked_worktree_is_no_bare_repository_beside_its_bare_store() {
+    let fixture = Fixture::shared();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let sparse = clone_pinned(
+        &fixture,
+        &GhCloneRepoQuery {
+            paths: one("src"),
+            ..query()
+        },
+        &context,
+    )
+    .expect("sparse clone");
+    let worktree = Path::new(&sparse.location.local_path);
+    let flag = |dir: &Path, name: &str| git_output(dir, &["rev-parse", name]).trim().to_owned();
+    assert_eq!(flag(worktree, "--is-bare-repository"), "false");
+    assert_eq!(flag(worktree, "--is-inside-work-tree"), "true");
+    let stores = store_dirs(&home);
+    assert_eq!(stores.len(), 1, "{stores:?}");
+    assert_eq!(flag(&stores[0], "--is-bare-repository"), "true");
+}

@@ -192,3 +192,34 @@ fn candidate_page_keeps_the_query_snapshot_and_drops_progress() {
     assert_eq!(page["snapshot"], "pinned", "{page}");
     assert!(page.get("readProgress").is_none(), "{page}");
 }
+
+/// A reason whose meaning the row's own note already states gets no
+/// glossary line; a reason no text of the row explains keeps its line, and
+/// no `statedReasons` key reaches a caller (R1).
+#[test]
+fn a_stated_reason_gets_no_glossary_line() {
+    let mut row = json!({"files": [], "matchCount": 0});
+    mark_partial(
+        &mut row,
+        crate::response::paging::PartialReason::BuildScriptsOff,
+        &[],
+    );
+    mark_partial(
+        &mut row,
+        crate::response::paging::PartialReason::CfgGatedFiles,
+        &[],
+    );
+    super::push_notice(
+        &mut row,
+        "rust-analyzer did not run this package's build scripts.",
+    );
+    super::mark_stated(
+        &mut row,
+        crate::response::paging::PartialReason::BuildScriptsOff,
+    );
+    let response = crate::tools::test_support::staged_response(ToolId::LspSearch, vec![row]);
+    let text = response.to_string();
+    assert!(!text.contains("buildScriptsOff: "), "{response}");
+    assert!(text.contains("cfgGatedFiles: "), "{response}");
+    assert!(!text.contains(super::STATED_REASONS), "{response}");
+}

@@ -244,3 +244,25 @@ proptest! {
         );
     }
 }
+
+/// A text judged in one pass over its spans parses its source once, however
+/// many patterns read its comments or config lines, and every judge reads that
+/// one parse, as the in-memory pass does (B190 item 5).
+#[test]
+fn a_long_source_text_parses_once() {
+    let content = concat!(
+        "fn f() {\n",
+        "    let a = 1; // password: Zq7xK2mPlanted9\n",
+        "    // DB_PASSWORD=Zq7xK2mPlanted9xx\n",
+        "    let b = \"token: q8Zr4LmT2vXw9KpN7sYd3HfJ6gBc\";\n",
+        "}\n",
+    );
+    let before = super::code_syntax::parses();
+    let result = redact_within(content, Scope::File("a.rs"), 16);
+    let parsed = super::code_syntax::parses() - before;
+    assert!(
+        result.is_some_and(|result| !result.sanitized.contains("Zq7xK2mPlanted9")),
+        "the secrets are hidden"
+    );
+    assert_eq!(parsed, 1, "one parse per text");
+}

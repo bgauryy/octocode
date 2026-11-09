@@ -80,14 +80,20 @@ fn published_block_is_complete(block: &mut Map<String, Value>) -> bool {
     complete(block)
 }
 
-/// One first page with nothing after it, stating only its own size.
+/// One first page with nothing after it, stating only its own size. A
+/// `countScope:"complete"` adds nothing to one page of one (`totalPages:1`):
+/// the page lists the whole count. Without `totalPages` it is kept, as its
+/// `totalItems` may count more than the page lists.
 fn complete(block: &Map<String, Value>) -> bool {
     block.get("hasMore") == Some(&Value::Bool(false))
         && block.get("page").is_none_or(|page| page == 1)
         && block.get("offset").is_none_or(|offset| offset == 0)
+        && block.get("countScope").is_none_or(|scope| {
+            scope == "complete" && block.get("totalPages").is_some_and(|pages| pages == 1)
+        })
         && block
             .keys()
-            .all(|key| COMPLETE_KEYS.contains(&key.as_str()))
+            .all(|key| key == "countScope" || COMPLETE_KEYS.contains(&key.as_str()))
 }
 
 /// A fact that says nothing happened is absent; the row states it when it did.
@@ -102,10 +108,11 @@ fn drop_zero_disclosures(data: &mut Map<String, Value>) {
     });
 }
 
-/// Removes from each row of the first response to a fresh request the fields
-/// that repeat that row's query unchanged: `index` already maps the row to its
-/// query. A value the tool resolved or changed differs and stays; a page read
-/// through a cursor keeps them, because its request names none of them.
+/// Removes from each row the fields that repeat its query unchanged: `index`
+/// already maps the row to its query. Only the first response to a fresh
+/// request applies it; a page read through a cursor keeps them, because its
+/// request names none of them. A value the tool resolved or changed differs
+/// and stays.
 pub(crate) fn drop_echoes(structured: &mut Value, queries: &[Value], row_indices: &[usize]) {
     let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut) else {
         return;
@@ -208,6 +215,35 @@ mod tests {
         assert_eq!(
             output["results"][1]["data"],
             json!({"files":[{"path":"a.ts"}]})
+        );
+    }
+
+    /// C3eK B-R5: a section read on one complete page (`countScope:
+    /// "complete"`, page 1 of 1) states no block, as any complete first
+    /// page; a complete count over a list cut short of it (no
+    /// `totalPages`), or a loaded floor, keeps its block.
+    #[test]
+    fn a_complete_count_on_its_one_page_states_no_block() {
+        let mut output = json!({"results":[{"index":0,"data":{
+            "files":["M +3 -1 a.md"],
+            "contentPagination":{"files":{"page":1,"totalPages":1,"countScope":"complete","totalItems":1,"hasMore":false}},
+        }},{"index":1,"data":{
+            "pagination":{"page":1,"countScope":"complete","hasMore":false,"totalItems":500},
+        }},{"index":2,"data":{
+            "pagination":{"page":1,"totalPages":1,"countScope":"loaded","hasMore":false,"totalItems":2},
+        }}]});
+        publish_rows(&mut output);
+        assert_eq!(
+            output["results"][0]["data"],
+            json!({"files":["M +3 -1 a.md"]})
+        );
+        assert_eq!(
+            output["results"][1]["data"]["pagination"]["totalItems"],
+            500
+        );
+        assert_eq!(
+            output["results"][2]["data"]["pagination"]["countScope"],
+            "loaded"
         );
     }
 

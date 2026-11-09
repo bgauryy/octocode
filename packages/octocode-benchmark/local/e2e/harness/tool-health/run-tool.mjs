@@ -134,8 +134,9 @@ function recordWalk(run, { tag, walk, surface, report, expected }) {
 /** The rows a walk's union must equal: the case's `expect`, else the unpaged (or happy) call's rows. */
 async function expectedRows(run, walk, rowsFn, happy) {
   if (walk.expect) return walk.expect(run.ctx);
-  const unpaged = walk.unpaged ? await run.call(run.input(walk.unpaged), 'cli') : walk.label === 'page' ? happy.cli : null;
-  return unpaged && statusClass(unpaged.json) === 'ok' ? rowsFn(dataOf(rowsOf(unpaged.json)[0]), unpaged.json) : null;
+  const input = walk.unpaged ? run.input(walk.unpaged) : walk.label === 'page' ? run.input(run.spec.happy) : null;
+  const unpaged = walk.unpaged ? await run.call(input, 'cli') : walk.label === 'page' ? happy.cli : null;
+  return unpaged && statusClass(unpaged.json) === 'ok' ? rowsFn(dataOf(rowsOf(unpaged.json)[0]), unpaged.json, undefined, input.queries?.[0]) : null;
 }
 
 /** (b) continuation: the primary page channel, then the tool's other walks. */

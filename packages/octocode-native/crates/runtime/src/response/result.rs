@@ -410,14 +410,45 @@ pub(crate) fn set_next(row: &mut Value, key: &str, call: Value) {
     next[key] = call;
 }
 
+/// Adds `call` to the row's `related`, once: a call whose query rows another
+/// related call already runs is no second lead. When `call` runs the rows of
+/// calls already listed, it takes the first one's place and the rest go.
 pub(crate) fn attach_related(data: &mut Value, call: Value) {
     if data.get("related").is_none() {
         data["related"] = serde_json::json!([]);
     }
-    if let Some(related) = data.get_mut("related").and_then(Value::as_array_mut)
-        && !related.contains(&call)
-    {
-        related.push(call);
+    let Some(related) = data.get_mut("related").and_then(Value::as_array_mut) else {
+        return;
+    };
+    if related.iter().any(|held| runs_all_of(held, &call)) {
+        return;
+    }
+    let at = related.iter().position(|held| runs_all_of(&call, held));
+    related.retain(|held| !runs_all_of(&call, held));
+    related.insert(at.unwrap_or(related.len()), call);
+}
+
+/// Whether running `wider` runs every query row of `narrower`: the same call
+/// (tool, kind and every input field) apart from its rows, with each of
+/// `narrower`'s rows among `wider`'s. A call without rows is held only by
+/// itself.
+fn runs_all_of(wider: &Value, narrower: &Value) -> bool {
+    fn rows(call: &Value) -> Option<&Vec<Value>> {
+        call.pointer("/input/queries").and_then(Value::as_array)
+    }
+    let without_rows = |call: &Value| {
+        let mut call = call.clone();
+        if let Some(input) = call.get_mut("input").and_then(Value::as_object_mut) {
+            input.remove("queries");
+        }
+        call
+    };
+    match (rows(wider), rows(narrower)) {
+        (Some(wide), Some(narrow)) => {
+            narrow.iter().all(|row| wide.contains(row))
+                && without_rows(wider) == without_rows(narrower)
+        }
+        _ => wider == narrower,
     }
 }
 

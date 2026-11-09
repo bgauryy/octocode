@@ -17,6 +17,10 @@ struct Binding {
     name_range: ObservedSpan,
     scope: std::ops::Range<usize>,
     visible_from: usize,
+    /// Bound inside a callable, not as a member nor as a parameter callers
+    /// name by keyword: no text outside `scope` can name it
+    /// ([`Bindings::local_scope`]).
+    local: bool,
 }
 
 #[derive(Default)]
@@ -76,6 +80,7 @@ impl Bindings {
             }
             if let Some((fields, parameter)) = binding_fields(adapter, node.kind()) {
                 let scope = binding_scope(node, adapter, parameter, scopes);
+                let local = !(parameter && adapter.keyword_arguments()) && is_local(scope, scopes);
                 for field in fields {
                     let mut children = node.walk();
                     for pattern in node.children_by_field_name(field, &mut children) {
@@ -97,6 +102,7 @@ impl Bindings {
                                             visible_from: visible_from(
                                                 node, part, scope, adapter, parameter,
                                             ),
+                                            local,
                                         },
                                     );
                                 }
@@ -148,32 +154,59 @@ impl Bindings {
         self
     }
 
-    pub(crate) fn assess(&self, root_name: &str, at: usize) -> GraphArgumentBinding {
+    /// The binding `name` at byte `at` resolves to, the innermost visible
+    /// one.
+    fn resolved(&self, name: &str, at: usize) -> Resolved<'_> {
         if !self.complete
-            || matches!(root_name, "self" | "this" | "super")
+            || matches!(name, "self" | "this" | "super")
             || self.unknown.iter().any(|scope| scope.contains(&at))
         {
-            return GraphArgumentBinding::NotAssessed;
+            return Resolved::Unsettled;
         }
         self.names
-            .get(root_name)
+            .get(name)
             .into_iter()
             .flatten()
             .filter(|binding| binding.scope.contains(&at) && binding.visible_from <= at)
             .min_by_key(|binding| (binding.scope.len(), std::cmp::Reverse(binding.visible_from)))
-            .map_or(
-                if self.lookup_admitted {
-                    GraphArgumentBinding::ScopedLookup {
-                        implicit_members: self.implicit_members,
-                    }
-                } else {
-                    GraphArgumentBinding::NotAssessed
-                },
-                |binding| GraphArgumentBinding::Unrepresented {
-                    source_range: binding.name_range,
-                },
-            )
+            .map_or(Resolved::Unbound, Resolved::Bound)
     }
+
+    /// The byte range of the scope of the local binding (a parameter no call
+    /// site names by keyword, or a variable bound inside a callable) that
+    /// `name` at byte `at` names:
+    /// no text outside it can name that binding. `None` when it names no
+    /// local binding, or this reading cannot tell.
+    pub(crate) fn local_scope(&self, name: &str, at: usize) -> Option<std::ops::Range<usize>> {
+        match self.resolved(name, at) {
+            Resolved::Bound(binding) if binding.local => Some(binding.scope.clone()),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn assess(&self, root_name: &str, at: usize) -> GraphArgumentBinding {
+        match self.resolved(root_name, at) {
+            Resolved::Unsettled => GraphArgumentBinding::NotAssessed,
+            Resolved::Unbound if self.lookup_admitted => GraphArgumentBinding::ScopedLookup {
+                implicit_members: self.implicit_members,
+            },
+            Resolved::Unbound => GraphArgumentBinding::NotAssessed,
+            Resolved::Bound(binding) => GraphArgumentBinding::Unrepresented {
+                source_range: binding.name_range,
+            },
+        }
+    }
+}
+
+/// What a name at one byte resolves to.
+enum Resolved<'b> {
+    /// The walk did not finish, the name is a receiver, or the byte lies in
+    /// a scope this reading cannot settle.
+    Unsettled,
+    /// No binding of the name is visible there.
+    Unbound,
+    /// The innermost visible binding.
+    Bound(&'b Binding),
 }
 
 /// What a node's ancestors settle for the bindings it may hold, carried down
@@ -262,6 +295,16 @@ fn binding_scope<'t>(
     } else {
         scopes.block
     }
+}
+
+/// Whether a binding in `scope`, met under `scopes`, is local: its scope is
+/// a callable or lies in one, and is no member list (a field of a class or
+/// struct is named through its instance anywhere).
+fn is_local(scope: Node<'_>, scopes: Scopes<'_>) -> bool {
+    !matches!(
+        scope.kind(),
+        "class_body" | "field_declaration_list" | "declaration_list"
+    ) && (is_callable_scope(scope.kind()) || is_callable_scope(scopes.function.kind()))
 }
 
 fn visible_from(

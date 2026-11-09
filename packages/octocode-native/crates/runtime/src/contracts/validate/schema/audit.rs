@@ -149,6 +149,9 @@ fn visit(root: &Value, schema: &Value) -> Result<(), ContractValidationError> {
                     }
                 }
             }
+            "x-patternMessage" => {
+                require(value.is_string(), "x-patternMessage must be a string")?;
+            }
             "const" | "default" | "x-versionSupport" | "x-requiredMessage" | "x-listing"
             | "x-cursor" => {}
             _ => return Err(internal(format!("Unsupported schema keyword: {key}"))),

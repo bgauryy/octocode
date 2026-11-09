@@ -211,9 +211,12 @@ pub(super) fn offer_retry(tool: ToolId, query: &Value, data: &mut Value) {
     crate::response::result::set_next(data, "retry", retry);
 }
 
-/// A registry or language-server failure row. `retryable` is the emitter's
-/// own verdict when it has one, else derived from the code and status.
+/// A registry or language-server failure row of `tool`, whose own recovery
+/// ([`crate::response::output::ToolOutput::error_hint`]) decides a shared
+/// code. `retryable` is the emitter's own verdict when it has one, else
+/// derived from the code and status.
 pub(super) fn provider_failure(
+    tool: ToolId,
     message: String,
     code: ErrorCode,
     mut hints: Vec<String>,
@@ -245,11 +248,7 @@ pub(super) fn provider_failure(
             } else {
                 code
             };
-            crate::response::rows::error_code_hint(
-                ToolId::ArtifactSearch.output(),
-                situation,
-                &Value::Null,
-            )
+            crate::response::rows::error_code_hint(tool.output(), situation, &Value::Null)
         };
         hints.extend(
             own.or_else(shared)

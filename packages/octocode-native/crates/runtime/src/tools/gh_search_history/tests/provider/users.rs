@@ -64,7 +64,9 @@ async fn search_naming_a_missing_user_is_not_a_missing_repository() {
     );
 
     // Person qualifiers only: the lead drops `qualifiers` altogether.
-    let only: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"pullRequest","owner":"o","repo":"r","filters":{"author":"ghost"}}))
+    let only: GhSearchHistoryQuery = serde_json::from_value(
+        json!({"operation":"pullRequest","owner":"o","repo":"r","filters":{"author":"ghost"}}),
+    )
     .expect("query");
     let failure =
         crate::tools::gh_search_history::execute(&provider, only, &default_context(), &Passthrough)
@@ -284,10 +286,7 @@ async fn commit_search_confirms_each_named_login_once_and_only_then() {
         }
     };
     // One login named as author and committer (case aside): one request.
-    run(Some(
-        json!({"author":"Dev","committer":"dev"}),
-    ))
-    .await;
+    run(Some(json!({"author":"Dev","committer":"dev"}))).await;
     // No user qualifier, or an email: no /users request (an unmounted route
     // would 404 as a missing user and fail the search).
     run(None).await;

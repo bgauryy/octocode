@@ -16,6 +16,24 @@ fn api_github_com() -> GitHubEndpoint {
     GitHubEndpoint::new(url::Url::parse("https://api.github.com/").expect("URL")).expect("endpoint")
 }
 
+/// A host listener that cancels `cancellation` the moment a wait is
+/// announced, and the lines it heard: a call that must not wait fails on
+/// its result instead of hanging, with no watcher polling for the line.
+fn cancel_on_announced_wait(
+    cancellation: octocode_io::cancellation::Cancellation,
+) -> (
+    octocode_io::notice::Scope,
+    Arc<std::sync::Mutex<Vec<String>>>,
+) {
+    let heard = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = Arc::clone(&heard);
+    let scope = octocode_io::notice::Scope::with_progress(move |line| {
+        sink.lock().expect("lines").push(line.to_owned());
+        cancellation.cancel();
+    });
+    (scope, heard)
+}
+
 /// A request with a `timeout` budget carrying `token`.
 fn with_token(token: &str, timeout: Duration, max_body_bytes: usize) -> RequestContext {
     RequestContext::new(
@@ -163,6 +181,6 @@ mod graphql;
 mod limits;
 mod refs;
 mod saved_answers;
-mod security;
 mod search;
+mod security;
 mod transport;

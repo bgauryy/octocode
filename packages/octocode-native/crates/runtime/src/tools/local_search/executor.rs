@@ -179,6 +179,10 @@ pub(super) fn page_of(
         total_files: view.totals.files,
         unverified: shaped.unverified,
         leftover_matches,
+        classified_hits: shaped
+            .selection
+            .as_ref()
+            .is_some_and(|selected| selected.receipt().total_items > 0),
     };
     let continuation_missing = next.is_none() && match_next.is_none();
     let mut result = settle_row(&scope, &page, rows, next, continuation_missing)?;

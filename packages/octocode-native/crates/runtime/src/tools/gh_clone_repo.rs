@@ -226,6 +226,11 @@ pub struct CloneError {
     /// failure, with its rate-limit facts and retry ([`CloneFailure::from`]).
     #[serde(skip)]
     upstream: Option<Box<ProviderError>>,
+    /// The HTTP status GitHub answered the request this error classifies
+    /// (a missing repository or ref): the row's `httpStatus`, as on every
+    /// GitHub tool's row.
+    #[serde(skip)]
+    pub(crate) http_status: Option<u16>,
 }
 
 impl CloneError {
@@ -236,7 +241,14 @@ impl CloneError {
             hints: Vec::new(),
             calls: None,
             upstream: None,
+            http_status: None,
         }
+    }
+
+    /// This error, classifying a request GitHub answered with `status`.
+    fn answered(mut self, status: Option<u16>) -> Self {
+        self.http_status = status;
+        self
     }
 
     /// A git step stopped by a provider failure: it reaches the row as
@@ -254,10 +266,7 @@ impl CloneError {
 pub fn repository_not_found(query: &GhCloneRepoQuery) -> CloneError {
     let (owner, repo) = (query.owner.as_str(), query.repo.as_str());
     CloneError {
-        hints: vec![crate::tools::gh_shared::repository_search_hint(
-            Some(owner),
-            repo,
-        )],
+        hints: vec![crate::tools::gh_shared::REPOSITORY_SEARCH_HINT.to_owned()],
         calls: Some(Box::new(crate::tools::gh_shared::repository_recovery(
             Some(owner),
             repo,

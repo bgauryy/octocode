@@ -74,7 +74,7 @@ fn topic_naming_the_repository_itself_is_dropped() {
         "topics":["rtmp","XIU","rust"]
     }))
     .expect("item");
-    let row = repository_row(item, &[]);
+    let row = repository_row(item, &[], true);
     assert_eq!(row["topics"], json!(["rtmp", "rust"]), "{row}");
 }
 
@@ -86,7 +86,7 @@ fn topic_naming_the_language_is_dropped() {
         "language":"Python","topics":["python","http"]
     }))
     .expect("item");
-    let row = repository_row(item, &[]);
+    let row = repository_row(item, &[], true);
     assert_eq!(row["topics"], json!(["http"]), "{row}");
     assert_eq!(row["language"], "Python", "{row}");
 }
@@ -102,7 +102,7 @@ fn a_repository_that_is_not_public_names_its_visibility() {
         item.as_object_mut()
             .expect("object")
             .extend(extra.as_object().expect("object").clone());
-        repository_row(serde_json::from_value(item).expect("item"), &[])
+        repository_row(serde_json::from_value(item).expect("item"), &[], true)
     };
     assert_eq!(
         row(json!({"visibility":"private","private":true}))["visibility"],

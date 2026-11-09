@@ -8,7 +8,8 @@ use super::*;
 use crate::tools::local_search::sources::{Digest, Expected};
 use memchr::memchr_iter;
 use octocode_engine::security::{
-    Edits, Named, SecretSpan, SecretSpans, SourceWalk, WholeSourcePatterns, redaction_placeholder,
+    Edits, Named, Objects, SecretSpan, SecretSpans, SourceWalk, WholeSourcePatterns,
+    redaction_placeholder,
 };
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -40,7 +41,7 @@ struct Walking<'a, R> {
 impl<'a, R> Walking<'a, R> {
     fn new(inner: R, path: &std::path::Path, windows: &'a [(usize, usize)]) -> Self {
         let named = Named {
-            objects: true,
+            objects: Objects::ALL,
             yaml: WholeSourcePatterns::for_path(&path.to_string_lossy()).is_some(),
         };
         let mut walking = Self {

@@ -556,6 +556,74 @@ fn a_file_lists_each_declaration_once_and_hits_name_it_by_index() {
     assert_eq!(owners, [0, 0, 1]);
 }
 
+/// A declaration lists the same start lines in localSearch `declarations[]`
+/// as in astSearch `symbols`: `docStartLine` (its doc comment) and
+/// `startLine` (its attributes) when they come before the name line, so a
+/// read from either starts at the same line. A declaration with neither
+/// lists neither.
+#[test]
+fn declarations_carry_the_start_lines_astsearch_symbols_print() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    let source = root.path().join("a.rs");
+    fs::write(
+        &source,
+        "/// Checks the needle.\n/// Twice.\n#[test]\n#[allow(dead_code)]\nfn checked() {\n    needle();\n}\nfn plain() {\n    needle();\n}\n",
+    )
+    .expect("fixture");
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({"path": root.path().to_string_lossy(), "matchString":["needle"]}),
+        None,
+    );
+    let result = search_in(&request, &policy, &security, None)
+        .expect("search")
+        .to_row()
+        .expect("serialize");
+    let declarations = result["files"][0]["declarations"]
+        .as_array()
+        .expect("declarations")
+        .clone();
+    let symbols_row = crate::tools::test_support::opened(
+        crate::id::ToolId::AstSearch,
+        &serde_json::json!({"operation":"symbols","path":source}),
+    );
+    let symbols = crate::tools::ast_search::execute_ast(
+        &serde_json::from_value(symbols_row).expect("astSearch row"),
+        &policy,
+        &security,
+        &NeverCancel,
+        None,
+    )
+    .expect("symbols");
+    let symbol = |name: &str| {
+        symbols["symbols"]
+            .as_array()
+            .expect("symbols rows")
+            .iter()
+            .find(|row| row["symbolName"] == name)
+            .cloned()
+            .unwrap_or_else(|| panic!("{name} in {symbols}"))
+    };
+    let lines = |row: &serde_json::Value| {
+        (
+            row["line"].as_u64(),
+            row["startLine"].as_u64(),
+            row["docStartLine"].as_u64(),
+        )
+    };
+    assert_eq!(declarations.len(), 2, "{result}");
+    for declaration in &declarations {
+        let name = declaration["symbolName"].as_str().expect("name");
+        assert_eq!(lines(declaration), lines(&symbol(name)), "{declaration}");
+    }
+    assert_eq!(
+        lines(&declarations[0]),
+        (Some(5), Some(3), Some(1)),
+        "{result}"
+    );
+    assert_eq!(lines(&declarations[1]), (Some(8), None, None), "{result}");
+}
+
 /// `matchOnly` selects each hit's text and place; the content view is the one
 /// that names its enclosing declaration.
 #[test]

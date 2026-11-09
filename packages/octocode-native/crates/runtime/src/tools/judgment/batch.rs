@@ -167,7 +167,7 @@ async fn answer_inner(
     if questions.len() > 1
         && let Some((request, body)) = grouped(input, model, provider)
     {
-        match send(body, input, connection, budget, gate).await {
+        match send(body, input, model, connection, budget, gate).await {
             Ok((response, calls)) => return grouped_outcomes(&request, &response, calls, provider),
             // The provider's window, not a byte count, decides whether a
             // group fits: its refusal tries the long window, then splits the
@@ -213,7 +213,7 @@ async fn answer_inner(
                     "Split the source with ranges or resources, send fewer images, or shorten the questions.",
                 ));
             }
-            let (response, calls) = send(body.into(), single, connection, budget, gate).await?;
+            let (response, calls) = send(body.into(), single, model, connection, budget, gate).await?;
             let read = provider.read(&request, &response);
             let answer = read
                 .answers
@@ -234,6 +234,7 @@ async fn answer_inner(
 async fn send(
     body: bytes::Bytes,
     input: EvaluationInput<'_>,
+    model: &str,
     connection: &Connection<'_>,
     budget: &RequestBudget,
     gate: &GateLease,
@@ -253,6 +254,7 @@ async fn send(
         gate,
     )
     .await
+    .map_err(|error| error.naming_model(model))
 }
 
 #[cfg(test)]

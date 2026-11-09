@@ -9,6 +9,7 @@
 //! or commit), and a selection larger than a capture holds fails instead of
 //! being judged from its first part.
 pub(crate) mod assets;
+pub(crate) mod glob;
 mod page;
 pub(crate) mod resource;
 pub(crate) mod url;
@@ -88,7 +89,9 @@ pub(crate) struct Captured {
     /// An executable read of exactly the captured selection, at the same
     /// snapshot or commit.
     pub read: Value,
-    /// Characters that read returns.
+    /// Characters of the judged source text. The read returns that text
+    /// with its line-number gutter (`N\t` on each line a line page holds),
+    /// so its pages run longer by the gutter.
     pub read_chars: usize,
     /// The read is a fresh one ([`fresh_read`]) of more characters than one
     /// response of this runtime holds: it pages, and paging needs saved

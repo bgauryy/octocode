@@ -127,8 +127,10 @@ async fn an_unconfirmed_multi_segment_link_gives_no_directory_and_a_warning() {
 #[tokio::test]
 async fn an_unchecked_link_is_disclosed_as_unchecked_with_its_reason() {
     let link = format!("{REPOSITORY}/tree/users/x/pkg");
-    let rate_limited = KnownTags::always(Some(true))
-        .with_failure(CheckFailure::Provider(ProviderErrorKind::RateLimited));
+    let rate_limited = KnownTags::always(Some(true)).with_failure(CheckFailure::Provider {
+        kind: ProviderErrorKind::RateLimited,
+        resets: None,
+    });
     let credential = KnownTags::always(Some(true)).with_failure(CheckFailure::Request);
     for (tags, reason) in [
         (None, "not available"),

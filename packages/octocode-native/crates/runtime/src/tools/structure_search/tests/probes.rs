@@ -23,16 +23,17 @@ fn an_empty_listings_probe_stops_at_its_entry_cap() {
         .expect("listing");
         assert_eq!(out["status"], "empty", "{out}");
         let hint = out["hints"][0].as_str().expect("hint");
+        let retry = &related(&out, "structureSearch")["input"]["queries"][0];
+        assert_eq!(retry["defaultExcludes"], false, "{out}");
+        // The hint names the lead as the response carries it: the related[]
+        // request, by the one flag it sets (related[] rows carry no name).
         assert_eq!(
             hint,
             format!(
-                "At least {cap} entries behind skipped paths (build/). {}",
-                crate::tools::leads::skipped::WALKS_ALL_SKIPPED
+                "At least {cap} entries behind skipped paths (build/). The related[] request with defaultExcludes:false walks everything those causes hide, not only these files, and can take far longer than this search."
             ),
             "{out}"
         );
-        let retry = &related(&out, "structureSearch")["input"]["queries"][0];
-        assert_eq!(retry["defaultExcludes"], false, "{out}");
         // The lead itself lists every one of them.
         let found = run(&root.0, retry.clone()).expect("retry");
         assert_ne!(found["status"], "empty", "{found}");

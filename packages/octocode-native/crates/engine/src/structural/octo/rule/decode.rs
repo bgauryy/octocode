@@ -6,6 +6,7 @@ use serde::Deserialize;
 use crate::structural::kinds::{named_kind_id, near_kinds};
 use crate::structural::language::AgLanguage;
 
+use crate::structural::octo::WrittenPattern;
 use crate::structural::octo::error::CompileError;
 use crate::structural::octo::pattern::CompiledPattern;
 use crate::structural::octo::position::RawOrdinal;
@@ -23,11 +24,17 @@ impl RawPattern {
     }
 
     pub(super) fn compile(&self, lang: &AgLanguage) -> Result<CompiledPattern, CompileError> {
+        self.written().compile(lang)
+    }
+
+    /// This pattern as the caller wrote it.
+    fn written(&self) -> WrittenPattern<'_> {
         match self {
-            Self::Text(text) => CompiledPattern::new(lang, text),
-            Self::Context(pattern) => {
-                CompiledPattern::contextual(lang, &pattern.context, &pattern.selector)
-            }
+            Self::Text(text) => WrittenPattern::Text(text),
+            Self::Context(pattern) => WrittenPattern::Context {
+                context: &pattern.context,
+                selector: &pattern.selector,
+            },
         }
     }
 }
@@ -42,6 +49,20 @@ impl RawRule {
         ]
         .into_iter()
         .filter_map(|(direction, rule)| rule.map(|rule| (direction, rule)))
+    }
+
+    /// Every rule a `has` tests on the nodes below the one it is asked
+    /// about, at any depth of this rule (under `not`, `any`, another
+    /// relation or a stop rule too): a rule that may match inside a macro
+    /// body below a node matched outside it.
+    pub(in crate::structural) fn has_targets(&self) -> Vec<&Self> {
+        let mut found = Vec::new();
+        let mut pending = vec![self];
+        while let Some(rule) = pending.pop() {
+            found.extend(rule.has.as_deref());
+            pending.extend(rule.children());
+        }
+        found
     }
 
     pub(super) fn children(&self) -> impl Iterator<Item = &Self> {

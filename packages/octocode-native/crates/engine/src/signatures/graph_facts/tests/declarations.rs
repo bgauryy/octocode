@@ -607,7 +607,8 @@ fn scala_for_comprehension_generators_are_no_enum_members() {
     // A C enum constant is still one.
     let c = kinds("enum E { A };\n", "e.c");
     assert!(
-        c.iter().any(|(name, kind, _)| name == "A" && kind == "enumMember"),
+        c.iter()
+            .any(|(name, kind, _)| name == "A" && kind == "enumMember"),
         "{c:?}"
     );
 }

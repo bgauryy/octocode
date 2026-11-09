@@ -102,15 +102,12 @@ fn without_index<T: Clone>(items: &[T], dropped: usize) -> Vec<T> {
 
 /// Add broader fresh requests and explain that their scope differs.
 pub(crate) fn set_broadened(value: &mut Value, _row: &Value, lead: Value) {
-    if value.get("related").is_none() {
-        value["related"] = json!([]);
-    }
-    if let Some(related) = value.get_mut("related").and_then(Value::as_array_mut) {
-        related.push(lead);
-    }
+    crate::response::result::attach_related(value, lead);
     crate::response::result::add_hints(
         value,
-        ["No match with these filters: each related[] request drops one; run it only if the wider scope still answers the question."],
+        [
+            "No match with these filters: each related[] request drops one; run it only if the wider scope still answers the question.",
+        ],
     );
 }
 
@@ -120,7 +117,9 @@ pub(crate) fn set_broadened(value: &mut Value, _row: &Value, lead: Value) {
 pub(crate) fn set_no_broader(value: &mut Value) {
     crate::response::result::add_hints(
         value,
-        ["No match: search terms are ANDed, so every word must match; try one distinctive word, or a different spelling."],
+        [
+            "No match: search terms are ANDed, so every word must match; try one distinctive word, or a different spelling.",
+        ],
     );
 }
 

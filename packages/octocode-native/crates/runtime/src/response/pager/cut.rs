@@ -105,8 +105,8 @@ fn pagination_value(
 const OVERSIZED: &str = "oversized";
 
 /// Re-judge `page`'s `oversized` flag after a step that only removed content
-/// from the cut page (the echo drop of a fresh first page): the flag states
-/// the page delivered, so one that now fits `budget` states none.
+/// from the cut page (the echo drop of a fresh first page): the flag
+/// states the page delivered, so one that now fits `budget` states none.
 pub(crate) fn unflag_fitting(page: &mut Value, budget: usize) {
     let Some(envelope) = page.as_object_mut() else {
         return;

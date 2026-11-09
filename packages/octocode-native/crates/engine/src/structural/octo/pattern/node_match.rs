@@ -67,7 +67,14 @@ impl CompiledPattern {
             Across::Failed(error) => return Err(*error),
         };
         let (pattern_kin, candidate_kin) = self.child_lists(pattern, candidate);
-        if pattern_kin.nodes.is_empty() && candidate_kin.nodes.is_empty() {
+        // A pattern leaf is a token the caller spelled: its text decides,
+        // whatever parts the candidate holds. A grammar may read a keyword
+        // as a name by wrapping its token (Scala's soft `extension` is an
+        // `identifier` over the keyword), and an empty pattern list would
+        // accept that token as an unsaid trailing part of any name.
+        if pattern.child_count() == 0
+            || (pattern_kin.nodes.is_empty() && candidate_kin.nodes.is_empty())
+        {
             return Ok(node_text(pattern, texts.pattern) == node_text(candidate, texts.candidate));
         }
         let lists = Lists {

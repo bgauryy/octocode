@@ -60,8 +60,10 @@ fn scan_options(root: &std::path::Path, skip: u32) -> StructuralSearchFilesOptio
 }
 
 mod detailed;
+mod differential;
 mod file_reads;
 mod limits;
+mod pattern_facts;
 mod patterns;
 mod qualified;
 mod queries;

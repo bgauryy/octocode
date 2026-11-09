@@ -38,21 +38,15 @@ async fn picked_rows_keep_the_repository_id() {
         "{}",
         out.data
     );
-    assert_eq!(
-        crate::tools::test_support::checks::related_call(
-            &out.data,
-            "ghStructure",
-            |input| input["queries"][0]["operation"] == "tree"
-        ),
-        &json!({"kind":"related","tool":"ghStructure","input":{"queries":[{"owner":"o","repo":"r","operation":"tree"}]}}),
-        "{}",
-        out.data
-    );
+    // A page of rows names no repository as the obvious next read.
+    assert!(out.data.get("related").is_none(), "{}", out.data);
 }
 
-/// The top repository leads to its tree; an empty page leads nowhere.
+/// A page of repositories names no one of them as the next read: its
+/// first row is an arbitrary pick, and the row already carries the owner,
+/// repo and default branch of every next hop.
 #[tokio::test]
-async fn top_repository_leads_to_its_tree() {
+async fn a_repository_page_leads_to_no_single_tree() {
     let server = MockServer::builder().start().await;
     mount_json(
         &server,
@@ -64,44 +58,10 @@ async fn top_repository_leads_to_its_tree() {
         }),
     )
     .await;
-    let none = MockServer::builder().start().await;
-    mount_json(
-        &none,
-        "/api/v3/search/repositories",
-        200,
-        json!({
-            "total_count":0,"incomplete_results":false,"items":[]
-        }),
-    )
-    .await;
     let out = run(&server, json!({"operation":"search","keywords":["x"]}))
         .await
         .expect("search");
-    let lead =
-        crate::tools::test_support::checks::related_call(&out.data, "ghStructure", |input| {
-            input["queries"][0]["operation"] == "tree"
-        });
-    assert_eq!(
-        lead,
-        &json!({"kind":"related","tool":"ghStructure","input":{"queries":[{"owner":"o","repo":"top","operation":"tree"}]}}),
-        "{}",
-        out.data
-    );
-    let replay: octocode_contract_types::GhStructureQuery =
-        serde_json::from_value(lead["input"]["queries"][0].clone())
-            .expect("valid ghStructure query");
-    let octocode_contract_types::GhStructureQuery::Tree(replay) = replay else {
-        panic!("repository lead must select the tree view");
-    };
-    assert_eq!(replay.repo.as_str(), "top");
-    let empty = run(&none, json!({"operation":"search","keywords":["none"]}))
-        .await
-        .expect("empty search");
-    assert!(
-        empty.data.pointer("/next/viewRepo").is_none(),
-        "{}",
-        empty.data
-    );
+    assert!(out.data.get("related").is_none(), "{}", out.data);
 }
 
 /// ghSearchRepo rows carry decision facts only, topics
@@ -131,17 +91,28 @@ async fn repository_rows_are_compact_and_paging_is_not_duplicated() {
     let query = json!({"operation":"search","keywords":["http client"]});
     let out = run(&server, query.clone()).await.expect("search");
     let row = &out.data["repositories"][0];
-    assert_eq!(row["repo"], "cli", "{row}");
-    assert_eq!(row["owner"], "httpie", "{row}");
-    assert_eq!(row["stars"], 38602);
-    assert_eq!(row["pushedAt"], "2024-12-17");
+    // Topics are opt-in through `fields`: a page of rows leaves them out.
+    assert!(row.get("topics").is_none(), "{row}");
+    let default_row = row.clone();
+    let with = run(
+        &server,
+        json!({"operation":"search","keywords":["http client"],"fields":["topics"]}),
+    )
+    .await
+    .expect("search");
+    let picked = &with.data["repositories"][0];
+    assert_eq!(default_row["repo"], "cli", "{default_row}");
+    assert_eq!(default_row["owner"], "httpie", "{default_row}");
+    assert_eq!(default_row["stars"], 38602);
+    assert_eq!(default_row["pushedAt"], "2024-12-17");
+    let row = &default_row;
     // Every topic and the whole description stay: nothing reaches a
     // cut remainder, so a row never shortens them.
-    let shown = row["topics"].as_array().expect("topics");
-    assert_eq!(shown.len(), 21, "{row}");
+    let shown = picked["topics"].as_array().expect("topics");
+    assert_eq!(shown.len(), 21, "{picked}");
     assert_eq!(
         shown[0], "http-client",
-        "query-matching topics come first: {row}"
+        "query-matching topics come first: {picked}"
     );
     assert_eq!(row["description"], long.as_str(), "{row}");
     assert!(row.get("topicCount").is_none(), "{row}");
@@ -190,7 +161,7 @@ async fn qualifiers_reach_the_search_query() {
 /// discovery words), and an empty filtered search leads to the same
 /// keywords without filters.
 #[tokio::test]
-async fn repositories_lead_to_the_tree_and_an_empty_search_broadens() {
+async fn repositories_lead_nowhere_and_an_empty_search_broadens() {
     let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/repositories"))
@@ -216,19 +187,10 @@ async fn repositories_lead_to_the_tree_and_an_empty_search_broadens() {
     let out = run(&server, json!({"operation":"search","keywords":["needle"]}))
         .await
         .expect("search");
-    // Repo-discovery words are not code keywords; the top
-    // repository leads to its tree only.
+    // Repo-discovery words are not code keywords, and a page of rows
+    // names no repository as the next read.
     assert!(out.data["next"].get("searchCode").is_none(), "{}", out.data);
-    assert_eq!(
-        crate::tools::test_support::checks::related_call(
-            &out.data,
-            "ghStructure",
-            |input| input["queries"][0]["operation"] == "tree"
-        )["tool"],
-        "ghStructure",
-        "{}",
-        out.data
-    );
+    assert!(out.data.get("related").is_none(), "{}", out.data);
     let empty = run(
         &server,
         json!({"operation":"search","keywords":["needle"],"filters":{"language":"rust"}}),

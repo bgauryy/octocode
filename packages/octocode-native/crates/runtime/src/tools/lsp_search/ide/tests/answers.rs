@@ -229,3 +229,103 @@ async fn a_workspace_search_from_a_file_sends_its_path() {
     let asked = bridge.asked("workspaceSymbol");
     assert_eq!(asked[0]["path"], editor.file.to_string_lossy().as_ref());
 }
+
+/// A test file beside the editor's `a.ts` that calls `target`, and its URI.
+fn test_caller_file(editor: &Editor) -> String {
+    let test_file = editor.root.join("a.test.ts");
+    std::fs::write(
+        &test_file,
+        "import {target} from './a';\nexport function in_test() { target(); }\n",
+    )
+    .expect("test file");
+    octocode_engine::lsp::uri::path_to_uri(&test_file.to_string_lossy()).expect("uri")
+}
+
+/// The `lspSearch` queries a row's `related[]` leads to.
+fn lsp_leads(row: &Value) -> Vec<Value> {
+    row["related"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|call| call["tool"] == "lspSearch")
+        .map(|call| call["input"]["queries"][0].clone())
+        .collect()
+}
+
+/// `callers` answered by the editor keeps the callers its `testCode` keeps,
+/// as a server's walk does: `exclude` leaves the test caller out and counts
+/// it in `testCodeExcluded`, `only` keeps only the test caller.
+#[tokio::test(flavor = "current_thread")]
+async fn ide_callers_honor_test_code() {
+    let editor = Editor::new();
+    let uri = editor.uri();
+    let test_uri = test_caller_file(&editor);
+    let bridge = Bridge::serve(Box::new(move |body| match body["method"].as_str() {
+        Some("prepareCallHierarchy") => result(json!([item(&uri, "target", 0)])),
+        Some("incomingCalls") if body["item"]["name"] == "target" => result(json!([
+            {"from": item(&uri, "caller", 1), "fromRanges": [location(&uri, 1, 29, 35)["range"].clone()]},
+            {"from": item(&test_uri, "in_test", 1), "fromRanges": [location(&test_uri, 1, 29, 35)["range"].clone()]}
+        ])),
+        Some("incomingCalls") => result(json!([])),
+        _ => (404, json!({"error": "unknown", "reason": "method"})),
+    }));
+    editor.open(&bridge);
+    let ask = |test_code: &'static str| {
+        editor.ask(json!({
+            "operation": "callers", "symbolName": "target", "line": 1, "testCode": test_code
+        }))
+    };
+    let excluded = ask("exclude").await;
+    assert_ide(&excluded);
+    let text = excluded.to_string();
+    assert!(
+        !text.contains("in_test") && text.contains("\"caller\""),
+        "{excluded}"
+    );
+    assert!(excluded.get("testCodeExcluded").is_some(), "{excluded}");
+    let only = ask("only").await;
+    assert_ide(&only);
+    let text = only.to_string();
+    assert!(
+        text.contains("in_test") && !text.contains("\"caller\""),
+        "{only}"
+    );
+    bridge.assert_authentic();
+}
+
+/// A last level the editor's `testCode:"exclude"` left out whole leads to the
+/// call that lists it (`testCode:"include"`), as the server walk's does,
+/// never to a deeper walk that answers the same empty row.
+#[tokio::test(flavor = "current_thread")]
+async fn an_ide_frontier_left_out_whole_leads_to_include() {
+    let editor = Editor::new();
+    let uri = editor.uri();
+    let test_uri = test_caller_file(&editor);
+    let bridge = Bridge::serve(Box::new(move |body| match body["method"].as_str() {
+        Some("prepareCallHierarchy") => result(json!([item(&uri, "target", 0)])),
+        Some("incomingCalls") if body["item"]["name"] == "target" => result(json!([
+            {"from": item(&test_uri, "in_test", 1), "fromRanges": [location(&test_uri, 1, 29, 35)["range"].clone()]}
+        ])),
+        Some("incomingCalls") => result(json!([])),
+        _ => (404, json!({"error": "unknown", "reason": "method"})),
+    }));
+    editor.open(&bridge);
+    let row = editor
+        .ask(json!({
+            "operation": "callers", "symbolName": "target", "line": 1, "testCode": "exclude"
+        }))
+        .await;
+    assert_ide(&row);
+    assert!(!row.to_string().contains("in_test"), "{row}");
+    assert!(row.get("testCodeExcluded").is_some(), "{row}");
+    let leads = lsp_leads(&row);
+    assert!(
+        leads.iter().all(|lead| lead.get("depth").is_none()),
+        "{row}"
+    );
+    assert!(
+        leads.iter().any(|lead| lead["testCode"] == "include"),
+        "{row}"
+    );
+    bridge.assert_authentic();
+}

@@ -275,8 +275,8 @@ fn weighted_items_count_their_rows_against_the_limit() {
     assert_eq!((cut.range, cut.pages, cut.more), (2..3, 3, true));
 }
 
-/// `window_holding` inverts `page_budget`: its window's page holds the
-/// characters asked for, from tiny to past the capture limit, never fewer.
+/// `window_holding`'s page holds the characters asked for, from tiny to past
+/// the capture limit, never fewer (it holds them however they render).
 #[test]
 fn a_window_holding_n_characters_has_a_page_budget_of_at_least_n() {
     for chars in [
@@ -291,6 +291,21 @@ fn a_window_holding_n_characters_has_a_page_budget_of_at_least_n() {
         assert!(
             page_budget(Some(window_holding(chars))) >= chars.min(usize::MAX - ROW_SKELETON_CHARS),
             "{chars}"
+        );
+    }
+}
+
+/// F7: `window_holding`'s page holds its characters at any line number: the
+/// worst case is a run of empty lines (one char each, `\n` escaped to two)
+/// deep in a source, each with the widest gutter a line number has.
+#[test]
+fn a_window_holding_n_characters_holds_them_at_the_widest_line_number() {
+    let widest = usize::MAX.to_string().len() + 2;
+    for chars in [1, 10, 1_500, 131_072] {
+        let rendered = chars * (octocode_engine::json_size::string_body_units("\n") + widest);
+        assert!(
+            page_budget(Some(window_holding(chars))) >= rendered,
+            "{chars} empty lines render {rendered} chars"
         );
     }
 }

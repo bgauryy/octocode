@@ -78,6 +78,7 @@ pub(super) fn scan(
     stop: &(dyn Fn() -> bool + Sync),
     registry: RegistryView<'_>,
     source_map: octocode_engine::text::analysis::MapLimits,
+    memory: &octocode_engine::fact_scan::ScanMemory<'_>,
 ) -> Result<GraphFactsMappedScan<Kept>, octocode_engine::fact_scan::GraphScanError> {
     let walked = FileSystemQueryResult {
         entries: std::mem::take(&mut walk.entries),
@@ -92,6 +93,7 @@ pub(super) fn scan(
         stop,
         registry,
         source_map,
+        Some(memory),
     )?;
     let mut out = GraphFactsMappedScan {
         kept: result.kept,
@@ -211,14 +213,38 @@ fn keep_file(
     source_map: octocode_engine::text::analysis::MapLimits,
 ) -> Result<Option<Kept>, ToolError> {
     // A file whose correspondence no build could hold is the scan's named
-    // gap (`None`); the build budget still ends the scan.
+    // gap (`None`); one that cannot be held beside the files kept so far is
+    // the scope's refusal; one refused only because files in flight held
+    // the memory runs again alone (the engine retries it, and this turn is
+    // not its outcome).
     let source = match capture::capture(view, cancel, source_map) {
         Ok(source) => source,
-        Err(error) if error.code == ErrorCode::ScopeTooBroad => {
-            gaps.push(declined(view.relative_path, error.message));
+        Err(capture::Uncaptured::Limit { name, exceeded }) => {
+            if let Some(hold) = view.memory
+                && name == "bytes"
+            {
+                if hold.contended() {
+                    return Ok(None);
+                }
+                // Beside kept files: the scope's refusal when the file would
+                // fit alone, its skip when no build could hold it.
+                let memory = hold.memory();
+                let alone = octocode_engine::text::analysis::MapLimits {
+                    bytes: memory.budget().saturating_sub(hold.base()),
+                    ..source_map
+                };
+                if memory.committed() > 0 && capture::fits_alone(view, cancel, alone) {
+                    memory.refuse(view.relative_path, hold.needed());
+                    return Ok(None);
+                }
+            }
+            gaps.push(declined(
+                view.relative_path,
+                octocode_engine::fact_scan::over_budget_message(&exceeded),
+            ));
             return Ok(None);
         }
-        Err(error) => return Err(error),
+        Err(capture::Uncaptured::Failed(error)) => return Err(error),
     };
     let source_bytes = source.bytes();
     // The facts' encoded size: their artifact's, else their
@@ -243,10 +269,12 @@ fn keep_file(
             )
         }
     };
-    admission.admit(
-        view.facts.declarations.len(),
-        super::super::limits::build_charge(fact_bytes, view.facts.declarations.len(), source_bytes),
-    )?;
+    let charge =
+        super::super::limits::build_charge(fact_bytes, view.facts.declarations.len(), source_bytes);
+    admission.admit(view.facts.declarations.len(), charge)?;
+    if let Some(hold) = view.memory {
+        hold.memory().commit(charge);
+    }
     Ok(Some(kept))
 }
 
@@ -267,10 +295,22 @@ pub(super) fn extract<'a>(
     let discovery = admission_of_walk();
     let admit = |path: &Path, file_type| discovery.admit(path, file_type, |_| true);
     let capture_error = std::sync::Mutex::new(None);
+    // The build's memory, shared by the files in flight: each file first
+    // fits what keeping its facts costs beside what is kept, then draws its
+    // source correspondence from what is left.
+    // What a file holds before its correspondence is priced by its
+    // declarations ([`super::super::limits::DECLARATION_BUILD_BYTES`] each),
+    // which costs no pass over its facts; their encoded size joins the
+    // charge when the file is kept.
+    let base = |facts: &octocode_engine::graph::GraphFactsDocument| {
+        super::super::limits::build_charge(0, facts.declarations.len(), 0)
+    };
+    let memory = octocode_engine::fact_scan::ScanMemory::new(scan.limits.build_bytes, &base);
     let walk_stop = || request.check().is_err();
     let walk_error = |error| ToolError::graph_scan(&error, request);
     let stop = || {
         cancel.check().is_err()
+            || memory.refused().is_some()
             || capture_error
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
@@ -319,11 +359,7 @@ pub(super) fn extract<'a>(
         walk,
         source,
         &|view: &octocode_engine::fact_scan::GraphFactsView<'_>| {
-            if view.reused {
-                reused_files.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
-            parsing.file_done();
-            match keep_file(view, cancel, job.as_ref(), &admission, &gaps, source_map) {
+            let kept = match keep_file(view, cancel, job.as_ref(), &admission, &gaps, source_map) {
                 Ok(kept) => kept,
                 Err(error) => {
                     capture_error
@@ -332,12 +368,27 @@ pub(super) fn extract<'a>(
                         .get_or_insert(error);
                     None
                 }
+            };
+            // A file the engine runs again alone is counted on that turn.
+            if !view
+                .memory
+                .is_some_and(octocode_engine::fact_scan::FileHold::contended)
+            {
+                if view.reused {
+                    reused_files.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                parsing.file_done();
             }
+            kept
         },
         &stop,
         registry,
         source_map,
+        &memory,
     );
+    if let Some(refusal) = memory.refused() {
+        return Err(admission.refuse_build(&refusal));
+    }
     if let Some(error) = capture_error
         .into_inner()
         .unwrap_or_else(PoisonError::into_inner)

@@ -6,6 +6,8 @@ mod listing;
 mod memo;
 mod output;
 mod probe;
+mod selected;
+pub(crate) use selected::Output;
 use crate::response::result::Continuation;
 use cut::Move;
 use listing::Listing;

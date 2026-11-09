@@ -5,7 +5,8 @@ use super::pool_client::PoolClient;
 use super::start_guards::StartCancellationGuard;
 use super::state::{
     Entry, IdleTimerGuard, InFlight, SharedResult, StartBackoff, evict_overflow,
-    inflight_is_current, remove_lru, restart_backoff_delay, retire_idle_siblings,
+    inflight_is_current, remove_lru, resident_over_budget, restart_backoff_delay,
+    retire_idle_siblings,
 };
 use std::future::Future;
 use std::sync::Arc;
@@ -221,6 +222,14 @@ impl<C: PoolClient> GenericPool<C> {
         for client in clients {
             client.stop().await;
         }
+    }
+
+    /// The resident bytes and the budget when the servers hold more than the
+    /// budget: busy servers are never stopped, so the pool can stay over it
+    /// until they are idle.
+    pub(super) async fn over_budget(&self) -> Option<(u64, u64)> {
+        let state = self.state.lock().await;
+        resident_over_budget(&state.entries, &self.options)
     }
 
     pub(super) fn len(&self) -> usize {

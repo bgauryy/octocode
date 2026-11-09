@@ -186,7 +186,7 @@ async fn an_identical_row_rejudges_a_local_source_after_an_edit() {
 
 /// A provider that refuses any state over `limit` body bytes in its default
 /// window, and any at all over `long_limit`, as `max_tokens_exceeded`.
-async fn window_provider(limit: usize, long_limit: usize) -> MockServer {
+pub(super) async fn window_provider(limit: usize, long_limit: usize) -> MockServer {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -235,7 +235,7 @@ async fn an_oversized_or_missing_source_fails_its_row_and_says_how_to_split() {
     // The refused request was sent, unbilled: the row counts it.
     assert_eq!(
         refused["usage"],
-        json!({"input_tokens":0,"output_tokens":0,"calls":1}),
+        json!({"inputTokens":0,"outputTokens":0,"calls":1}),
         "{out}"
     );
     let split = &refused["related"][0];

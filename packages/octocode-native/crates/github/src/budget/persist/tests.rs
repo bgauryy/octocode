@@ -515,3 +515,111 @@ fn start_of(round: u64) -> u64 {
     static BASE: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
     BASE.get_or_init(|| now_ms() + 5_000) + round
 }
+
+/// A current-thread runtime whose blocking pool has one thread.
+fn one_blocking_thread() -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_current_thread()
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()
+        .expect("runtime")
+}
+
+/// Hold the runtime's one blocking thread until the returned sender sends:
+/// a blocking write spawned meanwhile stays queued, however long the test
+/// takes (no lock wait or clock involved).
+fn hold_the_blocking_pool() -> std::sync::mpsc::Sender<()> {
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let (started, running) = std::sync::mpsc::channel::<()>();
+    drop(tokio::task::spawn_blocking(move || {
+        let _ = started.send(());
+        let _ = released.recv();
+    }));
+    running.recv().expect("the blocker runs");
+    release
+}
+
+/// RV-GH L3 (R2-L4): an awaited write whose request is dropped mid-write (an
+/// MCP cancel, Ctrl-C) keeps running and stays tracked, so the flush a
+/// process runs before it exits waits for it and the next process finds
+/// what it wrote. The check is of this test's own write (its key state),
+/// whatever else the process writes.
+#[test]
+fn an_awaited_write_of_a_cancelled_request_is_still_flushed() {
+    use futures_util::FutureExt as _;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let key = LimiterKey::new("ghe.example", Some("cancelled"));
+    one_blocking_thread().block_on(async {
+        let state = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+        let release = hold_the_blocking_pool();
+        {
+            let learn = state.learn_owner_route("acme", "organization");
+            tokio::pin!(learn);
+            assert!(
+                learn.as_mut().now_or_never().is_none(),
+                "the write is queued behind the held pool"
+            );
+            // The request is dropped here, its write still queued.
+        }
+        assert!(
+            state.has_running_write(),
+            "the cancelled request's write is tracked"
+        );
+        release.send(()).expect("release the pool");
+        GitHubBudget::flush_detached_writes().await;
+        assert!(!state.has_running_write(), "the flush waited for it");
+        let next = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+        assert_eq!(next.owner_route("acme").as_deref(), Some("organization"));
+    });
+}
+
+/// RV-GH R2-L3: handing back a shared reservation writes through the one
+/// tracked mechanism (`persist_awaited`): a release whose request is dropped
+/// is still flushed, and the next process sees the start handed back.
+#[test]
+fn a_released_reservation_is_a_tracked_write() {
+    use futures_util::FutureExt as _;
+    let dir = tempfile::tempdir().expect("tempdir");
+    let key = LimiterKey::new("ghe.example", Some("released"));
+    let start = now_ms();
+    one_blocking_thread().block_on(async {
+        let state = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+        state
+            .facts()
+            .last_start_ms
+            .insert(Group::Search.name().to_owned(), start);
+        state
+            .persist_awaited(move |view| {
+                view.last_start_ms
+                    .insert(Group::Search.name().to_owned(), start);
+            })
+            .await;
+        let reserved = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+        assert_eq!(
+            reserved.facts().last_start_ms.get(Group::Search.name()),
+            Some(&start),
+            "the reservation is on disk"
+        );
+        let release = hold_the_blocking_pool();
+        {
+            let hand_back = state.release_reservation(Group::Search, start, None, true);
+            tokio::pin!(hand_back);
+            assert!(
+                hand_back.as_mut().now_or_never().is_none(),
+                "the write is queued behind the held pool"
+            );
+        }
+        assert!(
+            state.has_running_write(),
+            "the hand-back's write is tracked"
+        );
+        release.send(()).expect("release the pool");
+        GitHubBudget::flush_detached_writes().await;
+        let next = GitHubBudget::relaxed().key_state(&key, Some(dir.path()));
+        assert_eq!(
+            next.facts().last_start_ms.get(Group::Search.name()),
+            None,
+            "the start was handed back on disk"
+        );
+    });
+}

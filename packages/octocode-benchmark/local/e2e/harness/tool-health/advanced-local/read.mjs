@@ -108,9 +108,11 @@ async function pagedMatchIdentity(ctx, surface, checks) {
     regexEngine: 'pcre2',
     contextLines: { before: 0, after: 2 },
   };
-  for (const responseChars of [20000, 300]) {
+  // The small case pages one line at a time (`limit: 1`), so line 4, a context
+  // line, has a page of its own whatever a budget-filled page would hold.
+  for (const [responseChars, paged] of [[20000, query], [300, { ...query, limit: 1 }]]) {
     const label = `read.match-identity.${responseChars}`;
-    const result = await scenario(ctx, 'localFetch', surface, { label, query, checks, responseChars });
+    const result = await scenario(ctx, 'localFetch', surface, { label, query: paged, checks, responseChars });
     orderedEqual(checks, `${label}.source.${surface}`, pairs(result.data), [[2, 'same'], [3, 'other'], [4, 'same']]);
     const identity = result.data.map(data => ({ lines: sourceLines(data).map(([line]) => line), hits: data.matchedLines }));
     checks.push([`${label}.page-hits.${surface}`, identity.every(({ lines, hits }) =>

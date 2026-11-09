@@ -332,7 +332,11 @@ fn every_word_tail(judge: &Judge<'_>, name: &str, text: &str, comment_at: usize)
                 regex,
                 &text[at..end],
                 line_start_of,
-                |key, secret, _| judge.value_test.redacts_in_comment(key, secret),
+                |key, secret, _| {
+                    judge
+                        .value_test
+                        .redacts_in_comment(key, &text[at..end][secret.clone()])
+                },
                 |secret| judge.value_end(&text[at..end], at, secret),
                 |whole, secret| {
                     let shift = |range: Range<usize>| range.start + at..range.end + at;

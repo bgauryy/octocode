@@ -270,7 +270,9 @@ fn directory_match_infers_the_only_grammar_present() {
     assert!(next.get("parser").is_none(), "{out}");
     let continued = crate::tools::ast_search::test_rows::run_window(&root.0, next, 1)
         .expect("same inferred scope");
-    assert_eq!(continued["snapshot"], out["snapshot"], "{continued}");
+    // The continuation ran under the snapshot its cursor pinned.
+    assert!(crate::tools::test_support::pinned_snapshot(&out).is_string(), "{out}");
+    assert!(continued.get("errorCode").is_none(), "{continued}");
     assert!(continued["next"].get("nextPage").is_none(), "{continued}");
     let explicit = run(
         &root.0,

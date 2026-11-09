@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn graph(names: &[(&str, &str, NodeKind, u32)]) -> Graph {
     let mut t = GraphTables::default();
-    t.strings.push("function".into());
+    t.strings.push("function");
     for (key, name, kind, line) in names {
         let key_id = t.strings.len() as u32;
         t.strings.extend([key.to_string(), name.to_string()]);

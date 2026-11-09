@@ -63,6 +63,54 @@ async fn graphql_top_level_rate_limited_type_is_a_primary_limit() {
     assert!(transport.graphql_available(&with_token("other", Duration::from_secs(5), 1024)));
 }
 
+/// D1 for GraphQL (RV-GH L1): a spent GraphQL quota (an hourly window, like
+/// core) is disclosed at once however far the call's deadline lies: one
+/// request, no wait announced, the reset carried.
+#[tokio::test]
+async fn a_spent_graphql_quota_is_disclosed_at_once_however_far_the_deadline() {
+    let server = MockServer::builder().start().await;
+    let reset = epoch_secs() + 3600;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("x-ratelimit-reset", reset.to_string().as_str())
+                .set_body_json(serde_json::json!({
+                    "data": null,
+                    "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded for user ID 1."}]
+                })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    let mut context = with_token("spent-graphql", Duration::from_secs(5), 1024);
+    context.budget.wait_until = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
+    let (scope, heard) = cancel_on_announced_wait(context.budget.cancellation.clone());
+    let error = scope
+        .run(transport.execute_graphql(
+            "query { viewer { login } }",
+            serde_json::json!({}),
+            &context,
+        ))
+        .await
+        .expect_err("rate limited");
+    assert_eq!(error.kind, ProviderErrorKind::RateLimited, "{error:?}");
+    let rate = error.rate_limit.expect("metadata");
+    assert_eq!(rate.resource.as_deref(), Some("graphql"));
+    assert_eq!(rate.reset_epoch_seconds, Some(reset));
+    assert!(
+        heard.lock().expect("lines").is_empty(),
+        "no wait was announced: {:?}",
+        heard.lock().expect("lines")
+    );
+    assert!(
+        context.client_waits().is_empty(),
+        "{:?}",
+        context.client_waits()
+    );
+}
+
 #[tokio::test]
 async fn graphql_something_went_wrong_is_retried_like_a_500() {
     let server = MockServer::builder().start().await;

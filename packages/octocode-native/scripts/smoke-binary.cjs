@@ -12,7 +12,7 @@
  * binary reports the provenance fingerprint, `schema` lists the tools, and
  * `localSearch` and `localFetch` find a fixture line through the CLI and
  * through a stdio `octocode mcp` session. Node stays on the host and drives a
- * container over stdio, so a minimal image (glibc floor, Alpine) needs no Node.
+ * container over stdio, so a minimal image (glibc floor) needs no Node.
  * Calls run with a temporary OCTOCODE_HOME and OCTOCODE_STORAGE_MODE=memory:
  * in process, so no warm `octocode serve` outlives the smoke.
  *

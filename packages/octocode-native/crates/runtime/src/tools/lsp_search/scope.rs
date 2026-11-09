@@ -50,6 +50,7 @@ mod paths;
 pub(super) mod probe;
 mod question;
 mod reach;
+pub(super) use reach::{local_packages, package_name, package_of};
 mod scan;
 mod spelling_index;
 mod text;

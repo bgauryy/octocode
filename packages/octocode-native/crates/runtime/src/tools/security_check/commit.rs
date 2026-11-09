@@ -12,7 +12,7 @@ use super::source::{Source, SourceResult};
 use crate::contracts::security::security_contract;
 use crate::id::ToolId;
 use crate::providers::artifact::ArtifactError;
-use crate::response::paging::{self, PartialReason};
+use crate::response::paging;
 use crate::response::result::Continuation;
 use octocode_contract_types::ErrorCode;
 use octocode_github::{RefHolders, RefKind};
@@ -401,9 +401,6 @@ pub(super) fn apply(
     if let RepoRead::Found(facts) | RepoRead::Moved(facts) = &read.repository {
         data["repository"] = repository::repository_block(facts, &today);
     }
-    if !matches!(read.repository, RepoRead::Failed(_)) {
-        data["policy"] = repository::policy_block(contract);
-    }
     if !fired.is_empty() {
         data["cautions"] = Value::Array(fired);
     }
@@ -436,7 +433,7 @@ pub(super) fn apply(
             .collect::<Vec<_>>();
         source["errorCode"] = json!(first.code);
         source["why"] = json!(whys.join(" "));
-        paging::mark_partial(data, PartialReason::SourceFailed, &whys);
+        super::source::source_failed(data, &whys);
     }
     // The merge of twins listed GitHub as a source of advisories: this entry
     // replaces it, as the one GitHub entry of the row.

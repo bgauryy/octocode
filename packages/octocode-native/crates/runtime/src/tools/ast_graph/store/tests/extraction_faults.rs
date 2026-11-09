@@ -345,21 +345,16 @@ fn a_link_failure_response_never_carries_the_torn_file_key() {
     );
 }
 
-/// A file declined by the per-file source budget is named and leaves the
-/// answers partial, like any other skipped file.
+/// A file whose source correspondence no build could hold is named, the
+/// other files are kept, and the answers are partial, like after any other
+/// skipped file.
 #[test]
 fn a_budget_declined_file_leaves_answers_partial() {
-    let dense = (0..14_000)
-        .map(|id| {
-            format!(
-                "export function f{id}(a, b) {{ return f{}(b, a); }}\n",
-                id + 1
-            )
-        })
-        .collect::<String>();
-    // A build budget over the dense source's size and every small file's
-    // charge, under what its source correspondence needs.
-    let build_bytes = 8 * dense.len();
+    let dense = crate::tools::ast_graph::graph::peaks::dense_source("f", 2_000);
+    // It enters the build's memory; its correspondence does not fit, and
+    // never would beside the small file either.
+    let build_bytes =
+        crate::tools::ast_graph::graph::peaks::file_peak(&dense, "dense.ts").in_flight() * 3 / 4;
     let dir = git_app(&[
         ("small.ts", "export const small = () => 1;\n"),
         ("dense.ts", &dense),

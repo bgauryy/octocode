@@ -14,6 +14,34 @@ fn fixture() -> PathBuf {
         .keep()
 }
 
+/// B239a, a regression guard on every platform (it passes on current code):
+/// a request by a lexical 8.3 short name (`KUBECO~1.YAM`) that resolves to
+/// the real withheld file (`kubeconfig.yaml`) is still refused, because the
+/// resolved path is checked as well as the lexical one. The Windows
+/// resolution of a real short name is not exercised here.
+#[test]
+fn a_short_name_resolving_to_a_withheld_file_is_refused() {
+    let root = fixture();
+    let real = root.join("kubeconfig.yaml");
+    std::fs::write(&real, "apiVersion: v1\n").expect("fixture file");
+    let policy = PathPolicy::new(PathPolicyConfig {
+        workspace_root: Some(root.clone()),
+        ..Default::default()
+    })
+    .expect("policy");
+    let real = std::fs::canonicalize(real).expect("canonical");
+    let error = policy
+        .validate_resolved(
+            Path::new("KUBECO~1.YAM"),
+            &root.join("KUBECO~1.YAM"),
+            real,
+            Access::RegularFile,
+        )
+        .expect_err("the resolved file is withheld");
+    assert_eq!(error.code, PolicyErrorCode::IgnoredPath);
+    std::fs::remove_dir_all(root).expect("cleanup");
+}
+
 #[cfg(windows)]
 #[test]
 fn native_windows_separators_resolve_to_the_same_file() {

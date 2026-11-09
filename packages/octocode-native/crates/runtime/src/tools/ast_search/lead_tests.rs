@@ -420,8 +420,19 @@ fn a_cut_probe_discloses_that_its_lead_walks_everything_the_causes_hide() {
         warnings.contains("not checked within the probe budget"),
         "{out}"
     );
+    // The hint names the lead as the response carries it: the related[]
+    // request, by the flags it sets (related[] rows carry no name).
+    let lead = &crate::tools::test_support::checks::related_call(&out, "astSearch", |input| {
+        input["queries"][0].get("defaultExcludes").is_some()
+    })["input"]["queries"][0];
+    let flags = ["includeIgnored", "includeHidden", "defaultExcludes"]
+        .into_iter()
+        .filter_map(|field| Some(format!("{field}:{}", lead.get(field)?)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    assert!(!flags.is_empty(), "{out}");
     assert!(
-        warnings.contains(crate::tools::leads::skipped::WALKS_ALL_SKIPPED),
-        "{out}"
+        warnings.contains(&format!("The related[] request with {flags} walks")),
+        "{flags}: {out}"
     );
 }

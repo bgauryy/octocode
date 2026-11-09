@@ -75,14 +75,16 @@ pub(super) fn read_pull_request(q: &GhSearchHistoryQuery, items: &[Value]) -> Op
     Some(Continuation::related_query(pr_read_query(&owner, &repo, number)?).build())
 }
 
-/// The PR a commit row's `(#N)` headline names: the first such row's read,
+/// The PR a commit row's headline names (`(#N)` or `Merge pull request #N`): the first such row's read,
 /// scoped to the listed path (any other row's `(#N)` runs the same read).
 pub(super) fn read_commit_pull_request(q: &GhSearchHistoryQuery, rows: &[Value]) -> Option<Value> {
     let (owner, repo) = gh_search_history_query::owner(q).zip(gh_search_history_query::repo(q))?;
     let number = rows.iter().find_map(|row| {
         row.get("messageHeadline")
             .and_then(Value::as_str)
-            .and_then(crate::tools::gh_shared::commit::headline_pull_request)
+            .and_then(|headline| {
+                crate::tools::gh_shared::commit::commit_pull_request(headline, owner, repo)
+            })
     })?;
     let mut read = pr_read_row(owner, repo, number);
     if let Some(path) = gh_search_history_query::path(q) {

@@ -96,7 +96,7 @@ mod tests {
     fn publication_preflight_counts_flattened_file_tables() {
         for table in ["FDIG", "FCMP", "ENTR"] {
             let mut t = GraphTables {
-                strings: vec!["source".into()],
+                strings: ["source"].into_iter().collect(),
                 ..Default::default()
             };
             match table {
@@ -115,7 +115,9 @@ mod tests {
     fn front_coding_does_not_hide_expanded_string_budget() {
         let prefix = "shared-prefix-".repeat(30);
         let t = GraphTables {
-            strings: vec![format!("{prefix}a"), format!("{prefix}b")],
+            strings: [format!("{prefix}a"), format!("{prefix}b")]
+                .into_iter()
+                .collect(),
             digests: vec![(0, 0), (0, 1)],
             ..Default::default()
         };
@@ -129,7 +131,7 @@ mod tests {
     #[test]
     fn occurrence_counts_are_checked_without_truncation() {
         let mut t = GraphTables {
-            strings: vec!["source".into()],
+            strings: ["source"].into_iter().collect(),
             ..Default::default()
         };
         let edge = EdgeRec {

@@ -38,7 +38,7 @@ static SPANS_LINES: LazyLock<PatternSet> = LazyLock::new(|| patterns_of(&[Form::
 /// The patterns of any file whose value can sit lines from what makes it secret,
 /// though a read cut around it still holds both or can be judged line by line.
 static SPANS_OBJECT: LazyLock<PatternSet> =
-    LazyLock::new(|| patterns_of(&[Form::SecretInJson, Form::JsonWebKey]));
+    LazyLock::new(|| patterns_of(&[Form::SecretInJson, Form::JsonWebKey, Form::DockerAuths]));
 
 /// A JSON member holding a string, as a Secret's value is, whatever it spells:
 /// `stringData` holds plain words.
@@ -55,6 +55,10 @@ impl WholeSourcePatterns {
     /// What every text [`Self::any_file`]'s patterns apply to holds: a text with
     /// neither needs no regex to rule them out.
     const OBJECT_LITERALS: [&'static str; 2] = ["kty", "\"Secret"];
+
+    /// The literals of [`Self::OBJECT_LITERALS`]' kind that a reader matches in
+    /// any ASCII case: Go's `encoding/json` reads a Docker config's `"Auths"`.
+    const FOLDED_LITERALS: [&'static str; 1] = ["\"auths"];
 
     /// `None` when no such pattern applies to a file at `path`, as for most.
     pub fn for_path(path: &str) -> Option<Self> {
@@ -92,9 +96,14 @@ impl WholeSourcePatterns {
     /// Secret's kind as far from its data as its `metadata` is. Nor can such a
     /// text be judged line by line when it overruns the scanner.
     pub fn outruns_a_page(text: &str) -> bool {
-        Self::OBJECT_LITERALS
+        (Self::OBJECT_LITERALS
             .iter()
             .any(|literal| text.contains(literal))
+            || Self::FOLDED_LITERALS.iter().any(|literal| {
+                text.as_bytes()
+                    .windows(literal.len())
+                    .any(|window| window.eq_ignore_ascii_case(literal.as_bytes()))
+            }))
             && SPANS_OBJECT
                 .iter()
                 .any(|idx| pattern_regex_for(idx, text).is_match(text))

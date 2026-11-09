@@ -14,11 +14,7 @@ impl SnapshotReader {
             .filter(|block| block.first <= id)
             .ok_or("graph node record is absent")?;
         let (first, last, count) = (block.first, block.last, block.count);
-        if self
-            .node_cache
-            .as_ref()
-            .is_none_or(|(index, _)| *index != block_index)
-        {
+        if !self.node_cache.contains_key(&block_index) {
             let bytes = self.record_block(*b"NODE", block_index, cancel)?;
             let mut r = Reader::new(&bytes, "NODE block");
             if r.count()? != count as usize
@@ -43,13 +39,13 @@ impl SnapshotReader {
                 return Err("graph node block has trailing records".into());
             }
             self.decoded_nodes += nodes.len();
-            self.node_cache = Some((block_index, nodes));
+            self.node_cache.insert(block_index, nodes);
         }
-        Ok(self
-            .node_cache
-            .as_ref()
-            .ok_or("node block cache is absent")?
-            .1[(id - first) as usize])
+        self.node_cache
+            .get(&block_index)
+            .and_then(|nodes| nodes.get((id - first) as usize))
+            .copied()
+            .ok_or_else(|| "node block cache is absent".into())
     }
 
     pub(crate) fn declaration(

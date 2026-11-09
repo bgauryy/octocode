@@ -4,9 +4,9 @@ use super::access;
 use crate::id::ToolId;
 use crate::response::result::{Continuation, query_row};
 use crate::tools::gh_shared::{
-    GhFailure, PathRecovery, RepoPath, parent_dir, provider_hint, provider_message,
-    repository_not_found, repository_not_found_message, repository_recovery,
-    repository_search_hint, tree_recovery, validation_message, with_ref_recovery,
+    GhFailure, PathRecovery, REPOSITORY_SEARCH_HINT, RepoPath, parent_dir, provider_hint,
+    provider_message, repository_not_found, repository_not_found_message, repository_recovery,
+    tree_recovery, validation_message, with_ref_recovery,
 };
 use octocode_contract_types::GhGetFileContentQuery;
 use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
@@ -82,7 +82,7 @@ pub(crate) fn failure(
         // Listing a tree of the same repository cannot recover; a search
         // for its name names the owner that holds it (as on the search
         // tools).
-        label = Some(repository_search_hint(Some(owner), repo));
+        label = Some(REPOSITORY_SEARCH_HINT.to_owned());
         (None, Some(repository_recovery(Some(owner), repo)))
     } else if error.kind == ProviderErrorKind::NotFound {
         path_recovery(query, &at, found)

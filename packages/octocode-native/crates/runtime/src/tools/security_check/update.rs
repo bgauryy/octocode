@@ -10,6 +10,8 @@ pub(super) struct Latest {
     pub version: String,
     /// `YYYY-MM-DD`, when the registry says.
     pub published_at: Option<String>,
+    /// The source repository the release names, when it names one.
+    pub repository: Option<String>,
 }
 
 /// `latestVersion`, `latestPublishedAt`, `currentPublishedAt`, `isLatest`,

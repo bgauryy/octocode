@@ -1,4 +1,4 @@
-use super::{install_hint, stamp};
+use super::{install_hint, omit_healthy_receipt, stamp};
 use serde_json::{Value, json};
 
 fn stamped(mut row: Value) -> Value {
@@ -50,4 +50,53 @@ fn a_text_row_names_the_install_hint_of_its_server() {
         install_hint(Some(&json!({"command": "solargraph"})), ""),
         None
     );
+}
+
+/// A receipt that only restates a healthy server answer (`server` level,
+/// the operation's own provider, no errors) decides no next step: it is
+/// omitted. Every deviation keeps the whole receipt.
+#[test]
+fn a_healthy_server_receipt_is_omitted_and_a_deviation_is_kept() {
+    let clean = json!({
+        "serverAvailable": true, "level": "server", "provider": "referencesProvider",
+        "analysisContext": {
+            "diagnostics": "noErrorsReported", "diagnosticsComplete": true,
+            "errorCount": 0, "anchorErrorCount": 0
+        }
+    });
+    let mut healthy = json!({"matches": [], "lsp": clean});
+    omit_healthy_receipt(&mut healthy);
+    assert!(healthy.get("lsp").is_none(), "{healthy}");
+
+    let mut hover =
+        json!({"lsp": {"serverAvailable": true, "level": "server", "provider": "hoverProvider"}});
+    omit_healthy_receipt(&mut hover);
+    assert!(hover.get("lsp").is_none(), "{hover}");
+
+    let deviations = [
+        (
+            "errors",
+            json!({"analysisContext": {"diagnostics": "errors", "diagnosticsComplete": true, "errorCount": 2, "anchorErrorCount": 0}}),
+        ),
+        (
+            "truncated",
+            json!({"analysisContext": {"diagnostics": "noErrorsReported", "diagnosticsComplete": false, "errorCount": 0, "anchorErrorCount": 0}}),
+        ),
+        (
+            "unavailable",
+            json!({"analysisContext": {"diagnostics": "unavailable"}}),
+        ),
+        ("source", json!({"source": "native-graph-facts"})),
+        ("level", json!({"level": "syntax"})),
+        ("server", json!({"serverAvailable": false})),
+    ];
+    for (name, change) in deviations {
+        let mut lsp = clean.clone();
+        for (key, value) in change.as_object().unwrap() {
+            lsp[key] = value.clone();
+        }
+        let mut row = json!({"lsp": lsp.clone()});
+        omit_healthy_receipt(&mut row);
+        assert_eq!(row["lsp"], lsp, "{name} keeps its receipt");
+    }
 }

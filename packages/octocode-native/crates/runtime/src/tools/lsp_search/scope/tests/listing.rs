@@ -12,7 +12,15 @@ const NEVER: &crate::execution::cancel::NeverCancel = &crate::execution::cancel:
 /// The relative files a fresh request's text scan of `name` finds, and the
 /// walks it made.
 async fn scan(root: &Path, name: &str) -> (Vec<String>, usize) {
-    let scope = Scope::new(root.to_string_lossy().into_owned(), vec!["*.ts".into()]);
+    scan_under(root, name, &["*.ts"]).await
+}
+
+/// [`scan`] of a scope whose walk reads the files `include` names.
+async fn scan_under(root: &Path, name: &str, include: &[&str]) -> (Vec<String>, usize) {
+    let scope = Scope::new(
+        root.to_string_lossy().into_owned(),
+        include.iter().map(|glob| (*glob).to_owned()).collect(),
+    );
     let work = Arc::new(Work::default());
     let files = measure(
         &work,
@@ -262,4 +270,30 @@ async fn a_settled_ignored_index_serves_later_requests_and_falls_with_any_change
     assert_eq!(ignored("f").await, (1, 0));
     std::fs::remove_dir_all(root.join("repos/other/.git")).expect("no nested repository");
     assert_eq!(ignored("f").await, (2, 1));
+}
+
+/// The text scan prunes the directories every local walk prunes
+/// (`policy::prune`; outside a git work tree, a listed name wherever it sits):
+/// a build copy in a non-ignored `dist/` is not listed, so it never counts as
+/// a text-only file. An include that names `dist/**` lifts that prune, as in
+/// the other tools. The kept listing proves the pruned walk like any other.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_text_scan_prunes_the_directories_every_local_walk_prunes() {
+    let (_dir, root) = fixture();
+    write(&root.join("src/lib.rs"), "pub fn f() {}\n");
+    write(&root.join("dist/copy.rs"), "pub fn f() {}\n");
+    settle_written_so_far();
+    assert_eq!(
+        scan_under(&root, "f", &["*.rs"]).await,
+        (vec!["src/lib.rs".into()], 1)
+    );
+    assert_eq!(
+        scan_under(&root, "f", &["*.rs"]).await,
+        (vec!["src/lib.rs".into()], 0),
+        "the pruned walk's listing is kept"
+    );
+    assert_eq!(
+        scan_under(&root, "f", &["*.rs", "dist/**"]).await,
+        (vec!["dist/copy.rs".into(), "src/lib.rs".into()], 1)
+    );
 }

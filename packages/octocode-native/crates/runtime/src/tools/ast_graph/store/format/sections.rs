@@ -2,7 +2,9 @@
 use super::*;
 
 /// Appends one front-coded dictionary section; `limits` bound the whole
-/// dictionary, including strings earlier sections decoded.
+/// dictionary, including strings earlier sections decoded. A section is
+/// strictly sorted (the writer sorts and dedups each), and that is checked
+/// here: string ids then order record strings as the strings do.
 pub(super) fn read_strings(
     strs: &mut Reader,
     tables: &mut GraphTables,
@@ -14,25 +16,25 @@ pub(super) fn read_strings(
         return Err("graph string table exceeds item limit; re-ingest a narrower scope".into());
     }
     tables.strings.reserve(count);
-    let mut previous = Vec::<u8>::new();
-    let mut decoded_bytes = tables.strings.iter().map(String::len).sum::<usize>();
+    // Front coding restarts with each section: its first entry shares
+    // nothing.
+    let mut previous = None;
     for _ in 0..count {
         let shared = usize::try_from(strs.var()?).map_err(|_| "graph string table is corrupt")?;
         let suffix = usize::try_from(strs.var()?).map_err(|_| "graph string table is corrupt")?;
-        if shared > previous.len() {
-            return Err("graph string table is corrupt".into());
-        }
-        previous.truncate(shared);
-        previous.extend_from_slice(strs.take(suffix)?);
-        decoded_bytes = decoded_bytes
-            .checked_add(previous.len())
+        let suffix = strs.take(suffix)?;
+        tables
+            .strings
+            .text_len()
+            .checked_add(shared)
+            .and_then(|total| total.checked_add(suffix.len()))
             .filter(|total| *total <= max_decoded_bytes)
             .ok_or("graph string table exceeds decoded byte limit; re-ingest a narrower scope")?;
-        tables.strings.push(
-            std::str::from_utf8(&previous)
-                .map_err(|_| "graph string table is not UTF-8")?
-                .to_owned(),
-        );
+        tables.strings.push_front_coded(previous, shared, suffix)?;
+        previous = Some(tables.strings.len() - 1);
+    }
+    if strs.at != strs.bytes.len() {
+        return Err(format!("graph section {} has trailing data", strs.what));
     }
     Ok(())
 }

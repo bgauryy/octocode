@@ -176,6 +176,19 @@ async fn invalid_missing_oversized_and_private_images_never_reach_provider() {
         ],
         "{out}"
     );
+    // The uncited asset names the field the caller wrote, and its only hint
+    // is the input fix: nothing was judged, so nothing failed.
+    let uncited = &out["results"][3]["data"];
+    assert_eq!(
+        uncited["error"],
+        "Image asset unused is not named in content or any question; nothing was judged.",
+        "{out}"
+    );
+    assert_eq!(
+        uncited["hints"],
+        json!(["Name each asset key in the question that judges it."]),
+        "{out}"
+    );
     assert!(requests(&server).await.is_empty());
     runtime.close().await;
 }

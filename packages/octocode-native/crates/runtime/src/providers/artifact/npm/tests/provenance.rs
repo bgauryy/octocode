@@ -10,7 +10,7 @@ use crate::providers::artifact::npm::provenance::attested_commit;
 use crate::providers::artifact::npm::search::search;
 use crate::providers::artifact::query::artifact_query;
 use crate::providers::artifact::test_http::test_budget;
-use octocode_contract_types::ArtifactType;
+use octocode_contract_types::{ArtifactType, ErrorCode};
 use serde_json::json;
 
 #[tokio::test]
@@ -68,6 +68,36 @@ async fn npm_provenance_pins_the_attested_commit_only_when_bound() {
     }
 }
 
+/// B222: an attestation bundle that cannot be read keeps the unverified
+/// `gitHead` lead and says the source ref is not attested, instead of looking
+/// like a package without provenance. A cancelled read fails the lookup.
+#[tokio::test]
+async fn an_unread_attestation_is_disclosed_and_keeps_the_git_head_lead() {
+    const BUNDLE: &str = "/-/npm/v1/attestations/zod@4.6.5";
+    let resolve = json!({"operation":"resolve","packageName": "zod", "version": "4.6.5"});
+    let failing = routes(vec![("/zod/4.6.5", JSON, manifest("4.6.5", true))])
+        .status(BUNDLE, 503, json!({}));
+    let page = lookup(&failing, resolve.clone())
+        .await
+        .expect("an unread attestation keeps the row");
+    let item = &page.artifacts[0];
+    assert!(!item.source_attested);
+    assert_eq!(item.source_ref.as_deref(), Some("aaaaaaa1"));
+    assert!(
+        item.disclosures.iter().any(|said| said.contains("zod 4.6.5")
+            && said.contains("provenance")
+            && said.contains("not attested")),
+        "{:?}",
+        item.disclosures
+    );
+    let cancelled = routes(vec![("/zod/4.6.5", JSON, manifest("4.6.5", true))])
+        .fails(BUNDLE, ErrorCode::Cancelled);
+    let error = lookup(&cancelled, resolve)
+        .await
+        .expect_err("a cancelled attestation read fails the lookup");
+    assert_eq!(error.code, ErrorCode::Cancelled);
+}
+
 #[tokio::test]
 async fn attestation_requests_keep_fake_credentials_on_the_registry_origin() {
     for (url, allowed) in [
@@ -103,7 +133,8 @@ async fn attestation_requests_keep_fake_credentials_on_the_registry_origin() {
             &client,
             None,
         )
-        .await;
+        .await
+        .expect("no read failure");
         let requests = requests(&http);
         if allowed {
             assert_eq!(commit.as_deref(), Some(COMMIT));
@@ -160,7 +191,8 @@ async fn npm_path_scoped_credentials_do_not_reach_sibling_attestations() {
             &client,
             None,
         )
-        .await;
+        .await
+        .expect("no read failure");
         assert_eq!(
             commit.as_deref(),
             Some(COMMIT),

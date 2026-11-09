@@ -4,24 +4,25 @@ use crate::tools::gh_search_history::gh_search_history_query;
 use crate::tools::gh_shared::query::SearchTerms;
 use octocode_github::{ProviderError, ProviderErrorKind, validate_person_name};
 
-/// A keyword-less issue listing keeps the REST list order (newest first)
-/// instead of search's unordered best-match.
-fn lists_issues_newest_first(q: &GhSearchHistoryQuery) -> bool {
+/// A keyword-less issue or pull-request search runs newest created first,
+/// the sort's documented default without keywords (and the REST list
+/// order), instead of search's unordered best-match.
+fn lists_newest_first(q: &GhSearchHistoryQuery) -> bool {
     matches!(
         gh_search_history_query::operation(q),
-        HistoryOperation::Issue
+        HistoryOperation::Issue | HistoryOperation::PullRequest
     ) && gh_search_history_query::keywords(q).is_empty()
         && gh_search_history_query::sort(q).is_none_or(|sort| sort == "best-match")
 }
 
 /// The order GitHub search runs a query in, as `(sort, order)`; no sort is
 /// best match. Commit search runs newest first by committer date, and a
-/// keyword-less issue listing newest first by creation.
+/// keyword-less issue or pull-request search newest first by creation.
 pub(super) fn search_order(q: &GhSearchHistoryQuery) -> (Option<String>, Option<String>) {
     if gh_search_history_query::operation(q) == HistoryOperation::Commit {
         return (Some("committer-date".into()), Some("desc".into()));
     }
-    if lists_issues_newest_first(q) {
+    if lists_newest_first(q) {
         return (Some("created".into()), Some("desc".into()));
     }
     (

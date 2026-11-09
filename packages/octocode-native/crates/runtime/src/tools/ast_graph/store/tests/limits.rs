@@ -339,7 +339,10 @@ fn redaction_judges_each_string_whatever_the_batch_holds() {
     assert!(
         !tables.strings[0].contains("QUJDREVGR0hJ"),
         "{:?}",
-        tables.strings[0]
+        &tables.strings[0]
     );
-    assert_eq!(tables.strings[1..], strings[1..]);
+    assert_eq!(
+        tables.strings.iter().skip(1).collect::<Vec<_>>(),
+        strings[1..]
+    );
 }

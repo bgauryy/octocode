@@ -187,13 +187,19 @@ fn absent(
     } else {
         "match"
     };
-    let hint = match withheld.notice() {
+    // The page's `skippedPaths` already counts what its own walk withheld:
+    // the check states only what it withheld beyond that.
+    let beyond = withheld.beyond(&skipped.walk.withheld);
+    let hint = match beyond.notice() {
         Some(notice) => {
             warnings.push(format!("Skipped paths: {notice}"));
             format!(
                 "Skipped paths ({counts}) hold no {what} outside what their check withheld (warnings)."
             )
         }
+        None if withheld.total() > 0 => format!(
+            "Skipped paths ({counts}) hold no {what} outside what the path policy withheld (skippedPaths)."
+        ),
         None => format!("Skipped paths ({counts}) hold no {what} either; the check searched them."),
     };
     hints.insert(0, hint);

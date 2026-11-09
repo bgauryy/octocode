@@ -7,6 +7,7 @@ use crate::text::analysis::{
 use std::{collections::HashMap, sync::Arc};
 use tree_sitter::Node;
 
+#[derive(Clone)]
 pub(super) struct SourceContext {
     pub templates: Arc<SourceTemplates>,
     trees: HashMap<usize, UnitHandle>,
@@ -78,6 +79,10 @@ impl SourceContext {
             templates: Arc::new(templates),
             trees,
         })
+    }
+    /// Whether a span in `tree` resolves through these units.
+    pub fn holds(&self, tree: usize) -> bool {
+        self.trees.contains_key(&tree)
     }
     pub fn span(&self, node: Node<'_>) -> ObservedSpan {
         self.range(

@@ -84,8 +84,10 @@ impl Scope {
 
     /// The code sites of `symbol` the answer leaves out inside the files it
     /// lists lines of: a server can miss a site in a file it answers, which
-    /// no file count shows. Found once per request and symbol, on a
-    /// cancellable worker; empty when the request stopped first.
+    /// no file count shows. Only a line the anchor's declaration reaches
+    /// (`reach`) can be a missed site: a same-spelled word outside a local
+    /// binding's scope names another symbol. Found once per request and
+    /// symbol, on a cancellable worker; empty when the request stopped first.
     pub(in super::super) async fn check_answer_gaps(
         &self,
         symbol: &str,
@@ -100,9 +102,13 @@ impl Scope {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
         let name = symbol.to_owned();
-        let found = blocking_cancellable(cancel, move |stopped| listed.gaps(&name, stopped))
-            .await?
-            .flatten();
+        let (site, slot) = (self.site(), Arc::clone(&self.reach));
+        let found = blocking_cancellable(cancel, move |stopped| {
+            let reach = text::reach_in(&slot, site.as_ref(), &name, stopped);
+            listed.gaps(&name, reach.as_deref(), stopped)
+        })
+        .await?
+        .flatten();
         let Some(found) = found else {
             cancel.check().map_err(LspFailure::cancelled)?;
             return Ok(Arc::default());
@@ -120,7 +126,10 @@ impl Scope {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone();
-        let found = listed.gaps(symbol, &|| false).unwrap_or_default();
+        let reach = text::reach_in(&self.reach, self.site().as_ref(), symbol, &|| false);
+        let found = listed
+            .gaps(symbol, reach.as_deref(), &|| false)
+            .unwrap_or_default();
         self.keep_gaps(symbol, found)
     }
 
@@ -172,16 +181,29 @@ impl Listed {
         self.files.get(file)
     }
 
-    /// Each listed file's gaps, by path; `None` when `stopped` ended the
-    /// look. A file is parsed only when it spells `symbol` on a line the
-    /// answer leaves out; one that cannot be read or parsed claims none.
-    fn gaps(&self, symbol: &str, stopped: &dyn Fn() -> bool) -> Option<Vec<Gap>> {
+    /// Each listed file's gaps, by path, on lines `reach` admits (every
+    /// line without one); `None` when `stopped` ended the look. A file is
+    /// parsed only when it spells `symbol` on a line the answer leaves out;
+    /// one that cannot be read or parsed claims none.
+    fn gaps(
+        &self,
+        symbol: &str,
+        reach: Option<&reach::Reach>,
+        stopped: &dyn Fn() -> bool,
+    ) -> Option<Vec<Gap>> {
         let mut found = Vec::new();
         for (file, covered) in &self.files {
             if stopped() {
                 return None;
             }
-            if let Some(lines) = self.missed(symbol, file, covered) {
+            let Some(lines) = self.missed(symbol, file, covered) else {
+                continue;
+            };
+            let lines = lines
+                .into_iter()
+                .filter(|line| reach.is_none_or(|reach| reach.reaches_line(file, *line)))
+                .collect::<Vec<_>>();
+            if !lines.is_empty() {
                 found.push(Gap {
                     file: file.clone(),
                     lines,

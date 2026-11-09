@@ -1,7 +1,7 @@
 mod admission;
 mod sparse;
 
-use super::{CloneContext, CloneError, GitRunRequest, control};
+use super::{CloneContext, CloneError, GitRunRequest, control, storage};
 use crate::policy::discovery::is_sensitive_repository_file;
 use admission::git_permit;
 use octocode_contract_types::ErrorCode;
@@ -102,7 +102,8 @@ pub(super) struct Inspection {
 /// refs, credential-named files, symlinks) are independent, so they run
 /// together: a reuse costs the slowest read, not their sum. A failure is
 /// the first of them in that order; a checkout that differs is `None`
-/// whatever the reads after the check say.
+/// whatever the reads after the check say. A checkout git cannot read at
+/// all (its store is gone) differs too: it is not reusable.
 pub(super) fn inspect_checkout(
     context: &CloneContext<'_>,
     directory: &Path,
@@ -123,7 +124,10 @@ pub(super) fn inspect_checkout(
             joined(symlinks.join()),
         )
     });
-    if !(clean? && head?.eq_ignore_ascii_case(expected_commit) && refs?) {
+    let clean = unreadable_is(clean, false)?;
+    let head = unreadable_is(head, String::new())?;
+    let refs = unreadable_is(refs, false)?;
+    if !(clean && head.eq_ignore_ascii_case(expected_commit) && refs) {
         return Ok(None);
     }
     Ok(Some(Inspection {
@@ -132,24 +136,41 @@ pub(super) fn inspect_checkout(
     }))
 }
 
+/// `value`, or `otherwise` when git could not read the checkout at all
+/// (`gitFailed`: a worktree whose store is gone, a broken repository). Any
+/// other failure, a timeout or a cancellation, stays an error.
+fn unreadable_is<T>(value: Result<T, CloneError>, otherwise: T) -> Result<T, CloneError> {
+    match value {
+        Err(error) if error.code == ErrorCode::GitFailed => Ok(otherwise),
+        other => other,
+    }
+}
+
 /// A scoped thread's result; its panic is the caller's panic.
 fn joined<T>(result: std::thread::Result<T>) -> T {
     result.unwrap_or_else(|panic| std::panic::resume_unwind(panic))
 }
 
 /// Inspect ignored files as well: they do not change the verified revision,
-/// but replacing the checkout would still destroy them.
+/// but replacing the checkout would still destroy them. A directory git
+/// cannot read (a worktree whose store is gone) may hold the user's files:
+/// it is not safe either.
 pub(super) fn safe_to_replace(
     context: &CloneContext<'_>,
     directory: &Path,
     expected_commit: &str,
 ) -> Result<bool, CloneError> {
-    if !status_is_clean(context, directory)?
-        || !read_head(context, directory)?.eq_ignore_ascii_case(expected_commit)
-    {
-        return Ok(false);
-    }
-    no_local_refs(context, directory)
+    unreadable_is(
+        (|| {
+            if !status_is_clean(context, directory)?
+                || !read_head(context, directory)?.eq_ignore_ascii_case(expected_commit)
+            {
+                return Ok(false);
+            }
+            no_local_refs(context, directory)
+        })(),
+        false,
+    )
 }
 
 /// No modified, untracked or ignored file in the work tree.
@@ -308,69 +329,44 @@ pub(super) fn blobs_absent(
         .all(|file| missing.contains(file.blob.as_str())))
 }
 
-/// Check out `commit` (a full SHA: `run` pins every row to one) with
-/// `depth` commits of history, limited to `sparse_paths`, leaving out every
-/// credential-named file in scope. Returns the files left out.
+/// Check out `commit` (a full SHA: `run` pins every row to one) as the linked
+/// worktree `stage` of the shared partial `store`, with `depth` commits of
+/// history, limited to `sparse_paths`, leaving out every credential-named
+/// file in scope. Returns the files left out, or `None` when `store` already
+/// held a credential-named blob it did not just fetch (a rule set that
+/// withheld less, or an earlier remote that ignored the filter): the caller
+/// makes a clean store instead.
 pub(super) fn checkout(
     context: &CloneContext<'_>,
     repository_url: &str,
+    store: &Path,
     commit: &str,
     sparse_paths: Option<&[String]>,
     depth: u64,
-    target: &Path,
-) -> Result<Vec<String>, CloneError> {
-    run(
+    stage: &Path,
+) -> Result<Option<Vec<String>>, CloneError> {
+    let created = ensure_store(context, store, repository_url)?;
+    let Some(withheld) = ensure_commit(
         context,
-        vec!["init".into(), "--".into(), target.as_os_str().to_owned()],
-        clone_timeout(context),
-        "initialize commit checkout",
-        None,
-    )?;
-    // `remote add` is local: no credential, no network permit.
-    run(
-        context,
-        scoped(target, &["remote", "add", "origin", repository_url]),
-        clone_timeout(context),
-        "configure commit remote",
-        None,
-    )?;
-    // Every checkout is a partial one: blobs arrive only when the checkout
-    // needs them, so a credential-named file left out of it is never fetched.
-    // The fetch below carries `--filter`, and a filtered fetch registers the
-    // remote as a promisor with that filter itself
-    // (`remote.origin.promisor`, `remote.origin.partialclonefilter`), so no
-    // separate `config` step sets them.
-    let depth = depth.to_string();
-    let mut fetch = scoped(target, &["fetch", "--no-tags", "--depth", &depth]);
-    fetch.extend([OsString::from("--filter"), OsString::from("blob:none")]);
-    fetch.extend([
-        OsString::from("--"),
-        OsString::from("origin"),
-        OsString::from(commit),
-    ]);
-    run(
-        context,
-        fetch,
-        clone_timeout(context),
-        "fetch requested commit",
-        Some(repository_url),
-    )?;
-    let listed = withheld_files(context, target, "FETCH_HEAD", sparse_paths)?;
-    // A remote that ignores the blob filter sends every blob, credential
-    // files included: refuse rather than keep them.
-    if !blobs_absent(context, target, &listed)? {
-        return Err(CloneError::new(
-            ErrorCode::GitFailed,
-            "The remote ignored the partial-clone blob filter, so credential-named files this checkout withholds were downloaded; nothing was cloned. Use a remote that supports partial clone.",
-        ));
-    }
-    let withheld = withheld_paths(listed);
+        store,
+        &Fetch {
+            repository_url,
+            commit,
+            sparse_paths,
+            depth,
+            created,
+        },
+    )?
+    else {
+        return Ok(None);
+    };
+    add_worktree(context, store, commit, stage)?;
     let scope = match sparse_paths {
         Some(paths) => Some((
-            sparse_set_args(context, target, paths, &withheld)?,
+            sparse_set_args(context, stage, paths, &withheld)?,
             "set sparse commit paths",
         )),
-        None => withhold_args(target, &withheld).map(|args| (args, "withhold credential files")),
+        None => withhold_args(stage, &withheld).map(|args| (args, "withhold credential files")),
     };
     if let Some((args, label)) = scope {
         run(
@@ -381,14 +377,254 @@ pub(super) fn checkout(
             Some(repository_url),
         )?;
     }
+    // The work tree fills in from the store; a blob it lacks is fetched from
+    // the store's promisor remote, which is why this step carries the
+    // credential.
     run(
         context,
-        scoped(target, &["checkout", "--detach", "FETCH_HEAD", "--"]),
+        scoped(stage, &["checkout", "--detach", commit, "--"]),
         clone_timeout(context),
         "check out requested commit",
         Some(repository_url),
     )?;
-    Ok(withheld)
+    Ok(Some(withheld))
+}
+
+/// The shared store at `store`: a bare repository whose every checkout is a
+/// linked worktree, with the `origin` the row cloned from. Its own `HEAD`
+/// and refs stay empty: a fetch names a commit, a worktree's `HEAD` keeps it
+/// reachable, and every ref is somebody's local work.
+fn ensure_store(
+    context: &CloneContext<'_>,
+    store: &Path,
+    repository_url: &str,
+) -> Result<bool, CloneError> {
+    let created = !storage::is_ready(store);
+    if created {
+        init_store(context, store)?;
+    }
+    // The URL a lazy blob fetch of any worktree goes to, and the one askpass
+    // answers for: this row's, whatever spelling an earlier row used.
+    run(
+        context,
+        scoped(store, &["config", "remote.origin.url", repository_url]),
+        head_timeout(context),
+        "configure store remote",
+        None,
+    )?;
+    // A checkout directory the user deleted leaves its administration behind.
+    prune_worktrees(context, store)?;
+    Ok(created)
+}
+
+/// Make `store`, idempotently: an interrupted init is finished by the next
+/// one, and the ready marker is written last.
+fn init_store(context: &CloneContext<'_>, store: &Path) -> Result<(), CloneError> {
+    storage::create_parent(store)?;
+    run(
+        context,
+        vec![
+            "init".into(),
+            "--bare".into(),
+            "--".into(),
+            store.as_os_str().to_owned(),
+        ],
+        clone_timeout(context),
+        "initialize shared store",
+        None,
+    )?;
+    let configure = |args: &[&str]| {
+        run(
+            context,
+            scoped(store, args),
+            head_timeout(context),
+            "configure shared store",
+            None,
+        )
+    };
+    // Every checkout reads repository symlinks as plain files; garbage
+    // collection and maintenance stay off, as only worktrees keep the
+    // commits reachable and a fetch is never followed by a ref.
+    for (key, value) in [
+        ("core.repositoryformatversion", "1"),
+        ("extensions.worktreeConfig", "true"),
+        ("core.symlinks", "false"),
+        ("gc.auto", "0"),
+        ("maintenance.auto", "false"),
+    ] {
+        configure(&["config", key, value])?;
+    }
+    // With per-worktree config, `core.bare=true` in the shared config would
+    // make every linked worktree read as bare: the store alone says so.
+    let shared = configure(&["config", "--local", "--list"])?;
+    if shared
+        .stdout
+        .lines()
+        .any(|line| line.starts_with("core.bare="))
+    {
+        configure(&["config", "--worktree", "core.bare", "true"])?;
+        configure(&["config", "--unset", "core.bare"])?;
+    }
+    storage::mark_ready(store)
+}
+
+/// What a row asks of its store ([`ensure_commit`]).
+#[derive(Clone, Copy)]
+struct Fetch<'a> {
+    repository_url: &'a str,
+    commit: &'a str,
+    sparse_paths: Option<&'a [String]>,
+    depth: u64,
+    /// The store did not exist before this row.
+    created: bool,
+}
+
+/// Fetch `commit` into `store` unless it already holds it, then check that
+/// no credential-named blob in scope is stored. Returns the credential-named
+/// files in scope, which a checkout leaves out.
+///
+/// A fetch with `--depth` deepens or shortens history shared with other tips,
+/// so only a depth-1 store is shared: there a present commit is skipped, and
+/// a fetch only adds a one-commit boundary. A deeper store belongs to one
+/// commit and depth; it is skipped when it already holds that many commits.
+///
+/// `None` when a store that existed before this call holds a credential-named
+/// blob in scope (the caller makes a clean one); a store `created` by this
+/// call can only have it from a remote that ignored the filter.
+fn ensure_commit(
+    context: &CloneContext<'_>,
+    store: &Path,
+    request: &Fetch<'_>,
+) -> Result<Option<Vec<String>>, CloneError> {
+    let Fetch {
+        repository_url,
+        commit,
+        sparse_paths,
+        depth,
+        created,
+    } = *request;
+    let fetching = !holds_history(context, store, commit, depth)?;
+    if fetching {
+        // Every checkout is a partial one: blobs arrive only when a checkout
+        // needs them, so a credential-named file left out is never fetched.
+        // The fetch carries `--filter`, and a filtered fetch registers the
+        // remote as a promisor with that filter itself
+        // (`remote.origin.promisor`, `remote.origin.partialclonefilter`).
+        let depth = depth.to_string();
+        let mut fetch = scoped(store, &["fetch", "--no-tags", "--depth", &depth]);
+        fetch.extend([OsString::from("--filter"), OsString::from("blob:none")]);
+        fetch.extend(["--".into(), "origin".into(), OsString::from(commit)]);
+        run(
+            context,
+            fetch,
+            clone_timeout(context),
+            "fetch requested commit",
+            Some(repository_url),
+        )?;
+    }
+    let listed = withheld_files(context, store, commit, sparse_paths)?;
+    // A remote that ignores the blob filter sends every blob, credential
+    // files included: refuse rather than keep them.
+    if !blobs_absent(context, store, &listed)? {
+        if !created {
+            return Ok(None);
+        }
+        return Err(CloneError::new(
+            ErrorCode::GitFailed,
+            "The remote ignored the partial-clone blob filter, so credential-named files this checkout withholds were downloaded; nothing was cloned. Use a remote that supports partial clone.",
+        ));
+    }
+    Ok(Some(withheld_paths(listed)))
+}
+
+/// Whether `store` already holds `commit` with the history `depth` asks for.
+fn holds_history(
+    context: &CloneContext<'_>,
+    store: &Path,
+    commit: &str,
+    depth: u64,
+) -> Result<bool, CloneError> {
+    // `--missing` keeps a walk from fetching what the store lacks.
+    if depth == 1 {
+        let listed = run(
+            context,
+            scoped(store, &["rev-list", "--no-walk", "--missing=print", commit]),
+            head_timeout(context),
+            "check commit in store",
+            None,
+        )?;
+        return Ok(listed
+            .stdout
+            .lines()
+            .any(|line| line.trim().eq_ignore_ascii_case(commit)));
+    }
+    // A history shorter than `depth` ends at the root commit: complete, not
+    // missing. `--missing=print` marks each absent commit with `?`.
+    let count = depth.to_string();
+    let walked = run(
+        context,
+        scoped(
+            store,
+            &["rev-list", "--max-count", &count, "--missing=print", commit],
+        ),
+        head_timeout(context),
+        "check commit in store",
+        None,
+    )?;
+    let mut lines = walked.stdout.lines().map(str::trim);
+    Ok(lines
+        .next()
+        .is_some_and(|first| first.eq_ignore_ascii_case(commit))
+        && lines.all(|line| !line.starts_with('?')))
+}
+
+/// A new linked worktree of `store` at `stage`, detached at `commit` and
+/// empty (local: no blob is read).
+fn add_worktree(
+    context: &CloneContext<'_>,
+    store: &Path,
+    commit: &str,
+    stage: &Path,
+) -> Result<(), CloneError> {
+    let mut args = scoped(
+        store,
+        &["worktree", "add", "--no-checkout", "--detach", "--"],
+    );
+    args.extend([stage.as_os_str().to_owned(), OsString::from(commit)]);
+    run(context, args, sparse_timeout(context), "add worktree", None)?;
+    Ok(())
+}
+
+/// Move the worktree `from` of `store` to `to`; its administration, sparse
+/// scope and index follow.
+pub(super) fn move_worktree(
+    context: &CloneContext<'_>,
+    store: &Path,
+    from: &Path,
+    to: &Path,
+) -> Result<(), CloneError> {
+    let mut args = scoped(store, &["worktree", "move"]);
+    args.extend([from.as_os_str().to_owned(), to.as_os_str().to_owned()]);
+    run(
+        context,
+        args,
+        sparse_timeout(context),
+        "move worktree",
+        None,
+    )?;
+    Ok(())
+}
+
+/// Forget the worktrees of `store` whose directories are gone.
+pub(super) fn prune_worktrees(context: &CloneContext<'_>, store: &Path) -> Result<(), CloneError> {
+    run(
+        context,
+        scoped(store, &["worktree", "prune"]),
+        head_timeout(context),
+        "prune removed worktrees",
+        None,
+    )?;
+    Ok(())
 }
 
 fn scoped(target: &Path, args: &[&str]) -> Vec<OsString> {

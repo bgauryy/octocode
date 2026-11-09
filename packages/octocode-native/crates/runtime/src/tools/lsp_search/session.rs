@@ -175,6 +175,9 @@ pub(super) struct Session {
     /// When this call began waiting on the server: what it waited on since
     /// is what it reports.
     pub(super) began: tokio::time::Instant,
+    /// The pool's resident bytes and budget when it held more than the budget
+    /// as this call acquired its client.
+    pub(super) pool_over_budget: Option<(u64, u64)>,
 }
 
 /// Lease a pooled client for the whole operation and synchronize the anchor
@@ -193,10 +196,20 @@ pub(super) async fn open_session(
     let began = tokio::time::Instant::now();
     let leased = acquire_leased_client(query, target, pool, cancel).await?;
     let (client, config) = (leased.client.clone(), leased.config.clone());
+    let pool_over_budget = pool.over_budget().await;
     // Whatever ends the session, the call says what it waited on.
-    open_leased(query, target, document, sources, cancel, leased, began)
-        .await
-        .map_err(|exit| waits::disclose_exit(exit, &config, client.waits_since(began)))
+    open_leased(
+        query,
+        target,
+        document,
+        sources,
+        cancel,
+        leased,
+        began,
+        pool_over_budget,
+    )
+    .await
+    .map_err(|exit| waits::disclose_exit(exit, &config, client.waits_since(began)))
 }
 
 /// [`open_session`] once the client is leased: the readiness and capability
@@ -209,6 +222,7 @@ async fn open_leased(
     cancel: &dyn CancellationCheck,
     leased: Leased,
     began: tokio::time::Instant,
+    pool_over_budget: Option<(u64, u64)>,
 ) -> Result<Session, Exit> {
     let Leased {
         client,
@@ -252,6 +266,7 @@ async fn open_leased(
         fell_back_from,
         open_readiness,
         began,
+        pool_over_budget,
     })
 }
 
@@ -371,4 +386,6 @@ pub(super) fn start_failure(
 mod sync;
 mod waits;
 pub(in crate::tools::lsp_search) use sync::{root_representative, sync_document};
-pub(in crate::tools::lsp_search) use waits::disclose_waits;
+pub(in crate::tools::lsp_search) use waits::{
+    disclose_pool_overflow, disclose_waits, record_waits,
+};

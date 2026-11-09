@@ -10,7 +10,7 @@ import { ROOT } from './lib/workspaces.mjs';
 
 test('the generated Homebrew smoke query executes against the built CLI', () => {
   const artifact = { url: 'https://registry.example.test/native.tgz', sha256: 'a'.repeat(64) };
-  const formula = renderFormula({ macos: { arm: artifact, intel: artifact }, linux: { arm: artifact, intel: artifact } });
+  const formula = renderFormula({ macos: { arm: artifact }, linux: { arm: artifact, intel: artifact } });
   const query = /query = '([^']+)'/.exec(formula)?.[1];
   assert.ok(query, 'the formula emits its executable smoke request');
   const directory = mkdtempSync(path.join(tmpdir(), 'octocode-brew-test-'));

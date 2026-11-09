@@ -70,8 +70,9 @@ async fn patch_window_does_not_repeat_the_file_cursor_in_content_pagination() {
     let file = &row["files"][0];
     assert_eq!(file["patchPagination"]["hasMore"], true, "{row}");
     let pages = &row["contentPagination"];
-    // The finished single-page file list and the cursor copy add nothing.
-    assert_eq!(pages["files"]["hasMore"], false, "{pages}");
+    // The finished single-page file list states no block (one page holds
+    // its complete result), and the cursor copy adds nothing.
+    assert!(pages.get("files").is_none(), "{pages}");
     assert_eq!(pages["patches"]["offset"], 0, "{pages}");
     assert!(pages["patches"].get("totalChars").is_none(), "{pages}");
     assert!(

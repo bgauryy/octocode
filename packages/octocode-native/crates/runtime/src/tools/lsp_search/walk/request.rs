@@ -20,6 +20,7 @@ use crate::tools::lsp_search::locations::snapshot_changed;
 use crate::tools::lsp_search::render::{into_items, symbol_kind_name, uri_to_path};
 use crate::tools::lsp_search::scope::Scope;
 use crate::tools::lsp_search::source::{SourceCache, item_uri_is_authorized};
+use crate::tools::lsp_search::test_scope::{self, ScopeLeft};
 use crate::tools::lsp_search::{LspSearchQuery, Op, cancellable, lsp_search_query};
 use octocode_engine::lsp::client::NativeLspClient;
 use octocode_engine::symbol_kind;
@@ -206,11 +207,7 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
         failures.append(&mut walk.failures);
     }
     let (mut items, failures) = expansion_outcome(items, failures)?;
-    let mut excluded = crate::tools::lsp_search::test_scope::ScopeLeft::default();
-    if lsp_search_query::op(query) == Op::Callers {
-        excluded = crate::tools::lsp_search::test_scope::retain_callers(query, paths, &mut items);
-        production_first(&mut items, paths);
-    }
+    let excluded = scope_callers(query, paths, &mut items);
     let walks = walks
         .iter()
         .map(|(expansion, walk)| (*expansion, walk))
@@ -237,8 +234,8 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
     if let Some(note) = class_uses_warning(lsp_search_query::operation(query), &roots) {
         crate::response::paging::push_warnings(&mut row, [note]);
     }
-    crate::tools::lsp_search::test_scope::disclose(&mut row, excluded);
-    mark_partial_expansion(&mut row, query, &failures);
+    test_scope::disclose(&mut row, excluded);
+    mark_partial_expansion(&mut row, query, &failures, paths);
     importer_failures.disclose(
         &mut row,
         query,
@@ -248,8 +245,27 @@ pub(in crate::tools::lsp_search) async fn hierarchy(
     // Every walked direction is marked together: marking them one after
     // the other would let the second overwrite the first's
     // `unexpandedParents` and `continueWalk*`.
-    mark_truncation(&mut row, query, &walks);
+    mark_truncation(&mut row, query, &walks, paths);
     Ok((row, verified))
+}
+
+/// The step every rung's `callers` items take before their page (server,
+/// editor and syntax alike): only the callers the query's `testCode` keeps
+/// ([`test_scope::retain_callers`]), production before test code
+/// ([`production_first`]). What the scope left out is returned for the row's
+/// [`test_scope::disclose`]. Other operations have no `testCode` scope, so
+/// their items stay as they are.
+pub(in crate::tools::lsp_search) fn scope_callers(
+    query: &LspSearchQuery,
+    paths: &PathPolicy,
+    items: &mut Vec<Value>,
+) -> ScopeLeft {
+    if lsp_search_query::op(query) != Op::Callers {
+        return ScopeLeft::default();
+    }
+    let left = test_scope::retain_callers(query, paths, items);
+    production_first(items, paths);
+    left
 }
 
 /// Order callers level by level, production before test code by the one

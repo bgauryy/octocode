@@ -250,13 +250,10 @@ impl KeyState {
     ) {
         self.facts().release(group.name(), start, previous);
         if persisted {
-            // The persist takes the peer-shared file lock and may poll it: keep
-            // that wait off the async worker.
-            let state = Arc::clone(self);
-            let _ = tokio::task::spawn_blocking(octocode_io::notice::carried(move || {
-                state.persist_with(|view| view.release(group.name(), start, previous));
-            }))
-            .await;
+            // The persist takes the peer-shared file lock and may poll it: it
+            // runs off the async worker, tracked until it ends.
+            self.persist_awaited(move |view| view.release(group.name(), start, previous))
+                .await;
         }
     }
 

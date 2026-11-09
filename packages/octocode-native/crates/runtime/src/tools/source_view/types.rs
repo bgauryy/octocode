@@ -119,6 +119,55 @@ pub enum PartialReason {
     /// A regex scan stopped at the memory budget for its match spans: the
     /// selection is a prefix of the matches.
     ScanBudget,
+    /// The walk that places a named structure's secret values (a Kubernetes
+    /// Secret, a JSON Web Key) outgrew the memory budget, so every value of it
+    /// is hidden, secret or not. Emitted only once core lists it
+    /// ([`PartialReason::walk_memory_budget`]).
+    #[serde(rename = "securityWalkMemoryBudget")]
+    SecurityWalkMemoryBudget,
+}
+
+/// The wire name of [`PartialReason::SecurityWalkMemoryBudget`].
+const WALK_MEMORY_BUDGET: &str = "securityWalkMemoryBudget";
+
+impl PartialReason {
+    /// The reason a page hidden by the every-value fallback gives, when the
+    /// embedded contract declares one: core owns the value and its meaning, so
+    /// native emits it only once a regeneration brought it in.
+    pub(crate) fn walk_memory_budget() -> Option<Self> {
+        Self::walk_memory_budget_given(|code| {
+            crate::contracts::partial_reason_meaning(code).is_some()
+        })
+    }
+
+    fn walk_memory_budget_given(declared: impl Fn(&str) -> bool) -> Option<Self> {
+        declared(WALK_MEMORY_BUDGET).then_some(Self::SecurityWalkMemoryBudget)
+    }
+}
+
+#[cfg(test)]
+mod reason_tests {
+    use super::*;
+
+    /// The variant serializes as the value the core request names, and is
+    /// chosen exactly when the contract declares it.
+    #[test]
+    fn the_walk_budget_reason_is_the_declared_value_only() {
+        assert_eq!(
+            serde_json::to_value(PartialReason::SecurityWalkMemoryBudget).expect("json"),
+            serde_json::json!(WALK_MEMORY_BUDGET)
+        );
+        assert_eq!(
+            PartialReason::walk_memory_budget_given(|code| code == WALK_MEMORY_BUDGET),
+            Some(PartialReason::SecurityWalkMemoryBudget)
+        );
+        assert_eq!(PartialReason::walk_memory_budget_given(|_| false), None);
+        // The embedded contract decides: off until the regeneration lists it.
+        assert_eq!(
+            PartialReason::walk_memory_budget().is_some(),
+            crate::contracts::partial_reason_meaning(WALK_MEMORY_BUDGET).is_some()
+        );
+    }
 }
 
 /// A declaration a `block:true` read widened a hit to: its name, name line
@@ -151,6 +200,9 @@ pub struct SourceFacts {
     /// range): where they start in it and its whole size, so a byte page's
     /// offsets, totals and continuation are the view's.
     pub byte_origin: Option<ByteOrigin>,
+    /// The whole source's line count when the bytes are a window of it: the
+    /// widest line number a page's gutter shows. `None`: the bytes' own.
+    pub file_lines: Option<usize>,
 }
 
 /// A byte window's place in the sealed byte view it was cut from: the view is

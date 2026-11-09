@@ -26,7 +26,7 @@ const WARM_CHECKS: [&str; 5] = [
 const AVAILABILITY: &str = "check Git availability";
 
 /// The first git step of a fresh checkout, inside the clone itself.
-const INITIALIZE: &str = "initialize commit checkout";
+const INITIALIZE: &str = "initialize shared store";
 
 /// What the held steps saw.
 #[derive(Default)]
@@ -296,8 +296,15 @@ async fn the_clone_leaves_the_runtime_thread_free() {
     let other_work = tokio::spawn({
         let sync = Arc::clone(&sync);
         async move {
-            sync.clone_started.notified().await;
-            sync.runtime_ran();
+            // Bounded: a first step that is never held (its label changed)
+            // must fail the test, not wait for a signal that cannot come.
+            let held = tokio::time::timeout(UNRELEASED, sync.clone_started.notified())
+                .await
+                .is_ok();
+            if held {
+                sync.runtime_ran();
+            }
+            held
         }
     });
     let request = RequestContext::new(
@@ -307,7 +314,10 @@ async fn the_clone_leaves_the_runtime_thread_free() {
     run(&provider, &query(), Ok(&request), &setup)
         .await
         .unwrap_or_else(|_| panic!("clone"));
-    other_work.await.expect("runtime task");
+    assert!(
+        other_work.await.expect("runtime task"),
+        "the clone never ran its first step {INITIALIZE:?}"
+    );
     assert_eq!(
         sync.events().runtime_ran_during_clone,
         [true],

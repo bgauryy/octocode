@@ -137,7 +137,7 @@ async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
     );
     // As on every GitHub tool (`gh_shared::failure::repository_recovery`):
     // a search for the repository's name, which names the owner that holds
-    // it, and the owner's listing, labelled by one shared hint.
+    // it, and the owner's listing; the hint adds only the caution.
     let find = &crate::support::checks::related_call(data, "ghSearchRepo", |_| true);
     assert_eq!(find["tool"], "ghSearchRepo", "{data}");
     assert_eq!(
@@ -147,9 +147,7 @@ async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
     );
     assert_eq!(
         data["hints"],
-        json!([
-            "The related[] ghSearchRepo calls list repositories named like `nope` under any owner (confirm the owner before using one) and the repositories `ghost` holds."
-        ]),
+        json!(["Confirm the owner before using a related[] repository."]),
         "{data}"
     );
     assert_eq!(
@@ -190,5 +188,60 @@ async fn gh_search_repo_missing_owner_is_named() {
             .contains("\"ghost-login\""),
         "{data}"
     );
+    runtime.close().await;
+}
+
+/// D6 and R2: a missing repository's row reads the same on every tool that
+/// takes a repository: `notFound` with `httpStatus: 404` (the clone row
+/// too), the one message naming the repository, and the one hint the
+/// related[] calls do not state (confirm the owner).
+#[tokio::test]
+async fn a_missing_repository_row_is_the_same_on_every_repository_tool() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(wiremock::matchers::path_regex("^/api/v3/repos/ghost/nope"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"total_count":0,"incomplete_results":true,"items":[]})),
+        )
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    for (tool, input) in [
+        ("ghCloneRepo", json!({"owner":"ghost","repo":"nope"})),
+        (
+            "ghGetFileContent",
+            json!({"owner":"ghost","repo":"nope","path":"README.md"}),
+        ),
+        (
+            "ghStructure",
+            json!({"operation":"tree","owner":"ghost","repo":"nope"}),
+        ),
+        (
+            "ghSearchCode",
+            json!({"owner":"ghost","repo":"nope","keywords":["needle"]}),
+        ),
+    ] {
+        let outcome = call(&runtime, tool, input).await.expect("error row");
+        let data = row_data(&outcome);
+        assert_eq!(data["errorCode"], "notFound", "{tool}: {data}");
+        assert_eq!(data["httpStatus"], 404, "{tool}: {data}");
+        assert_eq!(
+            data["error"],
+            "Repository ghost/nope not found, or private and not accessible to this token",
+            "{tool}: {data}"
+        );
+        assert_eq!(
+            data["hints"],
+            json!(["Confirm the owner before using a related[] repository."]),
+            "{tool}: {data}"
+        );
+    }
     runtime.close().await;
 }

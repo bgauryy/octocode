@@ -224,26 +224,71 @@ fn render(
         }
         _ => facts,
     };
-    let cut = match cut_page(q, view, ext, source, facts) {
-        Ok(cut) => cut,
-        Err(result) => return *result,
-    };
-    if let Err(e) = cancel.check() {
-        return LocalFetchResult::error(
-            local_fetch_query::path(&cut.q).to_owned(),
-            ErrorCode::Cancelled,
-            e,
+    // The first cut takes the row's whole share; a row wider than its share
+    // as published is cut again to the share less its measured skeleton,
+    // until it fits or holds one line. Each cut is a complete page with its
+    // own continuation, so a shorter one loses nothing.
+    let mut fill = None;
+    loop {
+        let cut = match cut_page(q, view, ext, source, facts, fill) {
+            Ok(cut) => cut,
+            Err(result) => return *result,
+        };
+        if let Err(e) = cancel.check() {
+            return LocalFetchResult::error(
+                local_fetch_query::path(&cut.q).to_owned(),
+                ErrorCode::Cancelled,
+                e,
+            );
+        }
+        let budget = cut.budget;
+        let result = page_result(
+            cut,
+            source,
+            ext,
+            view,
+            selection.map(|(chosen, _)| chosen),
+            source_path,
+            facts,
         );
+        match facts.window.and_then(|share| refit(&result, budget, share)) {
+            Some(less) => fill = Some(less),
+            None => return result,
+        }
     }
-    page_result(
-        cut,
-        source,
-        ext,
-        view,
-        selection.map(|(chosen, _)| chosen),
-        source_path,
-        facts,
-    )
+}
+
+/// The smaller fill a line page of several lines is cut to when its row, as
+/// published, is wider than `share`: the share less the row's skeleton (every
+/// published char but its text's), as every page budget reserves its row
+/// ([`crate::response::page_windows::page_chars`]: a share its skeleton
+/// crowds still gives its lines half of itself, and the response pager
+/// splits the row without loss). `None` when the row fits, or no smaller fill
+/// sheds a line. Each refit takes fewer lines than the cut before it.
+fn refit(
+    result: &LocalFetchResult,
+    budget: super::pagination::LineBudget,
+    share: usize,
+) -> Option<usize> {
+    let text = result.content.as_deref()?;
+    if result.status != ReadStatus::Success
+        || result.pagination.as_ref()?.unit != octocode_contract_types::ReadProgressUnit::Lines
+        || text.split_inclusive('\n').nth(1).is_none()
+    {
+        return None;
+    }
+    let row = serde_json::to_value(result).ok()?;
+    let published = crate::response::read_share::published_chars(&row);
+    if published.row <= share {
+        return None;
+    }
+    let counted: usize = text
+        .split_inclusive('\n')
+        .map(|line| budget.rendered(line))
+        .sum();
+    let fill =
+        crate::response::page_windows::page_chars(Some(share), published.row - published.text);
+    (fill < counted).then_some(fill)
 }
 
 /// The selected text in the view it is returned in (`mode` `None`: as is).

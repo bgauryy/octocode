@@ -112,8 +112,8 @@ impl ClassificationProvider for Jev {
                         .get("id")
                         .and_then(Value::as_str)
                         .filter(|id| !id.trim().is_empty())
-                        .map(|id| json!({"name": id, "description": "", "release_date": ""}))
                         .ok_or_else(|| invalid_response("data[].id must be a non-blank string"))
+                        .and_then(|id| listed(id, "", ""))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             return Ok(json!({ "models": models }));
@@ -125,21 +125,46 @@ impl ClassificationProvider for Jev {
         let models = models
             .iter()
             .map(|model| {
-                let mut listed = Map::new();
-                for field in ["name", "description", "release_date"] {
-                    let value = model.get(field).and_then(Value::as_str).ok_or_else(|| {
-                        invalid_response(format!("model.{field} must be a string"))
-                    })?;
-                    if field == "name" && value.trim().is_empty() {
-                        return Err(invalid_response("model.name must be non-blank"));
-                    }
-                    listed.insert(field.to_owned(), json!(value));
+                // The vendor wire's field names; the listing's are the contract's.
+                let field = |field: &str| {
+                    model
+                        .get(field)
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| invalid_response(format!("model.{field} must be a string")))
+                };
+                let name = field("name")?;
+                if name.trim().is_empty() {
+                    return Err(invalid_response("model.name must be non-blank"));
                 }
-                Ok(Value::Object(listed))
+                listed(name, field("description")?, field("release_date")?)
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(json!({ "models": models }))
     }
+}
+
+/// One listed model as the output contract types it
+/// (`ClasifyModelMetadata`): the field names are the generated type's, never
+/// spelled here, so a contract rename reaches every listed model.
+fn listed(
+    name: &str,
+    description: &str,
+    release_date: &str,
+) -> Result<Value, ProviderContractError> {
+    wire_value(&octocode_contract_types::ClasifyModelMetadata {
+        default: None,
+        description: description.to_owned(),
+        name: name.to_owned(),
+        release_date: release_date.to_owned(),
+    })
+}
+
+/// A listing value as JSON; a serialize failure fails the listing instead of
+/// listing `null`.
+fn wire_value<T: serde::Serialize>(value: &T) -> Result<Value, ProviderContractError> {
+    serde_json::to_value(value).map_err(|error| {
+        invalid_response(format!("model listing could not be serialized: {error}"))
+    })
 }
 
 /// A batch response's answers, each validated on its own: global metadata

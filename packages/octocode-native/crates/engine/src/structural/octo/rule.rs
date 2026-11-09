@@ -8,6 +8,7 @@ use tree_sitter::Node;
 use crate::structural::language::AgLanguage;
 
 use super::error::CompileError;
+use super::expanded::ExpandedTree;
 use super::matching::{CandidatePlan, CaptureEnv, ExecutionError, node_text};
 use super::pattern::CompiledPattern;
 use super::position::{ExactRange, Ordinal, RawOrdinal};
@@ -17,10 +18,10 @@ mod relation;
 
 #[cfg(test)]
 pub(super) use decode::RULE_DECODE_COUNT;
-#[cfg(test)]
-pub(super) use relation::ANCESTOR_STEPS;
 use decode::check_kinds;
 pub(in crate::structural) use decode::decode_rule;
+#[cfg(test)]
+pub(super) use relation::ANCESTOR_STEPS;
 use relation::Relation;
 
 #[derive(Default, Deserialize)]
@@ -233,7 +234,7 @@ impl CompiledRule {
 
     /// `ancestors` is the candidate's ancestor chain (root first, parent
     /// last) when the caller already has it; `None` recomputes it once from
-    /// the document root, and only if an `inside` matcher needs it.
+    /// the document's tree, and only if a matcher needs it.
     pub(super) fn matches<'t>(
         &self,
         candidate: Node<'t>,
@@ -327,28 +328,16 @@ impl CompiledRule {
 /// n nodes is walked n times. Only a relation whose rules read and bind no
 /// capture is kept ([`CompiledRule::is_capture_free`]): its answer for a node
 /// is then the same whoever asks, and the first walk settles every node it
-/// passed.
+/// passed. Its nodes are those of one [`ExpandedTree`], whose bodies live as
+/// long as the file's match, so no node address repeats.
+#[derive(Default)]
 pub(super) struct RelationMemo {
-    /// The file tree's root; a macro body parsed from it has its own tree,
-    /// whose node addresses may repeat after it drops, so it is never kept.
-    root: usize,
     /// By relation (its address, which lives as long as the compiled rule)
     /// and node, whether the relation holds for that node.
     answers: RefCell<HashMap<(usize, usize), bool>>,
 }
 
 impl RelationMemo {
-    pub(super) fn of(root: Node<'_>) -> Self {
-        Self {
-            root: root.id(),
-            answers: RefCell::default(),
-        }
-    }
-
-    fn covers(&self, root: Node<'_>) -> bool {
-        self.root == root.id()
-    }
-
     fn get(&self, relation: usize, node: Node<'_>) -> Option<bool> {
         self.answers.borrow().get(&(relation, node.id())).copied()
     }
@@ -372,6 +361,7 @@ pub(super) struct Document<'a, 't> {
     pub(super) memo: Option<&'a RelationMemo>,
     pub(super) content: &'a str,
     pub(super) deadline: super::Deadline,
-    pub(super) root: Node<'t>,
+    /// The tree every relation reads, macro bodies expanded.
+    pub(super) tree: &'t ExpandedTree<'t>,
     pub(super) line_index: &'a crate::text::LineIndex,
 }

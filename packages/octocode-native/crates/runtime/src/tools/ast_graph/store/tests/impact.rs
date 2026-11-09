@@ -323,3 +323,59 @@ fn symbol_impact_keeps_import_only_rows_as_unexpanded_candidates() {
         out.value
     );
 }
+
+/// A Rust module is declared by its parent (`mod x;`, a `contains` edge of
+/// detail `module`): a change in it reaches the crate root through the
+/// module chain, so a library's root is an affected entrypoint. The parent
+/// is listed as an unexpanded candidate and walks on only up its own module
+/// chain: a file that uses another item of the root stays out.
+#[test]
+fn a_rust_module_change_reaches_its_crate_root_through_the_module_tree() {
+    let dir = git_app(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        (
+            "src/lib.rs",
+            "pub mod num;\npub mod nested;\npub mod other;\n\npub fn helper() -> u8 {\n    1\n}\n",
+        ),
+        (
+            "src/num.rs",
+            "pub fn saturating(v: u64) -> u32 {\n    v as u32\n}\n",
+        ),
+        ("src/nested.rs", "pub mod deep;\n"),
+        ("src/nested/deep.rs", "pub fn d() -> u8 {\n    2\n}\n"),
+        (
+            "src/other.rs",
+            "use crate::helper;\n\npub fn o() -> u8 {\n    helper()\n}\n",
+        ),
+    ]);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    for (target, depth) in [
+        ("src/num.rs", 1),
+        ("src/num.rs#saturating", 1),
+        ("src/nested/deep.rs", 2),
+    ] {
+        let out = ask(root, "impact", Some(target), |o| o.depth = Some(depth));
+        assert_eq!(
+            out.value["summary"]["affectedEntrypoints"],
+            json!(["src/lib.rs"]),
+            "{target}: {}",
+            out.value
+        );
+        let rows = out.value["rows"].as_array().expect("rows");
+        let lib = rows
+            .iter()
+            .find(|row| row["id"] == "src/lib.rs")
+            .unwrap_or_else(|| panic!("{target}: {}", out.value));
+        assert_eq!(lib["via"], "contains:module", "{target}: {lib}");
+        assert_eq!(lib["risk"], "candidate", "{target}: {lib}");
+        assert!(
+            !rows.iter().any(|row| row["id"] == "src/other.rs"),
+            "other.rs uses only helper: {target}: {}",
+            out.value
+        );
+    }
+}

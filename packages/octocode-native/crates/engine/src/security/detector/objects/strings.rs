@@ -17,6 +17,49 @@ pub(super) struct OpenString {
     len: usize,
     /// Its value is asked about: a private member's.
     value: Option<Box<ValueShape>>,
+    /// Whether it is so far exactly a redaction placeholder: asked of a
+    /// registry credential's value.
+    placeholder: Option<PlaceholderShape>,
+}
+
+/// A string read against a redaction placeholder's shape, `[REDACTED-NAME]`
+/// with `NAME` in capitals and digits, as it passes.
+#[derive(Default)]
+struct PlaceholderShape {
+    read: usize,
+    name: usize,
+    closed: bool,
+    broken: bool,
+}
+
+impl PlaceholderShape {
+    fn take(&mut self, bytes: &[u8]) {
+        let prefix = crate::security::REDACTION_PREFIX.as_bytes();
+        for &byte in bytes {
+            if self.broken {
+                return;
+            }
+            let fits = if self.closed {
+                false
+            } else if self.read < prefix.len() {
+                prefix.get(self.read) == Some(&byte)
+            } else if self.read == prefix.len() {
+                byte == b'-'
+            } else if byte == b']' {
+                self.closed = self.name > 0;
+                self.closed
+            } else {
+                self.name += 1;
+                byte.is_ascii_uppercase() || byte.is_ascii_digit()
+            };
+            self.read += 1;
+            self.broken |= !fits;
+        }
+    }
+
+    fn is_whole(&self) -> bool {
+        self.closed && !self.broken
+    }
 }
 
 /// What [`is_private_value`] asks of a value, kept as it passes.
@@ -31,13 +74,14 @@ struct ValueShape {
 }
 
 impl OpenString {
-    fn new(start: usize, is_value: bool) -> Self {
+    fn new(start: usize, is_value: bool, is_credential: bool) -> Self {
         Self {
             start,
             end: start,
             head: [0; NAME_BYTES],
             len: 0,
             value: is_value.then(Box::default),
+            placeholder: is_credential.then(PlaceholderShape::default),
         }
     }
 
@@ -47,6 +91,9 @@ impl OpenString {
             room[..copied].copy_from_slice(&bytes[..copied]);
         }
         self.len += bytes.len();
+        if let Some(placeholder) = &mut self.placeholder {
+            placeholder.take(bytes);
+        }
         if let Some(shape) = &mut self.value
             && !shape.broken
         {
@@ -70,6 +117,15 @@ impl OpenString {
     /// The whole string, when it is short enough to name a role.
     fn text(&self) -> Option<&[u8]> {
         self.head.get(..self.len)
+    }
+
+    /// Whether it is exactly a redaction placeholder (`[REDACTED-NAME]`): text
+    /// this tool wrote is no credential, so a second pass leaves it. A value
+    /// that only opens like one (`[REDACTED-x]…`) is judged as any other.
+    fn is_redaction(&self) -> bool {
+        self.placeholder
+            .as_ref()
+            .is_some_and(PlaceholderShape::is_whole)
     }
 
     /// Whether it has the shape of a private member's value.
@@ -117,7 +173,11 @@ impl Walk {
         }
         self.level = level;
         let start = piece.base + after_run + 1;
-        self.open = Open::String(OpenString::new(start, self.expected == Some(Role::Private)));
+        self.open = Open::String(OpenString::new(
+            start,
+            self.expected == Some(Role::Private),
+            self.expected == Some(Role::RegistryCredential),
+        ));
         Ok(after_run + 1)
     }
 
@@ -187,6 +247,28 @@ impl Walk {
                             return self.string_ended(piece, after_run + 1, string);
                         }
                         (after_run, _) => {
+                            // A backslash before a line break continues the
+                            // string on the next line (`"d":"x\` then the
+                            // rest): the backslash and the break are no bytes
+                            // of its value, which goes on after them.
+                            let continued = (after_run - at) % 2 == 1;
+                            let break_end = match bytes.get(after_run) {
+                                Some(b'\n') if continued => Some(after_run + 1),
+                                Some(b'\r') if continued => match bytes.get(after_run + 1) {
+                                    Some(b'\n') => Some(after_run + 2),
+                                    None if !piece.last => {
+                                        self.open = Open::String(string);
+                                        return Err(at);
+                                    }
+                                    _ => None,
+                                },
+                                _ => None,
+                            };
+                            if let Some(past) = break_end {
+                                string.take(&bytes[at..after_run - 1]);
+                                at = past;
+                                continue;
+                            }
                             let past = (after_run + 1).min(bytes.len());
                             string.take(&bytes[at..past]);
                             at = after_run + 1;
@@ -244,6 +326,11 @@ impl Walk {
             }
             Some(Role::Private) if string.is_private() => {
                 self.hold(string.start..string.end, false);
+            }
+            Some(Role::RegistryCredential) if string.len > 0 && !string.is_redaction() => {
+                self.found
+                    .registry_credentials
+                    .push(string.start..string.end);
             }
             _ => {}
         }

@@ -135,14 +135,25 @@ pub(super) fn validate_wire(
     if !answers.is_empty() {
         // The candidate is built for this check alone, so it is validated in
         // place instead of cloned again.
+        // The contract names an answer's type by its value key, so the wire's
+        // `type` (checked above) is not part of the output shape.
+        let mut served = response["answers"].clone();
+        if let Some(answers) = served.as_object_mut() {
+            for answer in answers.values_mut() {
+                if let Some(fields) = answer.as_object_mut() {
+                    fields.remove("type");
+                }
+            }
+        }
         crate::contracts::validate_output_in_place(
             crate::id::ToolId::Clasify.as_str(),
             &mut json!({"results":[{"index":0,"data":{
                 "model":response["model"],
-                "answers":response["answers"],
+                "answers":served,
+                // The provider's own usage, spelled as clasify serves it.
                 "usage":{
-                    "input_tokens":response["usage"]["input_tokens"],
-                    "output_tokens":response["usage"]["output_tokens"],
+                    "inputTokens":response["usage"]["input_tokens"],
+                    "outputTokens":response["usage"]["output_tokens"],
                 },
             }}]}),
         )

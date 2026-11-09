@@ -221,3 +221,128 @@ fn search_files_accepts_single_file_root() {
     assert_eq!(result.total_matches, 1);
     assert_eq!(matched_paths(&result).len(), 1);
 }
+
+fn anchored_options(
+    root: &TmpDir,
+    pattern: Option<&str>,
+    rule: Option<serde_json::Value>,
+    max_file_bytes: Option<u32>,
+) -> StructuralSearchFilesOptions {
+    StructuralSearchFilesOptions {
+        path: root.path(),
+        pattern: pattern.map(str::to_owned),
+        rule,
+        include: None,
+        default_exclude_dir: None,
+        exclude: None,
+        ignore: crate::types::IgnorePolicy::default(),
+        max_depth: None,
+        max_files: Some(10),
+        skip_files: None,
+        max_file_bytes,
+    }
+}
+
+/// The prefilter needs every literal of the pattern: a file holding only
+/// `map_err`, or only `format`, cannot match and is not parsed.
+#[test]
+fn search_files_skips_a_file_holding_only_some_of_the_literals() {
+    let root = TmpDir::new();
+    root.write("both.rs", "fn f() { x.map_err(|e| format!(\"{e}\")); }\n");
+    root.write("map_err_only.rs", "fn f() { x.map_err(|e| e); }\n");
+    root.write("format_only.rs", "fn f() { format!(\"{}\", 1); }\n");
+    let result = search_files_detailed(anchored_options(
+        &root,
+        Some("$X.map_err(|$E| format!($$$))"),
+        None,
+        None,
+    ))
+    .expect("search files");
+    assert_eq!(matched_paths(&result).len(), 1);
+    assert!(matched_paths(&result)[0].ends_with("both.rs"));
+    assert_eq!((result.parsed_files, result.skipped_by_pre_filter), (1, 2));
+    assert_eq!(result.query.pre_filter, "all-anchors");
+}
+
+/// An `any` stays one union group inside the AND: a file holding either
+/// branch's literal and the conjunct's passes, one lacking the conjunct or
+/// both branches does not.
+#[test]
+fn search_files_keeps_any_a_union_inside_the_conjunction() {
+    let root = TmpDir::new();
+    root.write("foo.rs", "fn qux_d() { foo_a(1); }\n");
+    root.write("bar.rs", "fn qux_d() { bar_b(1); }\n");
+    root.write("no_conjunct.rs", "fn other() { foo_a(1); bar_b(1); }\n");
+    root.write("no_branch.rs", "fn qux_d() { other(1); }\n");
+    let rule = json!({
+        "any": [{"pattern": "foo_a($X)"}, {"pattern": "bar_b($X)"}],
+        "inside": {"pattern": "fn qux_d() { $$$ }", "stopBy": "end"}
+    });
+    let result = search_files_detailed(anchored_options(&root, None, Some(rule), None))
+        .expect("search files");
+    let mut matched: Vec<_> = matched_paths(&result)
+        .into_iter()
+        .map(|path| path.rsplit('/').next().unwrap_or(path).to_owned())
+        .collect();
+    matched.sort();
+    assert_eq!(matched, ["bar.rs", "foo.rs"]);
+    assert_eq!((result.parsed_files, result.skipped_by_pre_filter), (2, 2));
+}
+
+/// A file over the read cap is streamed until every group has a hit: one
+/// whose second literal sits past the first read chunk counts as large, one
+/// holding only the first literal is skipped by the prefilter.
+#[test]
+fn search_files_streams_a_large_file_until_every_group_hits() {
+    let root = TmpDir::new();
+    let padding = "// padding\n".repeat(20_000);
+    root.write(
+        "both.rs",
+        format!("fn f() {{ x.map_err(|e| e); }}\n{padding}fn g() {{ format!(\"x\"); }}\n"),
+    );
+    root.write(
+        "map_err_only.rs",
+        format!("fn f() {{ x.map_err(|e| e); }}\n{padding}"),
+    );
+    let result = search_files_detailed(anchored_options(
+        &root,
+        Some("$X.map_err(|$E| format!($$$))"),
+        None,
+        Some(64),
+    ))
+    .expect("search files");
+    assert_eq!((result.skipped_large, result.skipped_by_pre_filter), (1, 1));
+}
+
+/// A BOM-marked UTF-16 file over the read cap spells its anchors in UTF-16
+/// bytes, which the stream's text anchors never find: it is counted large
+/// (unread), never proven anchor-free, as a UTF-8 file holding the anchor
+/// is; a UTF-8 file without it is skipped by the prefilter.
+#[test]
+fn search_files_counts_a_large_utf16_file_as_large() {
+    let root = TmpDir::new();
+    let padding = "// padding\n".repeat(8);
+    let wide: Vec<u8> = [0xff, 0xfe]
+        .into_iter()
+        .chain(
+            format!("target(y);\n{padding}")
+                .encode_utf16()
+                .flat_map(u16::to_le_bytes),
+        )
+        .collect();
+    root.write("wide.ts", wide);
+    root.write("narrow.ts", format!("target(y);\n{padding}"));
+    root.write("other.ts", format!("other(y);\n{padding}"));
+    let result = search_files_detailed(anchored_options(&root, Some("target($X)"), None, Some(16)))
+        .expect("search files");
+    let reason = |name: &str| {
+        result
+            .files
+            .iter()
+            .find(|file| file.path.ends_with(name))
+            .and_then(|file| file.skipped_reason.clone())
+    };
+    assert_eq!(reason("wide.ts"), reason("narrow.ts"));
+    assert_eq!(reason("other.ts").as_deref(), Some("preFilter"));
+    assert_eq!((result.skipped_large, result.skipped_by_pre_filter), (2, 1));
+}

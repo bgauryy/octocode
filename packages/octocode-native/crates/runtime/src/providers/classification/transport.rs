@@ -6,8 +6,8 @@ mod request;
 use crate::providers::RuntimeClients;
 use crate::providers::classification::gate::GateLease;
 use errors::{
-    budget_error, denied, is_overloaded, overloaded_error, rate_limited, send_error, status_error,
-    transport_error,
+    BAD_REQUEST_HINT, budget_error, denied, is_overloaded, overloaded_error, rate_limited,
+    send_error, status_error, transport_error,
 };
 use octocode_contract_types::ErrorCode;
 use octocode_io::budget::RequestBudget;
@@ -121,6 +121,20 @@ impl ClassificationError {
             reported_usage: None,
             paused: false,
         }
+    }
+
+    /// A provider refusal of the request itself (HTTP 400 or 422) names the
+    /// model the request asked for: the provider's body is never kept, and an
+    /// unknown model is one of its causes. No local models list exists to
+    /// refuse it before the call.
+    pub(crate) fn naming_model(mut self, model: &str) -> Self {
+        if self.code == ErrorCode::ClassificationProviderError
+            && self.hints.first().map(String::as_str) == Some(BAD_REQUEST_HINT)
+        {
+            self.message
+                .push_str(&format!(" The request named model `{model}`."));
+        }
+        self
     }
 
     /// The provider answered, but not in the shape the contract requires.

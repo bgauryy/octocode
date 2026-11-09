@@ -23,6 +23,9 @@ pub(super) struct Coverage {
     pub(super) binary_files: String,
     /// The returned files whose values are decoded text, not UTF-8 bytes.
     pub(super) not_utf8_files: Option<String>,
+    /// A returned long line hid every value of a Kubernetes Secret or JSON Web
+    /// Key, its walk having outgrown the memory budget.
+    pub(super) every_value: bool,
     /// The returned files whose leading UTF-8 byte-order mark was dropped.
     pub(super) utf8_bom_files: Option<String>,
     pub(super) skip_hint: Option<String>,
@@ -93,6 +96,10 @@ impl Coverage {
                 scanned.binary_file_count.unwrap_or(0),
                 output_root,
             ),
+            every_value: scanned
+                .every_value_files
+                .as_ref()
+                .is_some_and(|files| !files.is_empty()),
             not_utf8_files: scanned
                 .not_utf8_files
                 .as_deref()
@@ -140,14 +147,16 @@ impl Coverage {
     }
 
     /// The declared reasons of the gaps no cap names: unreadable files
-    /// (`filesSkipped`) and files the regex hit its matching limit in
-    /// (`regexMatchLimit`), so a partial row states why.
+    /// (`filesSkipped`), files the regex hit its matching limit in
+    /// (`regexMatchLimit`), and long lines that hid every value of a named
+    /// structure (`securityLongTextEveryValue`), so a partial row states why.
     pub(super) fn partial_reasons(&self) -> Vec<crate::response::paging::PartialReason> {
         use crate::response::paging::PartialReason;
         let unreadable = self.error_count.saturating_sub(self.pattern_error_count) > 0;
         [
             (unreadable, PartialReason::FilesSkipped),
             (self.pattern_error_count > 0, PartialReason::RegexMatchLimit),
+            (self.every_value, PartialReason::SecurityLongTextEveryValue),
         ]
         .into_iter()
         .filter_map(|(gap, reason)| gap.then_some(reason))

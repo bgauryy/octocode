@@ -6,6 +6,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, BufReader, ReadBuf};
+#[cfg(not(windows))]
 use tokio::process::ChildStderr;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -39,8 +40,17 @@ impl StderrDrain {
     }
 }
 
+/// The parent's end of a server's stderr. Unix reads the child's pipe.
+/// Windows reads an overlapped named pipe it created before the spawn
+/// (`server_process::StderrPipe`): the child's own stderr pipe is read on a
+/// blocking thread, whose read in flight can hold bytes nothing can observe.
+#[cfg(not(windows))]
+pub(super) type StderrReader = ChildStderr;
+#[cfg(windows)]
+pub(super) type StderrReader = Overlapped<tokio::net::windows::named_pipe::NamedPipeServer>;
+
 pub(super) fn spawn_stderr_reader(
-    stderr: ChildStderr,
+    stderr: StderrReader,
     stderr_lines: Arc<Mutex<VecDeque<String>>>,
 ) -> StderrDrain {
     let (exited, on_exit) = oneshot::channel();
@@ -48,78 +58,130 @@ pub(super) fn spawn_stderr_reader(
     StderrDrain { task, exited }
 }
 
-/// What a pipe holds once the server has exited, found without waiting.
-pub(super) enum Held {
-    /// Bytes read from it straight away (0: EOF).
-    #[cfg_attr(
-        all(not(unix), not(test)),
-        expect(dead_code, reason = "only a Unix pipe is read without waiting")
-    )]
-    Read(usize),
-    /// Bytes the stream's own read delivers (Windows reads the pipe on a
-    /// blocking thread, whose read in flight takes them), or an EOF that
-    /// follows because no writer is left.
-    #[cfg_attr(
-        all(unix, not(test)),
-        expect(dead_code, reason = "a Unix pipe is read without waiting")
-    )]
-    InStream,
-    /// Nothing, while a writer still holds the pipe open.
-    Nothing,
-}
-
-/// A pipe's bytes found without waiting on its writers.
+/// A pipe once its server has exited: what it holds now, found without
+/// waiting on a writer. Every byte the server wrote is in the pipe by then,
+/// but a process it left behind can hold the pipe open.
 pub(super) trait ReadNow {
-    fn read_now(&mut self, buf: &mut [u8]) -> std::io::Result<Held>;
+    /// Fill `buf` with bytes the pipe holds, or leave it unfilled when the
+    /// pipe is empty or at EOF; the drain then ends.
+    fn poll_read_now(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>>;
 }
 
+#[cfg(unix)]
 impl ReadNow for ChildStderr {
-    #[cfg(unix)]
-    fn read_now(&mut self, buf: &mut [u8]) -> std::io::Result<Held> {
+    /// A non-blocking read of the pipe: bytes, EOF, or `WouldBlock` when it
+    /// is empty.
+    fn poll_read_now(
+        self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
         use std::io::Read;
         use std::os::fd::AsFd;
-        // The duplicate shares the pipe's open file, so its non-blocking mode.
-        let read = self
-            .as_fd()
-            .try_clone_to_owned()
-            .map(std::fs::File::from)
-            .and_then(|mut pipe| pipe.read(buf));
-        match read {
-            Ok(read) => Ok(Held::Read(read)),
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(Held::Nothing),
-            Err(error) => Err(error),
+        loop {
+            // The duplicate shares the pipe's open file, so its non-blocking mode.
+            let read = self
+                .as_fd()
+                .try_clone_to_owned()
+                .map(std::fs::File::from)
+                .and_then(|mut pipe| pipe.read(buf.initialize_unfilled()));
+            match read {
+                Ok(read) => {
+                    buf.advance(read);
+                    return Poll::Ready(Ok(()));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    return Poll::Ready(Ok(()));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(error) => return Poll::Ready(Err(error)),
+            }
         }
     }
+}
 
-    /// The pipe is read on a blocking thread, so this only peeks at how many
-    /// bytes it holds; a failed peek (every writer gone) waits for the EOF.
-    #[cfg(windows)]
-    fn read_now(&mut self, _buf: &mut [u8]) -> std::io::Result<Held> {
-        use std::os::windows::io::AsRawHandle;
-        let mut available = 0_u32;
-        // SAFETY: the handle is this pipe's and stays open while `self`
-        // lives. With a null buffer of size 0 the call reads no bytes and
-        // writes only the count of bytes available into `available`.
-        let peeked = unsafe {
-            windows_sys::Win32::System::Pipes::PeekNamedPipe(
-                self.as_raw_handle(),
-                std::ptr::null_mut(),
-                0,
-                std::ptr::null_mut(),
-                &raw mut available,
-                std::ptr::null_mut(),
-            )
-        };
-        Ok(if peeked != 0 && available == 0 {
-            Held::Nothing
-        } else {
-            Held::InStream
-        })
+/// A platform with neither pipe kind reads its stream to EOF.
+#[cfg(not(any(unix, windows)))]
+impl ReadNow for ChildStderr {
+    fn poll_read_now(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        self.poll_read(cx, buf)
     }
+}
 
-    #[cfg(not(any(unix, windows)))]
-    fn read_now(&mut self, _buf: &mut [u8]) -> std::io::Result<Held> {
-        Ok(Held::InStream)
+/// `ERROR_OPERATION_ABORTED`: how a cancelled overlapped read completes.
+#[cfg(any(windows, test))]
+pub(super) const READ_CANCELLED: i32 = 995;
+#[cfg(windows)]
+const _: () = assert!(windows_sys::Win32::Foundation::ERROR_OPERATION_ABORTED == 995);
+
+/// An overlapped pipe's read in flight, which can be cancelled.
+#[cfg(any(windows, test))]
+pub(super) trait CancelRead {
+    /// Cancel the read in flight. One that already took bytes completes with
+    /// them; one parked on an empty pipe completes with [`READ_CANCELLED`].
+    fn cancel_read(&mut self);
+}
+
+/// An overlapped pipe (Windows), read through the reactor, which keeps one
+/// read in flight on it. That read takes bytes as soon as the pipe holds
+/// them and hands them over a reactor turn later, so an empty pipe does not
+/// prove that nothing is left. Once the server has exited, the read is
+/// cancelled: it completes now, with the bytes it took or cancelled, and
+/// never waits on a writer.
+#[cfg(any(windows, test))]
+pub(super) struct Overlapped<P>(pub(super) P);
+
+#[cfg(any(windows, test))]
+impl<P: AsyncRead + Unpin> AsyncRead for Overlapped<P> {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.get_mut().0).poll_read(cx, buf)
+    }
+}
+
+#[cfg(any(windows, test))]
+impl<P: AsyncRead + CancelRead + Unpin> ReadNow for Overlapped<P> {
+    fn poll_read_now(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let pipe = &mut self.get_mut().0;
+        // Each read after the first is a new one, scheduled when the
+        // previous one was handed over.
+        pipe.cancel_read();
+        match Pin::new(pipe).poll_read(cx, buf) {
+            Poll::Ready(Err(error)) if error.raw_os_error() == Some(READ_CANCELLED) => {
+                Poll::Ready(Ok(()))
+            }
+            read => read,
+        }
+    }
+}
+
+#[cfg(windows)]
+impl CancelRead for tokio::net::windows::named_pipe::NamedPipeServer {
+    fn cancel_read(&mut self) {
+        use std::os::windows::io::AsRawHandle;
+        // SAFETY: the handle is this pipe's and stays open while `self`
+        // lives. A null OVERLAPPED cancels the I/O this process issued on
+        // the handle: the reactor's one read (the pipe is inbound only and
+        // already connected). With nothing in flight the call fails with
+        // ERROR_NOT_FOUND and changes nothing.
+        unsafe {
+            windows_sys::Win32::System::IO::CancelIoEx(self.as_raw_handle(), std::ptr::null());
+        }
     }
 }
 
@@ -166,25 +228,7 @@ impl<R: AsyncRead + ReadNow + Unpin> AsyncRead for UntilExit<R> {
             }
             this.exited = true;
         }
-        loop {
-            match this.pipe.read_now(buf.initialize_unfilled()) {
-                Ok(Held::Read(read)) => {
-                    buf.advance(read);
-                    return Poll::Ready(Ok(()));
-                }
-                Ok(Held::InStream) => return Pin::new(&mut this.pipe).poll_read(cx, buf),
-                // Nothing is left of what the server wrote: a read that
-                // already finished is delivered, and then its stderr ends.
-                Ok(Held::Nothing) => {
-                    return match Pin::new(&mut this.pipe).poll_read(cx, buf) {
-                        Poll::Ready(read) => Poll::Ready(read),
-                        Poll::Pending => Poll::Ready(Ok(())),
-                    };
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(error) => return Poll::Ready(Err(error)),
-            }
-        }
+        Pin::new(&mut this.pipe).poll_read_now(cx, buf)
     }
 }
 

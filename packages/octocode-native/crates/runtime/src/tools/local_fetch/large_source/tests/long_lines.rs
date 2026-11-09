@@ -1,6 +1,7 @@
 //! One line of a source walked in byte pages: every byte reached once, with a
 //! secret's bytes hidden wherever a page or a window edge falls. Every value is fake.
 use super::*;
+use octocode_contract_types::ReadProgressUnit;
 
 const TOKEN: &str = "ghp_aB3dE5gH7jK9mN1pQ3sT5vX7zA9cE1gI3kM5";
 
@@ -108,19 +109,11 @@ fn no_value_leaks_at_a_page_or_window_edge() {
 fn a_later_page_reads_only_around_itself() {
     let text = line_of(past_whole(), &[]);
     let file = temp(&text);
+    // A settled file's pass is kept, so a later page proves nothing again.
+    octocode_engine::stamp::settle_written_so_far();
     let first = fetch(
         &file,
         &query(serde_json::json!({"path":file.path(),"ranges":[{"startLine":1,"endLine":1}]})),
-        None,
-    );
-    let digest = first.source_sha256.clone().expect("digest");
-    // Past the settle window the pass is kept, so a later page proves nothing again.
-    std::thread::sleep(std::time::Duration::from_millis(2_100));
-    let first = fetch(
-        &file,
-        &query(
-            serde_json::json!({"path":file.path(),"ranges":[{"startLine":1,"endLine":1}],"snapshot":digest}),
-        ),
         None,
     );
     let mut next = first
@@ -174,8 +167,8 @@ fn a_secret_longer_than_a_window_never_shows_across_its_pages() {
     text.splice(at..at, header.bytes());
     text.push(b'\n');
     let file = temp(&text);
-    // Past the settle window the pass is kept: later pages read from it.
-    std::thread::sleep(std::time::Duration::from_millis(2_100));
+    // A settled file's pass is kept: later pages read from it.
+    octocode_engine::stamp::settle_written_so_far();
     let mut next =
         query(serde_json::json!({"path":file.path(),"ranges":[{"startLine":1,"endLine":1}]}));
     let (mut shown, mut expected, mut pages) = (String::new(), 0, 0);
@@ -235,4 +228,111 @@ fn growing_placeholders_are_walked_once_to_the_sealed_end() {
     assert!(pages > 2, "{pages} pages");
     assert_eq!(shown.len(), sealed.len(), "the sealed view, once");
     assert!(shown == sealed, "the sealed view, byte for byte");
+}
+
+/// Walk lines `first..=last` of `file` by every emitted continuation to the
+/// end: the pages' text joined, with each byte page's offsets contiguous inside
+/// its line. `between` runs before each later page and may change the file.
+fn walk_lines(
+    file: &tempfile::NamedTempFile,
+    (first, last): (usize, usize),
+    mut between: impl FnMut(usize),
+) -> Result<String, Box<LocalFetchResult>> {
+    let mut next = query(
+        serde_json::json!({"path":file.path(),"ranges":[{"startLine":first,"endLine":last}]}),
+    );
+    let mut shown = String::new();
+    let mut expected: Option<usize> = None;
+    for at in 0.. {
+        if at > 0 {
+            between(at);
+        }
+        let page = fetch(file, &next, None);
+        if page.status != ReadStatus::Success {
+            return Err(Box::new(page));
+        }
+        let content = page.content.clone().expect("a page");
+        match &page.pagination {
+            Some(bytes) if bytes.unit == ReadProgressUnit::Bytes => {
+                if let Some(expected) = expected {
+                    assert_eq!(bytes.offset, expected, "page {at}: no gap and no repeat");
+                }
+                expected = bytes.has_more.then_some(bytes.offset + bytes.length);
+            }
+            _ => expected = None,
+        }
+        shown.push_str(&content);
+        let Some(call) = page.next.and_then(|next| next.continue_window) else {
+            return Ok(shown);
+        };
+        next = call.query;
+    }
+    unreachable!("the walk ends")
+}
+
+/// `size` bytes of text that mixes 1- to 4-byte characters, so every page
+/// edge a walk meets falls near a character's inner byte.
+fn multibyte(size: usize) -> String {
+    let unit = "aé日🦀 ";
+    let mut text = unit.repeat(size / unit.len() + 1);
+    text.truncate(text.floor_char_boundary(size));
+    text
+}
+
+/// B86: a long line of multibyte characters, walked in byte pages to its end,
+/// joins back to the source byte for byte: no page splits a character.
+#[test]
+fn a_multibyte_long_line_walks_to_its_end_byte_exact() {
+    let text = format!("{}\n", multibyte(past_whole()));
+    let file = temp(text.as_bytes());
+    let shown = walk_lines(&file, (1, 1), |_| {}).expect("every page served");
+    assert_eq!(shown.len(), text.len());
+    assert!(shown == text, "the line, byte for byte");
+}
+
+/// B86: CRLF lines, two of them long, walked by line and by byte page to the
+/// read's end: every `\r\n` arrives whole and once.
+#[test]
+fn crlf_long_lines_walk_to_their_end_byte_exact() {
+    let long = |tag: &str| format!("{tag} {}\r\n", multibyte(past_whole() / 2 + 4097));
+    let text = format!(
+        "{}{}short\r\n{}end\r\n",
+        long("one"),
+        long("two"),
+        long("three")
+    );
+    let file = temp(text.as_bytes());
+    let total = text.matches('\n').count();
+    let shown = walk_lines(&file, (1, total), |_| {}).expect("every page served");
+    assert_eq!(shown.matches("\r\n").count(), total);
+    assert_eq!(shown.len(), text.len());
+    assert!(shown == text, "the lines, byte for byte");
+}
+
+/// B86: the source changes between two pages of a walk (rewritten in place
+/// at the same length, or grown). The next page is refused as stale: no page
+/// after the change shows a byte of the new source beside the old.
+#[test]
+fn a_source_changed_mid_walk_is_refused_as_stale_never_mixed() {
+    let before = format!("{}\n", multibyte(past_whole()));
+    let after_same = before.replace('a', "b");
+    let after_grown = format!("{before}{}\n", "c".repeat(64));
+    for after in [after_same, after_grown] {
+        let file = temp(before.as_bytes());
+        let mut changed = false;
+        let walked = walk_lines(&file, (1, 1), |at| {
+            if at == 2 {
+                std::fs::write(file.path(), after.as_bytes()).expect("rewrite");
+                changed = true;
+            }
+        });
+        assert!(changed, "the walk reached its third page");
+        let refused = walked.expect_err("a stale page is refused");
+        assert_eq!(
+            refused.error_code,
+            Some(octocode_contract_types::ErrorCode::StaleSnapshot),
+            "{refused:?}"
+        );
+        assert!(refused.content.is_none(), "{refused:?}");
+    }
 }

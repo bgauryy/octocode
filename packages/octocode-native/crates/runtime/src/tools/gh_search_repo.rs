@@ -24,7 +24,7 @@ use octocode_github::{
 use serde_json::json;
 
 use language::ignored_language;
-use leads::{include_archived, repository_output, top_leads};
+use leads::{include_archived, repository_output};
 use owner_listing::{OwnerListing, owner_listing};
 use page::RepoPage;
 use rows::{repository_row, wanted_topics};
@@ -95,7 +95,7 @@ pub(crate) async fn execute(
     }
     let (data, listing) = fetched?;
     let page = RepoPage::of(&data, listing.as_ref(), current, per);
-    let mut leads = top_leads(data.items.first());
+    let mut leads: Vec<(&'static str, serde_json::Value)> = Vec::new();
     // With archive exclusion, a listing that left out archived repositories
     // offers a fresh search whose typed archive filter includes them.
     if access::archive(query) == GitHubArchive::Exclude && page.archive_filtered > 0 {
@@ -105,10 +105,12 @@ pub(crate) async fn execute(
         );
     }
     let wanted = wanted_topics(query);
+    let fields = access::fields(query);
+    let with_topics = fields.iter().any(|field| field == "topics");
     let repositories = data
         .items
         .into_iter()
-        .map(|item| repository_row(item, &wanted))
+        .map(|item| repository_row(item, &wanted, with_topics))
         .collect::<Vec<_>>();
     let ignored_language = match &listing {
         None => ignored_language(provider, query, &repositories, page.matched, context).await,
@@ -211,7 +213,7 @@ async fn exact_repository(
             !to_owner.eq_ignore_ascii_case(owner) || !to_repo.eq_ignore_ascii_case(repo)
         })
         .map(|(to_owner, to_repo)| (to_owner.to_owned(), to_repo.to_owned()));
-    let row = repository_row(item, &[]);
+    let row = repository_row(item, &[], true);
     let fields = access::fields(query);
     let mut value = json!({ "repositories": [row] });
     pick_rows(&mut value, "repositories", REPO_ID, &fields);

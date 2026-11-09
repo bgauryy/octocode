@@ -19,6 +19,7 @@ fn a_deadline_cut_rescan_is_a_retryable_timeout() {
         diagnostics,
         status: status.to_owned(),
         recovered: false,
+        recovered_bodies: Vec::new(),
         source: None,
     };
     let cut = Scan {

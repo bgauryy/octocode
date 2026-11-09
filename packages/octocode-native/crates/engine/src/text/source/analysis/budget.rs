@@ -37,11 +37,23 @@ pub struct MapUsage {
     pub work: usize,
     pub peak_temporary_bytes: usize,
 }
+/// Memory shared beyond one budget: every byte a [`MapBudget`] allocates
+/// is also drawn here, so the files of one scan in flight together never
+/// hold more than their caller's whole budget.
+pub trait Draw: Sync {
+    /// Takes `bytes`, or refuses with [`SourceError::LimitExceeded`]
+    /// (`"bytes"`).
+    fn draw(&self, bytes: usize) -> Result<(), SourceError>;
+    /// Returns `bytes` an earlier draw took and no longer holds.
+    fn release(&self, bytes: usize);
+}
+
 pub struct MapBudget<'a> {
     pub limits: MapLimits,
     pub usage: MapUsage,
     deadline: Instant,
     cancelled: &'a (dyn Fn() -> bool + Sync),
+    shared: Option<&'a dyn Draw>,
 }
 impl<'a> MapBudget<'a> {
     pub fn new(
@@ -54,7 +66,20 @@ impl<'a> MapBudget<'a> {
             usage: MapUsage::default(),
             deadline,
             cancelled,
+            shared: None,
         }
+    }
+    /// This budget, also drawing every allocation from `shared`.
+    #[must_use]
+    pub fn drawing(mut self, shared: Option<&'a dyn Draw>) -> Self {
+        self.shared = shared;
+        self
+    }
+    /// A budget with these limits, deadline, cancellation and shared draw,
+    /// none of this one's usage.
+    #[must_use]
+    pub fn fresh(&self) -> Self {
+        Self::new(self.limits, self.deadline, self.cancelled).drawing(self.shared)
     }
     pub fn check(&mut self) -> Result<(), SourceError> {
         if (self.cancelled)() {
@@ -75,8 +100,12 @@ impl<'a> MapBudget<'a> {
             work: self.limits.work.saturating_sub(self.usage.work),
             ..self.limits
         };
-        let mut temporary = Self::new(limits, self.deadline, self.cancelled);
+        let mut temporary = Self::new(limits, self.deadline, self.cancelled).drawing(self.shared);
         let result = price(&mut temporary);
+        // What the temporary held is freed with it.
+        if let Some(shared) = self.shared {
+            shared.release(temporary.usage.bytes);
+        }
         self.usage.work = self.usage.work.saturating_add(temporary.usage.work);
         self.usage.peak_temporary_bytes = self
             .usage
@@ -157,7 +186,14 @@ impl<'a> MapBudget<'a> {
             "segments" => Some((limits.segments, usage.segments)),
             "branches" => Some((limits.branches, usage.branches)),
             "contributors" => Some((limits.contributors, usage.contributors)),
-            "depth" => Some((limits.depth, limits.depth)),
+            "depth" => return format!("passes its depth limit of {}", limits.depth),
+            "alternatives" => Some((limits.branches, usage.branches)),
+            "allocation" | "boundaries" => {
+                return format!(
+                    "needs an allocation this platform cannot size or make ({name}; {} bytes charged when it stopped)",
+                    usage.bytes
+                );
+            }
             _ => None,
         };
         match used {
@@ -168,7 +204,14 @@ impl<'a> MapBudget<'a> {
         }
     }
     pub fn allocate(&mut self, bytes: usize) -> Result<(), SourceError> {
-        Self::charge(&mut self.usage.bytes, bytes, self.limits.bytes, "bytes")
+        Self::charge(&mut self.usage.bytes, bytes, self.limits.bytes, "bytes")?;
+        match self.shared {
+            Some(shared) => shared.draw(bytes).inspect_err(|_| {
+                // Not taken: this budget does not hold it either.
+                self.usage.bytes -= bytes;
+            }),
+            None => Ok(()),
+        }
     }
     pub(super) fn segment(&mut self) -> Result<(), SourceError> {
         self.check()?;

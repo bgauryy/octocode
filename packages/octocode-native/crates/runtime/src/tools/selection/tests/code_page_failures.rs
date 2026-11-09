@@ -42,9 +42,12 @@ fn empty_selection_preserves_provider_page_and_unfiltered_recovery() {
     assert_eq!(data["files"], json!([]));
     assert_eq!(data["selection"]["excludedItems"], 1);
     assert_eq!(data["selection"]["unknownItems"], 0);
-    // The filtered-evidence notice is the response stage's, said once
-    // on a first page (`selection_errors::decorate`), never per page.
-    assert!(data.get("warnings").is_none(), "{data}");
+    // The page says what it kept, once, and that empty is no absence.
+    assert_eq!(
+        data["warnings"],
+        json!(["classification kept 0 of 1 hit that pass the classifiers. An empty classified result is not absence: next.unfiltered lists them all."]),
+        "{data}"
+    );
     let provider_next = &data["next"]["nextPage"]["input"]["queries"][0];
     assert_eq!(provider_next["page"], 4);
     assert!(provider_next.get("selection").is_none());

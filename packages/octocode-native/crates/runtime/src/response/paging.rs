@@ -164,6 +164,21 @@ pub(crate) fn terminal_limit(row: &mut impl RowFields, reason: PartialReason, wa
 /// The key a static notice rides until the response stage places it.
 pub(crate) const NOTICES: &str = "notices";
 
+/// The key naming the partial reasons whose meaning the row's own warning,
+/// note or hint already states: the response stage sends no glossary line
+/// for them (`response::notices::explain_codes`), and no such key reaches
+/// a caller.
+pub(crate) const STATED_REASONS: &str = "statedReasons";
+
+/// Record that `row`'s own text states what `reason` means, with its
+/// repair, so the glossary line for it would only restate that text.
+pub(crate) fn mark_stated(row: &mut impl RowFields, reason: PartialReason) {
+    let Some(object) = row.fields() else {
+        return;
+    };
+    append_once(object, STATED_REASONS, [reason.to_string().as_str()]);
+}
+
 /// Writes a static notice: a note that reads the same on every page and
 /// every row of a result (a scope or parse caveat, a classification
 /// reminder). The response stage says it once, on the first row that
@@ -176,6 +191,25 @@ pub(crate) fn push_notice(row: &mut impl RowFields, notice: impl Into<String>) {
     };
     let notice = notice.into();
     append_once(object, NOTICES, [notice.as_str()]);
+}
+
+/// The key a measured wait rides until the response stage states it.
+pub(crate) const TIMED_NOTICES: &str = "timedNotices";
+
+/// Record a measured wait on `row`: `text` holds one `{}` where the stage
+/// writes the seconds, and a call that records the same `text` on several rows
+/// states it once, in the envelope's `warnings`, with the longest wait
+/// (`response::notices::state_timed_notices`).
+pub(crate) fn push_timed_notice(row: &mut impl RowFields, text: &str, seconds: f64) {
+    let Some(object) = row.fields() else {
+        return;
+    };
+    let entry = object
+        .entry(TIMED_NOTICES)
+        .or_insert_with(|| serde_json::json!([]));
+    if let Value::Array(list) = entry {
+        list.push(serde_json::json!({"text": text, "seconds": seconds}));
+    }
 }
 
 /// Whether `query` continues an earlier page of its result: a page-number

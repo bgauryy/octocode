@@ -5,7 +5,7 @@
 use crate::config::{ConfigInput, FileInput, RuntimeSurface};
 use crate::execution::RuntimeLimits;
 use crate::runtime::{Channel, ToolRuntime};
-use crate::tools::gh_clone_repo::storage::clones_root;
+use crate::tools::gh_clone_repo::storage::{clones_root, store_root};
 use crate::tools::gh_structure::materialize::materialize_root;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -204,6 +204,49 @@ async fn a_workspace_root_in_a_clone_starts_no_server() {
         "operation":"workspaceSymbol","symbolQuery":"target"
     });
     assert_refused(&call(&runtime, mixed).await, &world);
+}
+
+/// A clone is a linked git worktree of a shared store (its `.git` a file,
+/// the store another directory of the home): it is fetched code all the same,
+/// for a file in it and for its root.
+#[tokio::test]
+async fn a_worktree_clone_starts_no_server() {
+    let world = World::new();
+    let store = store_root(&world.home).join("o/r.git");
+    project(&store);
+    git(&store, &["init", "--initial-branch=main", "."]);
+    git(&store, &["add", "."]);
+    git(&store, &["commit", "-m", "one"]);
+    let clone = clones_root(&world.home).join("o/r/abc__host_x");
+    git(
+        &store,
+        &["worktree", "add", "--detach", clone.to_str().expect("utf8")],
+    );
+    assert!(clone.join(".git").is_file(), "a worktree's .git is a file");
+    let runtime = world.runtime(&[], &json!({}), None);
+    let file = call(&runtime, symbols(&clone.join("src/lib.rs"))).await;
+    assert_refused(&file, &world);
+    let root = json!({"workspaceRoot":clone,"operation":"workspaceSymbol","symbolQuery":"target"});
+    assert_refused(&call(&runtime, root).await, &world);
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .current_dir(dir)
+        .args(args)
+        .env("GIT_AUTHOR_NAME", "Octocode Test")
+        .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+        .env("GIT_COMMITTER_NAME", "Octocode Test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        .expect("run git");
+    assert!(
+        output.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 /// A symlink in the checkout names the clone by another path: the resolved one

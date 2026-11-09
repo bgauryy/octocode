@@ -8,22 +8,70 @@ use super::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Flag a non-error row partial when the open wait that preceded it timed
-/// out: the server was still loading the project.
+/// out: the server was still loading the project. The note reads the same on
+/// every row so flagged: a notice, said once per response, while each such
+/// row keeps its own reason and rerun.
 pub(super) fn flag_still_loading(
     result: &mut Value,
     query: &LspSearchQuery,
     readiness: Option<Readiness>,
 ) {
     if readiness == Some(Readiness::Timeout) && result.get("status") != Some(&"error".into()) {
-        partial_with_related_rerun(
-            result,
-            query,
-            crate::response::paging::PartialReason::LanguageServerIndexing,
-            &[format!(
-                "The language server was still loading the project after {} ms; results may be incomplete.",
-                octocode_engine::lsp::client::OPEN_READY_TIMEOUT_MS
-            )],
+        let reason = crate::response::paging::PartialReason::LanguageServerIndexing;
+        partial_with_related_rerun(result, query, reason, &[]);
+        crate::response::paging::push_notice(result, still_loading_notice());
+        // The note and the rerun state the reason's meaning.
+        crate::response::paging::mark_stated(result, reason);
+    }
+}
+
+/// What a row answered while the project was still loading says.
+fn still_loading_notice() -> String {
+    format!(
+        "The language server was still loading the project after {} ms; results may be incomplete.",
+        octocode_engine::lsp::client::OPEN_READY_TIMEOUT_MS
+    )
+}
+
+#[cfg(test)]
+mod still_loading_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Two rows answered while the project loaded and one after: the note is
+    /// said once (R2), both flagged rows keep their reason and rerun, and no
+    /// glossary line restates it (R1).
+    #[test]
+    fn the_still_loading_note_is_said_once_without_its_glossary_line() {
+        let query: LspSearchQuery = serde_json::from_value(json!({
+            "operation": "references", "path": "/w/a.rs", "symbolName": "f", "line": 1
+        }))
+        .expect("query");
+        let rows = [Some(Readiness::Timeout), Some(Readiness::Timeout), None]
+            .into_iter()
+            .map(|readiness| {
+                let mut row =
+                    json!({"files": [{"path": "/w/a.rs", "matches": []}], "matchCount": 0});
+                flag_still_loading(&mut row, &query, readiness);
+                row
+            })
+            .collect::<Vec<_>>();
+        let response =
+            crate::tools::test_support::staged_response(crate::id::ToolId::LspSearch, rows);
+        let text = response.to_string();
+        assert_eq!(
+            text.matches("still loading the project").count(),
+            1,
+            "{response}"
         );
+        assert!(!text.contains("languageServerIndexing: "), "{response}");
+        for index in 0..2 {
+            assert_eq!(
+                response["results"][index]["data"]["partialReasons"],
+                json!(["languageServerIndexing"]),
+                "{response}"
+            );
+        }
     }
 }
 
@@ -202,7 +250,13 @@ pub(super) fn annotate(
             )],
         );
     }
-    crate::response::paging::push_warnings(
+    if let Some((resident, budget)) = session.pool_over_budget {
+        crate::response::paging::push_warnings(
+            result,
+            [super::session::disclose_pool_overflow(resident, budget)],
+        );
+    }
+    super::session::record_waits(
         result,
         disclose_waits(&session.config, session.client.waits_since(session.began)),
     );

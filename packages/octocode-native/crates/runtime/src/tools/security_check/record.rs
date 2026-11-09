@@ -16,6 +16,10 @@ pub(super) struct SecurityAdvisory {
     pub link: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// GitHub's class of the record (`reviewed`, `unreviewed`, `malware`);
+    /// absent: not GitHub's database, or it states none of these.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub github_type: Option<String>,
     /// The GitHub account that published a repository advisory.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub publisher: Option<String>,
@@ -94,6 +98,9 @@ impl SecurityAdvisory {
         if let Some(epss) = &self.epss {
             row["epss"] = epss.clone();
         }
+        if let Some(kind) = &self.github_type {
+            row["githubType"] = json!(kind);
+        }
         if let Some(source) = &self.source {
             row["source"] = json!(source);
         }
@@ -139,15 +146,76 @@ pub(super) fn advisory_groups<'a>(rows: &[&'a SecurityAdvisory]) -> Vec<Vec<&'a 
     .collect()
 }
 
+/// How one advisory's records stand on withdrawal. The one rule, for package,
+/// commit and repository rows alike: the records of one id are one record
+/// (OSV's and GitHub's twin of it), withdrawn when either states a withdrawal;
+/// the advisory is withdrawn only when every record in it is. A live record
+/// always keeps the advisory live, and a withdrawn duplicate that shares its
+/// CVE is stated apart, never counted and never hiding it.
+pub(super) struct Standing<'a> {
+    /// The records of ids no record withdraws, in the group's order.
+    pub live: Vec<&'a SecurityAdvisory>,
+    /// Each withdrawn id once, with when.
+    pub withdrawn: Vec<(&'a str, &'a str)>,
+}
+
+impl<'a> Standing<'a> {
+    pub(super) fn of(group: &[&'a SecurityAdvisory]) -> Self {
+        let mut standing = Self {
+            live: Vec::new(),
+            withdrawn: Vec::new(),
+        };
+        for record in group {
+            let when = group
+                .iter()
+                .filter(|twin| twin.id == record.id)
+                .find_map(|twin| twin.withdrawn.as_deref());
+            match when {
+                None => standing.live.push(record),
+                Some(at) if !standing.withdrawn.iter().any(|(id, _)| *id == record.id) => {
+                    standing.withdrawn.push((record.id.as_str(), at));
+                }
+                Some(_) => {}
+            }
+        }
+        standing
+    }
+
+    /// No record of the advisory is live: it is not counted.
+    pub(super) fn is_withdrawn(&self) -> bool {
+        self.live.is_empty()
+    }
+}
+
+/// The id a group's brief row leads with: its first live record's.
+pub(super) fn lead_id<'a>(group: &[&'a SecurityAdvisory]) -> Option<&'a str> {
+    let standing = Standing::of(group);
+    let stated = if standing.is_withdrawn() {
+        group.to_vec()
+    } else {
+        standing.live
+    };
+    stated.first().map(|record| record.id.as_str())
+}
+
 /// One brief row for one advisory's records: the first's brief, with every
 /// other record's id in `aliases` (each one `advisory` call away) and every
 /// CVE and fixed version of the group.
 pub(super) fn group_brief(group: &[&SecurityAdvisory]) -> Value {
-    let Some((first, twins)) = group.split_first() else {
+    // The row states the advisory's live records: a withdrawn duplicate leads
+    // nothing and claims no CVE or fix. With none live, every record is
+    // withdrawn and all of them speak.
+    let standing = Standing::of(group);
+    let stated = if standing.is_withdrawn() {
+        group.to_vec()
+    } else {
+        standing.live
+    };
+    let Some((first, twins)) = stated.split_first() else {
         return Value::Null;
     };
     let mut row = first.brief();
-    if twins.is_empty() {
+    if group.len() == 1 {
         return row;
     }
     let mut add = |key: &str, values: Vec<&str>| {
@@ -163,26 +231,26 @@ pub(super) fn group_brief(group: &[&SecurityAdvisory]) -> Value {
     };
     add(
         "aliases",
-        twins
+        group
             .iter()
-            .map(|twin| twin.id.as_str())
+            .map(|record| record.id.as_str())
             .filter(|id| *id != first.id)
             .collect(),
     );
     add(
         "cves",
-        group.iter().flat_map(|record| record.cves()).collect(),
+        stated.iter().flat_map(|record| record.cves()).collect(),
     );
     add(
         "disputedBy",
-        group
+        stated
             .iter()
             .flat_map(|record| record.disputed_by.iter().map(String::as_str))
             .collect(),
     );
     add(
         "fixedIn",
-        group
+        stated
             .iter()
             .flat_map(|record| record.fixed_in.iter().map(String::as_str))
             .collect(),
@@ -203,6 +271,12 @@ pub(super) fn group_brief(group: &[&SecurityAdvisory]) -> Value {
         && let Some(epss) = twins.iter().find_map(|twin| twin.epss.as_ref())
     {
         row["epss"] = epss.clone();
+    }
+    // GitHub's class of the advisory comes with its record, as EPSS does.
+    if row.get("githubType").is_none()
+        && let Some(kind) = twins.iter().find_map(|twin| twin.github_type.as_deref())
+    {
+        row["githubType"] = json!(kind);
     }
     // `link` stays last, as a brief row states it.
     if let Some(link) = row.as_object_mut().and_then(|fields| fields.remove("link")) {
@@ -370,6 +444,7 @@ pub(super) fn advisory(
             .filter_map(cvss)
             .collect(),
         epss: None,
+        github_type: None,
         publisher: None,
         credits: Vec::new(),
         cwes: texts(database.and_then(|value| value.get("cwe_ids"))),

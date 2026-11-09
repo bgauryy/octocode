@@ -94,6 +94,12 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
     );
     assert_eq!(data["tags"], json!([]), "{data}");
     assert!(data.get("next").is_none(), "{data}");
+    // The fresh first response leaves out the echoes of its query; the
+    // page read through a cursor keeps them, because its request names none.
+    for echo in ["owner", "repo"] {
+        assert!(row_data(&first).get(echo).is_none(), "{echo} echoed");
+        assert!(row_data(&second).get(echo).is_some(), "{echo} dropped");
+    }
     runtime.close().await;
 }
 
@@ -193,7 +199,7 @@ async fn refs_with_ref_resolves_one_ref() {
 }
 
 /// Recovery guidance is per-row evidence: in a batch whose rows all fail with
-/// the same `notFound`, every row carries the recovery hint, not only the first.
+/// the same `notFound`, every row carries its own recovery, not only the first.
 #[tokio::test]
 async fn every_not_found_row_of_a_batch_carries_its_own_recovery_hint() {
     let server = MockServer::builder().start().await;
@@ -222,13 +228,20 @@ async fn every_not_found_row_of_a_batch_carries_its_own_recovery_hint() {
         .as_array()
         .expect("rows");
     assert_eq!(rows.len(), 2);
-    for row in rows {
+    for (at, row) in rows.iter().enumerate() {
         assert_eq!(row["data"]["errorCode"], "notFound", "{row}");
-        let hints = row["data"]["hints"].as_array().expect("row hints");
+        // The row's message names its own ref and where it looked; its
+        // related[] leads (the refs listing) are the recovery. No hint
+        // restates them (C3eK B-D5: `NO_HINT` for ghStructure).
+        let name = format!("nope-{}", at + 1);
+        let error = row["data"]["error"].as_str().expect("row error");
+        assert!(error.contains(&name), "{row}");
+        assert!(row["data"].get("hints").is_none(), "{row}");
+        let related = row["data"]["related"].as_array().expect("row related");
         assert!(
-            hints
+            related
                 .iter()
-                .any(|hint| hint.as_str().is_some_and(|h| h.starts_with("Not found:"))),
+                .any(|lead| lead["input"]["queries"][0]["operation"] == "refs"),
             "{row}"
         );
     }

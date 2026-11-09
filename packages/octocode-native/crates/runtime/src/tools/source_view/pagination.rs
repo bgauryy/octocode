@@ -21,14 +21,24 @@ pub struct Page {
 /// every reader that pages like localFetch.
 pub(crate) const LINE_PAGE_BYTES: usize = 16_384;
 
-/// How many bytes a line page holds.
+/// How much a line page holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct LineBudget {
-    /// Bytes of the lines one page holds at most: the row's initial share
-    /// before the response pager enforces the final response budget.
+    /// Response characters the page's lines take at most as they render: each
+    /// line's JSON text (escapes, UTF-16) and its gutter.
     pub(super) fill: usize,
     /// A line longer than this is read in byte pages of about this size.
     pub(super) line: usize,
+    /// Characters each line's gutter (`<line>\t`) adds when it renders; 0 for
+    /// a view that is not numbered.
+    pub(super) gutter: usize,
+}
+
+impl LineBudget {
+    /// The characters one line of a page takes as it renders.
+    pub(super) fn rendered(self, line: &str) -> usize {
+        octocode_engine::json_size::string_body_units(line) + self.gutter
+    }
 }
 
 #[cfg(test)]
@@ -38,6 +48,7 @@ impl LineBudget {
         Self {
             fill: bytes,
             line: bytes,
+            gutter: 0,
         }
     }
 }
@@ -220,18 +231,30 @@ fn view_page_limited(content: &str, q: &LocalFetchQuery, budget: LineBudget, lim
             let offset = offset.min(total);
             let requested_limit = limit;
             // Only the page's own lines are cut: the longest run from the
-            // offset within the requested count and the byte budget, before
+            // offset within the requested count and the rendered fill, before
             // any line too long for a line page (it is read in byte pages).
+            // The first line within the byte budget is taken even when it
+            // renders over the fill: a line page of it alone, which the
+            // response pager splits without loss, so short lines after it
+            // keep paging by lines.
             let byte_offset = advance_lines(content, 0, offset).unwrap_or(content.len());
-            let mut bytes = 0;
-            let page = content[byte_offset..]
-                .split_inclusive('\n')
-                .take(requested_limit)
-                .take_while(|line| {
-                    bytes += line.len();
-                    bytes <= budget.fill && line.len() <= budget.line
-                })
-                .count();
+            let mut rendered = 0;
+            // Window separators are no rows: `limit` counts the lines
+            // between them, and the next page never starts on one.
+            let mut rows = 0;
+            let mut page = 0;
+            for (at, line) in content[byte_offset..].split_inclusive('\n').enumerate() {
+                let separator = crate::response::numbered::is_separator(line);
+                if !separator && rows == requested_limit {
+                    break;
+                }
+                rendered += budget.rendered(line);
+                if (at != 0 && rendered > budget.fill) || line.len() > budget.line {
+                    break;
+                }
+                rows += usize::from(!separator);
+                page = at + 1;
+            }
             let end = offset + page;
             if end == offset && offset < total {
                 let mut byte_query = q.clone();

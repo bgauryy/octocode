@@ -162,7 +162,10 @@ pub(super) fn disclose_incomplete(output: &mut ToolData, data: &SearchPage) {
 /// shown whole or, `continues`, as a part that continues the page: built
 /// from the facts the page states before any file is read (its
 /// `pagination`, continuation, read count, completeness and coverage), so
-/// the room left for its rows is the window less what this page adds.
+/// the room left for its rows is the window less what this page adds. A
+/// part's continuation is the response's: the channel moves it to
+/// `responsePagination` ([`crate::response::continuations::hoist`]), so it
+/// is measured there, not as the row's `next.nextPage`.
 pub(super) fn skeleton(
     query: &GhSearchCodeQuery,
     data: &SearchPage,
@@ -175,12 +178,22 @@ pub(super) fn skeleton(
     if let Some(pagination) = pagination(query, data, current, past_end) {
         value["pagination"] = pagination;
     }
-    if more {
-        value["next"]["nextPage"] = Continuation::cursor(
-            ToolId::GhSearchCode.as_str(),
-            crate::response::cursor::issued::placeholder(),
-        );
-    }
+    let walk = Continuation::cursor(
+        ToolId::GhSearchCode.as_str(),
+        crate::response::cursor::issued::placeholder(),
+    );
+    // `,"responsePagination":` around the hoisted block.
+    let hoisted = if continues {
+        octocode_engine::json_size::utf16_units(&json!({"hasMore": true, "next": walk}))
+            .unwrap_or(0)
+            + "responsePagination".len()
+            + 4
+    } else {
+        if more {
+            value["next"]["nextPage"] = walk;
+        }
+        0
+    };
     disclose_completeness(&mut value, query, data, (current, more), false);
     let mut output = ToolData::from(value);
     disclose_incomplete(&mut output, data);
@@ -193,7 +206,7 @@ pub(super) fn skeleton(
             diagnostics: output.diagnostics,
         },
     );
-    octocode_engine::json_size::utf16_units(&row).unwrap_or(0)
+    octocode_engine::json_size::utf16_units(&row).unwrap_or(0) + hoisted
 }
 
 /// The page's warnings about what its lines show: redacted values, rows the

@@ -31,6 +31,13 @@ fn policy(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
+/// Where `path`'s value for `key` (a digest, or a scan key holding one) is
+/// kept. A digest names bytes, not a file: two files with the same bytes
+/// are read apart, so each keeps its own value and neither evicts the other.
+fn slot(key: &str, path: &Path) -> String {
+    serde_json::json!([key, policy(path)]).to_string()
+}
+
 /// The pass `q`'s snapshot names, while the opened file's stamp still stands
 /// in for its bytes.
 pub(super) fn current(
@@ -38,12 +45,12 @@ pub(super) fn current(
     path: &Path,
     meta: &std::fs::Metadata,
 ) -> Option<Arc<Kept>> {
-    let snapshot = local_fetch_query::snapshot(q)?;
-    let kept = STORE.get(snapshot, &policy(path), Arc::clone)?;
+    let slot = slot(local_fetch_query::snapshot(q)?, path);
+    let kept = STORE.get(&slot, &policy(path), Arc::clone)?;
     if cache_stamp(meta) == Some(kept.stamp) {
         return Some(kept);
     }
-    STORE.evict(snapshot);
+    STORE.evict(&slot);
     None
 }
 
@@ -58,9 +65,8 @@ pub(super) fn keep(source: &Opened<'_>, proven: Proven, total_lines: usize) -> b
         return false;
     };
     let bytes = proven.weight() + std::mem::size_of::<Kept>();
-    let snapshot = proven.digest.clone();
     STORE.put(
-        snapshot,
+        slot(&proven.digest, source.path),
         policy(source.path),
         bytes,
         Arc::new(Kept {
@@ -90,7 +96,7 @@ fn scan_key<S: ContentScan>(q: &LocalFetchQuery, digest: &str) -> Option<String>
 /// The hits of `q`'s scan of the bytes its snapshot names.
 pub(super) fn hits<S: ContentScan>(q: &LocalFetchQuery, path: &Path) -> Option<Arc<KeptHits>> {
     let key = scan_key::<S>(q, local_fetch_query::snapshot(q)?)?;
-    HITS.get(&key, &policy(path), Arc::clone)
+    HITS.get(&slot(&key, path), &policy(path), Arc::clone)
 }
 
 /// Keep the hits of `q`'s scan of the bytes `digest` names.
@@ -102,6 +108,6 @@ pub(super) fn keep_hits<S: ContentScan>(
 ) {
     if let Some(key) = scan_key::<S>(q, digest) {
         let bytes = hits.weight();
-        HITS.put(key, policy(path), bytes, Arc::new(hits));
+        HITS.put(slot(&key, path), policy(path), bytes, Arc::new(hits));
     }
 }

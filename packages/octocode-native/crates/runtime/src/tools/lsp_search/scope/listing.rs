@@ -46,21 +46,29 @@ struct Seen {
     untracked: bool,
 }
 
-/// The walk's path filter: the discovery walk's verdicts, recording what it
-/// admits, so the walk that answers a request can serve the next.
+/// The walk's path filter: the discovery walk's verdicts and the default
+/// directory prune of every local walk, recording what it admits, so the
+/// walk that answers a request can serve the next.
 pub(super) struct Recorder {
     walk: DiscoveryWalk<'static>,
+    /// The rooted default prune, with the directories `include` names
+    /// lifted ([`crate::policy::prune::rooted`]): the callback's form of
+    /// the one prune every local walk applies. It depends only on directory
+    /// names and the ignore rules the kept listing's proof already watches.
+    prune: Option<octocode_engine::search::walk::RootedPrune>,
     policy: PathPolicy,
     root: PathBuf,
     seen: Mutex<Seen>,
 }
 
 impl Recorder {
-    pub(super) fn new(policy: &PathPolicy, root: &str) -> Self {
+    pub(super) fn new(policy: &PathPolicy, root: &str, include: &[String]) -> Self {
+        let root = PathBuf::from(root);
         let recorder = Self {
             walk: DiscoveryWalk::owned(policy.clone()),
+            prune: crate::policy::prune::rooted(&root, true, include),
             policy: policy.clone(),
-            root: PathBuf::from(root),
+            root,
             seen: Mutex::default(),
         };
         recorder.record_dir(&recorder.root);
@@ -121,13 +129,27 @@ impl Recorder {
     }
 }
 
+impl Recorder {
+    /// Whether the default prune leaves out `path`: a directory below the
+    /// root (the root itself is walked).
+    fn prunes(&self, path: &Path, is_dir: bool) -> bool {
+        is_dir
+            && path != self.root
+            && self
+                .prune
+                .as_ref()
+                .is_some_and(|prune| prune.prunes(path, true))
+    }
+}
+
 impl TextSearchPathFilter for Recorder {
     fn allows(&self, path: &Path, is_dir: bool) -> bool {
-        self.walk.allows(path, is_dir)
+        !self.prunes(path, is_dir) && self.walk.allows(path, is_dir)
     }
 
     fn allows_entry(&self, path: &Path, file_type: Option<std::fs::FileType>) -> bool {
-        let allowed = self.walk.allows_entry(path, file_type);
+        let allowed = !self.prunes(path, file_type.is_some_and(|kind| kind.is_dir()))
+            && self.walk.allows_entry(path, file_type);
         if allowed {
             if file_type.is_some_and(|kind| kind.is_dir()) {
                 if path != self.root {

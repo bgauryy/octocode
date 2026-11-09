@@ -199,6 +199,7 @@ fn a_single_named_declaration_leads_to_its_callers() {
         "helper",
         3,
         crate::tools::leads::lsp::Verify::Callers,
+        None,
     )
     .is_none()
     {
@@ -279,10 +280,10 @@ fn directory_symbols_by_name_parse_only_files_that_spell_the_name() {
     );
 }
 
-/// A single-file outline leads to its natural next read: the top
-/// declaration's lines; a directory outline names no single read.
+/// An outline's rows carry `line`/`endLine`, so no read lead repeats them:
+/// neither a file outline nor a directory listing offers one.
 #[test]
-fn a_single_file_outline_leads_to_its_top_declaration() {
+fn an_outline_offers_no_read_of_lines_its_rows_already_give() {
     let root = Fixture::new();
     let file = root.0.join("lib.rs");
     std::fs::write(
@@ -298,13 +299,9 @@ fn a_single_file_outline_leads_to_its_top_declaration() {
         &NeverCancel,
     )
     .expect("symbols");
-    let read = crate::tools::test_support::checks::related_call(&outline, "localFetch", |_| true);
-    assert_eq!(read["tool"], "localFetch", "{outline}");
-    assert_eq!(
-        read["input"]["queries"][0]["ranges"],
-        json!([{"startLine":1,"endLine":3}]),
-        "{outline}"
-    );
+    assert!(outline.get("related").is_none(), "{outline}");
+    assert_eq!(outline["symbols"][0]["line"], 1, "{outline}");
+    assert_eq!(outline["symbols"][0]["endLine"], 3, "{outline}");
     let listing = execute_row(
         json!({"operation":"symbols","path":root.0}),
         &paths,

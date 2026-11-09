@@ -32,7 +32,7 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
                 .transport
                 .tag_commit(owner, repo, tag, &request)
                 .await
-                .map_err(|error| CheckFailure::Provider(error.kind))
+                .map_err(|error| CheckFailure::provider(&error))
         })
     }
 
@@ -61,7 +61,7 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
                         })
                         .collect()
                 })
-                .map_err(|error| CheckFailure::Provider(error.kind))
+                .map_err(|error| CheckFailure::provider(&error))
         })
     }
 
@@ -109,7 +109,7 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
                 Err(error) if error.reason == Some(ProviderErrorReason::RepositoryNotFound) => {
                     Ok(CommitCheck::RepositoryMissing)
                 }
-                Err(error) => Err(CheckFailure::Provider(error.kind)),
+                Err(error) => Err(CheckFailure::provider(&error)),
             }
         })
     }
@@ -141,7 +141,7 @@ impl crate::providers::artifact::ReleaseTags for ReleaseTagCheck<'_> {
                     &request,
                 )
                 .await
-                .map_err(|error| CheckFailure::Provider(error.kind))?;
+                .map_err(|error| CheckFailure::provider(&error))?;
             Ok(TreeFiles {
                 paths: tree
                     .tree

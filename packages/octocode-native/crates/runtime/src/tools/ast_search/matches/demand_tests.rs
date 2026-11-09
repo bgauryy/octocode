@@ -113,6 +113,7 @@ fn a_priced_scan_pages_exactly_as_a_held_scan() {
                     diagnostics: file.diagnostics.clone(),
                     status: file.status.clone(),
                     recovered: file.recovered,
+                    recovered_bodies: file.recovered_bodies.clone(),
                     source: None,
                 }
             })

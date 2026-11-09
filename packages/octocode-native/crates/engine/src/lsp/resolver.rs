@@ -93,6 +93,37 @@ pub fn code_occurrence_lines(
     code_occurrences(file_path, content, symbol_name).map(|occurrences| occurrences.lines)
 }
 
+/// Zero-based first and last lines of the scope of the local binding (a
+/// parameter no call site names by keyword, or a variable bound inside a
+/// callable) that `symbol_name` at
+/// zero-based `line` and UTF-16 `character` of `content` names: no text
+/// outside those lines, and none in another file, can name it. The path
+/// selects the grammar (the file is not read). `None` when the name there
+/// is no local binding, or the grammar cannot tell (no grammar, a parse with
+/// errors, a closure or macro around it, the analysis budget).
+#[must_use]
+pub fn local_binding_lines(
+    file_path: &str,
+    content: &str,
+    symbol_name: &str,
+    line: u32,
+    character: u32,
+) -> Option<(usize, usize)> {
+    if exceeds_source_cap(content.len()) || symbol_name.is_empty() {
+        return None;
+    }
+    let at = LineIndex::new(content).position_to_byte(content, line, character) as usize;
+    let scope = crate::signatures::local_binding_scope(
+        content,
+        file_path,
+        symbol_name,
+        at,
+        whole_file_deadline(),
+    )?;
+    let line_of = |offset| crate::text::utf8_offsets::line_containing(content, offset) - 1;
+    Some((line_of(scope.start), line_of(scope.end.saturating_sub(1))))
+}
+
 /// [`code_occurrence_lines`] with the parse that found them, which
 /// [`CodeOccurrences::sites`] reads rather than parse again.
 #[must_use]

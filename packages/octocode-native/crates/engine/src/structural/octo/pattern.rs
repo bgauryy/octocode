@@ -16,10 +16,13 @@ use crate::text::LineIndex;
 mod compile;
 mod node_match;
 mod qualified;
+mod shape;
+mod sigils;
 mod unsaid;
 
 use compile::effective_pattern_root;
 pub use qualified::{QualifiedPattern, Separator};
+pub use sigils::{LiteralSigil, SigilForm, SigilRepair};
 use unsaid::declares;
 
 /// Budget on `$$$` multi-metavar split attempts within a single top-level
@@ -186,7 +189,8 @@ impl CompiledPattern {
             .map(|name| {
                 (
                     name.kind().to_owned(),
-                    node_text(name, &self.source).to_owned(),
+                    // As the caller wrote it: no grammar placeholder.
+                    self.expando.restore(node_text(name, &self.source)),
                 )
             });
         Some(PatternDeclaration {

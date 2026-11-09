@@ -2,8 +2,10 @@
 //! behind astSearch `symbols`.
 //!
 //! A hit row names the innermost declaration around its line as
-//! `declarations: [{symbolName, kind, line, endLine}]` on the file and an
-//! `enclosing` index on the hit (`line` is the name line),
+//! `declarations: [{symbolName, kind, line, endLine, startLine?,
+//! docStartLine?}]` on the file and an `enclosing` index on the hit (`line`
+//! is the name line; `startLine` and `docStartLine` are its attribute and
+//! doc lines before it, as astSearch `symbols` prints them),
 //! so a caller can cite or address the function a hit sits in without
 //! reading it: `symbolName` + `line` anchor lspSearch, `line`–`endLine` is a
 //! localFetch range. Containment is by (line, byte), so on a one-line
@@ -34,6 +36,8 @@ struct Declaration {
     line: u32,
     start: u32,
     end: u32,
+    /// Its attribute and doc-comment lines before the name line.
+    starts: crate::tools::declarations::StartLines,
     /// Where the declaration starts and ends (exclusive), and where its
     /// name ends: what [`Outline::owner`] compares a hit with.
     from: At,
@@ -95,6 +99,7 @@ impl Outline {
                     name: item.name.clone(),
                     line: item.selection_range.start.line.saturating_add(1),
                     start,
+                    starts: crate::tools::declarations::StartLines::of(item),
                     end: item.range.end.line.saturating_add(1).max(start),
                     from,
                     to: at(&item.range.end).max(from),
@@ -122,8 +127,9 @@ impl Outline {
             .map(|(index, _)| index)
     }
 
-    /// Declaration `owner`: its name, kind, name line and last line, so a
-    /// read of it needs no outline first.
+    /// Declaration `owner`: its name, kind, name line, last line and the
+    /// attribute and doc lines before its name, so a read of it needs no
+    /// outline first.
     pub(super) fn label(&self, owner: usize) -> Option<super::types::Enclosing> {
         let declaration = self.declarations.get(owner)?;
         Some(super::types::Enclosing {
@@ -131,6 +137,8 @@ impl Outline {
             kind: declaration.kind.clone(),
             line: declaration.line,
             end_line: declaration.end.max(declaration.line),
+            start_line: declaration.starts.start_line,
+            doc_start_line: declaration.starts.doc_start_line,
         })
     }
 

@@ -93,7 +93,7 @@ pub(super) fn select(
         })
         .collect::<Vec<_>>();
     let references = match (&filter, declarations.as_slice()) {
-        (Some(_), [row]) => references_lead(canonical, row),
+        (Some(_), [row]) => references_lead(q, canonical, row),
         _ => None,
     };
     for row in &mut declarations {
@@ -101,15 +101,6 @@ pub(super) fn select(
             fields.remove("typeName");
         }
     }
-    // A file outline's natural next step reads its top declaration; a
-    // directory outline (or a references lead) names its own route.
-    let read = (!per_row_path && references.is_none())
-        .then(|| {
-            declarations
-                .first()
-                .and_then(|row| read_lead(canonical, row))
-        })
-        .flatten();
     // Hashed as it serializes: built into one `Value` first, it would copy every
     // row of the outline to hash it.
     let snapshot = crate::digest::json_sha256(&(
@@ -136,7 +127,6 @@ pub(super) fn select(
     let sizes = row_sizes(&declarations, &spans, per_row_path.then_some(row_paths));
     Ok(SymbolSet {
         references,
-        read,
         text_search,
         path: canonical.to_string_lossy().into_owned(),
         snapshot,
@@ -254,9 +244,14 @@ fn place_notes(
 }
 
 /// One declaration a name filter singles out: its callers (a callable) or
-/// references are the usual next question, and only a language server
-/// answers it; none is offered when no server runs for the file.
-fn references_lead(canonical: &std::path::Path, row: &Value) -> Option<Value> {
+/// references, under the query's `testCode`, are the usual next question,
+/// and only a level above `syntax` (the editor or a language server)
+/// answers it; none is offered when neither would.
+fn references_lead(
+    q: &AstSearchQuerySymbols,
+    canonical: &std::path::Path,
+    row: &Value,
+) -> Option<Value> {
     let file = row["path"].as_str().map_or_else(
         || canonical.to_path_buf(),
         |shown| canonical.parent().unwrap_or(canonical).join(shown),
@@ -267,6 +262,7 @@ fn references_lead(canonical: &std::path::Path, row: &Value) -> Option<Value> {
         row["typeName"].as_str().or_else(|| row["name"].as_str())?,
         row["line"].as_u64()?,
         crate::tools::leads::lsp::Verify::for_kind(row["kind"].as_str().unwrap_or_default()),
+        q.test_code,
     )?;
     Some(crate::response::result::Continuation::related(ToolId::LspSearch, query).build())
 }
@@ -290,24 +286,11 @@ fn text_search_lead(q: &AstSearchQuerySymbols, canonical: &std::path::Path) -> O
     Some(crate::response::result::Continuation::related_query(query).build())
 }
 
-/// The read of one declaration's lines.
-fn read_lead(canonical: &std::path::Path, row: &Value) -> Option<Value> {
-    let start = row["line"].as_u64()?;
-    let end = row["endLine"].as_u64().unwrap_or(start);
-    let read = crate::tools::source_view::local_fetch_query::ranges_lead(
-        &canonical.to_string_lossy(),
-        &[(start, end)],
-    )?;
-    Some(crate::response::result::Continuation::related_query(read).build())
-}
-
 /// Every declaration of one symbols query, before paging.
 #[derive(Clone)]
 pub(crate) struct SymbolSet {
     /// `next.findCallers` or `next.findReferences` for a single named declaration.
     pub(super) references: Option<Value>,
-    /// `next.read` of a file outline's top declaration.
-    pub(super) read: Option<Value>,
     /// `next.findText` for the name when the outline may be incomplete.
     pub(super) text_search: Option<Value>,
     pub(super) path: String,
@@ -354,7 +337,6 @@ impl SymbolSet {
     pub(in crate::tools::ast_search) fn cut_at(path: String, resume: u32) -> Self {
         Self {
             references: None,
-            read: None,
             text_search: None,
             path,
             snapshot: "s".to_owned(),

@@ -28,6 +28,26 @@ async fn a_large_tree_lists_every_entry_once_through_opaque_continuations() {
         );
         let data = row_data(&outcome);
         assert!(data.get("warnings").is_none(), "{data}");
+        // The first response to the fresh request leaves out the fields that
+        // repeat its query; a page read through a cursor keeps them, because
+        // its request names none of them. Every page states the listed
+        // commit as `commitSha`, and `resolvedRef` only as the branch that
+        // resolved.
+        for echo in ["owner", "repo"] {
+            assert_eq!(
+                data.get(echo).is_some(),
+                !sizes.is_empty(),
+                "{echo} on page {}: {data}",
+                sizes.len() + 1
+            );
+        }
+        assert_eq!(data["commitSha"], SHA, "page {}: {data}", sizes.len() + 1);
+        assert!(
+            data.get("resolvedRef")
+                .is_none_or(|resolved| resolved == "main"),
+            "page {}: {data}",
+            sizes.len() + 1
+        );
         let page = data["files"][0]["files"].as_array().expect("entries");
         sizes.push(page.len());
         listed.extend(page.iter().map(|entry| entry.as_str().unwrap().to_owned()));

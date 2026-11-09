@@ -13,7 +13,7 @@ pub(crate) mod output_fields;
 mod schema_facts;
 pub(crate) mod security;
 #[cfg(test)]
-mod undeclared;
+pub(crate) mod undeclared;
 mod validate;
 pub use instructions::compose_instructions;
 use octocode_contract_types::ErrorCode;

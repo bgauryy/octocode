@@ -46,7 +46,7 @@ async fn identical_rows_share_one_exchange_and_its_usage_is_counted_once() {
     let calls = |index: usize| out["results"][index]["data"]["usage"]["calls"].clone();
     assert_eq!(calls(0), 1, "{out}");
     assert_eq!(calls(1), 0, "{out}");
-    let tokens = |index: usize| out["results"][index]["data"]["usage"]["input_tokens"].clone();
+    let tokens = |index: usize| out["results"][index]["data"]["usage"]["inputTokens"].clone();
     assert_eq!(tokens(0), 40, "{out}");
     assert_eq!(tokens(1), 0, "{out}");
     runtime.close().await;

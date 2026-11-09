@@ -2,8 +2,8 @@
 //! `lspSearch` request asks, and `which` with the config reads is most of a
 //! warm request's discovery.
 use super::write_lsp_config;
-use crate::lsp::config::invocation::rustup::{RustupView, with_view};
 use crate::lsp::config::catalog::resolve_route;
+use crate::lsp::config::invocation::rustup::{RustupView, with_view};
 use crate::lsp::config::route::kept_route;
 use crate::lsp::config::{
     LspDiscoveryOptions, default_server_for_file, default_server_for_workspace_root,
@@ -54,10 +54,17 @@ impl Machine {
         let anchor = install_anchor();
         let resolved = std::cell::Cell::new(0);
         let route = with_view(self.view.clone(), || {
-            kept_route(&extension, &root, &self.options, anchor.as_deref(), true, || {
-                resolved.set(resolved.get() + 1);
-                resolve_route(&extension, &root, &self.options, anchor.as_deref(), true)
-            })
+            kept_route(
+                &extension,
+                &root,
+                &self.options,
+                anchor.as_deref(),
+                true,
+                || {
+                    resolved.set(resolved.get() + 1);
+                    resolve_route(&extension, &root, &self.options, anchor.as_deref(), true)
+                },
+            )
         });
         let command = route.map(|route| route.finished(&self.options).command);
         (command, resolved.get())
@@ -66,7 +73,9 @@ impl Machine {
     fn config(&self, command: &str) {
         write_lsp_config(
             &self.root,
-            &format!(r#"{{"languageServers":{{".go":{{"command":"{command}","languageId":"go"}}}}}}"#),
+            &format!(
+                r#"{{"languageServers":{{".go":{{"command":"{command}","languageId":"go"}}}}}}"#
+            ),
         );
         settle_written_so_far();
     }
@@ -260,7 +269,10 @@ fn a_new_marker_changes_a_root_route() {
     let machine = machine();
     let root_route = || {
         with_view(machine.view.clone(), || {
-            default_server_for_workspace_root(&machine.workspace.to_string_lossy(), &machine.options)
+            default_server_for_workspace_root(
+                &machine.workspace.to_string_lossy(),
+                &machine.options,
+            )
         })
         .and_then(|config| config.language_id)
     };

@@ -2,7 +2,8 @@
 use super::*;
 
 /// Only the git steps that reach the remote run with the credential: the
-/// local `remote add` step takes no askpass helper and no network permit.
+/// local store and worktree steps take no askpass helper and no network
+/// permit.
 #[test]
 fn only_network_git_steps_carry_the_credential() {
     let fixture = Fixture::shared();
@@ -31,13 +32,24 @@ fn only_network_git_steps_carry_the_credential() {
             .unwrap_or_else(|| panic!("{label} not run: {seen:?}"))
             .clone()
     };
-    let local = "configure commit remote";
-    assert!(
-        step(local).contains("authorization_url: None"),
-        "{}",
-        step(local)
-    );
-    for network in ["fetch requested commit", "set sparse commit paths"] {
+    for local in [
+        "initialize shared store",
+        "configure store remote",
+        "prune removed worktrees",
+        "add worktree",
+        "move worktree",
+    ] {
+        assert!(
+            step(local).contains("authorization_url: None"),
+            "{}",
+            step(local)
+        );
+    }
+    for network in [
+        "fetch requested commit",
+        "set sparse commit paths",
+        "check out requested commit",
+    ] {
         assert!(
             step(network).contains("authorization_url: Some"),
             "{}",
@@ -209,6 +221,40 @@ fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
         staged.message
     );
 
+    // Nor does it name the shared object store: git reports the common
+    // directory of a linked worktree.
+    let store = root
+        .0
+        .join("clone-store")
+        .join("owner")
+        .join("repo__host_0123456789abcdef__g1.git");
+    let stored = runner
+        .run(
+            &GitRunRequest {
+                args: vec![
+                    "-c".into(),
+                    format!(
+                        "alias.octocode-fixture=!printf \"fatal: cannot lock ref in '%s'\\n\" '{}' >&2; exit 128",
+                        store.display()
+                    )
+                    .into(),
+                    "octocode-fixture".into(),
+                ],
+                timeout: Duration::from_secs(10),
+                label: "store fixture".into(),
+                authorization: None,
+                authorization_url: None,
+            },
+            &control,
+        )
+        .expect_err("store fixture");
+    test_support::checks::assert_absent(&serde_json::json!(stored.message), "clone-store");
+    assert!(
+        stored.message.contains("<store>") && stored.message.contains("cannot lock ref"),
+        "{}",
+        stored.message
+    );
+
     let started = Instant::now();
     let timed_out = runner
         .run(
@@ -270,6 +316,18 @@ fn repository_symlinks_are_checked_out_as_plain_files() {
         )
         .expect("clone");
         let link = Path::new(&clone.location.local_path).join("escape");
+        // D7: git run in the checkout as any local step runs it (no
+        // `-c core.symlinks=false`) sees nothing changed: the checkout's
+        // own config records that its symlinks are plain files.
+        let status = git_output(
+            Path::new(&clone.location.local_path),
+            &["status", "--porcelain"],
+        );
+        assert_eq!(
+            status.trim(),
+            "",
+            "{branch} {sparse:?}: a fresh clone is clean"
+        );
         if listed {
             let meta = fs::symlink_metadata(&link).expect("escape entry");
             assert!(
@@ -288,7 +346,8 @@ fn repository_symlinks_are_checked_out_as_plain_files() {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     for step in [
-        "initialize commit checkout",
+        "initialize shared store",
+        "add worktree",
         "fetch requested commit",
         "check out requested commit",
         "set sparse commit paths",

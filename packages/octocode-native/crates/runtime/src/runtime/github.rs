@@ -275,6 +275,7 @@ impl GitHubServices {
             services: self,
             context,
             access,
+            anonymous: std::sync::atomic::AtomicBool::new(false),
         }
     }
 

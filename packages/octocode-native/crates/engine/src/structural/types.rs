@@ -159,6 +159,15 @@ pub struct StructuralSearchFilesOptions {
     pub max_file_bytes: Option<u32>,
 }
 
+/// A macro body whose re-parse could not read a node the query matched
+/// (recovered syntax), so a match inside it may be missing: the macro
+/// (`json!`, `#define NAME`) and the 1-based line its text starts on.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RecoveredBody {
+    pub name: String,
+    pub line: u32,
+}
+
 pub struct StructuralSearchDetailedResult {
     pub path: String,
     pub status: String,
@@ -168,6 +177,8 @@ pub struct StructuralSearchDetailedResult {
     /// The source parsed with recovered syntax that could hide a match: its
     /// matches may be incomplete.
     pub recovered: bool,
+    /// Macro bodies whose re-parse could hide a match, in source order.
+    pub recovered_bodies: Vec<RecoveredBody>,
     pub diagnostics: Vec<StructuralDiagnostic>,
 }
 
@@ -183,6 +194,8 @@ pub struct StructuralSearchDetailedFileResult {
     /// The file parsed with recovered syntax that could hide a match: its
     /// matches may be incomplete.
     pub recovered: bool,
+    /// Macro bodies whose re-parse could hide a match, in source order.
+    pub recovered_bodies: Vec<RecoveredBody>,
     pub diagnostics: Vec<StructuralDiagnostic>,
 }
 

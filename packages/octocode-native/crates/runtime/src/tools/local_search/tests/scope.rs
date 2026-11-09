@@ -261,3 +261,103 @@ fn a_root_search_reads_its_hit_by_the_row_path() {
     let read = crate::tools::test_support::checks::related_call(&body, "localFetch", |_| true);
     assert_eq!(read["input"]["queries"][0]["path"], "src/a.rs", "{body}");
 }
+
+/// A file that is both left out by a walk rule and a credential (`secret.pem`
+/// listed in `.ignore`; `.env`, a dot file) is disclosed exactly once, as the
+/// path policy withholds it: counted by its holder and reason, never named,
+/// and never among the ignored or hidden entries, whose flags would not read
+/// it.
+#[test]
+fn an_ignored_or_hidden_credential_is_disclosed_once_as_withheld_never_named() {
+    let root = tempfile::tempdir().expect("fixture");
+    for (path, body) in [
+        (".ignore", "secret.pem\nignored.txt\n"),
+        ("secret.pem", "needle\n"),
+        ("ignored.txt", "needle\n"),
+        (".env", "password=needle\n"),
+        ("visible.txt", "needle\n"),
+    ] {
+        fs::write(root.path().join(path), body).expect("file");
+    }
+    let query = ls_query(
+        serde_json::json!({"path":root.path(),"matchString":["needle"],"view":"files"}),
+        None,
+    );
+    let (policy, security) = policy_for(root.path());
+    let body = search_in(&query, &policy, &security, None)
+        .expect("search")
+        .to_row()
+        .expect("result");
+    let entries = body["skippedPaths"]["entries"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let counted = |cause: &str| {
+        entries
+            .iter()
+            .filter(|entry| entry["cause"] == cause)
+            .map(|entry| entry["count"].as_u64().unwrap_or(1))
+            .sum::<u64>()
+    };
+    assert_eq!(
+        counted("withheld"),
+        2,
+        "secret.pem and .env, once each: {body}"
+    );
+    assert_eq!(counted("ignored"), 1, "ignored.txt only: {body}");
+    assert_eq!(counted("hidden"), 1, ".ignore only: {body}");
+    let listed = serde_json::Value::Array(entries).to_string();
+    assert!(
+        !listed.contains("secret.pem") && !listed.contains(".env"),
+        "a withheld credential is never named: {listed}"
+    );
+    assert_eq!(paths(&body), ["visible.txt".to_owned()].into());
+}
+
+/// An empty page's check of its skipped paths states only what it withheld
+/// beyond the page's own `skippedPaths` count: the same credential is never
+/// counted twice, and one the check met only inside a skipped directory is
+/// still disclosed (RV-SEC round 5 N1).
+#[test]
+fn an_empty_pages_check_states_only_what_it_withheld_beyond_the_page() {
+    let root = tempfile::tempdir().expect("fixture");
+    for (path, body) in [
+        (".ignore", "secret.pem\nbuild/\n"),
+        ("secret.pem", "needle\n"),
+        (".env", "password=needle\n"),
+        ("build/key.pem", "needle\n"),
+        ("build/notes.txt", "nothing\n"),
+        ("visible.txt", "nothing\n"),
+    ] {
+        let path = root.path().join(path);
+        fs::create_dir_all(path.parent().expect("parent")).expect("directory");
+        fs::write(path, body).expect("file");
+    }
+    let query = ls_query(
+        serde_json::json!({"path":root.path(),"matchString":["needle"],"view":"files"}),
+        None,
+    );
+    let (policy, security) = policy_for(root.path());
+    let body = search_in(&query, &policy, &security, None)
+        .expect("search")
+        .to_row()
+        .expect("result");
+    assert!(paths(&body).is_empty(), "an empty page: {body}");
+    let on_page = body["skippedPaths"]["entries"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|entry| entry["cause"] == "withheld")
+        .map(|entry| entry["count"].as_u64().unwrap_or(1))
+        .sum::<u64>();
+    assert_eq!(on_page, 2, "secret.pem and .env, on the page: {body}");
+    let warnings = body["warnings"].to_string();
+    assert!(
+        !warnings.contains("2 entries withheld") && !warnings.contains("3 entries withheld"),
+        "the page's own count is not stated again: {warnings}"
+    );
+    assert!(
+        warnings.contains("Skipped paths: 1 entry withheld by path policy: 1 credential file."),
+        "the check's own find inside build/ is stated: {warnings}"
+    );
+}

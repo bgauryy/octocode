@@ -224,3 +224,131 @@ fn a_failed_outline_is_not_reported_when_no_call_remains() {
     assert_eq!(callers_of(&row), vec![], "{row}");
     assert!(!row.to_string().contains("outline failed"), "{row}");
 }
+
+/// A TypeScript-like server whose call hierarchy answers `target` (`a.ts`)
+/// with two callers, the test file's first: `in_test` in `a.test.ts` and
+/// `caller` in `a.ts`; `references` lists the same two call sites.
+const TEST_CALLER_SERVER: &str = r#"#!/usr/bin/env node
+const root = process.env.FAKE_ROOT || __ROOT__;
+const declUri = 'file://' + root + '/a.ts';
+const testUri = 'file://' + root + '/a.test.ts';
+const at = (line, character, length) => ({ start: { line, character }, end: { line, character: character + length } });
+const decl = { uri: declUri, range: at(0, 16, 6) };
+const fn = (name, uri, line, length) => ({ name, kind: 12, uri, range: at(line, 0, length), selectionRange: at(line, 16, name.length) });
+const callerItem = fn('caller', declUri, 1, 38);
+const testItem = fn('in_test', testUri, 1, 39);
+let buf = Buffer.alloc(0);
+function send(m) {
+  const s = JSON.stringify(m);
+  process.stdout.write('Content-Length: ' + Buffer.byteLength(s) + '\r\n\r\n' + s);
+}
+function result(msg) {
+  const p = msg.params || {};
+  switch (msg.method) {
+    case 'initialize':
+      return { capabilities: { textDocumentSync: 1, definitionProvider: true, referencesProvider: true, callHierarchyProvider: true, documentSymbolProvider: true } };
+    case 'textDocument/definition':
+      return [decl];
+    case 'textDocument/references':
+      return [decl, { uri: declUri, range: at(1, 27, 6) }, { uri: testUri, range: at(1, 28, 6) }];
+    case 'textDocument/prepareCallHierarchy':
+      return [fn('target', declUri, 0, 27)];
+    case 'callHierarchy/incomingCalls':
+      if (p.item.name !== 'target') return [];
+      // The test caller first: the row must still lead with production.
+      return [
+        { from: testItem, fromRanges: [at(1, 28, 6)] },
+        { from: callerItem, fromRanges: [at(1, 27, 6)] },
+      ];
+    case 'textDocument/documentSymbol': {
+      const strip = ({ uri, ...symbol }) => symbol;
+      if (p.textDocument.uri === declUri) return [strip(fn('target', declUri, 0, 27)), strip(callerItem)];
+      if (p.textDocument.uri === testUri) return [strip(testItem)];
+      return [];
+    }
+    default:
+      return null;
+  }
+}
+function handle(msg) {
+  if (msg.method === 'exit') process.exit(0);
+  if (msg.id === undefined || !msg.method) return;
+  send({ jsonrpc: '2.0', id: msg.id, result: result(msg) });
+}
+process.stdin.on('data', (d) => {
+  buf = Buffer.concat([buf, d]);
+  for (;;) {
+    const i = buf.indexOf('\r\n\r\n');
+    if (i < 0) return;
+    const m = /Content-Length: (\d+)/i.exec(buf.slice(0, i).toString());
+    const n = Number(m[1]);
+    if (buf.length < i + 4 + n) return;
+    const msg = JSON.parse(buf.slice(i + 4, i + 4 + n).toString());
+    buf = buf.slice(i + 4 + n);
+    handle(msg);
+  }
+});
+"#;
+
+/// R3-1: the server rung's `callers` keeps the callers its `testCode` keeps,
+/// through the public entry: `exclude` leaves the test file's caller out and
+/// counts it, `only` keeps only that caller, and `include` lists both,
+/// production first.
+#[test]
+fn server_callers_honor_test_code() {
+    if !require_node() {
+        return;
+    }
+    let (_dir, root, execution) = importer_fixture_serving(&[], TEST_CALLER_SERVER);
+    std::fs::write(
+        root.join("a.ts"),
+        "export function target() {}\nexport function caller() { target(); }\n",
+    )
+    .expect("anchor");
+    std::fs::write(
+        root.join("a.test.ts"),
+        "import { target } from './a';\nexport function in_test() { target(); }\n",
+    )
+    .expect("test file");
+    octocode_engine::stamp::settle_written_so_far();
+    let pool = fake_server_pool();
+    let paths = crate::tools::test_support::workspace_policy(&root);
+    let runtime = tokio::runtime::Runtime::new().expect("rt");
+    let row_for = |test_code: &str| {
+        let query = serde_json::from_value(serde_json::json!({
+            "operation": "callers", "path": root.join("a.ts").to_string_lossy(),
+            "symbolName": "target", "line": 1, "workspaceRoot": root.to_string_lossy(),
+            "testCode": test_code
+        }))
+        .expect("query");
+        let row = runtime
+            .block_on(crate::tools::lsp_search::execute(
+                query,
+                &crate::execution::cancel::NeverCancel,
+                &pool,
+                &paths,
+                &execution,
+                None,
+                crate::tools::lsp_search::test_answers(),
+            ))
+            .expect("row");
+        assert_row_contract(ToolId::LspSearch, &row);
+        // A healthy server answer carries no receipt: no fallback, no deviation.
+        assert!(row["lsp"].is_null(), "{row}");
+        row
+    };
+    let names = |row: &serde_json::Value| {
+        callers_of(row)
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>()
+    };
+
+    let excluded = row_for("exclude");
+    assert_eq!(names(&excluded), ["caller"], "{excluded}");
+    assert_eq!(excluded["testCodeExcluded"]["files"], 1, "{excluded}");
+    let only = row_for("only");
+    assert_eq!(names(&only), ["in_test"], "{only}");
+    let every = row_for("include");
+    assert_eq!(names(&every), ["caller", "in_test"], "{every}");
+}

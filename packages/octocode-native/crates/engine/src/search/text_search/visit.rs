@@ -167,6 +167,7 @@ impl WalkScope<'_> {
             declares: outcome.declares && self.identifier,
             source,
             not_utf8: outcome.not_utf8,
+            every_value: outcome.every_value,
             utf8_bom: outcome.utf8_bom,
             term_counts: outcome.term_counts,
         });

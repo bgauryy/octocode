@@ -442,3 +442,68 @@ fn the_manifest_above_lead_carries_the_snapshots_whole_scope() {
         "{note}"
     );
 }
+
+/// A critical file's `transitiveDependents` and its `verify` lead walk the
+/// same depth: the lead lists every counted dependent, and the controls say
+/// what the count leaves out.
+#[test]
+fn a_critical_file_lead_reaches_every_dependent_it_counts() {
+    let mut files = vec![(
+        "src/hub.ts".to_owned(),
+        "export const hub = 1;\n".to_owned(),
+    )];
+    for name in ["a", "b", "c"] {
+        files.push((
+            format!("src/{name}.ts"),
+            format!("import {{ hub }} from './hub';\nexport const {name} = hub;\n"),
+        ));
+    }
+    // A chain of five importers above `a`: depth 6 from the hub.
+    let chain = ["d", "e", "f", "g", "h"];
+    for (index, name) in chain.iter().enumerate() {
+        let below = if index == 0 { "a" } else { chain[index - 1] };
+        files.push((
+            format!("src/{name}.ts"),
+            format!("import {{ {below} }} from './{below}';\nexport const {name} = {below};\n"),
+        ));
+    }
+    let owned = files
+        .iter()
+        .map(|(path, text)| (path.as_str(), text.as_str()))
+        .collect::<Vec<_>>();
+    let dir = git_app(&owned);
+    let root = dir.0.as_path();
+    assert_eq!(ingest_fixture(root, None).class, ExitClass::Success);
+    let issues = ask(root, "issues", None, |o| {
+        o.detectors = vec!["critical-file".into()];
+        o.min_tier = Some(0);
+    });
+    let finding = issues.value["rows"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row["subject"] == "src/hub.ts")
+        .unwrap_or_else(|| panic!("no critical hub: {}", issues.value));
+    let counted = finding["evidence"]["transitiveDependents"]
+        .as_u64()
+        .unwrap();
+    assert_eq!(counted, 8, "{finding}");
+    let lead = &finding["verify"][0]["input"]["queries"][0];
+    assert_eq!(lead["operation"], "dependents", "{finding}");
+    assert_eq!(lead["depth"], 6, "the deepest counted dependent: {finding}");
+    let walked = ask(root, "dependents", Some("src/hub.ts"), |o| {
+        o.depth = lead["depth"].as_u64().map(|depth| depth as u32);
+        o.limit = Some(100);
+    });
+    assert_eq!(ids(&walked).len() as u64, counted, "{}", walked.value);
+    assert!(
+        finding["controls"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|control| control
+                .as_str()
+                .is_some_and(|text| text.contains("type-only"))),
+        "the controls say what the count leaves out: {finding}"
+    );
+}

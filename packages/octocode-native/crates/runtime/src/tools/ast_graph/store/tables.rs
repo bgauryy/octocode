@@ -13,7 +13,9 @@ use super::format::{
 };
 use super::workspace::{Declared, Workspace};
 use crate::tools::ast_graph::edges::Load;
-use crate::tools::ast_graph::types::{BuiltGraph, Declaration, DiagnosticCode, FileFacts};
+use crate::tools::ast_graph::types::{
+    BuiltGraph, Declaration, DiagnosticCode, FileFacts, ImportOutcome,
+};
 use octocode_engine::signatures::TYPE_DECLARATION_KINDS;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -72,6 +74,9 @@ impl Interner {
 pub(crate) struct Projection {
     pub tables: GraphTables,
     pub calls: CallStats,
+    /// Import tallies by [`ImportOutcome`] after projection: the build's
+    /// tally with every relinked import moved from unresolved to resolved.
+    pub imports: [u32; 6],
 }
 
 struct FileIndex<'a> {
@@ -224,6 +229,12 @@ struct Projector<'a> {
     test_code: crate::tools::test_code::TestCodeIndex,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: the suffixes [`symbol_keys`] tried past a taken key.
+    pub(super) static KEY_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Unique qualified-name keys for `ordered` declarations of `file`.
 fn symbol_keys(
     file: &str,
@@ -264,6 +275,11 @@ fn symbol_keys(
         repeat.1 += u32::from(!is_member_data(decl, by_id));
     }
     let mut used = BTreeSet::<String>::new();
+    // The last suffix each repeated name and line took: every suffix below
+    // it is taken (keys are never released), so the next repeat resumes
+    // there instead of trying `.2` again. The keys are the ones a probe from
+    // `.2` would give, in linear work.
+    let mut last = HashMap::<(&str, u32), u32>::new();
     ordered
         .iter()
         .zip(&names)
@@ -279,10 +295,19 @@ fn symbol_keys(
             } else {
                 format!("{file}#{qualified_name}")
             };
-            let mut n = 1;
-            while !used.insert(key.clone()) {
-                n += 1;
-                key = format!("{file}#{qualified_name}@{}.{n}", decl.line);
+            if !used.insert(key.clone()) {
+                let n = last
+                    .entry((qualified_name.as_str(), decl.line))
+                    .or_insert(1);
+                loop {
+                    #[cfg(test)]
+                    KEY_PROBES.with(|probes| probes.set(probes.get() + 1));
+                    *n += 1;
+                    key = format!("{file}#{qualified_name}@{}.{n}", decl.line);
+                    if used.insert(key.clone()) {
+                        break;
+                    }
+                }
             }
             key
         })

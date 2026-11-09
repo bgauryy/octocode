@@ -228,3 +228,46 @@ fn a_filtered_listing_names_the_links_it_does_not_follow() {
         assert_eq!(entries[0]["size"], length, "{plain}");
     }
 }
+
+/// C3eK A-R9: an empty listing states its zero once, as `files:[]` with the
+/// `empty` status, not again as a zero `summary`. A listing with entries
+/// keeps its summary.
+#[test]
+fn an_empty_listing_states_no_zero_summary() {
+    let root = Fixture::new();
+    for n in 0..4 {
+        root.write(&format!("f{n:02}.rs"), "x\n");
+    }
+    let listing = run(&root.0, json!({"operation":"files","path":root.0})).expect("listing");
+    assert_eq!(listing["summary"]["files"], 4, "{listing}");
+    let empty = run(
+        &root.0,
+        json!({"operation":"files","path":root.0,"nameRegex":"^zz_none$"}),
+    )
+    .expect("empty listing");
+    assert_eq!(empty["status"], "empty", "{empty}");
+    assert_eq!(empty["files"], json!([]), "{empty}");
+    assert!(empty.get("summary").is_none(), "{empty}");
+}
+
+/// C3eK A-R6: no listing row states its snapshot (each continuation carries
+/// it in its cursor, and no input takes it from the row).
+#[test]
+fn rows_state_no_snapshot() {
+    let root = Fixture::new();
+    for n in 0..40 {
+        root.write(&format!("f{n:02}.rs"), "x\n");
+    }
+    let pages = with_window(8, || {
+        walk_pages(
+            &root.0,
+            json!({"operation":"files","path":root.0,"limit":10}),
+        )
+    });
+    assert!(pages.len() > 1, "a paged listing");
+    for page in &pages {
+        assert!(page.get("snapshot").is_none(), "{page}");
+    }
+    let paged = pages[0]["next"]["nextPage"]["input"]["queries"][0]["snapshot"].clone();
+    assert!(paged.is_string(), "the continuation pins it: {}", pages[0]);
+}

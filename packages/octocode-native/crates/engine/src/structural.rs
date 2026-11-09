@@ -15,12 +15,12 @@ mod syntax_errors;
 mod syntax_tree;
 mod types;
 
-#[cfg(test)]
-use files::search_files_detailed;
 pub use files::{Rebuilt, file_matches, search_files};
+#[cfg(test)]
+use files::{search_files_detailed, search_files_unfiltered};
 pub use octo::{
-    COMPILE_FAILED, EXAMPLE_RULE, MATCH_DEADLINE, PARSE_INTERRUPTED, PatternDeclaration,
-    QualifiedPattern, RULE_INVALID,
+    COMPILE_FAILED, EXAMPLE_RULE, LiteralSigil, MATCH_DEADLINE, PARSE_INTERRUPTED,
+    PatternDeclaration, QualifiedPattern, RULE_INVALID, SigilForm, SigilRepair, WrittenPattern,
 };
 pub use query::QUERY_INVALID;
 pub use syntax_errors::count_syntax_errors;
@@ -30,7 +30,8 @@ pub use syntax_tree::{
 #[cfg(test)]
 use types::StructuralMatch;
 pub use types::{
-    FileMatches, KeepLine, StructuralDemand, StructuralDetailedMatch, StructuralDiagnostic,
+    FileMatches, KeepLine, RecoveredBody, StructuralDemand, StructuralDetailedMatch,
+    StructuralDiagnostic,
     StructuralSearchDetailedResult, StructuralSearchFilesDetailedResult,
     StructuralSearchFilesOptions, WalkErrors,
 };
@@ -104,6 +105,39 @@ pub fn pattern_kind(pattern: &str, ext: &str) -> Option<String> {
     octo::pattern_kind(&AgLanguage::new(entry), pattern)
 }
 
+/// The literal tokens of a structural `pattern` in the grammar of `ext` that
+/// spell a metavariable sigil but are no metavariable: one glued to other
+/// text (`search_$X`, one identifier) or a lower-case name (`$x`,
+/// `$$$args`). Read from the tree the matcher compiles: a `{context,
+/// selector}` pattern's whole context, the selected node included. None for
+/// an unknown grammar or a pattern that does not compile.
+pub fn literal_sigils(pattern: WrittenPattern<'_>, ext: &str) -> Vec<LiteralSigil> {
+    languages::find_entry(ext)
+        .map(|entry| octo::literal_sigils(&AgLanguage::new(entry), pattern))
+        .unwrap_or_default()
+}
+
+/// The rewrite of what the caller wrote of `pattern` (the text, or the
+/// context) that matches what its [`literal_sigils`] meant in the grammar of
+/// `ext`, when it is exact: each lower-case name upper-cased, and a glued
+/// head token (`search_$X`) replaced by a capture whose text the regex tests
+/// (`^search_`).
+pub fn sigil_repair(pattern: WrittenPattern<'_>, ext: &str) -> Option<SigilRepair> {
+    let entry = languages::find_entry(ext)?;
+    octo::sigil_repair(&AgLanguage::new(entry), pattern)
+}
+
+/// How a structural `pattern` parsed in the grammar of `ext` (a `{context,
+/// selector}` pattern: its selected node), as a one-line S-expression of
+/// named kinds, field names and metavariables: `$X.unwrap($Y)` in Rust is
+/// `(call_expression function:(field_expression value:$X
+/// field:(field_identifier "unwrap")) arguments:(arguments $Y))`. `None`
+/// when it does not compile or is a special pattern.
+pub fn pattern_shape(pattern: WrittenPattern<'_>, ext: &str) -> Option<String> {
+    let entry = languages::find_entry(ext)?;
+    octo::pattern_shape(&AgLanguage::new(entry), pattern)
+}
+
 /// Grammars whose paths qualify with `::`: there a longer path before a
 /// pattern's leftmost segment is a namespace qualification, not a member
 /// receiver as `.` can be. Every other grammar qualifies with `.`.
@@ -157,6 +191,7 @@ fn no_matches(
         query,
         matches: Vec::new(),
         recovered: false,
+        recovered_bodies: Vec::new(),
         diagnostics: vec![diagnostic],
     }
 }
@@ -277,7 +312,8 @@ pub(crate) fn evaluate_source(
         language_id: entry.language_id.map(str::to_owned),
         query: query_explanation,
         matches,
-        recovered,
+        recovered: recovered.file,
+        recovered_bodies: recovered.bodies,
         diagnostics: Vec::new(),
     }
 }

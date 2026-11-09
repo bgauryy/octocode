@@ -57,12 +57,17 @@ fn is_repository_path(pattern: &str) -> bool {
 }
 
 /// The rule the contract states for a pattern no words can be read from: the
-/// message of its numeric tokens, or a repository path's.
+/// message of its numeric tokens, a repository path's, or the message core
+/// authored beside the pattern (`.regex(pattern, message)`, carried as
+/// `x-patternMessage`).
 fn stated_rule(pattern: &str, schema: &Value) -> Option<String> {
     if let Some(message) = schema["x-numericTokens"]["message"].as_str() {
         return Some(message.to_owned());
     }
-    is_repository_path(pattern).then(|| REPOSITORY_PATH_RULE.to_owned())
+    if is_repository_path(pattern) {
+        return Some(REPOSITORY_PATH_RULE.to_owned());
+    }
+    schema["x-patternMessage"].as_str().map(str::to_owned)
 }
 
 /// Explain blank values directly. Other values name the field and what it

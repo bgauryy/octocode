@@ -15,14 +15,15 @@ pub(super) fn distinct_lines(file: &TextSearchFile) -> usize {
 }
 
 /// Totals that describe the kept hits: matched lines lose the lines whose
-/// every row was removed. Occurrences follow only when each row is one
+/// every row was removed, matched files the files whose every row was.
+/// Occurrences follow only when each row is one
 /// occurrence (matchOnly without `unique`) or every hit line of the scan
 /// holds exactly one; otherwise they are unknown (absent), never estimated.
 pub(super) fn recount(
     query: &LocalSearchQuery,
     stats: &mut octocode_engine::types::TextSearchStats,
     rows_removed: usize,
-    lines_removed: usize,
+    (lines_removed, files_removed): (usize, usize),
 ) {
     if rows_removed == 0 {
         return;
@@ -45,6 +46,9 @@ pub(super) fn recount(
     stats.matched_lines = stats
         .matched_lines
         .map(|n| n.saturating_sub(saturate(lines_removed)));
+    stats.files_matched = stats
+        .files_matched
+        .map(|n| n.saturating_sub(saturate(files_removed)));
 }
 
 impl Selected {
@@ -128,6 +132,15 @@ impl Selected {
                 &self.outcome,
                 self.rows_kept,
             ));
+            // The counts describe the kept hits, `matchedFiles` included:
+            // a file selection kept no hit of is said, with the call that
+            // lists it.
+            if self.files_dropped > 0 {
+                notes.push(format!(
+                    "{} of {} matched files kept no hit: next.unfiltered lists them.",
+                    self.files_dropped, self.files_before
+                ));
+            }
         }
         notes.extend(self.outcome.long_context_notice.clone());
         notes

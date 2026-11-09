@@ -3,7 +3,7 @@ use super::*;
 
 impl GraphTables {
     pub(crate) fn str(&self, id: u32) -> &str {
-        self.strings.get(id as usize).map_or("", String::as_str)
+        self.strings.get(id as usize).unwrap_or("")
     }
 
     /// Node ids in table order. Ids are `u32` columns; the reader's item

@@ -40,10 +40,7 @@ async fn a_missing_repository_leads_to_a_repository_search() {
     // the shared hint labels both leads.
     assert_eq!(
         failure.hints,
-        [crate::tools::gh_shared::repository_search_hint(
-            Some("a"),
-            "typo"
-        )]
+        [crate::tools::gh_shared::REPOSITORY_SEARCH_HINT.to_owned()]
     );
 }
 

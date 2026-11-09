@@ -219,9 +219,7 @@ pub enum GraphDeclaredType {
     /// declared fields.
     Object { members: Vec<GraphTypeMember> },
     /// A function type `(a: A, b: B) => R`: each parameter's declared type.
-    Function {
-        parameters: Vec<Option<Self>>,
-    },
+    Function { parameters: Vec<Option<Self>> },
 }
 
 /// One step from a type to a part of it.

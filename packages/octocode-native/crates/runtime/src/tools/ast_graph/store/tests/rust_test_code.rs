@@ -202,14 +202,25 @@ fn export_detectors_disclose_unjudged_languages() {
         .as_array()
         .cloned()
         .unwrap_or_default();
-    for name in ["unused-export", "export-only-local"] {
-        let note = notes
-            .iter()
-            .find(|note| note["detector"] == name)
-            .unwrap_or_else(|| panic!("no {name} note: {}", issues.value));
-        let text = note["skipped"].as_str().unwrap_or_default();
-        assert!(text.contains("rust"), "{text}");
-    }
+    // Both detectors skip the same files for the same reason: one note
+    // names both.
+    let unjudged = notes
+        .iter()
+        .filter(|note| {
+            note["skipped"]
+                .as_str()
+                .is_some_and(|text| text.contains("not judged"))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(unjudged.len(), 1, "{}", issues.value);
+    assert_eq!(
+        unjudged[0]["detectors"],
+        json!(["unused-export", "export-only-local"]),
+        "{}",
+        issues.value
+    );
+    let text = unjudged[0]["skipped"].as_str().unwrap_or_default();
+    assert!(text.contains("rust"), "{text}");
 }
 
 /// A query with no snapshot names the workspace it looked in and how to

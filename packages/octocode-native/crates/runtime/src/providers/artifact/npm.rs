@@ -87,9 +87,39 @@ async fn exact(
     };
     let row = object_for(&response, ArtifactType::Npm)?;
     let (mut artifact, version) = manifest_row(name, row, registry)?;
-    if let Some(attested) =
-        attested_commit(&artifact, &version, row, registry, client, dns_pin.clone()).await
-    {
+    // An older manifest has no upload record to date it: npm keeps every
+    // version's publish time in the full packument. A packument that cannot
+    // be read leaves the date unknown, and the row says so.
+    if artifact.published_at.is_none() {
+        match packument_published_at(&encoded, &version, registry, client, dns_pin.clone()).await
+        {
+            Ok(date) => artifact.published_at = date,
+            Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
+            Err(error) => note_unread(
+                &mut artifact,
+                &version,
+                "publish date unread, the full packument could not be read",
+                &error,
+                "publishedAt is unknown, not absent",
+            ),
+        }
+    }
+    let attested =
+        match attested_commit(&artifact, &version, row, registry, client, dns_pin.clone()).await {
+            Ok(attested) => attested,
+            Err(error) if error.code == ErrorCode::Cancelled => return Err(error),
+            Err(error) => {
+                note_unread(
+                    &mut artifact,
+                    &version,
+                    "provenance unchecked, the attestation bundle could not be read",
+                    &error,
+                    "the source ref is not attested",
+                );
+                None
+            }
+        };
+    if let Some(attested) = attested {
         artifact.source_ref = Some(attested);
         artifact.source_attested = true;
     } else if let (Some(repository), Some(head)) =
@@ -258,6 +288,23 @@ async fn current_repository(
         .then(|| format!("{owner}/{repo}"))
 }
 
+/// States on the row a registry read that failed, so the fact it would have
+/// given is unknown rather than absent: `what` names the fact and the read,
+/// `so` what the row's field means now.
+fn note_unread(
+    artifact: &mut ArtifactItem,
+    version: &str,
+    what: &str,
+    error: &ArtifactError,
+    so: &str,
+) {
+    artifact.disclosures.push(format!(
+        "{} {version}: {what} ({}); {so}.",
+        artifact.package_name,
+        error.message.trim_end_matches('.')
+    ));
+}
+
 fn not_found_page(registry: &ResolvedNpmRegistry) -> ArtifactProviderPage {
     let mut page = ArtifactProviderPage::empty(Some(0));
     page.registry = Some(trim_registry(&registry.base));
@@ -286,6 +333,58 @@ async fn packument(
             version_view,
         )
         .await
+}
+
+/// The publish date of `version` from the full packument's `time` map,
+/// which npm keeps for every version (the abbreviated packument has none).
+/// Read only for a manifest that does not date itself. `Ok(None)`: the
+/// packument records no well-formed date for the version; a failed read is
+/// the caller's to state.
+async fn packument_published_at(
+    encoded: &str,
+    version: &str,
+    registry: &ResolvedNpmRegistry,
+    client: &RegistryClient<'_>,
+    dns_pin: Option<DnsPin>,
+) -> Result<Option<String>, ArtifactError> {
+    let url = registry_url(&registry.base, encoded)?;
+    let authorization = registry.authorization_for(&url);
+    let times = client
+        .json_view(
+            ArtifactType::Npm,
+            url,
+            true,
+            authorization,
+            dns_pin,
+            JSON,
+            time_view,
+        )
+        .await?;
+    Ok(times.as_ref().and_then(|times| publish_date(times, version)))
+}
+
+/// The date part of `version`'s publish instant in a packument `time` map.
+fn publish_date(times: &Value, version: &str) -> Option<String> {
+    let stamp = times.get(version)?.as_str()?;
+    // npm states UTC instants (`2015-08-24T13:56:27.000Z`): the date part.
+    let (date, clock) = (stamp.get(..10)?, stamp.get(10..)?);
+    let shaped = date.bytes().enumerate().all(|(index, byte)| match index {
+        4 | 7 => byte == b'-',
+        _ => byte.is_ascii_digit(),
+    }) && clock.starts_with('T');
+    shaped.then(|| date.to_owned())
+}
+
+/// The `time` map of a full packument (version → publish instant); the
+/// version manifests are skipped, never built into values.
+fn time_view(body: &[u8]) -> Option<Value> {
+    #[derive(serde::Deserialize)]
+    struct Times {
+        #[serde(default)]
+        time: serde_json::Map<String, Value>,
+    }
+    let times: Times = serde_json::from_slice(body).ok()?;
+    Some(Value::Object(times.time))
 }
 
 /// `{versions: [...], latest}` of an abbreviated packument body, versions

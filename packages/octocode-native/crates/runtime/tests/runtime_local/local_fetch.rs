@@ -98,3 +98,52 @@ async fn local_fetch_redacted_content_is_marked_not_verbatim() {
     support::checks::assert_absent(row_data(&outcome), "redactedContent");
     runtime.close().await;
 }
+
+/// A read of a glob path names no file: its recovery lists the directory and
+/// never searches for files literally named `*.<ext>`.
+#[tokio::test]
+async fn a_glob_path_read_lists_the_directory_and_no_literal_wildcard_name() {
+    let workspace = Workspace::new();
+    workspace.write("w/a.md", "a\n");
+    let runtime = workspace.runtime(&[]);
+    let outcome = call(
+        &runtime,
+        "localFetch",
+        query_path(&workspace.workspace.join("w/*.md"), json!({})),
+    )
+    .await
+    .expect("typed missing row");
+    let data = row_data(&outcome);
+    assert_eq!(data["errorCode"], "pathNotFound", "{data}");
+    let text = outcome.structured_content.to_string();
+    assert!(
+        text.contains("\"tree\""),
+        "the directory listing stays: {text}"
+    );
+    assert!(!text.contains("[*]"), "no literal wildcard search: {text}");
+    runtime.close().await;
+}
+
+/// A missing path whose related[] already lists the parent carries no hint
+/// that only says "list the parent": the typed call is the recovery.
+#[tokio::test]
+async fn a_missing_path_with_a_related_listing_carries_no_restating_hint() {
+    let workspace = Workspace::new();
+    workspace.write("w/a.md", "a\n");
+    let runtime = workspace.runtime(&[]);
+    let outcome = call(
+        &runtime,
+        "localFetch",
+        query_path(&workspace.workspace.join("w/missing.md"), json!({})),
+    )
+    .await
+    .expect("typed missing row");
+    let data = row_data(&outcome);
+    assert_eq!(data["errorCode"], "pathNotFound", "{data}");
+    assert!(
+        data["related"].as_array().is_some_and(|r| !r.is_empty()),
+        "{data}"
+    );
+    assert!(data.get("hints").is_none(), "{data}");
+    runtime.close().await;
+}

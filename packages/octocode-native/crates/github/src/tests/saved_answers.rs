@@ -353,3 +353,56 @@ async fn a_saved_body_past_the_calls_limit_answers_nothing() {
     let refused = transport.execute(spec(), &small).await.unwrap_err();
     assert_eq!(refused.kind, ProviderErrorKind::ResponseTooLarge);
 }
+
+/// RV-GH R2-L1 (M1's `record_page` arm): a file read the ordinary way is
+/// saved; the same commit-pinned read kept by its caller is then answered
+/// from that saved answer, unasked, and that reused body is not the
+/// request's evidence either: the caller's copy is its only store.
+#[tokio::test]
+async fn a_saved_answer_reused_by_a_read_its_caller_keeps_is_not_evidence() {
+    let server = MockServer::builder().start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/one.rs"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("etag", "\"v1\"")
+                .set_body_json(serde_json::json!({
+                    "type": "file", "encoding": "base64", "content": STANDARD.encode("body\n")
+                })),
+        )
+        .mount(&server)
+        .await;
+    let (transport, _, memory) = keeping(&server);
+    let provider = GitHubProvider::new(transport);
+    let file = ContentRequest {
+        owner: "a".into(),
+        repo: "b".into(),
+        path: "one.rs".into(),
+        reference: Some(sha.into()),
+    };
+    provider
+        .get_file_bytes(&file, &request("reuse"))
+        .await
+        .expect("an ordinary read");
+    assert_eq!(memory.len(), 1, "the ordinary read is saved");
+    let kept = request("reuse");
+    let read = provider
+        .get_file_bytes_kept_by_caller(&file, &kept)
+        .await
+        .expect("a read its caller keeps");
+    assert_eq!(read.bytes, &b"body\n"[..]);
+    assert_eq!(
+        requests(&server).await.len(),
+        1,
+        "the kept read was answered by the saved answer, unasked"
+    );
+    let bodies: usize = kept
+        .evidence()
+        .answers
+        .iter()
+        .filter(|answer| answer.request.contains("/contents/"))
+        .map(|answer| answer.body.len())
+        .sum();
+    assert_eq!(bodies, 0, "{:?}", kept.evidence().answers);
+}

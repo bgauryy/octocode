@@ -103,3 +103,8 @@ pub(super) fn push(out: &mut Vec<Finding>, draft: Draft<'_>) {
 pub(super) fn note(notes: &mut Vec<Value>, detector: &str, reason: &str) {
     notes.push(json!({"detector": detector, "skipped": reason}));
 }
+
+/// One note for files several detectors skip for the same reason.
+pub(super) fn note_detectors(notes: &mut Vec<Value>, detectors: &[&str], reason: &str) {
+    notes.push(json!({"detectors": detectors, "skipped": reason}));
+}

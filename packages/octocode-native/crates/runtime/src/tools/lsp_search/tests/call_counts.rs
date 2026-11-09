@@ -40,7 +40,10 @@ async fn builtin_lib_callees_are_listed_not_counted() {
         "symbolName": "foo", "line": 1
     }));
     let mut row = serde_json::json!({"status": "hasResults", "operation": "callees", "items": []});
-    mark_truncation(&mut row, &q, &[(Expansion::OutgoingCalls, &walk)]);
+    let paths =
+        crate::policy::path::PathPolicy::new(crate::policy::path::PathPolicyConfig::default())
+            .expect("path policy");
+    mark_truncation(&mut row, &q, &[(Expansion::OutgoingCalls, &walk)], &paths);
     assert!(row.get("warnings").is_none(), "{row}");
     assert_eq!(row["builtinLib"], serde_json::json!(walk.builtin_lib));
     // A container (`detail`) qualifies the name.

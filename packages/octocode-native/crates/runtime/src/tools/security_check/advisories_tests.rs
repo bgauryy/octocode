@@ -526,6 +526,19 @@ async fn an_osv_failure_for_one_advisory_keeps_github_rows_and_names_the_unread_
     assert_eq!(osv["status"], "partial", "{data}");
     let why = osv["why"].as_str().unwrap_or_default();
     assert!(why.contains(&failing) && !why.contains(&read), "{data}");
+    let why_once = |data: &Value, why: &str| {
+        let repeated = data["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|warning| warning.as_str() == Some(why))
+            .count();
+        assert_eq!(
+            repeated, 0,
+            "the source's why is stated once, on it: {data}"
+        );
+    };
+    why_once(&data, why);
     assert_eq!(data["isPartial"], true, "{data}");
     assert!(
         data["partialReasons"].to_string().contains("sourceFailed"),
@@ -619,4 +632,91 @@ async fn a_repository_row_offers_each_advisory_osv_lacks_with_its_repo() {
         rows.iter().all(|row| row["id"] != json!(first)),
         "OSV's own record needs no repository read: {rows:?}"
     );
+}
+
+/// GitHub's class of a record reaches its row as `githubType`, in the whole
+/// row and the brief one; a class the contract does not name stays out of the
+/// field (ASEC-2).
+#[test]
+fn a_github_record_states_its_class_as_github_type() {
+    let of = |kind: &str| {
+        let advisory: RepositoryAdvisory = serde_json::from_value(json!({
+            "ghsa_id": "GHSA-aaaa-bbbb-cccc", "type": kind,
+            "vulnerabilities": [{"package": {"ecosystem": "npm", "name": "x"},
+                "vulnerable_version_range": "< 2.0.0"}],
+        }))
+        .expect("advisory");
+        row(&advisory, &Selection::All).expect("row")
+    };
+    for kind in ["reviewed", "unreviewed", "malware"] {
+        let advisory = of(kind);
+        assert_eq!(advisory.github_type.as_deref(), Some(kind));
+        assert_eq!(advisory.brief()["githubType"], kind);
+        assert_eq!(
+            serde_json::to_value(&advisory).expect("row")["githubType"],
+            kind
+        );
+    }
+    assert_eq!(of("something else").github_type, None);
+}
+
+/// The repository row counts only published advisories GitHub has not
+/// withdrawn, and says how many it withdrew (check C D3).
+#[tokio::test]
+async fn a_repository_row_never_counts_a_withdrawn_advisory_as_published() {
+    let mut listed = recorded_advisories(1);
+    listed[0].withdrawn_at = Some("2025-12-02T15:11:19Z".into());
+    let total = listed.len();
+    let github = Double::repo(found()).page(None, listed, None);
+    let http = RouteHttp::new();
+    let (budget, reused) = (test_budget(), ReusedSince::default());
+    let config = crate::tools::security_check::tests::default_config();
+    let data = crate::tools::security_check::repository::run(
+        "lodash/lodash",
+        None,
+        serde_json::Map::new(),
+        &net(&http, &budget, &reused, &config, &github),
+    )
+    .await
+    .expect("row");
+    let answer = data["answer"].as_str().unwrap_or_default();
+    let live = total - 1;
+    let expected = if live == 1 {
+        "1 published repository advisory; 1 withdrawn, not counted.".to_owned()
+    } else {
+        format!("{live} published repository advisories; 1 withdrawn, not counted.")
+    };
+    assert!(answer.ends_with(&expected), "{answer}");
+}
+
+/// A withdrawn duplicate that shares its CVE with a live repository advisory
+/// is one advisory with it: counted once, as published.
+#[tokio::test]
+async fn a_withdrawn_duplicate_never_hides_a_live_repository_advisory() {
+    let mut listed = recorded_advisories(1);
+    listed.truncate(1);
+    let mut duplicate = listed[0].clone();
+    duplicate.ghsa_id = "GHSA-dupl-xxxx-wwww".into();
+    duplicate.withdrawn_at = Some("2025-12-02T15:11:19Z".into());
+    listed.push(duplicate);
+    let github = Double::repo(found()).page(None, listed, None);
+    let http = RouteHttp::new();
+    let (budget, reused) = (test_budget(), ReusedSince::default());
+    let config = crate::tools::security_check::tests::default_config();
+    let data = crate::tools::security_check::repository::run(
+        "lodash/lodash",
+        None,
+        serde_json::Map::new(),
+        &net(&http, &budget, &reused, &config, &github),
+    )
+    .await
+    .expect("row");
+    let answer = data["answer"].as_str().unwrap_or_default();
+    assert!(
+        answer.ends_with("1 published repository advisory."),
+        "{answer}"
+    );
+    let rows = data["advisories"].as_array().expect("advisories");
+    assert_eq!(rows.len(), 1, "{data}");
+    assert!(rows[0].get("withdrawn").is_none(), "{data}");
 }

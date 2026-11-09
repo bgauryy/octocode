@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
+mod across_rows;
 mod failures;
 mod gating;
 pub(crate) mod github_withheld;
@@ -14,6 +15,7 @@ mod judgments;
 mod long_context;
 mod pages;
 mod readiness;
+mod resources;
 mod sanitization;
 mod sources;
 mod stubbed_rows;

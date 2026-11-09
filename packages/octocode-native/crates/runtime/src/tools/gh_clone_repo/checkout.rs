@@ -1,8 +1,8 @@
 //! A fresh checkout: stage the commit, verify it, publish it as an output.
 use super::plan::{Checkout, Plan};
-use super::{CloneError, CloneResult, Sparse, git, policy_denied, recovery, storage};
+use super::{CloneContext, CloneError, CloneResult, Sparse, git, policy_denied, recovery, storage};
 use octocode_contract_types::ErrorCode;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// The checkout already published at `clone_dir` (whose lock the caller
 /// holds), when it is still exactly the commit `reference`: the destination
@@ -15,10 +15,12 @@ pub(super) fn reuse_checkout(
     reference: &str,
     clone_dir: &Path,
 ) -> Result<Option<CloneResult>, CloneError> {
-    if !clone_dir.is_dir() {
+    let context = plan.context;
+    // Only a linked worktree of the shared store is reusable: any other
+    // checkout is replaced when clean, as a differing one is.
+    if !clone_dir.is_dir() || !storage::is_store_worktree(&context.config.home, clone_dir) {
         return Ok(None);
     }
-    let context = plan.context;
     // The checks read one checkout and none depends on another: they run
     // together. A checkout that is not exactly the commit is not reusable.
     let Some(inspection) = git::inspect_checkout(
@@ -58,8 +60,11 @@ pub(super) fn reuse_checkout(
     Ok(Some(result))
 }
 
-/// Check out `reference` into a stage, verify it, and publish it as the
-/// destination `clone_dir`, whose lock the caller holds.
+/// Check out `reference` as a worktree stage of the shared store, verify it,
+/// and publish it as the destination `clone_dir`, whose lock the caller
+/// holds. The store's lock is held from here until the stage is published or
+/// discarded: the store's config, shallow boundaries and worktree list are
+/// shared by every row of the repository.
 pub(super) fn fresh_clone(
     plan: &Plan<'_>,
     reference: &str,
@@ -69,10 +74,15 @@ pub(super) fn fresh_clone(
     if clone_dir.exists() && !git::safe_to_replace(context, clone_dir, reference)? {
         return Err(dirty_checkout(clone_dir));
     }
+    let key = plan.store_key(reference);
+    let _store_lock = storage::CloneLock::acquire(&key.anchor(), context)?;
     let stage = storage::stage_dir(&context.config.home, clone_dir)?;
-    let published = checkout_stage(plan, reference, &stage).and_then(|(commit_sha, withheld)| {
-        publish_stage(plan, &stage, &commit_sha, withheld, clone_dir)
-    });
+    let published =
+        checkout_stage(plan, reference, &key, &stage).and_then(|(store, commit_sha, withheld)| {
+            let checkout = publish_stage(plan, &store, &stage, &commit_sha, withheld, clone_dir)?;
+            retire_old_stores(context, &key, &store);
+            Ok(checkout)
+        });
     let checkout = published.inspect_err(|_| discard_stage(&stage))?;
     context
         .path_policy
@@ -86,6 +96,7 @@ pub(super) fn fresh_clone(
 /// Publish a verified stage as the destination `clone_dir` after verification.
 fn publish_stage(
     plan: &Plan<'_>,
+    store: &Path,
     stage: &Path,
     commit_sha: &str,
     withheld: Vec<String>,
@@ -104,7 +115,12 @@ fn publish_stage(
         return Err(dirty_checkout(clone_dir));
     }
     storage::record_completion(stage)?;
-    storage::promote(stage, clone_dir)?;
+    storage::promote(stage, clone_dir, || {
+        // The destination it replaced, now moved aside, may have been a
+        // worktree of this store: git refuses to move onto a registered one.
+        git::prune_worktrees(context, store)?;
+        git::move_worktree(context, store, stage, clone_dir)
+    })?;
     Ok(checkout)
 }
 
@@ -114,18 +130,37 @@ fn publish_stage(
 fn checkout_stage(
     plan: &Plan<'_>,
     reference: &str,
+    key: &storage::StoreKey,
     stage: &Path,
-) -> Result<(String, Vec<String>), CloneError> {
+) -> Result<(PathBuf, String, Vec<String>), CloneError> {
     let context = plan.context;
     let sparse_paths = plan.sparse.as_ref().map(Sparse::paths);
-    let withheld = git::checkout(
-        context,
-        &plan.repository_url,
-        reference,
-        sparse_paths,
-        plan.depth,
-        stage,
-    )?;
+    let materialize = |store: &Path| {
+        git::checkout(
+            context,
+            &plan.repository_url,
+            store,
+            reference,
+            sparse_paths,
+            plan.depth,
+            stage,
+        )
+    };
+    // A store that already holds a blob this checkout withholds is never
+    // cleaned in place: worktrees may still use it. A new generation is.
+    let mut store = key.current();
+    let withheld = match materialize(&store)? {
+        Some(withheld) => withheld,
+        None => {
+            store = key.next_dir();
+            materialize(&store)?.ok_or_else(|| {
+                CloneError::new(
+                    ErrorCode::GitFailed,
+                    "A fresh store already holds credential-named files this checkout withholds; nothing was cloned.",
+                )
+            })?
+        }
+    };
     if let Some(paths) = sparse_paths {
         let missing = paths
             .iter()
@@ -143,7 +178,28 @@ fn checkout_stage(
             format!("Checkout HEAD {commit_sha} does not match requested commit {reference}."),
         ));
     }
-    Ok((commit_sha, withheld))
+    Ok((store, commit_sha, withheld))
+}
+
+/// Remove the older generations of the store `key` once no worktree uses
+/// them (a crashed row's stage is removed first): after pruning the ones whose directories are gone, a store with no
+/// worktree left holds nothing a checkout needs. One that cannot be pruned
+/// stays.
+fn retire_old_stores(context: &CloneContext<'_>, key: &storage::StoreKey, current: &Path) {
+    // A crashed row's stage keeps its generation in use until it is gone.
+    storage::remove_crashed_stages(&context.config.home);
+    for generation in key.generations() {
+        let store = key.dir(generation);
+        if store != current
+            && git::prune_worktrees(context, &store).is_ok()
+            && storage::has_no_worktrees(&store)
+        {
+            storage::remove_dir(&store);
+        } else if store == current {
+            // Registrations of the removed stages.
+            let _ = git::prune_worktrees(context, &store);
+        }
+    }
 }
 
 /// Whether `path` (a requested sparse path) is a withheld file or holds one:
@@ -178,7 +234,7 @@ fn checked_out(stage: &Path, path: &str) -> bool {
 pub(super) fn dirty_checkout(path: &Path) -> CloneError {
     CloneError {
         hints: vec![
-            "Move your edits out of this managed checkout, restore it to clean, then retry; cloning never discards local files.".into(),
+            "Move your edits out of this managed checkout, restore it to clean, then retry; cloning never discards local files. If its shared store was deleted, git cannot read it: delete the directory to have it cloned again.".into(),
         ],
         ..CloneError::new(
             ErrorCode::CheckoutDirty,

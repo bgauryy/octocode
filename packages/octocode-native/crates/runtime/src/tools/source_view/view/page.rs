@@ -24,16 +24,22 @@ pub(super) struct CutPage<'a> {
     /// scope notes (a long-line byte walk) judge it, not the cut.
     pub(super) read: &'a LocalFetchQuery,
     scanned: ScannedPage,
+    /// What the page's lines were cut to: a refit of a row wider than its
+    /// share counts its lines the same way.
+    pub(super) budget: super::super::pagination::LineBudget,
 }
 
 /// Cut the returned page from the view. A complete view over the limit
-/// returns its first bounded page inline.
+/// returns its first bounded page inline. A line page's lines take `fill`
+/// response characters at most, as they render (`None`: the row's whole
+/// share, or the fallback page without one).
 pub(super) fn cut_page<'a>(
     q: &'a LocalFetchQuery,
     view: &View,
     ext: &super::super::extraction::Extraction,
     source: &Source<'_>,
     facts: &SourceFacts,
+    fill: Option<usize>,
 ) -> Result<CutPage<'a>, Box<LocalFetchResult>> {
     let asked = q;
     let q = std::borrow::Cow::Borrowed(q);
@@ -68,13 +74,20 @@ pub(super) fn cut_page<'a>(
             Some(selected) => SourceLines::of_selected_gutter(&view.text, selected),
         })
         .flatten();
-    // A line page takes up to the row's whole share (`fill`); a line longer
-    // than the byte budget (`line`) reads in byte pages.
+    // A line page's lines take `fill`, counted as they render: escapes and
+    // the gutter the response adds to a numbered view. The first cut takes
+    // the row's whole share; the row's measured skeleton then refits it
+    // (`view::render`), so the row as published fits its share. A line
+    // longer than the byte budget (`line`) reads in byte pages.
+    let numbered = matches!(view.mode, None | Some(ReadView::Content));
     let budget = super::super::pagination::LineBudget {
-        fill: facts
-            .window
-            .map_or(line_page_bytes, |share| share.max(line_page_bytes)),
+        fill: fill.unwrap_or(facts.window.unwrap_or(line_page_bytes)),
         line: line_page_bytes,
+        gutter: if numbered {
+            gutter_chars(facts.file_lines.unwrap_or(source.total_lines))
+        } else {
+            0
+        },
     };
     let window = PageWindow {
         query: page_q,
@@ -93,7 +106,14 @@ pub(super) fn cut_page<'a>(
         asked,
         read: asked,
         scanned,
+        budget,
     })
+}
+
+/// The characters a line's gutter (`<line>\t`, the tab escaped) takes at most
+/// in a source of `total_lines` lines.
+fn gutter_chars(total_lines: usize) -> usize {
+    total_lines.max(1).to_string().len() + 2
 }
 
 /// A byte offset of `q` inside `view` that no window of it ends at: inside
@@ -140,6 +160,7 @@ pub(super) fn page_result(
         asked,
         read,
         scanned,
+        budget: _,
     } = cut;
     let q = q.as_ref();
     let mut warnings = source.warnings.clone();

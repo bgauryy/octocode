@@ -221,3 +221,41 @@ fn large_indexes_clone_whole_repositories_and_sparse_trees_without_exposing_syml
         assert_eq!(replaced.location.symlinks, cloned.location.symlinks);
     }
 }
+
+/// Two rows of one repository with different sparse sets, at once, share
+/// one store: one init, and the commit is fetched once.
+#[test]
+fn concurrent_sparse_rows_of_one_repository_share_one_store() {
+    let fixture = Fixture::shared();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let barrier = Barrier::new(2);
+    let rows = std::thread::scope(|scope| {
+        let workers = ["README.md", "src/lib.rs"].map(|path| {
+            let (fixture, runner, config) = (&fixture, &runner, &config);
+            let (endpoint, policy, barrier) = (&endpoint, &policy, &barrier);
+            scope.spawn(move || {
+                let context = setup(runner, config, endpoint, policy, &NeverCancel, None);
+                barrier.wait();
+                clone_pinned(
+                    fixture,
+                    &GhCloneRepoQuery {
+                        paths: one(path),
+                        ..query()
+                    },
+                    &context,
+                )
+            })
+        });
+        workers.map(|worker| worker.join().expect("worker"))
+    });
+    for row in rows {
+        assert!(Path::new(&row.expect("concurrent row").location.local_path).is_dir());
+    }
+    assert_eq!(store_dirs(&home).len(), 1, "{:?}", store_dirs(&home));
+    assert_eq!(steps(&runner, "initialize shared store"), 1);
+    assert_eq!(steps(&runner, "fetch requested commit"), 1);
+}

@@ -224,9 +224,17 @@ fn searched(question: &Question, route: Option<&Route>) -> Option<Proof> {
             [program] => which::which_in(program, path_var.as_ref(), cwd).ok(),
             _ => None,
         };
-        follow_path_search(&mut inputs, path_var.as_deref(), &programs, found.as_deref());
+        follow_path_search(
+            &mut inputs,
+            path_var.as_deref(),
+            &programs,
+            found.as_deref(),
+        );
     }
-    for program in programs.iter().filter(|program| has_path_separator(program)) {
+    for program in programs
+        .iter()
+        .filter(|program| has_path_separator(program))
+    {
         inputs.follow(PathBuf::from(program));
     }
     if let Some(lookups) = lookups {

@@ -23,8 +23,9 @@ const PIECES: [&str; 14] = [
 const JOINS: [&str; 5] = ["/", "/", "[0]", "[1].", "\\"];
 
 /// What follows a path's last word up to the value: the operator and what a
-/// rule reads after it (a type, a fallback read, an opening quote).
-const TAILS: [&str; 12] = [
+/// rule reads after it (a type, a fallback read, an opening quote, a prefix
+/// that interpolates the literal's holes).
+const TAILS: [&str; 15] = [
     ": ",
     "=",
     " = ",
@@ -37,9 +38,12 @@ const TAILS: [&str; 12] = [
     " : ",
     "=r#\"",
     ": Bearer ",
+    " = f'",
+    ": $\"",
+    "=rf\"",
 ];
 
-const SECRETS: [&str; 9] = [
+const SECRETS: [&str; 11] = [
     "Zq7xK2mPlanted9",
     "a b",
     "abc/def.rs",
@@ -49,6 +53,8 @@ const SECRETS: [&str; 9] = [
     "Correct Horse 9",
     "quoted-literal-12345678",
     "/run/secrets/db",
+    "{base}_{suffix}_value_x",
+    "{{Zq7xK2mPlanted9abc}}",
 ];
 
 /// Where each key of `path` starts: its words, which `/`, `[` and `]` end.

@@ -5,15 +5,16 @@ use crate::response::result::canonical_tests::{Sampled, variants};
 use crate::tools::judgment::Evaluator;
 
 /// A reader that only answers what keying asks of one: its path policy and
-/// its input security. Any other service is a test bug.
-struct Keying {
+/// its input security (and a glob's expansion, its path policy). Any other
+/// service is a test bug.
+pub(super) struct Keying {
     paths: PathPolicy,
     security: ContentSecurity,
-    _root: tempfile::TempDir,
+    dir: tempfile::TempDir,
 }
 
 impl Keying {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let root = tempfile::tempdir().expect("workspace");
         let paths = PathPolicy::new(PathPolicyConfig {
             workspace_root: Some(root.path().canonicalize().expect("canonical")),
@@ -23,8 +24,13 @@ impl Keying {
         Self {
             paths,
             security: ContentSecurity::new(),
-            _root: root,
+            dir: root,
         }
+    }
+
+    /// The workspace root the policy admits.
+    pub(super) fn root(&self) -> &Path {
+        self.dir.path()
     }
 }
 

@@ -25,7 +25,7 @@ fn settled_match_memo_observes_empty_directories_and_ignore_edits() {
             &security,
         );
         assert_eq!(first["matchCount"], 2, "ignore={ignore_name:?}: {first}");
-        let snapshot = first["snapshot"].as_str().expect("snapshot");
+        let snapshot = crate::tools::test_support::pinned_snapshot(&first).as_str().expect("snapshot");
         // A repository scan is stored like any other: its rules are watched.
         assert!(SCANS.holds(snapshot), "stored: {ignore_name:?}");
         let next = first["next"]["nextPage"]["input"]["queries"][0].clone();

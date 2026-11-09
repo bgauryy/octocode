@@ -245,6 +245,7 @@ impl Operation<'_, '_> {
         }
         super::super::server_coverage::workspace_symbols(
             &mut row,
+            query,
             &name,
             self.scope,
             document_anchor.as_deref(),

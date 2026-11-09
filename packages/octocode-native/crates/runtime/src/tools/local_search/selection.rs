@@ -30,6 +30,11 @@ pub(super) struct Selected {
     /// selection.
     rows_before: usize,
     rows_kept: usize,
+    /// Files with a hit before selection, and of them the files this page
+    /// judged every hit of and kept none: `next.unfiltered` alone lists
+    /// those (a file with a hit left to judge waits for its candidate page).
+    files_before: usize,
+    files_dropped: usize,
     /// The provider's error when it failed this page: the hits are shown
     /// unfiltered under an `unavailable` receipt.
     provider: Option<ProviderError>,
@@ -279,16 +284,26 @@ pub(super) fn select_hits(
     // Unjudged hits are unknown: the undecided view reads them as they are,
     // the next candidate page judges them.
     let (mut rows_total, mut rows_before, mut lines_removed) = (0usize, 0usize, 0usize);
+    let files_before = parsed
+        .files
+        .iter()
+        .filter(|file| !file.matches.is_empty())
+        .count();
     let mut kept = Vec::with_capacity(parsed.files.len());
     let mut ordinal = 0usize;
+    let mut files_dropped = 0usize;
     for (mut file, hits) in std::mem::take(&mut parsed.files).into_iter().zip(file_hits) {
         rows_total += file.matches.len();
         let lines_before = distinct_lines(&file);
+        let had_hits = !file.matches.is_empty();
         let mut keep = vec![false; file.matches.len()];
+        let mut judged_all = true;
         for index in hits {
             // A hit outside this candidate page's pool was judged (and shown,
             // or left to its unfiltered route) by an earlier one.
-            if outcome.considers(ordinal) && !unjudged.contains(&ordinal) {
+            let judged = outcome.considers(ordinal) && !unjudged.contains(&ordinal);
+            judged_all &= judged;
+            if judged {
                 rows_before += 1;
                 match decisions[ordinal] {
                     Decision::Selected => keep[index] = true,
@@ -302,6 +317,9 @@ pub(super) fn select_hits(
         let mut flags = keep.into_iter();
         file.matches.retain(|_| flags.next().unwrap_or(false));
         lines_removed += lines_before - distinct_lines(&file);
+        if had_hits && file.matches.is_empty() && judged_all {
+            files_dropped += 1;
+        }
         if !file.matches.is_empty() {
             file.match_count = saturating_u32(file.matches.len());
             kept.push(file);
@@ -309,16 +327,19 @@ pub(super) fn select_hits(
     }
     parsed.files = kept;
     let rows_kept = parsed.files.iter().map(|file| file.matches.len()).sum();
+    let files_kept = parsed.files.len();
     recount(
         query,
         &mut parsed.stats,
         rows_total - rows_kept,
-        lines_removed,
+        (lines_removed, files_before - files_kept),
     );
     Ok(Some(Selected {
         outcome,
         rows_before,
         rows_kept,
+        files_before,
+        files_dropped,
         provider,
     }))
 }

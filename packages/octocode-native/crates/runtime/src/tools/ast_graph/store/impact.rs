@@ -11,11 +11,17 @@
 //!   `candidate`: listed, since it may reach the name, but neither proven
 //!   affected nor expanded as if its whole module changed.
 //!
+//! A Rust module's parent (`mod x;`, a `contains` edge of detail `module`)
+//! is reached as an unexpanded candidate that walks on only up its own
+//! module chain: a library's crate root is named among the affected
+//! entrypoints, while the parent's other importers are not implied.
+//!
 //! Each affected file carries its distance, the edge that reached it, and the
 //! weakest edge confidence along that path. Manifest, lockfile, and compiler
 //! config changes affect every file below their directory.
 use super::super::classify::{ROLE_ENTRY, ROLE_TEST, role_names};
 use super::format::{Confidence, EdgeKind, FLAG_TEST, GraphTables, NONE, NodeKind};
+use super::tables::MODULE_DETAIL;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -35,6 +41,9 @@ struct Reach {
     /// it binds no linked name of the changed module, so it is listed as
     /// a candidate and not expanded.
     candidate: bool,
+    /// Reached only as the parent that declares a changed module: a
+    /// candidate that walks on only up its own module chain.
+    module_only: bool,
 }
 
 pub(crate) struct Impact {
@@ -101,6 +110,7 @@ impl<'t> Propagation<'t> {
                 via: None,
                 types_only: false,
                 candidate: false,
+                module_only: false,
             });
             self.queue.push_back(id);
         }
@@ -227,7 +237,7 @@ impl<'t> Propagation<'t> {
             let Some(current) = self.reach[id as usize] else {
                 continue;
             };
-            if current.candidate {
+            if current.candidate && !current.module_only {
                 continue;
             }
             if current.depth >= max_depth {
@@ -235,6 +245,9 @@ impl<'t> Propagation<'t> {
                 continue;
             }
             for step in self.dependents(id) {
+                if current.module_only && !self.declares_module(&step) {
+                    continue;
+                }
                 self.visit(id, current, step);
             }
         }
@@ -264,7 +277,10 @@ impl<'t> Propagation<'t> {
                     node.kind == NodeKind::File
                         && (self.whole[id as usize] || !self.binds(edge.src, id, edge.line))
                 }
-                EdgeKind::Contains => false,
+                // The parent module that declares this file (`mod x;`).
+                EdgeKind::Contains => {
+                    node.kind == NodeKind::File && t.str(edge.detail) == MODULE_DETAIL
+                }
             };
             if admit {
                 next.push(Step {
@@ -290,20 +306,29 @@ impl<'t> Propagation<'t> {
         next
     }
 
+    /// Whether `step` is a parent module's `mod x;` declaration.
+    fn declares_module(&self, step: &Step) -> bool {
+        step.kind == EdgeKind::Contains
+            && step.detail != NONE
+            && self.t.str(step.detail) == MODULE_DETAIL
+    }
+
     fn visit(&mut self, id: u32, current: Reach, step: Step) {
         let t = self.t;
         let src = step.src;
+        let module = self.declares_module(&step);
         let crosses = self.component_dir.get(&t.nodes[src as usize].file)
             != self.component_dir.get(&t.nodes[id as usize].file);
         // Under symbol precision a file not changed whole reaches its
         // importer only by module: an unbound import, or a namespace/glob
         // `uses` of the file itself.
-        let candidate = self.symbol_precision
-            && t.nodes[id as usize].kind == NodeKind::File
-            && !self.whole[id as usize]
-            && matches!(step.kind, EdgeKind::Imports | EdgeKind::Uses);
+        let candidate = module
+            || (self.symbol_precision
+                && t.nodes[id as usize].kind == NodeKind::File
+                && !self.whole[id as usize]
+                && matches!(step.kind, EdgeKind::Imports | EdgeKind::Uses));
         let reached = Reach {
-            depth: if step.kind == EdgeKind::Contains {
+            depth: if step.kind == EdgeKind::Contains && !module {
                 current.depth
             } else {
                 current.depth + 1
@@ -313,6 +338,7 @@ impl<'t> Propagation<'t> {
             via: Some((id, step.kind, step.detail)),
             types_only: current.types_only || step.types_only,
             candidate,
+            module_only: module,
         };
         let slot = &mut self.reach[src as usize];
         // Proven reach outranks a candidate at any depth.

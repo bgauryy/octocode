@@ -13,6 +13,10 @@ pub(super) enum Prefilter {
     /// Union of literals from `any:` branches; searched as a regex alternation.
     /// A file must contain at least one to match any alternative — sound prefilter.
     Union(Vec<String>),
+    /// Groups a file must each hold a literal of (an AND of ORs): one per
+    /// necessary literal of a pattern, one union per `any`. Two or more
+    /// groups; one group is [`Self::Single`] or [`Self::Union`].
+    All(Vec<Vec<String>>),
 }
 
 pub(super) struct StructuralQuery<'a> {
@@ -46,31 +50,69 @@ impl<'a> StructuralQuery<'a> {
         self.rule.is_some()
     }
 
-    /// Returns the full prefilter descriptor for the text candidate-selection step.
+    /// Returns the full prefilter descriptor for the text candidate-selection
+    /// step: every group of literals the query requires.
     pub(super) fn prefilter(&self) -> Prefilter {
-        self.anchors(AnchorUse::Prefilter)
+        self.required(AnchorUse::Prefilter, Reach::File)
+            .map_or(Prefilter::None, |required| prefilter_of(required.groups))
     }
 
     /// The literals a match must contain, read to find where it could sit
     /// ([`AnchorUse::Recovery`]).
     pub(super) fn recovery_anchors(&self) -> Option<Vec<String>> {
-        match self.anchors(AnchorUse::Recovery) {
-            Prefilter::None => None,
-            Prefilter::Single(anchor) => Some(vec![anchor]),
-            Prefilter::Union(anchors) => Some(anchors),
-        }
+        self.narrowest(AnchorUse::Recovery)
     }
 
-    fn anchors(&self, anchor_use: AnchorUse) -> Prefilter {
+    /// The literals one of which a macro body must hold to be re-parsed
+    /// ([`AnchorUse::Prefilter`] safety). A pattern gives its own required
+    /// literals. A rule gives the [`Reach::Node`] literals of the rule
+    /// itself (what a node's own text must spell, with no literal read from
+    /// an `inside`, `follows` or `precedes` neighbour), plus those of every
+    /// rule a `has` tests anywhere in it (`has_targets`: under
+    /// `not`, `any`, `all`, another relation, a stop rule or a nested `has`),
+    /// each taken on its own: a `has` target may match inside a body below a
+    /// node matched outside it. The anchors are all those literals, sorted
+    /// and deduplicated. `None` (every body is re-parsed) when the pattern,
+    /// the rule or any one `has` target needs no literal, or when the query
+    /// is neither a pattern nor a rule that decodes.
+    pub(super) fn macro_anchors(&self) -> Option<Vec<String>> {
+        let groups = match (self.pattern, self.rule) {
+            (Some(pattern), _) => pattern_required(pattern, AnchorUse::Prefilter)?.groups,
+            (_, Some(_)) => {
+                let rule = self.parsed_rule().ok()?;
+                let mut groups = Vec::new();
+                for tested in std::iter::once(rule).chain(rule.has_targets()) {
+                    groups.extend(rule_required(tested, AnchorUse::Prefilter, Reach::Node)?.groups);
+                }
+                groups
+            }
+            _ => return None,
+        };
+        let mut anchors: Vec<String> = groups.into_iter().flatten().collect();
+        anchors.sort();
+        anchors.dedup();
+        Some(anchors)
+    }
+
+    /// The one group a reader looks for a match by: the narrowest
+    /// requirement, sorted.
+    fn narrowest(&self, anchor_use: AnchorUse) -> Option<Vec<String>> {
+        self.required(anchor_use, Reach::File).map(|required| {
+            let mut anchors = required.narrowest;
+            anchors.sort();
+            anchors.dedup();
+            anchors
+        })
+    }
+
+    fn required(&self, anchor_use: AnchorUse, reach: Reach) -> Option<Required> {
         match (self.pattern, self.rule) {
-            (Some(pattern), _) => match derive_literal_anchor(pattern, anchor_use) {
-                Some(anchor) => Prefilter::Single(anchor.to_owned()),
-                None => Prefilter::None,
-            },
+            (Some(pattern), _) => pattern_required(pattern, anchor_use),
             (_, Some(_)) => self
                 .parsed_rule()
-                .map_or(Prefilter::None, |raw| prefilter_for_rule(raw, anchor_use)),
-            _ => Prefilter::None,
+                .ok()
+                .and_then(|raw| rule_required(raw, anchor_use, reach)),
+            _ => None,
         }
     }
 
@@ -101,6 +143,7 @@ impl<'a> StructuralQuery<'a> {
             Prefilter::None => (None, "disabled".to_owned()),
             Prefilter::Single(s) => (Some((*s).to_owned()), "literal-anchor".to_owned()),
             Prefilter::Union(anchors) => (Some(anchors.join("|")), "union-anchor".to_owned()),
+            Prefilter::All(groups) => (Some(groups_text(groups)), "all-anchors".to_owned()),
         };
 
         StructuralQueryExplanation {
@@ -178,10 +221,56 @@ pub(super) enum AnchorUse {
     Recovery,
 }
 
-fn derive_literal_anchor(pattern: &str, anchor_use: AnchorUse) -> Option<&str> {
-    literal_anchor_candidates(pattern, anchor_use)
-        .into_iter()
-        .max_by_key(|token| token.len())
+/// Where a requirement's literals sit.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    /// Anywhere in the file: every conjunct, an `inside` ancestor's too.
+    File,
+    /// Within the matched node's own text: an `inside` ancestor spans more
+    /// than the match, so its literals may sit outside it.
+    Node,
+}
+
+/// What every match of a query spells.
+struct Required {
+    /// Every group of literals a match holds one of.
+    groups: Vec<Vec<String>>,
+    /// The group with the fewest literals, first found; a pattern's longest
+    /// literal. What a reader looks for one match by.
+    narrowest: Vec<String>,
+}
+
+impl Required {
+    /// A requirement of one group.
+    fn group(anchors: Vec<String>) -> Self {
+        Self {
+            groups: vec![anchors.clone()],
+            narrowest: anchors,
+        }
+    }
+
+    /// Adds `other`'s groups; its narrowest replaces this one only when it
+    /// has fewer literals.
+    fn and(&mut self, other: Self) {
+        self.groups.extend(other.groups);
+        if other.narrowest.len() < self.narrowest.len() {
+            self.narrowest = other.narrowest;
+        }
+    }
+}
+
+/// Each safe literal of `pattern` is necessary: one group per literal, and
+/// the longest (the last of equal length) is the narrowest.
+fn pattern_required(pattern: &str, anchor_use: AnchorUse) -> Option<Required> {
+    let candidates = literal_anchor_candidates(pattern, anchor_use);
+    let longest = candidates.iter().max_by_key(|token| token.len())?;
+    Some(Required {
+        narrowest: vec![(*longest).to_owned()],
+        groups: candidates
+            .iter()
+            .map(|token| vec![(*token).to_owned()])
+            .collect(),
+    })
 }
 
 fn literal_anchor_candidates(pattern: &str, anchor_use: AnchorUse) -> Vec<&str> {
@@ -265,54 +354,110 @@ fn is_safe_anchor_token(token: &str, anchor_use: AnchorUse) -> bool {
             .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
 }
 
-/// Infer necessary file literals from the same parsed rule that compilation uses.
-/// Conjunction may use any proven necessary condition; disjunction needs one
-/// from every branch. A negated matcher never proves a positive file literal.
-fn prefilter_for_rule(raw: &super::octo::RawRule, anchor_use: AnchorUse) -> Prefilter {
-    rule_anchors(raw, anchor_use).map_or(Prefilter::None, |mut anchors| {
-        anchors.sort();
-        anchors.dedup();
-        if anchors.len() == 1 {
-            Prefilter::Single(anchors.remove(0))
-        } else {
-            Prefilter::Union(anchors)
+/// The prefilter of `groups`: sorted, deduplicated, and without a group
+/// that holds every literal of another (the smaller one implies it).
+fn prefilter_of(groups: Vec<Vec<String>>) -> Prefilter {
+    let mut groups: Vec<Vec<String>> = groups
+        .into_iter()
+        .map(|mut group| {
+            group.sort();
+            group.dedup();
+            group
+        })
+        .collect();
+    groups.sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+    groups.dedup();
+    let mut kept: Vec<Vec<String>> = Vec::with_capacity(groups.len());
+    for group in groups {
+        if !kept
+            .iter()
+            .any(|smaller| smaller.iter().all(|anchor| group.contains(anchor)))
+        {
+            kept.push(group);
         }
-    })
+    }
+    match kept.len() {
+        0 => Prefilter::None,
+        1 => {
+            let mut group = kept.remove(0);
+            if group.len() == 1 {
+                Prefilter::Single(group.remove(0))
+            } else {
+                Prefilter::Union(group)
+            }
+        }
+        _ => Prefilter::All(kept),
+    }
 }
 
-fn rule_anchors(rule: &super::octo::RawRule, anchor_use: AnchorUse) -> Option<Vec<String>> {
-    let mut required = Vec::new();
-    if let Some(anchor) = rule
+/// `groups` as the explanation quotes them: `|` inside a group, ` & `
+/// between groups.
+pub(super) fn groups_text(groups: &[Vec<String>]) -> String {
+    groups
+        .iter()
+        .map(|group| group.join("|"))
+        .collect::<Vec<_>>()
+        .join(" & ")
+}
+
+/// Infer necessary file literals from the same parsed rule that compilation
+/// uses. A conjunction (the rule's own matchers, `all`, `has`, `inside`)
+/// needs every child's literals; a disjunction (`any`) needs one from every
+/// branch, so it adds one group: the union of each branch's narrowest. A
+/// negated or positional matcher (`not`, `precedes`, `follows`) and a
+/// `{context, selector}` pattern never prove a file literal. Under
+/// [`Reach::Node`], `inside` adds nothing either.
+fn rule_required(
+    rule: &super::octo::RawRule,
+    anchor_use: AnchorUse,
+    reach: Reach,
+) -> Option<Required> {
+    let mut required: Option<Required> = None;
+    let mut add = |found: Required| match required.as_mut() {
+        Some(required) => required.and(found),
+        None => required = Some(found),
+    };
+    if let Some(found) = rule
         .pattern
         .as_ref()
         .and_then(super::octo::RawPattern::literal)
-        .and_then(|pattern| derive_literal_anchor(pattern, anchor_use))
+        .and_then(|pattern| pattern_required(pattern, anchor_use))
     {
-        required.push(vec![anchor.to_owned()]);
+        add(found);
     }
     if let Some(anchor) = rule.regex.as_deref().and_then(literal_regex) {
-        required.push(vec![anchor.to_owned()]);
+        add(Required::group(vec![anchor.to_owned()]));
     }
     for child in rule
         .all
         .iter()
         .flatten()
         .chain(rule.has.iter().map(Box::as_ref))
-        .chain(rule.inside.iter().map(Box::as_ref))
+        .chain(
+            rule.inside
+                .iter()
+                .filter(|_| reach == Reach::File)
+                .map(Box::as_ref),
+        )
     {
-        if let Some(anchors) = rule_anchors(child, anchor_use) {
-            required.push(anchors);
+        if let Some(found) = rule_required(child, anchor_use, reach) {
+            add(found);
         }
     }
     if let Some(any) = rule.any.as_ref().filter(|rules| !rules.is_empty())
         && let Some(branches) = any
             .iter()
-            .map(|rule| rule_anchors(rule, anchor_use))
+            .map(|rule| rule_required(rule, anchor_use, reach))
             .collect::<Option<Vec<_>>>()
     {
-        required.push(branches.into_iter().flatten().collect());
+        add(Required::group(
+            branches
+                .into_iter()
+                .flat_map(|branch| branch.narrowest)
+                .collect(),
+        ));
     }
-    required.into_iter().min_by_key(Vec::len)
+    required
 }
 
 /// The text a rule `regex` that spells only a literal requires, bare or

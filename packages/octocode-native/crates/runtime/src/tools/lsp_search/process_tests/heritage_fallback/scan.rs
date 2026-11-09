@@ -186,11 +186,10 @@ fn implementation_row(
     })
 }
 
-/// Beside a server answer, the scan's extra implementations are counted
-/// once as a notice (said on page 1 only); the meaning of their `source`
-/// label lives in the contract, not on every page.
+/// Beside a server answer, the scan's extra implementations are stated by
+/// each row's `source` and by `partialReasons`: no notice restates the count.
 #[test]
-fn scan_only_implementations_are_counted_in_a_first_page_notice() {
+fn scan_only_implementations_are_stated_by_source_and_reason_alone() {
     let row = implementation_row("result: []", "implementation", ("b.ts", "Base", 0, 17))
         .unwrap_or_else(|error| panic!("the server answers: {error:?}"));
     assert_eq!(row["isPartial"], true, "{row}");
@@ -200,13 +199,7 @@ fn scan_only_implementations_are_counted_in_a_first_page_notice() {
         "{row}"
     );
     assert!(row.get("warnings").is_none(), "{row}");
-    assert_eq!(
-        row["notices"],
-        serde_json::json!([
-            "2 implementation(s) are source:\"native-graph-facts\" (matched by name)."
-        ]),
-        "{row}"
-    );
+    assert!(row.get("notices").is_none(), "{row}");
 }
 
 /// `implementation` on a type is answered by the same labelled heritage

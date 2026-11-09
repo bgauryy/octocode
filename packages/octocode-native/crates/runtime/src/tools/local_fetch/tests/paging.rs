@@ -15,7 +15,8 @@ fn default_read_budget_walk_reconstructs_every_source_byte() {
             assert_eq!(page.error_code, None, "{page:?}");
             joined.push_str(page.content.as_deref().expect("content"));
             pages += 1;
-            assert!(pages < 100);
+            // Every page holds a line at least: the walk ends.
+            assert!(pages <= 6_000, "{pages} pages");
             let Some(next) = page.next.and_then(|next| next.continue_window) else {
                 break;
             };

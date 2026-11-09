@@ -3,13 +3,14 @@
 
 use std::num::NonZeroU16;
 
-use tree_sitter::{Node, TreeCursor};
+use tree_sitter::Node;
 
 use crate::structural::kinds::near_fields;
 use crate::structural::language::AgLanguage;
 
 use crate::structural::octo::error::CompileError;
-use crate::structural::octo::matching::{CaptureEnv, ExecutionError, ancestors_from_root};
+use crate::structural::octo::expanded::Visit;
+use crate::structural::octo::matching::{CaptureEnv, ExecutionError};
 
 use super::{CompiledRule, Document, RawRule, RawStopBy, RelationMemo, StopKind};
 
@@ -106,13 +107,26 @@ impl Relation {
 
     /// The file's memo when this relation keeps its answers in it.
     fn memo<'d>(&self, document: &Document<'d, '_>) -> Option<&'d RelationMemo> {
-        document
-            .memo
-            .filter(|memo| self.keeps_answers && memo.covers(document.root))
+        document.memo.filter(|_| self.keeps_answers)
     }
 
     fn key(&self) -> usize {
         std::ptr::from_ref(self) as usize
+    }
+
+    /// `candidate`'s ancestor chain followed by `candidate`: the chain a walk
+    /// below it starts from.
+    fn chain_through<'t>(
+        candidate: Node<'t>,
+        ancestors: Option<&[Node<'t>]>,
+        document: &Document<'_, 't>,
+    ) -> Result<Vec<Node<'t>>, ExecutionError> {
+        let mut chain = match ancestors {
+            Some(chain) => chain.to_vec(),
+            None => document.tree.ancestors(candidate, document.deadline)?,
+        };
+        chain.push(candidate);
+        Ok(chain)
     }
 
     /// `has` through every level, from the answers the file's walk holds: a
@@ -121,6 +135,7 @@ impl Relation {
     fn has_below<'t>(
         &self,
         candidate: Node<'t>,
+        ancestors: Option<&[Node<'t>]>,
         document: &Document<'_, 't>,
         memo: &RelationMemo,
         captures: &mut CaptureEnv,
@@ -128,34 +143,37 @@ impl Relation {
         if let Some(known) = memo.get(self.key(), candidate) {
             return Ok(known);
         }
-        // The chain from the candidate to the node being visited, and every
-        // node the walk went below.
-        let mut chain: Vec<Node<'t>> = Vec::new();
+        let chain = Self::chain_through(candidate, ancestors, document)?;
+        // The nodes from the candidate down to a visited node's parent sit
+        // on its chain past `base`.
+        let base = chain.len();
         let mut descended: Vec<Node<'t>> = Vec::new();
         let mut holding: Vec<Node<'t>> = Vec::new();
-        let found = walk_descendants_at(candidate, None, |node, depth| {
-            ExecutionError::check(document.deadline)?;
-            while chain.len() >= depth {
-                chain.pop();
-            }
-            if self.rule.matches(node, None, document, captures)? {
-                holding.extend_from_slice(&chain);
-                return Ok(Visit::Found);
-            }
-            match memo.get(self.key(), node) {
-                Some(true) => {
-                    holding.extend_from_slice(&chain);
-                    holding.push(node);
-                    Ok(Visit::Found)
+        let found = document.tree.walk_below(
+            candidate,
+            chain,
+            None,
+            document.deadline,
+            |node, chain| {
+                let path = &chain[base..];
+                if self.rule.matches(node, Some(chain), document, captures)? {
+                    holding.extend_from_slice(path);
+                    return Ok(Visit::Found);
                 }
-                Some(false) => Ok(Visit::Skip),
-                None => {
-                    chain.push(node);
-                    descended.push(node);
-                    Ok(Visit::Descend)
+                match memo.get(self.key(), node) {
+                    Some(true) => {
+                        holding.extend_from_slice(path);
+                        holding.push(node);
+                        Ok(Visit::Found)
+                    }
+                    Some(false) => Ok(Visit::Skip),
+                    None => {
+                        descended.push(node);
+                        Ok(Visit::Descend)
+                    }
                 }
-            }
-        })?;
+            },
+        )?;
         memo.set(self.key(), candidate, found);
         let (nodes, holds) = if found {
             (holding, true)
@@ -209,9 +227,11 @@ impl Relation {
         Ok(answer)
     }
 
+    /// Whether the walk stops at `node`, whose ancestor chain is `chain`.
     fn stops<'t>(
         &self,
         node: Node<'t>,
+        chain: &[Node<'t>],
         document: &Document<'_, 't>,
         captures: &mut CaptureEnv,
     ) -> Result<bool, ExecutionError> {
@@ -220,7 +240,7 @@ impl Relation {
             Stop::End => Ok(false),
             Stop::Rule(rule) => {
                 let checkpoint = captures.checkpoint();
-                let matched = rule.matches(node, None, document, captures);
+                let matched = rule.matches(node, Some(chain), document, captures);
                 captures.rollback(checkpoint);
                 matched
             }
@@ -237,25 +257,33 @@ impl Relation {
         match self.direction {
             Direction::Descendant => {
                 if let Some(memo) = self.memo(document) {
-                    return self.has_below(candidate, document, memo, captures);
+                    return self.has_below(candidate, ancestors, document, memo, captures);
                 }
-                return walk_descendants(candidate, self.field, |node| {
-                    ExecutionError::check(document.deadline)?;
-                    Ok(if self.rule.matches(node, None, document, captures)? {
-                        Visit::Found
-                    } else if self.stops(node, document, captures)? {
-                        Visit::Skip
-                    } else {
-                        Visit::Descend
-                    })
-                });
+                let chain = Self::chain_through(candidate, ancestors, document)?;
+                return document.tree.walk_below(
+                    candidate,
+                    chain,
+                    self.field,
+                    document.deadline,
+                    |node, chain| {
+                        Ok(
+                            if self.rule.matches(node, Some(chain), document, captures)? {
+                                Visit::Found
+                            } else if self.stops(node, chain, document, captures)? {
+                                Visit::Skip
+                            } else {
+                                Visit::Descend
+                            },
+                        )
+                    },
+                );
             }
             Direction::Ancestor => {
                 let owned;
                 let chain = match ancestors {
                     Some(chain) => chain,
                     None => {
-                        owned = ancestors_from_root(document.root, candidate, document.deadline)?;
+                        owned = document.tree.ancestors(candidate, document.deadline)?;
                         note_ancestor_steps(owned.len());
                         owned.as_slice()
                     }
@@ -271,56 +299,42 @@ impl Relation {
                         node.children_by_field_id(field, &mut node.walk())
                             .any(|child| child == branch)
                     });
-                    if in_field
-                        && self
-                            .rule
-                            .matches(node, Some(&chain[..index]), document, captures)?
-                    {
+                    let above = &chain[..index];
+                    if in_field && self.rule.matches(node, Some(above), document, captures)? {
                         return Ok(true);
                     }
-                    if self.stops(node, document, captures)? {
+                    if self.stops(node, above, document, captures)? {
                         break;
                     }
                     branch = node;
                 }
             }
             Direction::Next | Direction::Previous => {
-                // A cursor rooted at the candidate cannot leave its root.
                 let owned;
                 let chain = match ancestors {
                     Some(chain) => chain,
                     None => {
-                        owned = ancestors_from_root(document.root, candidate, document.deadline)?;
+                        owned = document.tree.ancestors(candidate, document.deadline)?;
                         owned.as_slice()
                     }
                 };
                 let Some(parent) = chain.last() else {
                     return Ok(false);
                 };
-                let mut cursor = parent.walk();
-                if !cursor.goto_first_child() {
+                let siblings = document.tree.children(*parent);
+                let Some(at) = siblings.iter().position(|sibling| *sibling == candidate) else {
                     return Ok(false);
-                }
-                while cursor.node() != candidate {
+                };
+                let toward: Box<dyn Iterator<Item = &Node<'t>>> = match self.direction {
+                    Direction::Next => Box::new(siblings[at + 1..].iter()),
+                    _ => Box::new(siblings[..at].iter().rev()),
+                };
+                for node in toward {
                     ExecutionError::check(document.deadline)?;
-                    if !cursor.goto_next_sibling() {
-                        return Ok(false);
-                    }
-                }
-                loop {
-                    ExecutionError::check(document.deadline)?;
-                    let advanced = match self.direction {
-                        Direction::Next => cursor.goto_next_sibling(),
-                        _ => cursor.goto_previous_sibling(),
-                    };
-                    if !advanced {
-                        break;
-                    }
-                    let node = cursor.node();
-                    if self.rule.matches(node, Some(chain), document, captures)? {
+                    if self.rule.matches(*node, Some(chain), document, captures)? {
                         return Ok(true);
                     }
-                    if self.stops(node, document, captures)? {
+                    if self.stops(*node, chain, document, captures)? {
                         break;
                     }
                 }
@@ -328,86 +342,6 @@ impl Relation {
         }
         Ok(false)
     }
-}
-
-/// What [`walk_descendants`] does after visiting a node.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Visit {
-    /// The relation holds: end the walk.
-    Found,
-    /// Visit this node's named children next.
-    Descend,
-    /// Leave this node's subtree unvisited.
-    Skip,
-}
-
-/// Visit `candidate`'s named descendants in pre-order (source order), the
-/// first level limited to children in `field`. One cursor walks the whole
-/// subtree, so no node list is allocated per visited node. Returns whether a
-/// visit reported [`Visit::Found`].
-fn walk_descendants<'t>(
-    candidate: Node<'t>,
-    field: Option<NonZeroU16>,
-    mut visit: impl FnMut(Node<'t>) -> Result<Visit, ExecutionError>,
-) -> Result<bool, ExecutionError> {
-    walk_descendants_at(candidate, field, |node, _| visit(node))
-}
-
-/// [`walk_descendants`], also telling `visit` how many levels below the
-/// candidate the node is (its children are at 1).
-fn walk_descendants_at<'t>(
-    candidate: Node<'t>,
-    field: Option<NonZeroU16>,
-    mut visit: impl FnMut(Node<'t>, usize) -> Result<Visit, ExecutionError>,
-) -> Result<bool, ExecutionError> {
-    // The cursor's depth counts from `candidate` (depth 0), so the walk never
-    // leaves its subtree.
-    let mut cursor = candidate.walk();
-    if !goto_first_admitted_child(&mut cursor, field) {
-        return Ok(false);
-    }
-    loop {
-        match visit(cursor.node(), cursor.depth() as usize)? {
-            Visit::Found => return Ok(true),
-            Visit::Descend if goto_first_admitted_child(&mut cursor, field) => continue,
-            Visit::Descend | Visit::Skip => {}
-        }
-        while !goto_next_admitted_sibling(&mut cursor, field) {
-            if !cursor.goto_parent() || cursor.depth() == 0 {
-                return Ok(false);
-            }
-        }
-    }
-}
-
-/// Whether the walk visits the cursor's node: a named node, and on the first
-/// level one in `field` when a field is set.
-fn admitted(cursor: &TreeCursor<'_>, field: Option<NonZeroU16>) -> bool {
-    cursor.node().is_named()
-        && (cursor.depth() != 1 || field.is_none_or(|field| cursor.field_id() == Some(field)))
-}
-
-/// Move to the first admitted child; the cursor stays put when there is none.
-fn goto_first_admitted_child(cursor: &mut TreeCursor<'_>, field: Option<NonZeroU16>) -> bool {
-    if !cursor.goto_first_child() {
-        return false;
-    }
-    if admitted(cursor, field) || goto_next_admitted_sibling(cursor, field) {
-        return true;
-    }
-    cursor.goto_parent();
-    false
-}
-
-/// Move to the next admitted sibling; on `false` the cursor is on some later
-/// sibling of the same parent.
-fn goto_next_admitted_sibling(cursor: &mut TreeCursor<'_>, field: Option<NonZeroU16>) -> bool {
-    while cursor.goto_next_sibling() {
-        if admitted(cursor, field) {
-            return true;
-        }
-    }
-    false
 }
 
 #[cfg(test)]

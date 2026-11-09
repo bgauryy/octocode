@@ -39,7 +39,7 @@ fn continuation_pages_reuse_the_settled_scan_with_identical_output() {
         &paths,
         &security,
     );
-    let snapshot = first["snapshot"].as_str().expect("snapshot").to_owned();
+    let snapshot = crate::tools::test_support::pinned_snapshot(&first).as_str().expect("snapshot").to_owned();
     assert!(
         SCANS.holds(&snapshot),
         "a multi-page scan is stored: {first}"

@@ -67,6 +67,7 @@ fn provider_only_toml_uses_the_same_walk_scan_and_bound_fact_mapper() {
         &|| false,
         registry,
         MapLimits::default(),
+        None,
     )
     .unwrap();
     assert_eq!(output.kept.len(), 1);
@@ -98,6 +99,7 @@ fn correspondence_budget_failure_is_terminal_not_an_empty_scan() {
             bytes: 1,
             ..Default::default()
         },
+        None,
     );
     assert!(matches!(
         result,
@@ -216,6 +218,7 @@ fn scan_with_source(
         &|| false,
         registry,
         MapLimits::default(),
+        None,
     )
     .unwrap()
     .kept

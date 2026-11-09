@@ -332,6 +332,57 @@ fn a_compact_read_says_how_much_of_the_source_it_keeps() {
     );
 }
 
+/// The compact note measures the whole selection, not the page that states
+/// it: a paged compact read says so, and its byte counts are every page's.
+#[test]
+fn a_paged_compact_note_measures_the_whole_selection() {
+    let t = Fixture::new();
+    let p = t.0.join("p.rs");
+    let source = (1..=12)
+        .map(|n| format!("// note {n}\nfn f{n}() -> u8 {{ {n} }}\n"))
+        .collect::<String>();
+    fs::write(&p, &source).expect("fixture");
+    let whole = fetch(
+        &qj(&p, serde_json::json!({"view": "compact"})),
+        &Paths(t.0.clone()),
+    );
+    let paged = fetch(
+        &qj(&p, serde_json::json!({"view": "compact", "limit": 3})),
+        &Paths(t.0.clone()),
+    );
+    assert!(
+        paged.pagination.as_ref().is_some_and(|page| page.has_more),
+        "a paged read: {:?}",
+        paged.pagination
+    );
+    let note = |r: &LocalFetchResult| {
+        r.warnings
+            .iter()
+            .find(|warning| warning.starts_with("compact view: "))
+            .cloned()
+            .unwrap_or_else(|| panic!("compact note in {:?}", r.warnings))
+    };
+    let kept = whole.content.as_deref().expect("compact").len();
+    let content = source
+        .lines()
+        .enumerate()
+        .map(|(index, line)| format!("{}\t{line}\n", index + 1))
+        .collect::<String>()
+        .len();
+    assert_eq!(
+        note(&paged),
+        note(&whole),
+        "every page's bytes, whichever page says it"
+    );
+    assert!(
+        note(&paged).starts_with(&format!(
+            "compact view: {kept} of {content} bytes the content view serves for the selected lines, all pages ("
+        )),
+        "{}",
+        note(&paged)
+    );
+}
+
 /// A compact view no smaller than the content view of the same lines (here
 /// nothing to remove) is not served as compact: the content view is, with
 /// `viewFallback` saying why, and the first page still says what compact

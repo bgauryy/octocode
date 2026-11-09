@@ -10,9 +10,9 @@
  * build-native.cjs links it with cargo-zigbuild against GLIBC_FLOOR (a
  * same-CPU Linux build is native and links the runner's glibc).
  *
- * verify: each platform on its own OS and CPU. musl runs in Alpine and every
- * gnu platform also runs in an image whose glibc is GLIBC_FLOOR, both through
- * `smoke-binary.cjs --container` on the Linux runner of that CPU.
+ * verify: each platform on its own OS and CPU. Every gnu platform also runs in
+ * an image whose glibc is GLIBC_FLOOR, through `smoke-binary.cjs --container`
+ * on the Linux runner of that CPU.
  */
 'use strict';
 
@@ -21,13 +21,13 @@ const { GLIBC_FLOOR } = require('./build-native.cjs');
 
 /** GitHub-hosted runners by OS and CPU. */
 const RUNNERS = {
-  darwin: { arm64: 'macos-latest', x64: 'macos-15-intel' },
+  darwin: { arm64: 'macos-latest' },
   linux: { arm64: 'ubuntu-24.04-arm', x64: 'ubuntu-latest' },
   win32: { arm64: 'windows-11-arm', x64: 'windows-latest' },
 };
 
-/** Images the Linux verify entries run in: Alpine for musl, and AlmaLinux 8, whose glibc is the floor. */
-const IMAGES = { musl: 'node:24-alpine', glibcFloor: { image: 'almalinux:8', glibc: '2.28' } };
+/** The image the glibc-floor verify entries run in: AlmaLinux 8, whose glibc is the floor. */
+const IMAGES = { glibcFloor: { image: 'almalinux:8', glibc: '2.28' } };
 
 function buildRunner({ os, arch }) {
   if (os === 'darwin') return RUNNERS.darwin.arm64;
@@ -47,8 +47,7 @@ function releaseMatrix() {
       id: container ? `${platform}-${container.replace(/[^\w.-]+/g, '-')}` : platform,
       platform, arch: target.arch, runner, container, glibc,
     });
-    if (target.libc === 'musl') verify.push(entry(IMAGES.musl));
-    else verify.push(entry(null));
+    verify.push(entry(null));
     if (target.libc === 'gnu') verify.push(entry(IMAGES.glibcFloor.image, IMAGES.glibcFloor.glibc));
   }
   return { build, verify, platforms: Object.keys(PLATFORMS) };

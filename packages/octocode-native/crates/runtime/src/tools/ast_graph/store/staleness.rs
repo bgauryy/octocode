@@ -4,6 +4,8 @@ use super::*;
 use crate::tools::ast_graph::walk_scope::build_admission;
 use octocode_engine::stamp::SourceStamp;
 
+#[cfg(test)]
+mod policy_tests;
 mod scope_proof;
 pub(super) use scope_proof::settled_scope_proof;
 use scope_proof::{file_dirs, scope_proven};
@@ -262,6 +264,52 @@ pub(crate) struct Change {
     pub config: bool,
 }
 
+/// A snapshot's files under `root`, where the path policy lets the freshness
+/// check read them. Its keys are data: one that is not a plain relative path,
+/// leaves the allowed roots through a symlink, or names a withheld file is
+/// `missing`, whether or not something is there, so the check never tells
+/// what lies outside. Each directory is resolved through the policy once,
+/// each file costs one `lstat`, and only a symlinked file is resolved.
+pub(super) struct Readable<'p> {
+    paths: &'p PathPolicy,
+    root: &'p Path,
+    dirs: std::collections::HashMap<PathBuf, Option<PathBuf>>,
+}
+
+impl<'p> Readable<'p> {
+    pub(super) fn new(paths: &'p PathPolicy, root: &'p Path) -> Self {
+        Self {
+            paths,
+            root,
+            dirs: std::collections::HashMap::new(),
+        }
+    }
+
+    pub(super) fn path(&mut self, file: &str) -> Option<PathBuf> {
+        let relative = Path::new(file);
+        if !relative
+            .components()
+            .all(|part| matches!(part, std::path::Component::Normal(_)))
+        {
+            return None;
+        }
+        let lexical = self.root.join(relative);
+        let (dir, name) = (lexical.parent()?, lexical.file_name()?);
+        let paths = self.paths;
+        if !self.dirs.contains_key(dir) {
+            let resolved = paths.validate(dir).ok().map(|valid| valid.canonical);
+            self.dirs.insert(dir.to_path_buf(), resolved);
+        }
+        let path = self.dirs.get(dir)?.as_ref()?.join(name);
+        let entry = std::fs::symlink_metadata(&path).ok()?;
+        if entry.file_type().is_symlink() {
+            return paths.validate_read(&path).ok().map(|valid| valid.canonical);
+        }
+        let withheld = paths.withholds(&path, crate::policy::discovery::EntryKind::File);
+        (entry.is_file() && !withheld).then_some(path)
+    }
+}
+
 pub(crate) struct Freshness {
     pub changes: Vec<Change>,
 }
@@ -282,9 +330,13 @@ pub(crate) fn snapshot_changes(
     let mut changes = Vec::new();
     let done = |changes: &Vec<Change>| first_only && !changes.is_empty();
     let stamps = tables.stamps_by_node();
+    let mut readable = Readable::new(paths, root);
     for (node, digest) in &tables.digests {
         let file = tables.str(tables.nodes[*node as usize].key);
-        let status = match source_matches(&root.join(file), tables.str(*digest), stamps.get(node)) {
+        let matches = readable
+            .path(file)
+            .and_then(|path| source_matches(&path, tables.str(*digest), stamps.get(node)));
+        let status = match matches {
             None => "missing",
             Some(true) => continue,
             Some(false) => "changed",
@@ -298,7 +350,7 @@ pub(crate) fn snapshot_changes(
             return Freshness { changes };
         }
     }
-    for (file, status) in scope_changes(paths, root, tables, manifest, &changes) {
+    for (file, status) in scope_changes(paths, root, tables, manifest, &changes, &mut readable) {
         changes.push(Change {
             file,
             status,
@@ -341,6 +393,7 @@ fn scope_changes(
     tables: &format::GraphTables,
     manifest: &Value,
     changes: &[Change],
+    readable: &mut Readable<'_>,
 ) -> Vec<(String, &'static str)> {
     if scope_proven(root, tables, manifest) {
         return Vec::new();
@@ -373,7 +426,7 @@ fn scope_changes(
         .iter()
         .filter(|file| !current.contains(**file) && !reported.contains(**file))
         .map(|file| {
-            let status = if root.join(file).exists() {
+            let status = if readable.path(file).is_some() {
                 "excluded"
             } else {
                 "missing"

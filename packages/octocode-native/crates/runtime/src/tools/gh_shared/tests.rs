@@ -86,11 +86,49 @@ fn incomplete_and_cap_are_losslessly_typed() {
     assert_eq!(value["calls"]["retry"]["input"]["queries"][0]["page"], 10);
 }
 
+/// A capped search page's own warning states the match count and the
+/// reach, so the response stage adds no `providerResultCap` glossary line
+/// beside it, on a continuing page or the last reachable one.
+#[test]
+fn a_capped_search_page_states_the_cap_once() {
+    let query = serde_json::from_str::<GhSearchCodeQuery>(r#"{"owner":"o","keywords":["x"]}"#)
+        .expect("GitHub search test data should be valid");
+    for has_more in [true, false] {
+        let mut value = json!({"pagination":{"hasMore":has_more}});
+        apply_partial(
+            &mut value,
+            &query,
+            &SearchCompleteness {
+                tool: ToolId::GhSearchCode,
+                matched: 5_000,
+                reachable: 1_000,
+                incomplete: false,
+                page: 1,
+                has_more,
+                subject: "code",
+            },
+        );
+        let mut staged = json!({"results": [{"index": 0, "data": value}]});
+        crate::response::notices::explain_codes(&mut staged, "results");
+        crate::response::notices::place(&mut staged, "results");
+        let warnings = staged["results"][0]["data"]["warnings"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        assert_eq!(warnings.len(), 1, "hasMore {has_more}: {staged}");
+        assert!(
+            warnings[0].as_str().is_some_and(|w| w.contains("5000")),
+            "the page states GitHub's count: {staged}"
+        );
+    }
+}
+
 mod provider_backed;
 
 /// A repository that did not resolve: every search tool's repair is the
 /// shared name search, the owner's listing when the owner is known, and the
-/// hint that labels the name search's rows as candidates under any owner.
+/// one hint those calls do not state (R2): confirm the owner. The message
+/// names the repository when the owner is known.
 #[test]
 fn a_missing_repository_repair_labels_its_name_search() {
     let missing = || {
@@ -120,14 +158,14 @@ fn a_missing_repository_repair_labels_its_name_search() {
         json!({"operation":"list","owner":"o"}),
         "{calls}"
     );
-    let [hint] = owned.hints.as_slice() else {
-        panic!("one hint: {:?}", owned.hints);
-    };
-    assert!(
-        hint.contains("named like `gone` under any owner")
-            && hint.contains("confirm the owner")
-            && hint.contains("`o` holds"),
-        "{hint}"
+    assert_eq!(owned.hints, [REPOSITORY_SEARCH_HINT.to_owned()]);
+    assert_eq!(
+        owned.hints[0],
+        "Confirm the owner before using a related[] repository."
+    );
+    assert_eq!(
+        owned.message,
+        crate::tools::gh_shared::repository_not_found_message("o", "gone")
     );
     // Without an owner there is no listing to offer, and the hint does not
     // promise one.
@@ -141,7 +179,7 @@ fn a_missing_repository_repair_labels_its_name_search() {
     );
     let calls = ownerless.calls.as_deref().expect("leads");
     assert!(calls.get("findRepository2").is_none(), "{calls}");
-    assert_eq!(ownerless.hints, [repository_search_hint(None, "gone")]);
+    assert_eq!(ownerless.hints, [REPOSITORY_SEARCH_HINT.to_owned()]);
     assert!(
         !ownerless.hints[0].contains("holds"),
         "{:?}",
@@ -236,4 +274,15 @@ fn materialize_paths_refuse_git_directories_and_normalized_segments() {
     ] {
         assert!(!is_repo_relative(path), "{path:?} must be refused");
     }
+}
+
+/// A `fields` pick of keys no row carries names what the rows do carry;
+/// with nothing left beside the identifier it names no empty list.
+#[test]
+fn a_pick_of_absent_fields_never_names_an_empty_list() {
+    let mut value = json!({"files":[{"path":"a"}]});
+    pick_rows(&mut value, "files", &["path"], &["bogus".to_owned()]);
+    let warning = value["warnings"][0].as_str().expect("warning");
+    assert!(warning.contains("bogus"), "{warning}");
+    assert!(!warning.contains(": ."), "{warning}");
 }

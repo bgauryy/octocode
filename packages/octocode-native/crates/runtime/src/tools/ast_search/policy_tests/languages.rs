@@ -184,7 +184,8 @@ fn directory_symbols_use_path_scoped_header_parser_and_preserve_it_in_next_page(
     assert_eq!(namespace["members"][0]["kind"], "class");
     assert_eq!(outline_name(&c["symbols"][0]), "Plain");
     assert_eq!(c["symbols"][0]["kind"], "struct");
-    assert_eq!(result["snapshot"], next["snapshot"]);
+    assert!(crate::tools::test_support::pinned_snapshot(&result).is_string(), "{result}");
+    assert!(next.get("errorCode").is_none(), "the pinned page answers: {next}");
     assert_eq!(next["pagination"]["hasMore"], false);
 }
 

@@ -1,7 +1,7 @@
 //! What a value test reads of the key before a value (B165).
 //!
 //! A value test ([`super::credential_values::ValueTest`]) reads its key
-//! through five facts. The keys of one path (`secret/data/app/token: v`) share
+//! through six facts. The keys of one path (`secret/data/app/token: v`) share
 //! their value and its end and differ in where they start, and each fact of a
 //! key is whether some mark lies at or after its start: a chosen word in the
 //! key's name, a separator that makes the name a file path, a dot, or a word of
@@ -18,7 +18,7 @@ use std::cell::OnceCell;
 
 use super::credential_values::{
     CHOSEN_CREDENTIAL_WORDS, QUOTES, ends_in_locator, has_file_extension, is_fallback_read,
-    key_name,
+    key_name, opens_interpolation,
 };
 use super::is_source_code_path;
 
@@ -35,6 +35,9 @@ pub(super) trait KeyFacts {
     fn ends_with_quote(&self) -> bool;
     /// The key ends in a colon, blanks aside.
     fn ends_with_colon(&self) -> bool;
+    /// The value opens a literal whose prefix interpolates its `{…}` holes
+    /// (`f'`, `$"`: [`opens_interpolation`]).
+    fn opens_interpolation(&self) -> bool;
 }
 
 /// The keys that start in one text before one value, as the text of the
@@ -152,6 +155,7 @@ impl SpanKey<'_, '_> {
             file: self.names_a_file(),
             quote: self.ends_with_quote(),
             colon: self.ends_with_colon(),
+            interpolates: self.opens_interpolation(),
         }
     }
 }
@@ -185,9 +189,13 @@ impl KeyFacts for SpanKey<'_, '_> {
     fn ends_with_colon(&self) -> bool {
         self.span.text.trim_end().ends_with(':')
     }
+
+    fn opens_interpolation(&self) -> bool {
+        opens_interpolation(self.span.text)
+    }
 }
 
-/// The five facts of a key as values: keys with equal bits are judged alike.
+/// The six facts of a key as values: keys with equal bits are judged alike.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct KeyBits {
     chosen: bool,
@@ -195,6 +203,7 @@ pub(super) struct KeyBits {
     file: bool,
     quote: bool,
     colon: bool,
+    interpolates: bool,
 }
 
 impl KeyFacts for KeyBits {
@@ -216,5 +225,9 @@ impl KeyFacts for KeyBits {
 
     fn ends_with_colon(&self) -> bool {
         self.colon
+    }
+
+    fn opens_interpolation(&self) -> bool {
+        self.interpolates
     }
 }

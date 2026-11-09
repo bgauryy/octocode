@@ -270,10 +270,26 @@ async fn a_client_that_leaves_cancels_its_call() {
     assert_eq!(result, Some("done"));
 }
 
+/// A tool the MCP listing marks read-only runs on the warm server; one that
+/// writes the workspace (`readOnlyHint: false`) stays in the invoking
+/// process. Both follow the contract's `mutatesWorkspace`.
 #[test]
 fn tool_transport_keeps_writing_tools_in_the_invoking_process() {
+    let presentation = octocode_native::contracts::cli_presentation().expect("presentation");
+    let listed = presentation["tools"]
+        .as_array()
+        .expect("presentation tools");
+    let mut writers = 0;
     for tool in ToolId::ALL {
-        let process_local = matches!(tool, ToolId::GhCloneRepo | ToolId::GraphBuild);
-        assert_eq!(runs_on_server(tool), !process_local, "{tool}");
+        let entry = listed
+            .iter()
+            .find(|entry| entry["name"] == tool.as_str())
+            .unwrap_or_else(|| panic!("{tool} has a presentation entry"));
+        let read_only = entry["mcp"]["annotations"]["readOnlyHint"]
+            .as_bool()
+            .unwrap_or_else(|| panic!("{tool} declares readOnlyHint"));
+        assert_eq!(runs_on_server(tool), read_only, "{tool}");
+        writers += usize::from(!read_only);
     }
+    assert!(writers > 0, "some tool writes the workspace");
 }

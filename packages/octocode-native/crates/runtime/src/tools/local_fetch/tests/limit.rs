@@ -143,3 +143,19 @@ fn a_page_with_a_reachable_continuation_is_not_partial() {
         assert_eq!(page.is_partial, None, "limit {limit}: {page:?}");
     }
 }
+
+/// `limit` counts shown source lines: the `--` marker between two match
+/// windows is no row, so `limit:N` over separated hits shows N hits.
+#[test]
+fn a_limit_over_separated_matches_counts_lines_not_markers() {
+    let t = Fixture::new();
+    let (paths, req) = hit_lines(&t, 60, &[3, 20, 40]);
+    let mut query = req;
+    amend(
+        &mut query,
+        serde_json::json!({"limit": 2, "contextLines":{"before":0,"after":0}}),
+    );
+    let page = fetch(&query, &paths);
+    let wire = serde_json::to_value(&page).expect("serializable");
+    assert_eq!(wire["matchedLines"], serde_json::json!([3, 20]), "{wire}");
+}

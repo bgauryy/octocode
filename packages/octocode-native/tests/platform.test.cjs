@@ -3,13 +3,13 @@ const assert = require('node:assert/strict');
 const { PLATFORMS, getPlatformSuffix } = require('../bin/platform.cjs');
 for (const [platform, arch, musl, expected] of [
   ['darwin', 'arm64', false, 'darwin-arm64'],
-  ['darwin', 'x64', false, 'darwin-x64'],
+  ['darwin', 'x64', false, null],
   ['win32', 'x64', false, 'win32-x64-msvc'],
   ['win32', 'arm64', false, 'win32-arm64-msvc'],
   ['linux', 'x64', false, 'linux-x64-gnu'],
-  ['linux', 'x64', true, 'linux-x64-musl'],
+  ['linux', 'x64', true, null],
   ['linux', 'arm64', false, 'linux-arm64-gnu'],
-  ['linux', 'arm64', true, 'linux-arm64-musl'],
+  ['linux', 'arm64', true, null],
   ['freebsd', 'x64', false, null],
 ]) {
   assert.equal(getPlatformSuffix({ platform, arch, musl }), expected);
@@ -31,7 +31,8 @@ const lddOnly = ldd => ({
 });
 for (const [ldd, expected] of [
   ['#!/bin/bash\n# This file is part of the GNU C Library.\n', 'linux-x64-gnu'],
-  ['\x7fELF ... /lib/ld-musl-x86_64.so.1 musl libc', 'linux-x64-musl'],
+  // musl Linux has no platform package: no suffix, never the glibc binary.
+  ['\x7fELF ... /lib/ld-musl-x86_64.so.1 musl libc', null],
 ]) {
   assert.equal(getPlatformSuffix(lddOnly(ldd)), expected);
 }
@@ -50,6 +51,6 @@ assert.equal(
     report: { header: {} },
     probe: { stdout: '', stderr: 'musl libc (aarch64)' },
   }),
-  'linux-arm64-musl'
+  null
 );
 console.log('platform detection ok');

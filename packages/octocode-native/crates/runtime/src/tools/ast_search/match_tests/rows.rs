@@ -38,10 +38,10 @@ fn match_rows_without_unread_pages_are_complete() {
 
 /// Files without a grammar (here of no known type, which the inferred
 /// language could hold) are named once, as a static notice that says
-/// absence there is unproven, and a match set that fills more than one
-/// page names its size and how to narrow it.
+/// absence there is unproven; a caller's own `limit` that pages the set
+/// draws no advice to narrow it.
 #[test]
-fn census_notices_are_static_and_a_multi_page_set_names_how_to_narrow() {
+fn census_notices_are_static_and_a_caller_limit_draws_no_narrowing_advice() {
     let root = Fixture::new();
     root.write("notes.ts.in", "call(1)\n");
     root.write("a.ts", "call(1);\n");
@@ -53,10 +53,8 @@ fn census_notices_are_static_and_a_multi_page_set_names_how_to_narrow() {
     .expect("match");
     let notices = out["notices"].to_string();
     assert!(notices.contains("absence there is unproven"), "{out}");
-    assert!(
-        notices.contains("2 matches in 2 files fill 2 pages"),
-        "{out}"
-    );
+    assert!(!notices.contains("to read fewer"), "{out}");
+    assert_eq!(out["pagination"]["totalPages"], 2, "{out}");
     assert!(
         !out["warnings"].to_string().contains("no AST grammar"),
         "the census is a notice, said once by the response stage: {out}"
@@ -81,7 +79,7 @@ fn the_read_lead_never_ends_past_the_last_line() {
 }
 
 #[test]
-fn match_rows_withhold_captures_by_default_and_omit_single_line_ends() {
+fn match_rows_withhold_captures_by_default_and_state_every_end_with_captures() {
     let root = Fixture::new();
     let source = root.0.join("calls.ts");
     std::fs::write(&source, "oldCall(one);\noldCall(\n  two\n);\n").expect("source");
@@ -116,10 +114,7 @@ fn match_rows_withhold_captures_by_default_and_omit_single_line_ends() {
     assert_eq!(single["line"], 1, "{single}");
     assert_eq!(single["column"], 1, "{single}");
     assert!(single.get("endLine").is_none(), "{single}");
-    assert!(
-        single.get("endColumn").is_none(),
-        "single-line end: {single}"
-    );
+    assert_eq!(single["endColumn"], 13, "single-line end: {single}");
     let span = &out["files"][0]["matches"][1];
     assert_eq!(span["endLine"], 4, "{span}");
     assert!(span["endColumn"].is_u64(), "{span}");
@@ -133,6 +128,74 @@ fn match_rows_withhold_captures_by_default_and_omit_single_line_ends() {
         "{single}"
     );
     assert!(out["next"].get("expandCaptures").is_none(), "{out}");
+}
+
+/// The `range` a match row names: its own `line`/`column` to its
+/// `endLine` (else `line`)/`endColumn`.
+fn row_range(row: &serde_json::Value) -> serde_json::Value {
+    json!({
+        "start": {"line": row["line"], "column": row["column"]},
+        "end": {
+            "line": row.get("endLine").unwrap_or(&row["line"]),
+            "column": row["endColumn"],
+        },
+    })
+}
+
+/// Every match row `includeCaptures` prints can be sent back as `rule.range`
+/// unchanged and returns exactly that row. The emoji before the second call
+/// on its line counts two UTF-16 units; the line above it holds one too.
+#[test]
+fn a_match_row_sent_back_as_range_returns_exactly_that_match() {
+    let root = Fixture::new();
+    let source = root.0.join("calls.rs");
+    std::fs::write(
+        &source,
+        "// 😀 header\nfn f() {\n    let s = \"😀\"; compile_check(a, None, b);\n    compile_check(\n        c,\n    );\n}\n",
+    )
+    .expect("source");
+    let pattern = "compile_check($$$A)";
+    let query = json!({"operation":"match","path":source,"includeCaptures":true,"rule":{"pattern":pattern}});
+    let out = run(&root.0, query.clone()).expect("match");
+    let rows = out["files"][0]["matches"].as_array().expect("matches");
+    assert_eq!(rows.len(), 2, "{out}");
+    assert_eq!(
+        (&rows[0]["line"], &rows[0]["column"], &rows[0]["endColumn"]),
+        (&json!(3), &json!(19), &json!(44)),
+        "UTF-16 columns: {out}"
+    );
+    for row in rows {
+        let mut ranged = query.clone();
+        ranged["rule"]["range"] = row_range(row);
+        let back = run(&root.0, ranged).expect("ranged match");
+        assert_eq!(back["files"][0]["matches"], json!([row]), "{row} -> {back}");
+    }
+}
+
+/// RFC Validation 7: the `compile_check($$$A)` row at column 9 states
+/// `endColumn:55`, and that row as `range` returns exactly that match.
+#[test]
+fn a_single_line_capture_row_states_its_end_column_and_round_trips() {
+    let root = Fixture::new();
+    let source = root.0.join("gaps.rs");
+    std::fs::write(
+        &source,
+        "fn grammar() {\n    {\n        compile_check(extensions, None, rule.as_ref())\n    }\n}\n",
+    )
+    .expect("source");
+    let query = json!({"operation":"match","path":source,"includeCaptures":true,"rule":{"pattern":"compile_check($$$A)"}});
+    let out = run(&root.0, query.clone()).expect("match");
+    let row = &out["files"][0]["matches"][0];
+    assert_eq!(
+        (&row["line"], &row["column"], &row["endColumn"]),
+        (&json!(3), &json!(9), &json!(55)),
+        "{out}"
+    );
+    assert!(row.get("endLine").is_none(), "{row}");
+    let mut ranged = query;
+    ranged["rule"]["range"] = row_range(row);
+    let back = run(&root.0, ranged).expect("ranged match");
+    assert_eq!(back["files"][0]["matches"], json!([row]), "{back}");
 }
 
 #[test]

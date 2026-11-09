@@ -65,7 +65,9 @@ pub(super) fn attach_match_continuations(
         if whole_scope {
             crate::response::result::add_hints(
                 out,
-                ["The includeCaptures lead reads the whole scope: this page's withheld rows are in more files than include holds, or in a name no glob spells. It returns every match of the scope, those rows among them."],
+                [
+                    "The includeCaptures lead reads the whole scope: this page's withheld rows are in more files than include holds, or in a name no glob spells. It returns every match of the scope, those rows among them.",
+                ],
             );
         }
     }

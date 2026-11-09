@@ -34,8 +34,8 @@ mod gates;
 mod includes;
 mod projects;
 use gates::*;
-pub(super) use includes::package_includes;
 use includes::{annotate_includes, record_text_coverage};
+pub(super) use includes::{include_declaring, package_includes};
 use projects::annotate_unanswered;
 pub(super) use projects::answer_settled_files;
 
@@ -299,9 +299,12 @@ const WORKSPACE_SYMBOL_NOTE: &str = "workspace/symbol has no completeness marker
 /// `name` over `scope`, the check no page of this answer can make.
 /// `capped_at` is the server's own result limit when its answer reached it
 /// ([`octocode_engine::lsp::config::workspace_symbol_limit`]): a fact of this
-/// answer, so the row is partial and a warning says it outright.
+/// answer, so the row is partial and a warning says it outright. The note
+/// and both leads are the whole answer's: a later page of `query` (whose
+/// first page carried them) repeats none of them.
 pub(super) fn workspace_symbols(
     row: &mut Value,
+    query: &LspSearchQuery,
     name: &str,
     scope: &Scope,
     anchor: Option<&str>,
@@ -309,10 +312,6 @@ pub(super) fn workspace_symbols(
 ) {
     if row.get("status").and_then(Value::as_str) == Some("error") {
         return;
-    }
-    crate::response::paging::push_notice(row, WORKSPACE_SYMBOL_NOTE);
-    if let Some(lead) = super::failure::term_search_lead(name, &scope.root, &scope.include) {
-        crate::response::result::attach_related(row, lead.build());
     }
     // A server cap this answer reached is a fact of this answer: a warning.
     let mut warnings = Vec::new();
@@ -323,6 +322,13 @@ pub(super) fn workspace_symbols(
     }
     if !warnings.is_empty() {
         crate::response::paging::terminal_limit(row, WORKSPACE_SYMBOL_CAPPED_REASON, &warnings);
+    }
+    if continues_a_page(query) {
+        return;
+    }
+    crate::response::paging::push_notice(row, WORKSPACE_SYMBOL_NOTE);
+    if let Some(lead) = super::failure::term_search_lead(name, &scope.root, &scope.include) {
+        crate::response::result::attach_related(row, lead.build());
     }
     // This is an optional lead, moved to hints by continuation shaping;
     // it is not a page that recovers an exhaustive workspace result.
@@ -356,7 +362,7 @@ fn annotate_python(row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
             .count()
     });
     if importers > 0 {
-        flag_noted(
+        flag_stated(
             row,
             query,
             UNRESOLVED_IMPORT_REASON,
@@ -382,6 +388,21 @@ fn flag_noted(
     flag_partial(row, query, reason, None, scope);
     if lists_reason(row, reason) {
         crate::response::paging::push_notice(row, note);
+    }
+}
+
+/// [`flag_noted`] with a note that states what `reason` means (and its
+/// repair): the reason's glossary line would only restate it.
+fn flag_stated(
+    row: &mut Value,
+    query: &LspSearchQuery,
+    reason: crate::response::paging::PartialReason,
+    note: String,
+    scope: &Scope,
+) {
+    flag_noted(row, query, reason, note, scope);
+    if lists_reason(row, reason) {
+        crate::response::paging::mark_stated(row, reason);
     }
 }
 

@@ -173,7 +173,6 @@ fn weight(set: &SymbolSet) -> usize {
     let beside_rows = octocode_engine::json_size::bytes_or(
         &(
             &set.references,
-            &set.read,
             &set.text_search,
             &set.source_descriptors,
             &set.diagnostics,

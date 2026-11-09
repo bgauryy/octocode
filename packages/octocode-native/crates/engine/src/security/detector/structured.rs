@@ -26,10 +26,10 @@ pub(in crate::security) fn matches(value: &Value) -> crate::error::Result<Vec<Op
             Some(Form::SecretInYaml) => {}
             Some(form) => {
                 let found = objects.get_or_insert_with(|| objects::walk(&text));
-                let ranges = if form == Form::SecretInJson {
-                    &found.secret_values
-                } else {
-                    &found.private_members
+                let ranges = match form {
+                    Form::SecretInJson => &found.secret_values,
+                    Form::DockerAuths => &found.registry_credentials,
+                    Form::JsonWebKey | Form::SecretInYaml => &found.private_members,
                 };
                 for range in ranges {
                     let first = tokens.partition_point(|token| token.end <= range.start);

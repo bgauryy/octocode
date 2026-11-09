@@ -222,11 +222,51 @@ fn a_missing_reference_offers_its_near_names_as_ready_calls() {
     assert_eq!(result.data["errorCode"], "notFound", "{}", result.data);
     assert!(result.data.get("suggestions").is_none(), "{}", result.data);
     let related = result.data["related"].as_array().expect("related calls");
-    assert!(!related.is_empty(), "{}", result.data);
-    for call in related {
+    let (find, near) = related.split_last().expect("related calls");
+    assert!(!near.is_empty(), "{}", result.data);
+    for call in near {
         assert_eq!(call["kind"], "related");
         assert_eq!(call["input"]["queries"][0]["operation"], "callers");
         assert_eq!(call["input"]["queries"][0]["target"], "a.ts#shared_target");
     }
+    // Then the find call the error names, for the reference's name.
+    assert_eq!(
+        find["input"]["queries"][0],
+        json!({"operation": "find", "path": "app", "target": "shared_targets"})
+    );
+    crate::tools::test_support::assert_row_contract(ToolId::GraphQuery, &result.data);
+}
+
+/// A missing file path names a file: no same-word symbols from its directory
+/// (`Children.None` for `zz_none`), a `find` lead for its name, and a hint
+/// about the snapshot rather than a registry.
+#[test]
+fn a_missing_file_path_gets_a_find_lead_and_a_snapshot_hint() {
+    let dir = Fixture::new();
+    dir.write("app/src/walker.ts", "export enum Children { None, Some }\n");
+    dir.write("app/src/other.ts", "export function other() {}\n");
+    call(&dir.0, ToolId::GraphBuild, json!({"path":"app"}));
+    let row = json!({"operation":"node","path":"app","target":"src/zz_none.ts"});
+    let row = crate::contracts::validate_built_query(ToolId::GraphQuery.as_str(), row)
+        .expect("input contract");
+    let result = execute(ToolId::GraphQuery, &row, &dir.0, &context()).expect("execute");
+    assert_eq!(result.data["errorCode"], "notFound", "{}", result.data);
+    let related = result.data["related"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let queries = related
+        .iter()
+        .map(|call| call["input"]["queries"][0].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        queries,
+        vec![json!({"operation":"find","path":"app","target":"zz_none"})],
+        "{}",
+        result.data
+    );
+    let hints = result.data["hints"].to_string();
+    assert!(hints.contains("snapshot"), "{}", result.data);
+    assert!(!hints.contains("registry"), "{}", result.data);
     crate::tools::test_support::assert_row_contract(ToolId::GraphQuery, &result.data);
 }

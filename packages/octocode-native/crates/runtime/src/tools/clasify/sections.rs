@@ -173,7 +173,7 @@ pub(super) fn run(
     shared: &Budget,
 ) -> Result<Outcome, ClassificationError> {
     let evaluator = dispatcher.evaluator();
-    let (mut session, ordinal) = if let Some(assessment) = input["assessment"].as_str() {
+    let (mut session, notices, related) = if let Some(assessment) = input["assessment"].as_str() {
         let (id, ordinal) = decode(assessment).ok_or_else(|| {
             bad_token("The assessment token is malformed; no source or provider was called.")
         })?;
@@ -223,24 +223,27 @@ pub(super) fn run(
         validate_sources(&session, dispatcher, context)?;
         return assess_and_save(&mut session, ordinal, dispatcher, context, runtime, shared);
     } else {
-        (
-            capture::create(
-                row,
-                input,
-                dispatcher,
-                context,
-                octocode_engine::memory::MEMORY.limit(),
-                &shared.captures,
-            )?,
-            0,
-        )
+        capture::create(
+            row,
+            input,
+            dispatcher,
+            context,
+            octocode_engine::memory::MEMORY.limit(),
+            &shared.captures,
+        )?
     };
     session.github_identity = dispatcher.retained_github_identity(context)?;
     // The batch saves the whole frozen plan before any provider request
     // (and after it), so a fresh plan needs no save of its own.
     let key = runtime.sessions.key(&runtime.access, &session.id);
     let _process_lock = runtime.sessions.transaction_lock(&key, context)?;
-    assess_and_save(&mut session, ordinal, dispatcher, context, runtime, shared)
+    let mut outcome = assess_and_save(&mut session, 0, dispatcher, context, runtime, shared)?;
+    // What a glob's walk withheld, said on the first batch.
+    crate::response::result::add_hints(&mut outcome.output, notices);
+    for call in related {
+        crate::response::result::attach_related(&mut outcome.output, call);
+    }
+    Ok(outcome)
 }
 
 /// The batch a continuation ends with when the previous process stopped

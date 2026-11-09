@@ -88,7 +88,8 @@ async fn pr_unpatched_removed_file_is_searched_at_the_base() {
 /// A PR `matchString` that hit no patch line is an empty row whose leads run
 /// the fix, with no prose naming them: the same read without the literal (its
 /// scope kept, its `contextLines` dropped), then the whole file inventory. The
-/// published row keeps both ahead of the section menu.
+/// section menu stays out: it would offer the whole PR's patches, the read the
+/// miss narrowed away from.
 #[tokio::test]
 async fn pr_match_string_miss_offers_the_unfiltered_read() {
     let server = MockServer::builder().start().await;
@@ -134,7 +135,7 @@ async fn pr_match_string_miss_offers_the_unfiltered_read() {
     checks::assert_leads_valid(&out);
     let published = published(ToolId::GhGetHistoryItem, &out);
     let calls = checks::leads(&published);
-    assert!(!calls.is_empty());
+    assert_eq!(calls.len(), 2, "{out}");
     assert!(calls.iter().all(|call| call.kind == "related"));
 }
 

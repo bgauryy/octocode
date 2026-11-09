@@ -24,6 +24,85 @@ impl GitRunner for UnreachableGit {
     }
 }
 
+/// A runner whose `git --version` prints `banner`; any other step fails the
+/// test: a refused version must stop before git does real work.
+struct VersionGit(&'static str);
+
+impl GitRunner for VersionGit {
+    fn run(
+        &self,
+        request: &GitRunRequest<'_>,
+        _control: &GitRunControl<'_>,
+    ) -> Result<GitOutput, CloneError> {
+        assert!(
+            request.args.iter().any(|argument| argument == "--version"),
+            "only the version check may run: {request:?}"
+        );
+        Ok(GitOutput {
+            stdout: self.0.to_owned(),
+            stderr: String::new(),
+        })
+    }
+
+    fn run_nul_records(
+        &self,
+        request: &GitRunRequest<'_>,
+        _control: &GitRunControl<'_>,
+        _record: &mut (dyn FnMut(&[u8]) -> Result<(), CloneError> + Send),
+    ) -> Result<GitOutput, CloneError> {
+        panic!("git must not run here: {request:?}")
+    }
+}
+
+/// The shared store needs per-worktree sparse checkout (git 2.36): an older
+/// or unreadable git is refused, naming the floor, before any step runs.
+#[test]
+fn git_below_the_worktree_floor_is_unavailable() {
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let config = CloneConfig::persistent(&home);
+    let pinned = GhCloneRepoQuery {
+        ref_: Some(reference(&"a".repeat(40))),
+        ..query()
+    };
+    for banner in [
+        "git version 2.35.1\n",
+        "git version 1.9.5\n",
+        "git version 2.0.windows.1\n",
+        "not git\n",
+    ] {
+        let runner = VersionGit(banner);
+        let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+        let error = execute_clone(&pinned, &context).expect_err(banner);
+        assert_eq!(error.code, ErrorCode::GitUnavailable, "{banner}");
+        assert!(
+            error.message.contains("2.36"),
+            "{banner}: {}",
+            error.message
+        );
+    }
+}
+
+#[test]
+fn git_at_or_above_the_worktree_floor_is_available() {
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let config = CloneConfig::persistent(&home);
+    for banner in [
+        "git version 2.36.0\n",
+        "git version 2.55.0 (Apple Git-155)\n",
+        "git version 2.43.0.windows.1\n",
+        "git version 3.0.0\n",
+        "git version 2.36.0-rc1\n",
+    ] {
+        let runner = VersionGit(banner);
+        let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+        prepare_clone(&context).expect(banner);
+    }
+}
+
 #[test]
 fn creates_a_new_configured_home_before_authorizing_the_clone_target() {
     let fixture = Fixture::shared();

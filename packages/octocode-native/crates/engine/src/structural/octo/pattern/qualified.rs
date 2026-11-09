@@ -132,7 +132,7 @@ impl QualifiedPattern {
     }
 }
 
-fn is_name_char(ch: char) -> bool {
+pub(super) fn is_name_char(ch: char) -> bool {
     ch == '_' || ch.is_alphanumeric()
 }
 
@@ -369,7 +369,7 @@ fn descendants(node: Node<'_>) -> Vec<Node<'_>> {
 
 /// `count` capture names `pattern` does not spell: `name`, then `name2`,
 /// `name3`, and so on.
-fn free_captures(pattern: &str, name: &str, count: usize) -> Vec<String> {
+pub(super) fn free_captures(pattern: &str, name: &str, count: usize) -> Vec<String> {
     std::iter::once(name.to_owned())
         .chain((2..).map(|n| format!("{name}{n}")))
         .filter(|candidate| !spells_capture(pattern, candidate))

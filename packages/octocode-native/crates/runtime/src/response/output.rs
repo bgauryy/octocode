@@ -35,9 +35,48 @@ pub(crate) trait ToolOutput: Sync {
 
     /// Finish a classified provider page's row `data` after selection: the
     /// tool's own leads may only name the selected evidence. `hidden` holds
-    /// the rows this page judged related or unknown (neither shown nor
+    /// the files a code page judged related or unknown (neither shown nor
     /// excluded), for a judged read of what their rows did not list.
-    fn finish_selection(&self, _data: &mut Value, _query: &Value, _hidden: &[Value]) {}
+    /// `removed` holds every unit selection cut from a row-listing page, as
+    /// the page listed it (a listing entry as `{"path"}`), so a lead to one
+    /// can be dropped.
+    fn finish_selection(
+        &self,
+        _data: &mut Value,
+        _query: &Value,
+        _hidden: &[Value],
+        _removed: &[Value],
+    ) {
+    }
+}
+
+/// Keep, in each `tool` lead of `data` (`next` calls and `related[]`), only
+/// the query rows `keep` accepts; a lead left with none is dropped. Leads of
+/// other tools stay.
+pub(crate) fn retain_lead_reads(
+    data: &mut Value,
+    tool: crate::id::ToolId,
+    keep: impl Fn(&Value) -> bool,
+) {
+    let retain = |lead: &mut Value| {
+        if lead["tool"] != tool.as_str() {
+            return true;
+        }
+        let Some(rows) = lead
+            .pointer_mut("/input/queries")
+            .and_then(Value::as_array_mut)
+        else {
+            return false;
+        };
+        rows.retain(&keep);
+        !rows.is_empty()
+    };
+    if let Some(leads) = data.get_mut("next").and_then(Value::as_object_mut) {
+        leads.retain(|_, lead| retain(lead));
+    }
+    if let Some(leads) = data.get_mut("related").and_then(Value::as_array_mut) {
+        leads.retain_mut(retain);
+    }
 }
 
 /// The output of a tool with no recovery or selection finish of its own:

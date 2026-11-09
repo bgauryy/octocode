@@ -14,6 +14,8 @@ pub(crate) struct RepositoryReader<'a> {
     pub(super) services: &'a GitHubServices,
     pub(super) context: &'a ExecutionContext,
     pub(super) access: &'a ResponseAccess,
+    /// A request built here carried no credential.
+    pub(super) anonymous: std::sync::atomic::AtomicBool,
 }
 
 /// What a refused GitHub read says: its code, and when to ask again. A rate
@@ -51,13 +53,19 @@ fn failure_of(error: &ProviderError) -> RepoFailure {
 impl RepositoryReader<'_> {
     /// The row's request context, or the failure that kept it from being built.
     async fn request(&self) -> Result<RequestContext, RepoFailure> {
-        self.services
+        let request = self
+            .services
             .resolve_request(self.context, self.access)
             .await
             .map_err(|error| RepoFailure {
                 code: octocode_contract_types::ErrorCode::ProviderError,
                 why: error.message.to_string(),
-            })
+            })?;
+        if request.resolved_credential().is_none() {
+            self.anonymous
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        Ok(request)
     }
 
     async fn commit_facts(
@@ -231,6 +239,10 @@ impl RepositoryRead for RepositoryReader<'_> {
                 Err(error) => GhsaRead::Failed(failure_of(&error)),
             }
         })
+    }
+
+    fn anonymous(&self) -> bool {
+        self.anonymous.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     fn read<'a>(&'a self, owner: &'a str, repo: &'a str) -> RepoFuture<'a> {

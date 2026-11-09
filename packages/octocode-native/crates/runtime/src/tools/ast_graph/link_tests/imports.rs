@@ -128,8 +128,26 @@ fn skipped_import_target_is_an_unparsed_node_not_a_resolved_import() {
         "{deps}"
     );
     let imports = &ask(root, "stats", None)["imports"];
-    assert_eq!(imports["resolved"], 0, "{imports}");
+    // The relink decides once: the import is linked, so it is neither
+    // counted nor diagnosed as unresolved.
+    assert_eq!(imports["resolved"], 1, "{imports}");
+    assert_eq!(imports["unresolvedInternal"], 0, "{imports}");
+    let diagnostics = ask(root, "diagnostics", Some("unresolved-internal"));
+    assert_eq!(diagnostics["pagination"]["totalItems"], 0, "{diagnostics}");
+}
+
+/// The tally and the diagnostics are one fact: a missing file stays
+/// unresolved in both, an unparsed one in neither.
+#[test]
+fn unresolved_internal_count_matches_its_diagnostics_beside_an_unparsed_target() {
+    let temp = fixture(&[("entry.ts", "import './unread';\nimport './missing';\n")]);
+    temp.write("unread.ts", [0xff]);
+    let root = ingested(&temp);
+    let imports = &ask(root, "stats", None)["imports"];
     assert_eq!(imports["unresolvedInternal"], 1, "{imports}");
+    assert_eq!(imports["resolved"], 1, "{imports}");
+    let diagnostics = ask(root, "diagnostics", Some("unresolved-internal"));
+    assert_eq!(diagnostics["pagination"]["totalItems"], 1, "{diagnostics}");
 }
 
 #[test]
@@ -374,4 +392,34 @@ fn unresolved_import_evidence_groups_sites_by_message_and_keeps_every_line() {
     };
     assert_eq!(lines(0), Some(vec![1, 2]), "{issues}");
     assert_eq!(lines(1), Some(vec![3]), "{issues}");
+}
+
+/// A path rooted at a standard crate (`::std::vec::Vec`) names an external
+/// crate, not the current one: it is no unresolved internal import, in a
+/// `use`, a type position or an expression.
+#[test]
+fn rooted_standard_crate_paths_are_external_not_unresolved_internal() {
+    let temp = fixture(&[
+        (
+            "src/lib.rs",
+            "use ::std::fmt::Display;\npub struct S { pub v: ::std::vec::Vec<u8> }\npub fn f() -> usize { ::core::mem::size_of::<u8>() + ::alloc::vec::Vec::<u8>::new().len() }\npub fn g<T: Display>(_: T) {}\n",
+        ),
+        (
+            "src/missing_user.rs",
+            "use ::crate_root::gone;\npub fn h() { gone(); }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    let diagnostics = ask(root, "diagnostics", Some("unresolved-internal"));
+    let messages = diagnostics["rows"].to_string();
+    for std_crate in ["std", "core", "alloc"] {
+        assert!(
+            !messages.contains(&format!("::{std_crate}::")),
+            "{std_crate}: {diagnostics}"
+        );
+    }
+    // A rooted path to anything else still names this crate (edition 2015).
+    assert!(messages.contains("::crate_root"), "{diagnostics}");
+    let imports = &ask(root, "stats", None)["imports"];
+    assert_eq!(imports["unresolvedInternal"], 1, "{imports}");
 }

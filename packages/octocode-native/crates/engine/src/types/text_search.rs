@@ -97,6 +97,10 @@ pub struct TextSearchStats {
     /// their values are decoded text (Latin-1, or U+FFFD for invalid bytes,
     /// as [`crate::text::Decoded::interior`] reads them), not verbatim bytes.
     pub not_utf8_files: Option<Vec<String>>,
+    /// Matched files with a long line whose walk of a Kubernetes Secret or JSON
+    /// Web Key outgrew the memory budget, in path order: that line's rows hide
+    /// every value of it, secret or not.
+    pub every_value_files: Option<Vec<String>>,
     /// Matched files that start with a UTF-8 byte-order mark, in path
     /// order: the search dropped it, as localFetch does, so line 1's
     /// columns and byte offsets count the text after it.

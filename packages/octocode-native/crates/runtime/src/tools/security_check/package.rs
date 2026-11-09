@@ -81,11 +81,7 @@ fn registry_failed(data: &mut Value, unread: &Unread) {
         Some(sources) => sources.push(source),
         None => data["sources"] = json!([source]),
     }
-    paging::mark_partial(
-        data,
-        PartialReason::SourceFailed,
-        std::slice::from_ref(&unread.why),
-    );
+    super::source::source_failed(data, std::slice::from_ref(&unread.why));
 }
 
 pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, ArtifactError> {
@@ -128,37 +124,62 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
             }
         }
     );
-    let results = results?;
+    // OSV did not answer the first page: the registry's facts and GitHub's,
+    // read beside it, still stand, as the advisory operation keeps GitHub's
+    // record. A resumed page has none of its own, so it stays an error.
+    let (results, osv_failed) = match results {
+        Ok(results) => (results, None),
+        Err(error) if !resumed => (Vec::new(), Some(error)),
+        Err(error) => return Err(error),
+    };
     notes.trust = trust;
-    if let Some((latest, unread)) = latest {
-        notes.latest = latest;
-        notes.latest_unread = unread;
+    match latest {
+        Some(Ok(latest)) => notes.latest = latest,
+        Some(Err(error)) => {
+            // A version whose repository GitHub lacks is followed to the one
+            // its latest release names: unread, that one is not compared either.
+            let unread_too = notes
+                .trust
+                .as_ref()
+                .is_some_and(trust::Trust::repository_missing);
+            notes.latest_unread = Some(latest_unread(
+                package,
+                &error,
+                if unread_too {
+                    "whether it is outdated is unknown, and the advisories of the repository it names were not compared with OSV's records"
+                } else {
+                    "whether it is outdated is unknown"
+                },
+            ));
+        }
+        None => {}
+    }
+    // A version whose repository GitHub lacks is read where its latest
+    // release says the project lives.
+    if let (Some(trust), Some(latest)) = (&mut notes.trust, &notes.latest) {
+        trust.follow(latest, &confirmed, net).await;
     }
     // A failed by-name ask leaves the empty answer not covered, and says why.
     let probe_failed = match release_named(&confirmed, &results, net).await {
+        // Not asked again: OSV just failed.
+        _ if osv_failed.is_some() => None,
         Ok(named) => {
             notes.release_named = named;
             None
         }
         Err(error) => Some(error.message),
     };
-    let upgrade = upgrade_for(&confirmed, &results, net).await;
+    let upgrade = match osv_failed {
+        // No upgrade stands on OSV's list when OSV did not answer.
+        Some(_) => Upgrade::default(),
+        None => upgrade_for(&confirmed, &results, net).await,
+    };
     let mut results = results;
     let finished = results.iter().all(|result| result.resume.is_none());
     if resumed && finished {
         // The first page could not compare the source repository's advisories
         // with a walk that was not whole; this page holds all of OSV's records.
-        match registered_again(package, net).await {
-            Ok(Some(registered)) => {
-                notes.trust = Some(
-                    trust::read(registered, &confirmed, net)
-                        .await
-                        .on_last_page(),
-                );
-            }
-            Ok(None) => {}
-            Err(unread) => notes.repository_unread = Some(unread),
-        }
+        last_page_trust(package, &confirmed, &mut notes, net).await;
     }
     let disputes = dispute::mark(&confirmed, &mut results, net).await;
     // GitHub's database is compared with OSV's whole list only.
@@ -167,11 +188,21 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
         false => None,
     };
     if let Some(trust) = &mut notes.trust {
-        trust.merge(&mut results, finished);
+        match osv_failed {
+            None => trust.merge(&mut results, finished),
+            // Nothing of OSV's to compare the repository's advisories with.
+            Some(_) => trust.osv_unanswered(),
+        }
     }
     if let Some(github) = &mut github {
-        github.merge(&mut results);
+        match osv_failed {
+            None => github.merge(&mut results),
+            // Nothing of OSV's to merge with or set against: GitHub's records
+            // are the rows, GitHub's word.
+            Some(_) => github.stand_alone(&mut results),
+        }
     }
+    let compared = notes.trust.as_ref().is_some_and(Trust::compared_in_full);
     let needs_release = ecosystem::needs_release(package.ecosystem)?;
     let mut data = respond(
         package,
@@ -185,6 +216,13 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
         github.apply(&mut data, &package.brief);
         crate::response::result::finish_calls(&mut data);
     }
+    if let Some(error) = &osv_failed {
+        osv_unanswered(&mut data, &confirmed, &results, github.is_some(), error);
+        // The rewrite replaced the answer: it names the review cautions again.
+        answer::name_review_cautions(&mut data);
+    }
+    // After every other caution, so the answer names them all.
+    malware_caution(&mut data, github.as_ref(), &results, &confirmed);
     paging::push_warnings(&mut data, disputes);
     if let Some(why) = probe_failed {
         paging::push_warnings(
@@ -197,10 +235,14 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
     if resumed {
         // The registry facts were read with the first page; this page continues
         // OSV's walk and, on its last page, compares the repository's advisories.
-        let this_page = if finished {
-            "this page ends the advisory list and compares the source repository's advisories with it"
-        } else {
-            "this page continues the advisory list only"
+        // The comparison is claimed only when it ran: OSV's list whole and
+        // the repository's list read in full.
+        let this_page = match (finished, compared) {
+            (true, true) => {
+                "this page ends the advisory list and compares the source repository's advisories with it"
+            }
+            (true, false) => "this page ends the advisory list",
+            (false, _) => "this page continues the advisory list only",
         };
         paging::push_warnings(
             &mut data,
@@ -210,6 +252,98 @@ pub(super) async fn run(package: &Package<'_>, net: &Net<'_>) -> Result<Value, A
         );
     }
     Ok(data)
+}
+
+/// A row whose OSV read failed: OSV is a failed source, the row partial, and
+/// the answer says the target was not checked against OSV. Nothing is counted
+/// (`affected` is OSV's word) and nothing is called none known; GitHub's
+/// records, when read, stand as its own.
+fn osv_unanswered(
+    data: &mut Value,
+    confirmed: &Confirmed,
+    results: &[SourceResult],
+    github_read: bool,
+    error: &ArtifactError,
+) {
+    let target = answer::typed(&match confirmed.version.as_deref() {
+        Some(version) => format!("{}@{version}", confirmed.name),
+        None => confirmed.name.clone(),
+    });
+    let why = format!("{}. Retry later.", super::osv::unread_reason(error));
+    let ids = results
+        .iter()
+        .flat_map(|result| &result.advisories)
+        .map(|row| answer::stated_id(&row.id))
+        .collect::<Vec<_>>();
+    let github = match (github_read, ids.len()) {
+        (false, _) => "GitHub's advisory database was not read for it.".to_owned(),
+        (true, 0) => {
+            "GitHub's advisory database matches none to it, which proves only that database."
+                .to_owned()
+        }
+        (true, 1) => format!(
+            "GitHub's advisory database matches 1 advisory to it, GitHub's word: {}.",
+            ids.join(", ")
+        ),
+        (true, count) => format!(
+            "GitHub's advisory database matches {count} advisories to it, GitHub's word: {}.",
+            ids.join(", ")
+        ),
+    };
+    if let Some(row) = data.as_object_mut() {
+        for key in ["affected", "status", "upgradeTo", "upgradeNote"] {
+            row.remove(key);
+        }
+        if ids.is_empty() {
+            row.remove("advisories");
+        }
+    }
+    let osv = if super::osv::answered_unreadably(error) {
+        "OSV's answer could not be read"
+    } else {
+        "OSV did not answer"
+    };
+    data["answer"] = json!(format!(
+        "{osv}, so {target} was not checked against it. {github}"
+    ));
+    let entry = json!({"source": "osv", "status": "failed", "errorCode": error.code, "why": why});
+    match data["sources"].as_array_mut() {
+        Some(sources) => sources.insert(0, entry),
+        None => data["sources"] = json!([entry]),
+    }
+    // OSV's failure is one a retry may clear, as its error said before.
+    data["retryable"] = json!(true);
+    // The OSV entry states why; the warnings do not repeat it.
+    super::source::source_failed(data, &[]);
+}
+
+/// The `malware` caution of a package row, from GitHub's class of a record
+/// it matches to the version and OSV's malicious-packages reports alike.
+fn malware_caution(
+    data: &mut Value,
+    github: Option<&global::Global>,
+    results: &[SourceResult],
+    confirmed: &Confirmed,
+) {
+    let mut reports = github
+        .map(|github| {
+            github
+                .malware_ids()
+                .iter()
+                .map(|id| super::malware::Report::github(id))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    reports.extend(super::malware::reports(results));
+    super::malware::fire(
+        data,
+        &reports,
+        confirmed.version.is_some(),
+        super::malware::npm_placeholder(
+            &confirmed.ecosystem.to_string(),
+            confirmed.version.as_deref(),
+        ),
+    );
 }
 
 /// Whether the release asked is one a source names. Asked only when a version
@@ -242,9 +376,14 @@ struct Upgrade {
 /// advisory there moves the candidate past that one's fix, until OSV knows none
 /// at it or no version can be named. A listed advisory still there names none.
 async fn upgrade_for(confirmed: &Confirmed, results: &[SourceResult], net: &Net<'_>) -> Upgrade {
-    let mut listed = results
+    // A withdrawn record names no upgrade: it is not counted.
+    let records = results
         .iter()
         .flat_map(|result| &result.advisories)
+        .collect::<Vec<_>>();
+    let mut listed = super::record::advisory_groups(&records)
+        .iter()
+        .flat_map(|group| super::record::Standing::of(group).live)
         .cloned()
         .collect::<Vec<_>>();
     let finished = results.iter().all(|result| result.resume.is_none());
@@ -518,6 +657,7 @@ fn latest_of(
     let latest = artifact.version.clone().map(|version| Latest {
         version,
         published_at: artifact.published_at.clone(),
+        repository: artifact.repository.clone(),
     });
     (latest, None)
 }
@@ -528,30 +668,66 @@ async fn read_latest(
     package: &Package<'_>,
     kind: octocode_contract_types::ArtifactType,
     net: &Net<'_>,
-) -> (Option<Latest>, Option<Unread>) {
+) -> Result<Option<Latest>, ArtifactError> {
     let Ok(unversioned) = resolve_query(kind, package.name, None) else {
-        return (None, None);
+        return Ok(None);
     };
-    match execute_artifact(&unversioned, &context(net)).await {
-        Ok(page) => (
-            page.artifacts.first().and_then(|item| {
-                item.version.clone().map(|version| Latest {
-                    version,
-                    published_at: item.published_at.clone(),
-                })
-            }),
-            None,
-        ),
-        Err(error) => (
-            None,
-            Some(Unread {
-                code: error.code,
-                why: format!(
-                    "{}: the latest release was not read, so whether it is outdated is unknown: {}",
-                    package.name,
-                    sentence(&error.message)
-                ),
-            }),
+    let page = execute_artifact(&unversioned, &context(net)).await?;
+    Ok(page.artifacts.first().and_then(|item| {
+        item.version.clone().map(|version| Latest {
+            version,
+            published_at: item.published_at.clone(),
+            repository: item.repository.clone(),
+        })
+    }))
+}
+
+/// The trust read of the last page of a resumed walk: the registry is read
+/// again for the source repository, and one GitHub lacks is followed to the
+/// repository the latest release names. A registry read that fails is the
+/// row's failed source, never a comparison claimed.
+async fn last_page_trust(
+    package: &Package<'_>,
+    confirmed: &Confirmed,
+    notes: &mut Notes,
+    net: &Net<'_>,
+) {
+    let registered = match registered_again(package, net).await {
+        Ok(Some(registered)) => registered,
+        Ok(None) => return,
+        Err(unread) => {
+            notes.repository_unread = Some(unread);
+            return;
+        }
+    };
+    let mut trust = trust::read(registered, confirmed, net).await.on_last_page();
+    if trust.repository_missing()
+        && let Ok(Some(kind)) = ecosystem::registry(package.ecosystem)
+    {
+        match read_latest(package, kind, net).await {
+            Ok(Some(latest)) => trust.follow(&latest, confirmed, net).await,
+            Ok(None) => {}
+            Err(error) => {
+                notes.repository_unread = Some(latest_unread(
+                    package,
+                    &error,
+                    "the advisories of the repository it names were not compared with OSV's records",
+                ));
+            }
+        }
+    }
+    notes.trust = Some(trust);
+}
+
+/// A failed read of the latest release, with what stays unknown for it
+/// (`unknown`): the registry is a failed source and the row is partial.
+fn latest_unread(package: &Package<'_>, error: &ArtifactError, unknown: &str) -> Unread {
+    Unread {
+        code: error.code,
+        why: format!(
+            "{}: the latest release was not read, so {unknown}: {}",
+            package.name,
+            sentence(&error.message)
         ),
     }
 }

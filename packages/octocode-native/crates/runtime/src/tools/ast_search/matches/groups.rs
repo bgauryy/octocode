@@ -30,6 +30,7 @@ pub(super) fn group_files(
             diagnostics,
             status,
             recovered,
+            recovered_bodies,
             ..
         } = file;
         // A file whose parser rejects the query cannot match it: it is outside
@@ -60,6 +61,9 @@ pub(super) fn group_files(
         }
         if *recovered {
             grouped.recovered.record(path.clone());
+        }
+        for body in recovered_bodies {
+            grouped.recovered_bodies.record(path, body);
         }
         let total = matches.len();
         if total > 0 {

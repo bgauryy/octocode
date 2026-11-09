@@ -119,6 +119,12 @@ pub(crate) fn omission_marker(start: usize, end: usize, why: Omitted) -> String 
     }
 }
 
+/// Whether `record` is a line-omission marker or a [`GAP`]: a separator
+/// between windows, not a source row.
+pub(crate) fn is_separator(record: &str) -> bool {
+    record == GAP || omission_span(record).is_some()
+}
+
 /// `(start, end)` of an [`omission_marker`] of any kind.
 fn omission_span(record: &str) -> Option<(u64, u64)> {
     let inner = record
@@ -190,8 +196,11 @@ fn number_file_row(data: &mut Value) -> bool {
 }
 
 /// A view that already carries its source gutter (the compact view, which
-/// skips the lines it drops): every kept line states its number, in
-/// ascending order. A byte page stays verbatim.
+/// skips the lines it drops; the symbols outline, whose declarations state
+/// their span `N-M`): every returned line states its number, in source
+/// order (only an `N-M` span may start on the previous line: an outline's
+/// nested declaration starts on its parent's line).
+/// A byte page stays verbatim.
 fn gutter_numbered(data: &Value) -> bool {
     if data.pointer("/pagination/unit").and_then(Value::as_str) == Some("bytes") {
         return false;
@@ -207,8 +216,9 @@ fn gutter_numbered(data: &Value) -> bool {
         }
         let Some(line) = record
             .split_once(SEPARATOR)
-            .and_then(|(number, _)| number.parse::<u64>().ok())
-            .filter(|line| *line > last)
+            .and_then(|(number, _)| gutter_line(number))
+            .filter(|(line, span)| *line > last || (*span && *line == last && last > 0))
+            .map(|(line, _)| line)
         else {
             return false;
         };
@@ -216,6 +226,18 @@ fn gutter_numbered(data: &Value) -> bool {
         numbered = true;
     }
     numbered
+}
+
+/// The first source line a gutter states, and whether it is a span:
+/// `N`, or `N-M` (`M >= N`).
+fn gutter_line(number: &str) -> Option<(u64, bool)> {
+    match number.split_once('-') {
+        Some((start, end)) => {
+            let (start, end) = (start.parse::<u64>().ok()?, end.parse::<u64>().ok()?);
+            (end >= start).then_some((start, true))
+        }
+        None => number.parse().ok().map(|line| (line, false)),
+    }
 }
 
 /// Number every source-line read in a public `{results}` envelope:
@@ -230,15 +252,22 @@ pub(crate) fn number_read_rows(tool: ToolId, structured: &mut Value) {
         return;
     }
     for row in rows {
-        if let Some(data) = row.get_mut("data")
-            && (number_file_row(data) || gutter_numbered(data))
-            && let Some(map) = data.as_object_mut()
-        {
-            // The gutter states the first, last and every returned
-            // line, so the window fields repeat it.
-            for key in ["startLine", "endLine", "returnedLines"] {
-                map.remove(key);
-            }
+        if let Some(data) = row.get_mut("data") {
+            number_read_row(data);
+        }
+    }
+}
+
+/// Number one source-line read's row `data` in place, as
+/// [`number_read_rows`] numbers each row of a source reader.
+pub(crate) fn number_read_row(data: &mut Value) {
+    if (number_file_row(data) || gutter_numbered(data))
+        && let Some(map) = data.as_object_mut()
+    {
+        // The gutter states the first, last and every returned
+        // line, so the window fields repeat it.
+        for key in ["startLine", "endLine", "returnedLines"] {
+            map.remove(key);
         }
     }
 }

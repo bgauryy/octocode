@@ -32,6 +32,10 @@ pub(super) struct Facts<'a> {
     /// OSV cannot order this ecosystem's versions, so the version was compared here
     /// against each record's ranges.
     pub compared_here: bool,
+    /// Records that state a withdrawal, each id once with when: stated apart,
+    /// never counted, and never hiding a live record of the same advisory
+    /// ([`super::record::Standing`]).
+    pub withdrawn: Vec<(String, String)>,
     /// Advisories whose ranges matched the version (all of `count` unless compared here).
     pub matched: usize,
     /// Ids of advisories listed but neither matching nor clearing the version.
@@ -46,36 +50,53 @@ impl Facts<'_> {
             .iter()
             .flat_map(|result| result.unmatched.iter().cloned())
             .collect();
-        let mut cves: Vec<String> = Vec::new();
-        // CVEs of advisories that matched: an unmatched one is listed, not claimed.
-        for cve in results
+        let records = results
             .iter()
             .flat_map(|result| &result.advisories)
+            .collect::<Vec<_>>();
+        let groups = super::record::advisory_groups(&records);
+        // A withdrawn record is stated apart and never counted, on every row
+        // type alike ([`super::record::Standing`]).
+        let standings = groups
+            .iter()
+            .map(|group| super::record::Standing::of(group))
+            .collect::<Vec<_>>();
+        let withdrawn = standings
+            .iter()
+            .flat_map(|standing| &standing.withdrawn)
+            .map(|(id, at)| ((*id).to_owned(), (*at).to_owned()))
+            .collect();
+        let live = standings
+            .iter()
+            .filter(|standing| !standing.is_withdrawn())
+            .map(|standing| &standing.live)
+            .collect::<Vec<_>>();
+        let mut cves: Vec<String> = Vec::new();
+        // CVEs of advisories that matched: an unmatched one is listed, not claimed.
+        for cve in live
+            .iter()
+            .flat_map(|records| records.iter())
             .filter(|row| !unmatched.contains(&row.id))
-            .flat_map(super::record::SecurityAdvisory::cves)
+            .flat_map(|row| row.cves())
         {
             if !cves.iter().any(|known| known == cve) {
                 cves.push(cve.to_owned());
             }
         }
-        let records = results
-            .iter()
-            .flat_map(|result| &result.advisories)
-            .collect::<Vec<_>>();
         let mut disputed: Vec<String> = Vec::new();
         for id in records.iter().flat_map(|row| &row.disputed_by) {
             if !disputed.contains(id) {
                 disputed.push(id.clone());
             }
         }
-        let groups = super::record::advisory_groups(&records);
-        let matched = groups
+        let matched = live
             .iter()
-            .filter(|group| group.iter().any(|row| !unmatched.contains(&row.id)))
+            .filter(|records| records.iter().any(|row| !unmatched.contains(&row.id)))
             .count();
         Self {
             // Advisories, not records: a GHSA record and its PYSEC twin are one.
-            count: groups.len(),
+            count: live.len(),
+            withdrawn,
             matched,
             compared_here: results.iter().any(|result| result.compared_here),
             registry_unconfirmed: false,
@@ -139,7 +160,7 @@ fn cve_clause(cves: &[String]) -> String {
         let listed = cves.iter().map(|cve| stated_id(cve)).collect::<Vec<_>>();
         format!(" CVEs: {}.", listed.join(", "))
     } else {
-        format!(" {} CVEs, listed in cves.", cves.len())
+        format!(" {} CVEs, listed on each advisory.", cves.len())
     }
 }
 
@@ -211,6 +232,7 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
         ),
     };
     sentence.push_str(&cve_clause(&facts.cves));
+    sentence.push_str(&withdrawn_clause(&facts.withdrawn));
     if found && !facts.stopped && !facts.disputed.is_empty() {
         let (noun, verb) = if facts.disputed.len() == 1 {
             ("a record", "does")
@@ -256,9 +278,7 @@ pub(super) fn lead(target: &str, facts: &Facts<'_>) -> Value {
     if let Some(note) = facts.upgrade_note {
         data["upgradeNote"] = json!(note);
     }
-    if !facts.cves.is_empty() {
-        data["cves"] = json!(facts.cves);
-    }
+    // CVEs are stated on each advisory; the answer names them first.
     data
 }
 
@@ -275,12 +295,15 @@ pub(super) fn advisory_lead(row: &Value) -> Value {
         .iter()
         .map(|record| {
             let mut sentence = stated_id(record["id"].as_str().unwrap_or_default());
-            let aliases = strings(&record["aliases"]);
+            let aliases = stated_ids(&record["aliases"]);
             if !aliases.is_empty() {
                 sentence.push_str(&format!(" (aliases {})", aliases.join(", ")));
             }
-            if record["withdrawn"].is_string() {
-                sentence.push_str(" is withdrawn");
+            // A withdrawn record no longer affects anything: it is stated with
+            // its date, and what it stated follows in the past tense.
+            let withdrawn = record["withdrawn"].as_str().map(typed);
+            if let Some(at) = &withdrawn {
+                sentence.push_str(&format!(", withdrawn at {at},"));
             }
             let packages = record["affected"]
                 .as_array()
@@ -312,10 +335,18 @@ pub(super) fn advisory_lead(row: &Value) -> Value {
                     })
                 })
                 .collect::<Vec<_>>();
-            if packages.is_empty() {
-                sentence.push('.');
-            } else {
-                sentence.push_str(&format!(" affects {}.", packages.join("; ")));
+            match (packages.is_empty(), withdrawn.is_some()) {
+                (true, true) => {
+                    sentence.pop();
+                    sentence.push('.');
+                }
+                (true, false) => sentence.push('.'),
+                (false, true) => {
+                    sentence.push_str(&format!(" stated it affects {}.", packages.join("; ")));
+                }
+                (false, false) => {
+                    sentence.push_str(&format!(" affects {}.", packages.join("; ")));
+                }
             }
             sentence
         })
@@ -392,13 +423,14 @@ fn listed_versions(count: usize) -> Option<String> {
     }
 }
 
-fn strings(value: &Value) -> Vec<String> {
+/// Each id of a list as [`stated_id`] states it.
+fn stated_ids(value: &Value) -> Vec<String> {
     value
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
-        .map(typed)
+        .map(stated_id)
         .collect()
 }
 
@@ -499,14 +531,26 @@ pub(super) fn commit_lead(commit: &str, facts: &Facts<'_>) -> Value {
         )
     };
     sentence.push_str(&cve_clause(&facts.cves));
+    sentence.push_str(&withdrawn_clause(&facts.withdrawn));
     let mut data = json!({ "answer": sentence });
     if found && !facts.stopped {
         data["affected"] = json!(true);
     }
-    if !facts.cves.is_empty() {
-        data["cves"] = json!(facts.cves);
-    }
+    // CVEs are stated on each advisory; the answer names them first.
     data
+}
+
+/// The answer's clause for withdrawn advisories: named with when, never
+/// counted.
+fn withdrawn_clause(withdrawn: &[(String, String)]) -> String {
+    if withdrawn.is_empty() {
+        return String::new();
+    }
+    let listed = withdrawn
+        .iter()
+        .map(|(id, at)| format!("{} (withdrawn at {})", stated_id(id), typed(at)))
+        .collect::<Vec<_>>();
+    format!(" Withdrawn and not counted: {}.", listed.join(", "))
 }
 
 /// Ready calls that read every listed advisory, and each record disputing one,
@@ -516,16 +560,22 @@ pub(super) fn read_whole(data: &mut Value, results: &[SourceResult], brief: &Map
     // A GitHub twin carries its OSV record's id: one advisory, asked once. A
     // record that disputes a listed one follows it: the warning says to read
     // its ranges.
-    let mut ids: Vec<&str> = Vec::new();
-    for id in results
+    // One id per advisory: its twins (a GHSA and its PYSEC record) stay named
+    // in the row's `aliases`, and a call on one returns the same advisory.
+    let advisories = results
         .iter()
         .flat_map(|result| &result.advisories)
-        .flat_map(|row| {
-            std::iter::once(row.id.as_str()).chain(row.disputed_by.iter().map(String::as_str))
-        })
-    {
-        if !ids.contains(&id) {
-            ids.push(id);
+        .collect::<Vec<_>>();
+    let mut ids: Vec<&str> = Vec::new();
+    for group in super::record::advisory_groups(&advisories) {
+        let lead = super::record::lead_id(&group);
+        let disputed = group
+            .iter()
+            .flat_map(|row| row.disputed_by.iter().map(String::as_str));
+        for id in lead.into_iter().chain(disputed) {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
         }
     }
     advisory_calls(data, "readWhole", &ids, brief);
@@ -554,9 +604,47 @@ pub(super) fn advisory_calls(
                 .is_ok()
         })
         .collect::<Vec<_>>();
+    // One call, of the row limit: a call per five advisories made `related`
+    // grow with the list and crowd it out of its page. Every advisory is on
+    // the row with its id, one `advisory` call away.
     let per_call = crate::response::result::rows_per_call(ToolId::SecurityCheck);
-    for (index, chunk) in rows.chunks(per_call).enumerate() {
-        data["calls"][format!("{key}{index}")] =
+    if let Some(chunk) = rows.chunks(per_call).next() {
+        data["calls"][format!("{key}0")] =
             Continuation::related_input(ToolId::SecurityCheck, json!({ "queries": chunk })).build();
     }
+}
+
+/// The answer names each caution of level `review` the row now holds by its
+/// rule, once, so a sentence that says "none known" or "OSV did not answer"
+/// does not stand alone beside cautions to look at; with none, the answer
+/// stays as it is. Rule names come from the contract; the raw text stays in
+/// `cautions[].why`. Shared by every writer of cautions (trust, malware) and
+/// by the OSV-failed rewrite.
+pub(super) fn name_review_cautions(data: &mut Value) {
+    const LEAD: &str = " Review before relying on it: ";
+    let mut rules: Vec<String> = Vec::new();
+    for caution in data["cautions"].as_array().into_iter().flatten() {
+        if caution["level"] == "review"
+            && let Some(rule) = caution["rule"].as_str()
+            && !rules.iter().any(|known| known == rule)
+        {
+            rules.push(rule.to_owned());
+        }
+    }
+    let Some(answer) = data["answer"].as_str() else {
+        return;
+    };
+    if rules.is_empty() {
+        return;
+    }
+    let kept = match answer.split_once(LEAD) {
+        Some((before, rest)) => {
+            let after = rest
+                .split_once("; see cautions.")
+                .map_or("", |(_, after)| after);
+            format!("{before}{after}")
+        }
+        None => answer.to_owned(),
+    };
+    data["answer"] = json!(format!("{kept}{LEAD}{}; see cautions.", rules.join(", ")));
 }

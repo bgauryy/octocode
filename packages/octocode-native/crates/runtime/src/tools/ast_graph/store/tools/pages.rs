@@ -71,19 +71,29 @@ pub(super) fn convert(out: &mut GraphOutput, row: &Value) {
 }
 
 /// A not-found reference's ranked nodes as ready calls, the one error shape:
-/// the same query at each suggested target.
+/// the same query at each suggested target, then the `find` call for its
+/// name.
 fn suggested_calls(data: &mut Map<String, Value>, row: &Value) {
-    let Some(Value::Array(suggestions)) = data.remove("suggestions") else {
-        return;
-    };
-    let calls = suggestions
-        .iter()
-        .filter_map(Value::as_str)
-        .map(|target| {
+    let mut calls = Vec::new();
+    if let Some(Value::Array(suggestions)) = data.remove("suggestions") {
+        calls.extend(suggestions.iter().filter_map(Value::as_str).map(|target| {
             let mut request = row.clone();
             request["target"] = json!(target);
             Continuation::related(ToolId::GraphQuery, request).build()
-        })
-        .collect::<Vec<_>>();
-    data.insert("related".into(), Value::Array(calls));
+        }));
+    }
+    if let Some(Value::String(name)) = data.remove("find") {
+        let mut request = json!({
+            "operation": "find",
+            "path": row.get("path").cloned().unwrap_or_else(|| json!(".")),
+            "target": name,
+        });
+        if let Some(graph) = row.get("graph") {
+            request["graph"] = graph.clone();
+        }
+        calls.push(Continuation::related(ToolId::GraphQuery, request).build());
+    }
+    if !calls.is_empty() {
+        data.insert("related".into(), Value::Array(calls));
+    }
 }

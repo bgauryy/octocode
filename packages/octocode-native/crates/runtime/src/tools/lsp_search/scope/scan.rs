@@ -38,8 +38,10 @@ impl IgnoredMentions {
 }
 
 /// Word-bounded files-only scan of `root` (family `include`, read policy,
-/// ignore rules honored), observing `cancel`: over the kept listing of the
-/// scope while its proof holds ([`listing`]), else by a walk that keeps one.
+/// ignore rules and the default directory prune honored, an include naming
+/// a pruned directory lifting it), observing `cancel`: over the kept listing
+/// of the scope while its proof holds ([`listing`]), else by a walk that
+/// keeps one.
 /// The scan covers the whole scope: only the request stops it (its
 /// cancellation or its deadline), and a stopped scan keeps nothing. `None`
 /// when the scan failed.
@@ -92,7 +94,7 @@ pub(super) async fn scan_text(
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
     let scanned = blocking_cancellable(cancel, move |stopped| {
-        let recorder = Arc::new(listing::Recorder::new(&walk_policy, &base));
+        let recorder = Arc::new(listing::Recorder::new(&walk_policy, &base, &walk_include));
         let filter: Arc<dyn octocode_engine::search::text_search::TextSearchPathFilter> =
             recorder.clone();
         let parsed = search_cancellable(options, filter, stopped).ok()?;

@@ -126,6 +126,8 @@ fn engine_and_tool_cut_the_same_pages() {
             workspace: Some(dir.0.clone()),
             limit: Some(1000),
             response_window: Some(WINDOW),
+            // The tool states freshness on every answer, and the budget counts it.
+            check_freshness: true,
             ..Default::default()
         },
         &workspace_policy(&dir.0),

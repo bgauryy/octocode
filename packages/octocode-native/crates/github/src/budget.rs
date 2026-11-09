@@ -234,7 +234,8 @@ impl GitHubBudget {
 
     /// Wait until every rate-limit fact written without awaiting (an
     /// exhausted bucket, a cooldown, an observed quota, a pull request's
-    /// lifetime, a handed-back start) is on disk, in every budget of this
+    /// lifetime, a handed-back start), and every awaited write whose request
+    /// was dropped before it ended, is on disk, in every budget of this
     /// process. A process that ends right after a call awaits this first:
     /// tokio drops a blocking write still queued at shutdown, and the next
     /// process must find the fact.

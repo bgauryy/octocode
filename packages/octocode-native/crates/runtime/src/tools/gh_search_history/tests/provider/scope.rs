@@ -44,10 +44,7 @@ async fn search_of_a_missing_repository_is_not_found() {
         // the shared leads, labelled by the shared hint.
         assert_eq!(
             failure.hints,
-            [crate::tools::gh_shared::repository_search_hint(
-                Some("o"),
-                "missing"
-            )],
+            [crate::tools::gh_shared::REPOSITORY_SEARCH_HINT.to_owned()],
             "{row}"
         );
         let next = failure.calls.expect("a recovery lead");

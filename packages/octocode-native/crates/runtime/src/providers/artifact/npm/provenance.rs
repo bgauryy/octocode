@@ -2,7 +2,7 @@
 //! attestation binds the exact tarball and the manifest's repository.
 use crate::providers::artifact::http::{DnsPin, JSON, RegistryClient};
 use crate::providers::artifact::util::{canonical_repository, commit_sha};
-use crate::providers::artifact::{ArtifactItem, ResolvedNpmRegistry};
+use crate::providers::artifact::{ArtifactError, ArtifactItem, ResolvedNpmRegistry};
 use octocode_contract_types::ArtifactType;
 use serde_json::Value;
 use url::Url;
@@ -11,7 +11,9 @@ use url::Url;
 /// attestation binds this exact tarball (subject digest = `dist.integrity`)
 /// and its source repository is the manifest's repository. The registry
 /// verifies the Sigstore bundle at publish; this does not re-verify
-/// signatures. Any failure leaves the unverified `gitHead` lead.
+/// signatures. `Ok(None)` leaves the unverified `gitHead` lead: no
+/// attestation, or one that binds nothing here. A bundle that cannot be read
+/// is the caller's to state.
 pub(super) async fn attested_commit(
     artifact: &ArtifactItem,
     version: &str,
@@ -19,29 +21,44 @@ pub(super) async fn attested_commit(
     registry: &ResolvedNpmRegistry,
     client: &RegistryClient<'_>,
     dns_pin: Option<DnsPin>,
-) -> Option<String> {
+) -> Result<Option<String>, ArtifactError> {
+    let Some((url, integrity)) = attestation(row, registry) else {
+        return Ok(None);
+    };
+    let authorization = registry.authorization_for(&url);
+    let Some(bundle) = client
+        .json(ArtifactType::Npm, url, true, authorization, dns_pin, JSON)
+        .await?
+    else {
+        return Ok(None);
+    };
+    Ok(artifact.repository.as_deref().and_then(|repository| {
+        provenance_commit(
+            &bundle,
+            &artifact.package_name,
+            version,
+            integrity,
+            repository,
+        )
+    }))
+}
+
+/// The attestation URL and tarball integrity a manifest names. Attestations
+/// must stay on the registry origin, without userinfo; credential path scope
+/// is the registry's `authorization_for`.
+fn attestation<'a>(
+    row: &'a serde_json::Map<String, Value>,
+    registry: &ResolvedNpmRegistry,
+) -> Option<(Url, &'a str)> {
     let dist = row.get("dist")?;
     let url = Url::parse(dist.pointer("/attestations/url")?.as_str()?).ok()?;
-    // Attestations must stay on the registry origin; credential path scope is checked below.
     if url.origin() != registry.base.origin()
         || !url.username().is_empty()
         || url.password().is_some()
     {
         return None;
     }
-    let integrity = dist.get("integrity")?.as_str()?;
-    let authorization = registry.authorization_for(&url);
-    let bundle = client
-        .json(ArtifactType::Npm, url, true, authorization, dns_pin, JSON)
-        .await
-        .ok()??;
-    provenance_commit(
-        &bundle,
-        &artifact.package_name,
-        version,
-        integrity,
-        artifact.repository.as_deref()?,
-    )
+    Some((url, dist.get("integrity")?.as_str()?))
 }
 
 fn provenance_commit(

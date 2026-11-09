@@ -16,8 +16,8 @@
 //! `get`-then-`insert`.
 mod budget;
 
-pub use budget::{MemoryBudget, Reservation};
 use budget::{Held, next_use};
+pub use budget::{MemoryBudget, Reservation};
 use lru::LruCache;
 use std::borrow::Borrow;
 use std::collections::BTreeSet;

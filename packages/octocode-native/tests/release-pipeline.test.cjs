@@ -95,17 +95,6 @@ test('identityChecks hold a gnu binary to the glibc floor and the embedded ident
   assert.deepEqual(failing(), ['binary']);
 });
 
-test('identityChecks accept a static musl binary and reject a glibc one', t => {
-  const dir = mkdtempSync(path.join(tmpdir(), 'octocode-identity-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: platformPackageName('linux-x64-musl'), version: '1.0.0' }));
-  const stamp = Buffer.from('1.0.0 fp');
-  writeFileSync(path.join(dir, 'octocode'), Buffer.concat([elf({ interpreter: null }), stamp]), { mode: 0o755 });
-  assert.ok(identityChecks(dir, 'fp').every(check => check.ok));
-  writeFileSync(path.join(dir, 'octocode'), Buffer.concat([elf({ needs: ['GLIBC_2.17'] }), stamp]));
-  assert.equal(identityChecks(dir, 'fp').find(check => check.name === 'libc').ok, false);
-});
-
 test('smoke result checks require the fixture line through each surface', () => {
   const search = file => ({ results: [{ index: 0, data: { files: [{ path: file, matches: [{ line: FIXTURE.line, value: 'const octocodeSmokeNeedle = 1;' }] }] } }] });
   assert.equal(checkSearch(search(FIXTURE.path)), `${FIXTURE.path}:${FIXTURE.line}`);
@@ -148,8 +137,7 @@ test('the release matrix builds every platform once and verifies it on its own O
       assert.equal(entry.arch, target.arch, entry.name);
       assert.equal(host.os, entry.container ? 'linux' : target.os, entry.name);
     }
-    if (target.libc === 'musl') assert.deepEqual(entries.map(entry => Boolean(entry.container)), [true], platform);
-    else if (target.libc === 'gnu') assert.deepEqual(entries.map(entry => entry.glibc), [null, require('../scripts/build-native.cjs').GLIBC_FLOOR], platform);
+    if (target.libc === 'gnu') assert.deepEqual(entries.map(entry => entry.glibc), [null, require('../scripts/build-native.cjs').GLIBC_FLOOR], platform);
     else assert.equal(entries.length, 1, platform);
   }
 });

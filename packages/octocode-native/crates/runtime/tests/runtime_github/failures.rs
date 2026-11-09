@@ -60,7 +60,6 @@ async fn gh_primary_rate_limit_is_contract_valid_and_persisted_for_other_process
                 .insert_header("x-ratelimit-resource", "core")
                 .set_body_json(json!({"message": "API rate limit exceeded"})),
         )
-        .expect(1)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
@@ -93,7 +92,22 @@ async fn gh_primary_rate_limit_is_contract_valid_and_persisted_for_other_process
         // An authenticated caller is not told to authenticate.
         checks::assert_absent(data, "auth login");
     }
-    // The second read was refused before sending (mock expects one hit).
+    // The second read was refused before sending. The first call's core
+    // reads (the contents read, and the commit-list date read after GraphQL
+    // fails) may both go out before either is answered; nothing of the
+    // second file reaches GitHub.
+    let core_reads: Vec<String> = server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|request| request.method.as_str() == "GET")
+        .map(|request| request.url.to_string())
+        .collect();
+    assert!(
+        (1..=2).contains(&core_reads.len()) && core_reads.iter().all(|url| !url.contains("two.rs")),
+        "{core_reads:?}"
+    );
     let dir = workspace.home.join("tmp").join("ratelimit");
     let files: Vec<_> = std::fs::read_dir(&dir)
         .expect("ratelimit dir")

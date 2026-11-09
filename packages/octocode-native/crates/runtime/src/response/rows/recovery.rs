@@ -49,6 +49,16 @@ fn missing_error_hint(tool: &dyn ToolOutput, data: &Value, query: &Value) -> Opt
         return None;
     }
     let code = crate::id::error_code_of(data)?;
+    // A missing path whose related[] already lists where to look is
+    // answered by that typed call: the hint would only restate it.
+    if code == ErrorCode::PathNotFound
+        && data
+            .get("related")
+            .and_then(Value::as_array)
+            .is_some_and(|related| !related.is_empty())
+    {
+        return None;
+    }
     error_code_hint(tool, code, query).filter(|hint| !hint.is_empty())
 }
 
@@ -67,8 +77,10 @@ pub(crate) fn error_code_hint(
         ErrorCode::PermissionDenied => {
             "Verify access and token scopes; do not treat denial as absence."
         }
+        // Names no wait value: `rateLimit`, when the provider stated one,
+        // carries it on the row.
         ErrorCode::RateLimited | ErrorCode::ClassificationRateLimited => {
-            "Wait for Retry-After or the rate-limit reset before retrying."
+            "Wait for the provider's limit to reset before retrying."
         }
         // A tool that knows why its own calls time out says so.
         ErrorCode::Timeout => tool
@@ -127,10 +139,14 @@ fn source_hint(code: ErrorCode) -> Option<&'static str> {
             "The source could not be processed safely. Choose a smaller supported source; do not bypass the security check."
         }
         ErrorCode::FileTooLarge | ErrorCode::LargeSourceWindowOnly => LARGE_SOURCE_HINT,
-        ErrorCode::StaleSnapshot
-        | ErrorCode::ResponseSnapshotExpired
-        | ErrorCode::SourceMismatch => {
-            "Use an emitted restart call, or restart the original request. Discard stale coordinates and never invent or edit a cursor."
+        // The message states the recovery (run next.restart, or rerun the
+        // original request without cursor) and the server instructions say
+        // to drop the old pages: a hint would only repeat them.
+        ErrorCode::StaleSnapshot | ErrorCode::ResponseSnapshotExpired => {
+            crate::response::output::NO_HINT
+        }
+        ErrorCode::SourceMismatch => {
+            "Restart the original request without its cursor; never invent or edit a cursor."
         }
         ErrorCode::InvalidPagination | ErrorCode::UnsupportedResponsePagination => {
             "Copy the emitted continuation input unchanged. If it is no longer valid, restart the original request."
@@ -152,9 +168,10 @@ fn execution_hint(code: ErrorCode) -> Option<&'static str> {
         | ErrorCode::LanguageUnsupported => {
             "Use localFetch for exact text or document outlines and localSearch for text candidates; these do not verify semantic identity."
         }
-        ErrorCode::NotFound => {
-            "Not found: verify the exact name, its repository or registry, the revision or version, and access rights; a miss here is not proof it exists nowhere else."
-        }
+        // One text for any resource: a tool whose message already names the
+        // resource, where it looked and its recovery answers with NO_HINT.
+        // That a miss is no absence elsewhere is in the server instructions.
+        ErrorCode::NotFound => "Check the exact name, where it was looked up, and access to it.",
         ErrorCode::VersionNotFound => {
             "Check the package name, registry and manifest/lockfile version; discover published versions before choosing another version."
         }

@@ -228,6 +228,7 @@ fn provider_rows_have_one_shape() {
     // Registry and language-server rows use the same builder; an
     // emitter's own retry verdict wins over the derived one.
     let lsp = provider_failure(
+        ToolId::LspSearch,
         "crashed".into(),
         ErrorCode::ServerCrashed,
         vec!["h".into()],
@@ -240,9 +241,35 @@ fn provider_rows_have_one_shape() {
     );
 }
 
+/// B233: the calling tool's own recovery decides a shared code. A
+/// securityCheck miss names every source it asked, so it carries no hint;
+/// an artifactSearch miss keeps the shared one.
+#[test]
+fn the_calling_tools_own_recovery_decides_the_hint() {
+    let security = provider_failure(
+        ToolId::SecurityCheck,
+        "OSV has no record GHSA-0000-0000-0000".into(),
+        ErrorCode::NotFound,
+        vec![],
+        Some(404),
+        None,
+    );
+    assert!(security.data.get("hints").is_none(), "{}", security.data);
+    let artifact = provider_failure(
+        ToolId::ArtifactSearch,
+        "no such package".into(),
+        ErrorCode::NotFound,
+        vec![],
+        Some(404),
+        None,
+    );
+    assert!(artifact.data["hints"][0].is_string(), "{}", artifact.data);
+}
+
 #[test]
 fn http_status_is_carried_when_present_and_absent_when_not() {
     let with = provider_failure(
+        ToolId::ArtifactSearch,
         "upstream said no".into(),
         ErrorCode::ProviderError,
         vec![],
@@ -254,6 +281,7 @@ fn http_status_is_carried_when_present_and_absent_when_not() {
     assert_eq!(with.data["retryable"], true);
     assert!(with.data["hints"][0].is_string());
     let without = provider_failure(
+        ToolId::ArtifactSearch,
         "client-side".into(),
         ErrorCode::InvalidInput,
         vec![],
@@ -268,7 +296,7 @@ fn http_status_is_carried_when_present_and_absent_when_not() {
 
     for (code, status, retryable, hint_fragment) in [
         (ErrorCode::Authentication, Some(401), false, "credentials"),
-        (ErrorCode::RateLimited, Some(429), true, "rate-limit reset"),
+        (ErrorCode::RateLimited, Some(429), true, "limit to reset"),
         (ErrorCode::HttpStatus, Some(408), true, "Retry once"),
         (ErrorCode::HttpStatus, Some(404), false, "httpStatus"),
         (ErrorCode::Timeout, None, true, "Retry once"),
@@ -279,7 +307,14 @@ fn http_status_is_carried_when_present_and_absent_when_not() {
             "exact package lookup",
         ),
     ] {
-        let failure = provider_failure(format!("{code} failure"), code, vec![], status, None);
+        let failure = provider_failure(
+            ToolId::ArtifactSearch,
+            format!("{code} failure"),
+            code,
+            vec![],
+            status,
+            None,
+        );
         assert_eq!(
             failure.data.get("retryable"),
             retryable.then_some(&serde_json::json!(true)),

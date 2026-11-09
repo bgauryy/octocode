@@ -197,3 +197,191 @@ fn httpdate_after(seconds: u64) -> String {
         rem % 60
     )
 }
+
+/// RV-GH L2: a 403 whose message names a secondary limit but whose headers
+/// say the core quota is spent (`remaining: 0`, a reset, no `retry-after`)
+/// is that quota's limit: GitHub's own rule is to wait until the reset, an
+/// hour window here, so D1 applies and it is disclosed at once with the
+/// reset. A secondary limit with `retry-after` or quota left stays a
+/// cooldown (the tests above).
+#[tokio::test]
+async fn a_secondary_message_on_a_spent_core_quota_is_disclosed_at_once() {
+    let server = MockServer::builder().start().await;
+    let reset = epoch_secs() + 3600;
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(403)
+                .insert_header("x-ratelimit-remaining", "0")
+                .insert_header("x-ratelimit-reset", reset.to_string().as_str())
+                .insert_header("x-ratelimit-resource", "core")
+                .set_body_json(serde_json::json!({
+                    "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
+                })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    let mut context = with_token("secondary-spent", Duration::from_secs(5), 1024);
+    context.budget.wait_until = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
+    let (scope, heard) = cancel_on_announced_wait(context.budget.cancellation.clone());
+    let error = scope
+        .run(transport.execute(
+            RequestSpec::get(endpoint.rest(&["repos", "a", "b"]).expect("route")),
+            &context,
+        ))
+        .await
+        .expect_err("rate limited");
+    assert_eq!(error.kind, ProviderErrorKind::RateLimited, "{error:?}");
+    let rate = error.rate_limit.expect("rate limit");
+    assert_eq!(rate.reset_epoch_seconds, Some(reset), "{rate:?}");
+    assert_eq!(rate.resource.as_deref(), Some("core"), "{rate:?}");
+    assert!(
+        heard.lock().expect("lines").is_empty(),
+        "no wait was announced: {:?}",
+        heard.lock().expect("lines")
+    );
+}
+
+/// A search on `transport`'s key after a limit: `(sent, error)`. Its 2 s
+/// budget is shorter than the documented 60 s secondary cooldown, so a
+/// cooled key refuses it at once, unsent.
+async fn search_after(
+    server: &MockServer,
+    transport: &GitHubTransport,
+    endpoint: &GitHubEndpoint,
+    token: &str,
+) -> (usize, Option<ProviderError>) {
+    let searched = transport
+        .execute(
+            RequestSpec::get(endpoint.rest(&["search", "issues"]).expect("route")),
+            &with_token(token, Duration::from_secs(2), 1024),
+        )
+        .await
+        .err();
+    let sent = server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|request| request.url.path().starts_with("/api/v3/search"))
+        .count();
+    (sent, searched)
+}
+
+/// RV-GH R2-L2 (coordinator's decision): a message naming a secondary limit
+/// still starts the documented key-wide cooldown beside the spent bucket,
+/// because requests sent during a secondary limit can get the integration
+/// banned. The spent core quota is still disclosed at once (D1); a search
+/// on the same key is then refused unsent while the key cools down.
+#[tokio::test]
+async fn a_secondary_message_on_a_spent_bucket_still_cools_the_key() {
+    let server = MockServer::builder().start().await;
+    let reset = epoch_secs() + 3600;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(
+            ResponseTemplate::new(403)
+                .insert_header("x-ratelimit-remaining", "0")
+                .insert_header("x-ratelimit-reset", reset.to_string().as_str())
+                .insert_header("x-ratelimit-resource", "core")
+                .set_body_json(serde_json::json!({
+                    "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
+                })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/issues"))
+        .respond_with(ok_json())
+        .mount(&server)
+        .await;
+    let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    let mut context = with_token("cooled-rest", Duration::from_secs(5), 1024);
+    context.budget.wait_until = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
+    let (scope, heard) = cancel_on_announced_wait(context.budget.cancellation.clone());
+    let core = scope
+        .run(transport.execute(
+            RequestSpec::get(endpoint.rest(&["repos", "a", "b"]).expect("route")),
+            &context,
+        ))
+        .await
+        .expect_err("rate limited");
+    assert_eq!(core.kind, ProviderErrorKind::RateLimited, "{core:?}");
+    assert_eq!(
+        core.rate_limit.and_then(|limit| limit.reset_epoch_seconds),
+        Some(reset)
+    );
+    assert!(
+        heard.lock().expect("lines").is_empty(),
+        "core is not waited out"
+    );
+    let (sent, searched) = search_after(&server, &transport, &endpoint, "cooled-rest").await;
+    assert_eq!(sent, 0, "the key cools down: the search is not sent");
+    let searched = searched.expect("refused");
+    assert_eq!(
+        searched.kind,
+        ProviderErrorKind::RateLimited,
+        "{searched:?}"
+    );
+    assert!(
+        searched.message.contains("secondary"),
+        "{}",
+        searched.message
+    );
+}
+
+/// R2-L2 for GraphQL: a secondary message on a spent GraphQL quota is
+/// disclosed at once with its reset and cools the key as on REST.
+#[tokio::test]
+async fn a_graphql_secondary_message_on_a_spent_bucket_still_cools_the_key() {
+    let server = MockServer::builder().start().await;
+    let reset = epoch_secs() + 3600;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("x-ratelimit-remaining", "0")
+                .insert_header("x-ratelimit-reset", reset.to_string().as_str())
+                .insert_header("x-ratelimit-resource", "graphql")
+                .set_body_json(serde_json::json!({
+                    "data": null,
+                    "errors": [{"message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}]
+                })),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/issues"))
+        .respond_with(ok_json())
+        .mount(&server)
+        .await;
+    let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    let mut context = with_token("cooled-graphql", Duration::from_secs(5), 1024);
+    context.budget.wait_until = std::time::Instant::now() + Duration::from_secs(24 * 60 * 60);
+    let (scope, heard) = cancel_on_announced_wait(context.budget.cancellation.clone());
+    let error = scope
+        .run(transport.execute_graphql(
+            "query { viewer { login } }",
+            serde_json::json!({}),
+            &context,
+        ))
+        .await
+        .expect_err("rate limited");
+    assert_eq!(error.kind, ProviderErrorKind::RateLimited, "{error:?}");
+    let rate = error.rate_limit.expect("metadata");
+    assert_eq!(rate.resource.as_deref(), Some("graphql"));
+    assert_eq!(rate.reset_epoch_seconds, Some(reset));
+    assert!(
+        heard.lock().expect("lines").is_empty(),
+        "GraphQL is not waited out"
+    );
+    let (sent, searched) = search_after(&server, &transport, &endpoint, "cooled-graphql").await;
+    assert_eq!(sent, 0, "the key cools down: the search is not sent");
+    assert_eq!(
+        searched.map(|error| error.kind),
+        Some(ProviderErrorKind::RateLimited)
+    );
+}

@@ -273,19 +273,25 @@ impl Journal {
     }
 
     /// Record `page` as the answer this request saw for `spec`: what a
-    /// continuation it issues owns, however the page was obtained.
+    /// continuation it issues owns, however the page was obtained. A body
+    /// its caller stores itself ([`RequestSpec::kept_by_caller`]) is not
+    /// recorded: the caller's copy is its only store.
     pub(crate) fn record_page(&self, spec: &RequestSpec, page: &ResponsePage) {
-        self.push(request_key(spec), Ok(page.clone()));
+        if !spec.kept_by_caller {
+            self.push(request_key(spec), Ok(page.clone()));
+        }
     }
 
     /// Record GitHub's answer to `spec`: a page, or a definitive not-found
-    /// (any other failure may answer differently when asked again).
+    /// (any other failure may answer differently when asked again). A page
+    /// its caller stores itself is left out, as in [`Self::record_page`]; a
+    /// not-found holds no body and is recorded.
     pub(crate) fn record(&self, spec: &RequestSpec, answer: &Result<ResponsePage, ProviderError>) {
-        if answer
-            .as_ref()
-            .err()
-            .is_none_or(|error| error.kind == ProviderErrorKind::NotFound)
-        {
+        let recorded = match answer {
+            Ok(_) => !spec.kept_by_caller,
+            Err(error) => error.kind == ProviderErrorKind::NotFound,
+        };
+        if recorded {
             self.push(request_key(spec), answer.clone());
         }
     }

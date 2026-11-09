@@ -11,13 +11,17 @@ fn numbered_file(tag: &str, lines: usize) -> String {
         .collect()
 }
 
-fn records(output: &Value) -> Vec<(String, usize, String)> {
+/// A row is attributed to its file by `index`, the position of its query in
+/// `asked`: the first response to a fresh request leaves out the `path` that
+/// echoes its query.
+fn records(output: &Value, asked: &[String]) -> Vec<(String, usize, String)> {
     output["results"]
         .as_array()
         .into_iter()
         .flatten()
         .flat_map(|row| {
-            let file = std::path::Path::new(row["data"]["path"].as_str().expect("source path"))
+            let at = usize::try_from(row["index"].as_u64().expect("row index")).expect("index");
+            let file = std::path::Path::new(&asked[at])
                 .file_name()
                 .expect("file")
                 .to_string_lossy()
@@ -47,6 +51,12 @@ async fn read_all(
     runtime: &octocode_native::runtime::ToolRuntime,
     input: Value,
 ) -> BTreeMap<(String, usize), String> {
+    let asked: Vec<String> = input["queries"]
+        .as_array()
+        .expect("queries")
+        .iter()
+        .map(|query| query["path"].as_str().expect("query path").to_owned())
+        .collect();
     let mut walker = support::checks::Walker::new("localFetch", input);
     let mut found = BTreeMap::new();
     while let Some(input) = walker.next_query() {
@@ -57,7 +67,7 @@ async fn read_all(
             .structured_content
             .into_value();
         let mut ids = Vec::new();
-        for (path, line, text) in records(&output) {
+        for (path, line, text) in records(&output, &asked) {
             ids.push(format!("{path}:{line}"));
             assert!(
                 found.insert((path, line), text).is_none(),

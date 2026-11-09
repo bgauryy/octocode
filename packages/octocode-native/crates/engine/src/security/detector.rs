@@ -8,7 +8,10 @@ mod key_facts;
 
 use code_syntax::CodeSyntax;
 use credential_values::VALUE_TESTS;
-use credential_values::{ValueTest, is_identifier_name};
+use credential_values::{
+    ValueTest, expanded_names, is_expanded_name, is_identifier_name, is_sentence,
+};
+use key_facts::SpanKeys;
 
 mod document;
 mod every_value;
@@ -22,7 +25,11 @@ mod yaml_secret;
 pub use every_value::every_value_spans;
 pub use jwk::hide_members as hide_jwk_members;
 pub use long_line::{LONG_LINE_BYTES, LongLine};
-pub use source_names::{Named, SecretForm, SecretSpan, SecretSpans, SourceNames, SourceWalk};
+#[cfg(feature = "test-hooks")]
+pub use long_text::set_walk_budget;
+pub use source_names::{
+    Named, Objects, SecretForm, SecretSpan, SecretSpans, SourceNames, SourceWalk,
+};
 
 mod prescan;
 mod regex_forms;
@@ -130,6 +137,10 @@ pub(super) struct Judge<'a> {
     code_is_no_config: bool,
     /// The pattern reads the text comments hold ([`READS_COMMENT_SYNTAX`]).
     reads_comments: bool,
+    /// The text judged, and the names it expands as a variable
+    /// ([`expanded_names`]), read once when a value first asks.
+    text: &'a str,
+    expanded: std::cell::OnceCell<std::collections::HashSet<Box<str>>>,
 }
 
 /// The syntax of the source a pass judges, read at the positions of the text
@@ -188,6 +199,22 @@ impl SyntaxOf<'_> {
         }
     }
 
+    /// Whether the grammar reads an escape sequence starting with the
+    /// backslash at `at`: unlike [`SyntaxOf::escapes_at`], no parse, a
+    /// placeholder's byte or a backslash the escape of another one holds
+    /// (`\\"`) is no escape here. A reading of the escape's character
+    /// ([`Judge::value_text`], [`Judge::value_end`]) is taken only where
+    /// the source says so.
+    fn escape_starts_at(&self, at: usize) -> bool {
+        match self {
+            Self::Own(syntax) => syntax.escape_starts_at(at),
+            Self::Source(source) => {
+                let back = source.edits.input_at(at);
+                source.edits.output_at(back) == Some(at) && source.syntax.escape_starts_at(back)
+            }
+        }
+    }
+
     fn literal_end(&self, at: usize, until: usize) -> Option<usize> {
         match self {
             Self::Own(syntax) => syntax.literal_end(at, until),
@@ -196,6 +223,29 @@ impl SyntaxOf<'_> {
                 let close = source.syntax.literal_end(read.start, read.end)?;
                 Some(source.edits.output_end(close))
             }
+        }
+    }
+
+    /// The source's literal lines ([`CodeSyntax::literal_lines`]) at the
+    /// judged text's positions: a line whose start a replacement took is
+    /// gone, and one a replacement cut ends where the replacement does.
+    fn literal_lines(&self) -> std::borrow::Cow<'_, [std::ops::Range<usize>]> {
+        match self {
+            Self::Own(syntax) => std::borrow::Cow::Borrowed(syntax.literal_lines()),
+            Self::Source(source) if source.edits.is_empty() => {
+                std::borrow::Cow::Borrowed(source.syntax.literal_lines())
+            }
+            Self::Source(source) => std::borrow::Cow::Owned(
+                source
+                    .syntax
+                    .literal_lines()
+                    .iter()
+                    .filter_map(|line| {
+                        let start = source.edits.output_at(line.start)?;
+                        Some(start..source.edits.output_end(line.end).max(start))
+                    })
+                    .collect(),
+            ),
         }
     }
 }
@@ -221,6 +271,8 @@ impl<'a> Judge<'a> {
             syntax,
             code_is_no_config: READS_CONFIG_SYNTAX[idx],
             reads_comments: READS_COMMENT_SYNTAX[idx],
+            text,
+            expanded: std::cell::OnceCell::new(),
         }
     }
 
@@ -229,15 +281,78 @@ impl<'a> Judge<'a> {
     /// judged by where the grammar places it: in code it is no config entry,
     /// in a comment it is prose first ([`ValueTest::redacts_in_comment`]), in
     /// other text a config line that may be code ([`ValueTest::redacts_in_code_text`]).
-    pub(super) fn redacts(&self, key: &str, secret: &str, at: &std::ops::Range<usize>) -> bool {
-        let Some(syntax) = self.syntax.as_ref().filter(|_| self.code_is_no_config) else {
-            return self.value_test.redacts(key, secret);
+    ///
+    /// `secret` lies at `secret_at` in `text`, the text judged (the judge's
+    /// own: [`Judge::of`]). The value is
+    /// judged as the program holds it ([`Judge::value_text`]), and a
+    /// constant's name the same text expands as a variable is no credential
+    /// ([`is_expanded_name`]).
+    pub(super) fn redacts(
+        &self,
+        text: &str,
+        key: &str,
+        secret_at: &std::ops::Range<usize>,
+        at: &std::ops::Range<usize>,
+    ) -> bool {
+        let value = self.value_text(text, secret_at);
+        let secret = value.as_ref();
+        let verdict = match self.syntax.as_ref().filter(|_| self.code_is_no_config) {
+            None => self.value_test.redacts(key, secret),
+            Some(syntax) => match syntax.place_of(at) {
+                code_syntax::Place::Code => false,
+                code_syntax::Place::Comment => self.value_test.redacts_in_comment(key, secret),
+                code_syntax::Place::Text => self.value_test.redacts_in_code_text(key, secret),
+            },
         };
-        match syntax.place_of(at) {
-            code_syntax::Place::Code => false,
-            code_syntax::Place::Comment => self.value_test.redacts_in_comment(key, secret),
-            code_syntax::Place::Text => self.value_test.redacts_in_code_text(key, secret),
+        debug_assert!(std::ptr::eq(text, self.text), "a judge judges its own text");
+        verdict
+            && !is_expanded_name(
+                || self.expanded.get_or_init(|| expanded_names(self.text)),
+                secret,
+            )
+    }
+
+    /// The value at `secret` in `text` as the program holds it: each quote
+    /// the grammar reads as escaped (`\"` in `"…Password={value}\";"`) is the
+    /// quote it writes. Only an escape the source's syntax holds is read so
+    /// ([`SyntaxOf::escape_starts_at`]); without one the text is judged as
+    /// written. Other escapes stay as written: the value tests read them
+    /// (`\n` framing a name, an escape counting as one character).
+    #[cfg_attr(
+        octocode_clippy_ratchet,
+        expect(
+            clippy::string_slice,
+            reason = "`secret` is a regex match; the offsets are ASCII backslashes and quotes in it"
+        )
+    )]
+    fn value_text<'t>(
+        &self,
+        text: &'t str,
+        secret: &std::ops::Range<usize>,
+    ) -> std::borrow::Cow<'t, str> {
+        let raw = &text[secret.clone()];
+        let Some(syntax) = self.syntax.as_ref() else {
+            return std::borrow::Cow::Borrowed(raw);
+        };
+        let escaped_quote = |at: usize| {
+            raw.as_bytes()
+                .get(at + 1)
+                .is_some_and(|byte| matches!(byte, b'"' | b'\'' | b'`'))
+                && syntax.escape_starts_at(secret.start + at)
+        };
+        let mut decoded = String::new();
+        let mut from = 0;
+        for (at, _) in raw.match_indices('\\') {
+            if at >= from && escaped_quote(at) {
+                decoded.push_str(&raw[from..at]);
+                from = at + 1;
+            }
         }
+        if from == 0 {
+            return std::borrow::Cow::Borrowed(raw);
+        }
+        decoded.push_str(&raw[from..]);
+        std::borrow::Cow::Owned(decoded)
     }
 
     /// Where the value of a secret found at `secret` in `text` ends, `text`
@@ -264,6 +379,7 @@ impl<'a> Judge<'a> {
                 .as_ref()
                 .is_none_or(|syntax| syntax.escapes_at(base + at))
         });
+        let end = self.field_line_end(text, base, secret.start, end);
         // A literal closes with a quote: a value with none in it ends inside.
         if !text[secret.start..end].contains(['"', '\'', '`']) {
             return end;
@@ -276,11 +392,48 @@ impl<'a> Judge<'a> {
             .unwrap_or(end)
     }
 
+    /// Where a field of a value's own grammar ([`ValueTest::Field`]: a
+    /// connection string's password field) that starts at `start` and was read
+    /// to `end` ends: at the first escaped line break (`\n`, `\r`) the
+    /// source's syntax holds inside it, since the program's text has a line
+    /// break there and a connection string is one line. A backslash the
+    /// syntax does not read as an escape (a raw string, no parse, a
+    /// placeholder) ends nothing, so the field keeps its whole read.
+    #[cfg_attr(
+        octocode_clippy_ratchet,
+        expect(
+            clippy::string_slice,
+            reason = "`start` is a regex match bound and `end` a char boundary from `continued_end`"
+        )
+    )]
+    fn field_line_end(&self, text: &str, base: usize, start: usize, end: usize) -> usize {
+        let Some(syntax) = self
+            .syntax
+            .as_ref()
+            .filter(|_| self.value_test == ValueTest::Field)
+        else {
+            return end;
+        };
+        text[start..end]
+            .match_indices('\\')
+            .map(|(at, _)| start + at)
+            .find(|&at| {
+                at > start
+                    && matches!(text.as_bytes().get(at + 1), Some(b'n' | b'r'))
+                    && syntax.escape_starts_at(base + at)
+            })
+            .unwrap_or(end)
+    }
+
     /// Calls `found(whole, secret)` for each credential `regex` finds in
     /// `text`: [`accepted_secrets`] over the text, and in a source-code file
     /// over each comment's credential-word tails, which the text's own
-    /// line anchors do not reach (`x = 1; // password: …`). Ranges come in
-    /// order and none overlaps another: overlapping ones join.
+    /// line anchors do not reach (`x = 1; // password: …`), and over each
+    /// line a string literal holds that starts past its physical line's
+    /// start ([`CodeSyntax::literal_lines`]: `let s = "password = …";`),
+    /// read from where the literal's line starts, by every rule but a
+    /// file-class one ([`ValueTest::FileClass`]). Ranges come in order and
+    /// none overlaps another: overlapping ones join.
     pub(super) fn secrets(
         &self,
         regex: &regex::Regex,
@@ -292,7 +445,7 @@ impl<'a> Judge<'a> {
                 regex,
                 text,
                 line_start_of,
-                |k, s, at| self.redacts(k, s, at),
+                |k, s, at| self.redacts(text, k, s, at),
                 |secret| self.value_end(text, 0, secret),
                 found,
             );
@@ -303,13 +456,48 @@ impl<'a> Judge<'a> {
             regex,
             text,
             line_start_of,
-            |k, s, at| self.redacts(k, s, at),
+            |k, s, at| self.redacts(text, k, s, at),
             |secret| self.value_end(text, 0, secret),
             |whole, secret| {
                 all.push((whole, secret));
             },
         );
         all.extend(self.tail_secrets(text, &syntax.comment_lines(), &mut 0));
+        // A literal's line is a literal of code first: a file-class rule
+        // reads its value as a dotenv or properties file holds it, which a
+        // line of source code is not, and the value a rule finds there is a
+        // credential only when it is one as a code literal too
+        // ([`ValueTest::Quoted`]: long enough, or a chosen secret). A
+        // message is prose there as in a comment: after `name:` a sentence
+        // is no value ([`is_sentence`]).
+        let literal_lines = if self.value_test == ValueTest::FileClass {
+            std::borrow::Cow::Borrowed(&[][..])
+        } else {
+            syntax.literal_lines()
+        };
+        for line in literal_lines.iter() {
+            // A line with an escape is written otherwise than the program
+            // holds it (`\"` for `"`): a rule would read its backslashes.
+            let Some(window) = text.get(line.clone()).filter(|line| !line.contains('\\')) else {
+                continue;
+            };
+            let base = line.start;
+            let shift = |at: &std::ops::Range<usize>| base + at.start..base + at.end;
+            accepted_secrets(
+                regex,
+                window,
+                line_start_of,
+                |k, s, at| {
+                    window.get(s.clone()).is_some_and(|value| {
+                        ValueTest::Quoted.redacts(k, value)
+                            && !is_sentence(&SpanKeys::new(k).key(0), value.trim())
+                            && self.redacts(text, k, &shift(s), &shift(at))
+                    })
+                },
+                |secret| self.value_end(window, base, secret),
+                |whole, secret| all.push((shift(&whole), shift(&secret))),
+            );
+        }
         for (whole, secret) in joined(all) {
             found(whole, secret);
         }
@@ -350,12 +538,16 @@ fn applicable_patterns(content: &str, scope: Scope<'_>) -> PatternSet {
 /// The patterns that may redact in `content`: those whose regex matches it.
 /// A pattern that also reads the comments of a source-code file stays a
 /// candidate there whatever the regex says of the whole text: its line
-/// anchors do not reach a comment after code ([`Judge::secrets`]).
+/// anchors do not reach a comment after code, or a config line a literal
+/// opens mid-line ([`Judge::secrets`]).
 fn matching_patterns(content: &str, scope: Scope<'_>) -> PatternSet {
     let reads_comments = scope
         .source_path()
         .and_then(code_syntax::grammar_of)
-        .is_some_and(|grammar| code_syntax::has_credential_assignment(content, grammar));
+        .is_some_and(|grammar| {
+            code_syntax::has_credential_assignment(content, grammar)
+                || code_syntax::has_quoted_credential_assignment(content)
+        });
     applicable_patterns(content, scope).filter(|idx| {
         (reads_comments && READS_COMMENT_SYNTAX[idx])
             || pattern_regex_for(idx, content).is_match(content)
@@ -532,7 +724,9 @@ fn line_start_of(_match_start: usize, line_start: usize) -> usize {
 /// replaced, as a URL's password that two URL patterns name: counted once, its
 /// label stays), a match outside a diff's hunks, and one `redacts` turns away
 /// (given the text from where the line's key starts, which `key_start` says
-/// from the match's start and its line's start, to the secret, and the secret).
+/// from the match's start and its line's start, to the secret, the secret's
+/// range and the match's). A match that starts inside the lines an earlier
+/// secret continued into and ends past them joins that secret.
 #[cfg_attr(
     octocode_clippy_ratchet,
     expect(
@@ -544,7 +738,7 @@ fn accepted_secrets(
     regex: &regex::Regex,
     text: &str,
     key_start: impl Fn(usize, usize) -> usize,
-    redacts: impl Fn(&str, &str, &std::ops::Range<usize>) -> bool,
+    redacts: impl Fn(&str, &std::ops::Range<usize>, &std::ops::Range<usize>) -> bool,
     value_end: impl Fn(&std::ops::Range<usize>) -> usize,
     mut found: impl FnMut(std::ops::Range<usize>, std::ops::Range<usize>),
 ) {
@@ -552,34 +746,74 @@ fn accepted_secrets(
     // Matches come in order, so only the text since the last one can hold a
     // later line start: searching back to the start of the text from each
     // match costs quadratic time on one long line.
-    let (mut line_start, mut searched_to, mut covered_to) = (0, 0, 0);
+    let (mut line_start, mut searched_to) = (0, 0);
+    // The last secret found, held until no later one can join it: a match
+    // never starts inside an earlier match, but it can start inside the lines
+    // an earlier secret continued into, and then it extends that secret.
+    let mut pending: Option<(std::ops::Range<usize>, std::ops::Range<usize>)> = None;
     let diff_lines = DiffLines::new(regex, text);
-    for captures in regex.captures_iter(text) {
+    // Where the next search starts: past the match, or where an accepted
+    // value ends when it ends before the secret the pattern read (an escaped
+    // line break, a literal's close: [`Judge::value_end`]). The text past
+    // that end is no part of the value, so it is searched again: it may hold
+    // a secret of its own (`…Password=x\nCONN4=Pwd=ab12;…`).
+    let mut from = 0;
+    while from <= text.len() {
+        let Some(captures) = regex.captures_at(text, from) else {
+            break;
+        };
         let Some(raw) = RawMatch::of(&captures, &groups) else {
-            continue;
+            break;
+        };
+        from = if raw.whole.is_empty() {
+            raw.whole.end
+                + text[raw.whole.end..]
+                    .chars()
+                    .next()
+                    .map_or(1, char::len_utf8)
+        } else {
+            raw.whole.end
         };
         if let Some(at) = text[searched_to..raw.whole.start].rfind(LINE_END_CHARS) {
             line_start = searched_to + at + 1;
         }
         searched_to = raw.whole.start;
         let secret = &raw.secret;
-        if secret.start >= covered_to
-            && raw.is_kept(
-                &diff_lines,
-                diff_lines.prefixed(&captures),
-                text,
-                line_start,
-            )
-            && redacts(
-                &text[key_start(raw.whole.start, line_start).min(secret.start)..secret.start],
-                &text[secret.clone()],
-                &raw.whole,
-            )
-        {
-            let end = value_end(secret);
-            covered_to = end;
-            found(raw.whole.start..raw.whole.end.max(end), secret.start..end);
+        let covered_to = pending.as_ref().map_or(0, |(_, last)| last.end);
+        // A match within what is hidden already hides nothing more.
+        if secret.end <= covered_to {
+            continue;
         }
+        if raw.is_kept(
+            &diff_lines,
+            diff_lines.prefixed(&captures),
+            text,
+            line_start,
+        ) && redacts(
+            &text[key_start(raw.whole.start, line_start).min(secret.start)..secret.start],
+            secret,
+            &raw.whole,
+        ) {
+            let end = value_end(secret);
+            if secret.start < end && end < secret.end {
+                from = end;
+            }
+            let whole = raw.whole.start..raw.whole.end.max(end);
+            match pending.as_mut() {
+                Some((last_whole, last)) if secret.start < last.end => {
+                    last.end = last.end.max(end);
+                    last_whole.end = last_whole.end.max(whole.end);
+                }
+                _ => {
+                    if let Some((whole, secret)) = pending.replace((whole, secret.start..end)) {
+                        found(whole, secret);
+                    }
+                }
+            }
+        }
+    }
+    if let Some((whole, secret)) = pending {
+        found(whole, secret);
     }
 }
 
@@ -688,7 +922,7 @@ fn replace_secrets(
             regex,
             content,
             line_start_of,
-            redacts,
+            |key, secret, whole| redacts(key, &content[secret.clone()], whole),
             |secret| continued_end(content, secret.end, |_| true),
             found,
         );

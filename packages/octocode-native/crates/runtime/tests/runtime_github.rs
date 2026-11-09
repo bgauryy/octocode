@@ -9,4 +9,5 @@ mod materialize;
 mod missing_targets;
 mod owner_pages;
 mod refs;
+mod renamed_paths;
 mod search_pages;

@@ -9,7 +9,7 @@ use crate::tools::lsp_search::render::{decode_uri_path, into_items};
 use crate::tools::lsp_search::source::item_uri_is_authorized;
 use crate::tools::lsp_search::walk::{
     Expansion, HierarchySource, NodeKeys, Walk, call_items_payload, mark_partial_expansion,
-    mark_truncation, public_edge,
+    mark_truncation, public_edge, scope_callers,
 };
 use crate::tools::lsp_search::{Op, cancellable, lsp_search_query};
 use serde_json::{Value, json};
@@ -153,13 +153,15 @@ pub(super) async fn run(question: &Question<'_, '_>) -> Result<Value, Fault> {
     {
         return Err(Fault::Fallback(reason));
     }
-    let items = walk
+    let mut items = walk
         .edges
         .iter()
         .map(|edge| public_edge(expansion, edge, None))
         .collect::<Vec<_>>();
+    let excluded = scope_callers(query, paths, &mut items);
     let mut row = call_items_payload(query, &items, None, question.budget, paths);
-    mark_partial_expansion(&mut row, query, &walk.failures);
-    mark_truncation(&mut row, query, &[(expansion, &walk)]);
+    crate::tools::lsp_search::test_scope::disclose(&mut row, excluded);
+    mark_partial_expansion(&mut row, query, &walk.failures, paths);
+    mark_truncation(&mut row, query, &[(expansion, &walk)], paths);
     Ok(row)
 }

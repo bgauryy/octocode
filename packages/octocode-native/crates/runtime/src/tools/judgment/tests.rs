@@ -186,8 +186,16 @@ async fn models_use_authenticated_get_retry_and_validate_the_catalog() {
     let server = MockServer::start().await;
     let attempts = Arc::new(AtomicUsize::new(0));
     let count = attempts.clone();
-    let catalog = json!({"models":[{"name":"jev-preview","description":"Preview","release_date":"2026-09-10T18:39:06.057655+00:00"}]});
-    let payload = catalog.clone();
+    let date = "2026-09-10T18:39:06.057655+00:00";
+    let payload =
+        json!({"models":[{"name":"jev-preview","description":"Preview","release_date":date}]});
+    // The listing is spelled as the output contract types it.
+    let catalog = json!({"models":[octocode_contract_types::ClasifyModelMetadata {
+        default: None,
+        description: "Preview".into(),
+        name: "jev-preview".into(),
+        release_date: date.into(),
+    }]});
     Mock::given(method("GET"))
         .and(path("/v1/models"))
         .respond_with(move |_: &Request| {

@@ -5,22 +5,6 @@ use crate::response::result::{Continuation, ToolData, query_row};
 use crate::tools::leads::broaden::{Broaden, broaden, set_broadened, set_no_broader};
 use serde_json::{Value, json};
 
-/// Where the top repository leads: its default-branch root listing. Repo
-/// discovery words are not code keywords, so no code-search lead follows.
-pub(super) fn top_leads(
-    top: Option<&octocode_github::RepositorySearchItem>,
-) -> Vec<(&'static str, Value)> {
-    let Some((owner, repo)) = top.and_then(|item| item.full_name.split_once('/')) else {
-        return Vec::new();
-    };
-    vec![(
-        "viewRepo",
-        crate::tools::gh_shared::RepoPath::root(owner, repo)
-            .lead(ToolId::GhStructure)
-            .build(),
-    )]
-}
-
 /// The search a lead copies, from its first page: defaults and the brief
 /// stay out of the copied call.
 pub(super) fn copied_search(query: &GhSearchRepoQuery) -> Value {

@@ -66,7 +66,7 @@ function parseOptions(argv) {
 
 const hostPlatform = getPlatformSuffix();
 
-/** A libc-only difference (musl on a glibc x64 runner) links with the host toolchain CI installs. */
+/** A target of another OS or CPU than the host needs a cross linker. */
 function needsCrossLinker(platform) {
   const host = PLATFORMS[hostPlatform];
   const target = PLATFORMS[platform];

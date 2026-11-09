@@ -88,8 +88,5 @@ pub(super) fn note_skipped(
     // The same build with exactly the skipping causes lifted.
     let lead = skipped::lead(ToolId::GraphBuild, query, &disclosure.causes);
     crate::response::result::add_hints(out, [disclosure.text]);
-    match out["related"].as_array_mut() {
-        Some(related) => related.push(lead),
-        None => out["related"] = json!([lead]),
-    }
+    crate::response::result::attach_related(out, lead);
 }

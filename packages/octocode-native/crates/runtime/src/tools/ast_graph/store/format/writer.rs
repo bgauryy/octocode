@@ -195,7 +195,7 @@ impl<'t> Encoder<'t> {
             .map(|(index, text)| (*text, index))
             .collect::<HashMap<_, _>>();
         let id = |text: &str| ids.get(text).copied().unwrap_or(0);
-        let sids = tables.strings.iter().map(|text| id(text)).collect();
+        let sids = tables.strings.iter().map(&id).collect();
         let empty = id("");
         Self {
             tables,

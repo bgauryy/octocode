@@ -9,6 +9,7 @@ import { advancedSecurityCheck } from './advanced-osv.mjs';
 import { advancedHistoryForms } from './advanced-history.mjs';
 import { addedLines, blobSha } from './mock-model.mjs';
 import { clone } from './advanced-clone.mjs';
+import { laterPartContext } from '../page-context.mjs';
 
 const REPO = { owner: 'octo', repo: 'demo' };
 const data = result => result?.json?.results?.[0]?.data ?? {};
@@ -60,7 +61,9 @@ async function code(ctx) {
     ['filters.intersection', { ...REPO, keywords: ['greet'], path: 'src', nameContains: 'greeter', extensions: ['ts', 'md'] }, d => equal(paths(d.files), ['src/greeter.ts'])],
     ['path.only', { ...REPO, keywords: ['greeter'], matchIn: ['path'] }, d => equal(paths(d.files), ['src/greeter.ts']) && d.files.every(file => !file.lines?.length)],
     ['ref.reRead', { ...REPO, keywords: ['healthMarker'], path: 'src', ref: ctx.mock.model.head.oid }, d => equal(paths(d.files), ['src/app.ts', 'src/greeter.ts', 'src/util.ts'])
-      && d.files.every(file => file.owner === REPO.owner && file.repo === REPO.repo && file.commitSha === ctx.mock.model.head.oid)],
+      // A row's repository is its own fields, else the page's (data), else the request's.
+      && d.files.every(file => (file.owner ?? d.owner ?? REPO.owner) === REPO.owner && (file.repo ?? d.repo ?? REPO.repo) === REPO.repo
+        && (file.commitSha ?? d.commitSha) === ctx.mock.model.head.oid)],
     ['scope.owner', { owner: 'octo', keywords: ['greeter'], extensions: ['md'] }, d => (d.files ?? []).some(file => file.path === 'README.md')],
   ]);
 }
@@ -129,7 +132,9 @@ async function reader(ctx) {
   return [...out, ...await readerForms(ctx), ...await readerFlows(ctx)];
 }
 
+const rawRows = report => report.responses.filter(row => row.tool === 'ghGetFileContent').flatMap(row => row.result.json?.results ?? []);
 const readRows = report => joinTextParts(report.responses.filter(row => row.tool === 'ghGetFileContent').flatMap(row => row.result.json?.results ?? []));
+const lineNumbers = text => Array.from({ length: text.split('\n').length - Number(text.endsWith('\n')) }, (_, i) => i + 1);
 const numberedSource = text => addedLines(text).map((line, index) => [index + 1, line]);
 const readText = rows => rows.map(row => sourceView(row.data).text).join('');
 /** Rows as comparable evidence, or null when the response is not a parsed result record (a failed call, an interrupted binary). */
@@ -278,12 +283,39 @@ async function readerPinned(ctx, surface, out, sources) {
   out.push([`advanced.flow.newCommit.${surface}`, data(fresh.responses[0]?.result).commitSha === commits[1], JSON.stringify(data(fresh.responses[0]?.result))]);
 }
 
+/**
+ * One file read split into several `rowPart` parts of one row: a match read whose lines are wider than the window,
+ * an eighth of the whole unsplit response, measured first (a third only pages: the provider pager cuts at lines). Walking every part rebuilds the file's lines exactly once,
+ * each split row's parts number 1..of, and every later part repeats the page context the contract declares.
+ */
+// A window of this fraction of the whole answer is narrower than one line of the generated `flow-wide.txt`.
+const SPLIT_WINDOWS = 8;
+async function readerSplitRow(ctx, surface, out, sources) {
+  const query = { ...REPO, ref: ctx.mock.model.head.oid, path: 'flow-wide.txt', matchString: ['界'], contextLines: { before: 0, after: 0 } };
+  const whole = await ctx.call({ queries: [query], responseChars: Number.MAX_SAFE_INTEGER }, surface);
+  const size = JSON.stringify(whole.json).length;
+  const window = Math.floor(size / SPLIT_WINDOWS);
+  const report = await ctx.explore('ghGetFileContent', { queries: [query], responseChars: window }, surface);
+  const rows = rawRows(report);
+  const runs = rows.reduce((all, row) => { if (!row.rowPart || row.rowPart.part === 1) all.push([]); all.at(-1).push(row); return all; }, []);
+  const split = runs.filter(run => run[0].rowPart);
+  const numbered = split.length > 0 && split.every(run => run.every((row, at) => row.rowPart.part === at + 1 && row.rowPart.of === run.length));
+  const context = split.every(([first, ...later]) => later.every(row => row.rowPart.text === '/data/content'
+    && laterPartContext('ghGetFileContent', ['data'], { row: row.data, original: { ...first.data, owner: query.owner, repo: query.repo }, skip: key => key === 'content' })
+    && row.data.commitSha === first.data.commitSha && row.data.owner === query.owner && row.data.repo === query.repo));
+  const text = readText(joinTextParts(rows));
+  out.push([`advanced.flow.splitRow.${surface}`, !report.failures.length && numbered && context && text === sources['flow-wide.txt'],
+    `window ${window} of ${size}; ${split.length} split rows; ${Buffer.byteLength(text)}/${Buffer.byteLength(sources['flow-wide.txt'])} bytes; numbered ${numbered}, context ${context}; ${JSON.stringify(report.failures)}`]);
+}
+
 async function readerFlows(ctx) {
   const out = [];
   const sources = {
     'flow-lines.txt': `${Array.from({ length: 24 }, (_, index) => `source ${index + 1}: 界😀 café\t${index % 3 === 0 ? 'needle' : 'plain'}`).join('\r\n')}\r\n`,
     'flow-long.txt': `${Array.from({ length: 6000 }, (_, index) => `${index}:界😀;`).join('')}\r\ntail界😀`,
     'flow-data.json': `${JSON.stringify({ marker: 'literal // text', unicode: '界😀', values: [0, false, null, { nested: 'café' }] }, null, 2)}\n`,
+    // Few lines, each wider than a window of an eighth of the whole answer: one match read's content must split mid-line.
+    'flow-wide.txt': Array.from({ length: 4 }, (_, line) => `${line}:${Array.from({ length: 800 }, (_, at) => `${at}界😀;`).join('')}\n`).join(''),
     'flow-empty.txt': '',
     'flow-attribution.txt': 'prefix\nsame\nsame\n',
   };
@@ -300,6 +332,7 @@ async function readerFlows(ctx) {
       let compactValue;
       try { compactValue = JSON.parse(readText(compactRows)); } catch { compactValue = null; }
       out.push([`advanced.flow.compactJson.${surface}`, !compact.failures.length && compactRows.every(row => (row.data.view ?? 'compact') === 'compact') && equal(compactValue, JSON.parse(sources['flow-data.json'])), readText(compactRows)]);
+      await readerSplitRow(ctx, surface, out, sources);
       await readerBatch(ctx, surface, out, sources);
       await readerMatchPages(ctx, surface, out, sources);
       await readerMatchAttribution(ctx, surface, out);

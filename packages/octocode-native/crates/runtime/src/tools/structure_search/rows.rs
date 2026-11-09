@@ -192,10 +192,13 @@ pub(super) fn page_entries(
 }
 
 /// Group a window's rows (cut from `sort`ed rows) as the page lists them.
-/// Path order groups by directory: the listed path's own entries first,
-/// then each directory once, in walk order (the sort is stable). Other sorts
-/// keep their global rank order exactly; each page groups only its runs of
-/// adjacent rows ([`dir_groups`]).
+/// Walk order (`traversal`) groups by directory: the listed path's own
+/// entries first, then each directory once, in walk order (the sort is
+/// stable). Ranked sorts, `path` included (the default: a whole-scope rank by
+/// path, where `memory.rs` < `memory/tests.rs` < `tests.rs` interleaves a
+/// directory with its subdirectory), keep their global rank order exactly;
+/// [`dir_groups`] then names each directory once for `path` ranks and
+/// per run of adjacent rows for metric ranks.
 pub(super) fn group(rows: &mut Vec<Row>, sort: &StructureSearchSort, view: StructureSearchView) {
     if super::files::is_traversal(sort) {
         rows.sort_by(|a, b| std::path::Path::new(&a.dir).cmp(std::path::Path::new(&b.dir)));
@@ -248,25 +251,34 @@ fn drop_grouped_dirs(rows: &mut Vec<Row>, view: StructureSearchView) {
     });
 }
 
-/// The page's rows as the response lists them, in page order: each run of
-/// adjacent entries of one directory becomes one `{dir, files}` group, `dir`
-/// workspace-relative (the listed path's own entries included, `prefix`
-/// being its spelling), so `dir + "/" + name` is a path a local tool takes.
-/// A path-ordered page holds each directory in one run ([`group`]), so it
-/// names each once; a ranked page (`sort` by size, lines, name or time)
-/// keeps its global rank order exactly, and a directory it returns to opens
-/// a new group. [`costs`] prices the same runs.
-pub(super) fn dir_groups(rows: &[(String, String)], prefix: &str) -> Vec<Value> {
+/// The page's rows as the response lists them, `dir` workspace-relative
+/// (the listed path's own entries included, `prefix` being its spelling), so
+/// `dir + "/" + name` is a path a local tool takes. With `merge` (walk
+/// order and the `path` sort: the order is only a way to name files),
+/// one `{dir, files}` group per directory, in the order each first appears,
+/// so a directory the rank returns to joins its group. Without it (a name, size,
+/// lines or time rank, where the order is the answer) each run of adjacent
+/// entries of one directory is a group and a directory the rank returns to
+/// opens a new one. [`costs`] prices the same groups.
+pub(super) fn dir_groups(rows: &[(String, String)], prefix: &str, merge: bool) -> Vec<Value> {
     let mut out: Vec<Value> = Vec::new();
+    let mut at = std::collections::HashMap::<String, usize>::new();
     for (dir, entry) in rows {
         let dir = super::group_dir(prefix, dir);
-        match out.last_mut() {
-            Some(group) if group["dir"] == dir.as_str() => {
-                if let Some(items) = group["files"].as_array_mut() {
-                    items.push(json!(entry));
-                }
+        let adjacent = out
+            .len()
+            .checked_sub(1)
+            .filter(|&last| out[last]["dir"] == dir.as_str());
+        let index = match adjacent.or_else(|| merge.then(|| at.get(&dir).copied()).flatten()) {
+            Some(index) => index,
+            None => {
+                out.push(json!({"dir": dir, "files": []}));
+                at.insert(dir, out.len() - 1);
+                out.len() - 1
             }
-            _ => out.push(json!({"dir": dir, "files": [entry]})),
+        };
+        if let Some(items) = out[index]["files"].as_array_mut() {
+            items.push(json!(entry));
         }
     }
     out

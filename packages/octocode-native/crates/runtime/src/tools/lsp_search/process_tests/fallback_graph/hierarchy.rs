@@ -242,7 +242,7 @@ fn fallback_type_hierarchy_keeps_known_edges_when_an_implementation_alias_is_amb
         "{row}"
     );
     assert!(
-        row["warnings"]
+        row["expansionFailures"]
             .to_string()
             .contains("2 distinct type declarations"),
         "{row}"

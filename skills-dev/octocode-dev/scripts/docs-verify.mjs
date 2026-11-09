@@ -11,6 +11,7 @@ import {
 import { DEFAULT_CONFIG } from '@octocodeai/config';
 import { ROOT } from './lib/workspaces.mjs';
 import { checkVocabulary } from './check-vocabulary.mjs';
+import { gitHasPath, pinnedLinkFailures } from './docs-pinned-links.mjs';
 
 const REPO_BLOB_PREFIXES = ['octocode', 'octocode-mcp'].map(repo => `https://github.com/bgauryy/${repo}/blob/main/`);
 const PUBLIC_TOOL_NAMES = DIRECT_TOOL_DEFINITIONS.map(
@@ -196,6 +197,8 @@ function validateDocsLinks() {
           continue;
         }
 
+        failures.push(...pinnedLinkFailures(relativeFile, [linkTarget], (sha, repoPath) => gitHasPath(ROOT, sha, repoPath)));
+
         const repoPrefix = REPO_BLOB_PREFIXES.find(prefix => linkTarget.startsWith(prefix));
         if (repoPrefix) {
           const relativeTarget = linkTarget
@@ -211,6 +214,11 @@ function validateDocsLinks() {
         }
       }
     }
+  }
+
+  // Skills are checked for pinned links only: their relative links resolve inside an installed skill.
+  for (const filePath of collectMarkdownFiles(path.join(ROOT, 'skills'))) {
+    failures.push(...pinnedLinkFailures(path.relative(ROOT, filePath), readMarkdownLinks(fs.readFileSync(filePath, 'utf8')), (sha, repoPath) => gitHasPath(ROOT, sha, repoPath)));
   }
 
   const ignored = gitIgnoredPaths([...new Set(existingLocalLinks.map(link => link.targetPath))]);

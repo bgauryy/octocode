@@ -154,8 +154,17 @@ fn dirty_checkout_preserves_tracked_untracked_ignored_and_user_metadata_names() 
         let file = checkout.join(name);
         fs::create_dir_all(file.parent().expect("file parent")).expect("marker parent");
         if ignored {
-            fs::write(checkout.join(".git/info/exclude"), "ignored.txt\n")
-                .expect("ignore fixture file");
+            // A worktree's exclude file is its store's: git names it.
+            let exclude = git_output(
+                checkout,
+                &[
+                    "rev-parse",
+                    "--path-format=absolute",
+                    "--git-path",
+                    "info/exclude",
+                ],
+            );
+            fs::write(exclude.trim(), "ignored.txt\n").expect("ignore fixture file");
         }
         fs::write(&file, "user evidence\n").expect("edit owned fixture");
         let error = clone_pinned(&fixture, &query(), &context).expect_err("preserve user file");
@@ -321,5 +330,52 @@ fn checkout_appearing_at_the_destination_while_fetching_is_preserved() {
     assert_eq!(
         fs::read_to_string(checkout.join("during-fetch.txt")).expect("late marker"),
         "user evidence\n"
+    );
+}
+
+/// A checkout an earlier release made: a standalone repository (its own
+/// `.git` directory, no refs) at `path`.
+fn standalone_checkout(fixture: &Fixture, path: &Path, commit: &str) {
+    fs::create_dir_all(path).expect("checkout dir");
+    git(path, &["init", "--quiet"]);
+    git(path, &["remote", "add", "origin", &fixture.bare_url]);
+    git(path, &["fetch", "--quiet", "--no-tags", "origin", commit]);
+    git(path, &["checkout", "--quiet", "--detach", "FETCH_HEAD"]);
+}
+
+/// Nothing is adopted: a clean standalone checkout is replaced by a linked
+/// worktree of the shared store, and one with local files is preserved.
+#[test]
+fn a_standalone_checkout_is_replaced_when_clean_and_kept_when_dirty() {
+    let fixture = Fixture::shared();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    let made = clone_pinned(&fixture, &query(), &context).expect("clone");
+    let path = PathBuf::from(&made.location.local_path);
+
+    fs::remove_dir_all(&path).expect("remove");
+    standalone_checkout(&fixture, &path, &fixture.first_commit);
+    assert!(path.join(".git").is_dir());
+    let replaced = clone_pinned(&fixture, &query(), &context).expect("clean standalone");
+    assert!(!replaced.location.reused, "{replaced:?}");
+    assert!(path.join(".git").is_file(), "replaced by a linked worktree");
+    assert_eq!(replaced.location.commit_sha, fixture.first_commit);
+
+    fs::remove_dir_all(&path).expect("remove");
+    standalone_checkout(&fixture, &path, &fixture.first_commit);
+    fs::write(path.join("mine.txt"), "local\n").expect("local file");
+    let error = clone_pinned(&fixture, &query(), &context).expect_err("dirty standalone");
+    assert_eq!(error.code, ErrorCode::CheckoutDirty);
+    assert!(
+        path.join(".git").is_dir(),
+        "the dirty checkout is untouched"
+    );
+    assert_eq!(
+        fs::read_to_string(path.join("mine.txt")).expect("kept"),
+        "local\n"
     );
 }

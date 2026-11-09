@@ -101,7 +101,9 @@ async fn stars_and_days_fire_one_past_the_contract_thresholds() {
 
 #[tokio::test]
 async fn a_found_repository_fills_the_block_policy_and_source() {
-    let github = Double::repo(RepoRead::Found(facts(5000, 1)));
+    // GitHub answers the advisory list too (none): every read it was asked
+    // answered, so the entry is `found`.
+    let github = Double::repo(RepoRead::Found(facts(5000, 1))).page(None, Vec::new(), None);
     let data = row(
         registered(Some("git+https://github.com/o/r.git")),
         Some(&github),
@@ -109,10 +111,8 @@ async fn a_found_repository_fills_the_block_policy_and_source() {
     .await;
     assert_eq!(data["repository"]["stars"], 5000, "{data}");
     assert_eq!(data["repository"]["provenance"], "claimed");
-    assert_eq!(
-        data["policy"]["lowTractionStars"],
-        contract().policy.low_traction_stars
-    );
+    // The thresholds are stated once by the rules, never per row.
+    assert!(data.get("policy").is_none(), "{data}");
     assert_eq!(data["sources"][1]["source"], "github");
     assert_eq!(data["sources"][1]["status"], "found");
     assert!(data.get("cautions").is_none(), "{data}");
@@ -184,6 +184,7 @@ fn the_answer_names_review_cautions_only() {
             ..registered(None)
         },
         repo: Repo::Unnamed,
+        successor: None,
         advisories: None,
         first_page: true,
     };
@@ -204,6 +205,7 @@ fn the_answer_names_review_cautions_only() {
     Trust {
         registered: registered(None),
         repo: Repo::Unnamed,
+        successor: None,
         advisories: None,
         first_page: true,
     }

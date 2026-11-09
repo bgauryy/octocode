@@ -282,3 +282,19 @@ impl Scope {
 
 #[cfg(test)]
 mod tests;
+
+/// This tool's recovery for the shared response stages.
+pub(crate) struct Output;
+impl crate::response::output::ToolOutput for Output {
+    /// A missing path names its repository, path and ref, and its related[]
+    /// listing of the nearest existing directory at that commit is the
+    /// recovery; a missing repository carries its own search leads.
+    fn error_hint(
+        &self,
+        code: octocode_contract_types::ErrorCode,
+        _query: &serde_json::Value,
+    ) -> Option<&'static str> {
+        (code == octocode_contract_types::ErrorCode::NotFound)
+            .then_some(crate::response::output::NO_HINT)
+    }
+}

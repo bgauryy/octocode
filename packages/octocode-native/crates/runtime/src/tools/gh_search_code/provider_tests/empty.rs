@@ -307,8 +307,8 @@ async fn an_empty_search_of_a_missing_repository_reads_it_once() {
 }
 
 /// A missing repository's name search returns repositories named like it
-/// under any owner: the hint labels it so, and the owner's own listing sits
-/// beside it.
+/// under any owner: the hint says to confirm the owner, and the owner's own
+/// listing sits beside it.
 #[tokio::test]
 async fn a_missing_repository_labels_its_name_search_and_lists_the_owner() {
     let server = MockServer::builder().start().await;
@@ -351,17 +351,18 @@ async fn a_missing_repository_labels_its_name_search_and_lists_the_owner() {
         json!({"operation":"list","owner":"a"}),
         "{calls}"
     );
-    let hints = failure.hints.join(" ");
-    assert!(
-        hints.contains("named like `missing`") && hints.contains("confirm the owner"),
-        "{hints}"
+    assert_eq!(
+        failure.hints,
+        [crate::tools::gh_shared::REPOSITORY_SEARCH_HINT.to_owned()]
     );
 }
 
-/// A scoped empty search says "unproven absence" once: the row's hints and
-/// the diagnostics the response stage appends to them are one list.
+/// R3: a scoped empty search does not restate the tool description ("Empty
+/// never rules out an unindexed file: broaden, browse ghStructure, or
+/// matchString"): neither its hints nor the diagnostics the response stage
+/// appends say "unproven absence"; its related[] listing is the next step.
 #[tokio::test]
-async fn a_scoped_empty_search_states_unproven_absence_once() {
+async fn a_scoped_empty_search_does_not_restate_the_description() {
     let out = run_empty(json!({"owner":"a","repo":"b","keywords":["zzqq"],"path":"src"})).await;
     let mut hints = out.data["hints"]
         .as_array()
@@ -373,10 +374,16 @@ async fn a_scoped_empty_search_states_unproven_absence_once() {
         })
         .unwrap_or_default();
     hints.extend(out.diagnostics.hints.iter().map(String::as_str));
-    let absence = hints.iter().filter(|hint| hint.contains("absence")).count();
-    assert_eq!(absence, 1, "{hints:?}");
     assert!(
-        hints.iter().any(|hint| hint.contains("related[]")),
+        !hints.iter().any(|hint| hint.contains("absence")),
         "{hints:?}"
+    );
+    assert!(
+        crate::tools::test_support::checks::find_related_call(&out.data, "ghStructure", |input| {
+            input["queries"][0]["operation"] == "tree"
+        })
+        .is_some(),
+        "{}",
+        out.data
     );
 }

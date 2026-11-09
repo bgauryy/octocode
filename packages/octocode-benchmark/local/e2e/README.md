@@ -83,6 +83,26 @@ cleans up afterward. CUDA fixtures use host-only parsing without CUDA libraries;
 this does not verify a complete CUDA toolchain. Parser/protocol coverage in
 `grammar` remains separate from real semantic-server evidence.
 
+`security-live` checks `securityCheck` against OSV, GitHub and the public registries twice:
+anonymous (a fresh home, no token variable, `gh` hidden) and authenticated (a fresh home with
+`GH_TOKEN`, `GITHUB_TOKEN` or `gh auth token` as `GH_TOKEN`). Each probe asks the provider
+itself in the same run and compares the tool's row with that answer: OSV ids for every verdict,
+GitHub's REST record for repository facts and cautions, commit signature, heads and pull
+requests, repository and global advisories (publisher, credits, cvss `{vector, score}`, EPSS),
+and OSV's record for the cvss vector. The probes reproduce the securityCheck RFC's live evidence
+(E1–E21) and the B169 validation matrix. OSV-only provider probes run once, anonymously.
+GitHub allows 60 anonymous requests an hour per IP, which the E probes spend: the anonymous pass
+runs only them, reading provider truth with the caller's token when there is one, and the B169
+matrix runs authenticated. A row that meets the limit must disclose it as the
+[securityCheck reference](../../../../docs/OCTOCODE_TOOLS.md#securitycheck) states; a call that waits for the reset
+instead fails at the call deadline and the rest of that pass is skipped. A provider read the
+limit refused is a skip. Without a token the authenticated pass is a skip.
+`results/security-live.json` records every call as run.
+
+```sh
+OCTOCODE_LIVE=1 node packages/octocode-benchmark/local/e2e/harness/run-all.mjs security-live
+```
+
 An MCP test-client timeout cancels the request and retires the owned session. Further requests fail instead of silently overlapping timed-out work.
 
 For real-provider acceptance, configure GitHub and classification credentials and run:

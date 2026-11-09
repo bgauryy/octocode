@@ -106,10 +106,11 @@ async function checkArgumentFragments(ctx, graph, checks) {
     checks.push([`graph.arguments.fragments.${operation}.pages-fit`, result.responses.length > 1
       && fragments.every(row => !row.rowPart), JSON.stringify({ responses: result.responses.length, parts: fragments.map(row => row.rowPart) })]);
     // The first page carries the coverage once; every later page omits it.
+    // It covers the languages of the selected sources: the .ts target's only.
     const coverages = result.data.slice(0, 1).map(row => row.argumentCoverage);
     checks.push([`graph.arguments.fragments.${operation}.metadata`, result.data.length > 1
       && result.data.slice(1).every(row => !Object.hasOwn(row, 'argumentCoverage'))
-      && coverages.every(coverage => Object.keys(coverage?.byLanguage ?? {}).length >= 2
+      && coverages.every(coverage => JSON.stringify(Object.keys(coverage?.byLanguage ?? {})) === JSON.stringify(['typescript'])
         && Object.values(coverage.byLanguage).every(language => language.extraction !== 'supported' || language.referenceForms?.length > 0)), JSON.stringify(coverages)]);
   }
 }

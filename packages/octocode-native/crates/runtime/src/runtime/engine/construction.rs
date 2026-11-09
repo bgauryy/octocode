@@ -187,7 +187,13 @@ impl ToolRuntime {
                 == crate::config::CredentialFilesPolicy::Allow,
             octocode_home: Some(octocode_home.clone()),
         })
-        .map_err(|error| RuntimeError::new(ErrorCode::Policy, error.message))?;
+        .map_err(|error| RuntimeError::new(ErrorCode::Policy, error.message))?
+        // The shared clone store holds git objects, not checkouts: local
+        // tools read the worktrees under `clones/`, never the store, even
+        // when the workspace contains the home.
+        .closing(&crate::tools::gh_clone_repo::storage::store_root(
+            &octocode_home,
+        ));
         let security = ContentSecurity::new();
         let requests =
             RequestRuntime::new(RequestLimits::default()).map_err(runtime_execution_error)?;

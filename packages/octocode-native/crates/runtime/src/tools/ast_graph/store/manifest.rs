@@ -11,17 +11,6 @@ pub(super) fn analysis_current(manifest: &Value) -> bool {
         && manifest["octocodeVersion"] == env!("CARGO_PKG_VERSION")
 }
 
-/// What no linkage ratio counts, however full it reads.
-pub(super) const VALUE_REFERENCES: &str = "Linkage counts call sites only: a function taken as a value (`f := b.Helper`, `this::x`) is no site and has no edge, so a ratio of 1.0 does not mean every use is linked.";
-
-/// `output`'s disclosure of [`VALUE_REFERENCES`], when its `linkage` states a
-/// ratio.
-pub(super) fn disclose_value_references(output: &mut serde_json::Value) {
-    if output["linkage"]["ratio"].is_number() {
-        output["warnings"] = serde_json::json!([VALUE_REFERENCES]);
-    }
-}
-
 /// The manifest's scan record as an answer states it. The manifest keeps
 /// every scan fact for freshness checks; an answer states only those that carry
 /// information (a cut, an exclude, a parser glob): zero counts, empty lists
@@ -78,7 +67,7 @@ pub(super) fn manifest(input: &ManifestInput) -> Value {
     for diag in &tables.diagnostics {
         *by_code.entry(tables.str(diag.code)).or_default() += 1;
     }
-    let imports = input.built.imports;
+    let imports = input.projection.imports;
     let call_extraction = tables
         .nodes
         .iter()

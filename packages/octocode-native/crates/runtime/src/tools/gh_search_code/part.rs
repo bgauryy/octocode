@@ -4,11 +4,12 @@
 //! continuation lists it from the same code-search answer ([`super::listed`]).
 use super::code_output::{LinePlan, Resolution, shape_files};
 use super::{CODE_ROW_ID, GhSearchCodeQuery, Withholds};
+use crate::id::ToolId;
 use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::{field_names, pick_rows};
 use octocode_engine::json_size::utf16_units;
 use octocode_github::{GitHubProvider, ProviderError, RequestContext};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 /// The chars a page's rows may fill: the row's share of the response page
 /// less what the page states besides its rows, shown whole (`whole`) or as a
@@ -47,7 +48,11 @@ pub(super) fn budget(
 /// more than the rows already shown (so batches grow 1, 1, 2, 4, …): a batch
 /// read past the window costs at most the rows shown, so a part reads at
 /// most twice the rows it shows, and the reads of a batch go out together.
-/// A row read past the window is not shown: the next part shows it.
+/// A row read past the window is not shown: the next part shows it. A row's
+/// size is what it adds to the published page; the first row's counts only
+/// until a second is measured, since it alone adds the page's top read lead
+/// and identity. Past the part's cut, reading goes on only while the rest of
+/// the page, at the smallest row measured, may still fit whole.
 pub(super) async fn read(
     plan: &mut LinePlan,
     items: &[Value],
@@ -65,12 +70,15 @@ pub(super) async fn read(
     };
     // `cut`: the rows a part shows, set once a row does not fit `room.part`;
     // reading then goes on only while the whole page may still fit.
-    let (mut shown, mut used, mut largest, mut cut) = (0, 0, 0_usize, None);
+    let (mut shown, mut used, mut cut) = (0, Used::default(), None);
+    let (mut largest, mut smallest) = (0_usize, 0_usize);
     while shown < total {
-        let limit = if cut.is_none() { room.part } else { room.whole };
-        let take = match shown {
-            0 => 1,
-            _ => (limit.saturating_sub(used) / largest.max(1)).min(shown),
+        let left = |limit: usize| limit.saturating_sub(used.chars());
+        let take = match cut {
+            _ if shown == 0 => 1,
+            None => (left(room.part) / largest.max(1)).min(shown),
+            Some(_) if (total - shown).saturating_mul(smallest) > left(room.whole) => 0,
+            Some(_) => (left(room.whole) / largest.max(1)).min(shown),
         };
         if take == 0 {
             if cut.is_none() {
@@ -83,7 +91,7 @@ pub(super) async fn read(
         plan.read(provider, shown..end, context, security).await?;
         let resolution = plan.resolution(shown..end);
         for (row, hit) in items[shown..end].iter().zip(resolution.hits) {
-            let chars = row_chars(
+            let measured = row_chars(
                 row,
                 hit,
                 resolution.reference.clone(),
@@ -91,14 +99,21 @@ pub(super) async fn read(
                 withholds,
                 shown == 0,
             );
-            largest = largest.max(chars);
-            if shown > 0 && used + chars > room.whole {
+            let before = used.chars();
+            let next = used.with(measured);
+            let added = next.chars().saturating_sub(before);
+            (largest, smallest) = if shown <= 1 {
+                (added, added)
+            } else {
+                (largest.max(added), smallest.min(added))
+            };
+            if shown > 0 && next.chars() > room.whole {
                 return Ok(cut.unwrap_or(shown));
             }
-            if shown > 0 && cut.is_none() && used + chars > room.part {
+            if shown > 0 && cut.is_none() && next.chars() > room.part {
                 cut = Some(shown);
             }
-            used += chars;
+            used = next;
             shown += 1;
         }
     }
@@ -107,6 +122,65 @@ pub(super) async fn read(
     } else {
         cut.unwrap_or(shown).max(1)
     })
+}
+
+/// The chars one shaped row takes: `full` as the row states its own
+/// identity, `moved` once the page states it, and the page-level fields a
+/// page of this row alone would state
+/// ([`crate::response::pages::state_shared_identity_on`]).
+struct Measured {
+    full: usize,
+    moved: usize,
+    stated: Map<String, Value>,
+}
+
+/// The chars the rows shown so far take as the response stage publishes
+/// them: while every row would state the same page identity, the page states
+/// it once and each row takes its `moved` size; else each keeps its own. It
+/// never counts less than the published rows take, so a part never overflows
+/// its window.
+#[derive(Default)]
+struct Used {
+    full: usize,
+    moved: usize,
+    /// The first row's page-level fields and the chars they take on the page.
+    stated: Option<(Map<String, Value>, usize)>,
+    shared: bool,
+}
+
+impl Used {
+    fn with(self, row: Measured) -> Self {
+        let (stated, shared) = match self.stated {
+            None => {
+                let once = if row.stated.is_empty() {
+                    0
+                } else {
+                    // `{…}` less its braces, plus the comma that joins it.
+                    utf16_units(&Value::Object(row.stated.clone()))
+                        .unwrap_or(0)
+                        .saturating_sub(1)
+                };
+                (Some((row.stated, once)), true)
+            }
+            Some((first, once)) => {
+                let shared = self.shared && row.stated == first;
+                (Some((first, once)), shared)
+            }
+        };
+        Self {
+            full: self.full + row.full,
+            moved: self.moved + row.moved,
+            stated,
+            shared,
+        }
+    }
+
+    fn chars(&self) -> usize {
+        match &self.stated {
+            Some((_, once)) if self.shared => self.moved + once,
+            _ => self.full,
+        }
+    }
 }
 
 /// The response chars `row` takes once shaped with `hit` as the page shapes
@@ -119,7 +193,7 @@ fn row_chars(
     query: &GhSearchCodeQuery,
     withholds: Withholds<'_>,
     first: bool,
-) -> usize {
+) -> Measured {
     let mut rows = vec![row.clone()];
     let resolution = Resolution {
         sha: None,
@@ -132,5 +206,15 @@ fn row_chars(
     let lead = |read: &Value| utf16_units(read).unwrap_or(0) + 1;
     let leads = reads.hits.iter().map(lead).sum::<usize>()
         + reads.top.as_ref().filter(|_| first).map_or(0, lead);
-    utf16_units(&page["files"][0]).unwrap_or(0) + 1 + leads
+    let full = utf16_units(&page["files"][0]).unwrap_or(0) + 1 + leads;
+    let mut data = Map::new();
+    data.insert("files".into(), page["files"].take());
+    crate::response::pages::state_shared_identity_on(ToolId::GhSearchCode, &mut data);
+    let moved = utf16_units(&data["files"][0]).unwrap_or(0) + 1 + leads;
+    data.remove("files");
+    Measured {
+        full,
+        moved,
+        stated: data,
+    }
 }

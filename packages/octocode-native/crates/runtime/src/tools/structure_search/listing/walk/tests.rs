@@ -93,7 +93,9 @@ fn an_empty_listing_whose_probe_timed_out_still_leads_to_skipped_paths() {
         out["hints"],
         json!([format!(
             "Skipped paths (build/) were not checked within the probe budget, so absence there is unproven. {}",
-            crate::tools::leads::skipped::WALKS_ALL_SKIPPED
+            crate::tools::leads::skipped::walks_all_skipped(&[
+                crate::tools::empty_walk::Cause::DefaultExcluded
+            ])
         )]),
         "{out}"
     );

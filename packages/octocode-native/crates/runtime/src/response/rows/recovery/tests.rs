@@ -64,7 +64,7 @@ fn every_error_row_of_a_batch_carries_its_own_shared_hint() {
     let mut structured = json!({"results":[failed(), failed(),
         {"status":"error","data":{"errorCode":"notFound","error":"gone","hints":["own"]}}]});
     for row in structured["results"].as_array_mut().expect("rows") {
-        attach_error_hint(ToolId::GhStructure.output(), &mut row["data"], &Value::Null);
+        attach_error_hint(ToolId::ArtifactSearch.output(), &mut row["data"], &Value::Null);
     }
     crate::response::notices::place(&mut structured, "results");
     let hints = |index: usize| structured["results"][index]["data"].get("hints").cloned();
@@ -72,4 +72,61 @@ fn every_error_row_of_a_batch_carries_its_own_shared_hint() {
     assert!(hints(1).is_some(), "second row has its hint: {structured}");
     assert_eq!(hints(2), Some(json!(["own"])), "{structured}");
     assert!(!structured.to_string().contains("notices"), "{structured}");
+}
+
+/// C3eK B-D5 / C-D10 / C-R7: a not-found hint fits the resource. A GitHub
+/// path, a graph node or an advisory names its resource, where it looked
+/// and its recovery in the message and leads, so no hint repeats them; the
+/// shared hint any other tool gets names no registry or version and does
+/// not restate the instructions' caution that a miss is no absence elsewhere.
+#[test]
+fn a_not_found_hint_fits_the_resource_and_repeats_no_caution() {
+    for tool in [
+        ToolId::GhGetFileContent,
+        ToolId::GhStructure,
+        ToolId::GraphQuery,
+        ToolId::SecurityCheck,
+    ] {
+        let mut data = json!({"errorCode":"notFound","error":"Path not found in o/r: a.rs"});
+        attach_error_hint(tool.output(), &mut data, &Value::Null);
+        assert!(data.get("hints").is_none(), "{tool}: {data}");
+    }
+    for tool in ToolId::ALL {
+        let mut data = json!({"errorCode":"notFound","error":"gone"});
+        attach_error_hint(tool.output(), &mut data, &Value::Null);
+        let hint = data["hints"][0].as_str().unwrap_or_default().to_lowercase();
+        for named in ["registry", "version", "revision", "nowhere else"] {
+            assert!(!hint.contains(named), "{tool} names {named}: {hint}");
+        }
+    }
+}
+
+/// C3eK C-R8: an expired or stale cursor's message states the recovery
+/// (rerun the original request without cursor; a stale row's next.restart);
+/// no hint repeats it or names a restart call the row does not carry.
+#[test]
+fn an_expired_or_stale_cursor_gets_no_hint_that_repeats_its_message() {
+    for tool in ToolId::ALL {
+        for code in ["responseSnapshotExpired", "staleSnapshot", "sourceMismatch"] {
+            let mut data = json!({"errorCode":code,"error":"Rerun the original request without cursor."});
+            attach_error_hint(tool.output(), &mut data, &Value::Null);
+            let hints = data["hints"].to_string().to_lowercase();
+            assert!(!hints.contains("restart call"), "{tool} {code}: {data}");
+            if code != "sourceMismatch" {
+                assert!(data.get("hints").is_none(), "{tool} {code}: {data}");
+            }
+        }
+    }
+}
+
+/// C3eK C-R9: the rate-limit hint names no wait value the row may not show
+/// (a registry 429 carries no `rateLimit`); a row that has one states it there.
+#[test]
+fn the_rate_limit_hint_names_no_value_the_row_may_lack() {
+    for tool in ToolId::ALL {
+        let mut data = json!({"errorCode":"rateLimited","error":"npm rate limit reached (HTTP 429). Retry later."});
+        attach_error_hint(tool.output(), &mut data, &Value::Null);
+        let hint = data["hints"][0].as_str().expect("a rate-limit recovery");
+        assert!(!hint.contains("Retry-After"), "{tool}: {hint}");
+    }
 }

@@ -81,10 +81,13 @@ async fn artifactsearch_reads_the_registry_on_every_call_and_persists_nothing() 
     // registry envelope) containing at minimum `name` and `version`.
     Mock::given(method("GET"))
         .and(path(format!("/{pkg}/latest")))
+        // The manifest dates itself (its upload record): one request per
+        // lookup, no packument `time` read.
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "name": pkg,
             "version": "1.0.0",
             "description": "memory cache fixture",
+            "_npmOperationalInternal": {"tmp": format!("tmp/{pkg}_1.0.0_1789341914484_0.59")},
         })))
         .expect(3)
         .mount(&server)

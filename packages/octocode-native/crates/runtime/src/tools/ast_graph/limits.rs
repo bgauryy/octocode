@@ -180,12 +180,21 @@ impl Limits {
     /// The bounds of one file's source correspondence in a build: its bytes
     /// are the build's memory budget, which every kept file's
     /// correspondence is then charged against ([`build_charge`]), so only a
-    /// file that no build could hold is declined, naming that budget. The
-    /// map's structural bounds are its own.
+    /// file that no build could hold is declined, naming that budget. Its
+    /// volume counts (segments, branches, contributors) are not bounded on
+    /// their own: each item's memory is charged to those bytes, and a count
+    /// sized for one source map would cut a dense file of many spans. Its
+    /// time is the request's deadline and cancellation, which every unit of
+    /// work checks. Only the map's shape bounds (nesting depth,
+    /// representations) stay the map's own.
     pub(crate) fn source_map(&self) -> octocode_engine::text::analysis::MapLimits {
         octocode_engine::text::analysis::MapLimits {
             bytes: self.build_bytes,
             bytes_budget: "build memory budget",
+            segments: usize::MAX,
+            branches: usize::MAX,
+            contributors: usize::MAX,
+            work: usize::MAX,
             ..Default::default()
         }
     }

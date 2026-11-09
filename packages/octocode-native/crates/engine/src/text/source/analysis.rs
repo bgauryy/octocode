@@ -12,7 +12,7 @@ mod templates;
 mod validation;
 
 pub use binding::BoundSource;
-pub use budget::{MapBudget, MapLimits, MapUsage, SourceError};
+pub use budget::{Draw, MapBudget, MapLimits, MapUsage, SourceError};
 pub use decode::AdmittedSource;
 pub use model::*;
 pub use templates::{

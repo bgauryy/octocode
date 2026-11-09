@@ -6,11 +6,13 @@ use crate::id::ToolId;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// One candidate: where it sits in the page and what the judge sees of it
-/// (`None`: nothing to judge, so it stays unknown).
+/// One candidate: where it sits in the page, what the judge sees of it
+/// (`None`: nothing to judge, so it stays unknown), and the unit as its
+/// tool's leads name it (a listing entry as `{"path"}`, else the listed row).
 struct Unit {
     pointer: String,
     state: Option<Value>,
+    listed: Value,
 }
 
 pub(super) struct Rows {
@@ -56,8 +58,12 @@ impl Rows {
         rows
     }
 
-    fn push(&mut self, pointer: String, state: Option<Value>) {
-        self.units.push(Unit { pointer, state });
+    fn push(&mut self, pointer: String, state: Option<Value>, listed: Value) {
+        self.units.push(Unit {
+            pointer,
+            state,
+            listed,
+        });
     }
 
     /// A commit, pull request or issue row: its title and body.
@@ -70,7 +76,7 @@ impl Rows {
                 let body = text(&row["body"]);
                 let state = (title.is_some() || body.is_some())
                     .then(|| json!({"title": title, "body": body}));
-                self.push(format!("/{field}/{at}"), state);
+                self.push(format!("/{field}/{at}"), state, row.clone());
             }
         }
     }
@@ -87,7 +93,7 @@ impl Rows {
                             })
                         };
                         let pointer = format!("/{field}/{row_at}/{list}/{at}");
-                        self.push_named(pointer, item["path"].as_str(), state);
+                        self.push_named(pointer, item["path"].as_str(), state, item.clone());
                     }
                 }
             }
@@ -112,7 +118,8 @@ impl Rows {
 
     fn path_unit(&mut self, pointer: String, path: Option<String>) {
         let state = || path.as_ref().map(|path| json!({"path": path}));
-        self.push_named(pointer, path.as_deref(), state);
+        let listed = json!({ "path": path });
+        self.push_named(pointer, path.as_deref(), state, listed);
     }
 
     /// A unit that names a file: one rule withholds a credential-named file
@@ -122,13 +129,14 @@ impl Rows {
         pointer: String,
         path: Option<&str>,
         state: impl FnOnce() -> Option<Value>,
+        listed: Value,
     ) {
         match path.filter(|path| crate::policy::discovery::is_sensitive_repository_file(path)) {
             Some(path) => {
                 self.withheld.push(path.to_owned());
-                self.push(pointer, None);
+                self.push(pointer, None, listed);
             }
-            None => self.push(pointer, state()),
+            None => self.push(pointer, state(), listed),
         }
     }
 
@@ -209,9 +217,17 @@ impl Rows {
         super::provider_page::withheld_paths_note(&self.withheld)
     }
 
-    /// Cut `data` to the units at the `shown` ordinals (ascending), in place.
-    /// A listing drops the groups it emptied.
-    pub(super) fn retain(&self, data: &mut Value, shown: &[usize]) {
+    /// Cut `data` to the units at the `shown` ordinals (ascending), in place,
+    /// and return the units cut, as their tool's leads name them. A listing
+    /// drops the groups it emptied.
+    pub(super) fn retain(&self, data: &mut Value, shown: &[usize]) -> Vec<Value> {
+        let removed = self
+            .units
+            .iter()
+            .enumerate()
+            .filter(|(ordinal, _)| shown.binary_search(ordinal).is_err())
+            .map(|(_, unit)| unit.listed.clone())
+            .collect();
         let mut dropped: BTreeMap<&str, BTreeSet<usize>> = BTreeMap::new();
         for (ordinal, unit) in self.units.iter().enumerate() {
             if shown.binary_search(&ordinal).is_ok() {
@@ -239,6 +255,7 @@ impl Rows {
         if let Some(groups) = data.get_mut("files").and_then(Value::as_array_mut) {
             groups.retain(|group| group.get("dir").is_none() || group["files"] != json!([]));
         }
+        removed
     }
 }
 

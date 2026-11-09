@@ -3,13 +3,15 @@ use super::*;
 use crate::providers::artifact::test_http::KnownTags;
 
 /// Loopback npm registry recording each request's Authorization header.
+/// A registry whose manifest dates itself (its upload record), so a
+/// lookup reads one manifest and nothing more (no packument `time`).
 async fn registry() -> (u16, wiremock::MockServer) {
     let server = wiremock::MockServer::builder().start().await;
     wiremock::Mock::given(wiremock::matchers::method("GET"))
-        .respond_with(
-            wiremock::ResponseTemplate::new(200)
-                .set_body_json(json!({"name": "audit-package", "version": "1.0.0"})),
-        )
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+            "name": "audit-package", "version": "1.0.0",
+            "_npmOperationalInternal": {"tmp": "tmp/audit-package_1.0.0_1789341914484_0.59"}
+        })))
         .mount(&server)
         .await;
     (server.address().port(), server)
@@ -266,5 +268,64 @@ async fn user_npmrc_token_reaches_only_its_scoped_registry() {
     assert_eq!(
         authorizations(&seen).await,
         vec![Some("Bearer synthetic".to_owned()), None]
+    );
+}
+
+/// ALL-TOOLS-C D7 with credentials: the packument read that dates an
+/// older version sends the registry's own token (a private registry
+/// would refuse it otherwise) and the token never reaches the output.
+#[tokio::test]
+async fn packument_date_read_uses_the_registry_credential_and_never_prints_it() {
+    use wiremock::matchers::{method, path};
+    let server = wiremock::MockServer::builder().start().await;
+    let port = server.address().port();
+    wiremock::Mock::given(method("GET"))
+        .and(path("/audit-package/1.0.0"))
+        .respond_with(
+            wiremock::ResponseTemplate::new(200)
+                .set_body_json(json!({"name": "audit-package", "version": "1.0.0"})),
+        )
+        .mount(&server)
+        .await;
+    wiremock::Mock::given(method("GET"))
+        .and(path("/audit-package"))
+        .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+            "name": "audit-package",
+            "versions": {"1.0.0": {"name": "audit-package"}},
+            "time": {"created": "2012-01-01T00:00:00.000Z",
+                "1.0.0": "2012-10-23T04:30:12.000Z"}
+        })))
+        .mount(&server)
+        .await;
+    let dir = crate::tools::test_support::Fixture::new();
+    let npmrc = dir.write(
+        "scoped.npmrc",
+        format!("//127.0.0.1:{port}/:_authToken=synthetic-secret\n"),
+    );
+    let query = json!({"operation":"resolve", "ecosystem": "npm",
+        "packageName": "audit-package", "version": "1.0.0",
+        "registryUrl": format!("http://127.0.0.1:{port}")});
+    let env = std::collections::BTreeMap::from([(
+        "NPM_CONFIG_USERCONFIG".to_owned(),
+        npmrc.to_string_lossy().into_owned(),
+    )]);
+    let deadline = Instant::now() + std::time::Duration::from_secs(300);
+    let data = execute(
+        typed(&query),
+        ArtifactCall {
+            env: &env,
+            ..call(deadline, true)
+        },
+    )
+    .await
+    .expect("lookup succeeds");
+    assert_eq!(data["artifacts"][0]["publishedAt"], "2012-10-23", "{data}");
+    assert!(!data.to_string().contains("synthetic-secret"), "{data}");
+    let seen = authorizations(&server).await;
+    assert_eq!(seen.len(), 2, "{seen:?}");
+    assert!(
+        seen.iter()
+            .all(|auth| auth.as_deref() == Some("Bearer synthetic-secret")),
+        "{seen:?}"
     );
 }

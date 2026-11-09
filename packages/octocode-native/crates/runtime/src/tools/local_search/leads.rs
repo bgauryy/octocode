@@ -83,6 +83,7 @@ impl Found<'_> {
                 symbol,
                 u64::from(definition.line),
                 crate::tools::leads::lsp::Verify::for_kind(&definition.kind),
+                local_search_query::test_code(query),
             )
         {
             add(

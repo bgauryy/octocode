@@ -136,6 +136,7 @@ async fn the_shared_read_leaves_room_for_the_github_row_envelope() {
             beside: 0,
             interior: false,
             byte_origin: None,
+            file_lines: None,
         },
         &Safe,
         &NeverCancel,

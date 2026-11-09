@@ -1,10 +1,12 @@
 //! What a walk's row discloses: failed expansions, node and fan-out caps with
 //! resumable continuations, and omitted results.
 
-use super::public::public_via;
+use super::public::{public_edge, public_via};
 use super::{Expansion, HierarchyWalk, MAX_HIERARCHY_FAN_OUT, MAX_HIERARCHY_NODES};
+use crate::policy::path::PathPolicy;
 use crate::response::result::{Continuation, insert_next};
 use crate::tools::lsp_search::failure::{LspFailure, partial_with_related_rerun};
+use crate::tools::lsp_search::test_scope;
 use crate::tools::lsp_search::{LspSearchQuery, Op, lsp_search_query};
 use octocode_contract_types::LspSearchChannel;
 use resume::resume_query;
@@ -30,10 +32,14 @@ pub(in crate::tools::lsp_search) fn expansion_outcome(
 /// Flag a walk that lost expansions partial, disclosing its failures. Only
 /// a transient failure (timeout, crashed or not-ready server) offers
 /// `next.retry`: an unresolved or ambiguous relation answers the same again.
+/// The failures are stated once: `expansionFailures` lists each distinct
+/// error with its count, spelling paths as the rows do (workspace-relative),
+/// beside `partialReasons`; no warning restates them.
 pub(in crate::tools::lsp_search) fn mark_partial_expansion(
     row: &mut Value,
     query: &LspSearchQuery,
     failures: &[LspFailure],
+    paths: &PathPolicy,
 ) {
     if failures.is_empty() {
         return;
@@ -46,7 +52,7 @@ pub(in crate::tools::lsp_search) fn mark_partial_expansion(
     // Every distinct failure, once, with how many items it hit.
     let mut distinct: Vec<(String, usize)> = Vec::new();
     for failure in failures {
-        let message = failure.message.clone();
+        let message = paths.workspace_relative_text(&failure.message);
         match distinct.iter_mut().find(|(seen, _)| *seen == message) {
             Some((_, count)) => *count += 1,
             None => distinct.push((message, 1)),
@@ -55,25 +61,13 @@ pub(in crate::tools::lsp_search) fn mark_partial_expansion(
     // Most frequent first, then by message: the disclosure does not depend
     // on the order concurrent expansions failed in.
     distinct.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    // Keep every distinct provider failure beside the summary count.
-    let total = failures.len();
-    let items = if total == 1 { "item" } else { "items" };
-    let Some((message, count)) = distinct.first() else {
-        return;
-    };
-    let warning = if distinct.len() == 1 {
-        format!("Hierarchy expansion failed for {total} {items}: {message}.")
-    } else {
-        format!(
-            "Hierarchy expansion failed for {total} {items} ({} distinct errors; most frequent, {count}×: {message}).",
-            distinct.len()
-        )
-    };
     if failures.iter().any(|failure| failure.retryable) {
-        partial_with_related_rerun(row, query, reason, &[warning]);
+        partial_with_related_rerun(row, query, reason, &[]);
     } else {
-        crate::response::paging::mark_partial(row, reason, &[warning]);
+        crate::response::paging::mark_partial(row, reason, &[]);
     }
+    // `expansionFailures` states what the reason means, with its counts.
+    crate::response::paging::mark_stated(row, reason);
     if let Some(object) = row.as_object_mut() {
         object.insert(
             "expansionFailures".into(),
@@ -100,6 +94,7 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
     row: &mut Value,
     query: &LspSearchQuery,
     walks: &[(Expansion, &HierarchyWalk)],
+    paths: &PathPolicy,
 ) {
     if row.get("status").and_then(Value::as_str) == Some("error") {
         return;
@@ -110,7 +105,7 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
         .flat_map(|(_, walk)| walk.resumes.iter())
         .collect::<Vec<_>>();
     if resumes.is_empty() {
-        offer_deeper_walk(row, query, walks);
+        offer_deeper_walk(row, query, walks, paths);
         return;
     }
 
@@ -198,18 +193,28 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
 /// start (no cursor), on the page that ends the listing: none while a
 /// remaining page (site, candidate or importer window) is offered, since
 /// those list the same walk. `depth` has no maximum, so a frontier always
-/// leads one level deeper.
+/// leads one level deeper. The frontier is the row's: the nodes its
+/// `testCode` keeps ([`test_scope::retain_callers`], the filter the items
+/// passed). A last level the scope left out whole leads instead to the call
+/// that lists it, `testCode:"include"`: a deeper walk answers the same row.
 fn offer_deeper_walk(
     row: &mut Value,
     query: &LspSearchQuery,
     walks: &[(Expansion, &HierarchyWalk)],
+    paths: &PathPolicy,
 ) {
     let depth = lsp_search_query::depth(query).unwrap_or(1);
-    let frontier = walks
+    let mut frontier = walks
         .iter()
-        .flat_map(|(_, walk)| &walk.edges)
-        .filter(|edge| edge.level == depth)
-        .count();
+        .flat_map(|(expansion, walk)| {
+            walk.edges
+                .iter()
+                .filter(|edge| edge.level == depth)
+                .map(|edge| public_edge(*expansion, edge, None))
+        })
+        .collect::<Vec<_>>();
+    let reached = frontier.len();
+    test_scope::retain_callers(query, paths, &mut frontier);
     let pages_remain = row
         .get("next")
         .and_then(Value::as_object)
@@ -217,14 +222,19 @@ fn offer_deeper_walk(
             next.values()
                 .any(|call| call.get("kind").and_then(Value::as_str) == Some("continue"))
         });
-    if frontier == 0 || pages_remain {
+    if reached == 0 || pages_remain {
         return;
     }
+    let change = if frontier.is_empty() {
+        json!({"testCode": "include"})
+    } else {
+        json!({"depth": depth + 1})
+    };
     // A related request is fresh: it drops this walk's cursors itself.
-    let Ok(deeper) = lsp_search_query::edited(query, &json!({"depth": depth + 1})) else {
+    let Ok(lead) = lsp_search_query::edited(query, &change) else {
         return;
     };
-    crate::response::result::attach_related(row, Continuation::related_query(deeper).build());
+    crate::response::result::attach_related(row, Continuation::related_query(lead).build());
 }
 
 /// Every walk's TypeScript built-in library callees, each named once.

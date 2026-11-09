@@ -18,6 +18,9 @@ use crate::text::analysis::{AnalysisOperation, MapLimits};
 #[cfg(test)]
 use evaluate::evaluate_walk;
 pub use evaluate::{PANICKED, SOURCE_BUDGET_EXCEEDED, over_budget_message, panicked};
+pub use memory::{FileHold, Refusal, ScanMemory};
+
+mod memory;
 /// One parsed file, borrowed during extraction: a caller reduces it to
 /// what it keeps before the next file is read.
 pub struct GraphFactsView<'a> {
@@ -32,6 +35,9 @@ pub struct GraphFactsView<'a> {
     pub reference_counts: &'a [crate::graph::GraphReferenceCount],
     /// Full graph facts came from a caller-provided, validated checkpoint.
     pub reused: bool,
+    /// What this file holds of the scan's shared memory, when the scan has
+    /// one: the map draws its own allocations from it too.
+    pub memory: Option<&'a memory::FileHold<'a>>,
 }
 
 impl GraphFactsView<'_> {
@@ -318,6 +324,7 @@ pub fn scan_walked_graph_facts<T: Send>(
         stop,
         RegistryView::installed(),
         MapLimits::default(),
+        None,
     )
 }
 
@@ -349,7 +356,7 @@ pub fn scan_walked_graph_facts_within<T: Send>(
             stop,
             (Some(crate::scan_budget::SCAN_TIME_BUDGET), Some(hold)),
             RegistryView::installed(),
-            MapLimits::default(),
+            (MapLimits::default(), None),
         )
     })
 }
@@ -375,6 +382,7 @@ pub fn scan_walked_graph_facts_with_registry<T: Send>(
     stop: &Stop<'_>,
     registry: RegistryView<'_>,
     map_limits: MapLimits,
+    memory: Option<&ScanMemory<'_>>,
 ) -> Result<GraphFactsMappedScan<T>, GraphScanError> {
     scan_contained(|| {
         evaluate::evaluate_walk_with_registry(
@@ -386,7 +394,7 @@ pub fn scan_walked_graph_facts_with_registry<T: Send>(
             stop,
             (Some(crate::scan_budget::SCAN_TIME_BUDGET), None),
             registry,
-            map_limits,
+            (map_limits, memory),
         )
     })
 }

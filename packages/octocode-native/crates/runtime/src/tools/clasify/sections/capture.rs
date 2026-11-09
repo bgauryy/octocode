@@ -60,28 +60,42 @@ pub(super) fn create(
     context: &ExecutionContext,
     max_bytes: usize,
     pool: &Pool,
-) -> Result<Session, ClassificationError> {
+) -> Result<(Session, Vec<String>, Vec<Value>), ClassificationError> {
     let mut resources = Vec::new();
     let mut retained = 0usize;
+    let mut notices = Vec::new();
+    let mut related = Vec::new();
     if let Some(requested) = input["resources"].as_object() {
-        for (key, source) in requested {
+        // A glob is one resource per matching file; one that cannot be
+        // expanded is its resource's error.
+        let expanded = crate::tools::source_capture::glob::expand(requested, dispatcher, context);
+        notices = expanded.notices;
+        related = expanded.related;
+        for (key, expanded) in expanded.resources {
             context.check().map_err(|_| {
                 super::unavailable(
                     "The call stopped while acquiring resource identities; no inference ran.",
                 )
             })?;
-            let acquired = pool
-                .get(source, dispatcher, context, max_bytes)
-                .and_then(|captured| {
-                    prepare(
-                        &captured,
-                        source,
-                        row,
-                        dispatcher,
-                        context,
-                        max_bytes.saturating_sub(retained),
-                    )
-                });
+            let (source, acquired) = match expanded {
+                Ok(source) => {
+                    let acquired =
+                        pool.get(&source, dispatcher, context, max_bytes)
+                            .and_then(|captured| {
+                                prepare(
+                                    &captured,
+                                    &source,
+                                    row,
+                                    dispatcher,
+                                    context,
+                                    max_bytes.saturating_sub(retained),
+                                )
+                            });
+                    (source, acquired)
+                }
+                Err(error) => (requested[&key].clone(), Err(error)),
+            };
+            let source = &source;
             let (metadata, units, local_check) = match acquired {
                 Ok(capture) => {
                     let bytes = octocode_engine::json_size::bytes(&capture.0)
@@ -104,7 +118,10 @@ pub(super) fn create(
                 Err(error) => {
                     let mut metadata = json!({"status":if matches!(error.code, ErrorCode::FileTooLarge | ErrorCode::ClassificationContextTooLarge | ErrorCode::CapabilityUnavailable) {"unsupported"} else {"error"},"source":source,"error":error_value(&error)});
                     // The requested read is offered only when repeating it
-                    // can succeed (not for a missing path or a refusal).
+                    // can succeed (not for a missing path or a refusal). A
+                    // glob that did not expand never gets one: it fails only
+                    // so, or by a stop, which the check above already turned
+                    // into the row's failure.
                     if let Some(tool) = source["tool"]
                         .as_str()
                         .and_then(crate::id::ToolId::from_name)
@@ -117,7 +134,7 @@ pub(super) fn create(
                 }
             };
             resources.push(Resource {
-                key: key.clone(),
+                key,
                 metadata,
                 units,
                 local_check,
@@ -125,7 +142,7 @@ pub(super) fn create(
             });
         }
     }
-    Ok(Session {
+    let session = Session {
         id: new_id(input),
         context: row.context.clone(),
         questions: input["questions"].clone(),
@@ -141,7 +158,8 @@ pub(super) fn create(
         github_identity: None,
         batches: Vec::new(),
         active: Vec::new(),
-    })
+    };
+    Ok((session, notices, related))
 }
 
 fn prepare(

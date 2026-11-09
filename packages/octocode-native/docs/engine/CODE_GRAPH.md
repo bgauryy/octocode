@@ -496,7 +496,8 @@ reported fresh.
   records.
 - **`STRS`:** sorted unique strings, front-coded. Full canonical keys allow
   selected node blocks to decode independently; front coding shares repeated
-  path prefixes.
+  path prefixes. The reader refuses a section out of order, so string ids order
+  record keys as the strings do. A decoded dictionary is one buffer.
 - **`NODE` and `EDGE`:** varint columns. Edges are delta-coded by source, and
   kind, confidence and a test bit (every site of the edge is test code: a
   test file, or a Rust `#[cfg(test)]` item) share one byte.
@@ -515,6 +516,8 @@ reported fresh.
 - **`LOOK`, `KEYX` / `NAMX`:** node lookup metadata and degree counts, plus key
   and name permutations. Full decode checks lookup metadata against node records
   and edge counts; selected node blocks are checked against their lookup entries.
+  A topology operation reads no lookup entry (it renders nodes and degrees from
+  `NODE` and `EDGE`) and checks the key and name index order its searches use.
 - **`DIAG`, `FDIG`, `FCMP`, `ENTR`:** diagnostics (file, line, code,
   message, and the file node a diagnostic is about, when that is another
   file), per-file digests, components, and entrypoints.

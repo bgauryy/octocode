@@ -53,6 +53,27 @@ pub(crate) fn under<'a>(
     })
 }
 
+/// The causes a walk skipped paths by (what a lead over them lifts): a dot
+/// directory the default prune also names (`.github`, `.cache`), or a dot
+/// file the default excludes match, sits behind both.
+pub(crate) fn skipped_causes(skipped: &crate::policy::discovery::WalkSkips) -> Vec<Cause> {
+    let excluded = skipped.hidden_excluded
+        || skipped.ignored_excluded
+        || !skipped.generated.is_empty()
+        || !skipped.pruned.is_empty();
+    [
+        (!skipped.ignored.is_empty(), Cause::Ignored),
+        (
+            !skipped.hidden.is_empty() || skipped.ignored_hidden,
+            Cause::Hidden,
+        ),
+        (excluded, Cause::DefaultExcluded),
+    ]
+    .into_iter()
+    .filter_map(|(hit, cause)| hit.then_some(cause))
+    .collect()
+}
+
 /// A walk's skip cause as `skippedPaths` names it.
 pub(crate) fn skipped_cause(cause: Cause) -> SkippedPathCause {
     match cause {
@@ -147,6 +168,34 @@ fn unreadable(root: &str, WalkErrors { skipped, denied }: WalkErrors) -> Vec<Ski
         .collect()
 }
 
+/// One `skippedPaths` entry in words, its path spelled `shown`, saying what
+/// its fields say. A withheld or unreadable entry's path is the directory
+/// that holds what was left out (the policy never names a withheld entry), so
+/// it counts what sits under that directory; any other entry's path is the
+/// first path left out, and its count is how many share its cause.
+pub(crate) fn disclosure(entry: &SkippedPath, shown: &str) -> String {
+    let cause = serde_json::to_value(entry.cause)
+        .ok()
+        .and_then(|cause| cause.as_str().map(str::to_owned))
+        .unwrap_or_default();
+    let count = entry.count.unwrap_or(1);
+    let reason = entry
+        .reason
+        .as_ref()
+        .map(|reason| format!(" ({reason})"))
+        .unwrap_or_default();
+    match entry.cause {
+        SkippedPathCause::Withheld | SkippedPathCause::Unreadable => {
+            format!("{count} {cause} under `{shown}`{reason}")
+        }
+        _ if count > 1 => format!("`{shown}` and {} more {cause}{reason}", count - 1),
+        _ => match &entry.reason {
+            Some(reason) => format!("`{shown}` ({cause}: {reason})"),
+            None => format!("`{shown}` ({cause})"),
+        },
+    }
+}
+
 /// The `skippedPaths` of `skips` ([`grouped`]); `None` when the walk
 /// skipped nothing.
 pub(crate) fn skipped_paths(
@@ -232,7 +281,21 @@ pub(crate) struct Unchecked<'a> {
 /// What a lead built from a cut probe costs: the probe proved a prefix of
 /// the skipped paths at most, so the lead lifts the causes for the whole
 /// scope (narrowing to the sampled entries would drop matches past them).
-pub(crate) const WALKS_ALL_SKIPPED: &str = "The includeSkipped call walks everything those causes hide, not only these files, and can take far longer than this search.";
+/// The sentence names the lead as the agent finds it: the `related[]`
+/// request that sets exactly the flags lifting `causes` ([`lead`]).
+pub(crate) fn walks_all_skipped(causes: &[Cause]) -> String {
+    let flags = causes
+        .iter()
+        .map(|cause| {
+            let (field, value) = cause.flag();
+            format!("{field}:{value}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "The related[] request with {flags} walks everything those causes hide, not only these files, and can take far longer than this search."
+    )
+}
 
 /// The disclosure of `verdict` about what `subject` (the noun phrase for
 /// one and for several: `["entry", "entries"]`, `["file that matches",
@@ -258,7 +321,7 @@ pub(crate) fn disclose(
             };
             let mut text = say(&diagnosis.because());
             if found.cut {
-                text = format!("{text} {WALKS_ALL_SKIPPED}");
+                text = format!("{text} {}", walks_all_skipped(diagnosis.causes()));
             }
             Some(Disclosure {
                 causes: diagnosis.causes().to_vec(),
@@ -269,8 +332,9 @@ pub(crate) fn disclose(
         Verdict::Unproven => (!unchecked.causes.is_empty()).then(|| Disclosure {
             causes: unchecked.causes.to_vec(),
             text: format!(
-                "Skipped paths ({}) were not checked within the probe budget, so absence there is unproven. {WALKS_ALL_SKIPPED}",
-                unchecked.named
+                "Skipped paths ({}) were not checked within the probe budget, so absence there is unproven. {}",
+                unchecked.named,
+                walks_all_skipped(unchecked.causes)
             ),
             unchecked: true,
         }),

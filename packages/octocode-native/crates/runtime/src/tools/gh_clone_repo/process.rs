@@ -1,4 +1,5 @@
 mod askpass;
+pub(super) use askpass::process_alive;
 mod redaction;
 
 use super::CloneError;
@@ -16,6 +17,27 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 pub(super) const MAX_OUTPUT_BYTES: usize = 5 * 1024 * 1024;
+
+/// The oldest git whose linked worktrees keep their own sparse-checkout
+/// settings (`extensions.worktreeConfig`, documented from 2.36): every
+/// checkout is a worktree of a shared store, so each sparse set must stay its
+/// own.
+const GIT_FLOOR: (u64, u64) = (2, 36);
+
+/// `(major, minor)` of a `git --version` line (`git version 2.43.0.windows.1`,
+/// `git version 2.39.3 (Apple Git-146)`); `None` when it has no such version.
+fn git_version(banner: &str) -> Option<(u64, u64)> {
+    let version = banner.trim().strip_prefix("git version ")?;
+    let mut parts = version.split_whitespace().next()?.split('.');
+    let number = |part: &str| {
+        let digits = part
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>();
+        digits.parse().ok()
+    };
+    Some((number(parts.next()?)?, number(parts.next()?)?))
+}
 
 pub struct GitRunRequest<'a> {
     pub args: Vec<OsString>,
@@ -92,7 +114,18 @@ pub trait GitRunner: Send + Sync {
             },
             control,
         ) {
-            Ok(_) => Ok(()),
+            Ok(output) => match git_version(&output.stdout) {
+                Some(version) if version >= GIT_FLOOR => Ok(()),
+                _ => Err(CloneError::new(
+                    ErrorCode::GitUnavailable,
+                    format!(
+                        "git {}.{} or newer is required: ghCloneRepo keeps one sparse checkout per linked worktree. Found: {}",
+                        GIT_FLOOR.0,
+                        GIT_FLOOR.1,
+                        output.stdout.trim()
+                    ),
+                )),
+            },
             Err(error) if matches!(error.code, ErrorCode::Cancelled | ErrorCode::Timeout) => {
                 Err(error)
             }

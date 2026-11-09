@@ -88,7 +88,7 @@ impl FileScan<'_> {
                     "structural.prefilter.skipped",
                     "info",
                     "scan",
-                    "File excluded by the text pre-filter (it does not contain the pattern's anchor literal), so AST parsing was skipped.",
+                    "File excluded by the text pre-filter (it lacks a literal every match needs), so AST parsing was skipped.",
                 )
                 .with_recovery("Remove the literal prefilter by using a rule with no safe anchor if every file must be parsed."),
             );
@@ -248,6 +248,7 @@ impl FileScan<'_> {
             );
         }
         let recovered = found.recovered();
+        let recovered_bodies = found.recovered_bodies().to_vec();
         let matches = found.into_file_matches();
         (
             Tally::Parsed(crate::num::saturating_u32(matches.len())),
@@ -259,6 +260,7 @@ impl FileScan<'_> {
                 skipped_reason: None,
                 matches,
                 recovered,
+                recovered_bodies,
                 diagnostics: Vec::new(),
             },
         )
@@ -365,6 +367,7 @@ fn skipped_file(
         skipped_reason: Some(skipped_reason.to_owned()),
         matches: FileMatches::Held(Vec::new()),
         recovered: false,
+        recovered_bodies: Vec::new(),
         diagnostics: vec![diagnostic],
     }
 }

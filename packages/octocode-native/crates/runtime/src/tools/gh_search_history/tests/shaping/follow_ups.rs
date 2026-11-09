@@ -80,8 +80,9 @@ fn empty_searches_offer_a_broader_search() {
         both[0].get("filters").is_none() && both[0]["keywords"] == json!(["fix"]),
         "{both}"
     );
-    let qualifiers = broadened(json!({"operation":"issue","owner":"o","repo":"r","filters":{"labels":["bug"]}}))
-    .expect("qualifiers dropped");
+    let qualifiers =
+        broadened(json!({"operation":"issue","owner":"o","repo":"r","filters":{"labels":["bug"]}}))
+            .expect("qualifiers dropped");
     assert!(qualifiers.get("filters").is_none(), "{qualifiers}");
     let window = broadened(json!({"operation":"commit","owner":"o","repo":"r","path":"src","filters":{"committedAt":{"from":"2026-09-24T00:00:00Z"}}}))
     .expect("window dropped");

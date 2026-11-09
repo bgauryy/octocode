@@ -22,9 +22,11 @@ fn line_of(bytes: &[u8]) -> Decoded<'_> {
 }
 
 impl<M: Matcher> CollectSink<'_, M> {
-    fn judged(&self, text: &str) -> LongLine {
+    fn judged(&mut self, text: &str) -> LongLine {
         let path = self.source.map(std::path::Path::to_string_lossy);
-        LongLine::judged(text, path.as_deref())
+        let judged = LongLine::judged(text, path.as_deref());
+        self.every_value |= judged.every_value();
+        judged
     }
 
     /// The first hit's row of this long line, in place of the row of its text.

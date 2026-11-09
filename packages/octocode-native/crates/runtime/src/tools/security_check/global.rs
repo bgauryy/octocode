@@ -10,7 +10,7 @@ use super::record::{SecurityAdvisory, Selection};
 use super::repository::RepoFailure;
 use super::source::{Confirmed, Source, SourceResult};
 use crate::contracts::security::security_contract;
-use crate::response::paging::{self, PartialReason};
+use crate::response::paging;
 use octocode_contract_types::ErrorCode;
 use serde_json::{Map, Value, json};
 
@@ -24,6 +24,9 @@ pub(super) struct Global {
     /// What GitHub states of each record beyond its row: its withdrawal and
     /// its class when not `reviewed` ([`advisories::github_notes`]).
     notes: Vec<String>,
+    /// Ids GitHub classes as malware that it still matches (not withdrawn):
+    /// each fires the contract's `malware` caution.
+    malware: Vec<String>,
 }
 
 /// GitHub's advisories at the confirmed version, every page; `None` when no
@@ -54,10 +57,14 @@ pub(super) async fn read(confirmed: &Confirmed, net: &Net<'_>) -> Option<Global>
     let mut end = walked.end;
     let mut rows = Vec::new();
     let mut notes = Vec::new();
+    let mut malware = Vec::new();
     for advisory in &walked.advisories {
         match advisories::row(advisory, &selection) {
             Ok(row) => {
                 notes.extend(advisories::github_notes(advisory));
+                if advisory.kind.as_deref() == Some("malware") && advisory.withdrawn_at.is_none() {
+                    malware.push(advisory.ghsa_id.clone());
+                }
                 rows.push(row);
             }
             Err(reason) => {
@@ -76,6 +83,7 @@ pub(super) async fn read(confirmed: &Confirmed, net: &Net<'_>) -> Option<Global>
         others: Vec::new(),
         withdrawn: Vec::new(),
         notes,
+        malware,
     })
 }
 
@@ -104,6 +112,31 @@ impl Global {
             let mut merged = SourceResult::new(Source::GitHub);
             merged.advisories = twins;
             results.push(merged);
+        }
+    }
+
+    /// Ids GitHub classes as malware that it still matches to the version:
+    /// each a report for the row's `malware` caution ([`super::malware`]).
+    pub(super) fn malware_ids(&self) -> &[String] {
+        &self.malware
+    }
+
+    /// With no OSV answer to merge with: every record GitHub matches is a row
+    /// of its own, and none is named as one OSV does not list. A withdrawn
+    /// record is no match: stated apart, one call away, as [`Self::merge`]
+    /// states it, so neither it nor its CVE is counted.
+    pub(super) fn stand_alone(&mut self, results: &mut Vec<SourceResult>) {
+        self.others.clear();
+        let (withdrawn, matched): (Vec<_>, Vec<_>) =
+            self.rows.iter().partition(|row| row.withdrawn.is_some());
+        self.withdrawn = withdrawn
+            .into_iter()
+            .map(|row| (row.id.clone(), row.withdrawn.clone().unwrap_or_default()))
+            .collect();
+        if !matched.is_empty() {
+            let mut own = SourceResult::new(Source::GitHub);
+            own.advisories = matched.into_iter().cloned().collect();
+            results.push(own);
         }
     }
 
@@ -142,18 +175,12 @@ impl Global {
                 advisories::unread_why(self.rows.len(), stopped, false)
             )
         });
-        if let (Some(stopped), Some(why)) = (&stopped, &why)
-            && entry.get("errorCode").is_none()
-        {
-            // An entry another GitHub read wrote as found is partial now.
-            if entry["status"] == "found" || entry["status"] == "noneKnown" {
-                entry["status"] = json!("partial");
-            }
-            entry["errorCode"] = json!(stopped.code);
-            entry["why"] = json!(why);
+        // An entry another GitHub read wrote keeps its reason; this one joins it.
+        if let (Some(stopped), Some(why)) = (&stopped, &why) {
+            super::source::note_failure(entry, stopped.code, why);
         }
         if let Some(why) = why {
-            paging::mark_partial(data, PartialReason::SourceFailed, &[why]);
+            super::source::source_failed(data, &[why]);
         }
         let mut warnings = Vec::new();
         if !self.others.is_empty() {

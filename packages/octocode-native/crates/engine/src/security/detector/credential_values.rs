@@ -72,11 +72,9 @@ impl ValueTest {
     /// [`ValueTest::redacts_in_comment`] for a key known by its facts: the
     /// file class reads as [`ValueTest::KeyName`] there ([`ValueTest::redacts_by_name`]).
     pub(super) fn redacts_in_comment_by(self, key: &impl KeyFacts, secret: &str) -> bool {
-        // After `name:` a sentence is prose; after `NAME=` it is a value.
-        let sentence = key.ends_with_colon() && secret.contains(char::is_whitespace);
         self.redacts_by_name(key, secret)
             && secret.chars().any(|c| !c.is_alphabetic())
-            && !sentence
+            && !is_sentence(key, secret)
             && !secret.contains('`')
     }
 
@@ -119,7 +117,9 @@ impl ValueTest {
     fn redacts_by_name(self, key: &impl KeyFacts, secret: &str) -> bool {
         match self {
             Self::Every => true,
-            Self::Field => !is_template(secret.trim()),
+            // A connection string may quote a field's value (`Password="…"`):
+            // the quotes framing it are the string's, not the value's.
+            Self::Field => !is_template(secret.trim().trim_matches(QUOTES)),
             Self::KeyName | Self::FileClass => assigns_a_credential(key, secret),
             Self::Scalar => {
                 assigns_a_credential(key, secret)
@@ -128,8 +128,10 @@ impl ValueTest {
             }
             Self::Quoted => {
                 let value = joined_pieces(secret);
+                if holds_interpolation(key, &value) {
+                    return holds_opaque_literal(key, &value);
+                }
                 assigns_a_credential(key, &value)
-                    && !holds_interpolation(&value)
                     && (literal_chars(&value) >= OPAQUE_LITERAL_CHARS
                         || is_chosen_secret(key, &value))
             }
@@ -137,13 +139,114 @@ impl ValueTest {
     }
 }
 
+/// Whether `secret` after `key` is a sentence: after `name:` several words
+/// are prose (`password: must be at least 8 characters`); after `NAME=` they
+/// are a value.
+pub(super) fn is_sentence(key: &impl KeyFacts, secret: &str) -> bool {
+    key.ends_with_colon() && secret.contains(char::is_whitespace)
+}
+
 /// Whether a literal interpolates an expression (`` `pi-${id}` ``,
-/// `"${HOME}/x"`): the program computes its value, so its text spells no
-/// credential.
-fn holds_interpolation(value: &str) -> bool {
-    value
-        .split_once("${")
-        .is_some_and(|(_, rest)| rest.contains('}'))
+/// `"${HOME}/x"`, and in a literal whose prefix interpolates,
+/// [`opens_interpolation`], `f'{base}_x'` or `$"{key}"`): the program
+/// computes its value, so its text spells no credential.
+fn holds_interpolation(key: &impl KeyFacts, value: &str) -> bool {
+    let hole = |marker: &str| {
+        value
+            .split_once(marker)
+            .is_some_and(|(_, rest)| rest.contains('}'))
+    };
+    hole("${") || (key.opens_interpolation() && holds_format_hole(value))
+}
+
+/// Whether a literal that interpolates ([`holds_interpolation`]) spells a
+/// credential in its text beside the holes: the program computes what the holes
+/// hold, but a piece of text between them is written, so each piece is judged as
+/// a literal of its own. A credential's piece is one opaque run of
+/// [`OPAQUE_LITERAL_CHARS`] or more with no blank in it
+/// (`f'Zq7x…{suffix}'`); a hole with no text beside it (`f'{base}'`) and
+/// prose or a short word around one (`` `pi-${id}` ``) hold none.
+fn holds_opaque_literal(key: &impl KeyFacts, value: &str) -> bool {
+    outside_holes(key, value).into_iter().any(|piece| {
+        let piece = piece.trim();
+        literal_chars(piece) >= OPAQUE_LITERAL_CHARS
+            && !piece.contains(char::is_whitespace)
+            && assigns_a_credential(key, piece)
+    })
+}
+
+/// The text of `value` outside its holes: `${…}` anywhere, and when the literal's
+/// prefix interpolates ([`opens_interpolation`]) each `{…}` of
+/// [`holds_format_hole`]'s reading, `{{` and `}}` being text.
+fn outside_holes<'a>(key: &impl KeyFacts, value: &'a str) -> Vec<&'a str> {
+    let format = key.opens_interpolation();
+    let bytes = value.as_bytes();
+    let mut pieces = Vec::new();
+    let mut start = 0;
+    let mut at = 0;
+    while let Some(&byte) = bytes.get(at) {
+        let inner = match (byte, bytes.get(at + 1)) {
+            (b'{' | b'}', Some(&next)) if format && next == byte => {
+                at += 2;
+                continue;
+            }
+            (b'$', Some(b'{')) => at + 2,
+            (b'{', Some(&next)) if format && next != b'}' => at + 1,
+            _ => {
+                at += 1;
+                continue;
+            }
+        };
+        match bytes
+            .get(inner..)
+            .and_then(|rest| rest.iter().position(|b| *b == b'}'))
+        {
+            Some(close) => {
+                pieces.push(value.get(start..at).unwrap_or_default());
+                at = inner + close + 1;
+                start = at;
+            }
+            None => at += 1,
+        }
+    }
+    pieces.push(value.get(start..).unwrap_or_default());
+    pieces
+}
+
+/// Whether the literal `key` opens has a prefix that interpolates its `{…}`
+/// holes: Python's `f` (`f'`, `rf"`, `Fr'`) or C#'s `$` (`$"`, `@$"`), the
+/// prefix written right after an operator, a blank or an opening bracket.
+/// `key` is the text before the value, ending in the opening quote.
+pub(super) fn opens_interpolation(key: &str) -> bool {
+    let Some(opened) = key.strip_suffix(QUOTES) else {
+        return false;
+    };
+    let before =
+        opened.trim_end_matches(|c: char| c.is_ascii_alphabetic() || matches!(c, '$' | '@'));
+    let prefix = opened.get(before.len()..).unwrap_or_default();
+    (1..=3).contains(&prefix.len())
+        && prefix.contains(['f', 'F', '$'])
+        && before.ends_with(|c: char| {
+            c.is_whitespace() || matches!(c, '=' | ':' | '>' | '(' | ',' | '|' | '?' | '[' | '{')
+        })
+}
+
+/// Whether `value` holds a format hole: a lone `{`, something, then a `}`.
+/// `{{` and `}}` write a brace, so each pair is stepped over as text
+/// (`{{Zq7x…}}` is no hole, `{{{base}}}` holds one).
+fn holds_format_hole(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let mut at = 0;
+    while let Some(&byte) = bytes.get(at) {
+        match (byte, bytes.get(at + 1)) {
+            (b'{', Some(b'{')) | (b'}', Some(b'}')) => at += 2,
+            (b'{', Some(&next)) if next != b'}' => {
+                return bytes.get(at + 2..).is_some_and(|rest| rest.contains(&b'}'));
+            }
+            _ => at += 1,
+        }
+    }
+    false
 }
 
 /// Whether a file-class `secret` ends one member of code rather than a config
@@ -198,12 +301,17 @@ pub(super) static VALUE_TESTS: LazyLock<Vec<ValueTest>> = LazyLock::new(|| {
 /// ([`names_a_location`]) or spells no credential: an identifier name
 /// ([`is_identifier_name`]), a hex digest keyed by a file path
 /// ([`is_file_digest`]), a statement reading another name
-/// ([`reads_a_name`]), or under an opaque-string key a phrase of plain words
-/// ([`is_plain_phrase`]) or a path of names ([`is_key_path`]).
+/// ([`reads_a_name`]), a placeholder to fill in ([`is_fill_in`]), an
+/// expression of code ([`is_code_expression`]), or under an opaque-string
+/// key a phrase of plain words ([`is_plain_phrase`]), a path of names
+/// ([`is_key_path`]) or a versioned name ([`is_versioned_name`]).
 fn assigns_a_credential(key: &impl KeyFacts, secret: &str) -> bool {
     let secret = without_control_frame(secret);
     !names_a_location(key, secret)
         && !is_identifier_name(secret)
+        && !is_fill_in(key, secret)
+        && !is_code_expression(key, secret)
+        && !(is_versioned_name(secret) && !key.names_a_chosen_credential())
         && !is_file_digest(key, secret)
         && !reads_a_name(key, secret)
         && !is_type_expression(secret)
@@ -214,6 +322,130 @@ fn assigns_a_credential(key: &impl KeyFacts, secret: &str) -> bool {
         && !(is_word_label(secret) && !key.names_a_chosen_credential())
         && !((is_key_path(secret) || is_namespaced_name(secret))
             && !key.names_a_chosen_credential())
+}
+
+/// Whether `secret` is a placeholder a person fills in: plain words
+/// ([`is_plain_word`]) joined by `-`, `_` or blanks that say so, `your` and
+/// `here` among them (`tvly-YOUR-KEY-HERE`, `your_api_key_here`), or under an
+/// opaque-string key plain words in angle brackets (`<your-token-here>`,
+/// `<API_KEY>`), unless they are one long word naming no credential
+/// ([`is_lone_opaque_word`]). A placeholder's word is written as a word is: lower, UPPER
+/// or Capitalized. A piece with a digit, an unpronounceable run or mixed case
+/// is a real secret's, pasted into the template (`your-Hunter2-here`,
+/// `your-Zq7x…-key-here`, `your-HuNtEr…-here`), so the value stays a
+/// credential. Under a key naming a chosen credential every piece names what
+/// to fill in, a short word or one naming a credential
+/// ([`names_a_credential_word`]: `your-password-here`): other words there are
+/// the password a person chose (`your-correct-horse-battery-staple-here`). A
+/// person may choose bracketed words (`<open sesame door>`), so a key naming
+/// a chosen credential keeps them.
+fn is_fill_in(key: &impl KeyFacts, secret: &str) -> bool {
+    let chosen = key.names_a_chosen_credential();
+    let written_as_a_word = |word: &str| {
+        word.bytes().skip(1).all(|byte| byte.is_ascii_lowercase())
+            || word.bytes().all(|byte| byte.is_ascii_uppercase())
+    };
+    let names_what_to_fill =
+        |word: &str| word.len() <= 4 || names_a_credential_word(&word.to_ascii_lowercase());
+    let plain_words = |text: &str| {
+        let mut words = text
+            .split(['-', '_', ' '])
+            .filter(|word| !word.is_empty())
+            .peekable();
+        words.peek().is_some()
+            && words.all(|word| {
+                is_plain_word(word)
+                    && written_as_a_word(word)
+                    && (!chosen || names_what_to_fill(word))
+            })
+    };
+    let says = |word: &str| {
+        secret
+            .split(['-', '_', ' '])
+            .any(|piece| piece.eq_ignore_ascii_case(word))
+    };
+    let bracketed =
+        angle_inner(secret).is_some_and(|inner| plain_words(inner) && !is_lone_opaque_word(inner));
+    (bracketed && !chosen) || (plain_words(secret) && says("your") && says("here"))
+}
+
+/// The text between `<` and `>` when `secret` is all of it.
+fn angle_inner(secret: &str) -> Option<&str> {
+    secret.strip_prefix('<')?.strip_suffix('>')
+}
+
+/// Whether the text inside angle brackets is one word of letters that names no
+/// credential and, brackets with it, is a literal of [`OPAQUE_LITERAL_CHARS`]
+/// or more (`<Kavotemixalupo>`): a placeholder says what to fill in, by several
+/// words (`<your-token-here>`) or by a credential's name (`<password>`), and
+/// one long word says nothing, so it is a secret a person wrapped in brackets.
+fn is_lone_opaque_word(inner: &str) -> bool {
+    inner.bytes().all(|byte| byte.is_ascii_alphabetic())
+        && inner.len() + 2 >= OPAQUE_LITERAL_CHARS
+        && !names_a_credential_word(&inner.to_ascii_lowercase())
+}
+
+/// Whether `secret` is a type or member name with a version after it
+/// (`GithubTokenProviderV2`): a camelCase name ([`is_identifier_name`]) of
+/// [`OPAQUE_LITERAL_CHARS`] or more, then `V` and up to three digits. A
+/// version adds no evidence that a value is a name, so the name must be one
+/// at a credential literal's length on its own, as a bare name is judged; a
+/// shorter one lifted past it by its version (`GyyiXidMolckV598`) is a
+/// random token's shape. A name and a bare digit (`resourceClaimName7`) is a
+/// token's shape too, and a person may choose words and a version, so a key
+/// naming a chosen credential keeps it ([`assigns_a_credential`]).
+fn is_versioned_name(secret: &str) -> bool {
+    let stem = secret.trim_end_matches(|c: char| c.is_ascii_digit());
+    let digits = secret.len() - stem.len();
+    (1..=3).contains(&digits)
+        && stem
+            .strip_suffix('V')
+            .is_some_and(|name| name.len() >= OPAQUE_LITERAL_CHARS && is_identifier_name(name))
+}
+
+/// Whether `secret` is an expression of code (`resultCount===0&&Result.isErr`,
+/// `ctx.accessToken/other.accessToken-1`): pieces joined by operators, each
+/// a number or a path of names ([`is_name_segment`] parts), two of them a
+/// member path (`a.b`) or a camelCase name. A credential's pieces hold
+/// digits inside or unpronounceable runs (`ctx.Zq7x…`). Under a key naming
+/// a chosen credential the pieces are joined by a comparison or a logical
+/// operator (`==`, `!=`, `&&`, `||`), as a password of words and dots
+/// (`hunter.two-fish.cake`) is not, and never when the value is quoted: a
+/// literal under a chosen key is the value a person chose
+/// (`password = "adminUser==rootPassword"`).
+fn is_code_expression(key: &impl KeyFacts, secret: &str) -> bool {
+    let body = secret.trim().trim_end_matches([';', ',']);
+    let operator = |c: char| {
+        matches!(
+            c,
+            '=' | '!' | '&' | '|' | '<' | '>' | '/' | '+' | '-' | '*' | '%' | '(' | ')' | '?' | ':'
+        )
+    };
+    let mut pieces = 0;
+    let mut names = 0;
+    let all = body
+        .split(operator)
+        .map(str::trim)
+        .filter(|piece| !piece.is_empty())
+        .all(|piece| {
+            pieces += 1;
+            if piece.bytes().all(|byte| byte.is_ascii_digit()) {
+                return true;
+            }
+            let named = piece.split('.').all(is_name_segment);
+            if named && (piece.contains('.') || is_identifier_name(piece)) {
+                names += 1;
+            }
+            named
+        });
+    let joined = if key.names_a_chosen_credential() {
+        // A quoted literal assigned to a chosen credential is a passphrase the
+        // program stores, not code it runs.
+        !key.ends_with_quote() && ["==", "!=", "&&", "||"].iter().any(|op| body.contains(op))
+    } else {
+        body.contains(operator)
+    };
+    all && joined && pieces >= 2 && names >= 2
 }
 
 /// `secret` without the control characters framing it, raw or written as a
@@ -273,6 +505,54 @@ fn is_constant_name(secret: &str) -> bool {
             .bytes()
             .all(|byte| byte.is_ascii_uppercase() || byte == b'_')
         && is_name_segment(secret)
+}
+
+/// Whether `value` is a constant's name ([`is_constant_name`], framed or
+/// not: [`without_control_frame`]) that its text expands as a variable:
+/// `expanded` gives the names the text expands ([`expanded_names`]), read
+/// only when `value` is such a name. The name is then the variable's: a
+/// program that expands a variable names it, and a chosen password is never
+/// also expanded as a variable in its own source. Without an expansion such a
+/// name under a key naming a chosen credential stays one
+/// ([`assigns_a_credential`]).
+pub(super) fn is_expanded_name<'t>(
+    expanded: impl FnOnce() -> &'t std::collections::HashSet<Box<str>>,
+    value: &str,
+) -> bool {
+    let name = without_control_frame(value);
+    is_constant_name(name) && expanded().contains(name)
+}
+
+/// The names `text` expands as a variable, each read whole in one pass:
+/// `$NAME` (to the first byte that is no name byte: `$NAME_2` expands
+/// `NAME_2`), `${NAME}` and `%NAME%`.
+pub(super) fn expanded_names(text: &str) -> std::collections::HashSet<Box<str>> {
+    let bytes = text.as_bytes();
+    let name_end = |from: usize| {
+        from + bytes
+            .get(from..)
+            .unwrap_or_default()
+            .iter()
+            .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'_')
+            .count()
+    };
+    let mut names = std::collections::HashSet::new();
+    for (at, mark) in text.match_indices(['$', '%']) {
+        let (start, closer) = match mark {
+            "$" if bytes.get(at + 1) == Some(&b'{') => (at + 2, Some(b'}')),
+            "$" => (at + 1, None),
+            _ => (at + 1, Some(b'%')),
+        };
+        let end = name_end(start);
+        if end > start
+            && closer.is_none_or(|closer| bytes.get(end) == Some(&closer))
+            && let Some(name) = text.get(start..end)
+            && !names.contains(name)
+        {
+            names.insert(name.into());
+        }
+    }
+    names
 }
 
 /// Whether `secret` is an ISO 8601 date or date-time (`2000-01-01`,
@@ -423,19 +703,22 @@ fn is_key_path(secret: &str) -> bool {
 }
 
 /// One name of [`is_key_path`]: a camelCase name ([`is_identifier_name`]) or
-/// `_`-joined words of letters, each a pronounceable word
-/// ([`pronounceable_word`]) or an abbreviation of at most four letters.
+/// `_`-joined plain words ([`is_plain_word`]).
 fn is_name_segment(segment: &str) -> bool {
     is_identifier_name(segment)
         || (segment.bytes().any(|byte| byte != b'_')
             && segment
                 .split('_')
                 .filter(|word| !word.is_empty())
-                .all(|word| {
-                    word.bytes().all(|byte| byte.is_ascii_alphabetic())
-                        && (word.len() <= 4
-                            || pronounceable_word(word.to_ascii_lowercase().as_bytes()))
-                }))
+                .all(is_plain_word))
+}
+
+/// Whether `word` is a plain word: letters only, and a pronounceable word
+/// ([`pronounceable_word`], any case) or an abbreviation of at most four
+/// letters (`GH`, `cfg`, `tvly`).
+fn is_plain_word(word: &str) -> bool {
+    word.bytes().all(|byte| byte.is_ascii_alphabetic())
+        && (word.len() <= 4 || pronounceable_word(word.to_ascii_lowercase().as_bytes()))
 }
 
 /// What a file-class key says about its value.
@@ -453,6 +736,12 @@ enum FileClassKey {
     Other,
 }
 
+/// Whether lowercase `text` contains a credential word ([`CREDENTIAL_WORDS`])
+/// anywhere, with no separator needed (`dbpassword`, `apikey`).
+fn names_a_credential_word(text: &str) -> bool {
+    CREDENTIAL_WORDS.split('|').any(|word| text.contains(word))
+}
+
 /// Which [`FileClassKey`] a key (the line's text before the value) is. A
 /// segment names a credential when it contains a credential word anywhere, in
 /// any case and with no separator (`DB_PASS_PROD`, `dbPassword`, `APIKEY`,
@@ -461,15 +750,10 @@ enum FileClassKey {
 /// through.
 fn file_class_key(key: &str) -> FileClassKey {
     let name = key_name(key).to_ascii_lowercase();
-    let names_one = |segment: &str| {
-        CREDENTIAL_WORDS
-            .split('|')
-            .any(|word| segment.contains(word))
-    };
     let mut segments = name.rsplit('.');
-    if segments.next().is_some_and(names_one) {
+    if segments.next().is_some_and(names_a_credential_word) {
         FileClassKey::Credential
-    } else if segments.any(names_one) {
+    } else if segments.any(names_a_credential_word) {
         FileClassKey::Qualified
     } else {
         FileClassKey::Other
@@ -750,7 +1034,7 @@ fn is_chosen_secret(key: &impl KeyFacts, secret: &str) -> bool {
 /// Whether `secret` is a placeholder to fill in: `<…>`, `${…}`, `{{…}}` or a
 /// format argument (`{value}`, `{0}`: a name or a position in braces).
 fn is_template(secret: &str) -> bool {
-    (secret.starts_with('<') && secret.ends_with('>'))
+    angle_inner(secret).is_some_and(|inner| !is_lone_opaque_word(inner))
         || (secret.starts_with("${") && secret.ends_with('}'))
         || (secret.starts_with("{{") && secret.ends_with("}}"))
         || secret

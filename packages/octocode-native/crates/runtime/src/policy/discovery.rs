@@ -90,6 +90,97 @@ pub(crate) const CREDENTIAL_FILE_NAMES: &[&str] = &[
     "firebase-adminsdk.json",
     "google-services.json",
     "googleservice-info.plist",
+    // Windows and system spellings of the same stores: curl and git read
+    // `_netrc` on Windows, PostgreSQL `pgpass.conf` under %APPDATA%, npm a
+    // global `npmrc`, Apache tools write `htpasswd` without the dot.
+    "_netrc",
+    "pgpass.conf",
+    "npmrc",
+    "htpasswd",
+    // The kubeconfig k3s and RKE2 write (`/etc/rancher/k3s/k3s.yaml`).
+    "k3s.yaml",
+    "rke2.yaml",
+];
+
+/// Words a credential file's name carries whatever the tool or person that
+/// named it added (`kubeconfig-prod-cluster.yaml`, `gcp-credentials.json`,
+/// `alice_accessKeys.csv`), each with the extensions such a file is written
+/// with (`None`: any config extension, [`CONFIG_EXTENSIONS`]). A word counts
+/// only as a token of the name, bounded by its start or end or `-` `_` `.`
+/// (`secretsmanager-….json` is not `secrets`), and a code or docs file that
+/// names it (`kubeconfig.go`, `credentials.ts`) has another extension.
+/// Lowercase.
+const CREDENTIAL_NAME_WORDS: &[(&str, Option<&[&str]>)] = &[
+    ("kubeconfig", None),
+    ("credentials", None),
+    ("secrets", None),
+    // A Google service-account key is JSON; a `service-account.yaml` is a
+    // Kubernetes ServiceAccount manifest, which holds no secret.
+    ("service-account", Some(&["json"])),
+    ("service_account", Some(&["json"])),
+    ("firebase-adminsdk", Some(&["json"])),
+    // Google's OAuth client download, `client_secret_<id>.apps.googleusercontent.com.json`.
+    ("client_secret", None),
+    // AWS's IAM console download, `<user>_accessKeys.csv`.
+    ("accesskeys", None),
+];
+
+/// Name tokens that make a credential-worded file a description of one, not
+/// the credential: a schema, a template, an example or a sample.
+const DESCRIBING_TOKENS: &[&str] = &["schema", "template", "example", "sample"];
+
+/// Tokens that make a `secrets` name a controller manifest, not the secrets:
+/// a Bitnami `sealed-secrets.yaml` (encrypted) or an `external-secrets.yaml`
+/// (references to a secret store, no values). Only for `secrets`: an
+/// "external" kubeconfig or credentials file is a real one.
+const SECRETS_MANIFEST_TOKENS: &[&str] = &["sealed", "external"];
+
+/// Directories whose files only name credentials: translations
+/// (`i18n/credentials.json` is the strings a login form shows), matched as
+/// the parent or the grandparent (one locale folder down). GitHub
+/// workflows, which reference secrets by name and never hold them, are
+/// matched as `.github/workflows/`.
+const DESCRIBING_DIRECTORIES: &[&str] = &[
+    "i18n",
+    "l10n",
+    "locale",
+    "locales",
+    // Not `lang`/`langs`: in SDK layouts they name programming languages
+    // (`lang/go/credentials.json`), not translations.
+    "translations",
+];
+
+/// The extensions a config-shaped credential file is written with; any
+/// other (`.go`, `.ts`, `.md`) is a file about it, not the file.
+const CONFIG_EXTENSIONS: &[&str] = &[
+    "yaml",
+    "yml",
+    "json",
+    "conf",
+    "cfg",
+    "config",
+    "ini",
+    "toml",
+    "txt",
+    "csv",
+    "xml",
+    "properties",
+];
+
+/// SSH private keys by the type `ssh-keygen` names them with, under any
+/// suffix a person adds (`id_ed25519_github`, `id_ecdsa_sk`); a name with an
+/// extension after it (`id_rsa.pub`, `id_rsa_loader.rs`) is not one.
+const SSH_KEY_PREFIXES: &[&str] = &["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"];
+
+/// The kubeconfigs kubeadm writes in `/etc/kubernetes/`: generic names, so
+/// withheld only in a directory named `kubernetes` (an `admin.conf` elsewhere
+/// is ordinary config).
+const KUBEADM_CONFIGS: &[&str] = &[
+    "admin.conf",
+    "super-admin.conf",
+    "kubelet.conf",
+    "controller-manager.conf",
+    "scheduler.conf",
 ];
 
 /// Credential-shaped file extensions, shared like [`CREDENTIAL_FILE_NAMES`].
@@ -111,11 +202,23 @@ pub(crate) const CREDENTIAL_FILE_EXTENSIONS: &[&str] = &[
     ".gpg",
     ".asc",
     ".ovpn",
+    // Terraform state holds every resource's secrets in plain text, and a
+    // variables file is where Terraform's docs put the secrets it is given.
+    ".tfstate",
+    ".tfvars",
+    // `admin.kubeconfig` and the like.
+    ".kubeconfig",
+    // Terraform loads JSON variable files as it loads `.tfvars`.
+    ".tfvars.json",
 ];
 
 /// Backup/copy suffixes that keep a credential file a credential file
 /// (`id_rsa.old`, `credentials.json.bak`).
 const BACKUP_SUFFIXES: &[&str] = &[".old", ".bak", ".backup", ".orig", ".save", "~"];
+
+/// Editor copies of a file being edited, which hold its text: vim's swap file
+/// (`.name.swp`, `name.swp`), a temporary save (`name.tmp`).
+const EDITOR_SUFFIXES: &[&str] = &[".swp", ".swo", ".tmp"];
 
 /// OS-metadata and database file names a text search skips by default;
 /// `defaultExcludes:false` searches them. Lockfiles are not here: the
@@ -265,9 +368,14 @@ pub(crate) fn is_in_sensitive_directory(path: &Path) -> bool {
 /// ([`SENSITIVE_FRAGMENTS`]), or one that is not text.
 pub(crate) fn is_sensitive_under_cleared(name: &std::ffi::OsStr, kind: EntryKind) -> Option<bool> {
     let name = folded(name.to_str()?);
-    let completes = SENSITIVE_FRAGMENTS.iter().any(|(fragment, _)| {
-        fragment.trim_end_matches('/').rsplit('/').next() == Some(name.as_ref())
-    });
+    // A name whose rule needs its directory (a kubeadm config, a credential
+    // word a translation folder only names) is judged on the whole path too.
+    let completes = KUBEADM_CONFIGS.contains(&name.as_ref())
+        || word_named(&name)
+        || copies_of(&name).iter().any(|stem| word_named(stem))
+        || SENSITIVE_FRAGMENTS.iter().any(|(fragment, _)| {
+            fragment.trim_end_matches('/').rsplit('/').next() == Some(name.as_ref())
+        });
     if completes {
         return None;
     }
@@ -319,6 +427,20 @@ pub(crate) fn withheld_message(display: &str, path: &Path) -> String {
     )
 }
 
+/// What a link points to when the policy withholds its target, named by its
+/// kind only: the caller asked for the link, never for the withheld name.
+pub(crate) fn withheld_link_message(display: &str, target: &Path) -> String {
+    let aliases = octocode_engine::text::slash_path(target);
+    let what = match sensitive_directory(&aliases) {
+        Some(".git") if is_git_file(target, &aliases) => "a `.git` file".to_owned(),
+        Some(dir) => format!("an entry in a `{}/` directory", dir.trim_end_matches('/')),
+        None => "a credential file".to_owned(),
+    };
+    format!(
+        "Path '{display}' links to {what}, which the security path policy withholds: no local tool reads it through a link."
+    )
+}
+
 /// A `.git` entry that is a file (a submodule's or linked worktree's
 /// `gitdir:` pointer), not the repository directory.
 fn is_git_file(path: &Path, aliases: &str) -> bool {
@@ -326,19 +448,115 @@ fn is_git_file(path: &Path, aliases: &str) -> bool {
 }
 
 fn is_sensitive_file(path: &str) -> bool {
-    let name = folded(path.rsplit('/').next().unwrap_or_default());
-    let name = name.as_ref();
-    is_credential_name(name)
-        || BACKUP_SUFFIXES.iter().any(|suffix| {
-            name.strip_suffix(suffix)
-                .is_some_and(|stem| !stem.is_empty() && is_credential_name(stem))
-        })
+    let folded_path = folded(path);
+    let mut parts = folded_path.rsplit('/');
+    let raw = parts.next().unwrap_or_default();
+    let parent = parts.next().unwrap_or_default();
+    let grandparent = parts.next().unwrap_or_default();
+    // Windows opens a name without its trailing dots and spaces
+    // (`kubeconfig.yaml.` is `kubeconfig.yaml`). A read is judged again on the
+    // canonical path ([`super::path`]), which on Windows carries the long name
+    // an 8.3 short name stands for.
+    let trimmed = raw.trim_end_matches(['.', ' ']);
+    let name = if trimmed.is_empty() { raw } else { trimmed };
+    // A translation folder holds its files directly or one locale down
+    // (`locales/en/secrets.json`).
+    let described = DESCRIBING_DIRECTORIES.contains(&parent)
+        || DESCRIBING_DIRECTORIES.contains(&grandparent)
+        || (parent == "workflows" && grandparent == ".github");
+    (parent == "kubernetes" && KUBEADM_CONFIGS.contains(&name))
+        || is_credential_name(name, described)
+        || copies_of(name)
+            .iter()
+            .any(|stem| is_credential_name(stem, described))
 }
 
-fn is_credential_name(name: &str) -> bool {
+/// The names a backup, editor or rotation copy of `name` was made from:
+/// `id_rsa.old`, `.kubeconfig.yaml.swp` (vim), `#kubeconfig.yaml#` (emacs),
+/// `kubeconfig.yaml.1` (a rotation).
+fn copies_of(name: &str) -> Vec<&str> {
+    let mut stems = Vec::new();
+    for suffix in BACKUP_SUFFIXES.iter().chain(EDITOR_SUFFIXES) {
+        if let Some(stem) = name.strip_suffix(suffix).filter(|stem| !stem.is_empty()) {
+            stems.push(stem);
+            if let Some(hidden) = stem.strip_prefix('.').filter(|stem| !stem.is_empty()) {
+                stems.push(hidden);
+            }
+        }
+    }
+    if let Some(inner) = name
+        .strip_prefix('#')
+        .and_then(|rest| rest.strip_suffix('#'))
+        .filter(|inner| !inner.is_empty())
+    {
+        stems.push(inner);
+    }
+    if let Some((stem, rotation)) = name.rsplit_once('.')
+        && !stem.is_empty()
+        && !rotation.is_empty()
+        && rotation.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        stems.push(stem);
+    }
+    stems
+}
+
+/// Whether `name` is a credential file's. `described`: it lies where files
+/// only name credentials ([`DESCRIBING_DIRECTORIES`]), so a credential word
+/// alone does not withhold it; a key, a dotenv file or a store's own name
+/// still does.
+fn is_credential_name(name: &str, described: bool) -> bool {
+    let worded = word_named(name);
     octocode_engine::security::is_dotenv_name(name)
-        || CREDENTIAL_FILE_NAMES.contains(&name)
+        || (CREDENTIAL_FILE_NAMES.contains(&name) && !(described && worded))
         || CREDENTIAL_FILE_EXTENSIONS
             .iter()
             .any(|extension| name.len() > extension.len() && name.ends_with(extension))
+        // Terraform state under any rotation `terraform state` writes
+        // (`terraform.tfstate.1700000000.backup`).
+        || name.split('.').skip(1).any(|token| token == "tfstate")
+        || (worded && !described)
+        || SSH_KEY_PREFIXES.iter().any(|prefix| {
+            name.strip_prefix(prefix)
+                .is_some_and(|rest| !rest.contains('.'))
+        })
+}
+
+/// Whether `name` holds a credential word ([`CREDENTIAL_NAME_WORDS`]) as a
+/// token, with an extension such a file is written with, and no token that
+/// makes it a description ([`DESCRIBING_TOKENS`]).
+fn word_named(name: &str) -> bool {
+    let has = |tokens: &[&str]| {
+        name.split(['.', '-', '_'])
+            .any(|token| tokens.contains(&token))
+    };
+    !has(DESCRIBING_TOKENS)
+        && CREDENTIAL_NAME_WORDS.iter().any(|(word, extensions)| {
+            has_token(name, word)
+                && config_shaped(name, word, *extensions)
+                && !(*word == "secrets" && has(SECRETS_MANIFEST_TOKENS))
+        })
+}
+
+/// Whether `word` occurs in `name` bounded on both sides by the name's start
+/// or end, or by `-`, `_` or `.`.
+fn has_token(name: &str, word: &str) -> bool {
+    let bytes = name.as_bytes();
+    let bounded = |byte: Option<&u8>| byte.is_none_or(|byte| matches!(byte, b'-' | b'_' | b'.'));
+    name.match_indices(word).any(|(at, _)| {
+        let before = at.checked_sub(1).and_then(|index| bytes.get(index));
+        bounded(before) && bounded(bytes.get(at + word.len()))
+    })
+}
+
+/// Whether `name`, which holds `word`, is shaped like the file a credential
+/// is stored in: no extension, an extension of `extensions` (`None`: a config
+/// extension, [`CONFIG_EXTENSIONS`]), or the word itself as the extension.
+fn config_shaped(name: &str, word: &str, extensions: Option<&[&str]>) -> bool {
+    match name.rsplit_once('.') {
+        None => true,
+        Some((_, extension)) => {
+            extension == word || extensions.unwrap_or(CONFIG_EXTENSIONS).contains(&extension)
+        }
+    }
 }

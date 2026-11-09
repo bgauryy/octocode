@@ -32,6 +32,8 @@ pub(crate) mod scope;
 mod turn;
 use super::paths::{dirname, join, join_within_root, normalize};
 #[cfg(test)]
+pub(crate) mod peaks;
+#[cfg(test)]
 pub(super) use checkpoint::inject_secret_scan_fault;
 use link::*;
 pub(super) use resolve::OUTSIDE_ROOT;

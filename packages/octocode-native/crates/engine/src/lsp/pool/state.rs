@@ -178,6 +178,22 @@ pub(super) fn touch_entry<C>(state: &mut State<C>, key: &str) -> bool {
     true
 }
 
+/// The servers' summed resident bytes and the budget when they exceed it. A
+/// budget of 0 means none.
+pub(super) fn resident_over_budget<C: PoolClient>(
+    entries: &HashMap<String, Entry<C>>,
+    options: &LspPoolOptions,
+) -> Option<(u64, u64)> {
+    if options.max_resident_bytes == 0 {
+        return None;
+    }
+    let resident = entries
+        .values()
+        .map(|entry| entry.client.resident_bytes())
+        .fold(0_u64, u64::saturating_add);
+    (resident > options.max_resident_bytes).then_some((resident, options.max_resident_bytes))
+}
+
 /// Evict least-recently-used entries while over `max_entries` or, when the
 /// pool has a memory budget, while the servers' sampled resident memory
 /// together exceeds it, skipping `keep` and every busy client. When everything evictable is busy the pool
@@ -190,15 +206,9 @@ pub(super) fn evict_overflow<C: PoolClient>(
     keep: &str,
 ) -> Vec<C> {
     let mut evicted = Vec::new();
-    let over_budget = |entries: &HashMap<String, Entry<C>>| {
-        options.max_resident_bytes > 0
-            && entries
-                .values()
-                .map(|entry| entry.client.resident_bytes())
-                .fold(0_u64, u64::saturating_add)
-                > options.max_resident_bytes
-    };
-    while state.entries.len() > options.max_entries || over_budget(&state.entries) {
+    while state.entries.len() > options.max_entries
+        || resident_over_budget(&state.entries, options).is_some()
+    {
         let State { entries, lru, .. } = &mut *state;
         let Some(position) = lru.iter().position(|candidate| {
             candidate != keep

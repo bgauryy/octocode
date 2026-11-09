@@ -66,6 +66,13 @@ impl ScanCounts {
                     anchors.join("|")
                 ));
             }
+            Prefilter::All(groups) if *skipped_by_pre_filter > 0 => {
+                warnings.push(format!(
+                    "All-anchors pre-filter ({} groups: {}) skipped {skipped_by_pre_filter} file(s); parsed {parsed_files}.",
+                    groups.len(),
+                    crate::structural::query::groups_text(groups)
+                ));
+            }
             _ => {}
         }
         if *skipped_unsupported > 0 {

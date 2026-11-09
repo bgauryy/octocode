@@ -43,7 +43,7 @@ fn owner_pid(name: &str) -> Option<u32> {
 /// Whether a process with this pid exists. A pid that is reused by another
 /// process reads as alive, which only keeps a stale directory longer.
 #[cfg(unix)]
-fn process_alive(pid: u32) -> bool {
+pub(in crate::tools::gh_clone_repo) fn process_alive(pid: u32) -> bool {
     let Ok(pid) = libc::pid_t::try_from(pid) else {
         return true;
     };
@@ -54,7 +54,7 @@ fn process_alive(pid: u32) -> bool {
 
 /// Without a process probe a directory is never judged dead by pid.
 #[cfg(not(unix))]
-fn process_alive(_pid: u32) -> bool {
+pub(in crate::tools::gh_clone_repo) fn process_alive(_pid: u32) -> bool {
     true
 }
 

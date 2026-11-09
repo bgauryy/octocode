@@ -41,6 +41,7 @@ pub(super) fn shape(
         beside: row_envelope_chars(query, &acquired.resolved_ref),
         interior: false,
         byte_origin: None,
+        file_lines: None,
     };
     let mut content = if !crate::tools::source_view::local_fetch_query::has_classification(&local)
         && crate::tools::source_view::local_fetch_query::selection(&local).is_none()

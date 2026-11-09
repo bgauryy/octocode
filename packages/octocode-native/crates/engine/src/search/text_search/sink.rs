@@ -50,6 +50,9 @@ pub(super) struct CollectSink<'a, M: Matcher> {
     /// A matched or context line was not UTF-8, so its value is decoded
     /// text, not verbatim bytes ([`block_text`]).
     pub(super) not_utf8: bool,
+    /// A long line's walk outgrew the memory budget, so a row hides every value
+    /// of the Kubernetes Secret or JSON Web Key it names ([`LongLine::every_value`]).
+    pub(super) every_value: bool,
     /// One matcher per searched term (empty: none counted).
     pub(super) terms: &'a [M],
     /// Per term of `terms`: its matches (when submatches are enumerated)
@@ -97,6 +100,7 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
             line_weight: 0,
             declares: false,
             not_utf8: false,
+            every_value: false,
         }
     }
 }

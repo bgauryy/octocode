@@ -3,6 +3,21 @@
 
 use super::*;
 
+/// A document form's pattern without a literal gate is a candidate in every
+/// text (`gates::FALLBACK`), so every line of every source would be one only
+/// its whole source can judge, and a long line no window can judge is hidden.
+#[test]
+fn every_document_pattern_has_a_literal_gate() {
+    let gateless: Vec<&str> = super::super::gates::FALLBACK
+        .iter()
+        .filter(|&&idx| document::Form::of(idx).is_some())
+        .map(|&idx| PATTERNS[idx].name)
+        .collect();
+    assert_eq!(gateless, Vec::<&str>::new());
+    let code = "bundle;function f0(a){return \"\u{e9}0\"+a;}var token=\"ghp_abcdefghijklmnopqrstuvwxyz0123456789\";function target(a){return a;}\n";
+    assert!(!WholeSourcePatterns::any_file().named_by(code), "{code}");
+}
+
 const VALUE: &str = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIz";
 const OTHER: &str = "Other1Scalar2Not3Real4Value5Long6Enough7Zz";
 const SCALAR: &str = "Fake0Scalar9Not4Real8Value7Long6Enough5Xy";
@@ -391,6 +406,10 @@ fn every_named_object_holds_a_literal() {
         "'kty': 1",
         "kty: 1",
         "\\\"kty\\\": 1",
+        "\"auths\": {",
+        "\\\"auths\\\":{",
+        "\"Auths\": {",
+        "\"AUTHS\":{",
     ] {
         assert!(
             WholeSourcePatterns::outruns_a_page(text),
@@ -398,7 +417,7 @@ fn every_named_object_holds_a_literal() {
         );
         let mut names = SourceNames::for_path("any");
         names.feed(text.as_bytes());
-        assert!(names.finish().objects, "{text}");
+        assert!(names.finish().objects.any(), "{text}");
     }
 }
 
@@ -425,4 +444,158 @@ fn secret_block_scalars_keep_their_line_ends_on_the_long_path() {
         content.matches('\n').count()
     );
     assert!(redact_within(&long.sanitized, scope, 1).is_none());
+}
+
+/// RV-LF F4 (round 2): a private member whose string a backslash-newline
+/// continues (`"d":"x\` then the rest on the next line) is the same member:
+/// its value is hidden as it is on one line, whatever reads the text.
+#[test]
+fn a_private_member_continued_by_a_backslash_newline_is_hidden() {
+    for text in [
+        format!("{{\"kty\":\"RSA\",\"n\":\"{PUBLIC}\",\"e\":\"AQAB\",\"d\":\"x\\\n{SCALAR}\"}}\n"),
+        format!(
+            "[\n  {{\"kty\":\"RSA\",\"n\":\"{PUBLIC}\",\"e\":\"AQAB\",\"d\":\"x\\\n{SCALAR}\"}},\n  {{\"kind\":\"ConfigMap\"}}\n]\n"
+        ),
+        format!(
+            "{{\"kty\":\"RSA\",\"n\":\"{PUBLIC}\",\"p\":\"x\\\ny\\\n{SCALAR}\",\"e\":\"AQAB\"}}\n"
+        ),
+    ] {
+        for path in [None, Some("conf/key.json"), Some("conf/key.conf")] {
+            hides(&text, path, &[SCALAR], &[PUBLIC, "AQAB"]);
+        }
+    }
+}
+
+/// A Docker client config (`config.json`): `auths` maps each registry to its
+/// entry, and an entry's `auth` (base64 of `user:password`), `password`,
+/// `identitytoken` and `registrytoken` are its credentials. They are hidden
+/// whatever the file is named, while what says where and who stays: the
+/// registry, `username`, `email`, `credHelpers` and `credsStore` (helper
+/// program names) and `HttpHeaders`.
+const DOCKER_AUTH: &str = "cm9ib3Q6czNjcjN0LXBhc3N3b3JkLTk4NzY1";
+const DOCKER_TOKEN: &str = "Zq7xK2mPlanted9RegistryTok";
+const DOCKER_IDENTITY: &str = "Zq7xK2mPlanted9IdentityTok";
+const DOCKER_PASSWORD: &str = "Zq7xK2mPlanted9Pw";
+
+#[test]
+fn a_docker_registry_credential_is_hidden_and_its_config_stays_readable() {
+    let config = format!(
+        "{{\n  \"auths\": {{\n    \"registry.example.com\": {{\n      \"auth\": \"{DOCKER_AUTH}\",\n      \"email\": \"ci@example.com\"\n    }},\n    \"https://index.docker.io/v1/\": {{\n      \"auth\": \"\",\n      \"identitytoken\": \"{DOCKER_IDENTITY}\"\n    }},\n    \"ghcr.io\": {{ \"registrytoken\": \"{DOCKER_TOKEN}\" }},\n    \"quay.io\": {{ \"username\": \"robot\", \"password\": \"{DOCKER_PASSWORD}\" }}\n  }},\n  \"credHelpers\": {{ \"123.dkr.ecr.us-east-1.amazonaws.com\": \"ecr-login\" }},\n  \"credsStore\": \"desktop\",\n  \"HttpHeaders\": {{ \"User-Agent\": \"Docker-Client/19.03.12 (linux)\" }}\n}}\n"
+    );
+    let one_line = format!(
+        "{{\"auths\":{{\"registry.example.com\":{{\"auth\":\"{DOCKER_AUTH}\"}},\"ghcr.io\":{{\"registrytoken\":\"{DOCKER_TOKEN}\"}}}}}}\n"
+    );
+    // A Kubernetes `dockerconfigjson` held as a string, escaped one level.
+    let escaped = format!(
+        "{{\"config\":\"{{\\\"auths\\\":{{\\\"registry.example.com\\\":{{\\\"auth\\\":\\\"{DOCKER_AUTH}\\\"}}}}}}\"}}\n"
+    );
+    for path in [
+        Some("docker/config.json"),
+        Some("d/config.json"),
+        Some(".docker/config.json"),
+        None,
+    ] {
+        hides(
+            &config,
+            path,
+            &[DOCKER_AUTH, DOCKER_IDENTITY, DOCKER_TOKEN, DOCKER_PASSWORD],
+            &[
+                "registry.example.com",
+                "ci@example.com",
+                "\"username\": \"robot\"",
+                "\"ecr-login\"",
+                "\"credsStore\": \"desktop\"",
+                "Docker-Client/19.03.12",
+            ],
+        );
+        hides(&one_line, path, &[DOCKER_AUTH, DOCKER_TOKEN], &["ghcr.io"]);
+        hides(&escaped, path, &[DOCKER_AUTH], &["registry.example.com"]);
+    }
+}
+
+/// Only a registry's entry under `auths` holds a registry credential: an
+/// `auth` member elsewhere, or one directly in `auths`, says nothing.
+#[test]
+fn an_auth_member_outside_a_registry_entry_stays() {
+    for text in [
+        format!("{{\"auth\":\"{DOCKER_AUTH}\"}}\n"),
+        format!("{{\"settings\":{{\"auth\":\"{DOCKER_AUTH}\"}}}}\n"),
+        format!("{{\"auths\":{{\"auth\":\"{DOCKER_AUTH}\"}}}}\n"),
+        format!("{{\"auths\":[{{\"auth\":\"{DOCKER_AUTH}\"}}]}}\n"),
+    ] {
+        unchanged(&text, "conf/app.json");
+    }
+}
+
+/// Past the in-memory limit a Docker config's credentials are hidden as the
+/// in-memory pass hides them, and a second pass changes nothing.
+#[test]
+fn a_docker_registry_credential_is_hidden_on_the_long_path() {
+    let config = format!(
+        "{{\n  \"auths\": {{\n    \"registry.example.com\": {{\n      \"auth\": \"{DOCKER_AUTH}\"\n    }},\n    \"ghcr.io\": {{ \"registrytoken\": \"{DOCKER_TOKEN}\" }}\n  }}\n}}\n"
+    );
+    let scope = Scope::File("d/config.json");
+    let in_memory = detect_in(&config, scope);
+    let long = redact_within(&config, scope, 1).expect("a credential is hidden");
+    for secret in [DOCKER_AUTH, DOCKER_TOKEN] {
+        assert!(!long.sanitized.contains(secret), "{:?}", long.sanitized);
+    }
+    assert_eq!(long.sanitized, in_memory.sanitized);
+    assert!(redact_within(&long.sanitized, scope, 1).is_none());
+}
+
+/// RV8 (round 6, R5-1): Docker and Podman read `config.json` with Go's
+/// `encoding/json`, which matches member names without regard to case, so
+/// `"Auths"`, `"Auth"`, `"Password"` and `"IdentityToken"` log in as their
+/// lowercase forms do: they are hidden alike, in memory and on the long path.
+#[test]
+fn rv8_registry_credentials_are_hidden_whatever_the_case_of_their_names() {
+    for content in [
+        "{\"Auths\":{\"r.io\":{\"Auth\":\"cm9ib3Q6WnE3eEsybVBsYW50ZWQ5\"}}}\n",
+        "{\"auths\":{\"r.io\":{\"Auth\":\"cm9ib3Q6WnE3eEsybVBsYW50ZWQ5\",\"IdentityToken\":\"Zq7xK2mPlanted9idtok\",\"Password\":\"Zq7xK2mPlanted9pw\"}}}\n",
+        "{\"AUTHS\":{\"r.io\":{\"REGISTRYTOKEN\":\"Zq7xK2mPlanted9regtok\",\"AUTH\":\"cm9ib3Q6WnE3eEsybVBsYW50ZWQ5\"}}}\n",
+        "{\"config\":\"{\\\"Auths\\\":{\\\"r.io\\\":{\\\"Auth\\\":\\\"cm9ib3Q6WnE3eEsybVBsYW50ZWQ5\\\"}}}\"}\n",
+    ] {
+        for scope in [
+            Scope::File("docker/config.json"),
+            Scope::Stored(Some("docker/config.json")),
+        ] {
+            let out = detect_in(content, scope).sanitized;
+            for secret in ["cm9ib3Q6WnE3eEsybVBsYW50ZWQ5", "Zq7xK2mPlanted9"] {
+                assert!(!out.contains(secret), "{scope:?}: {secret} in {out}");
+            }
+        }
+        let long = redact_within(content, Scope::File("docker/config.json"), 1)
+            .expect("a credential is hidden on the long path");
+        for secret in ["cm9ib3Q6WnE3eEsybVBsYW50ZWQ5", "Zq7xK2mPlanted9"] {
+            assert!(!long.sanitized.contains(secret), "{}", long.sanitized);
+        }
+        // A structured result walks the same members; a document held as a
+        // string is its leaf's to scan.
+        let mut value: serde_json::Value = serde_json::from_str(content).expect("JSON");
+        if value.get("config").is_none() {
+            crate::security::sanitizer::sanitize_structure(&mut value).expect("structured");
+            let out = value.to_string();
+            for secret in ["cm9ib3Q6WnE3eEsybVBsYW50ZWQ5", "Zq7xK2mPlanted9"] {
+                assert!(!out.contains(secret), "structured: {secret} in {out}");
+            }
+        }
+    }
+}
+
+/// Round 6: only this tool's exact placeholder (`[REDACTED-NAME]`) is left
+/// alone by a second pass. A value that only opens like one is still a
+/// registry credential, so crafted input cannot hide behind the prefix.
+#[test]
+fn a_registry_credential_that_only_looks_like_a_placeholder_is_hidden() {
+    for value in [
+        "[REDACTED-Zq7xK2mPlanted9",
+        "[REDACTED-X]Zq7xK2mPlanted9",
+        "[REDACTED-Zq7xK2mPlanted9]",
+        "[REDACTED-]Zq7xK2mPlanted9",
+    ] {
+        let text = format!("{{\"auths\":{{\"r.io\":{{\"auth\":\"{value}\"}}}}}}\n");
+        let out = detect(&text, Some("docker/config.json")).sanitized;
+        assert!(!out.contains("Zq7xK2mPlanted9"), "{value}: {out}");
+    }
 }

@@ -72,3 +72,24 @@ fn broadening_never_emits_a_request_with_no_search_target() {
         .is_none()
     );
 }
+
+/// A broader lead another related call already runs is no second lead: the
+/// row's `related` has one writer, which states each call once.
+#[test]
+fn a_broader_lead_a_related_call_already_holds_is_not_added_again() {
+    let row = |keyword: &str| json!({"operation":"search","keywords":[keyword]});
+    let wide = crate::response::result::Continuation::related_input(
+        ToolId::GhSearchRepo,
+        json!({"queries": [row("cache"), row("redis")]}),
+    )
+    .build();
+    let narrow = crate::response::result::Continuation::related_input(
+        ToolId::GhSearchRepo,
+        json!({"queries": [row("redis")]}),
+    )
+    .build();
+    let mut value = json!({"related": [wide.clone()]});
+    set_broadened(&mut value, &json!({}), narrow.clone());
+    set_broadened(&mut value, &json!({}), wide.clone());
+    assert_eq!(value["related"], json!([wide]), "{value}");
+}

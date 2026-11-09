@@ -198,3 +198,27 @@ async fn a_later_page_reads_each_files_kept_declarations() {
         1
     );
 }
+
+/// An `impl X` block names `X` and declares nothing (D3), and each name of
+/// a multi-line `use {…}` group is an import, not only the line that opens
+/// it (D4).
+#[tokio::test(flavor = "current_thread")]
+async fn impl_blocks_are_uses_and_import_group_lines_are_imports() {
+    let root = Fixture::new();
+    let source = "use crate::skipped::{\n    Other,\n    SkippedEntry, WalkErrors,\n};\npub struct Mine;\nimpl Mine {\n    fn f(_: SkippedEntry) {}\n}\n";
+    assert_eq!(
+        roles(
+            &root,
+            "lib.rs",
+            source,
+            &[
+                ("SkippedEntry", 0),
+                ("SkippedEntry", 1),
+                ("Mine", 0),
+                ("Mine", 1)
+            ]
+        )
+        .await,
+        ["import", "reference", "declaration", "reference"]
+    );
+}

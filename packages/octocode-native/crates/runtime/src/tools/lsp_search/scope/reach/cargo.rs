@@ -13,7 +13,7 @@ fn manifest(package: &Path) -> Option<std::sync::Arc<toml::Table>> {
 
 /// The nearest directory above `file` holding a `Cargo.toml` that names a
 /// package (canonical): the package that compiles it.
-pub(super) fn package_of(file: &Path) -> Option<PathBuf> {
+pub(in crate::tools::lsp_search) fn package_of(file: &Path) -> Option<PathBuf> {
     file.ancestors()
         .skip(1)
         .find(|dir| dir.join(MANIFEST).is_file())
@@ -21,7 +21,7 @@ pub(super) fn package_of(file: &Path) -> Option<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-pub(super) fn package_name(package: &Path) -> Option<String> {
+pub(in crate::tools::lsp_search) fn package_name(package: &Path) -> Option<String> {
     Some(
         manifest(package)?
             .get("package")?
@@ -117,31 +117,41 @@ fn same_crate(left: &str, right: &str) -> bool {
 /// defining package can make any registry dependency it, so every package
 /// of that workspace depends on it.
 pub(super) fn depends_on(start: &Path, name: &str, defining: &Path) -> bool {
-    if patched(start, defining) {
-        return true;
-    }
+    patched(start, defining)
+        || local_packages(start).iter().any(|package| {
+            manifest(package).is_some_and(|manifest| {
+                dependencies(&manifest).into_iter().any(|(key, entry)| {
+                    let crate_name = entry
+                        .get("package")
+                        .and_then(toml::Value::as_str)
+                        .unwrap_or(key);
+                    same_crate(crate_name, name)
+                })
+            })
+        })
+}
+
+/// The package at `start` first, then every package it reaches through
+/// local path dependencies, directly or not (canonical manifest
+/// directories): the crates whose sources may define a name it uses.
+pub(in crate::tools::lsp_search) fn local_packages(start: &Path) -> Vec<PathBuf> {
     let mut seen = HashSet::from([start.to_path_buf()]);
-    let mut queue = vec![start.to_path_buf()];
-    while let Some(package) = queue.pop() {
+    let mut found = vec![start.to_path_buf()];
+    let mut next = 0;
+    while let Some(package) = found.get(next).cloned() {
+        next += 1;
         let Some(manifest) = manifest(&package) else {
             continue;
         };
         for (key, entry) in dependencies(&manifest) {
-            let crate_name = entry
-                .get("package")
-                .and_then(toml::Value::as_str)
-                .unwrap_or(key);
-            if same_crate(crate_name, name) {
-                return true;
-            }
             if let Some(dir) = dependency_dir(&package, key, entry)
                 && seen.insert(dir.clone())
             {
-                queue.push(dir);
+                found.push(dir);
             }
         }
     }
-    false
+    found
 }
 
 /// Whether the workspace of `package` patches a dependency to `defining`.

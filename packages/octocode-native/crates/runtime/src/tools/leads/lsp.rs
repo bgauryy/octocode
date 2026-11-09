@@ -1,4 +1,5 @@
 //! The `lspSearch` lead other tools offer for a declaration they found.
+use octocode_contract_types::TestCode;
 use octocode_engine::lsp::config::{
     LspDiscoveryOptions, default_server_for_file, server_command_resolves,
 };
@@ -44,17 +45,58 @@ pub(crate) fn lead_name(row: &Value) -> String {
 }
 
 /// The `lspSearch` query row for the declaration `symbol` at one-based
-/// `line` of `path`. `None` when no language server would start for the
-/// file, so a lead that could only fail is never offered.
+/// `line` of `path`, with the caller's `test_code` (both operations a lead
+/// runs, `callers` and `references`, take it). `None` when no level above
+/// `syntax` would answer for the file ([`level_above_syntax`]): a `syntax`
+/// answer is the tree-sitter facts the producer already shows, so a lead
+/// that could only repeat them, or fail, is never offered.
 #[must_use]
-pub fn verify_query(path: &str, symbol: &str, line: u64, verify: Verify) -> Option<Value> {
-    server_available(path).then(|| {
-        json!({
+pub fn verify_query(
+    path: &str,
+    symbol: &str,
+    line: u64,
+    verify: Verify,
+    test_code: Option<TestCode>,
+) -> Option<Value> {
+    level_above_syntax(path).then(|| {
+        let mut row = json!({
             "path": path,
             "operation": verify.operation(),
             "symbolName": symbol,
             "line": line,
-        })
+        });
+        if let Some(test_code) = test_code {
+            row["testCode"] = json!(test_code);
+        }
+        row
+    })
+}
+
+/// Whether the staged ladder would answer for `path` above `syntax`: an
+/// editor that has the file's folder open (the IDE rung,
+/// [`crate::tools::editor_lock::editor_covers`]), or a discovered server that
+/// would launch ([`server_available`]).
+fn level_above_syntax(path: &str) -> bool {
+    let workspace = workspace_of(path);
+    let discovery = discovery().for_one_request();
+    server_available(path, &workspace, &discovery) || {
+        // The rung takes canonical paths; the lead keeps the producer's.
+        let canonical = std::fs::canonicalize(path).map_or_else(
+            |_| path.to_owned(),
+            |real| real.to_string_lossy().into_owned(),
+        );
+        crate::tools::editor_lock::editor_covers(&discovery, &canonical, &workspace)
+    }
+}
+
+/// The workspace a request for `path` resolves: its project root, else the
+/// file's directory.
+fn workspace_of(path: &str) -> String {
+    resolve_workspace_root_for_file(path.to_owned()).unwrap_or_else(|_| {
+        Path::new(path)
+            .parent()
+            .map(|parent| parent.to_string_lossy().into_owned())
+            .unwrap_or_else(|| ".".into())
     })
 }
 
@@ -63,15 +105,8 @@ pub fn verify_query(path: &str, symbol: &str, line: u64, verify: Verify) -> Opti
 /// proxy's one question is kept while what rustup reads is unchanged
 /// ([`server_command_resolves`]). Installation and removal are observed
 /// immediately.
-fn server_available(path: &str) -> bool {
-    let workspace = resolve_workspace_root_for_file(path.to_owned()).unwrap_or_else(|_| {
-        Path::new(path)
-            .parent()
-            .map(|parent| parent.to_string_lossy().into_owned())
-            .unwrap_or_else(|| ".".into())
-    });
-    let discovery = discovery();
-    default_server_for_file(path, &workspace, &discovery)
+fn server_available(path: &str, workspace: &str, discovery: &LspDiscoveryOptions) -> bool {
+    default_server_for_file(path, workspace, discovery)
         .is_some_and(|config| server_command_resolves(&config))
 }
 
@@ -110,6 +145,11 @@ mod tests {
     use super::*;
     use std::collections::BTreeMap;
 
+    /// [`server_available`] as a lead probes it.
+    fn server_resolves(path: &str) -> bool {
+        server_available(path, &workspace_of(path), &discovery())
+    }
+
     #[cfg(unix)]
     #[test]
     fn each_lead_observes_server_installation_and_removal_immediately() {
@@ -125,17 +165,17 @@ mod tests {
             ..Default::default()
         };
         with_lead_discovery(options, || {
-            assert!(!server_available(file.to_str().expect("path")));
+            assert!(!server_resolves(file.to_str().expect("path")));
             std::fs::write(&command, "#!/bin/sh\nexit 0\n").expect("server");
             std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755))
                 .expect("executable");
             assert!(
-                server_available(file.to_str().expect("path")),
+                server_resolves(file.to_str().expect("path")),
                 "newly installed server is immediately discoverable"
             );
             std::fs::remove_file(&command).expect("remove server");
             assert!(
-                !server_available(file.to_str().expect("path")),
+                !server_resolves(file.to_str().expect("path")),
                 "removed server no longer produces a lead"
             );
         });
@@ -184,10 +224,10 @@ mod tests {
         };
         with_lead_discovery(options, || {
             for _ in 0..3 {
-                assert!(server_available(file.to_str().expect("path")));
+                assert!(server_resolves(file.to_str().expect("path")));
             }
             std::fs::remove_file(&command).expect("removed");
-            assert!(!server_available(file.to_str().expect("path")));
+            assert!(!server_resolves(file.to_str().expect("path")));
         });
         assert!(!ran.exists(), "{:?}", std::fs::read_to_string(&ran));
     }
@@ -215,10 +255,10 @@ mod tests {
             ..Default::default()
         };
         with_lead_discovery(options(vec![clones.clone()]), || {
-            assert_eq!(verify_query(&path, "a", 1, Verify::Callers), None);
+            assert_eq!(verify_query(&path, "a", 1, Verify::Callers, None), None);
         });
         with_lead_discovery(options(Vec::new()), || {
-            assert!(verify_query(&path, "a", 1, Verify::Callers).is_some());
+            assert!(verify_query(&path, "a", 1, Verify::Callers, None).is_some());
         });
     }
 
@@ -248,19 +288,133 @@ mod tests {
         let unknown = dir.path().join("a.unknownext");
         std::fs::write(&unknown, "a\n").expect("file");
         with_lead_discovery(options, || {
-            let callers =
-                verify_query(&path, "a", 1, Verify::for_kind("function")).expect("fixture server");
+            let callers = verify_query(&path, "a", 1, Verify::for_kind("function"), None)
+                .expect("fixture server");
             assert_eq!(
                 callers,
                 serde_json::json!({"path": path, "operation": "callers", "symbolName": "a", "line": 1})
             );
-            let references =
-                verify_query(&path, "A", 3, Verify::for_kind("class")).expect("fixture server");
+            let references = verify_query(&path, "A", 3, Verify::for_kind("class"), None)
+                .expect("fixture server");
             assert_eq!(references["operation"], "references");
             assert_eq!(
-                verify_query(&unknown.to_string_lossy(), "a", 1, Verify::Callers),
+                verify_query(&unknown.to_string_lossy(), "a", 1, Verify::Callers, None),
                 None,
                 "no server for the extension: no lead"
+            );
+        });
+    }
+
+    /// A fixture server for `.fixture` under a fresh home: tests never
+    /// depend on the language servers installed on this machine.
+    #[cfg(unix)]
+    fn fixture_server(home: &Path) -> LspDiscoveryOptions {
+        use std::os::unix::fs::PermissionsExt;
+        let command = home.join("fixture-lsp");
+        std::fs::write(&command, "#!/bin/sh\nexit 0\n").expect("server");
+        std::fs::set_permissions(&command, std::fs::Permissions::from_mode(0o755))
+            .expect("executable");
+        std::fs::write(home.join("lsp-servers.json"), serde_json::json!({"languageServers":{".fixture":{"command":command,"args":[],"languageId":"fixture"}}}).to_string()).expect("config");
+        LspDiscoveryOptions {
+            octocode_home: Some(home.to_path_buf()),
+            ..Default::default()
+        }
+    }
+
+    /// The lead runs with the caller's `testCode`: a search that left tests
+    /// out asks for callers and references outside tests too. A caller that
+    /// set none sends none, so lspSearch's own default applies.
+    #[cfg(unix)]
+    #[test]
+    fn the_lead_keeps_the_callers_test_code() {
+        let dir = tempfile::tempdir().expect("fixture");
+        let options = fixture_server(dir.path());
+        let file = dir.path().join("a.fixture");
+        std::fs::write(&file, "function a() {}\n").expect("file");
+        let path = file.to_string_lossy().into_owned();
+        with_lead_discovery(options, || {
+            for verify in [Verify::Callers, Verify::References] {
+                let row = verify_query(&path, "a", 1, verify, Some(TestCode::Exclude))
+                    .expect("fixture server");
+                assert_eq!(row["testCode"], "exclude", "{row}");
+                assert_eq!(row["operation"], verify.operation(), "{row}");
+                let only = verify_query(&path, "a", 1, verify, Some(TestCode::Only))
+                    .expect("fixture server");
+                assert_eq!(only["testCode"], "only", "{only}");
+                let unset = verify_query(&path, "a", 1, verify, None).expect("fixture server");
+                assert!(unset.get("testCode").is_none(), "{unset}");
+            }
+        });
+    }
+
+    /// A lock file of a live editor (this process) with `folder` open.
+    #[cfg(unix)]
+    fn write_editor_lock(home: &Path, folder: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = home.join("ide");
+        std::fs::create_dir_all(&dir).expect("lock directory");
+        let lock = dir.join(format!("{}.json", std::process::id()));
+        std::fs::write(
+            &lock,
+            serde_json::json!({
+                "version": 1, "pid": std::process::id(), "ide": "Visual Studio Code",
+                "port": 1, "token": "0123456789abcdef", "workspaceFolders": [folder]
+            })
+            .to_string(),
+        )
+        .expect("lock");
+        std::fs::set_permissions(&lock, std::fs::Permissions::from_mode(0o600)).expect("mode");
+    }
+
+    /// No server would start for the file, but an editor that has its folder
+    /// open answers lspSearch at the IDE rung: the lead is offered. An editor
+    /// of another folder, or one over fetched code, offers none.
+    #[cfg(unix)]
+    #[test]
+    fn an_editor_lock_that_covers_the_file_offers_the_lead_without_a_server() {
+        let dir = tempfile::tempdir().expect("fixture");
+        let home = dir.path().join("home");
+        let project = dir.path().join("project");
+        let other = dir.path().join("other");
+        for folder in [&home, &project, &other] {
+            std::fs::create_dir_all(folder).expect("folder");
+        }
+        let file = project.join("a.fixture");
+        std::fs::write(&file, "function a() {}\n").expect("file");
+        // The temporary directory's own spelling, not resolved: a lead's
+        // path is what the producer printed.
+        let path = file.to_string_lossy().into_owned();
+        let options = |fetched_code_roots| LspDiscoveryOptions {
+            octocode_home: Some(home.clone()),
+            fetched_code_roots,
+            ..Default::default()
+        };
+        with_lead_discovery(options(Vec::new()), || {
+            assert_eq!(
+                verify_query(&path, "a", 1, Verify::Callers, None),
+                None,
+                "no server and no editor"
+            );
+            write_editor_lock(&home, &other);
+            assert_eq!(
+                verify_query(&path, "a", 1, Verify::Callers, None),
+                None,
+                "the editor has another folder open"
+            );
+            write_editor_lock(&home, &project);
+            assert_eq!(
+                verify_query(&path, "a", 1, Verify::Callers, Some(TestCode::Exclude)),
+                Some(serde_json::json!({
+                    "path": path, "operation": "callers", "symbolName": "a", "line": 1,
+                    "testCode": "exclude"
+                }))
+            );
+        });
+        with_lead_discovery(options(vec![project.clone()]), || {
+            assert_eq!(
+                verify_query(&path, "a", 1, Verify::Callers, None),
+                None,
+                "fetched code: the IDE rung does not apply"
             );
         });
     }

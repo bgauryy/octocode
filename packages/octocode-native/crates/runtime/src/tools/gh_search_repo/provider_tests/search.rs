@@ -82,16 +82,7 @@ async fn default_archived_search_exclusion_offers_no_lead() {
         "{}",
         second.data
     );
-    assert_eq!(
-        crate::tools::test_support::checks::related_call(
-            &second.data,
-            "ghStructure",
-            |input| input["queries"][0]["operation"] == "tree"
-        )["tool"],
-        "ghStructure",
-        "{}",
-        second.data
-    );
+    assert!(second.data.get("related").is_none(), "{}", second.data);
     let excluded = run(
         &server,
         json!({"keywords":["x"],"operation":"search","filters":{"archive":"exclude"}}),
@@ -325,10 +316,7 @@ async fn search_failures_lead_to_their_repair() {
     // owner, beside the owner's own listing.
     assert_eq!(
         missing.hints,
-        [crate::tools::gh_shared::repository_search_hint(
-            Some("o"),
-            "missing"
-        )]
+        [crate::tools::gh_shared::REPOSITORY_SEARCH_HINT.to_owned()]
     );
     let next = missing.calls.expect("find");
     assert_eq!(
