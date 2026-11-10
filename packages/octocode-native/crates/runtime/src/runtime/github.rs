@@ -210,13 +210,14 @@ impl GitHubServices {
     }
 
     fn request_budget(&self, context: &ExecutionContext) -> RequestBudget {
-        let mut budget = RequestBudget::with_timeout(self.timeout, PROVIDER_BODY_BYTES);
-        if let Some(deadline) = context.deadline {
-            budget.deadline = deadline.min(budget.deadline);
-        }
-        budget.wait_until = crate::execution::cancel::deadline_of(context);
-        budget.cancellation = context.cancellation.clone();
-        budget
+        // The call's own deadline ends the request; the network timeout is
+        // a stall bound on each read, so a response still flowing is never cut.
+        RequestBudget::new(
+            crate::execution::cancel::deadline_of(context),
+            context.cancellation.clone(),
+            PROVIDER_BODY_BYTES,
+        )
+        .with_stall(self.timeout)
     }
 
     /// The identity a saved response is checked against: the call's own

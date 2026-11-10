@@ -95,7 +95,7 @@ Each GitHub request uses the first credential found for its host:
 
 - **Source beats name.** Any process variable beats every `.env` file, and a workspace token beats a home token. Within one source, `GH_TOKEN` beats `GITHUB_TOKEN`.
 - **The token goes only to your configured host.** `GITHUB_API_URL` is home-only, so a repository's `.env` cannot send a token elsewhere.
-- **`.octocoderc` never holds a token.** Logins are never per workspace; for another account in one project, put a token in that project's `.octocode/.env`.
+- **`.octocoderc` never holds a GitHub token.** Logins are never per workspace; for another account in one project, put a token in that project's `.octocode/.env`.
 - **A variable blocks a new login.** `auth login` warns when a token variable is set, because that variable keeps winning until you unset it.
 - **Expired or rejected tokens move on.** A stored token that expires within 5 minutes is refreshed first. If refresh fails, or GitHub rejects a stored or `gh` token, the next source applies.
 - **Changes apply within 60 seconds.** The chosen credential is remembered per host for that long.
@@ -110,7 +110,7 @@ The CLI has 16 tools, `securityCheck` among them, plus `clasify` with a classifi
 |---|---|---|
 | Six GitHub search and read tools, `artifactSearch` | On | GitHub access where the endpoint requires it |
 | `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `lspSearch` | On; `local.enabled: false` hides them | Authorized paths; `lspSearch` answers from an editor bridge or a language server, else from syntax or text ([levels](OCTOCODE_TOOLS.md#lspsearch)) |
-| `graphBuild`, `graphQuery` | `local.beta: true` | Authorized paths |
+| `graphBuild`, `graphQuery` | `local.beta: true`; `local.enabled: false` hides them like the other local tools | Authorized paths; Rust workspace linking runs `cargo metadata` (`OCTOCODE_CARGO`, else `cargo` on `PATH`) |
 | `clasify` | A classification key | A working key |
 | `ghCloneRepo` | `tools.enableClone: true` | Git, repository access, persistent storage |
 | `securityCheck` | `tools.enableSecurityCheck: true`; the CLI always offers it | Sends public package coordinates, an advisory id or a commit hash to OSV, only when you run it ([what each call sends](OCTOCODE_TOOLS.md#securitycheck)) |

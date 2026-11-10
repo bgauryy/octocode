@@ -44,6 +44,8 @@ struct RewriteRunner {
     from: OsString,
     to: OsString,
     seen: Mutex<Vec<String>>,
+    /// Each step's label, timeout and arguments, as git was asked to run it.
+    steps: Mutex<Vec<(String, Duration, Vec<String>)>>,
 }
 
 impl RewriteRunner {
@@ -58,6 +60,7 @@ impl RewriteRunner {
             from: from.into(),
             to: to.into(),
             seen: Mutex::new(vec![]),
+            steps: Mutex::new(vec![]),
         }
     }
 }
@@ -100,6 +103,18 @@ impl RewriteRunner {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .push(format!("{request:?}"));
+        self.steps
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push((
+                request.label.clone(),
+                request.timeout,
+                request
+                    .args
+                    .iter()
+                    .map(|argument| argument.to_string_lossy().into_owned())
+                    .collect(),
+            ));
         let args = request
             .args
             .iter()

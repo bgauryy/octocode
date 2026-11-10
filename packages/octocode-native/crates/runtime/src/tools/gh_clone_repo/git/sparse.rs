@@ -1,5 +1,5 @@
 //! `sparse-checkout set` arguments: cone mode for directories, exact anchored patterns once any path is a file.
-use super::{run, scoped, sparse_timeout};
+use super::{run, scoped, step_timeout};
 use crate::tools::gh_clone_repo::{CloneContext, CloneError};
 use std::ffi::OsString;
 use std::path::Path;
@@ -30,7 +30,7 @@ pub(super) fn sparse_set_args(
     let files = run(
         context,
         ls_tree,
-        sparse_timeout(context),
+        step_timeout(context),
         "resolve sparse path type",
         None,
     )?

@@ -11,19 +11,14 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::time::Duration;
 
-/// A clone or checkout fetch: a few network round trips plus transfer.
-fn clone_timeout(context: &CloneContext<'_>) -> Duration {
-    context.config.network_timeout.saturating_mul(4)
-}
-
-/// One sparse-checkout or fetch step.
-fn sparse_timeout(context: &CloneContext<'_>) -> Duration {
-    context.config.network_timeout
-}
-
-/// A local `rev-parse`/`status` on the checkout.
-fn head_timeout(context: &CloneContext<'_>) -> Duration {
-    context.config.network_timeout / 6
+/// The most one git step may run: until the caller's deadline. No step has
+/// a wall-clock cap of its own, so a transfer that keeps flowing is never
+/// cut; a stalled one is ended by git itself ([`stall_args`]), and
+/// cancellation ends any step at once.
+fn step_timeout(context: &CloneContext<'_>) -> Duration {
+    context
+        .deadline
+        .saturating_duration_since(std::time::Instant::now())
 }
 
 pub(super) fn read_head(
@@ -39,7 +34,7 @@ pub(super) fn read_head(
             "--verify".into(),
             "HEAD^{commit}".into(),
         ],
-        head_timeout(context),
+        step_timeout(context),
         "read checkout HEAD",
         None,
     )?;
@@ -77,7 +72,7 @@ pub(super) fn tree_names(
     let output = run(
         context,
         args,
-        head_timeout(context),
+        step_timeout(context),
         "list checkout tree",
         None,
     )?;
@@ -187,7 +182,7 @@ fn status_is_clean(context: &CloneContext<'_>, directory: &Path) -> Result<bool,
             "--untracked-files=all".into(),
             "--ignored=matching".into(),
         ],
-        head_timeout(context),
+        step_timeout(context),
         "check checkout cleanliness",
         None,
     )?;
@@ -205,7 +200,7 @@ fn no_local_refs(context: &CloneContext<'_>, directory: &Path) -> Result<bool, C
             directory,
             &["for-each-ref", "--contains", "HEAD", "--format=%(refname)"],
         ),
-        head_timeout(context),
+        step_timeout(context),
         "check local checkout refs",
         None,
     )?;
@@ -222,7 +217,7 @@ pub(super) fn symlinks(
     let mut links = Vec::new();
     let request = GitRunRequest {
         args: hardened(scoped(directory, &["ls-files", "--stage", "-z"])),
-        timeout: head_timeout(context),
+        timeout: step_timeout(context),
         label: "list checkout symlinks".into(),
         authorization: None,
         authorization_url: None,
@@ -274,7 +269,7 @@ fn list_tree(
     let mut links = Vec::new();
     let request = GitRunRequest {
         args: hardened(scoped(directory, &["ls-tree", "-r", "-z", rev])),
-        timeout: head_timeout(context),
+        timeout: step_timeout(context),
         label: "list credential-named files".into(),
         authorization: None,
         authorization_url: None,
@@ -354,7 +349,7 @@ pub(super) fn blobs_absent(
     let output = run(
         context,
         args,
-        head_timeout(context),
+        step_timeout(context),
         "check credential blobs are not stored",
         None,
     )?;
@@ -409,7 +404,7 @@ pub(super) fn checkout(
                 run(
                     context,
                     args,
-                    sparse_timeout(context),
+                    step_timeout(context),
                     label,
                     Some(repository_url),
                 )?;
@@ -426,7 +421,7 @@ pub(super) fn checkout(
     run(
         context,
         scoped(stage, &["checkout", "--detach", commit, "--"]),
-        clone_timeout(context),
+        step_timeout(context),
         "check out requested commit",
         Some(repository_url),
     )?;
@@ -462,7 +457,7 @@ fn ensure_store(
     run(
         context,
         scoped(store, &["config", "remote.origin.url", repository_url]),
-        head_timeout(context),
+        step_timeout(context),
         "configure store remote",
         None,
     )?;
@@ -488,7 +483,7 @@ fn init_store(
             "--".into(),
             store.as_os_str().to_owned(),
         ],
-        clone_timeout(context),
+        step_timeout(context),
         "initialize shared store",
         None,
     )?;
@@ -556,7 +551,7 @@ fn ensure_commit(
         run(
             context,
             fetch,
-            clone_timeout(context),
+            step_timeout(context),
             "fetch requested commit",
             Some(repository_url),
         )?;
@@ -605,7 +600,7 @@ fn holds_history(
         let listed = run(
             context,
             scoped(store, &["rev-list", "--no-walk", "--missing=print", commit]),
-            head_timeout(context),
+            step_timeout(context),
             "check commit in store",
             None,
         )?;
@@ -623,7 +618,7 @@ fn holds_history(
             store,
             &["rev-list", "--max-count", &count, "--missing=print", commit],
         ),
-        head_timeout(context),
+        step_timeout(context),
         "check commit in store",
         None,
     )?;
@@ -647,7 +642,7 @@ fn add_worktree(
         &["worktree", "add", "--no-checkout", "--detach", "--"],
     );
     args.extend([stage.as_os_str().to_owned(), OsString::from(commit)]);
-    run(context, args, sparse_timeout(context), "add worktree", None)?;
+    run(context, args, step_timeout(context), "add worktree", None)?;
     Ok(())
 }
 
@@ -661,13 +656,7 @@ pub(super) fn move_worktree(
 ) -> Result<(), CloneError> {
     let mut args = scoped(store, &["worktree", "move"]);
     args.extend([from.as_os_str().to_owned(), to.as_os_str().to_owned()]);
-    run(
-        context,
-        args,
-        sparse_timeout(context),
-        "move worktree",
-        None,
-    )?;
+    run(context, args, step_timeout(context), "move worktree", None)?;
     Ok(())
 }
 
@@ -681,7 +670,7 @@ pub(super) fn store_intact(context: &CloneContext<'_>, store: &Path) -> Result<b
     match run(
         context,
         scoped(store, &["fsck", "--connectivity-only", "--no-dangling"]),
-        clone_timeout(context),
+        step_timeout(context),
         "verify store integrity",
         None,
     ) {
@@ -704,7 +693,7 @@ pub(super) fn reconnect_worktrees(
     run(
         context,
         args,
-        sparse_timeout(context),
+        step_timeout(context),
         "reconnect moved worktrees",
         None,
     )?;
@@ -716,7 +705,7 @@ pub(super) fn prune_worktrees(context: &CloneContext<'_>, store: &Path) -> Resul
     run(
         context,
         scoped(store, &["worktree", "prune"]),
-        head_timeout(context),
+        step_timeout(context),
         "prune removed worktrees",
         None,
     )?;
@@ -743,6 +732,17 @@ fn hardened(args: Vec<OsString>) -> Vec<OsString> {
         .collect()
 }
 
+/// Options that make git end an HTTP transfer which moves less than a byte
+/// per second for `network_timeout`: the stall bound of every network step.
+fn stall_args(network_timeout: Duration) -> Vec<OsString> {
+    vec![
+        "-c".into(),
+        "http.lowSpeedLimit=1".into(),
+        "-c".into(),
+        format!("http.lowSpeedTime={}", network_timeout.as_secs().max(1)).into(),
+    ]
+}
+
 fn run(
     context: &CloneContext<'_>,
     args: Vec<OsString>,
@@ -750,7 +750,10 @@ fn run(
     label: &str,
     authorization_url: Option<&str>,
 ) -> Result<super::GitOutput, CloneError> {
-    let args = hardened(args);
+    let mut args = hardened(args);
+    if authorization_url.is_some() {
+        args.splice(0..0, stall_args(context.config.network_timeout));
+    }
     let authorization = context
         .credential
         .map(octocode_github::ResolvedCredential::expose_secret);

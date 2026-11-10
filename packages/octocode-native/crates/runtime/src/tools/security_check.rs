@@ -75,11 +75,8 @@ pub(crate) async fn execute(
     call: SecurityCall<'_>,
 ) -> Result<Value, ArtifactError> {
     let http = SystemArtifactHttp::shared()?.with_retries(call.max_retries);
-    let budget = RequestBudget::new(
-        call.deadline.min(Instant::now() + call.timeout),
-        call.cancellation,
-        PROVIDER_BODY_BYTES,
-    );
+    let budget = RequestBudget::new(call.deadline, call.cancellation, PROVIDER_BODY_BYTES)
+        .with_stall(call.timeout);
     let reused = ReusedSince::default();
     let net = Net {
         http: &http,

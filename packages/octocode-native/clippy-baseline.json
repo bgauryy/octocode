@@ -144,7 +144,6 @@
       "crates/runtime/src/tools/bounded_process.rs": 1,
       "crates/runtime/src/tools/clasify/sections/store.rs": 1,
       "crates/runtime/src/tools/gh_clone_repo/git/admission.rs": 1,
-      "crates/runtime/src/tools/gh_clone_repo/process.rs": 1,
       "crates/runtime/src/tools/local_search/packed/read.rs": 1,
       "crates/runtime/src/tools/lsp_search/heritage/scan.rs": 1,
       "crates/runtime/src/tools/lsp_search/importers.rs": 1,

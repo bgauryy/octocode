@@ -4,7 +4,7 @@ What Octocode keeps on disk, how long, and which limits are fixed. To change a s
 
 ## Where everything lives
 
-The **Octocode home** is one folder shared by the CLI, the MCP server, the VS Code extension, and installed skills: `~/.octocode` on macOS and Linux, `%USERPROFILE%\.octocode` on Windows. `XDG_CONFIG_HOME` and `APPDATA` are not used. To move it, set `OCTOCODE_HOME=/custom/path` for every product. Use [cache clearing](OCTOCODE_CLI.md#clear-tool-caches) to remove retained work while preserving checkouts. Current clone outputs live in `clones/`; older versions stored them under `tmp/clone/`. Deleting `credentials.json` and `.key` signs you out.
+The **Octocode home** is one folder shared by the CLI, the MCP server, the VS Code extension, and installed skills: `~/.octocode` on macOS and Linux, `%USERPROFILE%\.octocode` on Windows. Its location ignores `XDG_CONFIG_HOME` and `APPDATA` (Octocode reads those only where other tools keep their files: git's global ignore file and editor MCP configs). To move it, set `OCTOCODE_HOME=/custom/path` for every product. Use [cache clearing](OCTOCODE_CLI.md#clear-tool-caches) to remove retained work while preserving checkouts. Current clone outputs live in `clones/`; older versions stored them under `tmp/clone/`. Deleting `credentials.json` and `.key` signs you out.
 
 | Path in the home | Owner | What it holds |
 |---|---|---|
@@ -55,7 +55,8 @@ These are code constants, not settings (one owner: `RuntimeLimits` in `packages/
 
 | Limit | Value |
 |---|---|
-| Network request timeout (GitHub, registries) | 30 s |
+| Network request timeout (GitHub, registries) | 30 s, a stall limit: connect plus the wait for headers, and each body read, may wait at most 30 s for bytes, so a response still flowing is never cut; the call's deadline and a cancel end the request, retries and slot waits |
+| Git clone and fetch transfer (`ghCloneRepo`) | a stall bound, not a wall clock: git ends a transfer that moves under 1 byte/s for the 30 s network timeout (`http.lowSpeedLimit`/`http.lowSpeedTime`), so a transfer still sending data is never cut; the caller's deadline and a cancel end any git step, and no git step has a cap of its own |
 | Classification request time | none of its own: the caller's budget, when it sets one, decides; otherwise only a cancel ends it, since a model's time follows its input and the provider documents no limit |
 | Retries after a failed request | 3 |
 | Automatic response page | 20,000 characters (`responseChars` per call, up to 50,000) |

@@ -36,6 +36,9 @@ pub struct RequestBudget {
     pub wait_until: Instant,
     /// Milliseconds of rate-limit waiting credited so far.
     waited_ms: Arc<AtomicU64>,
+    /// The longest one network read may wait for its next bytes
+    /// ([`Self::wait_stalled`]); `None` for none beyond the deadline.
+    stall: Option<Duration>,
 }
 
 impl RequestBudget {
@@ -46,7 +49,18 @@ impl RequestBudget {
             max_body_bytes,
             wait_until: deadline,
             waited_ms: Arc::default(),
+            stall: None,
         }
+    }
+
+    /// This budget with a stall bound: one network read (connect and headers,
+    /// or the next body chunk) that gets no bytes for `stall` ends the
+    /// request. A transfer that keeps flowing is bounded only by the
+    /// deadline and cancellation.
+    #[must_use]
+    pub fn with_stall(mut self, stall: Duration) -> Self {
+        self.stall = Some(stall);
+        self
     }
 
     pub fn with_timeout(timeout: Duration, max_body_bytes: usize) -> Self {
@@ -80,6 +94,16 @@ impl RequestBudget {
     /// Cancellation first, then the deadline.
     pub fn check(&self) -> Result<(), BudgetStop> {
         check_until(self.effective_deadline(), &self.cancellation)
+    }
+
+    /// [`Self::wait`] for one network read: `future` must also finish within
+    /// the stall bound, which every read starts anew. A stall reports
+    /// [`BudgetStop::Deadline`], as any request timeout does.
+    pub async fn wait_stalled<T>(&self, future: impl Future<Output = T>) -> Result<T, BudgetStop> {
+        let now = Instant::now();
+        let end = self.effective_deadline();
+        let end = self.stall.map_or(end, |stall| end.min(now + stall));
+        wait_until(end, &self.cancellation, future).await
     }
 
     /// `future`'s output, unless the budget is cancelled or its deadline
@@ -311,6 +335,34 @@ mod tests {
             .await
             .expect("unheard");
         assert!(heard.lock().expect("lines").is_empty());
+    }
+
+    /// Each stalled read gets the stall bound anew, so reads that each finish
+    /// within it run past it in total; one that outlasts it ends at the
+    /// stall, far from the deadline.
+    #[tokio::test]
+    async fn a_stalled_wait_ends_at_the_stall_bound_not_the_deadline() {
+        let stall = Duration::from_millis(60);
+        let budget = RequestBudget::with_timeout(Duration::from_secs(30), 0).with_stall(stall);
+        let started = Instant::now();
+        for _ in 0..4 {
+            budget
+                .wait_stalled(tokio::time::sleep(stall / 2))
+                .await
+                .expect("a read inside the stall bound");
+        }
+        assert!(started.elapsed() >= stall);
+        assert_eq!(
+            budget.wait_stalled(std::future::pending::<()>()).await,
+            Err(BudgetStop::Deadline)
+        );
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(budget.check(), Ok(()));
+        let unbounded = RequestBudget::with_timeout(Duration::from_millis(80), 0);
+        assert_eq!(
+            unbounded.wait_stalled(std::future::pending::<()>()).await,
+            Err(BudgetStop::Deadline)
+        );
     }
 
     #[tokio::test]

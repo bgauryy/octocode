@@ -53,6 +53,61 @@ fn only_network_git_steps_carry_the_credential() {
     }
 }
 
+/// A transfer ends when it stalls or the caller's deadline passes, never at
+/// a multiple of the network timeout: every step may run until the caller's
+/// deadline, and each network step makes git itself abort a stalled
+/// transfer after the network timeout.
+#[test]
+fn network_steps_end_on_a_stall_or_the_callers_deadline() {
+    let fixture = Fixture::shared();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let stall = Duration::from_secs(2);
+    let config = CloneConfig::persistent(&home).with_network_timeout(stall);
+    let mut context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    context.deadline = Instant::now() + Duration::from_secs(600);
+    clone_pinned(
+        &fixture,
+        &GhCloneRepoQuery {
+            paths: one("README.md"),
+            ..query()
+        },
+        &context,
+    )
+    .expect("sparse clone");
+    let steps = runner
+        .steps
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    assert!(!steps.is_empty());
+    for (label, timeout, args) in steps.iter() {
+        assert!(
+            *timeout > stall.saturating_mul(4),
+            "{label} is capped at {timeout:?}, below the caller's deadline"
+        );
+        let limited = args
+            .iter()
+            .any(|argument| argument == "http.lowSpeedLimit=1")
+            && args
+                .iter()
+                .any(|argument| argument == &format!("http.lowSpeedTime={}", stall.as_secs()));
+        let network = [
+            "fetch requested commit",
+            "set sparse commit paths",
+            "check out requested commit",
+        ]
+        .contains(&label.as_str());
+        if network {
+            assert!(limited, "{label} has no stall limit: {args:?}");
+        }
+        if label == "initialize shared store" || label == "read checkout HEAD" {
+            assert!(!limited, "{label} is local: {args:?}");
+        }
+    }
+}
+
 #[cfg(unix)]
 struct FlagCancel(AtomicBool);
 

@@ -45,11 +45,8 @@ pub async fn execute(
     call: ArtifactCall<'_>,
 ) -> Result<Value, ArtifactError> {
     let http = SystemArtifactHttp::shared()?.with_retries(call.max_retries);
-    let budget = RequestBudget::new(
-        call.deadline.min(Instant::now() + call.timeout),
-        call.cancellation,
-        PROVIDER_BODY_BYTES,
-    );
+    let budget = RequestBudget::new(call.deadline, call.cancellation, PROVIDER_BODY_BYTES)
+        .with_stall(call.timeout);
     let npm_registry = npm_registry(&query, call.env)?;
     let reused = ReusedSince::default();
     let page = execute_artifact(

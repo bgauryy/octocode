@@ -197,7 +197,7 @@ impl<'a> Attempts<'a> {
         if let Some(body) = &spec.body {
             request = request.json(body);
         }
-        Ok(self.context.budget.wait(request.send()).await?.ok())
+        Ok(self.context.budget.wait_stalled(request.send()).await?.ok())
     }
 
     /// Back off after a transport failure, or fail once attempts run out.

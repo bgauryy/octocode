@@ -107,7 +107,7 @@ pub trait GitRunner: Send + Sync {
         match self.run(
             &GitRunRequest {
                 args: vec![OsString::from("--version")],
-                timeout: Duration::from_secs(5),
+                timeout: control.deadline.saturating_duration_since(Instant::now()),
                 label: "check Git availability".into(),
                 authorization: None,
                 authorization_url: None,

@@ -127,7 +127,11 @@ impl SystemArtifactHttp {
             if let Some((name, value)) = request.validator.as_ref() {
                 builder = builder.header(name, value);
             }
-            let response = match budget.wait(builder.send()).await.map_err(budget_error)? {
+            let response = match budget
+                .wait_stalled(builder.send())
+                .await
+                .map_err(budget_error)?
+            {
                 Ok(response) => response,
                 Err(error) => {
                     if octocode_io::retry::is_retryable_send(&error)
@@ -256,7 +260,7 @@ impl ArtifactHttp for SystemArtifactHttp {
             }
             let mut read = 0usize;
             while let Some(chunk) = budget
-                .wait(response.chunk())
+                .wait_stalled(response.chunk())
                 .await
                 .map_err(budget_error)?
                 .map_err(transport_error)?

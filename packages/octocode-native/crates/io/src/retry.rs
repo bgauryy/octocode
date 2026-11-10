@@ -124,7 +124,7 @@ pub async fn read_bounded(
     let mut body = BytesMut::new();
     let mut stream = response.bytes_stream();
     while let Some(chunk) = budget
-        .wait(stream.next())
+        .wait_stalled(stream.next())
         .await
         .map_err(BodyError::Stopped)?
     {

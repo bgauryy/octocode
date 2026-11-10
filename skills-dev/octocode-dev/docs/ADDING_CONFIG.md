@@ -105,7 +105,7 @@ A `null` input means “unset; use the next source.” A `null` generated defaul
 
 ### Environment binding
 
-Each setting has at most one `env` binding, `{ "name": "OCTOCODE_…" }`, and no aliases. Every variable must be in the contract, or source labeling, protection, docs and the resolver cannot derive it. An invalid environment value is skipped with a warning, and the next source applies.
+Each setting has at most one `env` binding, `{ "name": "OCTOCODE_…" }`, and no aliases. Every Octocode variable must be in the contract, or source labeling, protection, docs and the resolver cannot derive it. Variables other programs own (toolchain homes, `NPM_CONFIG_USERCONFIG`, `GIT_CONFIG_*`, `XDG_CONFIG_HOME`) are not settings and stay out of the contract: Octocode reads them the way their owner does, and `engine/src/process_env.rs` (`PROCESS_ENV`) lists every one the engine reads, so the warm server can key on them. An invalid environment value is skipped with a warning, and the next source applies.
 
 | Optional property | Effect |
 |---|---|
@@ -222,7 +222,7 @@ Declare them in `declaration/environment.ts` with `type`, `displayDefault`, `gro
 Settings are read in native code from the resolved config:
 
 ```rust
-let graphql = config.resolved.github.graphql_enabled;
+let clone_enabled = config.resolved.tools.enable_clone;
 let prewarm = &config.resolved.lsp.prewarm;
 let classification_key = config.env_value("OCTOCODE_CLASSIFICATION_API");
 ```

@@ -1,6 +1,7 @@
 //! Statuses, redirects, pagination links, credentials and routes.
 use super::*;
 
+mod stall;
 mod statuses;
 
 #[tokio::test]
