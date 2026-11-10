@@ -233,8 +233,14 @@ async fn assert_candidate_replay_is_free(runtime: &ToolRuntime, server: &MockSer
         support::row_data(&replay).clone(),
     );
     assert_eq!(replay["selection"]["usage"]["calls"], 0, "{replay}");
+    assert_eq!(replay["selection"]["usage"]["replayed"], true, "{replay}");
+    assert!(
+        first["selection"]["usage"].get("replayed").is_none(),
+        "{first}"
+    );
     for page in [&mut first, &mut replay] {
         for billed in [
+            "replayed",
             "calls",
             "inputTokens",
             "outputTokens",

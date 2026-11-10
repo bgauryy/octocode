@@ -40,10 +40,10 @@ fn authentication_errors_preserve_typed_failure_and_status() {
     };
     for (_tool, result) in [
         (ToolId::GhSearchCode, search_row(error())),
-        (ToolId::GhSearchHistory, history_error(error(), true, None)),
+        (ToolId::GhSearchHistory, history_error(error(), true)),
         (
             ToolId::GhGetHistoryItem,
-            history_error(error(), false, None),
+            history_error(error(), false),
         ),
         (
             ToolId::GhGetFileContent,
@@ -71,8 +71,8 @@ fn legal_block_is_not_rendered_as_a_network_failure() {
     };
     for result in [
         search_row(error()),
-        history_error(error(), true, None),
-        history_error(error(), false, None),
+        history_error(error(), true),
+        history_error(error(), false),
         file_row(error(), json!({"owner":"a","repo":"b","path":"x"})),
         provider_error(error()),
     ] {
@@ -139,8 +139,8 @@ fn permission_errors_keep_the_provider_reason_across_github_tools() {
     };
     for result in [
         search_row(error()),
-        history_error(error(), true, None),
-        history_error(error(), false, None),
+        history_error(error(), true),
+        history_error(error(), false),
         file_row(error(), json!({"owner":"a","repo":"b","path":"src/lib.rs"})),
     ] {
         assert_eq!(result.data["error"], reason);
@@ -172,7 +172,7 @@ fn history_error_shapes_error_as_string() {
         sso_url: None,
     };
 
-    let result = history_error(error, true, None);
+    let result = history_error(error, true);
     let data = &result.data;
 
     assert_eq!(result.status, Some("error"));

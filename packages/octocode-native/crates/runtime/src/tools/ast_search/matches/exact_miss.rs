@@ -572,13 +572,6 @@ fn capitalized(text: &str) -> String {
 /// lead already on the row (a qualified-spelling note's).
 fn place_leads(out: &mut Value, leads: impl IntoIterator<Item = Value>) {
     for lead in leads {
-        let mut index = 0;
-        while out["calls"]
-            .get(crate::id::numbered("broadenSearch", index))
-            .is_some()
-        {
-            index += 1;
-        }
-        out["calls"][crate::id::numbered("broadenSearch", index)] = lead;
+        crate::response::result::place_numbered(out, "broadenSearch", lead);
     }
 }

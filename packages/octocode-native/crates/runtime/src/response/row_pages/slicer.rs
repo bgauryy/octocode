@@ -156,7 +156,9 @@ impl Slicer<'_> {
                 &self.open_evidence,
                 self.window.cancelled,
             )?;
-            if trial[0].1 + pending + extra <= limit {
+            if trial[0].1 + pending + extra <= limit
+                && arena.holds_array(&trial[0].0.kind, &self.pointer)
+            {
                 out.extend(trial);
                 mark_continuations(&self.pointer, at, index, out);
                 self.join_before(arena, at, start..index, pending + extra, out)?;
@@ -190,12 +192,22 @@ impl Slicer<'_> {
             self.mark_enclosing(at, out);
         }
         let last = out.len() - 1;
-        self.open = Open::Tail {
-            at: last,
-            start: index + 1,
-            chars: out[last].1,
-        };
-        self.open_evidence = out[last].0.evidence.clone();
+        if arena.holds_array(&out[last].0.kind, &self.pointer) {
+            self.open = Open::Tail {
+                at: last,
+                start: index + 1,
+                chars: out[last].1,
+            };
+            self.open_evidence = out[last].0.evidence.clone();
+        } else {
+            // The item's last part has no slot for the next items.
+            let context = &arena.splits[self.split].contexts[1];
+            self.open = Open::Chunk {
+                start: index + 1,
+                chars: context.chars,
+            };
+            self.open_evidence = context.evidence.clone();
+        }
         Ok(())
     }
 

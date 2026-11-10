@@ -13,6 +13,6 @@ fn search_row(error: ProviderError) -> DomainResult {
 fn file_row(error: ProviderError, query: Value) -> DomainResult {
     let query: GhGetFileContentQuery = serde_json::from_value(query).expect("file query");
     tool_row(Err(gh_get_file_content::errors::failure(
-        error, &query, None,
+        error, &query, None, None,
     )))
 }

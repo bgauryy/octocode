@@ -1,5 +1,10 @@
 //! What a failed read or listing names in its leads: the commit it resolved, its canonical name, a submodule's repository.
-use super::{CanonicalScope, GhFailure, RenameCheck, RepoPath, canonical_scope, tree_recovery};
+use super::rename::{CanonicalScope, canonical_scope};
+use super::{
+    GhFailure, RenameCheck, RepoPath, missing_path, tree_recovery, with_default_branch,
+    with_ref_recovery, with_search_repair,
+};
+use crate::id::ToolId;
 use octocode_github::{
     GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
 };
@@ -47,6 +52,56 @@ pub(crate) async fn failure_scope(
         canonical,
         error,
     }
+}
+
+/// [`failure_scope`] of a read or listing of `path`: the commit its ref
+/// resolved to is kept only for a failure about the path itself (missing,
+/// a directory, a file, a submodule), the failures whose leads pin it.
+pub(crate) async fn read_failure_scope(
+    provider: &GitHubProvider,
+    owner: &str,
+    repo: &str,
+    path: &str,
+    read_commit: Option<String>,
+    error: ProviderError,
+    context: &RequestContext,
+) -> FailureScope {
+    let about_path = matches!(
+        error.reason,
+        Some(
+            ProviderErrorReason::PathIsDirectory
+                | ProviderErrorReason::PathIsFile
+                | ProviderErrorReason::Submodule
+        )
+    ) || missing_path(&error, Some(path));
+    failure_scope(
+        provider,
+        owner,
+        repo,
+        read_commit.filter(|_| about_path),
+        error,
+        context,
+    )
+    .await
+}
+
+/// The recovery every read or listing of `owner/repo` shares for a failure
+/// that is not about its path: a missing ref lists the refs and names the
+/// default branch, a repository that did not resolve leads to a search for
+/// it, a page past the window to its repair. Any other failure is returned
+/// unchanged.
+pub(crate) async fn with_read_recovery(
+    provider: &GitHubProvider,
+    failure: GhFailure,
+    tool: ToolId,
+    query: &impl serde::Serialize,
+    owner: &str,
+    repo: &str,
+    context: &RequestContext,
+) -> GhFailure {
+    let failure = with_ref_recovery(failure, owner, repo);
+    let failure = with_default_branch(provider, failure, tool, query, context).await;
+    with_search_repair(failure, tool, query, 1, Some(owner), Some(repo))
 }
 
 /// The failure of a request that named a submodule path (a read or a

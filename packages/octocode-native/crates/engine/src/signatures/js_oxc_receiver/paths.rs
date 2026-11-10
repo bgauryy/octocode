@@ -12,6 +12,15 @@ use crate::graph::{GraphDeclaredType, GraphTypeStep};
 use crate::signatures::js_oxc_calls::{dotted_expression_name, unwrap_expr};
 use crate::signatures::js_oxc_shared::property_key_name;
 
+/// The span start of `expression` when it is a function value.
+fn function_start(expression: &Expression) -> Option<u32> {
+    match unwrap_expr(expression) {
+        Expression::ArrowFunctionExpression(arrow) => Some(arrow.span.start),
+        Expression::FunctionExpression(function) => Some(function.span.start),
+        _ => None,
+    }
+}
+
 /// A type name as a declared type without steps.
 fn named(name: String) -> GraphDeclaredType {
     GraphDeclaredType::Named {
@@ -27,22 +36,74 @@ impl ReceiverScopes {
         let (Some(annotation), Some(init)) = (&it.type_annotation, &it.init) else {
             return;
         };
-        let start = match unwrap_expr(init) {
-            Expression::ArrowFunctionExpression(arrow) => arrow.span.start,
-            Expression::FunctionExpression(function) => function.span.start,
-            _ => return,
+        let Some(start) = function_start(init) else {
+            return;
         };
-        self.pending_context = declared_type(&annotation.type_annotation, &[])
+        if let Some(ty) = declared_type(&annotation.type_annotation, &[])
             .filter(|ty| matches!(ty, GraphDeclaredType::Named { .. }))
-            .map(|ty| (start, ty));
+        {
+            self.pending_context.insert(start, ty);
+        }
+    }
+
+    /// `f(<function>, { k: <function> })` with `f` a name no inner scope
+    /// binds: each function takes its parameters' types from the declared
+    /// type of `f`'s parameter at its position, then the property `k`.
+    pub(in crate::signatures) fn annotate_arguments(&mut self, call: &CallExpression) {
+        let Expression::Identifier(callee) = unwrap_expr(&call.callee) else {
+            return;
+        };
+        let name = callee.name.as_str();
+        if self
+            .scopes
+            .iter()
+            .skip(1)
+            .any(|scope| scope.contains_key(name))
+        {
+            return;
+        }
+        let at = |index: usize, key: Option<String>| {
+            let steps =
+                std::iter::once(GraphTypeStep::Parameter(crate::num::saturating_u32(index)))
+                    .chain(key.map(GraphTypeStep::Member))
+                    .collect();
+            GraphDeclaredType::Named {
+                name: name.to_owned(),
+                steps,
+            }
+        };
+        for (index, argument) in call.arguments.iter().enumerate() {
+            let Some(argument) = argument.as_expression() else {
+                continue;
+            };
+            match unwrap_expr(argument) {
+                Expression::ObjectExpression(object) => {
+                    for property in &object.properties {
+                        let ObjectPropertyKind::ObjectProperty(property) = property else {
+                            continue;
+                        };
+                        let key = (!property.computed)
+                            .then(|| property_key_name(&property.key))
+                            .flatten();
+                        if let (Some((key, _)), Some(start)) =
+                            (key, function_start(&property.value))
+                        {
+                            self.pending_context.insert(start, at(index, Some(key)));
+                        }
+                    }
+                }
+                other => {
+                    if let Some(start) = function_start(other) {
+                        self.pending_context.insert(start, at(index, None));
+                    }
+                }
+            }
+        }
     }
 
     /// Enter the parameters of the function starting at `start`.
     pub(in crate::signatures) fn enter_parameters(&mut self, start: u32) {
-        let context = self
-            .pending_context
-            .take_if(|(pending, _)| *pending == start)
-            .map(|(_, ty)| (ty, 0));
+        let context = self.pending_context.remove(&start).map(|ty| (ty, 0));
         self.contexts.push(context);
     }
 
@@ -132,11 +193,22 @@ impl ReceiverScopes {
         (None, self.declared_of(object).filter(has_steps))
     }
 
+    /// `window`, when no scope binds the name: the global `Window` interface
+    /// (spelled `globalThis.Window`: a `Window` the file declares or imports
+    /// is another type), which `declare global` blocks across the repository
+    /// extend.
+    fn global_object(&self, name: &str) -> Option<GraphDeclaredType> {
+        let bound = self.scopes.iter().any(|scope| scope.contains_key(name));
+        (name == "window" && !bound).then(|| named("globalThis.Window".to_owned()))
+    }
+
     /// The declared type of `expression`, as far as names and member steps
     /// spell it.
-    fn declared_of(&self, expression: &Expression) -> Option<GraphDeclaredType> {
+    pub(super) fn declared_of(&self, expression: &Expression) -> Option<GraphDeclaredType> {
         match unwrap_expr(expression) {
-            Expression::Identifier(identifier) => self.lookup_declared(identifier.name.as_str()),
+            Expression::Identifier(identifier) => self
+                .lookup_declared(identifier.name.as_str())
+                .or_else(|| self.global_object(identifier.name.as_str())),
             Expression::NewExpression(construct) => {
                 dotted_expression_name(&construct.callee).map(named)
             }

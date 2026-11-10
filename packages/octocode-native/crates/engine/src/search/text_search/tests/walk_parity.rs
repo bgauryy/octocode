@@ -161,3 +161,59 @@ fn the_search_walks_exactly_what_the_ignore_walker_walks() {
         }
     }
 }
+
+/// An ignore file the search cannot read applies no rules; the search counts
+/// it as an error and names it, whichever way the walk is driven, and a
+/// readable sibling's rules still apply.
+#[cfg(unix)]
+#[test]
+fn an_unreadable_ignore_file_is_an_error_the_result_names() {
+    use std::os::unix::fs::PermissionsExt;
+    for sort in [SearchSort::Traversal, SearchSort::Path] {
+        let repo = TmpDir::new();
+        repo.write(".git/HEAD", "ref: refs/heads/main\n");
+        repo.write(".gitignore", "locked.txt\n");
+        repo.write(".ignore", "listed.txt\n");
+        for file in ["locked.txt", "listed.txt", "kept.txt"] {
+            repo.write(file, "needle\n");
+        }
+        let locked = repo.0.join(".gitignore");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+        if std::fs::read(&locked).is_ok() {
+            // Root reads through the mode: nothing is unreadable here.
+            return;
+        }
+        let mut o = opts(repo.path(), "needle");
+        o.sort = sort;
+        let found = search_cancellable(o, Arc::new(AllowAll), &|| false).expect("search");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o644)).expect("restore");
+        assert_eq!(
+            found.stats.error_count,
+            Some(1),
+            "{sort:?}: {:?}",
+            found.stats
+        );
+        assert!(
+            found
+                .stats
+                .first_error
+                .as_deref()
+                .is_some_and(|error| error.contains(".gitignore")),
+            "{sort:?}: {:?}",
+            found.stats.first_error
+        );
+        let files = found
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>();
+        assert!(
+            files.iter().any(|path| path.ends_with("kept.txt")),
+            "{files:?}"
+        );
+        assert!(
+            !files.iter().any(|path| path.ends_with("listed.txt")),
+            "{files:?}"
+        );
+    }
+}

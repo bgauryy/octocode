@@ -40,6 +40,11 @@ fn a_query_from_another_workspace_names_both_homes() {
         let text = missing.to_string();
         assert!(text.contains(&*searched.to_string_lossy()), "{missing}");
         assert!(text.contains(&*built_home.to_string_lossy()), "{missing}");
+        // The searched home may be a configured one (`local.graphHome`): the
+        // hint names the others as the default home of the workspace that
+        // built them, never as "the snapshot home".
+        assert!(text.contains("default home"), "{missing}");
+        assert!(!text.contains("the snapshot home is"), "{missing}");
     }
 }
 

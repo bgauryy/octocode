@@ -281,7 +281,7 @@ fn a_failed_read_takes_the_shared_provider_hint() {
     let unauthenticated = ProviderError::new(ProviderErrorKind::Authentication, "Bad credentials");
     for error in [saml, unauthenticated] {
         let expected = provider_hint(&error).expect("shared hint");
-        let failure = errors::failure(error, &query, None);
+        let failure = errors::failure(error, &query, None, None);
         assert_eq!(failure.hints, [expected]);
     }
 }

@@ -38,15 +38,11 @@ pub(super) fn read_top_hits(scope: &Scope, row: &Value) -> Option<Value> {
             .unwrap_or(line);
         hits.push((line, end));
     }
-    // No window ends past the file's last line.
-    let last = crate::tools::line_spans::file_lines(&file).map(u64::from);
-    let windows = crate::tools::line_spans::merge_spans(hits.into_iter().map(|(line, end)| {
-        let stop = end + READ_CONTEXT;
-        (
-            line.saturating_sub(READ_CONTEXT).max(1),
-            last.map_or(stop, |last| stop.min(last.max(end))),
-        )
-    }));
+    // A window past the file's last line is clipped by the read itself.
+    let windows = crate::tools::line_spans::merge_spans(
+        hits.into_iter()
+            .map(|(line, end)| (line.saturating_sub(READ_CONTEXT).max(1), end + READ_CONTEXT)),
+    );
     if windows.is_empty() || windows.len() > READ_MAX_RANGES {
         return None;
     }

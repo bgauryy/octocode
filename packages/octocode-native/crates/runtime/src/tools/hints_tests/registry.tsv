@@ -108,7 +108,7 @@ shared	tools/ast_graph/store/ingest.rs	extraction committed so far is kept; buil
 shared	tools/ast_graph/store/query/references.rs	No node in this snapshot has that key or name: run the find lead, or rebuild with graphBuild when the file is newer than the snapshot.
 shared	tools/ast_graph/store/tools.rs	A file changed while the graph was being built, so no snapshot was published. This is not a tool failure: run the same graphBuild again once the edits settle.
 shared	tools/ast_graph/store/tools.rs	Repeat the query with graph {successor}, or omit graph for the newest snapshot of this path. Offsets and pages of {id} do not carry over to a rebuilt snapshot.
-shared	tools/ast_graph/store/tools.rs	Snapshots of this path exist under {others}: the snapshot home is <workspace>/.octocode/graph, and the workspace follows where Octocode runs. Run Octocode from the directory holding that .octocode, or build here.
+shared	tools/ast_graph/store/tools.rs	Snapshots of this path exist under {others}, the default home of the workspace that built them (<workspace>/.octocode/graph; the workspace follows where Octocode runs). Run Octocode from the directory holding that .octocode, or build here.
 shared	tools/ast_graph/store/tools.rs	Use an existing snapshot ID, or run graphBuild for this path and use its returned ID.
 shared	tools/ast_graph/store/tools/skipped.rs	graph source file
 shared	tools/ast_graph/store/tools/skipped.rs	graph source files
@@ -147,6 +147,7 @@ astSearch	tools/ast_search/symbols/left_out.rs	these names
 astSearch	tools/ast_search/symbols/left_out.rs	this name
 astSearch	tools/ast_search/symbols/outline.rs	symbols does not outline {kind} files; the related[] localFetch request outlines this one, or search it with localSearch.
 astSearch	tools/ast_search/symbols/page.rs	0 declarations {named}in {files_scanned} {files}.
+astSearch	tools/ast_search/symbols/page.rs	limit counts top-level declarations: {} shown with {} members.
 astSearch	tools/ast_search/symbols/page.rs	named {} 
 shared	tools/bounded_process/capture.rs	[stderr cut: {error}]
 shared	tools/bounded_process/capture.rs	[stderr truncated at {STDERR_BYTES} bytes]
@@ -183,6 +184,7 @@ ghSearchCode	tools/gh_search_code/empty.rs	keywords hold OR, which code search d
 ghSearchCode	tools/gh_search_code/page_facts.rs	GitHub reported an incomplete search index result; retry, narrow the scope, or verify locally before concluding absence.
 ghSearchCode	tools/gh_search_code/page_facts.rs	{} file(s) on this page are larger than the line-scan read bound ({} bytes: the scan limit, or the request's smaller response budget), so their lines were not resolved (`lineResolved:false`): read them with ghGetFileContent at the commit.
 ghSearchCode	tools/gh_search_code/page_facts.rs	{} file(s) on this page are withheld by the security path policy (a credential file name or a sensitive directory): their rows list the path only, with no lines, and nothing of them was read. No query field lifts it.
+ghSearchCode	tools/gh_search_code/page_facts.rs	{} file(s) on this page failed inside the line scan (a defect, not an unreadable file; please report it): their lines were not resolved (`lineResolved:false`): read them with ghGetFileContent at the commit.
 ghSearchHistory	tools/gh_search_history/shape.rs	No commit touches `{path}` on {at} of GitHub: history covers only what was pushed there, so a file or commit that exists only in your checkout (never pushed, or on an unpushed branch) has none here; read it with local git history, or retry with the ref that holds it. The related[] ghStructure request lists the path's parent to check it exists at that ref.
 ghSearchHistory	tools/gh_search_history/shape.rs	pull request
 ghSearchRepo	tools/gh_search_repo.rs	`{owner}` exists but lists no repositories visible to this token; no filter hid any.
@@ -227,7 +229,7 @@ localFetch	tools/local_fetch/executor.rs	Convert a copy to UTF-8 or split the so
 localFetch	tools/local_fetch/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and next reads on: first the rest of those lines, then the other ranges after them.
 localFetch	tools/local_fetch/large_source/ranges.rs	Lines {start}-{end} need more than one window page: this page ends inside them and their later pages read that range alone.
 localFetch	tools/local_fetch/large_source/ranges.rs	This page ends inside lines {start}-{end}, whose rest no page reads (see the warnings); next reads the other ranges after them.
-localFetch	tools/local_fetch/large_source/window.rs	redactedContent: this source names a Kubernetes Secret, a JSON Web Key or a Docker registry config, and its nesting outgrew the memory budget before the walk that places their values finished, so every value on this page is hidden, secret or not. Split the source to read it.
+localFetch	tools/local_fetch/large_source/window.rs	redactedContent: this source names a Kubernetes Secret, a JSON Web Key or a Docker registry config, and the walk that places their values outgrew the memory budget (nesting too deep, too many values, or a token too long to carry) before it finished, so every value on this page is hidden, secret or not. Split the source to read it.
 localSearch	tools/local_search/coverage.rs	No matches where searched; the withheld entries in skippedPaths may hold it (unproven).
 localSearch	tools/local_search/coverage.rs	Nothing searched: no file under path; check the path, or set includeHidden/includeIgnored when the files are dot or ignored entries.
 localSearch	tools/local_search/coverage.rs	Nothing searched: the target file was skipped ({reasons}). Read it with localFetch.
@@ -238,7 +240,6 @@ localSearch	tools/local_search/executor/scanned.rs	Nothing was shown: {leads}nar
 localSearch	tools/local_search/executor/scanned.rs	run the related[] localSearch call for per-file counts or the structureSearch listing to split the scope, or 
 localSearch	tools/local_search/executor/scanned.rs	run the related[] localSearch call for per-file counts, or 
 localSearch	tools/local_search/executor/scanned.rs	run the related[] structureSearch listing to split the scope, or 
-localSearch	tools/local_search/leads.rs	{total} matches: run the related[] view:"countMatches" request to rank files before paging.
 localSearch	tools/local_search/output.rs	Check read access to the path; a broader search reads the same files.
 localSearch	tools/local_search/output.rs	Correct the regex named in the error. If the intended match is literal text, set regexEngine to literal and keep matchString unchanged.
 localSearch	tools/local_search/probes.rs	Skipped paths ({counts}) hold no {what} either; the check searched them.
@@ -298,6 +299,7 @@ lspSearch	tools/lsp_search/server_coverage.rs	{base}; the projects beside it wer
 lspSearch	tools/lsp_search/session/waits.rs	The language server pool holds about {} MiB, over its {} MiB budget, because servers busy with requests are never stopped; the pool stops them once they are idle.
 lspSearch	tools/lsp_search/session/waits.rs	This call waited {{}} for the {server} language server to load the project; later calls reuse the loaded server without that wait.
 lspSearch	tools/lsp_search/session/waits.rs	This call waited {{}} for the {server} language server to start; later calls reuse the running server without that wait.
+lspSearch	tools/lsp_search/session/waits.rs	This cold call took {{}} in all at the {server} language server: the waits above, plus the server answering once loaded.
 lspSearch	tools/lsp_search/walk/outcome.rs	{out_of_policy} hierarchy items the path policy does not let this tool read were omitted.
 securityCheck	tools/security_check/advisories.rs	GitHub has not reviewed {id}: its database marks it unreviewed.
 securityCheck	tools/security_check/advisories.rs	GitHub's database classes {id} as {other}.

@@ -50,9 +50,10 @@ function validPartition(receipt) {
   return receipt.selectedItems > 0 && receipt.excludedItems > 0 && receipt.unknownItems > 0
     && receipt.selectedItems + receipt.excludedItems + (receipt.relatedItems ?? 0) + receipt.unknownItems === receipt.totalItems;
 }
-// A repeated selection is judged afresh: it selects what the first did and reports new provider spend.
-function freshRepeat(selection, receipt) {
-  return selection.selectedItems === receipt.selectedItems && selection.usage.calls > 0;
+// A repeated selection (same query, source content and judge) replays the first judgment: it selects what the
+// first did, discloses usage.replayed and bills nothing (contract usage.replayed, usage.calls: fresh attempts only).
+function replayedRepeat(selection, receipt) {
+  return selection.selectedItems === receipt.selectedItems && selection.usage.replayed === true && selection.usage.calls === 0;
 }
 function restoredEvidenceMatches(report, tool, expected) {
   const restored = evidence(tool, report.responses.filter(entry => entry.tool === tool).flatMap(entry => rowData(entry.result)));
@@ -85,7 +86,7 @@ async function oneSurface(ctx, tool, { surface, setup, token }) {
     checks.push(['selection.body', expected.length > 0 && same(ordered(selectedEvidence), ordered(expected)), { expected: expected.length, selected: selectedEvidence.length }]);
     checks.push(['selection.recovery', recovery.failures.length === 0 && provider.sent.length === before && same(ordered(recovered), ordered(full)) && new Set(recovered).size === recovered.length, { expected: full.length, recovered: recovered.length }]);
     const repeated = data(await ctx.call(ctx.q({ ...setup.query, classification }), surface));
-    checks.push(['selection.fresh', provider.sent.length > before && freshRepeat(repeated.selection, receipt), repeated.selection]);
+    checks.push(['selection.replay', provider.sent.length === before && replayedRepeat(repeated.selection, receipt), repeated.selection]);
     provider.set(() => ({ status: 401, body: { error: 'fixture refusal' } }));
     const failure = data(await ctx.call(ctx.q({ ...setup.query, classification: { ...classification, predicates: ['A separate selection question.'] } }), surface));
     checks.push(['selection.failClosed', failure?.errorCode === 'classificationProviderError' && evidence(tool, [failure]).length === 0 && failure.next?.unfiltered?.kind === 'continue', failure]);

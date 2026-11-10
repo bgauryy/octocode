@@ -2,6 +2,7 @@
 //! start. Every request proves its digest from the bytes it reads.
 
 use super::Streamed;
+use super::error::ReadError;
 use super::held::{Want, WindowLines};
 use super::proven::{Pass, Proof};
 use crate::execution::cancel::CancellationCheck;
@@ -65,7 +66,7 @@ pub(super) fn stream_pass(
     wants: &[Want],
     scan: &dyn crate::security::scan::ContentScan,
     cancel: &impl CancellationCheck,
-) -> Result<Streaming, String> {
+) -> Result<Streaming, ReadError> {
     seek(source, 0)?;
     // A window from its lines' first byte is held as the pass streams; one at a
     // sealed offset is placed once the pass recorded the redactions before it.
@@ -79,7 +80,7 @@ pub(super) fn stream_pass(
             Ok(0) => break,
             Ok(read) => read,
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(error.to_string()),
+            Err(error) => return Err(error.to_string().into()),
         };
         super::count_read(read);
         let chunk = &buffer[..read];
@@ -111,7 +112,7 @@ pub(super) fn stream(
     source: &std::fs::File,
     wants: &[Want],
     cancel: &impl CancellationCheck,
-) -> Result<Vec<Streamed>, String> {
+) -> Result<Vec<Streamed>, ReadError> {
     Ok(stream_pass(
         source,
         Path::new(""),

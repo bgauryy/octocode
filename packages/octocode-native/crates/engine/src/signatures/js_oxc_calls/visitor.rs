@@ -201,6 +201,7 @@ impl<'a> VisitJs<'a> for CallCollector<'_, '_> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
+        self.receivers.annotate_arguments(it);
         if let Some(name) = callee_name(&it.callee) {
             let receiver = self.receivers.receiver(&it.callee);
             let name = self.receivers.call_alias(&it.callee).unwrap_or(name);

@@ -98,13 +98,45 @@ pub(crate) fn pruned_walk_under(
     extra: impl IntoIterator<Item = String>,
     policy: octocode_engine::types::IgnorePolicy,
 ) -> ignore::WalkBuilder {
+    pruned_walk_keeping(root, defaults, extra, policy, |_| true)
+}
+
+/// [`pruned_walk_under`] that also enters only the entries `keep` admits (a
+/// walk has one entry filter, so the prune and a tool's own rule compose
+/// here): a tool's rule such as "nested packages are their own" never walks
+/// around the prune.
+pub(crate) fn pruned_walk_keeping(
+    root: &std::path::Path,
+    defaults: bool,
+    extra: impl IntoIterator<Item = String>,
+    policy: octocode_engine::types::IgnorePolicy,
+    keep: impl Fn(&ignore::DirEntry) -> bool + Send + Sync + 'static,
+) -> ignore::WalkBuilder {
     let prune = crate::policy::prune::OwnWalk::with_defaults(root, defaults, extra);
     let mut walk = octocode_engine::search::walk::walk_builder(root, policy, None);
     walk.filter_entry(move |entry| {
         !prune.prunes(
             entry.path(),
             entry.file_type().is_some_and(|kind| kind.is_dir()),
-        )
+        ) && keep(entry)
     });
     walk
+}
+
+/// The walk of one Cargo package's own files: [`pruned_walk`] that does not
+/// enter a nested package (a directory under `package` holding its own
+/// `Cargo.toml` is a package of its own).
+pub(crate) fn package_walk(package: &std::path::Path) -> ignore::WalkBuilder {
+    let root = package.to_path_buf();
+    pruned_walk_keeping(
+        package,
+        true,
+        [],
+        octocode_engine::types::IgnorePolicy::default(),
+        move |entry| {
+            entry.path() == root
+                || !entry.file_type().is_some_and(|kind| kind.is_dir())
+                || !entry.path().join("Cargo.toml").is_file()
+        },
+    )
 }

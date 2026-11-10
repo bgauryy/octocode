@@ -14,6 +14,7 @@ use crate::tools::gh_get_history_item::Source;
 use crate::tools::gh_get_history_item::gh_get_history_item_query;
 use crate::tools::gh_get_history_item::sections::Section;
 use octocode_contract_types::GhGetHistoryItemQuery;
+use octocode_engine::num::saturating_u64;
 use octocode_github::{GitHubProvider, ProviderError, RequestContext};
 use serde_json::{Value, json};
 
@@ -131,7 +132,7 @@ pub(super) async fn compare(
             },
         )
     });
-    cursors.commit_page = more.then(|| u64::try_from(page + 1).unwrap_or(u64::MAX));
+    cursors.commit_page = more.then(|| saturating_u64(page + 1));
     // A file answer leaves the range's commits to their own pages: the
     // section states their count with none shown, and its page lists them
     // from the first. An empty file answer is the whole answer.

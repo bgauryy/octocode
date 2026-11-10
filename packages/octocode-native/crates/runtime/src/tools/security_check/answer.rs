@@ -291,9 +291,12 @@ pub(super) fn advisory_lead(row: &Value) -> Value {
         .as_array()
         .map(Vec::as_slice)
         .unwrap_or_default();
+    // OSV and GitHub each carry a record for one id: when both state the
+    // same claim (the same packages, ranges and fixes), the first states it.
+    let mut stated = std::collections::HashSet::new();
     let sentences = records
         .iter()
-        .map(|record| {
+        .filter_map(|record| {
             let mut sentence = stated_id(record["id"].as_str().unwrap_or_default());
             let aliases = stated_ids(&record["aliases"]);
             if !aliases.is_empty() {
@@ -319,6 +322,7 @@ pub(super) fn advisory_lead(row: &Value) -> Value {
                         .collect::<Vec<_>>();
                     let name = typed(entry["packageName"].as_str().unwrap_or_default());
                     (!name.is_empty()).then(|| {
+                        let claim_of = |range: &str| format!("{name} {range}");
                         let versions = entry["versions"].as_array().map_or(0, Vec::len);
                         if !ranges.is_empty() {
                             // OSV lets `versions` add to the ranges, and osv.dev
@@ -326,14 +330,35 @@ pub(super) fn advisory_lead(row: &Value) -> Value {
                             // the count, never that they are extra.
                             let listed = listed_versions(versions)
                                 .map_or_else(String::new, |listed| format!(" ({listed})"));
-                            return format!("{name} {}{listed}", ranges.join(", "));
+                            let claim = claim_of(&ranges.join(", "));
+                            return (format!("{name} {}{listed}", ranges.join(", ")), claim);
                         }
                         if let Some(written) = written_range(entry) {
-                            return format!("{name} {written}");
+                            return (
+                                format!("{name} {}", written.stated()),
+                                claim_of(&written.claim()),
+                            );
                         }
-                        format!("{name} ({})", unranged(entry))
+                        let unranged = format!("{name} ({})", unranged(entry));
+                        (unranged.clone(), unranged)
                     })
                 })
+                .collect::<Vec<_>>();
+            let claim = format!(
+                "{}|{withdrawn:?}|{}",
+                stated_id(record["id"].as_str().unwrap_or_default()),
+                packages
+                    .iter()
+                    .map(|(_, claim)| claim.as_str())
+                    .collect::<Vec<_>>()
+                    .join(";")
+            );
+            if !stated.insert(claim) {
+                return None;
+            }
+            let packages = packages
+                .into_iter()
+                .map(|(shown, _)| shown)
                 .collect::<Vec<_>>();
             match (packages.is_empty(), withdrawn.is_some()) {
                 (true, true) => {
@@ -348,7 +373,7 @@ pub(super) fn advisory_lead(row: &Value) -> Value {
                     sentence.push_str(&format!(" affects {}.", packages.join("; ")));
                 }
             }
-            sentence
+            Some(sentence)
         })
         .collect::<Vec<_>>();
     if sentences.is_empty() {
@@ -379,7 +404,7 @@ fn unranged(entry: &Value) -> String {
 /// version typed, then the first patched version. `None` when the entry has no
 /// such range or a part of it is not a comparator, so no source prose reaches
 /// the answer.
-fn written_range(entry: &Value) -> Option<String> {
+fn written_range(entry: &Value) -> Option<WrittenRange> {
     let specific = &entry["ecosystemSpecific"];
     let range = specific["vulnerable_version_range"].as_str()?;
     let parts = range
@@ -410,7 +435,28 @@ fn written_range(entry: &Value) -> Option<String> {
         (None, Some(listed)) => format!("fixed {}", listed.join(", ")),
         (None, None) => "no fix named".to_owned(),
     };
-    Some(format!("{} as GitHub writes it ({fix})", parts.join(" ")))
+    Some(WrittenRange {
+        range: parts.join(" "),
+        fix,
+    })
+}
+
+/// [`written_range`]'s comparators and fix.
+struct WrittenRange {
+    range: String,
+    fix: String,
+}
+
+impl WrittenRange {
+    /// As the sentence says it, naming whose words the range is.
+    fn stated(&self) -> String {
+        format!("{} as GitHub writes it ({})", self.range, self.fix)
+    }
+
+    /// The claim itself, as an OSV record's intervals state it.
+    fn claim(&self) -> String {
+        format!("{} ({})", self.range, self.fix)
+    }
 }
 
 /// The one wording for an entry's explicit `versions` list, ranged or not;

@@ -3,6 +3,7 @@
 use crate::providers::artifact::http::RegistryClient;
 use crate::providers::artifact::util::{commit_sha, encode_component, parse_url, string};
 use octocode_contract_types::ArtifactType;
+use octocode_engine::num::saturating_u64;
 use serde_json::Value;
 use std::io::Write;
 use std::ops::ControlFlow;
@@ -175,7 +176,7 @@ impl TarScan {
                     let skipped =
                         octocode_engine::num::saturating_usize(remaining).min(self.pending.len());
                     self.pending.drain(..skipped);
-                    let skipped = u64::try_from(skipped).unwrap_or(u64::MAX);
+                    let skipped = saturating_u64(skipped);
                     if skipped < remaining {
                         self.state = TarState::Skip {
                             remaining: remaining - skipped,

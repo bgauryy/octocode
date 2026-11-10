@@ -4,14 +4,14 @@
 //! A pass over every byte says whether the source names one ([`SourceNames`]), and
 //! a walk of it says which bytes are secret. Those spans come after the pass that
 //! holds the windows (`data` comes before `kind`), so each becomes a placeholder
-//! edit ([`placeholder_edits`]) beside the scanner's ([`super::sealed`]): every
-//! window shows the same sealed view. Only when the walk outgrew its budget does a
-//! window hide every value it shows on its own ([`cover_every_value`]).
+//! edit ([`PlaceholderEdits`]) beside the scanner's ([`super::sealed`]): every
+//! window shows the same sealed view. When the walk outgrew its budget, every
+//! value of what the source names is hidden instead (`EveryValueScan`), as edits
+//! of the same one view ([`super::edit_map`]), so a byte page of any line
+//! continues in it.
 use super::stream::seek;
 use crate::execution::cancel::CancellationCheck;
-use octocode_engine::security::{
-    Named, SecretForm, SecretSpan, SecretSpans, SourceWalk, every_value_spans,
-};
+use octocode_engine::security::{Named, SecretSpan, SecretSpans, SourceWalk};
 use std::io::Read;
 
 /// Source bytes the walk takes at once.
@@ -22,8 +22,9 @@ pub(super) enum Judged {
     /// These bytes, in order: all that is secret.
     Exact(Vec<SecretSpan>),
     /// A walk could not keep the source's structure, so no value in it can be told
-    /// from another: every value of what it names is hidden.
-    EveryValue(Named),
+    /// from another: every value of what it names is hidden, and where they are is
+    /// kept as checkpoints ([`super::edit_map`]), never as a list.
+    EveryValue,
 }
 
 impl Judged {
@@ -31,7 +32,7 @@ impl Judged {
     pub(super) fn weight(&self) -> usize {
         match self {
             Self::Exact(spans) => spans.capacity() * std::mem::size_of::<SecretSpan>(),
-            Self::EveryValue(_) => 0,
+            Self::EveryValue => 0,
         }
     }
 }
@@ -69,64 +70,12 @@ pub(super) fn judge(
     }
     Ok(match walk.finish() {
         SecretSpans::Exact(spans) => Judged::Exact(spans),
-        SecretSpans::TooMany => Judged::EveryValue(named),
+        SecretSpans::TooMany => Judged::EveryValue,
     })
 }
 
-/// The mask byte of `form`. No text holds it by chance where it counts: only a
-/// window a mask was written on has its masks turned to placeholders, and such a
-/// source's stray control byte is at worst hidden too.
-const fn mask_byte(form: SecretForm) -> u8 {
-    match form {
-        SecretForm::SecretInJson => 1,
-        SecretForm::JsonWebKey => 2,
-        SecretForm::SecretInYaml => 3,
-        SecretForm::DockerAuths => 4,
-    }
-}
-
-/// `text` with each run of a mask byte turned into its form's placeholder.
-pub(super) fn with_placeholders(text: &str) -> std::borrow::Cow<'_, str> {
-    let form_of = |byte: u8| {
-        [
-            SecretForm::SecretInJson,
-            SecretForm::JsonWebKey,
-            SecretForm::SecretInYaml,
-            SecretForm::DockerAuths,
-        ]
-        .into_iter()
-        .find(|form| mask_byte(*form) == byte)
-    };
-    let bytes = text.as_bytes();
-    let Some(mut masked) = bytes.iter().position(|byte| form_of(*byte).is_some()) else {
-        return text.into();
-    };
-    let mut out = String::with_capacity(text.len());
-    let mut from = 0;
-    loop {
-        out.push_str(&text[from..masked]);
-        let byte = bytes[masked];
-        from = masked + bytes[masked..].iter().take_while(|at| **at == byte).count();
-        if let Some(form) = form_of(byte) {
-            out.push_str(&octocode_engine::security::redaction_placeholder(
-                form.pattern(),
-            ));
-        }
-        match bytes[from..]
-            .iter()
-            .position(|byte| form_of(*byte).is_some())
-        {
-            Some(next) => masked = from + next,
-            None => break,
-        }
-    }
-    out.push_str(&text[from..]);
-    out.into()
-}
-
 /// The placeholders a secret span shows: one per line, from the line's first
-/// byte that is not a blank to its end, as [`cover`] then [`with_placeholders`]
-/// show it. Fed the span's bytes in chunks, it keeps only the current line's
+/// byte that is not a blank to its end. Fed the span's bytes in chunks, it keeps only the current line's
 /// first non-blank offset, so a span of any length is read through a bounded
 /// buffer.
 pub(super) struct PlaceholderEdits {
@@ -134,7 +83,6 @@ pub(super) struct PlaceholderEdits {
     base: usize,
     at: usize,
     first: Option<usize>,
-    edits: Vec<super::sealed::Edit>,
 }
 
 impl PlaceholderEdits {
@@ -144,15 +92,16 @@ impl PlaceholderEdits {
             base: span.range.start,
             at: 0,
             first: None,
-            edits: Vec::new(),
         }
     }
 
-    /// The span's next bytes.
-    pub(super) fn feed(&mut self, chunk: &[u8]) {
+    /// The span's next bytes: the edits of the lines they end go to `out`, which
+    /// the caller holds against the memory budget (a chunk of `n` bytes ends at
+    /// most `n / 2 + 1` lines).
+    pub(super) fn feed(&mut self, chunk: &[u8], out: &mut Vec<super::sealed::Edit>) {
         for &byte in chunk {
             if byte == b'\n' {
-                self.close();
+                self.close(out);
             } else if self.first.is_none() && !matches!(byte, b' ' | b'\t' | b'\r') {
                 self.first = Some(self.at);
             }
@@ -162,48 +111,17 @@ impl PlaceholderEdits {
 
     /// The line ending at `self.at` (its `\n`, or the span's end) is one edit
     /// from its first non-blank byte; a blank line hides nothing.
-    fn close(&mut self) {
+    fn close(&mut self, out: &mut Vec<super::sealed::Edit>) {
         if let Some(first) = self.first.take() {
-            self.edits.push(super::sealed::Edit {
+            out.push(super::sealed::Edit {
                 range: self.base + first..self.base + self.at,
                 text: self.text.clone(),
             });
         }
     }
 
-    /// Every edit, once the whole span was fed.
-    pub(super) fn finish(mut self) -> Vec<super::sealed::Edit> {
-        self.close();
-        self.edits
+    /// The last line's edit (at most one), once the whole span was fed.
+    pub(super) fn finish(mut self, out: &mut Vec<super::sealed::Edit>) {
+        self.close(out);
     }
-}
-
-/// Mask `window[from..to]`, each line from its first byte that is not a blank: a
-/// span's indentation stays, and a span of blanks hides nothing. Whether any mask
-/// was written.
-pub(super) fn cover(window: &mut [u8], from: usize, to: usize, form: SecretForm) -> bool {
-    let mut covered = false;
-    let mut in_blanks = true;
-    for byte in &mut window[from..to] {
-        match *byte {
-            b'\n' => in_blanks = true,
-            b' ' | b'\t' | b'\r' if in_blanks => {}
-            _ => {
-                in_blanks = false;
-                *byte = mask_byte(form);
-                covered = true;
-            }
-        }
-    }
-    covered
-}
-
-/// Mask every value a window of what `named` says can hold: the fallback when a
-/// walk could not keep the source's structure. Whether any was masked.
-pub(super) fn cover_every_value(window: &mut [u8], cut: bool, named: Named) -> bool {
-    let mut covered = false;
-    for span in every_value_spans(window, cut, named) {
-        covered |= cover(window, span.range.start, span.range.end, span.form);
-    }
-    covered
 }

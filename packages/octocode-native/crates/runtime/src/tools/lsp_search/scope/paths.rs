@@ -118,7 +118,7 @@ fn holds_file_of(dir: &Path, include: &[String], stopped: &dyn Fn() -> bool) -> 
     let Ok(globs) = globs.build() else {
         return true;
     };
-    ignore::WalkBuilder::new(dir)
+    crate::tools::pruned_walk(dir, [])
         .build()
         .take_while(|_| !stopped())
         .filter_map(Result::ok)

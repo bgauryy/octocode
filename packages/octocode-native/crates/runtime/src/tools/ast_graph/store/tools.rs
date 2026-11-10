@@ -95,7 +95,7 @@ fn missing_snapshot(message: &str, root: &Path, home: &Path, paths: &PathPolicy)
             .collect::<Vec<_>>()
             .join(", ");
         hints.push(format!(
-            "Snapshots of this path exist under {others}: the snapshot home is <workspace>/.octocode/graph, and the workspace follows where Octocode runs. Run Octocode from the directory holding that .octocode, or build here."
+            "Snapshots of this path exist under {others}, the default home of the workspace that built them (<workspace>/.octocode/graph; the workspace follows where Octocode runs). Run Octocode from the directory holding that .octocode, or build here."
         ));
     }
     crate::response::result::set_hints(&mut out.value, hints);

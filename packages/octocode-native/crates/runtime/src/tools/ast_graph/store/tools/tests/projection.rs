@@ -27,6 +27,10 @@ fn assert_same_evidence(compact: &Value, full: &Value, symbol_file: Option<&Valu
         && compact
             .get("selectionOrigin")
             .is_none_or(|origin| !origin.is_object());
+    // The occurrence id is provenance: only includeProvenance:true returns it.
+    if row.contains_key("sourceDigest") && row.contains_key("from") {
+        row.remove("id");
+    }
     if plain {
         for field in [
             "occurrenceId",
@@ -168,7 +172,13 @@ fn compact_graph_pages_preserve_all_occurrence_ids_and_projection_choice() {
             loop {
                 let page = call(&dir.0, ToolId::GraphQuery, query);
                 for row in page["rows"].as_array().expect("page results") {
-                    assert!(ids.insert(row["id"].as_str().expect("id").to_owned()));
+                    // A default evidence row carries no occurrence id: the row itself tells
+                    // the sites apart.
+                    let key = row
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .map_or_else(|| row.to_string(), str::to_owned);
+                    assert!(ids.insert(key));
                     rows.push(row.clone());
                 }
                 match page.pointer("/next/nextPage/input/queries/0") {

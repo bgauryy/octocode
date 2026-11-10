@@ -8,9 +8,11 @@ use crate::response::outcome::ToolOutcome;
 use crate::response::page_model::ResponsePageOptions;
 use crate::runtime::row_indices::RowOrigin;
 use octocode_contract_types::ErrorCode;
+use octocode_engine::contain::Phase;
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::task::Poll;
 
 impl ToolRuntime {
     pub fn admit(
@@ -70,8 +72,29 @@ impl ToolRuntime {
         input: Value,
         channel: Channel,
     ) -> Result<ToolOutcome, RuntimeError> {
-        self.execute_channel(admission, tool, input, channel == Channel::Mcp)
-            .await
+        // The MCP server answers a request only when this returns: a panic
+        // in the inline admission or shaping code, outside the contained
+        // rows, would leave it unanswered. Each poll runs contained, so the
+        // panic becomes this request's error and names its site.
+        let mut run =
+            std::pin::pin!(self.execute_channel(admission, tool, input, channel == Channel::Mcp));
+        std::future::poll_fn(|cx| {
+            match octocode_engine::contain::catch(Phase::Request, || run.as_mut().poll(cx)) {
+                Ok(poll) => poll.map(Ok),
+                Err(panic) => Poll::Ready(Err(panic)),
+            }
+        })
+        .await
+        .unwrap_or_else(|panic| {
+            let at = panic
+                .site
+                .map(|site| format!(" at {site}"))
+                .unwrap_or_default();
+            Err(RuntimeError::new(
+                ErrorCode::ExecutionFailed,
+                format!("The request panicked{at}; this is a tool defect."),
+            ))
+        })
     }
 
     async fn execute_channel(
@@ -81,6 +104,11 @@ impl ToolRuntime {
         input: Value,
         mcp: bool,
     ) -> Result<ToolOutcome, RuntimeError> {
+        #[cfg(test)]
+        assert!(
+            !panic_tests::INJECTED.get(),
+            "injected panic before the rows run"
+        );
         let (input, repairs) = contracts::normalized_input(&tool, input);
         let id = match self.admit_tool(&tool, mcp) {
             Ok(id) => id,
@@ -247,7 +275,6 @@ impl ToolRuntime {
             lsp_pool: self.lsp_pool.clone(),
             lsp_execution_config: self.lsp_execution_config.clone(),
             lsp_answers: self.lsp_answers.clone(),
-            lsp_requested: self.lsp_requested.clone(),
             graph_rows: self.graph_rows.clone(),
             availability: self.availability.clone(),
             selection_available: self.selection_available,
@@ -279,3 +306,6 @@ impl ToolRuntime {
         )
     }
 }
+
+#[cfg(test)]
+mod panic_tests;

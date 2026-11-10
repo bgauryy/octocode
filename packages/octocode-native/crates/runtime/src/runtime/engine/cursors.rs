@@ -375,6 +375,9 @@ fn handle(
     work: &SavedWork,
 ) -> String {
     use octocode_engine::digest::{Nulls, canonical_json};
+    // `SavedWork` derives `Serialize` over integers, byte arrays and a
+    // `Cursor` of the same, with no map keys or custom impls, so
+    // `to_value` cannot fail and the default never stands in for a work.
     let identity = serde_json::json!([
         "issued-continuation",
         policy,

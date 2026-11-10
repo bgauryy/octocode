@@ -154,9 +154,11 @@ pub(super) fn successor(home: &Path, workspace: &Path, root: &Path, id: &str) ->
         return None;
     }
     let root = root.to_string_lossy();
+    // IDs order by build time: only a later build of the scope replaced `id`.
     list_snapshots(home).into_iter().rev().find(|candidate| {
-        read_manifest(&home.join(candidate))
-            .is_some_and(|manifest| manifest["root"] == root.as_ref())
+        candidate.as_str() > id
+            && read_manifest(&home.join(candidate))
+                .is_some_and(|manifest| manifest["root"] == root.as_ref())
     })
 }
 

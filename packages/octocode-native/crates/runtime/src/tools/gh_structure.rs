@@ -5,7 +5,7 @@ use crate::response::result::ToolData;
 use crate::response::result::query_row;
 use crate::tools::gh_shared::{
     GhFailure, PathRecovery, RepoPath, default_branch, locate_path, missing_path, parent_dir,
-    push_warning_front, search_failure, tree_recovery, with_default_branch, with_ref_recovery,
+    push_warning_front, read_failure_scope, search_failure, tree_recovery, with_read_recovery,
 };
 use octocode_contract_types::{
     GhStructureQuery, GhStructureQueryLanguages, GhStructureQueryRefs, GhStructureQueryTree,
@@ -52,16 +52,16 @@ pub async fn run(
         .flatten();
     let query = renamed.as_ref().map_or(query, |(_, canonical)| canonical);
     let (owner, repo) = repository(query);
-    let failure = with_ref_recovery(search_failure(error), owner, repo);
-    let failure = with_default_branch(provider, failure, ToolId::GhStructure, query, context).await;
-    Err(crate::tools::gh_shared::with_search_repair(
-        failure,
+    Err(with_read_recovery(
+        provider,
+        search_failure(error),
         ToolId::GhStructure,
         query,
-        1,
-        Some(owner),
-        Some(repo),
-    ))
+        owner,
+        repo,
+        context,
+    )
+    .await)
 }
 
 fn repository(query: &GhStructureQuery) -> (&str, &str) {
@@ -113,16 +113,12 @@ async fn run_tree(
     let requested = query.ref_.as_ref().map(|value| value.as_str());
     // A path failure comes after its ref resolved: its leads pin that commit,
     // and name a renamed repository as it is now.
-    let scope = crate::tools::gh_shared::failure_scope(
+    let scope = read_failure_scope(
         provider,
         query.owner.as_str(),
         query.repo.as_str(),
-        read_commit.filter(|_| {
-            matches!(
-                error.reason,
-                Some(ProviderErrorReason::PathIsFile | ProviderErrorReason::Submodule)
-            ) || missing_path(&error, Some(path))
-        }),
+        path,
+        read_commit,
         error,
         context,
     )
@@ -149,18 +145,16 @@ async fn run_tree(
         );
     }
     if !missing_path(&error, Some(at.path)) {
-        // A repository that did not resolve leads to a search for its name.
-        let failure = with_ref_recovery(search_failure(error), at.owner, at.repo);
-        let failure =
-            with_default_branch(provider, failure, ToolId::GhStructure, query, context).await;
-        return Err(crate::tools::gh_shared::with_search_repair(
-            failure,
+        return Err(with_read_recovery(
+            provider,
+            search_failure(error),
             ToolId::GhStructure,
             query,
-            1,
-            Some(at.owner),
-            Some(at.repo),
-        ));
+            at.owner,
+            at.repo,
+            context,
+        )
+        .await);
     }
     let found = locate_path(provider, &at, context).await;
     Err(path_failure(error, &at, query.max_depth, found))
@@ -294,7 +288,6 @@ impl crate::response::output::ToolOutput for Output {
         code: octocode_contract_types::ErrorCode,
         _query: &serde_json::Value,
     ) -> Option<&'static str> {
-        (code == octocode_contract_types::ErrorCode::NotFound)
-            .then_some(crate::response::output::NO_HINT)
+        crate::response::output::not_found_is_the_answer(code)
     }
 }

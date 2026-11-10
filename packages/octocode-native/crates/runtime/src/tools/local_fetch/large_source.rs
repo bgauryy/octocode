@@ -17,6 +17,8 @@
 
 use crate::tools::source_view::local_fetch_query;
 mod edges;
+mod edit_map;
+mod error;
 mod held;
 mod hits;
 mod kept;
@@ -62,6 +64,9 @@ thread_local! {
     static LARGEST_READ: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     /// The walk budget this thread's reads judge at, in place of the process's.
     static WALK_BUDGET: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    /// The memory budget this thread's reads hold their every-value places against.
+    static MEMORY_BUDGET: std::cell::Cell<Option<&'static octocode_io::memo::MemoryBudget>> =
+        const { std::cell::Cell::new(None) };
 }
 
 /// The memory a walk of a source's structure may hold before it falls back to
@@ -72,6 +77,22 @@ fn walk_budget() -> usize {
         return budget;
     }
     octocode_engine::memory::MEMORY.limit()
+}
+
+/// The budget the places of a source's every value are held against: the
+/// process memory budget ([`octocode_engine::memory::MEMORY`]).
+fn memory() -> &'static octocode_io::memo::MemoryBudget {
+    #[cfg(test)]
+    if let Some(budget) = MEMORY_BUDGET.with(std::cell::Cell::get) {
+        return budget;
+    }
+    &octocode_engine::memory::MEMORY
+}
+
+/// Hold this thread's reads to `budget` in place of the process's.
+#[cfg(test)]
+fn set_memory(budget: Option<&'static octocode_io::memo::MemoryBudget>) {
+    MEMORY_BUDGET.with(|cell| cell.set(budget));
 }
 
 /// Judge this thread's reads at walk budget `budget`.

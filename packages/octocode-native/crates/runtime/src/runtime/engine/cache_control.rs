@@ -53,8 +53,8 @@ fn clear_disk(home: &Path, workspace: &Path, graph: &Path) -> std::io::Result<Ve
         .chain(
             ["response", "outline", "artifact", "judgment"].map(|name| home.join("tmp").join(name)),
         )
+        .chain(crate::cache::Directory::retired(home))
         .chain([
-            home.join("cache/provider-answers-v1"),
             crate::tools::gh_structure::materialize::materialize_root(home),
             crate::tools::source_capture::url::capture_root(home),
             graph.join(".facts"),
@@ -106,8 +106,8 @@ mod tests {
                 ["response", "outline", "artifact", "judgment"]
                     .map(|name| home.join("tmp").join(name)),
             )
+            .chain(crate::cache::Directory::retired(&home))
             .chain([
-                home.join("cache/provider-answers-v1"),
                 crate::tools::gh_structure::materialize::materialize_root(&home),
                 crate::tools::source_capture::url::capture_root(&home),
                 workspace.join(".octocode/graph/.facts"),

@@ -6,7 +6,7 @@ const SECRETS: [&str; 2] = [".env", "examples/auth0/.env.local.example"];
 
 /// The fixture origin plus a second commit that adds credential-named files
 /// at the root and nested, each beside an ordinary file.
-fn fixture_with_secrets() -> Fixture {
+pub(super) fn fixture_with_secrets() -> Fixture {
     let fixture = Fixture::new();
     for secret in SECRETS {
         assert!(

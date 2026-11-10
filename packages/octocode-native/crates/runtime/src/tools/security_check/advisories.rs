@@ -217,9 +217,7 @@ pub(super) fn github_notes(advisory: &RepositoryAdvisory) -> Vec<String> {
     let id = super::answer::stated_id(&advisory.ghsa_id);
     match advisory.kind.as_deref() {
         None | Some("reviewed") => Vec::new(),
-        Some("unreviewed") => vec![format!(
-            "GitHub has not reviewed {id}: its database marks it unreviewed."
-        )],
+        Some("unreviewed") => vec![unreviewed_note(&id)],
         Some("malware") => Vec::new(),
         Some(other) if other.chars().all(|c| c.is_ascii_alphabetic()) => {
             vec![format!("GitHub's database classes {id} as {other}.")]
@@ -228,6 +226,11 @@ pub(super) fn github_notes(advisory: &RepositoryAdvisory) -> Vec<String> {
             "GitHub's database classes {id} in a class that is not a plain word."
         )],
     }
+}
+
+/// What GitHub's `unreviewed` class says of a record, by its stated id.
+pub(super) fn unreviewed_note(id: &str) -> String {
+    format!("GitHub has not reviewed {id}: its database marks it unreviewed.")
 }
 
 /// GitHub's own statements beside OSV's shape: each CVSS vector with the

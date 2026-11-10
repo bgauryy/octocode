@@ -208,6 +208,28 @@ fn bounds_value<'a>(
     })
 }
 
+/// A response-level receipt: a `data` member that describes the whole
+/// answer, not its rows, so a page after the first of one answer need not
+/// restate it. Every page keeps what it needs to be cited and continued
+/// alone (locators, every `next` call, and its own `related` leads, which
+/// name that page's rows); a receipt is stated on the first page. The output
+/// schema requires none of them on any tool.
+pub(crate) struct PageOneReceipt {
+    /// The member's name on a result row's `data`.
+    pub(crate) member: &'static str,
+    /// Whether `value` is a receipt and not a disclosure a later page must
+    /// still state.
+    pub(crate) is_receipt: fn(&serde_json::Value) -> bool,
+}
+
+/// The receipt class, one declaration for every tool: a `coverage` block
+/// that reports a complete search (the same fact on every page; a partial
+/// one is a disclosure and rides every page).
+pub(crate) const PAGE_ONE_RECEIPTS: [PageOneReceipt; 1] = [PageOneReceipt {
+    member: "coverage",
+    is_receipt: |coverage| coverage["state"] == "complete",
+}];
+
 /// What a later part of a split row keeps of a member, as core declares it
 /// (`pageContextFields`). Ordered by precedence: a member two declared paths
 /// reach (through a recursive reference) takes the greater.
@@ -217,7 +239,8 @@ pub(crate) enum PageContext {
     /// present.
     Optional,
     /// A required evidence field: delivered once, kept on a later part only
-    /// so the part validates against the output schema
+    /// so the part validates against the published output schema, which an
+    /// MCP client checks `structuredContent` against
     /// ([`PageContextFields::keep_later`] empties it).
     RequiredEvidence,
     /// A required identity, next or disclosure field: repeated whole.
@@ -432,6 +455,39 @@ mod tests {
             later("/data/resources/r/sections/0/context", context),
             json!([])
         );
+    }
+
+    /// A later part keeps every required member, so it validates against the
+    /// published output schema: for every tool and every required-evidence
+    /// pointer, a string the schema leaves unbounded is kept as `""`, and one
+    /// it bounds rides whole and unchanged.
+    #[test]
+    fn a_later_part_keeps_required_free_text_empty_for_every_tool() {
+        let mut emptied = 0;
+        for tool in ToolId::ALL {
+            let contract = crate::contracts::tool_contract(tool).expect("embedded contract");
+            let fields = page_context_fields(tool);
+            for pointer in contract["pageContextFields"]["requiredEvidence"]
+                .as_array()
+                .expect("required evidence list")
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .map(|pointer| pointer.replace('*', "0"))
+            {
+                let text = serde_json::json!("evidence text");
+                let mut later = text.clone();
+                let kept = fields.keep_later(&pointer, &mut later);
+                assert!(kept, "{tool:?} {pointer}: a required member stays");
+                if emptiable_at(tool, &pointer, &text) {
+                    emptied += 1;
+                    assert_eq!(later, "", "{tool:?} {pointer}: free text empties");
+                } else {
+                    assert!(kept, "{tool:?} {pointer}");
+                    assert_eq!(later, text, "{tool:?} {pointer}: whole when bounded");
+                }
+            }
+        }
+        assert!(emptied > 0, "some required free text is declared");
     }
 
     #[test]

@@ -185,11 +185,11 @@ pub async fn execute(
                 // types its "No commit found" as a missing ref).
                 ProviderErrorKind::NotFound
                     if error.reason == Some(ProviderErrorReason::RefNotFound)
-                        && gh_get_history_item_query::operation(query) == ItemOperation::Commit =>
+                        && let gh_get_history_item_query::Subject::Commit(reference) =
+                            gh_get_history_item_query::subject(query) =>
                 {
                     error.message = format!(
-                        "Commit \"{}\" not found in {}/{}",
-                        gh_get_history_item_query::reference(query).unwrap_or_default(),
+                        "Commit \"{reference}\" not found in {}/{}",
                         gh_get_history_item_query::owner(query),
                         gh_get_history_item_query::repo(query)
                     )
@@ -326,23 +326,17 @@ fn not_found_message(
             "Repository {owner}/{repo} not found, or private and not accessible to this token"
         );
     }
-    let item = match gh_get_history_item_query::operation(query) {
-        ItemOperation::PullRequest => format!(
-            "Pull request #{} not found in {owner}/{repo}",
-            gh_get_history_item_query::number(query).unwrap_or_default()
-        ),
-        ItemOperation::Issue => format!(
-            "Issue #{} not found in {owner}/{repo}",
-            gh_get_history_item_query::number(query).unwrap_or_default()
-        ),
-        ItemOperation::Commit => format!(
-            "Commit \"{}\" not found in {owner}/{repo}",
-            gh_get_history_item_query::reference(query).unwrap_or_default()
-        ),
-        ItemOperation::Compare => format!(
-            "Cannot compare {}...{} in {owner}/{repo}: a ref (branch, tag, or SHA) was not found",
-            gh_get_history_item_query::base(query).unwrap_or_default(),
-            gh_get_history_item_query::head(query).unwrap_or_default()
+    use gh_get_history_item_query::Subject;
+    let item = match gh_get_history_item_query::subject(query) {
+        Subject::PullRequest(number) => {
+            format!("Pull request #{number} not found in {owner}/{repo}")
+        }
+        Subject::Issue(number) => format!("Issue #{number} not found in {owner}/{repo}"),
+        Subject::Commit(reference) => {
+            format!("Commit \"{reference}\" not found in {owner}/{repo}")
+        }
+        Subject::Compare { base, head } => format!(
+            "Cannot compare {base}...{head} in {owner}/{repo}: a ref (branch, tag, or SHA) was not found"
         ),
     };
     if repository_proved {

@@ -18,7 +18,16 @@ pub(super) fn reuse_checkout(
     let context = plan.context;
     // Only a linked worktree of the shared store is reusable: any other
     // checkout is replaced when clean, as a differing one is.
-    if !clone_dir.is_dir() || !storage::is_store_worktree(&context.config.home, clone_dir) {
+    if !clone_dir.is_dir() {
+        return Ok(None);
+    }
+    // A home that moved leaves the checkout pointing into the old one.
+    let key = plan.store_key(reference);
+    if storage::moved_store(&key, clone_dir).is_some() {
+        let _store_lock = storage::CloneLock::acquire(&key.anchor(), context)?;
+        reconnect_moved(context, &key, clone_dir)?;
+    }
+    if !storage::is_store_worktree(&context.config.home, clone_dir) {
         return Ok(None);
     }
     // The checks read one checkout and none depends on another: they run
@@ -76,10 +85,13 @@ pub(super) fn fresh_clone(
     }
     let key = plan.store_key(reference);
     let _store_lock = storage::CloneLock::acquire(&key.anchor(), context)?;
+    // Before the store prunes the registrations whose directories are gone:
+    // a checkout of a moved home would read as gone.
+    reconnect_moved(context, &key, clone_dir)?;
     let stage = storage::stage_dir(&context.config.home, clone_dir)?;
     let published =
-        checkout_stage(plan, reference, &key, &stage).and_then(|(store, commit_sha, withheld)| {
-            let checkout = publish_stage(plan, &store, &stage, &commit_sha, withheld, clone_dir)?;
+        checkout_stage(plan, reference, &key, &stage).and_then(|(store, commit_sha, staged)| {
+            let checkout = publish_stage(plan, &store, &stage, &commit_sha, staged, clone_dir)?;
             retire_old_stores(context, &key, &store);
             Ok(checkout)
         });
@@ -99,15 +111,15 @@ fn publish_stage(
     store: &Path,
     stage: &Path,
     commit_sha: &str,
-    withheld: Vec<String>,
+    staged: git::Staged,
     clone_dir: &Path,
 ) -> Result<Checkout, CloneError> {
     let context = plan.context;
     let checkout = Checkout {
         commit_sha: commit_sha.to_owned(),
         size: storage::checked_out_size(stage),
-        symlinks: git::symlinks(context, stage)?,
-        withheld,
+        symlinks: git::present_symlinks(stage, staged.links),
+        withheld: staged.withheld,
     };
     // The lock serializes only Octocode: a user can create or edit the
     // destination while the stage is fetched, so recheck before replacing.
@@ -115,13 +127,62 @@ fn publish_stage(
         return Err(dirty_checkout(clone_dir));
     }
     storage::record_completion(stage)?;
-    storage::promote(stage, clone_dir, || {
-        // The destination it replaced, now moved aside, may have been a
-        // worktree of this store: git refuses to move onto a registered one.
-        git::prune_worktrees(context, store)?;
-        git::move_worktree(context, store, stage, clone_dir)
-    })?;
+    // The destination it replaces, when a linked worktree, moves aside and
+    // back through git, which keeps its registration: the prune before the
+    // placement drops only registrations of directories that are gone (a
+    // checkout the user replaced by another), never the moved-aside one, so a
+    // failed placement restores a worktree git still knows.
+    // [`retire_old_stores`] prunes the registration of the removed one.
+    let previous_store = storage::worktree_store(&context.config.home, clone_dir);
+    storage::promote(
+        stage,
+        clone_dir,
+        |from, to| match &previous_store {
+            Some(previous) => git::move_worktree(context, previous, from, to),
+            None => storage::rename_dir(from, to),
+        },
+        || {
+            // Only a registration besides the stage's can be one of a
+            // directory that is gone.
+            if storage::registered_worktrees(store) > 1 {
+                git::prune_worktrees(context, store)?;
+            }
+            git::move_worktree(context, store, stage, clone_dir)
+        },
+    )?;
     Ok(checkout)
+}
+
+/// Reconnect the checkouts beside `clone_dir` (those of one repository) whose
+/// `.git` pointer names one of `key`'s stores by a path of an earlier home,
+/// with the store lock of `key` held.
+fn reconnect_moved(
+    context: &CloneContext<'_>,
+    key: &storage::StoreKey,
+    clone_dir: &Path,
+) -> Result<(), CloneError> {
+    let Some(repository) = clone_dir.parent() else {
+        return Ok(());
+    };
+    let mut by_store = Vec::<(PathBuf, Vec<PathBuf>)>::new();
+    for checkout in std::fs::read_dir(repository)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+    {
+        let Some(store) = storage::moved_store(key, &checkout) else {
+            continue;
+        };
+        match by_store.iter_mut().find(|(known, _)| *known == store) {
+            Some((_, checkouts)) => checkouts.push(checkout),
+            None => by_store.push((store, vec![checkout])),
+        }
+    }
+    for (store, checkouts) in &by_store {
+        git::reconnect_worktrees(context, store, checkouts)?;
+    }
+    Ok(())
 }
 
 /// Check out the commit `reference` into `stage` and verify it: every
@@ -132,7 +193,7 @@ fn checkout_stage(
     reference: &str,
     key: &storage::StoreKey,
     stage: &Path,
-) -> Result<(PathBuf, String, Vec<String>), CloneError> {
+) -> Result<(PathBuf, String, git::Staged), CloneError> {
     let context = plan.context;
     let sparse_paths = plan.sparse.as_ref().map(Sparse::paths);
     let materialize = |store: &Path| {
@@ -148,9 +209,20 @@ fn checkout_stage(
     };
     // A store that already holds a blob this checkout withholds is never
     // cleaned in place: worktrees may still use it. A new generation is.
+    // The same goes for one git reports damaged: a failed step is told
+    // from a failure of the network or the credential by git's own check of
+    // the store ([`git::store_intact`]), never by the failure's text.
     let mut store = key.current();
-    let withheld = match materialize(&store)? {
-        Some(withheld) => withheld,
+    let first = match materialize(&store) {
+        Err(error)
+            if error.code == ErrorCode::GitFailed && !git::store_intact(context, &store)? =>
+        {
+            None
+        }
+        other => other?,
+    };
+    let staged = match first {
+        Some(staged) => staged,
         None => {
             store = key.next_dir();
             materialize(&store)?.ok_or_else(|| {
@@ -164,21 +236,25 @@ fn checkout_stage(
     if let Some(paths) = sparse_paths {
         let missing = paths
             .iter()
-            .filter(|path| !checked_out(stage, path) && !is_withheld(&withheld, path))
+            .filter(|path| !checked_out(stage, path) && !is_withheld(&staged.withheld, path))
             .map(String::as_str)
             .collect::<Vec<_>>();
         if !missing.is_empty() {
             return Err(sparse_not_found(plan, reference, &missing, stage));
         }
     }
-    let commit_sha = git::read_head(context, stage)?;
+    // `checkout --detach` leaves the commit id in the worktree's HEAD file.
+    let commit_sha = match storage::detached_head(stage) {
+        Some(commit) => commit,
+        None => git::read_head(context, stage)?,
+    };
     if commit_sha != reference.to_ascii_lowercase() {
         return Err(CloneError::new(
             ErrorCode::CommitMismatch,
             format!("Checkout HEAD {commit_sha} does not match requested commit {reference}."),
         ));
     }
-    Ok((store, commit_sha, withheld))
+    Ok((store, commit_sha, staged))
 }
 
 /// Remove the older generations of the store `key` once no worktree uses
@@ -195,8 +271,9 @@ fn retire_old_stores(context: &CloneContext<'_>, key: &storage::StoreKey, curren
             && storage::has_no_worktrees(&store)
         {
             storage::remove_dir(&store);
-        } else if store == current {
-            // Registrations of the removed stages.
+        } else if store == current && storage::registered_worktrees(&store) > 1 {
+            // Registrations of the removed stages: the one live checkout
+            // is the only registration of a store with no stale ones.
             let _ = git::prune_worktrees(context, &store);
         }
     }

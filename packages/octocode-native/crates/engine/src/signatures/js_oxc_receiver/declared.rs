@@ -7,7 +7,7 @@
 
 use oxc_ast::ast::*;
 
-use super::super::js_oxc_calls::ts_type_name;
+use super::super::js_oxc_calls::{ts_type_name, unwrap_expr};
 use crate::graph::{GraphDeclaredType, GraphPosition, GraphTypeMember, GraphTypeStep};
 use crate::signatures::js_oxc_shared::{SpanPositions, property_key_name};
 
@@ -16,6 +16,9 @@ pub(super) fn declared_type(ty: &TSType, generics: &[&str]) -> Option<GraphDecla
     match ty {
         TSType::TSTypeReference(reference) => {
             let name = ts_type_name(&reference.type_name)?;
+            if name == "InstanceType" {
+                return instance_type(reference);
+            }
             let head = name.split('.').next().unwrap_or(&name);
             (!generics.contains(&head)).then_some(GraphDeclaredType::Named {
                 name,
@@ -58,6 +61,20 @@ pub(super) fn declared_type(ty: &TSType, generics: &[&str]) -> Option<GraphDecla
     }
 }
 
+/// `InstanceType<typeof C>`: the instance type of the class `C` names, which
+/// is the type `C` declares. Any other argument writes no declared type.
+fn instance_type(reference: &TSTypeReference) -> Option<GraphDeclaredType> {
+    let arguments = reference.type_arguments.as_deref()?;
+    let [TSType::TSTypeQuery(query)] = arguments.params.as_slice() else {
+        return None;
+    };
+    let name = query.expr_name.as_ts_type_name()?;
+    Some(GraphDeclaredType::Named {
+        name: ts_type_name(name)?,
+        steps: Vec::new(),
+    })
+}
+
 /// `ty` followed one more step; only a named type has steps.
 pub(super) fn stepped(ty: GraphDeclaredType, step: GraphTypeStep) -> Option<GraphDeclaredType> {
     match ty {
@@ -66,6 +83,43 @@ pub(super) fn stepped(ty: GraphDeclaredType, step: GraphTypeStep) -> Option<Grap
             Some(GraphDeclaredType::Named { name, steps })
         }
         _ => None,
+    }
+}
+
+/// The declared type of a function's parameters. A parameter written as a
+/// type parameter takes that type parameter's constraint (`<T extends A>(a: T)`
+/// types `a` as `A`, as tsserver reads a contextually typed argument); one
+/// without a constraint is untyped.
+fn function_type(
+    parameters: &FormalParameters,
+    type_parameters: Option<&TSTypeParameterDeclaration>,
+) -> GraphDeclaredType {
+    let generics = with_parameters(&[], type_parameters);
+    let constraint = |ty: &TSType| -> Option<&TSType> {
+        let TSType::TSTypeReference(reference) = ty else {
+            return None;
+        };
+        let TSTypeName::IdentifierReference(name) = &reference.type_name else {
+            return None;
+        };
+        type_parameters?
+            .params
+            .iter()
+            .find(|parameter| parameter.name.name == name.name)
+            .map(|parameter| parameter.constraint.as_ref())?
+    };
+    GraphDeclaredType::Function {
+        parameters: parameters
+            .items
+            .iter()
+            .map(|parameter| {
+                let annotation = &parameter.type_annotation.as_deref()?.type_annotation;
+                match constraint(annotation) {
+                    Some(bound) => declared_type(bound, &generics),
+                    None => declared_type(annotation, &generics),
+                }
+            })
+            .collect(),
     }
 }
 
@@ -169,26 +223,116 @@ pub(in crate::signatures) struct DeclaredAt {
     pub(in crate::signatures) name_start: GraphPosition,
     pub(in crate::signatures) kind: &'static str,
     pub(in crate::signatures) ty: GraphDeclaredType,
+    /// Declared in the global scope: inside `declare global { .. }`, or in a
+    /// file that is a script (no `import` or `export`). A global interface
+    /// merges with every other of its name, in any file.
+    pub(in crate::signatures) global: bool,
 }
 
 /// The declared types of the module's top-level classes, interfaces and
-/// type aliases, exported or not.
+/// type aliases, exported or not, and those of its `declare global` blocks.
 pub(in crate::signatures) fn declared_types(
     program: &Program,
     li: &SpanPositions,
 ) -> Vec<DeclaredAt> {
+    let script = !program.body.iter().any(|statement| {
+        matches!(
+            statement,
+            Statement::ImportDeclaration(_)
+                | Statement::ExportDeclaration(_)
+                | Statement::ExportDefaultDeclaration(_)
+        ) || is_commonjs(statement)
+    });
     let mut out = Vec::new();
+    collect_declared(&program.body, script, li, &mut out);
+    out
+}
+
+/// A top-level statement only a CommonJS module writes: a `require(..)`
+/// call, or an assignment to `module.exports` or `exports.k`. Such a file is
+/// a module, so its declarations are not global.
+fn is_commonjs(statement: &Statement) -> bool {
+    fn requires(expression: &Expression) -> bool {
+        match unwrap_expr(expression) {
+            Expression::CallExpression(call) => {
+                matches!(
+                    unwrap_expr(&call.callee),
+                    Expression::Identifier(callee) if callee.name == "require"
+                ) || requires(&call.callee)
+            }
+            Expression::StaticMemberExpression(member) => requires(&member.object),
+            _ => false,
+        }
+    }
+    fn exports(target: &AssignmentTarget) -> bool {
+        let AssignmentTarget::StaticMemberExpression(member) = target else {
+            return false;
+        };
+        match &member.object {
+            Expression::Identifier(object) => {
+                object.name == "exports"
+                    || (object.name == "module" && member.property.name == "exports")
+            }
+            Expression::StaticMemberExpression(inner) => {
+                matches!(&inner.object, Expression::Identifier(module) if module.name == "module")
+                    && inner.property.name == "exports"
+            }
+            _ => false,
+        }
+    }
+    match statement {
+        Statement::VariableDeclaration(variables) => variables
+            .declarations
+            .iter()
+            .any(|declarator| declarator.init.as_ref().is_some_and(requires)),
+        Statement::ExpressionStatement(statement) => match unwrap_expr(&statement.expression) {
+            Expression::AssignmentExpression(assignment) => {
+                exports(&assignment.left) || requires(&assignment.right)
+            }
+            other => requires(other),
+        },
+        _ => false,
+    }
+}
+
+fn collect_declared(
+    statements: &[Statement],
+    global: bool,
+    li: &SpanPositions,
+    out: &mut Vec<DeclaredAt>,
+) {
     let mut push = |name: &BindingIdentifier, kind, ty: Option<GraphDeclaredType>| {
         if let Some(ty) = ty {
             out.push(DeclaredAt {
                 name_start: li.position(name.span.start),
                 kind,
                 ty,
+                global,
             });
         }
     };
-    for statement in &program.body {
+    let mut blocks = Vec::new();
+    // An overloaded function's implementation signature is not one its
+    // callers see: no declared type for a name that also has a bare signature.
+    let overloaded: Vec<&str> = statements
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::ExportDeclaration(export) => Some(&export.declaration),
+            other => other.as_declaration(),
+        })
+        .filter_map(|declaration| match declaration {
+            Declaration::FunctionDeclaration(function) if function.body.is_none() => {
+                function.id.as_ref().map(|id| id.name.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    for statement in statements {
         let declaration = match statement {
+            Statement::TSGlobalDeclaration(block) => {
+                blocks.push(block);
+                continue;
+            }
             Statement::ExportDeclaration(export) => Some(&export.declaration),
             Statement::ExportDefaultDeclaration(export) => {
                 if let ExportDefaultDeclarationKind::ClassDeclaration(class) = &export.declaration
@@ -204,6 +348,44 @@ pub(in crate::signatures) fn declared_types(
             Some(Declaration::ClassDeclaration(class)) => {
                 if let Some(id) = &class.id {
                     push(id, "class", Some(class_type(class)));
+                }
+            }
+            Some(Declaration::FunctionDeclaration(function)) => {
+                if let Some(id) = &function.id
+                    && function.body.is_some()
+                    && !overloaded.contains(&id.name.as_str())
+                {
+                    push(
+                        id,
+                        "function",
+                        Some(function_type(
+                            &function.params,
+                            function.type_parameters.as_deref(),
+                        )),
+                    );
+                }
+            }
+            Some(Declaration::VariableDeclaration(variables))
+                if variables.kind == VariableDeclarationKind::Const =>
+            {
+                for declarator in &variables.declarations {
+                    let (BindingPattern::BindingIdentifier(id), None, Some(init)) = (
+                        &declarator.id,
+                        &declarator.type_annotation,
+                        &declarator.init,
+                    ) else {
+                        continue;
+                    };
+                    let ty = match unwrap_expr(init) {
+                        Expression::ArrowFunctionExpression(arrow) => {
+                            function_type(&arrow.params, arrow.type_parameters.as_deref())
+                        }
+                        Expression::FunctionExpression(function) => {
+                            function_type(&function.params, function.type_parameters.as_deref())
+                        }
+                        _ => continue,
+                    };
+                    push(id, "function", Some(ty));
                 }
             }
             Some(Declaration::TSInterfaceDeclaration(interface)) => {
@@ -225,5 +407,7 @@ pub(in crate::signatures) fn declared_types(
             _ => {}
         }
     }
-    out
+    for block in blocks {
+        collect_declared(&block.body.body, true, li, out);
+    }
 }

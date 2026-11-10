@@ -6,6 +6,34 @@
 
 use super::SecretPattern;
 
+/// The credential words that END the name of an XML element or of a
+/// key/value pair's key (`<dbPassword>`, `key="client-secret"`). A bare `key`
+/// is none: a plist's `<key>` names its entries.
+macro_rules! xml_credential_words {
+    () => {
+        "secret|password|passwd|passphrase|token|credential|api[_-]?key|private[_-]?key|access[_-]?key|auth[_-]?key"
+    };
+}
+
+/// A SQL password literal, its capture groups named `secret…$suffix`: quoted
+/// (`'…'`, `N'…'`, `"…"`, a doubled quote or a backslash escape inside is the
+/// literal's own character) or dollar-quoted (`$$…$$`, `$tag$…$tag$`).
+macro_rules! sql_literal {
+    ($suffix:literal) => {
+        concat!(
+            r###"N?'(?P<secret"###,
+            $suffix,
+            r###">(?:''|\\.|[^'\\\r\n])+)'|N?"(?P<secret_dq"###,
+            $suffix,
+            r###">(?:""|\\.|[^"\\\r\n])+)"|\$\$(?P<secret_dollar"###,
+            $suffix,
+            r###">(?:[^$\r\n]|\$[^$\r\n])+)\$\$|\$[A-Za-z_]\w*\$(?P<secret_tag"###,
+            $suffix,
+            r###">[^$\r\n]+)\$[A-Za-z_]\w*\$"###
+        )
+    };
+}
+
 pub(super) const PATTERNS: &[SecretPattern] = &[
     SecretPattern {
         name: "jwtSecrets",
@@ -55,6 +83,75 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         // code literal) is the value's own character, not its end.
         file_context: None,
         regex: r###"(?im)(?:^|[;='"\s])[A-Za-z][A-Za-z0-9 _]{0,30}=[^;=\r\n'"]*;[ \t]*(?:[A-Za-z][A-Za-z0-9 _]{0,30}=[^;=\r\n'"]*;[ \t]*)*?(?:password|pwd)[ \t]*=[ \t]*(?P<secret>(?:\\[^\r\n]|[^;'"\r\n])+)|(?:^|[;='"\s])(?:password|pwd)[ \t]*=[ \t]*(?P<secret_first>(?:\\[^\r\n]|[^;'"\r\n])+);[ \t]*[A-Za-z][A-Za-z0-9 _]{0,30}="###,
+    },
+    SecretPattern {
+        name: "sqlUserPassword",
+        // The password clause of the statement that creates or alters a
+        // database user, role or login (`CREATE USER u IDENTIFIED [WITH
+        // plugin] BY 'x'`, `ALTER ROLE r PASSWORD 'x'`, `CREATE LOGIN l WITH
+        // PASSWORD = 'x'`). The statement's own shape marks the clause, so
+        // `password "Enter your password here"` elsewhere is no match. A quoted
+        // token (`'u'@'%'`) may sit between the statement's words and the
+        // clause, and a `;` ends the statement. The value is a quoted literal
+        // (`'…'`, `N'…'`, `"…"`: a doubled quote or a backslash escape is the
+        // literal's own character), a dollar-quoted one (`$$…$$`, `$tag$…$tag$`),
+        // or the argument of MySQL's `PASSWORD('…')` or the hash after
+        // `IDENTIFIED BY PASSWORD`/`VALUES`. Only `IDENTIFIED BY` also takes
+        // an unquoted word (Oracle's `IDENTIFIED BY pw`): after `PASSWORD` a
+        // bare word is a keyword (`NULL`, `EXPIRE`), and a bind (`:pw`, `?`,
+        // `&pw`, `@pw`) starts with no letter.
+        file_context: None,
+        regex: concat!(
+            r###"(?i)\b(?:create|alter)\s+(?:user|role|login)\b(?:[^;'"]|'[^'\r\n]*'|"[^"\r\n]*")*?\b(?:"###,
+            r###"identified\s+(?:with\s+\w+\s+)?by\b\s*(?:password\b\s*)?\(?\s*(?:values\s+)?(?:"###,
+            sql_literal!(""),
+            r###"|(?P<secret_bare>[A-Za-z][^\s;,'"()]*)(?:[\s;,]|$))"###,
+            r###"|(?:old_)?password\b\s*=?\s*(?:password\b\s*)?\(?\s*(?:"###,
+            sql_literal!("_clause"),
+            r###"))"###
+        ),
+    },
+    SecretPattern {
+        name: "xmlCredentialElement",
+        // The text of an element named for a credential (a Maven
+        // `settings.xml` `<password>`, `<client-secret>`, `<apiToken kind="x">`),
+        // in any markup file, on its line or the lines after the opening tag,
+        // or as a CDATA section. The credential word ends the element's name,
+        // so `<passwordMinLength>`, `<secretName>` and `<tokenType>` are
+        // settings and labels, and a bare `<key>` (a plist's) is none. A
+        // self-closing tag has no text and a `{…}` text is a JSX expression;
+        // an empty element holds nothing, and the value test keeps a
+        // placeholder.
+        file_context: None,
+        regex: concat!(
+            r###"(?i)<(?:[A-Za-z_:][\w.:-]*?)?(?:"###,
+            xml_credential_words!(),
+            r###")s?(?:\s(?:[^<>/]|/[^>])*)?>\s*(?:<!\[CDATA\[\s*(?P<secret>[^\]\s][^\]\r\n]*?)\s*\]\]>|(?P<secret_text>[^<\s{][^<\r\n]*?)\s*<\/)"###
+        ),
+    },
+    SecretPattern {
+        name: "xmlCredentialAttribute",
+        // The value of a key/value element whose key names a credential
+        // (`<add key="password" value="x"/>`, `<add name="DbPassword"
+        // value="x"/>`, `<entry key="password">x</entry>`), the pairs a .NET
+        // config, a Java XML properties file and a Maven plugin hold. The key
+        // attribute's value must END in the credential word, as an element's
+        // name does, and stays singular (Checkstyle's `<property name="tokens"
+        // value="EQUAL"/>` names a kind of syntax token). The value may come before the key, and a self-closing
+        // tag has no text.
+        file_context: None,
+        regex: concat!(
+            r###"(?i)<[A-Za-z_:][\w.:-]*\s(?:[^<>]*?\s)?(?:key|name|setting|property|param)\s*=\s*(?:"[^"<>\r\n]*?(?:"###,
+            xml_credential_words!(),
+            r###")"|'[^'<>\r\n]*?(?:"###,
+            xml_credential_words!(),
+            r###")')(?:(?:[^<>/]|/[^>])*?\bvalue\s*=\s*(?:"(?P<secret>[^"\r\n]+)"|'(?P<secret_sq>[^'\r\n]+)')|(?:[^<>/]|/[^>])*>\s*(?P<secret_text>[^<\s{][^<\r\n]*?)\s*<\/)"###,
+            r###"|<[A-Za-z_:][\w.:-]*\s(?:[^<>]*?\s)?value\s*=\s*(?:"(?P<secret_rev>[^"\r\n]+)"|'(?P<secret_rev_sq>[^'\r\n]+)')(?:[^<>/]|/[^>])*?\s(?:key|name|setting|property|param)\s*=\s*(?:"[^"<>\r\n]*?(?:"###,
+            xml_credential_words!(),
+            r###")"|'[^'<>\r\n]*?(?:"###,
+            xml_credential_words!(),
+            r###")')"###
+        ),
     },
     SecretPattern {
         name: "base64PemPrivateKey",

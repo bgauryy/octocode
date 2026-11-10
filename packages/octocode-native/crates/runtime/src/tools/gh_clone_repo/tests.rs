@@ -31,6 +31,7 @@ mod reuse;
 mod rows;
 mod sparse;
 mod store_access;
+mod store_recovery;
 mod withheld;
 
 fn api_github_endpoint() -> GitHubEndpoint {
@@ -62,6 +63,38 @@ impl RewriteRunner {
 }
 
 impl RewriteRunner {
+    /// `init_store` writes the origin URL into the store's config file, out
+    /// of the rewrite's reach: before the first fetch, point it at the
+    /// fixture remote like every argument that names the URL.
+    fn point_store_at_fixture(&self, request: &GitRunRequest<'_>) {
+        if request.label != "fetch requested commit" {
+            return;
+        }
+        let Some(store) = request
+            .args
+            .iter()
+            .position(|argument| argument == "-C")
+            .and_then(|at| request.args.get(at + 1))
+        else {
+            return;
+        };
+        let path = Path::new(store).join("config");
+        let config = std::fs::read_to_string(&path).expect("store config");
+        let from = self.from.to_string_lossy();
+        let to = self.to.to_string_lossy();
+        let rewritten = config
+            .lines()
+            .map(|line| match line.trim().strip_prefix("url = ") {
+                Some(url) if url.trim_matches('"').eq_ignore_ascii_case(&from) => {
+                    format!("\turl = \"{to}\"")
+                }
+                _ => line.to_owned(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(path, rewritten + "\n").expect("store config");
+    }
+
     fn rewrite<'a>(&self, request: &GitRunRequest<'a>) -> GitRunRequest<'a> {
         self.seen
             .lock()
@@ -102,6 +135,7 @@ impl GitRunner for RewriteRunner {
         request: &GitRunRequest<'_>,
         control: &GitRunControl<'_>,
     ) -> Result<GitOutput, CloneError> {
+        self.point_store_at_fixture(request);
         self.system.run(&self.rewrite(request), control)
     }
 

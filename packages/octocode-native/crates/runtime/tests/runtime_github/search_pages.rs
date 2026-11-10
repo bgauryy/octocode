@@ -325,3 +325,62 @@ async fn a_first_page_reads_a_whole_page_already_held() {
     );
     runtime.close().await;
 }
+
+/// A code search walked at a tiny `responseChars`: the first page states the
+/// complete `coverage` receipt, no later page of the answer repeats it, every
+/// file arrives exactly once. A path-only search emits no `related` leads, so
+/// a page keeping its own leads is covered by the unit walk in
+/// `response/page_receipts/tests.rs`.
+#[tokio::test]
+async fn a_tiny_window_walk_states_the_complete_coverage_on_page_one_only() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(SearchIndex((0..RESULTS).map(code_hit).collect()))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&support::github_api(&server));
+    let mut query = json!({"queries":[{
+        "owner":"o","repo":"r","keywords":["x"],"limit":7,"fields":["path"],
+        "responseChars":400
+    }]});
+    let mut pages = Vec::new();
+    loop {
+        let outcome = runtime
+            .run("walk".into(), "ghSearchCode".into(), query.clone())
+            .await
+            .unwrap_or_else(|error| panic!("{query}: {error:?}"));
+        let output = outcome.structured_content.into_value();
+        let next = output["responsePagination"]["next"]["input"]
+            .as_object()
+            .or_else(|| output["results"][0]["data"]["next"]["nextPage"]["input"].as_object())
+            .cloned();
+        pages.push(output);
+        match next {
+            Some(input) => query = Value::Object(input),
+            None => break,
+        }
+    }
+    assert!(pages.len() > 2, "the window splits the answer");
+    let paths = pages
+        .iter()
+        .flat_map(|page| data_rows(page, "files", "path"))
+        .collect::<Vec<_>>();
+    let expected = (0..RESULTS)
+        .map(|n| json!(format!("src/f{n:03}.rs")).to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(paths, expected, "every file exactly once");
+    let state = |page: &Value| page["results"][0]["data"]["coverage"]["state"].clone();
+    assert_eq!(state(&pages[0]), "complete", "{}", pages[0]);
+    let mut later = 0;
+    for page in &pages {
+        let data = &page["results"][0]["data"];
+        if data["pagination"]["page"].as_u64().is_some_and(|n| n > 1) {
+            later += 1;
+            assert!(data.get("coverage").is_none(), "later page: {page}");
+        }
+    }
+    assert!(later > 0, "the walk reaches a later answer page");
+    runtime.close().await;
+}

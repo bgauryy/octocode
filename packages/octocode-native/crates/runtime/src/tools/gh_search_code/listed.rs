@@ -1,4 +1,5 @@
 //! What a ghSearchCode walk carries between pages in the continuation's private `listed` field.
+use octocode_engine::num::{saturating_u64, saturating_usize};
 use std::collections::HashSet;
 
 /// The walk state of an issued continuation (the private `listed` field):
@@ -59,12 +60,8 @@ impl Listed {
             .chunks(16)
             .filter_map(|chunk| u64::from_str_radix(std::str::from_utf8(chunk).ok()?, 16).ok())
             .collect::<Vec<_>>();
-        let totals = (searches > 1 && numbers.len() >= searches).then(|| {
-            numbers
-                .drain(..searches)
-                .map(|total| usize::try_from(total).unwrap_or(usize::MAX))
-                .collect()
-        });
+        let totals = (searches > 1 && numbers.len() >= searches)
+            .then(|| numbers.drain(..searches).map(saturating_usize).collect());
         let at = numbers.iter().position(|&key| key == PART);
         let shown = match at {
             Some(at) => numbers.split_off(at).into_iter().skip(1).collect(),
@@ -153,7 +150,7 @@ impl Listed {
         self.totals
             .iter()
             .flatten()
-            .map(|&total| format!("{:016x}", u64::try_from(total).unwrap_or(u64::MAX)))
+            .map(|&total| format!("{:016x}", saturating_u64(total)))
             .collect()
     }
 }

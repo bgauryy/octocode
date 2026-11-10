@@ -186,6 +186,19 @@ pub(crate) fn validate_sealed(
     validate_output(tool, &publish_for_assertion(tool, output))
 }
 
+/// Asserts that a row part (`data` with its `rowPart`), as published, meets
+/// the output schema exactly as an MCP client checks `structuredContent`:
+/// a later part is held to the same schema as the first.
+pub(crate) fn assert_part_contract(tool: ToolId, part: &Value) {
+    let mut output = published(tool, &part["data"]);
+    if let Some(row_part) = part.get("rowPart") {
+        output["results"][0]["rowPart"] = row_part.clone();
+    }
+    if let Err(error) = validate_output(tool.as_str(), &output) {
+        panic!("{tool:?}: {error}\n{part}");
+    }
+}
+
 pub(crate) fn published(tool: ToolId, row: &Value) -> Value {
     let shaped = crate::response::rows::result_row(0, row.clone(), row["status"].as_str());
     let mut output = serde_json::json!({"results":[shaped]});

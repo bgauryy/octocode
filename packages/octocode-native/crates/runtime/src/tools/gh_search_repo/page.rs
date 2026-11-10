@@ -2,8 +2,11 @@
 use super::owner_listing::OwnerListing;
 use crate::id::ToolId;
 use crate::response::paging::push_warnings;
-use crate::tools::gh_shared::{SearchCompleteness, SearchWindow, apply_partial};
+use crate::tools::gh_shared::{
+    SearchCompleteness, SearchWindow, apply_partial, push_warning_front,
+};
 use octocode_contract_types::GhSearchRepoQuery;
+use octocode_engine::num::saturating_u64;
 use octocode_github::RepositorySearchPage;
 use serde_json::{Value, json};
 
@@ -21,6 +24,8 @@ pub(super) struct RepoPage {
     /// run past 1,000).
     pub(super) reachable: usize,
     pub(super) incomplete: bool,
+    /// Organizations GitHub withheld from the answer (SAML enforcement).
+    sso_partial: Vec<u64>,
     /// An owner listing's REST pages read by this call.
     pub(super) provider_pages: Option<usize>,
     /// Rows an owner listing's archive filter left out ([`OwnerListing`]).
@@ -48,6 +53,7 @@ impl RepoPage {
                 matched: 0,
                 reachable: reach.total,
                 incomplete: data.incomplete_results,
+                sso_partial: data.sso_partial_organizations.clone(),
                 provider_pages: Some(listing.pages_read),
                 archive_filtered: listing.filtered_out,
                 past_end: empty && listing.filtered_out == 0,
@@ -60,6 +66,7 @@ impl RepoPage {
                 matched: data.total_count,
                 reachable: reach.total,
                 incomplete: data.incomplete_results,
+                sso_partial: data.sso_partial_organizations.clone(),
                 provider_pages: None,
                 archive_filtered: 0,
                 past_end: empty && reach.past_last(current),
@@ -110,6 +117,7 @@ impl RepoPage {
                 subject: "repository",
             },
         );
+        state_cap_once(value);
         if self.archive_filtered > 0 {
             use octocode_contract_types::GitHubArchive;
             let archive = super::access::archive(query);
@@ -130,7 +138,7 @@ impl RepoPage {
                 [format!(
                     "filters.archive \"{mode}\" left out {} (a filter, not a gap)",
                     crate::response::pages::counted(
-                        u64::try_from(self.archive_filtered).unwrap_or(u64::MAX),
+                        saturating_u64(self.archive_filtered),
                         one,
                         many
                     )
@@ -138,5 +146,32 @@ impl RepoPage {
             );
         }
         push_warnings(value, ignored);
+        if let Some(warning) = octocode_github::sso_partial_warning(&self.sso_partial) {
+            push_warning_front(value, warning);
+        }
+    }
+}
+
+/// The provider's result cap, stated once. [`apply_partial`] writes it as a
+/// warning (the only statement carrying the full match count), a
+/// `partialReasons` entry and its glossary mark; the warning stays, beside
+/// the `isPartial` and `totalItemsCapped` facts. The reason name would only
+/// restate it.
+fn state_cap_once(value: &mut Value) {
+    const CAP: &str = "providerResultCap";
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    for key in ["partialReasons", "statedReasons"] {
+        let emptied = object
+            .get_mut(key)
+            .and_then(Value::as_array_mut)
+            .is_some_and(|reasons| {
+                reasons.retain(|reason| reason != CAP);
+                reasons.is_empty()
+            });
+        if emptied {
+            object.remove(key);
+        }
     }
 }

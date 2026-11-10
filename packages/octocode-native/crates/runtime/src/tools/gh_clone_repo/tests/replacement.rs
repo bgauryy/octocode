@@ -285,7 +285,7 @@ fn checkout_appearing_at_the_destination_while_fetching_is_preserved() {
             control: &GitRunControl<'_>,
         ) -> Result<GitOutput, CloneError> {
             let output = self.inner.run(request, control)?;
-            if request.label == "read checkout HEAD"
+            if request.label == "check out requested commit"
                 && request
                     .args
                     .iter()

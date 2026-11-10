@@ -18,7 +18,7 @@ fn ids(page: &Value) -> Vec<String> {
         .as_array()
         .expect("results")
         .iter()
-        .map(|row| row["id"].as_str().expect("id").to_owned())
+        .map(ToString::to_string)
         .collect()
 }
 
@@ -58,7 +58,7 @@ fn unresolved_reasons_filter_before_paging_and_count_the_kept_rows() {
     let expected = rows
         .iter()
         .filter(|row| row["reason"] == wanted)
-        .map(|row| row["id"].as_str().expect("id").to_owned())
+        .map(ToString::to_string)
         .collect::<Vec<_>>();
     let (kept, total) = all_pages(
         &dir.0,
@@ -66,9 +66,7 @@ fn unresolved_reasons_filter_before_paging_and_count_the_kept_rows() {
     );
     assert_eq!(total, expected.len() as u64);
     assert_eq!(
-        kept.iter()
-            .map(|row| row["id"].as_str().expect("id").to_owned())
-            .collect::<Vec<_>>(),
+        kept.iter().map(ToString::to_string).collect::<Vec<_>>(),
         expected,
         "the filter keeps snapshot order across pages"
     );
@@ -116,10 +114,7 @@ fn evidence_pages_take_several_sources_and_return_rows_from_any() {
         );
         assert_eq!(total, both["pagination"]["totalItems"].as_u64().unwrap());
         assert_eq!(
-            paged
-                .iter()
-                .map(|row| row["id"].as_str().unwrap().to_owned())
-                .collect::<Vec<_>>(),
+            paged.iter().map(ToString::to_string).collect::<Vec<_>>(),
             ids(&both)
         );
     }

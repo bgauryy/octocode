@@ -102,13 +102,7 @@ pub(super) fn fetch_ranges(
             let upto = (read + run).min(wants.len());
             match source.windows(&wants[read..upto], cancel) {
                 Ok(windows) => held.extend(windows),
-                Err(error) => {
-                    return LocalFetchResult::error(
-                        local_fetch_query::path(q).to_owned(),
-                        ErrorCode::FileReadFailed,
-                        error,
-                    );
-                }
+                Err(error) => return super::window::read_failed(q, error),
             }
             (read, run) = (upto, run * 2);
         }

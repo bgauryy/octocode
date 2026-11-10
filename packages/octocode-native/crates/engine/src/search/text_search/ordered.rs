@@ -9,6 +9,7 @@ use super::state::{CollectResult, CollectState, Held};
 use super::window::{Clock, Earlier, Pause, Resume, Searched};
 use crate::digest::{ListedFiles, stamp_of};
 use crate::error::Result;
+use crate::num::{saturating_u32, saturating_usize};
 use crate::stamp::SourceStamp;
 use crate::types::{TextSearchOptions, TextSearchResult};
 use grep_matcher::Matcher;
@@ -131,7 +132,7 @@ impl Run {
             return None;
         }
         Some(Pause {
-            position: u32::try_from(commit.next).unwrap_or(u32::MAX),
+            position: saturating_u32(commit.next),
             pin: commit.listed.hex(),
             searched: Searched(std::mem::take(&mut commit.done)),
         })
@@ -202,6 +203,7 @@ pub(super) fn collect_ordered<M: Matcher + Sync>(
     } else {
         walk_builder.build_parallel().run(|| Box::new(&keep));
     }
+    scope.record_unreadable_ignore_files();
     let mut files = found
         .into_inner()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -214,7 +216,7 @@ pub(super) fn collect_ordered<M: Matcher + Sync>(
         let mut commit = run.lock();
         commit.total = Some(files.len());
         if let Some(Resume { position, earlier }) = resume {
-            let floor = usize::try_from(position).unwrap_or(usize::MAX);
+            let floor = saturating_usize(position);
             commit.floor = floor.min(files.len());
             // What the earlier windows kept serves while the candidates
             // they passed are the same files, unchanged.

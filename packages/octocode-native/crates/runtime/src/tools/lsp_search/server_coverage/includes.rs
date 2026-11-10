@@ -174,6 +174,34 @@ pub(in super::super) fn include_declaring(
     None
 }
 
+/// Whether a source file of the Cargo package `anchor` belongs to declares
+/// `name`: a name the package itself declares is not one a build script
+/// generates. `false` when the package is unknown or `stopped` ended the look
+/// (no evidence that it declares the name).
+pub(in super::super) fn package_declares(
+    anchor: &str,
+    name: &str,
+    stopped: &dyn Fn() -> bool,
+) -> bool {
+    let Some(package) = super::super::scope::package_of(Path::new(anchor)) else {
+        return false;
+    };
+    let walker = crate::tools::package_walk(&package).build();
+    for entry in walker.flatten() {
+        if stopped() {
+            return false;
+        }
+        let path = entry.path();
+        if entry.file_type().is_some_and(|kind| kind.is_file())
+            && path.extension().is_some_and(|ext| ext == "rs")
+            && declares(path, name)
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// Whether the Rust source at `file` declares `name` (a read or parse that
 /// fails declares nothing).
 fn declares(file: &Path, name: &str) -> bool {

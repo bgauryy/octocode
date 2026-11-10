@@ -133,17 +133,11 @@ impl<W: Write> Writer<W> {
         Some(())
     }
 
-    /// A page entry's facts: row total and rank range, later lines and
-    /// the count past them, then each neighbouring window's four lines.
+    /// A page entry's facts: row total and rank range, then each neighbouring window's four lines.
     pub(super) fn facts(&mut self, facts: &EntryFacts) -> Option<()> {
         for value in [facts.total, facts.start, facts.end] {
             self.number(u64::from(value))?;
         }
-        self.number(facts.later.len() as u64)?;
-        for line in &facts.later {
-            self.number(u64::from(*line))?;
-        }
-        self.optional(facts.unlisted)?;
         self.number(facts.neighbours.len() as u64)?;
         for window in &facts.neighbours {
             for line in [window.line, window.matched_last, window.first, window.last] {

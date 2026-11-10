@@ -80,6 +80,12 @@ export async function e3(mode) {
   const result = await cli(mode, 'ghSearchRepo', { queries: [{ operation: 'get', owner: 'left-pad', repo: 'left-pad' }] });
   contractOf(probe, 'get', result);
   if (truth.status !== 200) return probe.skip('facts', unreadReason(truth, 'REST truth unread'));
+  // A tool read the limit refused must say so (code, retry, the limit's reset); then the facts are unread.
+  if (result.data?.errorCode === 'rateLimited') {
+    const limit = result.data.rateLimit ?? {};
+    probe.check('limitDisclosed', result.data.retryable === true && limit.remaining === 0 && Number.isInteger(limit.resetEpochSeconds), JSON.stringify(result.data.rateLimit));
+    return probe.skip('facts', `GitHub refused the tool: rateLimited, resets ${limit.resetEpochSeconds}`);
+  }
   const repo = result.data?.repositories?.[0] ?? {};
   return probe.check('facts', repo.archived === truth.json.archived && repo.pushedAt === truth.json.pushed_at.slice(0, 10), `${repo.archived} ${repo.pushedAt} vs ${truth.json.archived} ${truth.json.pushed_at}`);
 }
@@ -120,8 +126,8 @@ async function e10Url(mode, probe, published) {
   const result = await cli(mode, 'securityCheck', { queries: [{ operation: 'url', url: 'https://github.com/lodash/lodash' }] });
   contractOf(probe, 'E10.url', result);
   const row = result.data ?? {};
-  probe.check('E10.routesToRepository', row.repository?.owner === 'lodash' && row.repository?.name === 'lodash' && !row.errorCode, row.answer ?? row.error);
   if (!githubRead(probe, 'E10', row)) return;
+  probe.check('E10.routesToRepository', row.repository?.owner === 'lodash' && row.repository?.name === 'lodash' && !row.errorCode, row.answer ?? row.error);
   const listed = sorted([...new Set((row.advisories ?? []).map(a => a.id))]);
   probe.check('E10.repositoryAdvisories', listed === sorted(published), `${listed} vs ${sorted(published)}`);
 }
@@ -129,6 +135,7 @@ async function e10Url(mode, probe, published) {
 async function e14AdvisoryRepo(mode, probe, record) {
   const result = await cli(mode, 'securityCheck', { queries: [{ operation: 'advisory', id: record.ghsa_id, repo: 'lodash/lodash' }] });
   contractOf(probe, 'advisoryRepo', result);
+  if (!githubRead(probe, 'advisoryRepo', result.data ?? {})) return undefined;
   const own = result.data?.advisories?.find(a => a.link?.includes('/lodash/lodash/security/advisories/'));
   if (!own) return probe.check('advisoryRepo.row', false, `no repository-sourced row: ${JSON.stringify(result.data?.sources)}`);
   probe.expect('advisoryRepo.matchesRecord', githubAdvisoryProblem(own, record), `publisher ${own.publisher}, ${own.credits?.length ?? 0} credits`);
@@ -159,6 +166,7 @@ export async function e15(mode) {
   const result = await cli(mode, 'securityCheck', { queries: [{ operation: 'advisory', id: 'GHSA-29mw-wpgm-hmr9' }] });
   contractOf(probe, 'advisory', result);
   probe.expect('cvss', cvssShapeProblem(result.data?.advisories));
+  if (!githubRead(probe, 'advisory', result.data ?? {})) return undefined;
   const github = result.data?.advisories?.find(a => a.link?.startsWith('https://github.com/advisories/'));
   if (!github) return probe.check('githubRow', false, JSON.stringify(result.data?.sources));
   return probe.expect('githubRow.matchesRecord', githubAdvisoryProblem(github, record.json), JSON.stringify({ cvss: github.cvss, epss: github.epss }));
@@ -306,5 +314,8 @@ export async function e21(mode) {
   contractOf(probe, 'package', result);
   const row = result.data ?? {};
   probe.expect('osvVerdict', osvVerdictProblem(row, result.status, ids), `${row.advisories?.length} of OSV ${ids.length}`);
-  probe.check('complete', !row.isPartial && !row.next && row.pagination?.hasMore !== true, JSON.stringify({ isPartial: row.isPartial, partialReasons: row.partialReasons }));
+  // OSV's walk is complete; a GitHub read the limit refused is disclosed as sourceFailed and checked there.
+  const github = githubSource(row);
+  const githubRefusedOnly = github.state === 'disclosed' && !github.problem && (row.partialReasons ?? []).every(reason => reason === 'sourceFailed');
+  probe.check('complete', (!row.isPartial || githubRefusedOnly) && !row.next && row.pagination?.hasMore !== true, JSON.stringify({ isPartial: row.isPartial, partialReasons: row.partialReasons }));
 }

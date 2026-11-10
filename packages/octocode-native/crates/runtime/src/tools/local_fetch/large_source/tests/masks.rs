@@ -1,25 +1,41 @@
 //! Masks on a held window: exact spans, and the fallback when a walk cannot keep a
 //! source's structure. Every value is fake.
-use super::super::masks::{Judged, cover_every_value, judge, with_placeholders};
+use super::super::masks::{Judged, judge};
 use super::super::stream::stream_pass;
 use super::*;
 use crate::tools::source_view::PartialReason;
-use octocode_engine::security::{Named, Objects};
+use octocode_engine::security::{Named, Objects, every_value_spans};
 
 const VALUE: &str = "RmFrZTBWYWx1ZTlOb3Q0UmVhbDhCbG9iN0xvbmc2RW5vdWdo";
 const JSON: &str = "[REDACTED-KUBERNETESSECRETJSON]";
 const YAML: &str = "[REDACTED-KUBERNETESSECRETS]";
 
-fn every_value(text: &str, cut: bool, objects: bool, yaml: bool) -> String {
-    let mut window = text.as_bytes().to_vec();
+/// `text` as its whole-document every-value scan hides it: one placeholder per
+/// line of each span, from the line's first byte that is not a blank.
+pub(super) fn every_value(text: &str, objects: bool, yaml: bool) -> String {
     let objects = if objects {
         Objects::ALL
     } else {
         Objects::default()
     };
-    cover_every_value(&mut window, cut, Named { objects, yaml });
-    assert_eq!(window.len(), text.len(), "a mask keeps the view's length");
-    with_placeholders(std::str::from_utf8(&window).expect("utf8")).into_owned()
+    let mut out = String::new();
+    let mut at = 0;
+    for span in every_value_spans(text.as_bytes(), Named { objects, yaml }) {
+        out.push_str(&text[at..span.range.start]);
+        let placeholder = octocode_engine::security::redaction_placeholder(span.form.pattern());
+        for line in text[span.range.clone()].split_inclusive('\n') {
+            let body = line.trim_end_matches('\n');
+            let lead = body.len() - body.trim_start_matches([' ', '\t', '\r']).len();
+            out.push_str(&line[..lead]);
+            if lead < body.len() {
+                out.push_str(&placeholder);
+            }
+            out.push_str(&line[body.len()..]);
+        }
+        at = span.range.end;
+    }
+    out.push_str(&text[at..]);
+    out
 }
 
 /// Past the budget, no value can be told from another: names and structure stay.
@@ -28,7 +44,6 @@ fn the_fallback_hides_every_json_string_but_names() {
     assert_eq!(
         every_value(
             "{\"a\": \"plain words\", \"b\" : [\"c\", 1], \"n\": 7,\n  \"esc\": \"x\\\"y\"\n}\n",
-            false,
             true,
             false
         ),
@@ -38,27 +53,13 @@ fn the_fallback_hides_every_json_string_but_names() {
     );
     // A value held escaped goes with the string that holds it.
     assert_eq!(
-        every_value("\"a\": \"{\\\"data\\\":\\\"x\\\"}\"\n", false, true, false),
+        every_value("\"a\": \"{\\\"data\\\":\\\"x\\\"}\"\n", true, false),
         format!("\"a\": \"{JSON}\"\n")
     );
     // A string left open by the window's end, or by its line's.
     assert_eq!(
-        every_value("\"a\": \"open\n\"b\": \"cut", false, true, false),
+        every_value("\"a\": \"open\n\"b\": \"cut", true, false),
         format!("\"a\": \"{JSON}\n\"b\": \"{JSON}")
-    );
-}
-
-/// A window cut inside a line starts in an unknown state: that line goes.
-#[test]
-fn the_fallback_hides_the_line_a_window_starts_inside() {
-    assert_eq!(
-        every_value(
-            "of a value\", \"x\": \"y\"\n\"name\": \"z\"\n",
-            true,
-            true,
-            false
-        ),
-        format!("{JSON}\n\"name\": \"{JSON}\"\n")
     );
 }
 
@@ -67,7 +68,6 @@ fn the_fallback_hides_every_yaml_value_but_names() {
     assert_eq!(
         every_value(
             "---\nstringData:\n  blob: plain words\n  block: |\n    more plain words\n- item: x\n\n",
-            false,
             false,
             true
         ),
@@ -95,20 +95,18 @@ fn a_walk_over_its_budget_falls_back_to_every_value() {
     };
     let digest = hex::encode(Sha256::digest(text.as_bytes()));
     let judged = judge(&opened(file.path()), named, &digest, 1, &NeverCancel).expect("judged");
-    assert!(matches!(judged, Judged::EveryValue(_)));
-    let mut lines = super::super::held::WindowLines::new(
-        &[Want::lines(2, 3)],
-        crate::security::KeyBlockState::default(),
-    );
-    for (at, line) in text.split_inclusive('\n').take(3).enumerate() {
-        lines.push(line.as_bytes(), at + 1);
-        lines.finish(at + 1);
-    }
-    lines.seal(&[], &judged).expect("sealed");
-    let window = String::from_utf8(lines.held[0].window.clone()).expect("utf8");
+    assert!(matches!(judged, Judged::EveryValue));
+    super::super::set_walk_budget(Some(1));
+    let windows = stream(&opened(file.path()), &[Want::lines(2, 3)], &NeverCancel);
+    super::super::set_walk_budget(None);
+    let windows = windows.expect("stream");
+    let window = String::from_utf8(windows[0].window.clone()).expect("utf8");
     assert!(!window.contains(VALUE), "{window}");
-    assert!(lines.held[0].every_value, "the page says why");
-    assert!(with_placeholders(&window).contains(&format!("\"blob\":\"{JSON}\"")));
+    assert!(windows[0].every_value, "the page says why");
+    assert!(
+        window.contains(&format!("{{\"data\":{{{JSON}}},\"kind\":\"{JSON}\"}},")),
+        "{window}"
+    );
 }
 
 /// Bytes that are no longer the pass's fail the read, whose windows came from it.
@@ -139,7 +137,7 @@ fn a_mask_lands_on_its_bytes_after_a_key_block() {
     let file = temp(text.as_bytes());
     let windows = stream(&opened(file.path()), &[Want::lines(1, 5)], &NeverCancel).expect("stream");
     let window = String::from_utf8(windows[0].window.clone()).expect("utf8");
-    let shown = with_placeholders(&window);
+    let shown = window;
     assert!(
         shown.contains(&format!("{{\"data\":{{{JSON}}},\"kind\":\"Secret\"}}\n")),
         "{shown}"
@@ -174,10 +172,7 @@ fn a_window_from_a_checkpoint_is_masked_the_same() {
             &NeverCancel,
         )
         .expect("windows");
-    let shown = |index: usize| {
-        let text = String::from_utf8(windows[index].window.clone()).expect("utf8");
-        with_placeholders(&text).into_owned()
-    };
+    let shown = |index: usize| String::from_utf8(windows[index].window.clone()).expect("utf8");
     assert_eq!(
         shown(0),
         format!("  {{\"data\":{{{JSON}}},\"kind\":\"Secret\"}},\n")
@@ -251,9 +246,12 @@ fn an_unplaceable_byte_page_fails_its_seal() {
         text: "[R]".into(),
     }]
     .into();
+    let source = tempfile::tempfile().expect("temp file");
+    let edits = super::super::edit_map::EditMap::Listed(edits);
     let map = SealMap {
         edits: edits.clone(),
         key_lines: vec![(10..50, 7)].into(),
+        file: std::sync::Arc::new(source.try_clone().expect("handle")),
     };
     let mut lines = WindowLines::new(
         &[Want::bytes(1, 1, 30)],
@@ -264,8 +262,9 @@ fn an_unplaceable_byte_page_fails_its_seal() {
     lines.push(b"\n", 1);
     lines.finish(1);
     let error = lines
-        .seal(&edits, &Judged::Exact(Vec::new()))
-        .expect_err("the offset is not placed");
+        .seal(&edits, &source, &Judged::Exact(Vec::new()))
+        .expect_err("the offset is not placed")
+        .to_string();
     assert!(error.contains("cannot be placed"), "{error}");
 }
 
@@ -295,7 +294,7 @@ fn walk_ranges_every_value(
     loop {
         let page = fetch(file, &next, None);
         assert_eq!(page.status, ReadStatus::Success, "{page:?}");
-        assert!(pages.len() < 64, "the walk ends");
+        assert!(pages.len() < 4096, "the walk ends");
         let call = page.next.clone().and_then(|next| next.continue_window);
         pages.push(page);
         let Some(call) = call else {
@@ -308,170 +307,58 @@ fn walk_ranges_every_value(
 }
 
 /// A page of the every-value fallback names the memory budget as a terminal
-/// limit once core declares its reason (B47); before that, only its note does.
+/// limit.
 fn assert_every_value_disclosed(page: &LocalFetchResult) {
     let hidden = page
         .warnings
         .iter()
         .any(|warning| warning.contains("every value on this page is hidden"));
-    match PartialReason::walk_memory_budget() {
-        Some(reason) if hidden => {
-            assert!(page.partial_reasons.contains(&reason), "{page:?}");
-            assert_eq!(page.terminal_limit, Some(true), "{page:?}");
-            assert!(
-                !page
-                    .partial_reasons
-                    .contains(&PartialReason::SecuritySelectedView),
-                "the scan bound is not the cause: {:?}",
-                page.partial_reasons
-            );
-        }
-        _ => {}
-    }
-}
-
-/// The disclosure a withheld line's page owes: terminal, with its reason and the
-/// warning naming the unread scope, and no note promising pages of it.
-fn assert_withheld(pages: &[LocalFetchResult], line: usize) {
-    let shown: String = pages
-        .iter()
-        .filter_map(|page| page.content.clone())
-        .collect();
-    assert!(!shown.contains("\"v0"), "no value shows");
-    let page = pages
-        .iter()
-        .find(|page| {
-            page.warnings
-                .iter()
-                .any(|warning| warning.starts_with(&format!("Line {line} is not read")))
-        })
-        .expect("a page says the line's rest is not read");
-    assert_eq!(page.terminal_limit, Some(true), "{:?}", page.warnings);
-    // The memory budget once core declares its reason (B47), else the old one.
-    let reason = PartialReason::walk_memory_budget().unwrap_or(PartialReason::SecuritySelectedView);
-    assert!(
-        page.partial_reasons.contains(&reason),
-        "{:?}",
-        page.partial_reasons
-    );
-    for page in pages {
-        assert_every_value_disclosed(page);
+    if hidden {
+        let reason = PartialReason::SecurityWalkMemoryBudget;
+        assert!(page.partial_reasons.contains(&reason), "{page:?}");
+        assert_eq!(page.terminal_limit, Some(true), "{page:?}");
         assert!(
-            !page.warnings.iter().any(|warning| warning
-                .contains("later pages read that range alone")
-                || warning.contains("first the rest of those lines")),
-            "no page promises the withheld rest: {:?}",
-            page.warnings
+            !page
+                .partial_reasons
+                .contains(&PartialReason::SecuritySelectedView),
+            "the scan bound is not the cause: {:?}",
+            page.partial_reasons
         );
     }
 }
 
-/// The withhold warning says the lines after the withheld one read on only when
-/// the page's next reads a later line: never for the last line requested
-/// (review B33 r5).
-#[test]
-fn a_withheld_last_line_promises_no_later_lines() {
-    let text = format!("{}{{\"b\":2}}\n", every_value_line());
-    let file = temp(text.as_bytes());
-    super::super::set_walk_budget(Some(1));
-    let withheld = |page: &LocalFetchResult| {
-        page.warnings
-            .iter()
-            .find(|warning| warning.starts_with("Line 1 is not read"))
-            .cloned()
-            .expect("the line's rest is withheld")
-    };
-    let last = fetch(
-        &file,
-        &query(serde_json::json!({"path":file.path(),"ranges":[{"startLine":1,"endLine":1}]})),
-        None,
-    );
-    let whole = fetch(
-        &file,
-        &query(serde_json::json!({"path":file.path(),"ranges":[{"startLine":1,"endLine":2}]})),
-        None,
-    );
-    super::super::set_walk_budget(None);
-    assert!(
-        last.next
-            .as_ref()
-            .and_then(|next| next.continue_window.as_ref())
-            .is_none()
-    );
-    assert!(!withheld(&last).contains("read on"), "{:?}", last.warnings);
-    let read_on = whole
-        .next
-        .as_ref()
-        .and_then(|next| next.continue_window.as_ref());
-    assert!(
-        read_on.is_some(),
-        "line 2 is read next: {:?}",
-        whole.warnings
-    );
-    assert!(withheld(&whole).contains("read on"), "{:?}", whole.warnings);
-}
-
-/// A withheld line in a later range keeps its terminal disclosure through the
-/// join of the ranges' parts (review B33 r4, F-A).
-#[test]
-fn a_withheld_line_in_a_later_range_keeps_its_disclosure() {
-    let text = format!(
-        "{{\"a\":1}}\n{{\"b\":2}}\n{}{{\"c\":3}}\n",
-        every_value_line()
-    );
-    let file = temp(text.as_bytes());
-    let pages = walk_ranges_every_value(
-        &file,
-        serde_json::json!([{"startLine":1,"endLine":1},{"startLine":3,"endLine":3}]),
-    );
-    assert_withheld(&pages, 3);
-    let shown: String = pages
-        .iter()
-        .filter_map(|page| page.content.clone())
-        .collect();
-    assert_eq!(shown.matches("{\"a\":1}").count(), 1, "{shown:.200}");
-    assert!(!shown.contains("{\"b\":2}") && !shown.contains("{\"c\":3}"));
-}
-
-/// A withheld line in the first range: next reads the later range, once, and no
-/// note says the withheld rest comes first (F-A).
-#[test]
-fn a_withheld_first_range_reads_on_to_the_later_range() {
-    let text = format!("{}{{\"b\":2}}\n{{\"c\":3}}\n", every_value_line());
-    let file = temp(text.as_bytes());
-    let pages = walk_ranges_every_value(
-        &file,
-        serde_json::json!([{"startLine":1,"endLine":1},{"startLine":3,"endLine":3}]),
-    );
-    assert_withheld(&pages, 1);
-    let shown: String = pages
-        .iter()
-        .filter_map(|page| page.content.clone())
-        .collect();
-    assert_eq!(shown.matches("{\"c\":3}").count(), 1, "{shown:.200}");
-    assert!(!shown.contains("{\"b\":2}"));
-}
-
-/// Past the walk budget each window hides every value on its own, so no two
-/// windows share one sealed view and a byte page past the first of a long line
-/// would gap or repeat (review B33 finding 1). The walk shows a prefix of the
-/// line's every-value view, says the rest of that line is not read, and reaches
-/// every later line once.
-#[test]
-fn an_every_value_long_line_is_never_paged_from_another_view() {
-    let mut line = String::from(r#"{"items":["#);
-    let mut index = 0;
-    while line.len() < past_whole() {
-        line.push_str(&format!(
-            r#"{{"data":{{"k":"v{index:06}"}},"kind":"Secret"}},"#
-        ));
-        index += 1;
+/// Every page of `ranges` of a source past the walk budget, following `next` to
+/// its end, with every page's content.
+fn walked(file: &tempfile::NamedTempFile, ranges: serde_json::Value) -> Vec<LocalFetchResult> {
+    let pages = walk_ranges_every_value(file, ranges);
+    for page in &pages {
+        assert_every_value_disclosed(page);
+        assert!(
+            !page
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("is not read past")),
+            "no page withholds a line's tail: {:?}",
+            page.warnings
+        );
+        assert!(
+            !page.content.clone().unwrap_or_default().contains("\"v0"),
+            "no value shows"
+        );
     }
-    line.push_str("{\"kind\":\"ConfigMap\"}]}\n");
+    pages
+}
+
+/// A line the fallback hides every value of is paged by bytes through to its end,
+/// and the pages rejoin the one view the whole-file scan gives it: windows that
+/// each hid values on their own would end the line's pages, gap or repeat
+/// (B48). Its values sit across every window's edge.
+#[test]
+fn an_every_value_long_line_pages_by_bytes_to_its_end() {
+    let line = every_value_line();
     let tail = "{\"note\":\"after\"}\n";
     let file = temp(format!("{line}{tail}").as_bytes());
-    // The scanner's edits first, then every value of each line, as a window
-    // from a line's start seals it.
+    // The scanner's edits first, then every value, as the whole-file read shows it.
     let scanned = |text: &str| {
         crate::tools::source_view::prepare::sealed_view(
             text.as_bytes(),
@@ -482,63 +369,50 @@ fn an_every_value_long_line_is_never_paged_from_another_view() {
         .text
         .into_owned()
     };
-    let expected_line = every_value(&scanned(&line), false, true, false);
-    let expected_tail = every_value(&scanned(tail), false, true, false);
-    super::super::set_walk_budget(Some(1));
-    let mut next =
-        query(serde_json::json!({"path":file.path(),"ranges":[{"startLine":1,"endLine":2}]}));
-    let mut pages = Vec::new();
-    let mut terminal = None;
-    loop {
-        let page = fetch(&file, &next, None);
-        assert_eq!(page.status, ReadStatus::Success, "{page:?}");
-        let content = page.content.clone().expect("a page");
-        assert!(!content.contains("\"v0"), "no value shows");
-        // Every page of the fallback is terminal once core declares its
-        // reason (B47); the withheld page is the one that names line 1.
-        if page
-            .warnings
-            .iter()
-            .any(|warning| warning.starts_with("Line 1 is not read"))
-        {
-            assert_eq!(page.terminal_limit, Some(true), "{:?}", page.warnings);
-            terminal = Some(page.warnings.clone());
-            // The line's tail is not read: its byte pages end here (F-C).
-            let bytes = page.pagination.as_ref().expect("a byte page");
-            assert!(!bytes.has_more && bytes.next_offset.is_none(), "{bytes:?}");
-        }
-        assert_every_value_disclosed(&page);
-        pages.push(content);
-        assert!(pages.len() < 64, "the walk ends");
-        let Some(call) = page.next.and_then(|next| next.continue_window) else {
-            break;
-        };
-        next = call.query;
-    }
-    super::super::set_walk_budget(None);
-    let shown = pages.concat();
-    let warnings = terminal.expect("the page that stops inside line 1 says so");
-    assert!(
-        warnings
-            .iter()
-            .any(|warning| warning.starts_with("Line 1 is not read")),
-        "{warnings:?}"
+    let expected = format!(
+        "{}{}",
+        every_value(&scanned(&line), true, false),
+        every_value(&scanned(tail), true, false)
     );
-    let line_part = shown
-        .strip_suffix(&expected_tail)
-        .expect("line 2 is read once, last");
-    assert!(!line_part.is_empty());
-    let differs = line_part
+    let pages = walked(&file, serde_json::json!([{"startLine":1,"endLine":2}]));
+    assert!(
+        pages.len() > 2,
+        "the line takes several byte pages: {}",
+        pages.len()
+    );
+    let shown: String = pages
+        .iter()
+        .filter_map(|page| page.content.clone())
+        .collect();
+    let differs = shown
         .bytes()
-        .zip(expected_line.bytes())
+        .zip(expected.bytes())
         .position(|(shown, view)| shown != view)
-        .unwrap_or(line_part.len().min(expected_line.len()));
+        .unwrap_or(shown.len().min(expected.len()));
     assert!(
-        expected_line.starts_with(line_part),
-        "line 1 shows a prefix of its one view, with no page from another: {} of {} bytes agree; shown {:?}, view {:?}",
-        differs,
-        line_part.len(),
-        line_part.get(differs.saturating_sub(40)..(differs + 60).min(line_part.len())),
-        expected_line.get(differs.saturating_sub(40)..(differs + 60).min(expected_line.len())),
+        shown == expected,
+        "the pages rejoin the whole-file view: {differs} of {} bytes agree",
+        expected.len()
     );
+}
+
+/// Ranges around a line the fallback hides read in order, each once.
+#[test]
+fn ranges_either_side_of_an_every_value_line_read_once() {
+    let text = format!(
+        "{{\"a\":1}}\n{{\"b\":2}}\n{}{{\"c\":3}}\n",
+        every_value_line()
+    );
+    let file = temp(text.as_bytes());
+    let pages = walked(
+        &file,
+        serde_json::json!([{"startLine":1,"endLine":1},{"startLine":3,"endLine":4}]),
+    );
+    let shown: String = pages
+        .iter()
+        .filter_map(|page| page.content.clone())
+        .collect();
+    assert_eq!(shown.matches("{\"a\":1}").count(), 1, "{shown:.200}");
+    assert_eq!(shown.matches("{\"c\":3}").count(), 1, "{shown:.200}");
+    assert!(!shown.contains("{\"b\":2}"));
 }

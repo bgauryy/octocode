@@ -4,6 +4,7 @@
 use super::evidence_closure::{chars, exact_closure, fixture};
 use super::*;
 use crate::id::ToolId;
+use crate::tools::test_support::assert_part_contract;
 use crate::tools::test_support::assert_row_contract;
 use octocode_io::cancellation::Cancellation;
 
@@ -30,7 +31,7 @@ fn exact_tail_boundary_includes_row_part_without_losing_closure_or_rows() {
             "page {page} exceeds its row budget after rowPart is attached"
         );
         for row in rows {
-            assert_row_contract(ToolId::GraphQuery, &row["data"]);
+            assert_part_contract(ToolId::GraphQuery, &row);
             exact_closure(&row["data"], &catalog);
             seen.extend(row["data"]["rows"].as_array().unwrap().iter().cloned());
         }
@@ -61,41 +62,34 @@ fn first_only_oversized_context_does_not_enlarge_later_nested_pages() {
         .expect("valid plan");
     assert!(plan.total_pages > 2);
     let mut seen = Vec::new();
-    let mut descriptions = 0;
+    // The description is divisible text, so it is windowed in parts of its
+    // own instead of enlarging the first one; a part that pages the members
+    // never repeats it.
+    let mut description_windows = String::new();
     for page in 0..plan.total_pages {
         let rows = plan.build_page(page, &[None], &token).unwrap();
         assert!(!rows.is_empty());
-        if page == 0 {
-            assert!(
-                chars(&json!(rows)) > budget,
-                "first context is indivisibly oversized"
-            );
-        } else {
-            assert!(
-                chars(&json!(rows)) <= budget,
-                "later page {page} must fit including rowPart.continues"
-            );
-        }
+        assert!(
+            chars(&json!(rows)) <= budget,
+            "page {page} must fit including rowPart.continues"
+        );
         for row in rows {
-            assert_row_contract(ToolId::GraphQuery, &row["data"]);
+            assert_part_contract(ToolId::GraphQuery, &row);
             for finding in row["data"]["rows"].as_array().unwrap() {
                 assert_eq!(finding["id"], "finding");
-                if let Some(actual) = finding.get("description") {
-                    assert_eq!(actual, &json!(description));
-                    assert_eq!(page, 0, "first-only context repeated on a later page");
-                    descriptions += 1;
+                let members = finding["evidence"]["members"].as_array();
+                if let Some(window) = finding.get("description").and_then(Value::as_str) {
+                    assert!(
+                        members.is_none_or(Vec::is_empty),
+                        "page {page}: first-only context repeated beside paged members"
+                    );
+                    description_windows.push_str(window);
                 }
-                seen.extend(
-                    finding["evidence"]["members"]
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .cloned(),
-                );
+                seen.extend(members.into_iter().flatten().cloned());
             }
         }
     }
-    assert_eq!(descriptions, 1);
+    assert_eq!(description_windows, description, "every description char once, in order");
     assert_eq!(
         seen, expected,
         "nested evidence is delivered exactly once in order"

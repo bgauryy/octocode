@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 mod answers;
 mod fallbacks;
 mod locks;
+mod parity;
 
 /// `(status, body)` for a `POST /lsp` body.
 type Handler = Box<dyn Fn(&Value) -> (u16, Value) + Send + Sync>;

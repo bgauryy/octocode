@@ -3,7 +3,8 @@ use super::*;
 
 /// Only the git steps that reach the remote run with the credential: the
 /// local store and worktree steps take no askpass helper and no network
-/// permit.
+/// permit. (A cold clone writes the origin into the store's config and has
+/// no worktree to prune, so neither step runs.)
 #[test]
 fn only_network_git_steps_carry_the_credential() {
     let fixture = Fixture::shared();
@@ -32,13 +33,7 @@ fn only_network_git_steps_carry_the_credential() {
             .unwrap_or_else(|| panic!("{label} not run: {seen:?}"))
             .clone()
     };
-    for local in [
-        "initialize shared store",
-        "configure store remote",
-        "prune removed worktrees",
-        "add worktree",
-        "move worktree",
-    ] {
+    for local in ["initialize shared store", "add worktree", "move worktree"] {
         assert!(
             step(local).contains("authorization_url: None"),
             "{}",

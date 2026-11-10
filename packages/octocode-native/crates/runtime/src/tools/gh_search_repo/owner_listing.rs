@@ -53,6 +53,7 @@ pub(super) async fn owner_listing(
             total_count: items.len(),
             incomplete_results: false,
             items,
+            sso_partial_organizations: Vec::new(),
         },
         OwnerListing {
             last_page: provider_page,

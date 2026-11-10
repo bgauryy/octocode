@@ -132,15 +132,12 @@ impl Found<'_> {
         // the files first, so the next read or narrowing is chosen, not paged.
         if self.first_page()
             && !list_view(local_search_query::view(query))
-            && let Some(total) = self
+            && self
                 .scanned
                 .match_count
-                .filter(|total| *total >= LARGE_RESULT_MATCHES)
+                .is_some_and(|total| total >= LARGE_RESULT_MATCHES)
         {
             add("viewFileCount".into(), count_lead(query)?);
-            hints.push(format!(
-                "{total} matches: run the related[] view:\"countMatches\" request to rank files before paging."
-            ));
         }
         // Files whose match the `fileHas`/`fileLacks` terms removed: the
         // empty page is the filter's, not the pattern's.

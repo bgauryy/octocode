@@ -58,7 +58,7 @@ macro_rules! piece_end {
 
 macro_rules! piece_seam {
     () => {
-        r###"(?:\s*\+\s*|[ \t]*)"###
+        r###"\s*(?:\+\s*)?"###
     };
 }
 
@@ -167,7 +167,10 @@ macro_rules! literals {
             // text, so a body that ends in one closes at the quote after it.
             r###"|[A-Za-z@$]{0,2}#*"(?P<secret_raw>[^"\r\n]{8,})""###,
             r###"|[A-Za-z]{0,2}'(?P<secret_single_raw>[^'\r\n]{8,})'"###,
-            r###"|`(?P<secret_backtick_raw>[^`\r\n]{8,})`)"###
+            r###"|`(?P<secret_backtick_raw>[^`\r\n]{8,})`"###,
+            // A literal written inside another literal's text, its quotes
+            // escaped (`"jwt_secret = \"…\";"`): the escaped quotes are its own.
+            r###"|\\"(?P<secret_escaped>(?:[^\\\r\n]|\\[^"\r\n])+?)\\")"###
         )
     };
 }
@@ -409,13 +412,13 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
         // name may carry a type (`PASSWORD: &str = "…"`), and a fallback
         // operator (`env.DB_PASSWORD || "…"`, `??`) assigns like `=`.
         regex: concat!(
-            r###"(?:(?:\b(?:[A-Za-z0-9]+[_.-])*(?i:secret|password|passwd|passphrase|key|token|credential)s?(?:[_.-][A-Za-z0-9]+)*|\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Key|Token|Credential)s?(?:[A-Z][a-z0-9]*)*)["']?\s*(?::[ \t]*[^\s=:"'`,;(){}][^=\r\n"'`;(){}]*?\s*)?"###,
+            r###"(?:(?:\b(?:[A-Za-z0-9]+[_.-])*(?i:secret|password|passwd|passphrase|key|token|credential)s?(?:[_.-][A-Za-z0-9]+)*|\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)*(?:Secret|Password|Passwd|Passphrase|Key|Token|Credential)s?(?:[A-Z][a-z0-9]*)*)["']?\s*(?::[ \t]*[^\s=:"'`,;(){}](?:'[A-Za-z_][A-Za-z0-9_]*|[^=\r\n"'`;(){}])*?\s*)?"###,
             // After the name: an assignment operator, the same followed by a read
             // the literal backs up (`= process.env.X || "…"`, `= env() or "…"`), or
             // a fallback operator right after a name.
-            r###"(?:(?:=>|:=|=|:)\s*"###,
+            r###"(?:[A-Za-z_][A-Za-z0-9_.*]*(?:\[[^\]\r\n]*\])?\s*(?::=|=)|(?:=>|:=|<-|=|:)\s*(?:"###,
             env_read!(),
-            r###"\s*(?:\|\||\?\?|\bor\b)|=>|:=|=|:|\|\||\?\?)"###,
+            r###"\s*(?:\|\||\?\?|\bor\b)\s*)+|=>|:=|<-|=|:|\|\||\?\?)"###,
             r###"|\b(?:process\.env|import\.meta\.env)(?:\.[A-Za-z0-9_]*(?i:"###,
             credential_words!(),
             r###")[A-Za-z0-9_]*|\[\s*["'][A-Za-z0-9_]*(?i:"###,
@@ -425,7 +428,7 @@ pub(super) const PATTERNS: &[SecretPattern] = &[
             r###")[A-Za-z0-9_]*["']\s*(?:,|\)\s*or\b))\s*"###,
             // A constructor call may wrap the literal (`Some("…")`,
             // `String::from("…")`): the name still holds its value.
-            r###"(?:[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*\(\s*)?"###,
+            r###"(?:(?:[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)?\(\s*)?"###,
             literals!()
         ),
     },

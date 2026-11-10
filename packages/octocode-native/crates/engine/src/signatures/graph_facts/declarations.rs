@@ -140,6 +140,24 @@ fn python_member(
     Some(declared)
 }
 
+/// Whether the declaration `owner` names is a type that is not exported: its
+/// members are reached through it, so none is exported whatever its own modifier
+/// says (a `pub` field of a `pub(super)` struct). `impl` blocks and modules do not
+/// hide their items: those carry their own visibility.
+fn hidden_by_owner(acc: &GraphAccumulator, owner: Option<&str>) -> bool {
+    let Some(owner) = owner else { return false };
+    acc.declarations
+        .iter()
+        .rfind(|declared| declared.id == owner)
+        .is_some_and(|declared| {
+            !declared.exported
+                && matches!(
+                    declared.kind.as_str(),
+                    "struct" | "class" | "enum" | "interface" | "trait" | "union" | "record"
+                )
+        })
+}
+
 /// The declaration fact of `node` as `kind`, named by `name_token`.
 pub(super) fn named_declaration(
     kind: &'static str,
@@ -193,7 +211,7 @@ pub(super) fn named_declaration(
                 &name,
                 active_decl,
                 active_decl.is_some_and(|parent| acc.public_namespace_scopes.contains(parent)),
-            );
+            ) && !hidden_by_owner(acc, active_decl);
             let parent = active_decl.map(str::to_owned);
             let function_types = match acc.visibility_adapter {
                 VisibilityAdapter::CFamily => Some(FunctionTypes::CFamily),

@@ -62,13 +62,7 @@ pub(super) fn cleanup(
     Ok(())
 }
 
-fn sync_dir(path: &Path) -> std::io::Result<()> {
-    #[cfg(unix)]
-    std::fs::File::open(path)?.sync_all()?;
-    #[cfg(not(unix))]
-    let _ = path;
-    Ok(())
-}
+use octocode_io::atomic::sync_dir;
 
 impl Staged {
     pub(super) fn new(home: &Path) -> std::io::Result<Self> {

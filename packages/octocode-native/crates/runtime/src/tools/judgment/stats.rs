@@ -1,5 +1,6 @@
 //! Classification usage aggregated over one tool call, reported in its result.
 
+use octocode_engine::num::{saturating_i64, saturating_u64};
 use std::collections::BTreeSet;
 
 /// Classification usage aggregated over one tool call.
@@ -44,7 +45,7 @@ impl ClassificationUsage {
     }
 
     pub(crate) fn output(&self) -> octocode_contract_types::SelectionUsage {
-        let count = |value| i64::try_from(value).unwrap_or(i64::MAX);
+        let count = |value| saturating_i64(value);
         octocode_contract_types::SelectionUsage {
             calls: count(self.calls),
             known_usage_calls: count(self.known_usage_calls),
@@ -57,16 +58,16 @@ impl ClassificationUsage {
                 .iter()
                 .filter_map(|model| model.parse().ok())
                 .collect(),
+            replayed: self.replay.then_some(true),
         }
     }
 
     /// The rest of a walk priced at this page's own rate: `judged` characters
     /// of states and questions billed these tokens, and `rest` remain.
     pub(crate) fn estimate_rest(&mut self, judged: usize, rest: usize) {
-        self.remaining_input_tokens = u64::try_from(
+        self.remaining_input_tokens = saturating_u64(
             u128::from(self.input_tokens).saturating_mul(rest as u128) / judged.max(1) as u128,
-        )
-        .unwrap_or(u64::MAX);
+        );
     }
 
     /// Fold in `calls` provider requests, `known` of which reported their

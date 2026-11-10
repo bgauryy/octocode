@@ -45,8 +45,6 @@ pub(super) struct WindowStart {
     pub(super) base: usize,
     /// The first line the window holds bytes of.
     pub(super) line: usize,
-    /// It starts inside that line.
-    cut: bool,
 }
 
 /// A stretch of a window that is one run of source bytes, or text of ours.
@@ -108,6 +106,9 @@ pub(super) struct Held {
     /// A sealed offset of this window could not be placed on the source's
     /// bytes: sealing it fails the read.
     unplaced: bool,
+    /// Placing a sealed offset failed to read the source: sealing fails the
+    /// read with that error.
+    failed: Option<super::error::ReadError>,
 }
 
 impl Held {
@@ -136,6 +137,7 @@ impl Held {
             run_end: None,
             every_value: false,
             unplaced: false,
+            failed: None,
         }
     }
 
@@ -148,8 +150,9 @@ impl Held {
         let range = self.range.get_or_insert_with(|| {
             if let Some(map) = map {
                 match map.keyed(source, self.sealed_from) {
-                    Some(from) => self.from = from,
-                    None => self.unplaced = true,
+                    Ok(Some(from)) => self.from = from,
+                    Ok(None) => self.unplaced = true,
+                    Err(error) => self.failed = Some(error),
                 }
             }
             source..source
@@ -189,7 +192,6 @@ impl Held {
             self.start = Some(WindowStart {
                 base: start + skip,
                 line,
-                cut: start + skip != self.line_view_start,
             });
         }
         let piece = &bytes[skip..];
@@ -274,7 +276,7 @@ impl Held {
 mod lines;
 mod seal;
 pub(super) use lines::{InLine, WindowLines};
-pub(super) use seal::SealMap;
+pub(super) use seal::{SealMap, UNPLACED};
 
 #[cfg(test)]
 mod tests;

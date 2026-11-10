@@ -1,6 +1,7 @@
 mod access;
 pub(crate) mod errors;
 mod leads;
+mod lfs;
 mod local_query;
 #[cfg(test)]
 pub(crate) use local_query::local_query;
@@ -98,9 +99,9 @@ pub(crate) async fn run<S: ContentScan + Clone + Send + Sync + 'static>(
     window: Option<usize>,
     shaping: Shaping<S>,
 ) -> Result<ToolData, GhFailure> {
-    let resolved = resolved_at(query).map_err(|error| errors::failure(error, query, None))?;
+    let resolved = resolved_at(query).map_err(|error| errors::failure(error, query, None, None))?;
     let query = resolved.as_ref().unwrap_or(query);
-    let request_context = request.map_err(|error| errors::failure(error, query, None))?;
+    let request_context = request.map_err(|error| errors::failure(error, query, None, None))?;
     let mut read_commit = None;
     let error = match execute(
         provider,
@@ -113,12 +114,12 @@ pub(crate) async fn run<S: ContentScan + Clone + Send + Sync + 'static>(
     .await
     {
         Ok(result) => {
-            return file_read(result).map_err(|error| errors::failure(error, query, None));
+            return file_read(result).map_err(|error| errors::failure(error, query, None, None));
         }
         Err(error) => error,
     };
     if error.reason == Some(octocode_github::ProviderErrorReason::Submodule) {
-        let failure = errors::failure(error, query, None);
+        let failure = errors::failure(error, query, None, None);
         let mut at = errors::repo_path(query);
         at.reference = read_commit.as_deref().or(at.reference);
         return Err(crate::tools::gh_shared::submodule_failure(
@@ -132,46 +133,45 @@ pub(crate) async fn run<S: ContentScan + Clone + Send + Sync + 'static>(
     // A path failure comes after its ref resolved: its recovery leads pin
     // that commit, as the read's own continuations do, and name a renamed
     // repository as it is now.
-    let scope = crate::tools::gh_shared::failure_scope(
+    let scope = crate::tools::gh_shared::read_failure_scope(
         provider,
         access::owner(query),
         access::repo(query),
-        read_commit.filter(|_| {
-            missing_path(&error, Some(access::path(query)))
-                || error.reason == Some(octocode_github::ProviderErrorReason::PathIsDirectory)
-        }),
+        access::path(query),
+        read_commit,
         error,
         request_context,
     )
     .await;
     let error = scope.error;
+    let commit = scope.commit.as_deref();
     let asked = access::reference(query).map(str::to_owned);
-    let pinned = scope.commit.and_then(|sha| {
-        let mut pinned = query.clone();
-        access::set_ref(&mut pinned, &sha).ok()?;
-        Some(pinned)
-    });
-    let query = pinned.as_ref().unwrap_or(query);
     let canonical = scope
         .canonical
         .and_then(|(owner, repo)| crate::tools::gh_shared::with_repo(query, &owner, &repo).ok());
     let query = canonical.as_ref().unwrap_or(query);
-    let found = if missing_path(&error, Some(access::path(query))) {
-        locate_path(provider, &errors::repo_path(query), request_context).await
+    let at = crate::tools::gh_shared::RepoPath {
+        reference: commit.or(asked.as_deref()),
+        ..errors::repo_path(query)
+    };
+    let found = if missing_path(&error, Some(at.path)) {
+        locate_path(provider, &at, request_context).await
     } else {
         None
     };
     let named = found.is_some();
-    let mut failure = errors::failure(error, query, found);
+    let mut failure = errors::failure(error, query, commit, found);
     // The message names the ref as asked; the leads pin its commit.
     if named {
-        failure.message = errors::path_not_found(&errors::repo_path(query), asked.as_deref());
+        failure.message = errors::path_not_found(&at, asked.as_deref());
     }
-    Err(crate::tools::gh_shared::with_default_branch(
+    Err(crate::tools::gh_shared::with_read_recovery(
         provider,
         failure,
         crate::id::ToolId::GhGetFileContent,
         query,
+        access::owner(query),
+        access::repo(query),
         request_context,
     )
     .await)
@@ -344,7 +344,7 @@ impl crate::response::output::ToolOutput for Output {
                 | ErrorCode::SymbolsUnsupported
                 | ErrorCode::LanguageUnsupported
         )
-            .then_some(crate::response::output::NO_HINT)
+        .then_some(crate::response::output::NO_HINT)
     }
 }
 

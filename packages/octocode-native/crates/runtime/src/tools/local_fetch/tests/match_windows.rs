@@ -49,7 +49,7 @@ fn regex_line_anchors_match_every_line() {
         serde_json::json!({"contextLines":{"before":0,"after":0}}),
     );
     let wire = serde_json::to_value(fetch(&req, &paths)).expect("serializable");
-    assert_eq!(wire["matchedLines"], serde_json::json!([2, 4]));
+    assert_eq!(shown_hits(&wire), serde_json::json!([2, 4]));
 }
 
 #[test]
@@ -207,7 +207,7 @@ fn multiline_matches_preserve_every_matched_source_line() {
         );
         let wire = serde_json::to_value(fetch(&req, &paths)).expect("serializable");
         assert_eq!(wire["content"], "first\nsecond\n", "{pattern:?}: {wire}");
-        assert_eq!(wire["matchedLines"], serde_json::json!([2, 3]));
+        assert_eq!(shown_hits(&wire), serde_json::json!([2, 3]));
         assert_eq!(
             wire["sourceLineRanges"],
             serde_json::json!([{"line": 2, "endLine": 3}])

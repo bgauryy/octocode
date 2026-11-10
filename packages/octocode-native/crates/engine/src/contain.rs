@@ -32,6 +32,12 @@ pub enum Phase {
     SecretScan,
     /// Linking a file's facts into a graph.
     Link,
+    /// Admitting and answering one request, outside its rows.
+    Request,
+    /// Executing one tool row.
+    Row,
+    /// Warming what the rows of a batch share.
+    Warm,
 }
 
 impl Phase {
@@ -47,6 +53,9 @@ impl Phase {
             Self::Weigh => "weigh",
             Self::SecretScan => "secret scan",
             Self::Link => "link",
+            Self::Request => "request",
+            Self::Row => "row",
+            Self::Warm => "warm-up",
         }
     }
 }

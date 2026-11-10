@@ -403,3 +403,26 @@ fn a_priority_word_in_osvs_severity_is_no_cvss_vector() {
     assert!(item.cvss.is_empty(), "{:?}", item.cvss);
     assert_eq!(item.severity.as_deref(), Some("high"));
 }
+
+fn twin(provider: &str, id: &str) -> SecurityAdvisory {
+    SecurityAdvisory {
+        id: id.to_owned(),
+        link: format!("https://{provider}.example/{id}"),
+        ..SecurityAdvisory::default()
+    }
+}
+
+/// A record whose link is its source URL states that URL once, as `source`;
+/// a link that differs from the source stays.
+#[test]
+fn a_record_whose_link_is_its_source_states_the_url_once() {
+    let mut same = twin("github", "GHSA-1");
+    same.source = Some(same.link.clone());
+    let brief = same.brief();
+    assert_eq!(brief["source"], json!(same.link));
+    assert!(brief.get("link").is_none(), "{brief}");
+    let mut other = twin("osv", "GHSA-1");
+    other.source = Some("https://github.com/advisories/GHSA-1".into());
+    assert_eq!(other.brief()["link"], json!(other.link));
+}
+

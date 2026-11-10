@@ -25,7 +25,7 @@ pub(super) fn annotate_diagnostics(
         .iter()
         .filter(|item| {
             let start = item.pointer("/displayRange/startLine").and_then(Value::as_u64);
-            let end = item.pointer("/displayRange/endLine").and_then(Value::as_u64);
+            let end = item.get("displayRange").and_then(super::locations::display_last_line);
             matches!((start, end), (Some(start), Some(end)) if start <= u64::from(anchor_line) && u64::from(anchor_line) <= end)
         })
         .count();

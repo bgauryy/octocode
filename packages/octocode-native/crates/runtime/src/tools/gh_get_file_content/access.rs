@@ -34,19 +34,6 @@ pub(super) fn classified(q: &GhGetFileContentQuery) -> bool {
         GhGetFileContentQuery::ContentMatchString,
     ] v => v.classification.is_some() || v.selection.is_some(), else => false)
 }
-pub(super) fn set_ref(
-    q: &mut GhGetFileContentQuery,
-    reference: &str,
-) -> Result<(), octocode_github::ProviderError> {
-    each!(q, v, {
-        v.ref_ = Some(
-            reference
-                .parse()
-                .map_err(super::local_query::decode_display)?,
-        );
-        Ok(())
-    })
-}
 pub(super) fn set_path(
     q: &mut GhGetFileContentQuery,
     path: &str,

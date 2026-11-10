@@ -97,3 +97,35 @@ fn a_size_filter_never_matches_a_link() {
         assert_eq!(found, ["target"], "{size_min:?}..={size_max:?}");
     }
 }
+
+/// An ignore file the walk cannot read applies no rules; the walk counts it
+/// as one unreadable entry, and a readable sibling's rules still apply.
+#[test]
+fn an_unreadable_ignore_file_is_counted_once() {
+    let root = TmpDir::new();
+    fs::create_dir(root.join(".git")).expect("git");
+    fs::write(root.join(".ignore"), "listed.txt\n").expect("ignore");
+    fs::write(root.join(".gitignore"), "locked.txt\n").expect("gitignore");
+    for name in ["listed.txt", "locked.txt", "kept.txt"] {
+        fs::write(root.join(name), "x").expect("file");
+    }
+    let locked = root.join(".gitignore");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("chmod");
+    if fs::read(&locked).is_ok() {
+        return;
+    }
+    let found = query_file_system_inner(FileSystemQueryOptions {
+        path: root.to_string_lossy().into_owned(),
+        ..Default::default()
+    })
+    .expect("query");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).expect("restore");
+    let names = found
+        .entries
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .collect::<Vec<_>>();
+    assert!(names.contains(&"kept.txt"), "{names:?}");
+    assert!(!names.contains(&"listed.txt"), "{names:?}");
+    assert_eq!(found.permission_denied, 1, "{:?}", found.entries);
+}

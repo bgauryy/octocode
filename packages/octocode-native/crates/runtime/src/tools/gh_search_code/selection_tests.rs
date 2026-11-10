@@ -193,20 +193,20 @@ async fn classification_reads_sanitized_evidence_and_replay_preserves_it() {
 
     let broad = query();
     let (unprojected, _) = select(capture(&server, &broad, &runtime).await, &broad, &runtime);
-    assert_eq!(
-        unprojected["results"][0]["data"]["selection"],
-        data["selection"]
-    );
+    // The repeat replays the saved judgment and says so; the judgment is the same.
+    let mut replayed = unprojected["results"][0]["data"]["selection"].clone();
+    assert_eq!(replayed["usage"]["replayed"], true, "{replayed}");
+    replayed["usage"]
+        .as_object_mut()
+        .expect("usage")
+        .remove("replayed");
+    assert_eq!(replayed, data["selection"]);
     {
         let calls = recorded.lock().expect("recorded states");
         assert_eq!(
             calls.len(),
-            2,
-            "both calls must classify, not silently become unknown"
-        );
-        assert_eq!(
-            calls[0], calls[1],
-            "repeating the same query preserves judged evidence"
+            1,
+            "the identical repeat replays its saved judgment instead of billing again"
         );
         assert!(calls[0].len() >= 2, "{calls:?}");
         let state = serde_json::to_string(&calls[0]).expect("states");
@@ -244,7 +244,7 @@ async fn classification_reads_sanitized_evidence_and_replay_preserves_it() {
             .iter()
             .all(|file| file["lines"].is_array() && file.get("matches").is_none())
     );
-    assert_eq!(recorded.lock().expect("recorded states").len(), 2);
+    assert_eq!(recorded.lock().expect("recorded states").len(), 1);
 }
 
 #[tokio::test]

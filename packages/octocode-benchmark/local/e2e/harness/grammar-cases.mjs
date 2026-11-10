@@ -5,7 +5,10 @@ import { grammarAnchors } from './grammar-lsp.mjs';
 const data = pages => pages.flatMap(page => page.json?.results ?? []).map(row => row.data);
 const sorted = rows => rows.map(row => JSON.stringify(row)).toSorted();
 const same = (a, b) => JSON.stringify(sorted(a)) === JSON.stringify(sorted(b));
-export const captureMatchesFixture = (fixture, sourceLine, capture) => !!capture && capture.text === fixture.argument
+// A capture states `text` only when its row's value does not hold it: else
+// its range names the text on the source line.
+export const captureMatchesFixture = (fixture, sourceLine, capture) => !!capture
+  && (capture.text ?? sourceLine.slice(capture.column - 1, capture.endColumn - 1)) === fixture.argument
   && capture.column === sourceLine.indexOf(fixture.argument) + 1
   && sourceLine.slice(0, capture.column - 1).includes('😀');
 const symbols = pages => {

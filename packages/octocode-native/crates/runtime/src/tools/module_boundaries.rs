@@ -240,3 +240,33 @@ fn engine_modules_import_only_lower_layers() {
         violations.join("\n  ")
     );
 }
+
+/// A tool's own file walk starts from `tools::pruned_walk*` (the default prune,
+/// credential stores and ignore policy every walk shares), never a raw
+/// `ignore::WalkBuilder`: a prune rule changed there reaches every walk. Only
+/// `tools.rs` and `policy/` build one. (The engine's own walks live in its
+/// crate.)
+#[test]
+fn tool_walks_start_from_the_shared_pruned_walk() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    rust_files(&src, &mut files);
+    let raw = ["WalkBuilder", "::new("].concat();
+    let violations: Vec<String> = files
+        .iter()
+        .filter(|file| {
+            let relative = file.strip_prefix(&src).unwrap_or(file);
+            relative != Path::new("tools.rs")
+                && !relative.starts_with("policy")
+                && relative != Path::new("tools/module_boundaries.rs")
+        })
+        .filter(|file| !mounted_for_tests(&src, file))
+        .filter(|file| std::fs::read_to_string(file).is_ok_and(|text| text.contains(&raw)))
+        .map(|file| file.display().to_string())
+        .collect();
+    assert!(
+        violations.is_empty(),
+        "start these walks from crate::tools::pruned_walk*:\n  {}",
+        violations.join("\n  ")
+    );
+}

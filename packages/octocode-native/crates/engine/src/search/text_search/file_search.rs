@@ -1,6 +1,7 @@
 //! Searching one opened file: the searcher, the tapped read, the binary prefix re-search, and the
 //! kept file's digest.
 
+use crate::num::saturating_usize;
 mod prefix;
 use prefix::is_leading_binary;
 pub(super) use prefix::read_prefix;
@@ -155,7 +156,7 @@ impl std::io::Read for SourceTap<'_> {
             self.head_len += take;
         }
         if let Some(copy) = &mut self.copy {
-            let room = usize::try_from(FILE_TERMS_MAX_BYTES).unwrap_or(usize::MAX) - copy.len();
+            let room = saturating_usize(FILE_TERMS_MAX_BYTES) - copy.len();
             copy.extend_from_slice(&bytes[..read.min(room)]);
         }
         Ok(read)

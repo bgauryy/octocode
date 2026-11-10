@@ -11,6 +11,7 @@ use crate::id::ToolId;
 use crate::response::result::{Continuation, ToolError, query_row};
 use crate::tools::empty_walk::{Cause, Verdict, lift};
 use octocode_contract_types::{ErrorCode, SkippedPath, SkippedPathCause, SkippedPaths};
+use octocode_engine::num::saturating_i64;
 use serde_json::Value;
 
 /// One path a walk skipped, or `count` paths behind one cause and rule.
@@ -209,7 +210,7 @@ pub(crate) fn skipped_paths(
             Ok(SkippedPath {
                 path: skip.path.try_into().map_err(skipped_path_error)?,
                 cause: skip.cause,
-                count: (skip.count > 1).then(|| i64::try_from(skip.count).unwrap_or(i64::MAX)),
+                count: (skip.count > 1).then(|| saturating_i64(skip.count)),
                 reason: skip.reason,
             })
         })

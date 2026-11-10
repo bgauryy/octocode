@@ -3,7 +3,7 @@
 use super::super::source_names::{
     Named, Objects, SecretForm, SecretSpans, SourceNames, SourceWalk,
 };
-use super::super::{every_value_spans, objects, yaml_secret};
+use super::super::{EveryValueScan, every_value_spans, objects, yaml_secret};
 
 /// What `text` names, fed in pieces of `size` bytes.
 fn named_in_pieces(path: &str, text: &[u8], size: usize) -> Named {
@@ -393,13 +393,11 @@ fn every_value_is_labelled_by_the_family_that_named_the_source() {
         (SECRET, SecretForm::SecretInJson, "kubernetesSecretJson"),
         (several, SecretForm::SecretInJson, "kubernetesSecretJson"),
     ] {
-        for cut in [false, true] {
-            let spans = every_value_spans(text.as_bytes(), cut, named);
-            assert!(!spans.is_empty(), "{named:?}");
-            for span in &spans {
-                assert_eq!(span.form, form, "{named:?} cut {cut}");
-                assert_eq!(span.form.pattern(), pattern);
-            }
+        let spans = every_value_spans(text.as_bytes(), named);
+        assert!(!spans.is_empty(), "{named:?}");
+        for span in &spans {
+            assert_eq!(span.form, form, "{named:?}");
+            assert_eq!(span.form.pattern(), pattern);
         }
     }
 }
@@ -418,7 +416,93 @@ fn a_walk_that_gave_up_falls_back_to_its_family() {
             walk.feed(piece);
         }
         assert_eq!(walk.finish(), SecretSpans::TooMany);
-        let spans = every_value_spans(text.as_bytes(), false, named);
+        let spans = every_value_spans(text.as_bytes(), named);
         assert!(spans.iter().all(|span| span.form == form), "{named:?}");
+    }
+}
+
+/// Whatever the pieces a document is fed in, the scan finds the spans one read of
+/// all of it finds (a string, a name's colon or a YAML line cut by a piece's end
+/// included), and they are the values the document's structure leaves visible.
+#[test]
+fn every_value_scan_is_the_same_in_any_pieces() {
+    let documents = [
+        "{\"a\": \"plain words\", \"b\" : [\"c\", 1], \"n\": 7,\n  \"esc\": \"x\\\"y\"\n}\n",
+        "\"a\": \"{\\\"data\\\":\\\"x\\\"}\"\n",
+        "\"a\": \"open\n\"b\": \"cut",
+        "\"a\"\n :\n\"b\": \"x\" : :\"c\" \"d\":\"e\\",
+        "---\nstringData:\n  blob: plain words\n  block: |\n    more\n- item: x\n-  :a\n- \n...\r\nk:v: w\n\n:\n- -\nlast: x",
+    ];
+    for text in documents {
+        for named in [
+            Named {
+                objects: Objects::ALL,
+                yaml: false,
+            },
+            Named {
+                objects: Objects::default(),
+                yaml: true,
+            },
+            Named {
+                objects: Objects::ALL,
+                yaml: true,
+            },
+        ] {
+            let whole = every_value_spans(text.as_bytes(), named);
+            for size in [1, 2, 3, 5, 8] {
+                let mut scan = EveryValueScan::new(named);
+                for piece in text.as_bytes().chunks(size) {
+                    scan.feed(piece);
+                }
+                assert_eq!(
+                    scan.finish(),
+                    whole,
+                    "{text:?} {named:?} in pieces of {size}"
+                );
+            }
+        }
+    }
+}
+
+/// A scan resumed at a point the first was quiet at finds the spans the whole
+/// scan finds from there on: a window of a long source can start there.
+#[test]
+fn every_value_scan_resumes_at_a_quiet_point() {
+    let text = "{\"a\": \"one\", \"b\": [\"two\", \"three\"],\n\"c\" : \"four\", \"d\": \"fi\\\nve\"}\nk: v\n- x: y\n\"z\": \"s\"\n";
+    for named in [
+        Named {
+            objects: Objects::ALL,
+            yaml: false,
+        },
+        Named {
+            objects: Objects::ALL,
+            yaml: true,
+        },
+    ] {
+        let whole = every_value_spans(text.as_bytes(), named);
+        let mut scan = EveryValueScan::new(named);
+        let mut quiet = Vec::new();
+        for (at, byte) in text.bytes().enumerate() {
+            scan.feed(&[byte]);
+            if scan.quiet() {
+                quiet.push(at + 1);
+            }
+        }
+        assert!(quiet.len() > 2, "{named:?}: {quiet:?}");
+        for &point in &quiet {
+            let mut head = EveryValueScan::new(named);
+            head.feed(&text.as_bytes()[..point]);
+            let mut spans = head.take();
+            let mut tail = EveryValueScan::resume(named, point);
+            assert_eq!(tail.at(), point);
+            tail.feed(&text.as_bytes()[point..]);
+            spans.extend(tail.finish());
+            spans.sort_by_key(|span| (span.range.start, span.range.end));
+            assert_eq!(spans, whole, "{named:?} resumed at {point}");
+        }
+        // Fed to the first quiet byte at or past a point, it stops there.
+        let mut scan = EveryValueScan::new(named);
+        let taken = scan.feed_until_quiet(text.as_bytes(), quiet[1]);
+        assert_eq!(taken, quiet[1]);
     }
 }

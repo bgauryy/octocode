@@ -10,7 +10,8 @@ const MARKER: &str = ".last-cache-maintenance";
 
 /// Sweeps only an existing `<home>/tmp`: when no cache dir was ever created
 /// (e.g. `storage.mode=memory` on a fresh home) there is nothing to sweep and
-/// nothing is written. `capture_ttl` is the URL capture retention, the same
+/// nothing is written. `false` when nothing was swept or the sweep could
+/// not be recorded. `capture_ttl` is the URL capture retention, the same
 /// value each capture publishes as its `expiresAt`.
 pub fn run_if_due(home: &Path, capture_ttl: Duration) -> bool {
     let tmp = home.join("tmp");
@@ -37,6 +38,10 @@ pub fn run_if_due(home: &Path, capture_ttl: Duration) -> bool {
             crate::cache::Disk::new(dir).prune_expired();
         }
     }
+    // Retired store directories have no reader or writer: they go whole.
+    for dir in crate::cache::Directory::retired(home) {
+        let _ = fs::remove_dir_all(dir);
+    }
     // `tmp/tree` and `tmp/tree-staging` are written by octocode-mcp 19.x,
     // which shares this home; native never reads them, so aged entries are
     // cleared here.
@@ -58,7 +63,18 @@ pub fn run_if_due(home: &Path, capture_ttl: Duration) -> bool {
         capture_ttl,
     );
     let epoch = crate::civil_date::unix_secs();
-    let _ = fs::write(marker, epoch.to_string());
+    // Without the marker the next start sweeps again: say so, and do not
+    // report the sweep as recorded.
+    if let Err(error) = fs::write(&marker, epoch.to_string()) {
+        octocode_io::notice::raise(
+            "cacheMaintenanceMarker",
+            format!(
+                "The cache maintenance marker could not be written ({}); the sweep reruns at every start.",
+                error.kind()
+            ),
+        );
+        return false;
+    }
     true
 }
 
@@ -281,6 +297,30 @@ mod tests {
         }
     }
 
+    /// A directory a layout bump retired goes with the daily sweep; a live
+    /// store directory stays.
+    #[test]
+    fn maintenance_removes_retired_directories_and_keeps_live_ones() {
+        let home = tempfile::tempdir().unwrap();
+        fs::create_dir_all(home.path().join("tmp")).unwrap();
+        let retired: Vec<_> = crate::cache::Directory::retired(home.path()).collect();
+        let live: Vec<_> = crate::cache::Directory::ALL
+            .into_iter()
+            .map(|directory| directory.path(home.path()))
+            .collect();
+        for dir in retired.iter().chain(&live) {
+            fs::create_dir_all(dir).unwrap();
+            fs::write(dir.join("entry"), "x").unwrap();
+        }
+        assert!(run_if_due(home.path(), INTERVAL));
+        for dir in &retired {
+            assert!(!dir.exists(), "{} is retired", dir.display());
+        }
+        for dir in &live {
+            assert!(dir.join("entry").exists(), "{} is live", dir.display());
+        }
+    }
+
     /// The sweep never creates a store directory that no write made.
     #[test]
     fn maintenance_creates_no_store_directory() {
@@ -343,6 +383,14 @@ mod tests {
             fs::read_to_string(live.join("source.txt")).unwrap(),
             "captured text"
         );
+    }
+
+    #[test]
+    fn an_unwritable_marker_is_not_a_recorded_sweep() {
+        let home = tempfile::tempdir().unwrap();
+        // A directory where the marker file belongs makes its write fail.
+        fs::create_dir_all(home.path().join("tmp").join(MARKER)).unwrap();
+        assert!(!run_if_due(home.path(), INTERVAL));
     }
 
     #[test]

@@ -129,6 +129,19 @@ fn narrow(
     (local, marker)
 }
 
+impl TextSplit {
+    /// The context a window of string `string` shows beside it: the row
+    /// with every windowed string emptied on the first part, the string's
+    /// narrowed context on a later one.
+    pub(in crate::response::row_pages) fn context(&self, string: usize, later: bool) -> &Value {
+        if later {
+            &self.later[string]
+        } else {
+            &self.first
+        }
+    }
+}
+
 impl FragmentArena {
     /// Plan `row` (`row_chars` long, too large for its window) into string
     /// windows; gives the row back when it holds no string to cut.
@@ -295,10 +308,7 @@ impl FragmentArena {
         shown: Option<&String>,
     ) -> Value {
         let split = &self.texts[split];
-        let mut value = match shown {
-            None => split.first.clone(),
-            Some(_) => split.later[string].clone(),
-        };
+        let mut value = split.context(string, shown.is_some()).clone();
         let pointer = match shown {
             None => &split.pointers[string],
             Some(_) => &split.locals[string],

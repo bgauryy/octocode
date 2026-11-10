@@ -14,7 +14,10 @@ pub(crate) use selected::Output;
 mod tests;
 
 use crate::security::scan::ContentScan;
-use failures::{at_default_branch, follow_rename, missing_scope_failure, window_failure};
+use crate::tools::gh_shared::GhFailure;
+use failures::{
+    at_default_branch, follow_rename, history_failure, missing_scope_failure, window_failure,
+};
 use fetch::{Fetched, fetch};
 use filters::Filters;
 use octocode_contract_types::GhSearchHistoryQuery;
@@ -84,27 +87,6 @@ impl HistorySearch {
     }
 }
 
-/// A failed history search: the provider error, when one call repairs it
-/// that lead (keyed by name), and the hints that label its leads (empty:
-/// the row takes the history hint for its error).
-#[derive(Debug)]
-pub struct HistoryFailure {
-    /// Boxed, as in `GhFailure`: it is most of the failure's size.
-    pub error: Box<ProviderError>,
-    pub calls: Option<Value>,
-    pub hints: Vec<String>,
-}
-
-impl From<ProviderError> for HistoryFailure {
-    fn from(error: ProviderError) -> Self {
-        Self {
-            error: Box::new(error),
-            calls: None,
-            hints: Vec::new(),
-        }
-    }
-}
-
 /// Runs one history search: GitHub search for keywords and search-only
 /// filters, else the REST list endpoint.
 pub async fn execute(
@@ -112,10 +94,11 @@ pub async fn execute(
     query: GhSearchHistoryQuery,
     context: &RequestContext,
     security: &impl ContentScan,
-) -> Result<Value, HistoryFailure> {
+) -> Result<Value, GhFailure> {
     let transport = &provider.transport;
-    let mut query = HistorySearch::new(query)?;
-    crate::tools::gh_shared::reject_boolean_keywords(&gh_search_history_query::keywords(&query))?;
+    let mut query = HistorySearch::new(query).map_err(history_failure)?;
+    crate::tools::gh_shared::reject_boolean_keywords(&gh_search_history_query::keywords(&query))
+        .map_err(history_failure)?;
     let page = gh_search_history_query::page(&query).unwrap_or(1);
     let per = gh_search_history_query::limit(&query);
     let searching = query::uses_search(&query);
@@ -136,7 +119,9 @@ pub async fn execute(
         && crate::tools::gh_shared::search_may_be_renamed(&fetched, |fetched| {
             fetched.result.items.is_empty() && fetched.result.total_count == 0
         })
-        && let Some(warnings) = follow_rename(provider, &mut query, context).await?
+        && let Some(warnings) = follow_rename(provider, &mut query, context)
+            .await
+            .map_err(history_failure)?
     {
         rename_warnings = warnings;
         fetched = fetch(transport, &query, page, per, searching, context).await;
@@ -158,7 +143,11 @@ pub async fn execute(
         && gh_search_history_query::owner(&query)
             .zip(gh_search_history_query::repo(&query))
             .is_some_and(|(owner, repo)| context.followed_rename(owner, repo));
-    if redirected && let Some(warnings) = follow_rename(provider, &mut query, context).await? {
+    if redirected
+        && let Some(warnings) = follow_rename(provider, &mut query, context)
+            .await
+            .map_err(history_failure)?
+    {
         rename_warnings = warnings;
     }
     // A commit list answers an unknown author with no rows; only an empty
@@ -171,7 +160,7 @@ pub async fn execute(
     }
     result.warnings.splice(0..0, unconfirmed);
     result.warnings.extend(warnings);
-    rows::sanitize_items(&mut result.items, security)?;
+    rows::sanitize_items(&mut result.items, security).map_err(history_failure)?;
     let paging = shape::Paging::new(&result, page, per);
     let mut shaped = shape::shape(&query, result, &paging, terms);
     // A rename reads the same on every row and page of the repository: a
@@ -193,7 +182,7 @@ async fn confirm_commit_users(
     transport: &GitHubTransport,
     query: &HistorySearch,
     context: &RequestContext,
-) -> Result<Vec<String>, HistoryFailure> {
+) -> Result<Vec<String>, GhFailure> {
     let mut logins: Vec<&str> = Vec::new();
     for login in [query.author(), query.committer()].into_iter().flatten() {
         // Apps (`app/name`) have no `/users` route either.
@@ -214,7 +203,9 @@ async fn confirm_commit_users(
             Err(error) if error.reason == Some(ProviderErrorReason::UserNotFound) => {
                 return Err(missing_scope_failure(error, query));
             }
-            Err(error) if error.kind == ProviderErrorKind::Cancelled => return Err(error.into()),
+            Err(error) if error.kind == ProviderErrorKind::Cancelled => {
+                return Err(history_failure(error));
+            }
             Err(error) => warnings.push(format!(
                 "Could not confirm that user {login} exists ({}); GitHub does not report an unknown login for commits.",
                 error.message

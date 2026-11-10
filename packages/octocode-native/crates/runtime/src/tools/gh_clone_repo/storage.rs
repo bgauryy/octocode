@@ -140,6 +140,39 @@ pub(super) fn is_store_worktree(home: &Path, checkout: &Path) -> bool {
             .is_ok_and(|root| git_dir.starts_with(root))
 }
 
+/// The store whose administration tracks the linked worktree `checkout`
+/// ([`is_store_worktree`]): its git directory is `<store>/worktrees/<id>`.
+pub(super) fn worktree_store(home: &Path, checkout: &Path) -> Option<PathBuf> {
+    if !is_store_worktree(home, checkout) {
+        return None;
+    }
+    store_of_admin(&git_dir(checkout)?).map(Path::to_path_buf)
+}
+
+/// The store a worktree administration directory `<store>/worktrees/<id>`
+/// belongs to.
+fn store_of_admin(admin: &Path) -> Option<&Path> {
+    let worktrees = admin.parent()?;
+    (worktrees.file_name()? == "worktrees")
+        .then(|| worktrees.parent())
+        .flatten()
+}
+
+/// The store of `key` (under the current home) that a checkout's `.git`
+/// pointer names by directory name, when the pointer does not resolve: the
+/// administration paths are absolute, so a moved `OCTOCODE_HOME` leaves
+/// every checkout pointing into the old one. `None` for a pointer that
+/// resolves, a standalone checkout, or a store this home does not hold.
+pub(super) fn moved_store(key: &StoreKey, checkout: &Path) -> Option<PathBuf> {
+    let is_file = fs::symlink_metadata(checkout.join(".git")).is_ok_and(|meta| meta.is_file());
+    let admin = git_dir(checkout).filter(|admin| is_file && !admin.exists())?;
+    let name = store_of_admin(&admin)?.file_name()?;
+    key.generations()
+        .into_iter()
+        .map(|generation| key.dir(generation))
+        .find(|store| store.file_name() == Some(name))
+}
+
 /// Whether no worktree is registered in `store` (its administration
 /// directory is empty or absent).
 pub(super) fn has_no_worktrees(store: &Path) -> bool {
@@ -150,6 +183,41 @@ pub(super) fn has_no_worktrees(store: &Path) -> bool {
 /// Whether `store` finished its init ([`mark_ready`]).
 pub(super) fn is_ready(store: &Path) -> bool {
     store.join(STORE_READY).is_file()
+}
+
+/// The text of the config file `path` of a store.
+#[cfg_attr(
+    octocode_clippy_ratchet,
+    expect(
+        clippy::disallowed_methods,
+        reason = "the config `git init --bare` just wrote in a store octocode owns, from the user's own git templates: it is rewritten whole, so a bounded read would refuse a valid store"
+    )
+)]
+pub(super) fn read_store_file(path: &Path) -> Result<String, CloneError> {
+    fs::read_to_string(path).map_err(storage_io)
+}
+
+/// Replace the config file `path` of a store with `text`.
+pub(super) fn write_store_file(path: &Path, text: &str) -> Result<(), CloneError> {
+    octocode_io::atomic::write_atomic(path, text.as_bytes(), false).map_err(storage_io)
+}
+
+/// The commit the detached HEAD of the linked worktree `checkout` names,
+/// read from its administration directory; `None` when that cannot be read
+/// or HEAD is no commit id.
+pub(super) fn detached_head(checkout: &Path) -> Option<String> {
+    // A commit id is at most 64 hex digits (SHA-256) plus a line ending, so a
+    // longer HEAD names no commit and is not read further.
+    const HEAD_BYTES: u64 = 66;
+    let file = fs::File::open(git_dir(checkout)?.join("HEAD")).ok()?;
+    let head = octocode_io::read::read_limited(file, HEAD_BYTES).ok()??;
+    let head = std::str::from_utf8(&head).ok()?.trim();
+    octocode_github::is_full_sha(head).then(|| head.to_ascii_lowercase())
+}
+
+/// How many worktrees are registered in `store`, live or gone.
+pub(super) fn registered_worktrees(store: &Path) -> usize {
+    fs::read_dir(store.join("worktrees")).map_or(0, |entries| entries.flatten().count())
 }
 
 /// Record that `store` finished its init.
@@ -201,7 +269,10 @@ pub(super) fn lock_path(home: &Path, clone_dir: &Path) -> PathBuf {
 
 /// A held checkout lock: the OS lock ghStructure's materialized snapshots
 /// use ([`octocode_io::lock`]), so it spans git subprocesses and other
-/// processes, and the kernel releases a crashed holder's lock.
+/// processes, and the kernel releases a crashed holder's lock. A waiting row
+/// waits as long as the holder lives: the holder's own git steps are bounded
+/// and a dead holder released the lock, so only the waiter's own deadline or
+/// cancellation ends the wait (no fixed wait fails a row whose work is valid).
 pub(super) struct CloneLock {
     _held: LockedFile,
 }
@@ -209,19 +280,12 @@ pub(super) struct CloneLock {
 impl CloneLock {
     pub fn acquire(clone_dir: &Path, context: &CloneContext<'_>) -> Result<Self, CloneError> {
         let path = lock_path(&context.config.home, clone_dir);
-        let started = std::time::Instant::now();
         let mut file = open_lock(&path).map_err(storage_io)?;
         loop {
             check_control(context)?;
             match octocode_io::lock::try_lock(file).map_err(storage_io)? {
                 TryLock::Locked(lock) => return Ok(Self { _held: lock }),
                 TryLock::Busy(busy) => file = busy,
-            }
-            if started.elapsed() >= context.config.lock_wait {
-                return Err(CloneError::new(
-                    ErrorCode::Timeout,
-                    format!("Timed out waiting for clone lock '{}'.", path.display()),
-                ));
             }
             std::thread::sleep(Duration::from_millis(100));
         }
@@ -264,12 +328,21 @@ pub(super) fn stage_dir(home: &Path, clone_dir: &Path) -> Result<PathBuf, CloneE
     Ok(path)
 }
 
+/// Rename the directory `from` to `to`: how [`promote`] moves a checkout
+/// that no worktree administration tracks.
+pub(super) fn rename_dir(from: &Path, to: &Path) -> Result<(), CloneError> {
+    fs::rename(from, to).map_err(storage_io)
+}
+
 /// Publish `stage` as `destination`: the previous destination is moved aside,
 /// `place` puts the stage there, and the previous one is removed; when
-/// `place` fails the previous destination is restored.
+/// `place` fails the previous destination is restored. `relocate` moves the
+/// previous destination, aside and back: a linked worktree moves through git
+/// so its registration follows it, whatever happens to the stage.
 pub(super) fn promote(
     stage: &Path,
     destination: &Path,
+    relocate: impl Fn(&Path, &Path) -> Result<(), CloneError>,
     place: impl FnOnce() -> Result<(), CloneError>,
 ) -> Result<(), CloneError> {
     let parent = destination.parent().ok_or_else(|| {
@@ -283,16 +356,17 @@ pub(super) fn promote(
     remove_dir(&previous);
     let had_previous = destination.exists();
     if had_previous {
-        fs::rename(destination, &previous).map_err(storage_io)?;
+        relocate(destination, &previous)?;
     }
     if let Err(error) = place() {
-        if had_previous && let Err(restore) = fs::rename(&previous, destination) {
+        if had_previous && let Err(restore) = relocate(&previous, destination) {
             return Err(CloneError::new(
                 ErrorCode::FileAccessFailed,
                 format!(
-                    "Clone publication failed ({}); previous checkout remains at '{}' because rollback failed ({restore}).",
+                    "Clone publication failed ({}); previous checkout remains at '{}' because rollback failed ({}).",
                     error.message,
-                    previous.display()
+                    previous.display(),
+                    restore.message
                 ),
             ));
         }

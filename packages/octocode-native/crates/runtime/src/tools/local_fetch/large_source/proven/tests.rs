@@ -43,11 +43,12 @@ fn placeholder_edits_from_chunks_match_the_whole_span() {
     let whole = whole_span_edits(&span, bytes);
     assert_eq!(whole.len(), 4, "{whole:?}");
     for size in 1..=bytes.len() {
-        let mut edits = PlaceholderEdits::new(&span);
+        let (mut lines, mut edits) = (PlaceholderEdits::new(&span), Vec::new());
         for chunk in bytes.chunks(size) {
-            edits.feed(chunk);
+            lines.feed(chunk, &mut edits);
         }
-        assert_eq!(edits.finish(), whole, "chunks of {size}");
+        lines.finish(&mut edits);
+        assert_eq!(edits, whole, "chunks of {size}");
     }
 }
 
@@ -90,7 +91,11 @@ fn a_long_structural_span_is_read_one_buffer_at_a_time() {
     let (proven, longest) = judged_proof(&handle, file.path());
     assert!(longest > 4 * READ_BYTES, "the span is {longest} bytes");
     super::super::take_largest_read();
-    let edits = proven.edits(&handle, &NeverCancel).expect("edits");
+    let edits = proven
+        .edits(&handle, &NeverCancel)
+        .expect("edits")
+        .all(&handle)
+        .expect("listed");
     let largest = super::super::take_largest_read();
     assert!(largest <= READ_BYTES, "one read took {largest} bytes");
     let Some(Judged::Exact(spans)) = proven.judged.get() else {
@@ -135,7 +140,11 @@ fn a_cancel_stops_a_long_span_between_reads() {
         checks: AtomicUsize::new(0),
     };
     assert_eq!(
-        proven.edits(&handle, &cancel).err().as_deref(),
+        proven
+            .edits(&handle, &cancel)
+            .err()
+            .map(|error| error.to_string())
+            .as_deref(),
         Some("deadline reached")
     );
     assert!(proven.sealed.get().is_none());

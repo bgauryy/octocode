@@ -72,7 +72,7 @@ async fn search_naming_a_missing_user_is_not_a_missing_repository() {
         crate::tools::gh_search_history::execute(&provider, only, &default_context(), &Passthrough)
             .await
             .expect_err("missing user");
-    let lead = failure.calls.expect("a lead");
+    let lead = *failure.calls.expect("a lead");
     assert!(
         lead["withoutUsers"]["input"]["queries"][0]
             .pointer("/filters/author")

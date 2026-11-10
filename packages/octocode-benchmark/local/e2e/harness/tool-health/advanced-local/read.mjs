@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { sourceLines, sourceView } from '../../responses.mjs';
+import { matchHits, sourceLines, sourceView } from '../../responses.mjs';
 import { equal, orderedEqual, fixturePath, scenario, sourcePairs, sourceText } from './helpers.mjs';
 
 const windows = fixturePath('read/windows.txt');
@@ -114,7 +114,7 @@ async function pagedMatchIdentity(ctx, surface, checks) {
     const label = `read.match-identity.${responseChars}`;
     const result = await scenario(ctx, 'localFetch', surface, { label, query: paged, checks, responseChars });
     orderedEqual(checks, `${label}.source.${surface}`, pairs(result.data), [[2, 'same'], [3, 'other'], [4, 'same']]);
-    const identity = result.data.map(data => ({ lines: sourceLines(data).map(([line]) => line), hits: data.matchedLines }));
+    const identity = result.data.map(data => ({ lines: sourceLines(data).map(([line]) => line), hits: matchHits(data) }));
     checks.push([`${label}.page-hits.${surface}`, identity.every(({ lines, hits }) =>
       JSON.stringify(hits) === JSON.stringify(lines.filter(line => line === 2))), JSON.stringify(identity)]);
     if (responseChars === 300) checks.push([`${label}.context-only-page.${surface}`,

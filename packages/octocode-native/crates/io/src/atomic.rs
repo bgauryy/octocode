@@ -108,11 +108,22 @@ pub fn write_atomic_with<T>(
     }
     // The rename already happened; a directory that cannot be synced does not
     // undo it, so this step is best effort.
-    #[cfg(unix)]
     if durable && let Some(parent) = path.parent() {
-        let _ = File::open(parent).and_then(|directory| directory.sync_all());
+        let _ = sync_dir(parent);
     }
     result
+}
+
+/// Flush the directory `path` to disk, so an entry created, renamed or removed
+/// in it survives a crash. The one owner of this durability rule: callers map
+/// the error to their own. A no-op where a directory cannot be opened for
+/// syncing (non-Unix).
+pub fn sync_dir(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    File::open(path)?.sync_all()?;
+    #[cfg(not(unix))]
+    let _ = path;
+    Ok(())
 }
 
 /// A hidden, unpredictable sibling name: `.{name}-{128-bit hex}.{suffix}`.
@@ -129,6 +140,14 @@ pub fn unique_sibling(path: &Path, suffix: &str) -> io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_directory_syncs_and_a_missing_one_is_reported_on_unix() {
+        let dir = tempfile::tempdir().unwrap();
+        sync_dir(dir.path()).unwrap();
+        #[cfg(unix)]
+        assert!(sync_dir(&dir.path().join("missing")).is_err());
+    }
 
     #[cfg(unix)]
     #[test]

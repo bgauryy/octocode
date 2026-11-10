@@ -1,5 +1,6 @@
 use super::*;
 use crate::id::ToolId;
+use crate::tools::test_support::assert_part_contract;
 use octocode_io::cancellation::Cancellation;
 use std::collections::BTreeMap;
 
@@ -72,7 +73,7 @@ fn every_graph_evidence_fragment_preserves_capabilities_and_validates() {
     let mut described = Vec::new();
     for row in fragments(data, ToolId::GraphQuery, 1700) {
         let data = &row["data"];
-        crate::tools::test_support::assert_row_contract(ToolId::GraphQuery, data);
+        assert_part_contract(ToolId::GraphQuery, &row);
         // Disclosures ride every fragment; the row's evidence arrives once, whole.
         assert_eq!(data["sourceEvidence"], descriptors);
         if data.get("argumentCoverage").is_some() {
@@ -215,7 +216,7 @@ fn graph_build_pruning_pages_do_not_split_capability_metadata() {
         ToolId::GraphBuild,
         900,
     ) {
-        crate::tools::test_support::assert_row_contract(ToolId::GraphBuild, &row["data"]);
+        assert_part_contract(ToolId::GraphBuild, &row);
         counts.extend(row["data"].get("counts").cloned());
         actual.extend(
             row["data"]["pruned"]

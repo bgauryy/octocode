@@ -88,6 +88,10 @@ impl FragmentArena {
                         .chain(middle)
                         .chain(items[after.clone()].iter().cloned())
                         .collect();
+                } else {
+                    // Planning joins only onto a fragment that holds the array
+                    // (`holds_array`); a missing slot would drop these items.
+                    debug_assert!(false, "joined items have no array at {pointer}");
                 }
                 value
             }

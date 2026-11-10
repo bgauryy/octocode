@@ -34,11 +34,35 @@ pub(crate) fn result_row(index: usize, mut data: Value, status: Option<&str>) ->
     {
         data.remove("status");
     }
+    lead_with_error_identity(&mut data);
     let mut row = json!({"index":index,"data":data});
     if let Some(status) = status {
         row["status"] = json!(status);
     }
     row
+}
+
+/// Keys an error row states first, in this order: the shape of every error
+/// row, whichever tool or layer built it.
+const ERROR_LEAD: [&str; 2] = ["errorCode", "error"];
+
+/// Reorders an error row's `data` so [`ERROR_LEAD`] come first and the rest
+/// keep their order.
+fn lead_with_error_identity(data: &mut Value) {
+    let Some(map) = data.as_object_mut() else {
+        return;
+    };
+    if !map.contains_key(ERROR_LEAD[0]) {
+        return;
+    }
+    let mut ordered = serde_json::Map::with_capacity(map.len());
+    for key in ERROR_LEAD {
+        if let Some(value) = map.remove(key) {
+            ordered.insert(key.to_owned(), value);
+        }
+    }
+    ordered.extend(std::mem::take(map));
+    *map = ordered;
 }
 
 /// Row `errorCode`s that reject the caller's input (CLI exit 2): the request

@@ -544,3 +544,4 @@ fn a_long_context_retry_is_disclosed_on_the_scout_row() {
 mod candidates;
 mod corpus;
 mod failures;
+mod recall;

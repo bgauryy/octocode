@@ -321,6 +321,31 @@ pub(crate) fn remove_null_fields(value: &mut Value) {
 mod tests;
 
 #[cfg(test)]
+mod place_numbered_tests {
+    use super::place_numbered;
+    use serde_json::json;
+
+    #[test]
+    fn each_lead_takes_the_next_free_key_and_keeps_the_others() {
+        let mut row = json!({"calls": {"broadenSearch2": "held", "other": 1}});
+        for lead in ["a", "b", "c"] {
+            place_numbered(&mut row, "broadenSearch", json!(lead));
+        }
+        assert_eq!(
+            row["calls"],
+            json!({"broadenSearch": "a", "broadenSearch2": "held", "broadenSearch3": "b", "broadenSearch4": "c", "other": 1})
+        );
+    }
+
+    #[test]
+    fn a_row_without_calls_gets_them() {
+        let mut row = json!({});
+        place_numbered(&mut row, "broadenSearch", json!("a"));
+        assert_eq!(row["calls"]["broadenSearch"], "a");
+    }
+}
+
+#[cfg(test)]
 pub(crate) mod canonical_tests;
 
 /// The one hint writer: appends each of `hints` not already stated under
@@ -408,6 +433,20 @@ pub(crate) fn set_next(row: &mut Value, key: &str, call: Value) {
         *next = serde_json::json!({});
     }
     next[key] = call;
+}
+
+/// `lead` under the next free numbered `prefix` key (`prefix`, `prefix2`, …,
+/// [`crate::id::numbered`]) of the row's `calls`, after any call already
+/// there: the one writer of a numbered lead, so no caller overwrites another's.
+pub(crate) fn place_numbered(row: &mut Value, prefix: &str, lead: Value) {
+    let mut index = 0;
+    while row["calls"]
+        .get(crate::id::numbered(prefix, index))
+        .is_some()
+    {
+        index += 1;
+    }
+    row["calls"][crate::id::numbered(prefix, index)] = lead;
 }
 
 /// Adds `call` to the row's `related`, once: a call whose query rows another

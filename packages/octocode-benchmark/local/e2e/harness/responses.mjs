@@ -215,6 +215,25 @@ export function astMatchRows(entry, index = 0) {
 }
 
 /**
+ * A capture's source text: its own `text`, or the slice of the match row's
+ * `value` its range names (native omits `text` when the value holds it).
+ * Rows and captures use 1-based UTF-16 columns, `endColumn` exclusive.
+ */
+export function captureText(row, capture) {
+  if (!capture) return undefined;
+  if (capture.text !== undefined) return capture.text;
+  const lines = String(row.value).split('\n');
+  const at = (line, column) => {
+    const index = line - row.line;
+    return [index, index === 0 ? column - row.column : column - 1];
+  };
+  const [first, start] = at(capture.line, capture.column);
+  const [last, end] = at(capture.endLine ?? capture.line, capture.endColumn);
+  if (first === last) return lines[first]?.slice(start, end);
+  return [lines[first]?.slice(start), ...lines.slice(first + 1, last), lines[last]?.slice(0, end)].join('\n');
+}
+
+/**
  * lspSearch callers as {name, kind, detail?, path, lines, declLine?, via?}:
  * flat `data.matches` call-hierarchy edges, or the compact per-file call
  * rows {symbolName, kind, line, endLine?, sites, detail?, via?} of a
@@ -279,6 +298,12 @@ export function sourceLines(file) {
   const records = view.text.split('\n');
   if (records.at(-1) === '') records.pop();
   return rangedLines(records, view.ranges);
+}
+
+/** The hit lines of one page of a matchString read: `matchedLines`, or, when the
+ * contract omits it because every line the page shows is a hit, those lines. */
+export function matchHits(file) {
+  return file.matchedLines ?? sourceLines(file).map(([line]) => line);
 }
 
 /** `records` laid over `ranges` in order; one omission marker may precede a range or follow the last. */

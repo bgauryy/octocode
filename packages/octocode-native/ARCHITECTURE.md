@@ -75,8 +75,8 @@ worker-thread isolation, sanitizer errors, and minifier fallback stay with their
 owners. These independent threads and recovery policies cannot be replaced by
 an outer row catch. Consumers call each engine operation at its defining module.
 
-Six crates, and these Cargo edges only: `engine`, `io` and `contract-types` are
-leaves; `github` → `io`, `contract-types`; `runtime` → `io`, `engine`, `github`,
+Six crates, and these Cargo edges only: `io` and `contract-types` are
+leaves; `engine` → `io`; `github` → `io`, `contract-types`; `runtime` → `io`, `engine`, `github`,
 `contract-types`; `cli` → `io`, `runtime`, `engine`, `github`, `contract-types`. `crates/runtime` is a pure `rlib`.
 `crates/io` owns shared I/O, request cancellation (`cancellation::Cancellation`,
 the one signal every check reads lock-free), request budgets, retries, HTTP
@@ -280,7 +280,7 @@ Core also derives `pageContextFields` from output field requirements and roles. 
 
 `config` reports the config and dotenv paths, key names, and config warnings. `config set` and `config unset` use `config/edit.rs` for locked atomic edits, sharing the dotenv parser and generated protected-key policy. They preserve unrelated lines and never return values.
 
-Configuration policy is independently owned by `@octocodeai/config`: a Zod declaration in `scripts/config-contract/declaration/`, which the config generator validates and emits as `config-contract.json` (plus its JSON Schema). A config test fails if the emitted files drift from the declaration. Native `build.rs` does not re-run meta-schema validation; it renders Rust config structs, defaults, environment policy, and generic resolver/validator metadata into `OUT_DIR` and fails closed on any missing or mistyped field it reads. Generated files are not hand edited.
+Configuration policy is independently owned by `@octocodeai/config`: a Zod declaration in `packages/octocode-config/scripts/config-contract/declaration/`, which the config generator validates and emits as `config-contract.json` (plus its JSON Schema). A config test fails if the emitted files drift from the declaration. Native `build.rs` does not re-run meta-schema validation; it renders Rust config structs, defaults, environment policy, and generic resolver/validator metadata into `OUT_DIR` and fails closed on any missing or mistyped field it reads. Generated files are not hand edited.
 
 ## Bundled skills
 

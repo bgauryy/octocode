@@ -1,5 +1,6 @@
 use super::*;
 use crate::id::ToolId;
+use crate::tools::test_support::assert_part_contract;
 use crate::tools::test_support::assert_row_contract;
 use octocode_io::cancellation::Cancellation;
 use std::collections::BTreeMap;
@@ -62,7 +63,7 @@ fn nested_clasify_fragments_validate_and_preserve_every_answer_and_its_context()
             .expect("valid build_page")
         {
             let data = &row["data"];
-            assert_row_contract(ToolId::Clasify, data);
+            assert_part_contract(ToolId::Clasify, &row);
             definitions += usize::from(data.get("questions").is_some());
             if data["next"].get("nextPage").is_some() {
                 next_calls += 1;

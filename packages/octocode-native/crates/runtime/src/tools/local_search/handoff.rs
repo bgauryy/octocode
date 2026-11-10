@@ -104,18 +104,17 @@ pub(super) const READ_HANDOFF_MAX_HITS: usize = 20;
 pub(super) const READ_HANDOFF_CONTEXT: u32 = 6;
 
 /// `(start, end)` windows of `context` lines around each line, merged where
-/// they overlap or touch, in line order; none ends past `last`, the file's
-/// last line when known.
+/// they overlap or touch, in line order. A window that runs past the file's
+/// end is clipped by the read it feeds, so the file is never read for its
+/// length.
 pub(super) fn hit_windows(
     lines: impl IntoIterator<Item = u32>,
     context: SearchContext,
-    last: Option<u32>,
 ) -> Vec<(u32, u32)> {
     crate::tools::line_spans::merge_spans(lines.into_iter().map(|line| {
-        let end = line.saturating_add(context.after);
         (
             line.saturating_sub(context.before).max(1),
-            last.map_or(end, |last| end.min(last.max(line))),
+            line.saturating_add(context.after),
         )
     }))
 }
@@ -138,7 +137,6 @@ pub(super) fn read_handoff(
     let windows = hit_windows(
         hits.iter().flat_map(row_lines),
         SearchContext::symmetric(READ_HANDOFF_CONTEXT),
-        crate::tools::line_spans::file_lines(&source_of(root, top)),
     );
     if windows.len() <= RANGES_MAX_ITEMS {
         return ranges_read(path, &windows);

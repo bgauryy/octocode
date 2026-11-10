@@ -1,7 +1,24 @@
 //! Failures and their recovery: a renamed repository, the search window, a missing scope or ref.
-use super::{HistoryFailure, HistorySearch, gh_search_history_query, leads};
+use super::{HistorySearch, gh_search_history_query, leads};
+use crate::tools::gh_shared::GhFailure;
 use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext};
-use serde_json::json;
+use serde_json::{Value, json};
+
+/// A history search's failure for `error`, as [`crate::tools::gh_shared::history`] words it.
+pub(super) fn history_failure(error: ProviderError) -> GhFailure {
+    crate::tools::gh_shared::history::history_tool_failure(error, true)
+}
+
+/// [`history_failure`] with its recovery `calls`, and `hints` that label them
+/// (empty: the history hint for its error).
+fn with_leads(error: ProviderError, calls: Option<Value>, hints: Vec<String>) -> GhFailure {
+    let mut failure = history_failure(error);
+    if !hints.is_empty() {
+        failure.hints = hints;
+    }
+    failure.calls = calls.map(Box::new);
+    failure
+}
 
 /// Points the query at the repository's canonical name when it was renamed
 /// ([`crate::tools::gh_shared::rescope_on_rename`]), returning the rename
@@ -39,24 +56,15 @@ pub(super) async fn follow_rename(
 
 /// A page past GitHub's 1,000-result search window, with its one repair:
 /// the last reachable page (`repair`).
-pub(super) fn window_failure(
-    error: ProviderError,
-    query: &HistorySearch,
-    per: usize,
-) -> HistoryFailure {
-    let failure = crate::tools::gh_shared::with_search_repair(
-        crate::tools::gh_shared::GhFailure::new(error, String::new()),
+pub(super) fn window_failure(error: ProviderError, query: &HistorySearch, per: usize) -> GhFailure {
+    crate::tools::gh_shared::with_search_repair(
+        history_failure(error),
         crate::id::ToolId::GhSearchHistory,
         &query.query,
         per,
         None,
         None,
-    );
-    HistoryFailure {
-        error: failure.error,
-        calls: failure.calls.map(|next| *next),
-        hints: failure.hints,
-    }
+    )
 }
 
 /// A bare GitHub 404 of a listing, or a search scoped to a missing
@@ -65,31 +73,24 @@ pub(super) fn window_failure(
 /// one lead (it fails on a missing repository). Otherwise the repository
 /// itself did not resolve: the message names it and a search for its name is
 /// the lead.
-pub(super) fn missing_scope_failure(
-    mut error: ProviderError,
-    query: &HistorySearch,
-) -> HistoryFailure {
+pub(super) fn missing_scope_failure(mut error: ProviderError, query: &HistorySearch) -> GhFailure {
     if error.reason == Some(ProviderErrorReason::UserNotFound) {
         let next = leads::without_users(query).map(|lead| json!({ "withoutUsers": lead }));
-        return HistoryFailure {
-            error: Box::new(error),
-            calls: next,
-            hints: Vec::new(),
-        };
+        return with_leads(error, next, Vec::new());
     }
     // A search scoped to a missing repository fails typed (GitHub's 422);
     // a listing's 404 does not say which of repository and ref is missing.
     let repository_missing = crate::tools::gh_shared::repository_not_found(&error);
     if error.kind != ProviderErrorKind::NotFound || (error.reason.is_some() && !repository_missing)
     {
-        return error.into();
+        return history_failure(error);
     }
     let (Some(owner), Some(repo)) = (
         gh_search_history_query::owner(query),
         gh_search_history_query::repo(query),
     ) else {
         error.message = crate::tools::gh_shared::provider_message(&error).into_boxed_str();
-        return error.into();
+        return history_failure(error);
     };
     let reference = gh_search_history_query::reference(query).filter(|_| !repository_missing);
     let Some(reference) = reference else {
@@ -97,24 +98,22 @@ pub(super) fn missing_scope_failure(
         // its recovery is the owner/repo spelling, not a history filter.
         error.message =
             crate::tools::gh_shared::repository_not_found_message(owner, repo).into_boxed_str();
-        return HistoryFailure {
-            error: Box::new(error),
-            calls: Some(crate::tools::gh_shared::repository_recovery(
+        return with_leads(
+            error,
+            Some(crate::tools::gh_shared::repository_recovery(
                 Some(owner),
                 repo,
             )),
-            hints: vec![crate::tools::gh_shared::REPOSITORY_SEARCH_HINT.to_owned()],
-        };
+            vec![crate::tools::gh_shared::REPOSITORY_SEARCH_HINT.to_owned()],
+        );
     };
     error.message =
         format!("Ref \"{reference}\" or repository {owner}/{repo} not found").into_boxed_str();
-    HistoryFailure {
-        error: Box::new(error),
-        calls: Some(
-            serde_json::json!({"viewRefs": crate::tools::gh_shared::ref_recovery(owner, repo)}),
-        ),
-        hints: Vec::new(),
-    }
+    with_leads(
+        error,
+        Some(json!({"viewRefs": crate::tools::gh_shared::ref_recovery(owner, repo)})),
+        Vec::new(),
+    )
 }
 
 /// A commit listing at a `ref` that did not resolve ([`missing_scope_failure`]
@@ -122,10 +121,10 @@ pub(super) fn missing_scope_failure(
 /// names its default branch and offers the same listing at it.
 pub(super) async fn at_default_branch(
     provider: &octocode_github::GitHubProvider,
-    mut failure: HistoryFailure,
+    mut failure: GhFailure,
     query: &HistorySearch,
     context: &RequestContext,
-) -> HistoryFailure {
+) -> GhFailure {
     let (Some(owner), Some(repo), Some(reference)) = (
         gh_search_history_query::owner(query),
         gh_search_history_query::repo(query),
@@ -133,13 +132,13 @@ pub(super) async fn at_default_branch(
     ) else {
         return failure;
     };
-    let Some(next) = failure
+    if !failure
         .calls
-        .as_mut()
-        .filter(|next| next.get("viewRefs").is_some())
-    else {
+        .as_ref()
+        .is_some_and(|next| next.get("viewRefs").is_some())
+    {
         return failure;
-    };
+    }
     let row = crate::response::result::query_row(&query.query, &[]);
     if let Some(retry) = crate::tools::gh_shared::default_branch_retry(
         provider,
@@ -151,11 +150,12 @@ pub(super) async fn at_default_branch(
     .await
     {
         // The repository resolved, so only the ref is missing.
-        failure.error.message = retry
-            .message(&format!("Ref \"{reference}\" not found in {owner}/{repo}"))
-            .into_boxed_str();
+        failure.message =
+            retry.message(&format!("Ref \"{reference}\" not found in {owner}/{repo}"));
         let (name, lead) = retry.lead();
-        next[name] = lead;
+        if let Some(next) = failure.calls.as_mut() {
+            next[name] = lead;
+        }
     }
     failure
 }

@@ -5,6 +5,14 @@ use std::path::{Path, PathBuf};
 
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
+/// A rule file that exists but could not be read: it applies no rules.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnreadableRule {
+    pub path: PathBuf,
+    /// Why the read failed.
+    pub kind: std::io::ErrorKind,
+}
+
 use super::IGNORE_FILES;
 use super::git_dir::{checkout_git_dir, common_git_dir};
 
@@ -18,6 +26,8 @@ pub(super) struct Level {
     pub(super) exclude: Gitignore,
     /// The directory is a repository root ([`crate::search::repository`]).
     pub(super) has_git: bool,
+    /// Rule files that exist but could not be read: they count as no rules.
+    pub(super) unreadable: Vec<UnreadableRule>,
 }
 
 #[cfg(test)]
@@ -30,32 +40,44 @@ impl Level {
     pub(super) fn load(dir: &Path) -> Self {
         #[cfg(test)]
         LEVELS_STATED.with(|levels| levels.set(levels.get() + 1));
-        let [gitignore, dot_ignore] = IGNORE_FILES.map(|name| rules_file(dir, &dir.join(name)));
+        let mut unreadable = Vec::new();
+        let [gitignore, dot_ignore] =
+            IGNORE_FILES.map(|name| rules_file(dir, &dir.join(name), &mut unreadable));
+        let exclude = git_exclude_file(dir).map_or_else(Gitignore::empty, |file| {
+            rules_file(dir, &file, &mut unreadable)
+        });
         Self {
             dot_ignore,
             gitignore,
-            exclude: git_exclude_file(dir)
-                .map_or_else(Gitignore::empty, |file| rules_file(dir, &file)),
+            exclude,
             has_git: crate::search::repository::is_root(dir),
+            unreadable,
         }
     }
 
     /// [`Self::load`] of a directory whose listing was just read: it shows
     /// which rule files exist, so only those are looked at.
     pub(super) fn listed(dir: &Path, listed: ListedRules) -> Self {
-        let rules = |present: bool, name: &str| {
+        let mut unreadable = Vec::new();
+        let mut rules = |present: bool, name: &str| {
             if present {
-                rules_file(dir, &dir.join(name))
+                rules_file(dir, &dir.join(name), &mut unreadable)
             } else {
                 Gitignore::empty()
             }
         };
+        let dot_ignore = rules(listed.ignore, ".ignore");
+        let gitignore = rules(listed.gitignore, ".gitignore");
+        let exclude = git_exclude_file_when(listed.git, dir)
+            .map_or_else(Gitignore::empty, |file| {
+                rules_file(dir, &file, &mut unreadable)
+            });
         Self {
-            dot_ignore: rules(listed.ignore, ".ignore"),
-            gitignore: rules(listed.gitignore, ".gitignore"),
-            exclude: git_exclude_file_when(listed.git, dir)
-                .map_or_else(Gitignore::empty, |file| rules_file(dir, &file)),
+            dot_ignore,
+            gitignore,
+            exclude,
             has_git: (listed.git || listed.jj) && crate::search::repository::is_root(dir),
+            unreadable,
         }
     }
 }
@@ -76,13 +98,22 @@ pub struct ListedRules {
 }
 
 /// The rules of `file`, rooted at `dir`; empty when it is absent. A
-/// malformed line is skipped and the remaining rules still apply.
-fn rules_file(dir: &Path, file: &Path) -> Gitignore {
+/// malformed line is skipped and the remaining rules still apply. A file that
+/// exists but cannot be read (permissions, a race) has no rules and is pushed
+/// to `unreadable`, so the caller can say the walk ran without them.
+fn rules_file(dir: &Path, file: &Path, unreadable: &mut Vec<UnreadableRule>) -> Gitignore {
     if !file.is_file() {
         return Gitignore::empty();
     }
     let mut builder = GitignoreBuilder::new(dir);
-    let _ = builder.add(file);
+    if let Some(error) = builder.add(file)
+        && let Some(io) = error.io_error()
+    {
+        unreadable.push(UnreadableRule {
+            path: file.to_path_buf(),
+            kind: io.kind(),
+        });
+    }
     builder.build().unwrap_or_else(|_| Gitignore::empty())
 }
 

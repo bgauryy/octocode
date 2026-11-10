@@ -16,7 +16,7 @@ use crate::response::result::ToolError;
 pub(super) use costs::priced_on_this_thread;
 pub(super) use costs::{FilePrice, NamePricing};
 use costs::{PageCosts, RowName};
-pub(super) use entries::{MAX_MORE_LINES, file_pagination, row_chars};
+pub(super) use entries::{file_pagination, row_chars};
 use entries::{fits_whole, listed_file_chars};
 use octocode_contract_types::LocalSearchQuery;
 use octocode_engine::num::saturating_u32;

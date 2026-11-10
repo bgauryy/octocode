@@ -25,6 +25,16 @@ impl NativeLspClient {
         }
     }
 
+    /// Whether a scope snapshot is remembered for this server process.
+    #[must_use]
+    pub fn has_watched_snapshot(&self) -> bool {
+        self.inner
+            .watched_files
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_some()
+    }
+
     /// Replace the remembered scope snapshot (relative path → stamp) with
     /// `current` and return what changed: `(relative path, change type)`
     /// for every created, changed or deleted file. `unchanged(path, before,

@@ -44,3 +44,27 @@ fn explicit_common_status_consumes_only_its_equal_producer_copy() {
         assert_eq!(row["data"], evidence);
     }
 }
+
+/// One error shape: whichever order a tool built `error` and `errorCode` in,
+/// the row states them first and in the same order, the rest unchanged.
+#[test]
+fn every_error_row_leads_with_its_code_then_its_message() {
+    let rest = json!({"httpStatus":404,"hints":["check the name"]});
+    for built in [
+        json!({"error":"gone","errorCode":"notFound","httpStatus":404,"hints":["check the name"]}),
+        json!({"httpStatus":404,"errorCode":"notFound","hints":["check the name"],"error":"gone"}),
+    ] {
+        let row = result_row(0, built, Some("error"));
+        let keys = row["data"]
+            .as_object()
+            .expect("data")
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        assert_eq!(keys[..2], ERROR_LEAD);
+        for (name, value) in rest.as_object().expect("rest") {
+            assert_eq!(row["data"][name], *value);
+        }
+        assert_eq!(keys.len(), 4);
+    }
+}

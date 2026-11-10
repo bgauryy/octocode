@@ -186,7 +186,7 @@ async fn hierarchy_walk_is_breadth_first_and_labels_every_edge_with_level_and_vi
     assert_eq!(edges[0]["from"]["kind"], "function");
     assert_eq!(
         edges[0]["fromRanges"],
-        serde_json::json!([{"startLine": 3, "startCharacter": 5, "endLine": 3}])
+        serde_json::json!([{"startLine": 3, "startCharacter": 5}])
     );
     assert_eq!(edges[2]["via"]["line"], b + 1);
     assert_eq!(edges[2]["via"]["character"], 10);
@@ -238,8 +238,8 @@ async fn repeated_parent_node_pairs_merge_into_one_edge_with_all_sites() {
     assert_eq!(
         edge["fromRanges"],
         serde_json::json!([
-            {"startLine": 3, "startCharacter": 5, "endLine": 3},
-            {"startLine": 4, "startCharacter": 5, "endLine": 4}
+            {"startLine": 3, "startCharacter": 5},
+            {"startLine": 4, "startCharacter": 5}
         ])
     );
 }

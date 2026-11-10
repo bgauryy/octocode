@@ -8,8 +8,7 @@ fn stale_lock_and_failed_publication_preserve_existing_output() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let mut config = CloneConfig::persistent(&home);
-    config.lock_wait = Duration::from_secs(1);
+    let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let first = clone_pinned(&fixture, &query(), &context).expect("first clone");
     let clone_path = PathBuf::from(&first.location.local_path);
@@ -33,7 +32,15 @@ fn stale_lock_and_failed_publication_preserve_existing_output() {
     fs::write(destination.join("old"), "preserved").expect("old content");
     let missing_stage = root.0.join("missing-stage");
     let failed_placement = || Err(CloneError::new(ErrorCode::GitFailed, "placement failed"));
-    assert!(storage::promote(&missing_stage, &destination, failed_placement).is_err());
+    assert!(
+        storage::promote(
+            &missing_stage,
+            &destination,
+            storage::rename_dir,
+            failed_placement
+        )
+        .is_err()
+    );
     assert_eq!(
         fs::read_to_string(destination.join("old")).expect("restored"),
         "preserved"
@@ -47,8 +54,7 @@ fn live_lock_and_failed_sparse_clone_preserve_other_outputs() {
     let policy = test_support::workspace_policy(&root.0);
     let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
-    let mut config = CloneConfig::persistent(&home);
-    config.lock_wait = Duration::from_millis(120);
+    let config = CloneConfig::persistent(&home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let main = clone_pinned(&fixture, &query(), &context).expect("main clone");
     let main_path = PathBuf::from(&main.location.local_path);
@@ -75,7 +81,12 @@ fn live_lock_and_failed_sparse_clone_preserve_other_outputs() {
         octocode_io::lock::TryLock::Locked(held) => held,
         octocode_io::lock::TryLock::Busy(_) => panic!("the live lock is free"),
     };
-    let error = clone_pinned(&fixture, &deep_tag, &context).expect_err("live lock must time out");
+    // A live holder is waited for until the caller's own deadline.
+    let short = CloneContext {
+        deadline: Instant::now() + Duration::from_millis(300),
+        ..setup(&runner, &config, &endpoint, &policy, &NeverCancel, None)
+    };
+    let error = clone_pinned(&fixture, &deep_tag, &short).expect_err("live lock must time out");
     assert_eq!(error.code, ErrorCode::Timeout);
     drop(held);
 
@@ -100,7 +111,9 @@ fn live_lock_and_failed_sparse_clone_preserve_other_outputs() {
 }
 
 /// What the lifecycle rows below share: a runner, a home and a first row.
-fn first_row(fixture: &Fixture) -> (test_support::Fixture, PathBuf, RewriteRunner, PathBuf) {
+pub(super) fn first_row(
+    fixture: &Fixture,
+) -> (test_support::Fixture, PathBuf, RewriteRunner, PathBuf) {
     let (root, home) = home_root();
     let runner = fixture_runner(fixture);
     let policy = test_support::workspace_policy(&root.0);
@@ -112,7 +125,7 @@ fn first_row(fixture: &Fixture) -> (test_support::Fixture, PathBuf, RewriteRunne
     (root, home, runner, path)
 }
 
-fn again(
+pub(super) fn again(
     fixture: &Fixture,
     root: &test_support::Fixture,
     home: &Path,

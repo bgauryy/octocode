@@ -144,6 +144,7 @@ impl Request<'_> {
             query,
             sources: &mut sources,
             cancel,
+            scope: &scope,
             path,
             root_only,
             line: anchor.line,
@@ -156,6 +157,7 @@ impl Request<'_> {
         if row.get("errorCode").is_some() {
             return Ok(Some(row));
         }
+        note_empty_answer(&mut row, query, &bridge, path, anchor.line, cancel).await?;
         receipt_of(
             &mut row,
             query,
@@ -172,6 +174,42 @@ impl Request<'_> {
         }
         Ok(Some(row))
     }
+}
+
+/// An empty anchored answer carries what the document's diagnostics held, as
+/// a server's does (`analysisContext`): the editor's report says whether the
+/// emptiness may rest on errors. The note is additive; an editor that cannot
+/// report leaves `unavailable`, and only cancellation fails the request.
+async fn note_empty_answer(
+    row: &mut Value,
+    query: &LspSearchQuery,
+    bridge: &Bridge,
+    path: &str,
+    anchor_line: u32,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<(), Fault> {
+    let anchored = !matches!(
+        lsp_search_query::op(query),
+        Op::DocumentSymbols | Op::WorkspaceSymbol | Op::Diagnostic
+    );
+    if !anchored || row.get("status").and_then(Value::as_str) != Some("empty") {
+        return Ok(());
+    }
+    let report =
+        match super::cancellable(cancel, bridge.ask("diagnostics", json!({ "path": path }))).await?
+        {
+            Ok(report) => Some(super::ops::diagnostic_items(Some(report))),
+            Err(_) => None,
+        };
+    super::analysis_context::annotate_diagnostics(
+        row,
+        query,
+        report
+            .as_ref()
+            .map(|(items, truncated)| (items, *truncated)),
+        anchor_line + 1,
+    );
+    Ok(())
 }
 
 /// The row's receipt: the editor answered (`level: ide`, `ide.name`), for

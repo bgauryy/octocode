@@ -10,6 +10,7 @@
 //! name only other modules is set aside as checked there. Other languages,
 //! an anchor that does not start a declaration, trait items, macros and
 //! every undecidable file keep every file in reach.
+use octocode_engine::num::saturating_u32;
 use std::path::{Path, PathBuf};
 
 mod cargo;
@@ -76,7 +77,7 @@ impl Reach {
             site.line,
             site.character,
         ) {
-            let line = |line| u32::try_from(line).unwrap_or(u32::MAX);
+            let line = |line| saturating_u32(line);
             return Some(Self::Local {
                 file: site.path.clone(),
                 lines: line(first)..=line(last),

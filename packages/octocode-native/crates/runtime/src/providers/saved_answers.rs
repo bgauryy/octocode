@@ -15,6 +15,7 @@
 //! body, so a body is reached only through a credential that received it.
 use crate::cache::{CacheClass, CacheConfig, CacheKey, DiskCodec, Store};
 use crate::security::{ContentSecurity, sanitize_json};
+use octocode_engine::num::saturating_i64;
 use octocode_github::{AnswerBody, ProviderAnswer, SavedAnswer, SavedAnswers};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -217,7 +218,7 @@ impl ReusedSince {
 /// between executions of one request, so the pager keeps it out of every
 /// snapshot and page measure by its name.
 pub(crate) fn disclose_reuse(data: &mut Value, observed_ms: u64) {
-    let seconds = i64::try_from(observed_ms / 1000).unwrap_or(i64::MAX);
+    let seconds = saturating_i64(observed_ms / 1000);
     if let Some(object) = data.as_object_mut() {
         object.insert(
             "observedAt".into(),

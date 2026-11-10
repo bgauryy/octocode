@@ -8,6 +8,7 @@
 use crate::id::ToolId;
 use octocode_contract_types::ErrorCode;
 use octocode_contract_types::{Selection, SelectionScope, SelectionStatus, SelectionUnit};
+use octocode_engine::num::saturating_i64;
 use serde_json::Value;
 
 /// Add the `unavailable` receipt a classified row that failed lacks.
@@ -80,7 +81,7 @@ pub(crate) fn unavailable(
     total: usize,
     reason: &str,
 ) -> Selection {
-    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    let total = saturating_i64(total);
     Selection {
         status: SelectionStatus::Unavailable,
         scope,

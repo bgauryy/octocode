@@ -4,6 +4,7 @@ use crate::response::result::FailureKind;
 use crate::tools::judgment::{ClassificationError, Judged};
 use crate::tools::source_capture::Captured;
 use octocode_contract_types::ErrorCode;
+use octocode_engine::num::saturating_i64;
 use serde_json::{Map, Value, json};
 
 pub(super) fn answered(
@@ -83,7 +84,7 @@ pub(super) fn failed(
 /// (`ClasifyEvaluationUsage`): the field names are the generated type's, never
 /// spelled here, so a contract rename reaches every evaluate row.
 pub(super) fn evaluation_usage(input_tokens: u64, output_tokens: u64, calls: u64) -> Value {
-    let count = |value| i64::try_from(value).unwrap_or(i64::MAX);
+    let count = |value| saturating_i64(value);
     serde_json::to_value(octocode_contract_types::ClasifyEvaluationUsage {
         input_tokens: count(input_tokens),
         output_tokens: count(output_tokens),

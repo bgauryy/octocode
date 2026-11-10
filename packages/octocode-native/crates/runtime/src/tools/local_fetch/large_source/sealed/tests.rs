@@ -20,11 +20,15 @@ fn apply(raw: &[u8], edits: &[Edit]) -> Vec<u8> {
 
 fn record(raw: &[u8], limits: Limits, piece: usize) -> Vec<Edit> {
     let scan = ContentSecurity::new();
-    let mut recorder = Recorder::new(Path::new("/w/big.js"), limits);
+    let mut recorder = Recorder::new(
+        Path::new("/w/big.js"),
+        limits,
+        super::super::memory().reserve(0).expect("room"),
+    );
     for chunk in raw.chunks(piece) {
         recorder.feed(chunk, &scan);
     }
-    recorder.finish(&scan).expect("recorded")
+    recorder.finish(&scan).expect("recorded").0
 }
 
 fn whole(raw: &str) -> String {
@@ -251,4 +255,28 @@ fn a_broken_record_places_no_offset() {
     let edits = [edit(20..30, "[R]")];
     let keys = [(10..50, 7)];
     assert_eq!(keyed_offset(&edits, &keys, 0, 30), None);
+}
+
+/// B289: a data object on one line far longer than a chunk and its overlap
+/// seals as a whole-source scan seals it: the scanner's judgement of the
+/// object does not depend on which chunk holds a value.
+#[test]
+fn a_long_line_data_object_seals_as_a_whole_scan_does() {
+    let mut text = String::from(r#"{"kind":"Secret","data":{"#);
+    let mut n = 0;
+    while text.len() < 3 * Limits::REAL.chunk {
+        text.push_str(&format!(r#""k{n:06}":"v{n:06}","#));
+        n += 1;
+    }
+    text.push_str("\"z\":\"zz\"}}\n");
+    let expected = whole(&text);
+    assert!(
+        !expected.contains("\"v0"),
+        "the whole scan redacts every value"
+    );
+    for piece in [4096, 65536] {
+        let edits = record(text.as_bytes(), Limits::REAL, piece);
+        let sealed = String::from_utf8(apply(text.as_bytes(), &edits)).expect("utf8");
+        assert_eq!(sealed, expected, "piece {piece}");
+    }
 }

@@ -52,21 +52,13 @@ pub struct ItemPagination {
     pub page: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_pages: Option<u32>,
-    /// Omitted on a streamed page where it equals the shown rows plus
-    /// `moreLines` and `moreLinesUnlisted`.
+    /// The file's rows on every page, so the rows past this page are
+    /// counted; the page cursor reaches them.
     #[serde(rename = "totalItems", skip_serializing_if = "Option::is_none")]
     pub total_matches: Option<u32>,
     pub has_more: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next: Option<serde_json::Value>,
-    /// Lines of this file's hits on later pages, ascending (numbers,
-    /// not a packed list): read them directly or page on.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub more_lines: Option<Vec<u32>>,
-    /// Later-page hit lines past the listed `moreLines` (the match pages
-    /// still hold them).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub more_lines_unlisted: Option<u32>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub out_of_range: bool,
 }

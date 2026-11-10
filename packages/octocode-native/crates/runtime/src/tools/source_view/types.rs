@@ -1,5 +1,6 @@
 use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
 use octocode_contract_types::{ErrorCode, LocalFetchQuery, ReadProgressUnit, ReadView};
+use octocode_engine::num::saturating_i64;
 use serde::{Deserialize, Serialize};
 
 pub(crate) mod local_fetch_query;
@@ -13,7 +14,7 @@ pub use result::{LocalFetchResult, ReadStatus};
 
 /// Encodes an engine `usize` as a non-negative wire integer.
 pub(crate) fn wire_count(value: usize) -> i64 {
-    i64::try_from(value).unwrap_or(i64::MAX)
+    saturating_i64(value)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -121,51 +122,25 @@ pub enum PartialReason {
     ScanBudget,
     /// The walk that places a named structure's secret values (a Kubernetes
     /// Secret, a JSON Web Key) outgrew the memory budget, so every value of it
-    /// is hidden, secret or not. Emitted only once core lists it
-    /// ([`PartialReason::walk_memory_budget`]).
+    /// is hidden, secret or not.
     #[serde(rename = "securityWalkMemoryBudget")]
     SecurityWalkMemoryBudget,
-}
-
-/// The wire name of [`PartialReason::SecurityWalkMemoryBudget`].
-const WALK_MEMORY_BUDGET: &str = "securityWalkMemoryBudget";
-
-impl PartialReason {
-    /// The reason a page hidden by the every-value fallback gives, when the
-    /// embedded contract declares one: core owns the value and its meaning, so
-    /// native emits it only once a regeneration brought it in.
-    pub(crate) fn walk_memory_budget() -> Option<Self> {
-        Self::walk_memory_budget_given(|code| {
-            crate::contracts::partial_reason_meaning(code).is_some()
-        })
-    }
-
-    fn walk_memory_budget_given(declared: impl Fn(&str) -> bool) -> Option<Self> {
-        declared(WALK_MEMORY_BUDGET).then_some(Self::SecurityWalkMemoryBudget)
-    }
 }
 
 #[cfg(test)]
 mod reason_tests {
     use super::*;
 
-    /// The variant serializes as the value the core request names, and is
-    /// chosen exactly when the contract declares it.
+    /// The variant serializes as the value core declares for it.
     #[test]
-    fn the_walk_budget_reason_is_the_declared_value_only() {
+    fn the_walk_budget_reason_is_the_declared_value() {
         assert_eq!(
             serde_json::to_value(PartialReason::SecurityWalkMemoryBudget).expect("json"),
-            serde_json::json!(WALK_MEMORY_BUDGET)
+            serde_json::json!("securityWalkMemoryBudget")
         );
-        assert_eq!(
-            PartialReason::walk_memory_budget_given(|code| code == WALK_MEMORY_BUDGET),
-            Some(PartialReason::SecurityWalkMemoryBudget)
-        );
-        assert_eq!(PartialReason::walk_memory_budget_given(|_| false), None);
-        // The embedded contract decides: off until the regeneration lists it.
-        assert_eq!(
-            PartialReason::walk_memory_budget().is_some(),
-            crate::contracts::partial_reason_meaning(WALK_MEMORY_BUDGET).is_some()
+        assert!(
+            crate::contracts::partial_reason_meaning("securityWalkMemoryBudget").is_some(),
+            "the embedded contract declares the reason"
         );
     }
 }

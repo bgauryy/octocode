@@ -56,3 +56,41 @@ fn continuation_keeps_the_scope_path_and_snapshot() {
         json!({"operation":"cycles","path":"packages/app","graph":"snapshot-id","list":"cycleNodes","offset":50})
     );
 }
+
+/// A default witness or unresolved row states what differs between rows: its
+/// digest `id` is provenance (`includeProvenance:true` returns it), `test`
+/// appears only when true, and `evidence` is the page's.
+#[test]
+fn default_evidence_rows_leave_out_id_false_test_and_the_pages_evidence() {
+    use crate::tools::ast_graph::test_support::{ask_with, fixture, ingest};
+    let dir = fixture(&[(
+        "app/linked.ts",
+        "function target() {} export function run() { target(); missing(); }\n",
+    )]);
+    let built = ingest(&dir.0, &dir.0.join("app"));
+    assert!(built.value.get("error").is_none(), "{}", built.value);
+    for op in ["witnesses", "unresolved"] {
+        let page = |provenance: bool| {
+            ask_with(&dir.0, op, Some("linked.ts#run"), |options| {
+                options.include_provenance = provenance;
+            })
+        };
+        let lean = page(false);
+        let rows = lean["rows"].as_array().expect("rows");
+        assert!(!rows.is_empty(), "{op}: {lean}");
+        assert_eq!(lean["evidence"], "syntax", "{op}: {lean}");
+        for row in rows {
+            for key in ["id", "evidence"] {
+                assert!(row.get(key).is_none(), "{op} {key}: {row}");
+            }
+            assert_ne!(row.get("test"), Some(&json!(false)), "{op}: {row}");
+        }
+        crate::tools::test_support::assert_row_contract(crate::id::ToolId::GraphQuery, &lean);
+        let full = page(true);
+        for row in full["rows"].as_array().expect("rows") {
+            assert_eq!(row["id"].as_str().map(str::len), Some(64), "{op}: {row}");
+            assert!(row.get("evidence").is_none(), "{op}: {row}");
+        }
+        crate::tools::test_support::assert_row_contract(crate::id::ToolId::GraphQuery, &full);
+    }
+}

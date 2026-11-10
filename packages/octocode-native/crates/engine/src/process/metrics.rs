@@ -8,6 +8,7 @@ use std::time::Duration;
 use super::descendants;
 #[cfg(target_os = "linux")]
 use super::proc_table::{read_proc_cpu_ticks, read_proc_rss};
+use crate::num::saturating_u64;
 
 /// Kernel task info of `pid`; `None` when the process is gone.
 #[cfg(target_os = "macos")]
@@ -60,9 +61,7 @@ fn cpu_time(pid: u32) -> Option<Duration> {
     let info = task_info(pid)?;
     let ticks = u128::from(info.pti_total_user) + u128::from(info.pti_total_system);
     let nanos = ticks * u128::from(numer) / u128::from(denom);
-    Some(Duration::from_nanos(
-        u64::try_from(nanos).unwrap_or(u64::MAX),
-    ))
+    Some(Duration::from_nanos(saturating_u64(nanos)))
 }
 
 #[cfg(target_os = "linux")]

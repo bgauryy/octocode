@@ -1,6 +1,7 @@
 //! Rust receiver bindings.
 use super::*;
 use crate::graph::GraphReceiverCall;
+use crate::num::saturating_u32;
 
 /// A Rust function's declared return type and the type `?` yields from it,
 /// as receiver types spell them (`Self` is the enclosing impl's type). An
@@ -55,7 +56,7 @@ fn value_call(value: Node<'_>) -> Option<(Node<'_>, bool)> {
 }
 
 pub(super) fn call_reference(call: Node<'_>, unwrap: bool) -> GraphReceiverCall {
-    let byte = |offset: usize| u32::try_from(offset).unwrap_or(u32::MAX);
+    let byte = |offset: usize| saturating_u32(offset);
     GraphReceiverCall {
         start_byte: byte(call.start_byte()),
         end_byte: byte(call.end_byte()),

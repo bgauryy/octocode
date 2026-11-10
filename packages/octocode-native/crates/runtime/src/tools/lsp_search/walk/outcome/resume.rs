@@ -3,7 +3,7 @@
 use super::super::Resume;
 use super::super::nodes::anchor_range;
 use crate::tools::lsp_search::render::uri_to_path;
-use crate::tools::lsp_search::source::Source;
+use crate::tools::lsp_search::source::{Source, read_bounded_source};
 use crate::tools::lsp_search::{LspSearchQuery, lsp_search_query};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -14,8 +14,9 @@ use octocode_contract_types::LspSearchQuery as Query;
 /// the same operation re-anchored on the node by its name and 1-based selection line, with
 /// `occurrence` when the name repeats on that line before the node (no
 /// 0-based coordinate reaches an input). `sources` keeps each file read for
-/// the request's other resume points, split into lines as the server
-/// counts them.
+/// the request's other resume points, read as the server got it (the bounded
+/// read and text admission of [`read_bounded_source`]) and split into lines
+/// as the server counts them.
 pub(super) fn resume_query(
     query: &LspSearchQuery,
     resume: &Resume,
@@ -31,7 +32,11 @@ pub(super) fn resume_query(
     let path = uri_to_path(uri);
     let source = sources
         .entry(path.clone())
-        .or_insert_with(|| std::fs::read_to_string(&path).ok().map(Source::new));
+        .or_insert_with(|| {
+            read_bounded_source(std::path::Path::new(&path))
+                .ok()
+                .map(Source::new)
+        });
     let order = source
         .as_ref()
         .and_then(|source| order_on_line(source, line, name, character))

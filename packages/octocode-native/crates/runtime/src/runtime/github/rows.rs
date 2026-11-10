@@ -103,27 +103,9 @@ pub(in crate::runtime) fn provider_error(error: ProviderError) -> DomainResult {
 }
 
 /// A history failure row; the wording comes from the history tools
-/// (`search` marks ghSearchHistory), `next` is ghGetHistoryItem's recovery
-/// lead.
-pub(super) fn history_error(
-    error: ProviderError,
-    search: bool,
-    next: Option<Value>,
-) -> DomainResult {
+/// (`search` marks ghSearchHistory).
+pub(super) fn history_error(error: ProviderError, search: bool) -> DomainResult {
     let (message, hint) = crate::tools::gh_shared::history::history_failure(&error, search);
     let hints = hint.map(str::to_owned).into_iter().collect();
-    provider_row(&error, message, hints, next)
-}
-
-/// A ghSearchHistory failure row: the hints the failure chose to label its
-/// leads (a missing repository's name search), else the history hint for
-/// its error ([`history_error`]).
-pub(super) fn history_search_error(
-    failure: crate::tools::gh_search_history::HistoryFailure,
-) -> DomainResult {
-    if failure.hints.is_empty() {
-        return history_error(*failure.error, true, failure.calls);
-    }
-    let (message, _) = crate::tools::gh_shared::history::history_failure(&failure.error, true);
-    provider_row(&failure.error, message, failure.hints, failure.calls)
+    provider_row(&error, message, hints, None)
 }

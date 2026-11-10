@@ -307,7 +307,13 @@ impl FragmentArena {
             .iter()
             .map(|item| self.dependencies(catalog, item, cancelled))
             .collect::<Result<Vec<_>, _>>()?;
-        let (open, open_evidence) = if out.len() > first {
+        // The rest's last fragment takes the first items only when it holds
+        // their slot: a string window narrowed to its string has none.
+        let (open, open_evidence) = if out.len() > first
+            && out
+                .last()
+                .is_some_and(|(fragment, _)| self.holds_array(&fragment.kind, &pointer))
+        {
             (
                 Open::Tail {
                     at: out.len() - 1,
@@ -377,6 +383,35 @@ impl FragmentArena {
         Ok([make(row)?, make(later)?])
     }
 
+    /// Whether `kind` builds a value with an array at `pointer`: the slot a
+    /// [`FragmentKind::Joined`] fills with a split's items. A slot inside a
+    /// list the fragment fills itself is not checked and counts as absent,
+    /// so a doubtful join starts a new part instead of losing items. A later
+    /// string window keeps, of each array on its way, only the element on
+    /// the way at index 0; a split's pointer passes only single-element
+    /// arrays ([`collection_pointer`]), so its indexes agree there.
+    pub(super) fn holds_array(&self, kind: &FragmentKind, pointer: &str) -> bool {
+        let context = match kind {
+            FragmentKind::Whole(index) => &self.wholes[*index],
+            FragmentKind::Records { split, start, .. } => {
+                &self.records[*split].contexts[usize::from(*start > 0)].value
+            }
+            FragmentKind::Chunk { split, start, .. } => {
+                &self.splits[*split].contexts[usize::from(*start > 0)].value
+            }
+            FragmentKind::Text {
+                split,
+                string,
+                shown,
+                ..
+            } => self.texts[*split].context(*string, shown.is_some()),
+            FragmentKind::Joined { inner, .. } | FragmentKind::Continues { inner, .. } => {
+                return self.holds_array(inner, pointer);
+            }
+        };
+        context.pointer(pointer).is_some_and(Value::is_array)
+    }
+
     pub(super) fn empty_secondary_lists(&self, row: &mut Value, pointer: &str) {
         empty_declared_siblings(row, pointer, self.collection_routes);
     }
@@ -388,20 +423,34 @@ impl FragmentArena {
         pointer: &str,
         catalog: Option<usize>,
     ) -> Result<Option<Value>, DependencyError> {
-        lean_declared_skeleton(
-            row,
-            window.budget,
-            pointer,
-            self.collection_routes,
-            &|value| {
-                Ok(size(value)?
-                    + self.evidence_chars(&self.dependencies(
-                        catalog,
-                        value,
-                        window.cancelled,
-                    )?)?)
-            },
-        )
+        let price = |value: &Value| {
+            Ok(size(value)?
+                + self.evidence_chars(&self.dependencies(catalog, value, window.cancelled)?)?)
+        };
+        if let Some(rest) =
+            lean_declared_skeleton(row, window.budget, pointer, self.collection_routes, &price)?
+        {
+            return Ok(Some(rest));
+        }
+        // First-only members (free text, descriptions) that outgrow the head
+        // go first in their own windowed parts, when the context a later part
+        // keeps fits without them: otherwise they would enlarge the part that
+        // starts the collection. Identity a later part repeats stays put.
+        if price(row)? > window.head {
+            let mut later = row.clone();
+            lean_later_context(
+                &mut later,
+                pointer,
+                self.page_context,
+                self.collection_routes,
+            );
+            if price(&later)? <= window.head {
+                let rest = row.clone();
+                empty_declared_siblings(row, pointer, self.collection_routes);
+                return Ok(Some(rest));
+            }
+        }
+        Ok(None)
     }
 }
 

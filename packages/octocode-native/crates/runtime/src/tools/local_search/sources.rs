@@ -5,6 +5,8 @@
 //! [`octocode_engine::text::open_regular`]), so it neither blocks on a FIFO
 //! nor reads the bytes of a file the walk never admitted.
 
+use octocode_engine::num::saturating_u64;
+
 /// SHA-256 of a matched file's bytes.
 pub(super) type Digest = [u8; 32];
 
@@ -30,7 +32,7 @@ pub(super) fn digest_file(path: &std::path::Path) -> std::io::Result<Digest> {
 /// The bytes of the regular file at `path`, at most `max_bytes`; `None` when
 /// it is larger, unreadable, or no longer a regular file (a FIFO or link).
 pub(super) fn read_entry(path: &std::path::Path, max_bytes: usize) -> Option<Vec<u8>> {
-    octocode_engine::text::read_regular(path, u64::try_from(max_bytes).unwrap_or(u64::MAX))
+    octocode_engine::text::read_regular(path, saturating_u64(max_bytes))
         .ok()
         .map(|source| source.bytes)
 }

@@ -309,11 +309,16 @@ async fn a_classified_read_warns_what_it_kept_and_that_empty_is_not_absence() {
         .clone()
     };
     let some = read(&dense).await;
+    // The receipt states the counts once; no warning restates them.
     assert_eq!(
-        some["warnings"],
-        json!(["classification kept 3 of 6 hits that pass the classifiers."]),
+        (
+            &some["selection"]["selectedItems"],
+            &some["selection"]["totalItems"]
+        ),
+        (&json!(3), &json!(6)),
         "{some}"
     );
+    assert!(some.get("warnings").is_none(), "{some}");
     let empty = read(&none).await;
     let warnings = empty["warnings"].to_string();
     assert!(

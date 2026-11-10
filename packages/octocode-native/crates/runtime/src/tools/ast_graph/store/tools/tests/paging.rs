@@ -32,7 +32,7 @@ fn ids(page: &Value) -> Vec<String> {
         .as_array()
         .expect("results")
         .iter()
-        .map(|row| row["id"].as_str().expect("id").to_owned())
+        .map(ToString::to_string)
         .collect()
 }
 
@@ -136,7 +136,7 @@ fn engine_and_tool_cut_the_same_pages() {
         .as_array()
         .expect("results")
         .iter()
-        .map(|row| row["id"].as_str().expect("id").to_owned())
+        .map(ToString::to_string)
         .collect::<Vec<_>>();
     assert_eq!(engine_ids, ids(&mcp));
     assert_eq!(

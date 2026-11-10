@@ -9,7 +9,7 @@
 //! view, so a stored page and the fresh page of the same call are one code
 //! path and show the same row.
 
-use super::layout::{Layout, MAX_MORE_LINES};
+use super::layout::Layout;
 use super::rows::HitWindow;
 use octocode_engine::num::saturating_u32;
 use octocode_engine::types::{TextSearchFile, TextSearchMatch, TextSearchResult};
@@ -27,7 +27,7 @@ pub(super) struct PageView {
 }
 
 /// What one file entry of a page needs of its file's rows on other pages:
-/// its pagination (`total`, the shown rank range, the lines of later rows)
+/// its pagination (`total`, the shown rank range)
 /// and, when context windows merge, the windows of other rows that border
 /// a shown row (see [`neighbours`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -37,10 +37,6 @@ pub(super) struct EntryFacts {
     /// The shown rows' rank range in the file, within `total`.
     pub(super) start: u32,
     pub(super) end: u32,
-    /// The first [`MAX_MORE_LINES`] distinct lines of the file's rows past
-    /// `end`, ascending, and how many distinct lines follow them.
-    pub(super) later: Vec<u32>,
-    pub(super) unlisted: Option<u32>,
     /// Windows of the file's rows outside the shown range that a shown
     /// row's owned lines depend on, one per line.
     pub(super) neighbours: Vec<HitWindow>,
@@ -80,12 +76,7 @@ impl PageView {
             let windows = layout
                 .merge_context
                 .map(|context| windows_of(&file.matches, context));
-            facts.push(entry_facts(
-                &file.matches,
-                windows.as_deref(),
-                start..end,
-                &mut later_lines(&file.matches, &[end]).into_iter(),
-            ));
+            facts.push(entry_facts(&file.matches, windows.as_deref(), start..end));
             let mut entry = header_of(file);
             entry.matches = file.matches.drain(start..end).collect();
             layout.shown.push((page.len(), 0..entry.matches.len()));
@@ -116,21 +107,16 @@ pub(super) fn header_of(file: &mut TextSearchFile) -> TextSearchFile {
 }
 
 /// The facts of the entry showing `rows[shown]` (see [`EntryFacts`]);
-/// `windows` are every row's windows when context merges, and `later` yields
-/// the entry's [`later_lines`].
+/// `windows` are every row's windows when context merges.
 pub(super) fn entry_facts(
     rows: &[TextSearchMatch],
     windows: Option<&[HitWindow]>,
     shown: std::ops::Range<usize>,
-    later: &mut impl Iterator<Item = (Vec<u32>, Option<u32>)>,
 ) -> EntryFacts {
-    let (later, unlisted) = later.next().unwrap_or_default();
     EntryFacts {
         total: saturating_u32(rows.len()),
         start: saturating_u32(shown.start),
         end: saturating_u32(shown.end),
-        later,
-        unlisted,
         neighbours: windows.map_or_else(Vec::new, |windows| {
             neighbours(windows, &by_line(windows), shown)
         }),
@@ -150,41 +136,6 @@ pub(super) fn by_line(windows: &[HitWindow]) -> Vec<usize> {
     let mut order = (0..windows.len()).collect::<Vec<_>>();
     order.sort_by_key(|&row| windows[row].line);
     order
-}
-
-/// For each of `ends` (any order), the first [`MAX_MORE_LINES`] distinct
-/// lines of `rows[end..]`, ascending, and how many distinct lines follow
-/// them. One backward pass serves every end, so a file cut into thousands
-/// of entries costs one walk of its rows.
-pub(super) fn later_lines(
-    rows: &[TextSearchMatch],
-    ends: &[usize],
-) -> Vec<(Vec<u32>, Option<u32>)> {
-    let mut out = vec![(Vec::new(), None); ends.len()];
-    let mut order = (0..ends.len()).collect::<Vec<_>>();
-    order.sort_by_key(|&at| Reverse(ends[at]));
-    let mut seen = std::collections::HashSet::new();
-    let mut lowest = std::collections::BTreeSet::new();
-    let mut next = rows.len();
-    for at in order {
-        let end = ends[at].min(rows.len());
-        while next > end {
-            next -= 1;
-            let line = rows[next].line;
-            if seen.insert(line) {
-                lowest.insert(line);
-                if lowest.len() > MAX_MORE_LINES {
-                    lowest.pop_last();
-                }
-            }
-        }
-        let unlisted = seen.len() - lowest.len();
-        out[at] = (
-            lowest.iter().copied().collect(),
-            (unlisted > 0).then(|| saturating_u32(unlisted)),
-        );
-    }
-    out
 }
 
 /// The order windows at one line are chosen in: the one covering most
@@ -337,17 +288,6 @@ pub(super) fn encode_pages(
         .pages
         .as_deref()
         .filter(|_| layout.streamed && !layout.list)?;
-    // Each file's later lines at every end its entries take, in entry order.
-    let mut ends = vec![Vec::new(); files.len()];
-    for (index, rows) in pages.iter().flatten() {
-        ends.get_mut(*index)?
-            .push(rows.end.min(files[*index].matches.len()));
-    }
-    let mut later = files
-        .iter()
-        .zip(&ends)
-        .map(|(file, ends)| later_lines(&file.matches, ends).into_iter())
-        .collect::<Vec<_>>();
     // Windows (and their line order) of each file whose rows merge.
     let mut windows = vec![None; files.len()];
     let mut out = FrameWriter::new(files.len(), max_raw);
@@ -370,13 +310,10 @@ pub(super) fn encode_pages(
                 total: saturating_u32(file.matches.len()),
                 start: saturating_u32(start),
                 end: saturating_u32(end),
-                later: Vec::new(),
-                unlisted: None,
                 neighbours: merged.map_or_else(Vec::new, |(rows, order)| {
                     neighbours(rows, order, start..end)
                 }),
             };
-            let (later, unlisted) = later[*index].next().unwrap_or_default();
             let flags = shown
                 .iter()
                 .enumerate()
@@ -386,11 +323,7 @@ pub(super) fn encode_pages(
             out.entry(
                 (*index, file),
                 shown,
-                &EntryFacts {
-                    later,
-                    unlisted,
-                    ..facts
-                },
+                &facts,
                 (&flags, key_scans.contains(&file.path)),
                 cancelled,
             )?;

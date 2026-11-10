@@ -36,7 +36,10 @@ pub(super) fn mark_resumed(out: &mut serde_json::Value) {
 
 /// The engine's file window of a scan resuming at `scan_offset`: none (the
 /// time budget alone cuts it). A test narrows it ([`test_window`]) to
-/// produce the cuts a large tree produces.
+/// produce the cuts a large tree produces. It stays the one seam both scans
+/// (`symbols/directory.rs`, `matches/scan.rs`) read their `max_files` through:
+/// the engine option is live (`through`, `fact_scan`), only this window is
+/// test-only, and a `cfg(test)` argument at each caller would spell it twice.
 pub(super) fn window_files(scan_offset: u32) -> Option<u32> {
     #[cfg(test)]
     if let Some(files) = TEST_WINDOW.with(std::cell::Cell::get) {

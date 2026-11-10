@@ -34,7 +34,7 @@ fn match_case_defaults_to_smart_case() {
             serde_json::json!({"contextLines":{"before":0,"after":0}}),
         );
         let wire = serde_json::to_value(fetch(&req, &paths)).expect("serializable");
-        assert_eq!(wire["matchedLines"], lines, "{pattern} {mode:?}: {wire}");
+        assert_eq!(shown_hits(&wire), lines, "{pattern} {mode:?}: {wire}");
     }
 }
 
@@ -63,13 +63,13 @@ fn pcre2_matches_lookaround_backreferences_and_multiline_spans() {
     };
     let lookbehind = read("(?<=fn )alpha");
     assert_eq!(
-        lookbehind["matchedLines"],
+        shown_hits(&lookbehind),
         serde_json::json!([2]),
         "{lookbehind}"
     );
     let backreference = read(r"(beta\(\);) \1");
     assert_eq!(
-        backreference["matchedLines"],
+        shown_hits(&backreference),
         serde_json::json!([3]),
         "{backreference}"
     );
@@ -90,7 +90,7 @@ fn pcre2_matches_lookaround_backreferences_and_multiline_spans() {
             "{engine}: {wire}"
         );
         assert_eq!(
-            wire["matchedLines"],
+            shown_hits(&wire),
             serde_json::json!([2, 3]),
             "{engine}: {wire}"
         );
@@ -102,7 +102,7 @@ fn pcre2_matches_lookaround_backreferences_and_multiline_spans() {
     }
     // Uppercase in a regex is smart case too.
     assert_eq!(read("ALPHA")["content"], "", "no line has uppercase ALPHA");
-    assert_eq!(read("alph[a]")["matchedLines"], serde_json::json!([2]));
+    assert_eq!(shown_hits(&read("alph[a]")), serde_json::json!([2]));
     let invalid = read("(");
     assert_eq!(invalid["errorCode"], "invalidPattern", "{invalid}");
 }

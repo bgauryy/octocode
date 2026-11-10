@@ -65,7 +65,7 @@ fn identical_diagnostics_are_listed_once_with_every_range() {
     let listed = dedupe_diagnostics(items);
     let listed = listed.as_array().expect("diagnostics");
     assert_eq!(listed.len(), 2, "{listed:?}");
-    let range = |line: u64| serde_json::json!({"startLine": line + 1, "startCharacter": 1, "endLine": line + 1});
+    let range = |line: u64| serde_json::json!({"startLine": line + 1, "startCharacter": 1});
     assert_eq!(listed[0]["count"], 3, "{listed:?}");
     assert_eq!(
         listed[0]["displayRanges"],
@@ -196,6 +196,6 @@ fn diagnostic_severity_is_published_by_name() {
     );
     assert_eq!(
         items[0]["displayRange"],
-        serde_json::json!({"startLine": 1, "startCharacter": 1, "endLine": 1})
+        serde_json::json!({"startLine": 1, "startCharacter": 1})
     );
 }

@@ -198,7 +198,11 @@ async fn a_window_on_a_later_line_is_numbered_from_that_line() {
     assert_eq!(numbered.len(), 1, "{content}");
     assert!(numbered[0].starts_with("3\ttarget(a)"), "{content}");
     assert_eq!(location["displayRange"]["startLine"], 3, "{location}");
-    assert_eq!(location["displayRange"]["endLine"], 3, "{location}");
+    // A one-line range states no end: `endLine` is absent.
+    assert!(
+        location["displayRange"].get("endLine").is_none(),
+        "{location}"
+    );
 }
 
 /// Without contextLines (a request the contract did not default), a

@@ -10,33 +10,26 @@ use octocode_engine::json_size::string_body_units;
 use octocode_engine::num::saturating_u32;
 
 /// Per-file paging, reported only while it routes somewhere: more rows
-/// remain, or the requested match page is past the end. `shown` counts the
-/// rows the file entry carries; `later` names the first [`MAX_MORE_LINES`]
-/// distinct lines of its later rows and counts the rest.
+/// remain, or the requested match page is past the end. `total` counts
+/// every row of the file, so the rows on later pages are counted, not
+/// listed: the page cursor reaches them.
 pub(crate) fn file_pagination(
     layout: &Layout,
     total: u32,
-    (start, end, shown): (usize, usize, usize),
-    (later, unlisted): (&[u32], Option<u32>),
+    (start, end): (usize, usize),
     match_page: u32,
 ) -> Option<ItemPagination> {
     if layout.list {
         return None;
     }
     if layout.streamed {
-        return (end < total as usize).then(|| {
-            let lines = later.to_vec();
-            let named = shown + lines.len() + unlisted.map_or(0, |n| n as usize);
-            ItemPagination {
-                page: None,
-                total_pages: None,
-                total_matches: (named != total as usize).then_some(total),
-                has_more: true,
-                next: None,
-                more_lines: Some(lines),
-                more_lines_unlisted: unlisted,
-                out_of_range: false,
-            }
+        return (end < total as usize).then_some(ItemPagination {
+            page: None,
+            total_pages: None,
+            total_matches: Some(total),
+            has_more: true,
+            next: None,
+            out_of_range: false,
         });
     }
     let total_pages = saturating_u32(crate::response::page_windows::count_pages(
@@ -45,19 +38,12 @@ pub(crate) fn file_pagination(
     ));
     let has_more = match_page < total_pages;
     let out_of_range = start >= total as usize && total > 0;
-    let (more_lines, more_lines_unlisted) = if has_more && !later.is_empty() {
-        (Some(later.to_vec()), unlisted)
-    } else {
-        (None, None)
-    };
     (has_more || out_of_range).then_some(ItemPagination {
         page: Some(match_page),
         total_pages: Some(total_pages),
         total_matches: Some(total),
         has_more,
         next: None,
-        more_lines,
-        more_lines_unlisted,
         out_of_range,
     })
 }
@@ -119,27 +105,18 @@ pub(super) fn digits(n: impl Into<u64>) -> usize {
     n.into().checked_ilog10().map_or(1, |log| log as usize + 1)
 }
 
-/// Most chars a streamed file entry's `pagination` can take: its later rows
-/// are named as at most [`MAX_MORE_LINES`] lines plus a count.
+/// Chars a streamed file entry's `pagination` takes: its row count and flag.
 pub(super) fn pagination_chars(file: &octocode_engine::types::TextSearchFile) -> usize {
     let total = file.matches.len();
-    let widest_line = file.matches.iter().map(|m| m.line).max().unwrap_or(0);
-    let listed = total.saturating_sub(1).min(MAX_MORE_LINES);
-    let more_lines =
-        listed * (digits(widest_line) + 1) + ",\"moreLinesUnlisted\":".len() + digits(total as u64);
     let empty = ItemPagination {
         page: None,
         total_pages: None,
         total_matches: Some(saturating_u32(total)),
         has_more: true,
         next: None,
-        more_lines: Some(Vec::new()),
-        more_lines_unlisted: None,
         out_of_range: false,
     };
-    ",\"pagination\":".len()
-        + octocode_engine::json_size::utf16_units(&empty).unwrap_or(0)
-        + more_lines
+    ",\"pagination\":".len() + octocode_engine::json_size::utf16_units(&empty).unwrap_or(0)
 }
 
 /// Whether every file entry, with all its rows and their names, fits
@@ -166,6 +143,3 @@ pub(super) fn fits_whole(
             })
     })
 }
-
-/// Line runs `moreLines` names before it summarizes the rest as a count.
-pub(in crate::tools::local_search) const MAX_MORE_LINES: usize = 24;

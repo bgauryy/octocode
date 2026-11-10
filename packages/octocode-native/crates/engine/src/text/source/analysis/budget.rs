@@ -13,6 +13,34 @@ pub struct MapLimits {
     /// budget it was sized from.
     pub bytes_budget: &'static str,
 }
+impl MapLimits {
+    /// The ceiling a [`SourceError::LimitExceeded`] named `name` passed.
+    #[must_use]
+    pub fn ceiling(&self, name: &str) -> Option<usize> {
+        match name {
+            "depth" => Some(self.depth),
+            "representations" => Some(self.representations),
+            "segments" => Some(self.segments),
+            "branches" | "alternatives" => Some(self.branches),
+            "contributors" => Some(self.contributors),
+            "bytes" => Some(self.bytes),
+            "work" => Some(self.work),
+            _ => None,
+        }
+    }
+    /// What passing the limit `name` means, said without a budget's usage:
+    /// the limit and its ceiling.
+    #[must_use]
+    pub fn passed(&self, name: &str) -> String {
+        match (name, self.ceiling(name)) {
+            ("bytes", Some(limit)) => {
+                format!("needs more than the {} of {limit} bytes", self.bytes_budget)
+            }
+            (_, Some(limit)) => format!("passes its {name} limit of {limit}"),
+            (_, None) => format!("passes its {name} bound"),
+        }
+    }
+}
 impl Default for MapLimits {
     fn default() -> Self {
         Self {
@@ -177,31 +205,25 @@ impl<'a> MapBudget<'a> {
         let used = match name {
             "bytes" => {
                 return format!(
-                    "needs more than the {} of {} bytes ({} charged when it stopped)",
-                    limits.bytes_budget, limits.bytes, usage.bytes
+                    "{} ({} charged when it stopped)",
+                    limits.passed(name),
+                    usage.bytes
                 );
             }
-            "work" => Some((limits.work, usage.work)),
-            "representations" => Some((limits.representations, usage.representations)),
-            "segments" => Some((limits.segments, usage.segments)),
-            "branches" => Some((limits.branches, usage.branches)),
-            "contributors" => Some((limits.contributors, usage.contributors)),
-            "depth" => return format!("passes its depth limit of {}", limits.depth),
-            "alternatives" => Some((limits.branches, usage.branches)),
+            "work" => usage.work,
+            "representations" => usage.representations,
+            "segments" => usage.segments,
+            "branches" | "alternatives" => usage.branches,
+            "contributors" => usage.contributors,
             "allocation" | "boundaries" => {
                 return format!(
                     "needs an allocation this platform cannot size or make ({name}; {} bytes charged when it stopped)",
                     usage.bytes
                 );
             }
-            _ => None,
+            _ => return limits.passed(name),
         };
-        match used {
-            Some((limit, used)) => {
-                format!("passes its {name} limit of {limit} ({used} used when it stopped)")
-            }
-            None => format!("passes its {name} bound"),
-        }
+        format!("{} ({used} used when it stopped)", limits.passed(name))
     }
     pub fn allocate(&mut self, bytes: usize) -> Result<(), SourceError> {
         Self::charge(&mut self.usage.bytes, bytes, self.limits.bytes, "bytes")?;

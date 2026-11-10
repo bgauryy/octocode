@@ -31,6 +31,43 @@ fn match_selection_preserves_empty_context_and_missed_matches() {
     assert!(plain.get("matchedLines").is_none(), "{plain}");
 }
 
+/// A1-13: `matchedLines` restates the `NN\t` prefixes when every line the page
+/// shows is a hit; it stays when context hides which lines hit.
+#[test]
+fn matched_lines_are_stated_only_when_context_hides_the_hits() {
+    use super::{LocalFetchResult, ReadStatus};
+
+    let wire = |ranges: &[(usize, usize)], hits: &[usize]| {
+        let mut result = LocalFetchResult::blank(ReadStatus::Success);
+        result.content = Some("text\n".into());
+        result.selected_match_count = Some(hits.len());
+        result.matched_lines = hits.to_vec();
+        result.source_line_ranges = ranges
+            .iter()
+            .map(|&(start, end)| LineRange { start, end })
+            .collect();
+        serde_json::to_value(result).expect("read result")
+    };
+    // Every shown line is a hit: the numbered lines already say which.
+    let all_hits = wire(&[(2, 2), (5, 6)], &[2, 5, 6]);
+    assert!(all_hits.get("matchedLines").is_none(), "{all_hits}");
+    assert_eq!(all_hits["selectedMatchCount"], 3, "{all_hits}");
+    // Context lines are shown: the hits are not derivable.
+    let with_context = wire(&[(1, 3)], &[2]);
+    assert_eq!(
+        with_context["matchedLines"],
+        serde_json::json!([2]),
+        "{with_context}"
+    );
+    // Nothing states which lines the text holds: keep the hits.
+    let unlocated = wire(&[], &[2]);
+    assert_eq!(
+        unlocated["matchedLines"],
+        serde_json::json!([2]),
+        "{unlocated}"
+    );
+}
+
 /// Every lead `line_read` builds (continueBlock,
 /// readBoundedLines) spells lines with the published `ranges`, never
 /// startLine/endLine, and clears a span the caller sent.

@@ -235,7 +235,10 @@ async fn no_match_in_a_large_file_leads_to_a_repository_search() {
 #[test]
 fn a_symbols_failure_gets_no_local_tool_hint() {
     use crate::response::output::ToolOutput;
-    for code in [ErrorCode::SymbolsUnsupported, ErrorCode::LanguageUnsupported] {
+    for code in [
+        ErrorCode::SymbolsUnsupported,
+        ErrorCode::LanguageUnsupported,
+    ] {
         assert_eq!(
             super::super::Output.error_hint(code, &serde_json::Value::Null),
             Some(crate::response::output::NO_HINT),

@@ -66,7 +66,17 @@ pub(crate) mod receiver_fields;
 /// v28: a data member whose written type is a function type says so
 /// (`function_typed`), and a Scala for-comprehension generator (an
 /// `enumerator` outside an `enumerator_list`) declares no enum member.
-pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 28;
+/// v29: a JS/TS declared type says whether it is declared in the global scope
+/// (`declare global`, a script file; `global`), a `const` takes the declared
+/// type of a member of a typed value or of `window`, and
+/// `InstanceType<typeof C>` is the declared type `C`; a const arrow or a
+/// function declares its parameters' types (a type parameter reads as its
+/// constraint), and a function passed to a call, or in an object literal
+/// passed to one, takes its parameters' types from the callee's.
+/// v30: a CommonJS file (`require`, `module.exports`) is a module, so its
+/// declarations are not global, and the DOM `window` is typed
+/// `globalThis.Window`, never a `Window` the file declares or imports.
+pub const GRAPH_FACTS_SCHEMA_VERSION: u32 = 30;
 
 /// The declaration kinds an `extends`/`implements` clause can name or
 /// declare: the nodes of a type hierarchy. One list for the graph's linking

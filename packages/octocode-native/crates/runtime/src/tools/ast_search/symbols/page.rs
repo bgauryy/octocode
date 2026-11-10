@@ -112,6 +112,18 @@ pub(crate) fn render_page(
         out["symbols"] = Value::Array(declaration_rows(rows));
     }
     out["pagination"] = cut.pagination;
+    // `limit` bounds top-level declarations, each shown with its members, so
+    // the rows returned can exceed it: say so where a limit meets members.
+    if q.limit.is_some() && rows.len() > cut.top_level {
+        crate::response::result::add_hints(
+            &mut out,
+            [format!(
+                "limit counts top-level declarations: {} shown with {} members.",
+                cut.top_level,
+                rows.len() - cut.top_level
+            )],
+        );
+    }
     if skipped > 0 || unreadable {
         crate::response::paging::terminal_limit(
             &mut out,
@@ -132,6 +144,8 @@ pub(crate) fn render_page(
 struct SymbolPage {
     /// The page's rows (with their members) in the declarations.
     range: std::ops::Range<usize>,
+    /// Top-level rows the page holds (`limit` counts these).
+    top_level: usize,
     /// Top-level rows are left after the page.
     more: bool,
     /// Its pagination block.
@@ -159,6 +173,7 @@ impl SymbolPage {
         };
         Self {
             range,
+            top_level: cut.range.len(),
             more: cut.more,
             pagination: cut.facts.to_value(),
         }
@@ -232,8 +247,8 @@ fn attach_symbol_leads(
             .iter()
             .map(|left_out| left_out.lead(q))
             .chain(set.suppressed.iter().map(|_| Suppressed::lead(q)));
-        for (index, lead) in broaden.enumerate() {
-            out["calls"][crate::id::numbered("broadenSearch", index)] = lead;
+        for lead in broaden {
+            crate::response::result::place_numbered(out, "broadenSearch", lead);
         }
     }
     if let Some(lead) = set.text_search.as_ref().filter(|_| page == 1) {

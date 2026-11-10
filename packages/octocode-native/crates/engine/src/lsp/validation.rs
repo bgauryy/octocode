@@ -91,14 +91,6 @@ mod tests {
     #[cfg(unix)]
     use std::fs;
 
-    fn temp_path(name: &str) -> std::path::PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        std::env::temp_dir().join(format!("octocode_lsp_validation_{name}_{}", nanos))
-    }
-
     // ── validate_lsp_server_path ──────────────────────────────────────────────
 
     /// A missing typescript-language-server names how octocode runs it, so a
@@ -154,7 +146,8 @@ mod tests {
 
     #[test]
     fn validate_lsp_server_path_rejects_nonexistent_absolute_path() {
-        let path = temp_path("nonexistent_server");
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join("nonexistent_server");
         let result = validate_lsp_server_path(path.to_string_lossy().into_owned(), None);
         assert!(result.is_err());
     }
@@ -163,11 +156,11 @@ mod tests {
     #[test]
     fn validate_lsp_server_path_rejects_non_executable_file() {
         use std::os::unix::fs::PermissionsExt;
-        let path = temp_path("nonexec");
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join("nonexec");
         fs::write(&path, b"#!/bin/sh").expect("write");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("chmod");
         let result = validate_lsp_server_path(path.to_string_lossy().into_owned(), None);
-        let _ = fs::remove_file(&path);
         assert!(result.is_err());
         assert!(
             result
@@ -181,11 +174,11 @@ mod tests {
     #[test]
     fn validate_lsp_server_path_accepts_executable_absolute_path() {
         use std::os::unix::fs::PermissionsExt;
-        let path = temp_path("server_exec");
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join("server_exec");
         fs::write(&path, b"#!/bin/sh\necho ok\n").expect("write");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).expect("chmod");
         let result = validate_lsp_server_path(path.to_string_lossy().into_owned(), None);
-        let _ = fs::remove_file(&path);
         // The command that runs is the given absolute path itself.
         let accepted = result.expect("an executable file is accepted");
         assert!(std::path::Path::new(&accepted).is_absolute(), "{accepted}");
@@ -205,15 +198,14 @@ mod tests {
         // `.../rustup` and silently break that dispatch — the validated path
         // must keep the original (symlink) filename, not the resolved target.
         use std::os::unix::fs::{PermissionsExt, symlink};
-        let target = temp_path("proxy_target");
+        let dir = tempfile::tempdir().expect("dir");
+        let target = dir.path().join("proxy_target");
         fs::write(&target, b"#!/bin/sh\necho ok\n").expect("write target");
         fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).expect("chmod");
-        let link = temp_path("rust-analyzer");
+        let link = dir.path().join("rust-analyzer");
         symlink(&target, &link).expect("symlink");
 
         let result = validate_lsp_server_path(link.to_string_lossy().into_owned(), None);
-        let _ = fs::remove_file(&target);
-        let _ = fs::remove_file(&link);
 
         let resolved = result.expect("symlinked executable must be accepted");
         assert_eq!(

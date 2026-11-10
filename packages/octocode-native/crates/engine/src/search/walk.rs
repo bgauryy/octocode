@@ -23,7 +23,7 @@ mod ignore_rules;
 #[cfg(test)]
 pub(crate) use ignore_rules::LEVELS_STATED;
 pub use ignore_rules::{
-    DirRules, IGNORE_FILES, IgnoreReason, IgnoreRules, ListedRules, checkout_git_dir,
+    DirRules, IGNORE_FILES, IgnoreReason, IgnoreRules, ListedRules, UnreadableRule, checkout_git_dir,
     common_git_dir, external_ignore_inputs,
 };
 

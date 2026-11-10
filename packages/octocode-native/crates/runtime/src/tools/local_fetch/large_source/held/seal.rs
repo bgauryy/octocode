@@ -1,7 +1,8 @@
 //! A held window sealed: the pass's recorded redactions applied through the
 //! window's runs, and its place restated in the sealed view's bytes.
-use super::super::masks::{Judged, cover_every_value, with_placeholders};
-use super::super::sealed::{Edit, keyed_offset, shift};
+use super::super::edit_map::EditMap;
+use super::super::error::ReadError;
+use super::super::masks::Judged;
 use super::Held;
 use std::ops::Range;
 use std::sync::Arc;
@@ -9,8 +10,10 @@ use std::sync::Arc;
 /// What a pass recorded of its source, to place sealed offsets on its bytes.
 #[derive(Clone)]
 pub(in crate::tools::local_fetch::large_source) struct SealMap {
-    pub(in crate::tools::local_fetch::large_source) edits: Arc<[Edit]>,
+    pub(in crate::tools::local_fetch::large_source) edits: EditMap,
     pub(in crate::tools::local_fetch::large_source) key_lines: Arc<[(Range<usize>, usize)]>,
+    /// The source, which a block-kept map reads its edits from.
+    pub(in crate::tools::local_fetch::large_source) file: Arc<std::fs::File>,
 }
 
 impl SealMap {
@@ -20,8 +23,9 @@ impl SealMap {
         &self,
         range_start: usize,
         sealed: usize,
-    ) -> Option<usize> {
-        keyed_offset(&self.edits, &self.key_lines, range_start, sealed)
+    ) -> Result<Option<usize>, ReadError> {
+        self.edits
+            .keyed(&self.file, &self.key_lines, range_start, sealed)
     }
 }
 
@@ -38,16 +42,26 @@ impl Held {
     /// leaves to every window. An edit the window's end cuts shows whole, so no
     /// window ends inside a redaction. A sealed offset the edits cannot place
     /// fails the read: its pages would gap or repeat.
-    pub(super) fn seal(&mut self, edits: &[Edit], judged: &Judged) -> Result<(), String> {
+    pub(super) fn seal(
+        &mut self,
+        edits: &EditMap,
+        file: &std::fs::File,
+        judged: &Judged,
+    ) -> Result<(), ReadError> {
+        if let Some(error) = self.failed.take() {
+            return Err(error);
+        }
         if self.unplaced {
-            return Err(UNPLACED.to_owned());
+            return Err(UNPLACED.into());
         }
         let Some(range) = self.range.clone() else {
             return Ok(());
         };
-        self.view_pos = shift(edits, range.clone())
+        self.view_pos = edits
+            .shift(file, range.clone())?
             .apply(self.view_pos)
             .ok_or(UNPLACED)?;
+        let mut view = edits.view(file);
         if let (Some(start), Some(window_source)) = (self.start.as_mut(), self.window_source) {
             let len = self.window.len();
             let mut out = Vec::with_capacity(len);
@@ -68,8 +82,8 @@ impl Held {
                 };
                 let to = source + bytes.len();
                 let mut pos = source;
-                let first = edits.partition_point(|edit| edit.range.end <= source);
-                for edit in edits[first..]
+                for edit in view
+                    .over(source..to)?
                     .iter()
                     .take_while(|edit| edit.range.start < to)
                 {
@@ -96,26 +110,18 @@ impl Held {
                 }
                 out.extend_from_slice(&bytes[pos - source..]);
             }
+            let before = window_source.checked_sub(lead_back).ok_or(UNPLACED)?;
+            let skipped = edits.shift(file, range.start..before)?;
             start.base = start
                 .base
                 .checked_sub(lead_back)
-                .and_then(|base| {
-                    shift(edits, range.start..window_source.checked_sub(lead_back)?).apply(base)
-                })
+                .and_then(|base| skipped.apply(base))
                 .ok_or(UNPLACED)?;
             self.window = out;
         }
-        if let Judged::EveryValue(named) = judged {
-            // The rare fallback: no walk placed the secret values, so every
-            // value this window shows is hidden, on this window alone. Its
-            // view is no other window's, so no byte page continues past it.
-            let cut = self.start.is_some_and(|start| start.cut);
-            self.every_value = true;
-            if cover_every_value(&mut self.window, cut, *named) {
-                let text = String::from_utf8_lossy(&self.window);
-                self.window = with_placeholders(&text).into_owned().into_bytes();
-            }
-        }
+        // Hidden values are edits of the one view; the page still says why every
+        // value of the source is hidden, secret or not.
+        self.every_value = matches!(judged, Judged::EveryValue);
         Ok(())
     }
 }

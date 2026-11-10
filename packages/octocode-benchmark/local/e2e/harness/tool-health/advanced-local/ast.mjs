@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { declarations } from '../../responses.mjs';
+import { captureText, declarations } from '../../responses.mjs';
 import { equal, orderedEqual, files, fixturePath, matches, relative, scenario, sourceText } from './helpers.mjs';
 
 const model = fixturePath('code/model.ts');
@@ -20,7 +20,7 @@ function nodeRangeMatchesSource(row, lines) {
 
 async function matching(ctx, surface, checks) {
   const content = await scenario(ctx, 'astSearch', surface, { label: 'ast.captures', query: { ...matchQuery, view: 'content', includeCaptures: true }, checks, responseChars: 200 });
-  equal(checks, `ast.captured-values.${surface}`, matches(content.data).map(m => [m.line, m.value, m.metavarRanges?.A?.[0]?.text, m.metavarRanges?.B?.[0]?.text]), [[19, 'add(1, 2)', '1', '2'], [20, 'add(twice, 3)', 'twice', '3']]);
+  equal(checks, `ast.captured-values.${surface}`, matches(content.data).map(m => [m.line, m.value, captureText(m, m.metavarRanges?.A?.[0]), captureText(m, m.metavarRanges?.B?.[0])]), [[19, 'add(1, 2)', '1', '2'], [20, 'add(twice, 3)', 'twice', '3']]);
   for (const view of ['files', 'countMatches']) {
     const result = await scenario(ctx, 'astSearch', surface, { label: `ast.${view}`, query: { ...matchQuery, view }, checks, responseChars: 200 });
     equal(checks, `ast.${view}.${surface}`, files(result.data).map(file => view === 'files' ? relative(ctx, file.path) : [relative(ctx, file.path), file.matchCount]), view === 'files' ? ['code/model.ts'] : [['code/model.ts', 2]]);

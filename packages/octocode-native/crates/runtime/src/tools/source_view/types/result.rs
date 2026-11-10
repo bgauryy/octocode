@@ -152,6 +152,26 @@ impl LocalFetchResult {
             _ => false,
         }
     }
+    /// The page's source lines are exactly its hit lines: an as-is view whose
+    /// located lines (numbered `NN\t` in the row) all hit.
+    fn every_shown_line_is_a_hit(&self) -> bool {
+        if self.view.is_some() || self.source_line_ranges.is_empty() {
+            return false;
+        }
+        let shown: usize = self
+            .source_line_ranges
+            .iter()
+            .map(|range| range.end.saturating_sub(range.start).saturating_add(1))
+            .sum();
+        let mut hits = self.matched_lines.clone();
+        hits.dedup();
+        shown == hits.len()
+            && hits.iter().all(|line| {
+                self.source_line_ranges
+                    .iter()
+                    .any(|range| (range.start..=range.end).contains(line))
+            })
+    }
     /// The matched line ranges this page shows: each clipped to the page's
     /// source lines, so a later page never restates hits an earlier one sent.
     /// Without source lines (a byte page) only the first page carries them.
@@ -252,9 +272,12 @@ impl LocalFetchResult {
             let selected = self.selected_match_count.filter(|count| *count > 0);
             return opt(map, "selectedMatchCount", &selected);
         }
-        // Hit identity is not derivable from the text: a match-selected
-        // page can contain only context, including text identical to a hit.
-        if self.selected_match_count.is_some() || !self.matched_lines.is_empty() {
+        // Hit identity is not derivable from the text when the page shows
+        // context: it can contain only context, including text identical to a
+        // hit. When every shown line is a hit, the line numbers say it.
+        if (self.selected_match_count.is_some() || !self.matched_lines.is_empty())
+            && !self.every_shown_line_is_a_hit()
+        {
             map.serialize_entry("matchedLines", &self.matched_lines)?;
         }
         if !self.window_is_source_range() {
@@ -283,7 +306,9 @@ impl LocalFetchResult {
     fn serialize_counters<M: serde::ser::SerializeMap>(&self, map: &mut M) -> Result<(), M::Error> {
         opt(map, "modified", &self.modified)?;
         // `content:""` states that no line returned.
-        let returned = self.returned_lines.filter(|lines| *lines > 0 || !self.has_no_text());
+        let returned = self
+            .returned_lines
+            .filter(|lines| *lines > 0 || !self.has_no_text());
         opt(map, "returnedLines", &returned)
     }
 

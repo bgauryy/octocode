@@ -81,6 +81,10 @@ pub struct RepositorySearchPage {
     #[serde(default)]
     pub incomplete_results: bool,
     pub items: Vec<RepositorySearchItem>,
+    /// Organizations whose results GitHub withheld because the token is not
+    /// SAML-authorized for them (`x-github-sso: partial-results`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sso_partial_organizations: Vec<u64>,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct RepositorySearchItem {

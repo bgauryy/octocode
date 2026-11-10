@@ -13,8 +13,6 @@ impl DomainDispatcher {
             Err(row) => return Ok(*row),
         };
         let requested = lsp_search_query::path(&query).map(str::to_owned);
-        self.lsp_requested
-            .store(true, std::sync::atomic::Ordering::Relaxed);
         self.handle.block_on(async {
             match within_request(
                 context,

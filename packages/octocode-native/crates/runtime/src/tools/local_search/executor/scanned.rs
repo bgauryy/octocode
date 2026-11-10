@@ -441,10 +441,11 @@ pub(crate) fn unreadable_scope(stats: &octocode_engine::types::TextSearchStats) 
     let count = stats.error_count.unwrap_or(0);
     let first = stats.first_error.as_deref().unwrap_or("unknown error");
     // Every file was readable; the regex failed in each (a backtracking or
-    // JIT-stack limit): the pattern, not the scope, needs the change.
+    // JIT-stack limit): the pattern, not the scope, needs the change. It
+    // compiled, so it is an execution failure, not `invalidPattern`.
     if stats.pattern_error_count == Some(count) {
         return ToolError::new(
-            ErrorCode::InvalidPattern,
+            ErrorCode::ExecutionFailed,
             format!(
                 "The regex hit the engine's matching limit in every file ({count}; first: {first}). Simplify nested repetition, or use regex:\"rust\" (no backtracking)."
             ),
@@ -493,6 +494,21 @@ mod hint_tests {
                 }
             }
         }
+    }
+
+    /// A regex that compiles but hits the engine's matching limit in every
+    /// file is an execution failure, not an invalid pattern.
+    #[test]
+    fn a_matching_limit_in_every_file_is_an_execution_failure() {
+        let stats = octocode_engine::types::TextSearchStats {
+            error_count: Some(2),
+            pattern_error_count: Some(2),
+            first_error: Some("a.txt: PCRE2: error matching: match limit exceeded".into()),
+            ..Default::default()
+        };
+        let error = super::unreadable_scope(&stats);
+        assert_eq!(error.code, super::ErrorCode::ExecutionFailed, "{error:?}");
+        assert!(error.message.contains("matching limit"), "{error:?}");
     }
 
     /// A one-file refusal names its localFetch lead by tool.

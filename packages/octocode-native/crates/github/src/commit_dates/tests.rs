@@ -348,3 +348,68 @@ fn a_failed_graphql_request_fails_the_path_only_for_the_credential() {
     let other = ProviderError::new(ProviderErrorKind::NotFound, "gone");
     assert!(matches!(Warmed::of_failure(other), Warmed::Unanswered));
 }
+
+/// A saved-answer store that outlives the requests (and so the processes)
+/// reading through it.
+#[derive(Default)]
+struct Kept(Mutex<HashMap<(String, String), crate::SavedAnswer>>);
+
+impl crate::SavedAnswers for Kept {
+    fn load(&self, scope: &str, request: &str) -> Option<crate::SavedAnswer> {
+        let map = self.0.lock().unwrap();
+        map.get(&(scope.to_owned(), request.to_owned())).cloned()
+    }
+    fn save(&self, scope: &str, request: &str, saved: crate::SavedAnswer) {
+        let mut map = self.0.lock().unwrap();
+        map.insert((scope.to_owned(), request.to_owned()), saved);
+    }
+    fn forget(&self, scope: &str, request: &str) {
+        let mut map = self.0.lock().unwrap();
+        map.remove(&(scope.to_owned(), request.to_owned()));
+    }
+}
+
+/// A commit's date never changes: a later process, with a fresh per-batch
+/// memo, reads the saved answer and asks the provider nothing, over GraphQL
+/// and over the REST commit list alike.
+#[tokio::test]
+async fn a_last_commit_read_again_by_a_later_process_asks_nothing() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data":{"repository":{
+            "object":{"history":{"nodes":[{"committedDate":"2026-01-02T00:00:00Z"}]}}}}})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([{
+            "author": null,
+            "commit": {"committer": {"date": "2026-01-02T00:00:00Z"}, "author": {"name": "Ada"}}
+        }])))
+        .mount(&server)
+        .await;
+    let store = std::sync::Arc::new(Kept::default());
+    for token in [true, false] {
+        let process = || {
+            let mut process = transport(&server);
+            process.set_saved_answers(Some(store.clone()));
+            process
+        };
+        let first = process()
+            .path_last_commit("a", "b", SHA, "a.txt", &context(token))
+            .await
+            .expect("first process");
+        let asked = server.received_requests().await.unwrap().len();
+        let second = process()
+            .path_last_commit("a", "b", SHA, "a.txt", &context(token))
+            .await
+            .expect("second process");
+        assert_eq!(second, first);
+        assert_eq!(
+            server.received_requests().await.unwrap().len(),
+            asked,
+            "graphql={token}: the second process asked the provider"
+        );
+    }
+}

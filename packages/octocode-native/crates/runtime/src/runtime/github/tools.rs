@@ -1,6 +1,6 @@
 //! Per-tool execution: each GitHub tool's typed query run through the shared provider into its row.
 use super::GitHubServices;
-use super::rows::{history_error, history_search_error, provider_error, tool_row};
+use super::rows::{history_error, provider_error, tool_row};
 use crate::execution::{ExecutionContext, ExecutionError};
 use crate::{
     id::GitHubTool,
@@ -121,14 +121,14 @@ impl GitHubServices {
                         Err(failure) => tool_row(Err(failure)),
                     }
                 }
-                Err(error) => history_error(error, false, None),
+                Err(error) => history_error(error, false),
             },
             GitHubTool::GhSearchHistory => match request {
                 Ok(request) => {
                     self.execute_search_history_resolved(query, request, context, security)
                         .await?
                 }
-                Err(error) => history_error(error, true, None),
+                Err(error) => history_error(error, true),
             },
         };
         context.check()?;
@@ -200,7 +200,7 @@ impl GitHubServices {
         context.check()?;
         Ok(match result {
             Ok(data) => crate::runtime::dispatch::value_result(data),
-            Err(failure) => history_search_error(failure),
+            Err(failure) => tool_row(Err(failure)),
         })
     }
 }

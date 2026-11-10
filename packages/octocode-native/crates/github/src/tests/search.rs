@@ -1,6 +1,7 @@
 //! Fresh search and history reads, credentials and SSO-withheld results.
 use super::*;
 
+mod first_page;
 mod sso;
 
 fn code_search_request() -> CodeSearchRequest {

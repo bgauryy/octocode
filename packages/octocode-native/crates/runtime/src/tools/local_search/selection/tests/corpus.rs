@@ -40,16 +40,34 @@ fn direct_answers(request: &Request) -> ResponseTemplate {
 /// The bodies the provider received for a classified localSearch over the
 /// corpus, with `fields` added to the query.
 fn judged(fields: Value) -> (LocalSearchResult, Vec<Value>) {
+    judged_over(
+        &[
+            ("oauth/sign-in.ts", SIGN_IN),
+            ("oauth/auth-provider.ts", AUTH_PROVIDER),
+        ],
+        direct_answers,
+        fields,
+    )
+}
+
+/// The bodies the provider received, answering with `answers`, for a
+/// classified localSearch over `files` (relative path, text).
+pub(super) fn judged_over(
+    files: &[(&str, &str)],
+    answers: fn(&Request) -> ResponseTemplate,
+    fields: Value,
+) -> (LocalSearchResult, Vec<Value>) {
     let root = tempfile::tempdir().expect("fixture");
-    let oauth = root.path().join("oauth");
-    std::fs::create_dir(&oauth).expect("oauth");
-    std::fs::write(oauth.join("sign-in.ts"), SIGN_IN).expect("sign-in");
-    std::fs::write(oauth.join("auth-provider.ts"), AUTH_PROVIDER).expect("auth-provider");
+    for (path, text) in files {
+        let path = root.path().join(path);
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("directory");
+        std::fs::write(path, text).expect("file");
+    }
     let executor = tokio::runtime::Runtime::new().expect("runtime");
     let server = executor.block_on(MockServer::start());
     executor.block_on(
         Mock::given(method("POST"))
-            .respond_with(direct_answers)
+            .respond_with(answers)
             .mount(&server),
     );
     let evaluator = Evaluator::new(

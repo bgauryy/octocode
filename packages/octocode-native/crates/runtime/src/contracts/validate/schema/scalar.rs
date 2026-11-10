@@ -3,6 +3,7 @@ use super::{
     ValidationMode, compiled_pattern, describe_unreadable_pattern, pattern_message,
     validate_with_mode,
 };
+use octocode_engine::num::saturating_u64;
 use serde_json::Value;
 use url::Url;
 
@@ -213,7 +214,7 @@ pub(super) fn check_size(
     let minimum = schema.get(keys.0).and_then(Value::as_u64);
     let maximum = schema.get(keys.1).and_then(Value::as_u64);
     // A length past u64 exceeds every bound a schema can state.
-    let length = u64::try_from(length).unwrap_or(u64::MAX);
+    let length = saturating_u64(length);
     if let Some(bound) = minimum.filter(|bound| length < *bound) {
         return Err(issue(
             "schema.size",

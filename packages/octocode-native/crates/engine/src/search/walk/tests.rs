@@ -275,3 +275,40 @@ fn a_lifted_walk_skips_and_records_nested_repositories() {
     );
     assert_eq!(nested.skipped(), ["repos/clone", "repos/module"]);
 }
+
+/// A rule file that exists but cannot be read counts as no rules; the rules
+/// say so, and a readable sibling's rules still apply.
+#[cfg(unix)]
+#[test]
+fn an_unreadable_rule_file_is_disclosed_and_a_readable_one_still_applies() {
+    use std::os::unix::fs::PermissionsExt;
+    let repo = tempfile::tempdir().expect("repo");
+    let root = repo.path();
+    fs::create_dir_all(root.join(".git")).expect("git dir");
+    write(&root.join(".gitignore"), "secret.txt\n");
+    write(&root.join(".ignore"), "listed.txt\n");
+    write(&root.join("secret.txt"), "s");
+    write(&root.join("listed.txt"), "l");
+    let locked = root.join(".gitignore");
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("chmod");
+    if fs::read(&locked).is_ok() {
+        // Root reads through the mode: nothing is unreadable here.
+        return;
+    }
+    let rules = IgnoreRules::new(root);
+    assert!(rules.is_ignored(&root.join("listed.txt"), false));
+    assert!(!rules.is_ignored(&root.join("secret.txt"), false));
+    let unreadable = rules.unreadable_rule_files();
+    assert_eq!(unreadable.len(), 1);
+    assert_eq!(unreadable[0].path, locked);
+    assert_eq!(unreadable[0].kind, std::io::ErrorKind::PermissionDenied);
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o644)).expect("restore");
+}
+
+#[test]
+fn readable_rule_files_disclose_nothing() {
+    let repo = fixture();
+    let rules = IgnoreRules::new(repo.path());
+    assert!(rules.is_ignored(&repo.path().join("excluded.txt"), false));
+    assert!(rules.unreadable_rule_files().is_empty());
+}

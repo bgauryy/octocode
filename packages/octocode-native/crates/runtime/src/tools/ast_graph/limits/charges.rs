@@ -1,6 +1,8 @@
 //! What a graph build holds per kept file, the bound on its peak, and what
 //! a reader charges to admit a source table's origin back.
 
+use octocode_engine::num::saturating_usize;
+
 /// The bytes one graph build may hold at its peak: half of the memory this
 /// process may use ([`octocode_engine::host::memory_mb`], the host's physical
 /// memory or a container's smaller limit), the rest left to the host and
@@ -18,7 +20,7 @@ pub(crate) const UNKNOWN_HOST_MB: u64 = 8 * 1024;
 /// [`build_budget`] of a host with `host_mb` MiB.
 pub(crate) fn build_budget_for(host_mb: Option<u64>) -> usize {
     let bytes = host_mb.unwrap_or(UNKNOWN_HOST_MB).saturating_mul(1 << 20) / 2;
-    usize::try_from(bytes).unwrap_or(usize::MAX)
+    saturating_usize(bytes)
 }
 
 /// What keeping one file costs a build at its peak, beside its packed

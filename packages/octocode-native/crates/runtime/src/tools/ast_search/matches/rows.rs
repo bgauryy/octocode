@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 /// One match row, an object: `line`, `column` (1-based), `endLine` for a
 /// multi-line match, and `value` (source text or a structural header). With
-/// `includeCaptures` the row also carries `endColumn` (exclusive), and each capture once in `metavarRanges` (text plus
-/// 1-based position; the engine `metavars` map is a fallback for a capture
+/// `includeCaptures` the row also carries `endColumn` (exclusive), and each capture once in `metavarRanges` (1-based position, plus
+/// `text` only when `value` does not hold it; the engine `metavars` map is a fallback for a capture
 /// without a range).
 pub(super) struct MatchRow {
     pub(super) value: Value,
@@ -21,6 +21,12 @@ pub(super) struct MatchRow {
     /// multi-line match cut to its header (signature) followed by `…`, or
     /// capture text the value does not show.
     pub(super) withheld: bool,
+}
+
+/// Whether the `inner` span (`(line, column)` start and end) lies inside
+/// `outer`; positions order by line, then column.
+fn within(outer: ((u32, u32), (u32, u32)), inner: ((u32, u32), (u32, u32))) -> bool {
+    outer.0 <= inner.0 && inner.1 <= outer.1
 }
 
 fn display_value(m: &StructuralDetailedMatch, capture_text: bool) -> MatchRow {
@@ -71,11 +77,23 @@ fn display_value(m: &StructuralDetailedMatch, capture_text: bool) -> MatchRow {
             .iter()
             .map(|range| {
                 let mut row = json!({
-                    "text":range.text,
                     "line":range.line,
                     "column":one_based_column(range.column),
                     "endColumn":one_based_column(range.end_column)
                 });
+                // `value` is the match's verbatim source here (a header or
+                // clipped value is a lean row, which has no ranges): a range
+                // inside the span states the text, so only a capture outside
+                // it keeps `text`.
+                if !within(
+                    ((m.start_line, m.start_col), (m.end_line, m.end_col)),
+                    (
+                        (range.line, range.column),
+                        (range.end_line, range.end_column),
+                    ),
+                ) {
+                    row["text"] = json!(range.text);
+                }
                 if range.end_line != range.line {
                     row["endLine"] = json!(range.end_line);
                 }
@@ -251,6 +269,18 @@ pub(super) fn diagnostic_error(diagnostic: &StructuralDiagnostic) -> ToolError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_capture_is_inside_a_span_by_position_not_by_text() {
+        let call = ((1, 0), (1, 10)); // `add(1, 1)`
+        assert!(within(call, ((1, 4), (1, 5))));
+        assert!(within(call, ((1, 7), (1, 8))), "equal text, other place");
+        assert!(within(call, call));
+        assert!(!within(call, ((1, 4), (1, 11))), "ends past the span");
+        assert!(!within(call, ((2, 0), (2, 1))), "a later line");
+        assert!(within(((1, 5), (3, 2)), ((2, 0), (2, 40))), "inner lines");
+        assert!(!within(((1, 5), (3, 2)), ((1, 4), (1, 6))), "starts before");
+    }
 
     fn diagnostic(code: &str) -> StructuralDiagnostic {
         StructuralDiagnostic {

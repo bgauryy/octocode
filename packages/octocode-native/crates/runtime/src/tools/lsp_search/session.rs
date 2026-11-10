@@ -209,7 +209,7 @@ pub(super) async fn open_session(
         pool_over_budget,
     )
     .await
-    .map_err(|exit| waits::disclose_exit(exit, &config, client.waits_since(began)))
+    .map_err(|exit| waits::disclose_exit(exit, &config, client.waits_since(began), began.elapsed()))
 }
 
 /// [`open_session`] once the client is leased: the readiness and capability

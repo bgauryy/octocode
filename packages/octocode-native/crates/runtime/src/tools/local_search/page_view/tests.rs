@@ -13,57 +13,6 @@ impl Draw {
     }
 }
 
-fn row(line: u32) -> TextSearchMatch {
-    TextSearchMatch {
-        line,
-        first_line: line,
-        last_line: None,
-        column: 0,
-        byte_offset: 0,
-        deferred: None,
-        value: String::new(),
-        value_digest: [0; 32],
-        count: None,
-        rank: None,
-    }
-}
-
-/// The lines a file's later rows name: the first `max` distinct lines of
-/// `rows[end..]`, and how many distinct lines follow.
-fn later_by_definition(rows: &[TextSearchMatch], end: usize) -> (Vec<u32>, Option<u32>) {
-    let mut distinct = rows[end..].iter().map(|row| row.line).collect::<Vec<_>>();
-    distinct.sort_unstable();
-    distinct.dedup();
-    let unlisted = distinct.len().saturating_sub(MAX_MORE_LINES);
-    distinct.truncate(MAX_MORE_LINES);
-    (distinct, (unlisted > 0).then(|| saturating_u32(unlisted)))
-}
-
-#[test]
-fn later_lines_list_the_first_lines_and_count_the_rest_at_every_end() {
-    let rows = [717, 711, 712, 711, 802].map(row);
-    assert_eq!(
-        later_lines(&rows, &[0, 2]),
-        vec![
-            (vec![711, 712, 717, 802], None),
-            (vec![711, 712, 802], None)
-        ]
-    );
-    let mut draw = Draw(0x9e37_79b9_7f4a_7c15);
-    for _ in 0..200 {
-        let rows = (0..draw.below(120))
-            .map(|_| row(1 + draw.below(60)))
-            .collect::<Vec<_>>();
-        let ends = (0..draw.below(8))
-            .map(|_| draw.below(saturating_u32(rows.len()) + 1) as usize)
-            .collect::<Vec<_>>();
-        let swept = later_lines(&rows, &ends);
-        for (end, got) in ends.iter().zip(swept) {
-            assert_eq!(got, later_by_definition(&rows, *end), "end {end}");
-        }
-    }
-}
-
 /// One window per line, the first by `window_key`, as a page merges them.
 fn deduped(mut windows: Vec<HitWindow>) -> Vec<HitWindow> {
     windows.sort_unstable_by_key(window_key);

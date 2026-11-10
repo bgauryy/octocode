@@ -65,6 +65,9 @@ pub(super) enum FileHits {
     /// The blob could not be read or scanned (binary, transient). The row says
     /// so with `lineResolved: false`.
     Unavailable,
+    /// The scan of the blob panicked (a defect, not a read failure): the row
+    /// says `lineResolved: false` and the page names the count.
+    Panicked,
 }
 
 /// Read each path at `sha` concurrently and list its keyword lines. A read
@@ -183,7 +186,7 @@ fn scan_all(
         |&(bytes, path)| scan(bytes, path, keywords, goal, window, security),
     )?
     .into_iter()
-    .map(|hits| hits.unwrap_or(FileHits::Unavailable))
+    .map(|hits| hits.unwrap_or(FileHits::Panicked))
     .collect())
 }
 

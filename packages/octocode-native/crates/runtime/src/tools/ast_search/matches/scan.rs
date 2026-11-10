@@ -68,12 +68,19 @@ pub(super) fn scan_file(
             },
         );
     }
-    let mut binder = octocode_engine::structural::SourceBinder::with_budget(&admitted, maps);
-    for matched in &mut r.matches {
-        binder.bind_match(matched).map_err(ToolError::source)?;
-    }
+    // Only the matches of the scope are mapped to their source: a narrower
+    // scope is what a file past its mapping limits needs.
     if let Some(region) = q.scope() {
         super::super::region::select(region, source, &mut r.matches)?;
+    }
+    let mut binder = octocode_engine::structural::SourceBinder::with_budget(&admitted, maps);
+    for matched in &mut r.matches {
+        binder.bind_match(matched).map_err(|error| match error {
+            octocode_engine::text::analysis::SourceError::LimitExceeded(limit) => {
+                source_limit_error(q, canonical, limit)
+            }
+            error => ToolError::source(error),
+        })?;
     }
     // A test-code scope keeps one side of a single file's matches too.
     let mut test_code_excluded = octocode_engine::types::TestCodeExcluded::default();
@@ -116,6 +123,23 @@ pub(super) fn scan_file(
         test_code_unread,
         ..Scan::default()
     })
+}
+
+/// The refusal of a requested file that passes the source-map limit `limit`:
+/// it names the file and the limit, and leads to the query over part of it.
+fn source_limit_error(q: MatchQuery<'_>, file: &std::path::Path, limit: &str) -> ToolError {
+    let path = file.to_string_lossy();
+    let mut error = ToolError::new(
+        octocode_contract_types::ErrorCode::ScopeTooBroad,
+        format!(
+            "{path} {}: narrow the search of this file with a smaller scope.",
+            octocode_engine::text::analysis::MapLimits::default().passed(limit)
+        ),
+    );
+    error.calls = super::continuations::narrow_leads(q, file, &path).map(|[first, rest]| {
+        Box::new(serde_json::json!({ "narrowSearch": first, "narrowRest": rest }))
+    });
+    error
 }
 
 /// The scan of a directory's window: from `q`'s `scanOffset` until the time

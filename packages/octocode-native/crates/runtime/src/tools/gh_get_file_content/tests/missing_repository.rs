@@ -101,3 +101,61 @@ async fn a_resolved_ref_spends_no_repository_read_on_a_missing_path() {
     );
     assert_eq!(repository_reads(&server).await, 0, "{}", failure.message);
 }
+
+/// GFC-3: a missing path under a missing directory costs the read, then the
+/// recovery walk: one ref resolution, then one listing per level from the
+/// parent up to the first directory that exists, and nothing else (no
+/// repository read, no repeated ref resolution).
+#[tokio::test]
+async fn a_missing_path_sends_the_minimum_requests() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/main"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"name":"README.md","path":"README.md","type":"file","sha":"x","size":1}
+        ])))
+        .mount(&server)
+        .await;
+    not_found_elsewhere(&server).await;
+    let provider = mock_provider(&server, RetryPolicy::default());
+    let failure = run_default(
+        &provider,
+        json!({"owner":"a","repo":"b","path":"docs/guide/missing.md","ref":"main"}),
+    )
+    .await
+    .expect_err("missing path");
+    assert!(
+        failure.message.contains("docs/guide/missing.md"),
+        "{}",
+        failure.message
+    );
+    let seen = |suffix: &str| {
+        let wanted = format!("/api/v3/repos/a/b{suffix}");
+        let server = &server;
+        async move {
+            server
+                .received_requests()
+                .await
+                .expect("recorded")
+                .iter()
+                .filter(|request| request.url.path() == wanted)
+                .count()
+        }
+    };
+    // The path read once, the ref resolved once, one listing per level.
+    for (suffix, count) in [
+        ("", 0),
+        ("/commits/main", 1),
+        ("/contents/docs%2Fguide%2Fmissing.md", 1),
+        ("/contents/docs%2Fguide", 1),
+        ("/contents/docs", 1),
+        ("/contents", 1),
+    ] {
+        assert_eq!(seen(suffix).await, count, "{suffix}");
+    }
+}

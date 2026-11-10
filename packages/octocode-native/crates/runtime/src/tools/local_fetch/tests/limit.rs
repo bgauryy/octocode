@@ -157,5 +157,5 @@ fn a_limit_over_separated_matches_counts_lines_not_markers() {
     );
     let page = fetch(&query, &paths);
     let wire = serde_json::to_value(&page).expect("serializable");
-    assert_eq!(wire["matchedLines"], serde_json::json!([3, 20]), "{wire}");
+    assert_eq!(shown_hits(&wire), serde_json::json!([3, 20]), "{wire}");
 }

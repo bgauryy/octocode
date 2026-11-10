@@ -870,7 +870,7 @@ rather than linked by a name guess.
 
 | Language | Not linked |
 |---|---|
-| TypeScript, TSX, JavaScript | Types only a checker settles: a parameter typed through a type-parameter constraint (`register<T extends Action>({ perform: (.., app) => .. })`), a global through `declare global` merging and the DOM `window` (`const { h } = window`), `InstanceType<typeof X>`, `import("..").T`, and members whose declared type names a type parameter. Declared types do link across files: class fields and parameter properties, imported interface and alias members (`app.scene.m()`), `T["k"]` with a literal key, parameters of a function its declarator annotates with an alias (`const f: A = ({ scene }) => ..`), and properties destructured from a typed value; a chain may pass the same class (through an inherited member) or the same alias again. Members of `await import()`; a conditional of two requires (`c ? require(a) : require(b)`); a `require` through a wrapper function; a scope `require` whose name a nested scope declares again. A guarded loader (`root._ \|\| require(..)`) and a UMD wrapper's CommonJS-branch export link at medium |
+| TypeScript, TSX, JavaScript | Types only a checker settles: an overloaded callee's argument, `import("..").T`, and members whose declared type names a type parameter. Declared types do link across files: class fields and parameter properties, imported interface and alias members (`app.scene.m()`), `T["k"]` with a literal key, parameters of a function its declarator annotates with an alias (`const f: A = ({ scene }) => ..`), and properties destructured from a typed value; a chain may pass the same class (through an inherited member) or the same alias again. Members of `await import()`; a conditional of two requires (`c ? require(a) : require(b)`); a `require` through a wrapper function; a scope `require` whose name a nested scope declares again. A guarded loader (`root._ \|\| require(..)`) and a UMD wrapper's CommonJS-branch export link at medium |
 | Python | The standard-library module list is generated (`skills-dev/octocode-graph-dev/scripts/gen-python-stdlib.mjs` → `aliases/python_stdlib.txt`: the interpreter's `sys.stdlib_module_names` at a pinned Python line plus typeshed `VERSIONS` entries with an upper bound at a pinned typeshed commit; the file header names both), so a private stdlib module (`_socket`) is never bound to another tree; `cls()`; `__all__` is not read; a constructor call links to the class, not `__init__`; `self` inside a nested function |
 | Go | an explicit type argument applied to one value (`F[T]` with a single argument, which the grammar reads as a type conversion); function values, type switches and method-chain return types. A `NewT()` result is typed `T` from the constructor's name only when no declaration of `NewT` is found; a declared result type (an interface included) wins |
 | Rust | calls inside macros; untyped closure parameters. A trait default method is matched to its implementing type by name |
@@ -977,22 +977,25 @@ binary; the 2026-10-30 text-oracle figure in brackets where it differs):
 | C# | Newtonsoft.Json | `ArgumentNotNull` | 0.98 (0.96) | 1.00 |
 | Go | prometheus | `FromStrings` | 0.98 (0.94) | 1.00 |
 | Scala | cats (`core`) | `tailRecM` | 0.94 (0.69) | 1.00 |
-| TSX | excalidraw (`packages`) | `mutateElement` | 0.77 | 1.00 |
+| TSX | excalidraw (`packages`) | `mutateElement` | 1.00 | 1.00 |
 | JavaScript | lodash (excl. `vendor/**`) | `isObject` | 0.67 | 1.00 |
 | JavaScript (CommonJS) | next.js (`scripts`) | `getGitHubToken` | 1.00 | 1.00 |
 
 The oracle still matches text, not bindings:
 
-- **Assembly + C:** the one "extra" file (`fuzz/decompress_libjpeg.cc`) calls
+- **Assembly + C:** the one "extra" file (`decompress_libjpeg.cc`, in the libjpeg-turbo repository's `fuzz/` directory, not this one) calls
   the function through an `extern "C"` include, so it is a real caller.
 - **C#:** the one miss is a `recovered-declaration` site.
 - **Go:** the two misses are `ambiguous` sites (119 sites in two test files).
 - **TSX:** declared types across files (class fields, imported interface and
   alias members, `T["k"]`, parameters of an annotated alias, 2026-11-08) took
-  recall from 0.58 to 0.77 at precision 1.00. The 12 missed files need a
-  checker: 10 reach `Scene` through the test global `window.h` (`declare global`
-  merging, the DOM `window`, `InstanceType<typeof App>`), and 2 through
-  `register({ perform: (.., app) => .. })`, typed by a generic constraint.
+  recall from 0.58 to 0.77 at precision 1.00. The test global `window.h`
+  (`declare global` / script-file `Window` interfaces merged across files,
+  `InstanceType<typeof App>`, `const h = window.h`) and the parameters of a
+  function passed to a call (`register({ perform: (.., app) => .. })`, typed by
+  the callee's declared parameter, a type parameter reading as its constraint)
+  took it to 1.00 at precision 1.00 (2026-11-10). A `Window` member links at
+  `medium`: the declaring file may sit outside the program that reads it.
 - **Scala:** the two misses are member calls on untyped receivers
   (`monadInstance.tailRecM`, `fn1.tailRecM`).
 - **JavaScript:** after B122 (2026-11-08) `test/test-fp.js` links at medium

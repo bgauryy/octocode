@@ -88,7 +88,7 @@ impl Job {
         info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         if let Some(cap_bytes) = cap_bytes {
             info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_JOB_MEMORY;
-            info.JobMemoryLimit = usize::try_from(cap_bytes).unwrap_or(usize::MAX);
+            info.JobMemoryLimit = crate::num::saturating_usize(cap_bytes);
         }
         // SAFETY: job is valid and info matches this information class.
         let configured = unsafe {

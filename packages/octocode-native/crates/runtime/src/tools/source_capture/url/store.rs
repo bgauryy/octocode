@@ -8,6 +8,7 @@ use octocode_contract_types::{
     ErrorCode, LocalFetchQuery, LocalFetchQueryContentRanges, LocalFetchQueryContentRangesView,
     SourceLineRange,
 };
+use octocode_engine::num::saturating_u64;
 use serde_json::json;
 use std::num::NonZeroU64;
 use std::path::PathBuf;
@@ -95,7 +96,7 @@ impl<'a> Store<'a> {
                 "Supply the page text as content.",
             )
         };
-        let end_line = NonZeroU64::new(u64::try_from(lines).unwrap_or(u64::MAX))
+        let end_line = NonZeroU64::new(saturating_u64(lines))
             .ok_or_else(|| unreadable(format!("{file} has no lines")))?;
         let read = LocalFetchQueryContentRanges {
             block: None,

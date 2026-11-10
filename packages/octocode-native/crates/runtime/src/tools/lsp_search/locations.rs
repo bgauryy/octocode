@@ -47,7 +47,26 @@ pub(super) fn public_range(range: &Value) -> Option<Value> {
         .pointer("/end/line")
         .and_then(Value::as_u64)
         .unwrap_or(line);
-    Some(json!({ "startLine": line + 1, "startCharacter": character + 1, "endLine": end + 1 }))
+    let mut display = json!({ "startLine": line + 1, "startCharacter": character + 1 });
+    display_end(&mut display, end + 1);
+    Some(display)
+}
+
+/// Set `display`'s `endLine`, absent when the range is one line (the
+/// declared form of every `displayRange`).
+pub(super) fn display_end(display: &mut Value, end: u64) {
+    if display.get("startLine").and_then(Value::as_u64) != Some(end) {
+        display["endLine"] = json!(end);
+    }
+}
+
+/// The last line a `displayRange` states: its `endLine`, else its
+/// `startLine` (a one-line range).
+pub(super) fn display_last_line(display: &Value) -> Option<u64> {
+    display
+        .get("endLine")
+        .or_else(|| display.get("startLine"))
+        .and_then(Value::as_u64)
 }
 
 /// Public hover: the server's zero-based `range` becomes the one-based

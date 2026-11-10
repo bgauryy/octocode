@@ -47,7 +47,7 @@ async fn search_of_a_missing_repository_is_not_found() {
             [crate::tools::gh_shared::REPOSITORY_SEARCH_HINT.to_owned()],
             "{row}"
         );
-        let next = failure.calls.expect("a recovery lead");
+        let next = *failure.calls.expect("a recovery lead");
         assert_eq!(
             next,
             crate::tools::gh_shared::repository_recovery(Some("o"), "missing"),
@@ -175,8 +175,8 @@ async fn a_missing_listing_scope_names_its_repair() {
     )
     .await
     .expect_err("missing ref");
-    assert!(failure.error.message.contains("\"nope\""), "{failure:?}");
-    let next = failure.calls.expect("refs lead");
+    assert!(failure.message.contains("\"nope\""), "{failure:?}");
+    let next = *failure.calls.expect("refs lead");
     assert_eq!(next["viewRefs"]["tool"], "ghStructure", "{next}");
     assert_eq!(
         next["viewRefs"]["input"]["queries"][0]["operation"], "refs",
@@ -194,9 +194,9 @@ async fn a_missing_listing_scope_names_its_repair() {
     )
     .await
     .expect_err("missing repository");
-    assert!(failure.error.message.contains("o/r"), "{failure:?}");
+    assert!(failure.message.contains("o/r"), "{failure:?}");
     // The recovery is the repository's spelling, not a history filter.
-    let next = failure.calls.expect("a repository search");
+    let next = *failure.calls.expect("a repository search");
     assert_eq!(
         next["findRepository"]["input"]["queries"][0]["keywords"],
         json!(["r"]),

@@ -140,6 +140,9 @@ impl FileScan<'_> {
                     self.max_file_bytes,
                 )));
             }
+            Err(crate::text::analysis::SourceError::LimitExceeded(limit)) => {
+                return Ok(Some(over_limit(path_string, limit)));
+            }
             Err(error) => return Err(error.into()),
         };
         let mut source_error = None;
@@ -231,6 +234,11 @@ impl FileScan<'_> {
             );
         }
         if let Some(error) = found.source_error() {
+            // A file past one of its own limits is one skipped file; the
+            // scan goes on. Any other failure ends the scan.
+            if let crate::text::analysis::SourceError::LimitExceeded(limit) = error {
+                return over_limit(path_string, limit);
+            }
             *source_error = Some(error.clone());
             return (
                 Tally::None,
@@ -265,6 +273,24 @@ impl FileScan<'_> {
             },
         )
     }
+}
+
+/// The skipped-file row of a file that passed the per-file limit `limit` of
+/// the source map ([`MapLimits`]), naming the file and the limit. The rest of
+/// the scan is unaffected.
+pub(super) fn over_limit(path: String, limit: &str) -> FileTally {
+    let message = format!(
+        "{path} {}: none of its matches are in this result.",
+        MapLimits::default().passed(limit)
+    );
+    let diagnostic =
+        StructuralDiagnostic::new("structural.source.failed", "warning", "source", message)
+            .with_path(path.clone())
+            .with_recovery("Search this file alone with a narrower scope.");
+    (
+        Tally::None,
+        skipped_file(path, "truncated", "sourceLimit", diagnostic),
+    )
 }
 
 /// The skipped-file row and tally for a source that failed its read gates.

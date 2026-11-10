@@ -1,6 +1,5 @@
 //! One domain execution path for public tools and Jev's bounded read context.
 mod lsp_row;
-mod panic_site;
 mod registry_row;
 mod source_reader;
 use super::{dispatch, github};
@@ -15,6 +14,7 @@ use crate::{
     tools::lsp_search::{LspExecutionConfig, prewarm},
 };
 use octocode_contract_types::{ErrorCode, LspSearchQuery};
+use octocode_engine::contain::Phase;
 use octocode_github::ProviderError;
 use serde_json::Value;
 use std::{
@@ -38,9 +38,6 @@ pub(crate) struct DomainDispatcher {
     pub lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
     pub lsp_execution_config: Arc<LspExecutionConfig>,
     pub lsp_answers: Arc<crate::tools::lsp_search::ContinuationAnswers>,
-    /// An lspSearch ran in this session: the agent uses language servers, so
-    /// `targeted` prewarm may start the ones later results point at.
-    pub lsp_requested: Arc<std::sync::atomic::AtomicBool>,
     pub graph_rows: Arc<crate::tools::ast_graph::store::SavedRows>,
     pub availability: Arc<crate::execution::availability::ToolAvailability>,
     /// Provider readiness and an enabled goals surface, independent of the
@@ -142,14 +139,14 @@ impl DomainDispatcher {
         };
         // The warm-up only saves requests: a panic in it leaves each row to
         // ask for itself (the guard above releases any row waiting on it).
-        if let Err(site) = panic_site::contain(|| {
+        if let Err(panic) = octocode_engine::contain::catch(Phase::Warm, || {
             services.warm(warm, context, &self.handle, &self.github_access);
         }) {
             octocode_io::notice::raise(
                 "gitHubWarmUp",
                 format!(
                     "The batch's GitHub warm-up failed at {}; each row asked for itself.",
-                    site.as_deref().unwrap_or("an unknown site")
+                    panic.site.as_deref().unwrap_or("an unknown site")
                 ),
             );
         }
@@ -231,8 +228,8 @@ impl DomainDispatcher {
         };
         let selection = self.selection_runtime(&context);
         // `lsp.prewarm`: `targeted` warms the server an offered lspSearch
-        // call names once this session has run an lspSearch; `all` warms it
-        // from the start, and also the file a read or search names.
+        // call names, so the first lspSearch finds it warm; `all` also warms
+        // the file a read or search names.
         let prewarm_mode = self.config.resolved.lsp.prewarm;
         let prewarm_query = (prewarm_mode == crate::config::LspPrewarm::All).then_some(query);
         let lsp = &self.lsp_execution_config;
@@ -269,14 +266,8 @@ impl DomainDispatcher {
         // Start a language server in the background so a following
         // lspSearch finds a warm pooled client: for the file an offered
         // lspSearch call names, or (opt-in) the file a read or search names.
-        // A lead alone is no reason to index a whole project.
-        let warms_leads = match prewarm_mode {
-            crate::config::LspPrewarm::Off => false,
-            crate::config::LspPrewarm::Targeted => self
-                .lsp_requested
-                .load(std::sync::atomic::Ordering::Relaxed),
-            crate::config::LspPrewarm::All => true,
-        };
+        // The pool bounds it: at most three servers start at once.
+        let warms_leads = prewarm_mode != crate::config::LspPrewarm::Off;
         let lead = warms_leads
             .then(|| prewarm::lead_file(tool, &result.data))
             .flatten();
@@ -360,8 +351,11 @@ mod page_chars_tests;
 fn execute_row(
     work: impl FnOnce() -> Result<DomainResult, ExecutionError>,
 ) -> Result<DomainResult, ExecutionError> {
-    panic_site::contain(work).unwrap_or_else(|site| {
-        let at = site.map(|site| format!(" at {site}")).unwrap_or_default();
+    octocode_engine::contain::catch(Phase::Row, work).unwrap_or_else(|panic| {
+        let at = panic
+            .site
+            .map(|site| format!(" at {site}"))
+            .unwrap_or_default();
         Ok(DomainResult::failure(
             ErrorCode::ExecutionFailed,
             format!("The tool row panicked{at}; this is a tool defect."),

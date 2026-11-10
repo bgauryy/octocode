@@ -1,5 +1,6 @@
 mod admission;
 mod sparse;
+mod store_config;
 
 use super::{CloneContext, CloneError, GitRunRequest, control, storage};
 use crate::policy::discovery::is_sensitive_repository_file;
@@ -193,11 +194,17 @@ fn status_is_clean(context: &CloneContext<'_>, directory: &Path) -> Result<bool,
     Ok(output.stdout.split('\0').all(str::is_empty))
 }
 
-/// The checkout holds no local ref.
+/// No local ref reaches the checkout's `HEAD`: a ref that contains it is the
+/// user's work on this checkout (a branch, tag or stash made here). Refs are
+/// shared by every worktree of a store, so a ref that does not contain this
+/// `HEAD` (a branch made in another worktree) is not this checkout's.
 fn no_local_refs(context: &CloneContext<'_>, directory: &Path) -> Result<bool, CloneError> {
     let refs = run(
         context,
-        scoped(directory, &["for-each-ref", "--format=%(refname)"]),
+        scoped(
+            directory,
+            &["for-each-ref", "--contains", "HEAD", "--format=%(refname)"],
+        ),
         head_timeout(context),
         "check local checkout refs",
         None,
@@ -245,7 +252,26 @@ pub(super) fn withheld_files(
     rev: &str,
     scope: Option<&[String]>,
 ) -> Result<Vec<WithheldFile>, CloneError> {
+    Ok(list_tree(context, directory, rev, scope)?.withheld)
+}
+
+/// What one listing of a commit's tree ([`list_tree`]) finds.
+struct TreeListing {
+    /// The credential-named files in scope ([`withheld_files`]).
+    withheld: Vec<WithheldFile>,
+    /// Every repository symlink (mode `120000`) of the tree, in or out of
+    /// scope: [`present_symlinks`] keeps those a checkout wrote.
+    links: Vec<String>,
+}
+
+fn list_tree(
+    context: &CloneContext<'_>,
+    directory: &Path,
+    rev: &str,
+    scope: Option<&[String]>,
+) -> Result<TreeListing, CloneError> {
     let mut withheld = Vec::new();
+    let mut links = Vec::new();
     let request = GitRunRequest {
         args: hardened(scoped(directory, &["ls-tree", "-r", "-z", rev])),
         timeout: head_timeout(context),
@@ -261,10 +287,14 @@ pub(super) fn withheld_files(
             let Some((meta, path)) = line.split_once('\t') else {
                 return Ok(());
             };
-            let mut meta = meta.split_whitespace().skip(1);
+            let mut meta = meta.split_whitespace();
+            let mode = meta.next();
             let (Some("blob"), Some(blob)) = (meta.next(), meta.next()) else {
                 return Ok(());
             };
+            if mode == Some("120000") {
+                links.push(path.to_owned());
+            }
             let in_scope = scope.is_none_or(|paths| {
                 paths.iter().any(|requested| {
                     let requested = requested.trim_end_matches('/');
@@ -282,7 +312,16 @@ pub(super) fn withheld_files(
             }
             Ok(())
         })?;
-    Ok(withheld)
+    Ok(TreeListing { withheld, links })
+}
+
+/// The symlinks of `links` (repo-relative paths) that the checkout at
+/// `directory` wrote: [`symlinks`] without asking git for the index.
+pub(super) fn present_symlinks(directory: &Path, links: Vec<String>) -> Vec<String> {
+    links
+        .into_iter()
+        .filter(|path| std::fs::symlink_metadata(directory.join(path)).is_ok())
+        .collect()
 }
 
 /// A credential-named file of a commit: its path and its blob id.
@@ -332,7 +371,7 @@ pub(super) fn blobs_absent(
 /// Check out `commit` (a full SHA: `run` pins every row to one) as the linked
 /// worktree `stage` of the shared partial `store`, with `depth` commits of
 /// history, limited to `sparse_paths`, leaving out every credential-named
-/// file in scope. Returns the files left out, or `None` when `store` already
+/// file in scope. Returns what was left out ([`Staged`]), or `None` when `store` already
 /// held a credential-named blob it did not just fetch (a rule set that
 /// withheld less, or an earlier remote that ignored the filter): the caller
 /// makes a clean store instead.
@@ -344,9 +383,9 @@ pub(super) fn checkout(
     sparse_paths: Option<&[String]>,
     depth: u64,
     stage: &Path,
-) -> Result<Option<Vec<String>>, CloneError> {
+) -> Result<Option<Staged>, CloneError> {
     let created = ensure_store(context, store, repository_url)?;
-    let Some(withheld) = ensure_commit(
+    let Some(staged) = ensure_commit(
         context,
         store,
         &Fetch {
@@ -356,27 +395,31 @@ pub(super) fn checkout(
             depth,
             created,
         },
+        |staged| {
+            add_worktree(context, store, commit, stage)?;
+            let scope = match sparse_paths {
+                Some(paths) => Some((
+                    sparse_set_args(context, stage, paths, &staged.withheld)?,
+                    "set sparse commit paths",
+                )),
+                None => withhold_args(stage, &staged.withheld)
+                    .map(|args| (args, "withhold credential files")),
+            };
+            if let Some((args, label)) = scope {
+                run(
+                    context,
+                    args,
+                    sparse_timeout(context),
+                    label,
+                    Some(repository_url),
+                )?;
+            }
+            Ok(())
+        },
     )?
     else {
         return Ok(None);
     };
-    add_worktree(context, store, commit, stage)?;
-    let scope = match sparse_paths {
-        Some(paths) => Some((
-            sparse_set_args(context, stage, paths, &withheld)?,
-            "set sparse commit paths",
-        )),
-        None => withhold_args(stage, &withheld).map(|args| (args, "withhold credential files")),
-    };
-    if let Some((args, label)) = scope {
-        run(
-            context,
-            args,
-            sparse_timeout(context),
-            label,
-            Some(repository_url),
-        )?;
-    }
     // The work tree fills in from the store; a blob it lacks is fetched from
     // the store's promisor remote, which is why this step carries the
     // credential.
@@ -387,7 +430,15 @@ pub(super) fn checkout(
         "check out requested commit",
         Some(repository_url),
     )?;
-    Ok(Some(withheld))
+    Ok(Some(staged))
+}
+
+/// What a checkout left out and the tree it came from.
+pub(super) struct Staged {
+    /// The credential-named files in scope the checkout leaves out.
+    pub(super) withheld: Vec<String>,
+    /// Repository symlinks of the commit ([`present_symlinks`]).
+    pub(super) links: Vec<String>,
 }
 
 /// The shared store at `store`: a bare repository whose every checkout is a
@@ -401,7 +452,10 @@ fn ensure_store(
 ) -> Result<bool, CloneError> {
     let created = !storage::is_ready(store);
     if created {
-        init_store(context, store)?;
+        // The origin is written with the rest of the config, and a store
+        // just made has no commit and no worktree to prune.
+        init_store(context, store, repository_url)?;
+        return Ok(true);
     }
     // The URL a lazy blob fetch of any worktree goes to, and the one askpass
     // answers for: this row's, whatever spelling an earlier row used.
@@ -414,12 +468,17 @@ fn ensure_store(
     )?;
     // A checkout directory the user deleted leaves its administration behind.
     prune_worktrees(context, store)?;
-    Ok(created)
+    Ok(false)
 }
 
 /// Make `store`, idempotently: an interrupted init is finished by the next
-/// one, and the ready marker is written last.
-fn init_store(context: &CloneContext<'_>, store: &Path) -> Result<(), CloneError> {
+/// one, and the ready marker is written last. The store's config is written
+/// in one step ([`store_config::render`]), not key by key.
+fn init_store(
+    context: &CloneContext<'_>,
+    store: &Path,
+    repository_url: &str,
+) -> Result<(), CloneError> {
     storage::create_parent(store)?;
     run(
         context,
@@ -433,38 +492,11 @@ fn init_store(context: &CloneContext<'_>, store: &Path) -> Result<(), CloneError
         "initialize shared store",
         None,
     )?;
-    let configure = |args: &[&str]| {
-        run(
-            context,
-            scoped(store, args),
-            head_timeout(context),
-            "configure shared store",
-            None,
-        )
-    };
-    // Every checkout reads repository symlinks as plain files; garbage
-    // collection and maintenance stay off, as only worktrees keep the
-    // commits reachable and a fetch is never followed by a ref.
-    for (key, value) in [
-        ("core.repositoryformatversion", "1"),
-        ("extensions.worktreeConfig", "true"),
-        ("core.symlinks", "false"),
-        ("gc.auto", "0"),
-        ("maintenance.auto", "false"),
-    ] {
-        configure(&["config", key, value])?;
-    }
-    // With per-worktree config, `core.bare=true` in the shared config would
-    // make every linked worktree read as bare: the store alone says so.
-    let shared = configure(&["config", "--local", "--list"])?;
-    if shared
-        .stdout
-        .lines()
-        .any(|line| line.starts_with("core.bare="))
-    {
-        configure(&["config", "--worktree", "core.bare", "true"])?;
-        configure(&["config", "--unset", "core.bare"])?;
-    }
+    let init_config = storage::read_store_file(&store.join("config"))?;
+    let config = store_config::render(&init_config, repository_url);
+    // The worktree file first: the shared config's extension turns it on.
+    storage::write_store_file(&store.join("config.worktree"), &config.worktree)?;
+    storage::write_store_file(&store.join("config"), &config.shared)?;
     storage::mark_ready(store)
 }
 
@@ -481,12 +513,17 @@ struct Fetch<'a> {
 
 /// Fetch `commit` into `store` unless it already holds it, then check that
 /// no credential-named blob in scope is stored. Returns the credential-named
-/// files in scope, which a checkout leaves out.
+/// files in scope, which a checkout leaves out, and the tree's symlinks.
 ///
 /// A fetch with `--depth` deepens or shortens history shared with other tips,
 /// so only a depth-1 store is shared: there a present commit is skipped, and
 /// a fetch only adds a one-commit boundary. A deeper store belongs to one
 /// commit and depth; it is skipped when it already holds that many commits.
+///
+/// `prepare_stage` sets up the worktree the checkout fills: local steps that
+/// fetch no blob. In a store this call `created` it runs beside the blob
+/// check, which gates only the checkout that follows; in an older store the
+/// check comes first, so a store holding a withheld blob gets no worktree.
 ///
 /// `None` when a store that existed before this call holds a credential-named
 /// blob in scope (the caller makes a clean one); a store `created` by this
@@ -495,7 +532,8 @@ fn ensure_commit(
     context: &CloneContext<'_>,
     store: &Path,
     request: &Fetch<'_>,
-) -> Result<Option<Vec<String>>, CloneError> {
+    prepare_stage: impl FnOnce(&Staged) -> Result<(), CloneError>,
+) -> Result<Option<Staged>, CloneError> {
     let Fetch {
         repository_url,
         commit,
@@ -503,7 +541,8 @@ fn ensure_commit(
         depth,
         created,
     } = *request;
-    let fetching = !holds_history(context, store, commit, depth)?;
+    // A store this row made holds nothing yet.
+    let fetching = created || !holds_history(context, store, commit, depth)?;
     if fetching {
         // Every checkout is a partial one: blobs arrive only when a checkout
         // needs them, so a credential-named file left out is never fetched.
@@ -522,19 +561,36 @@ fn ensure_commit(
             Some(repository_url),
         )?;
     }
-    let listed = withheld_files(context, store, commit, sparse_paths)?;
+    let TreeListing {
+        withheld: listed,
+        links,
+    } = list_tree(context, store, commit, sparse_paths)?;
     // A remote that ignores the blob filter sends every blob, credential
     // files included: refuse rather than keep them.
-    if !blobs_absent(context, store, &listed)? {
-        if !created {
+    let staged = Staged {
+        withheld: listed.iter().map(|file| file.path.clone()).collect(),
+        links,
+    };
+    if created {
+        let (absent, prepared) = std::thread::scope(|threads| {
+            let absent = threads.spawn(|| blobs_absent(context, store, &listed));
+            let prepared = prepare_stage(&staged);
+            (joined(absent.join()), prepared)
+        });
+        if !absent? {
+            return Err(CloneError::new(
+                ErrorCode::GitFailed,
+                "The remote ignored the partial-clone blob filter, so credential-named files this checkout withholds were downloaded; nothing was cloned. Use a remote that supports partial clone.",
+            ));
+        }
+        prepared?;
+    } else {
+        if !blobs_absent(context, store, &listed)? {
             return Ok(None);
         }
-        return Err(CloneError::new(
-            ErrorCode::GitFailed,
-            "The remote ignored the partial-clone blob filter, so credential-named files this checkout withholds were downloaded; nothing was cloned. Use a remote that supports partial clone.",
-        ));
+        prepare_stage(&staged)?;
     }
-    Ok(Some(withheld_paths(listed)))
+    Ok(Some(staged))
 }
 
 /// Whether `store` already holds `commit` with the history `depth` asks for.
@@ -610,6 +666,46 @@ pub(super) fn move_worktree(
         args,
         sparse_timeout(context),
         "move worktree",
+        None,
+    )?;
+    Ok(())
+}
+
+/// Whether git finds `store` intact: its connectivity check exits zero. A
+/// store that is not on disk has nothing damaged. The verdict is git's exit
+/// status, never its message.
+pub(super) fn store_intact(context: &CloneContext<'_>, store: &Path) -> Result<bool, CloneError> {
+    if !store.is_dir() {
+        return Ok(true);
+    }
+    match run(
+        context,
+        scoped(store, &["fsck", "--connectivity-only", "--no-dangling"]),
+        clone_timeout(context),
+        "verify store integrity",
+        None,
+    ) {
+        Ok(_) => Ok(true),
+        Err(error) if error.code == ErrorCode::GitFailed => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+/// Point `store`'s administration and each of `checkouts` at one another
+/// again after both moved with the home: git rewrites the checkout's `.git`
+/// file and the store's record of its path.
+pub(super) fn reconnect_worktrees(
+    context: &CloneContext<'_>,
+    store: &Path,
+    checkouts: &[std::path::PathBuf],
+) -> Result<(), CloneError> {
+    let mut args = scoped(store, &["worktree", "repair"]);
+    args.extend(checkouts.iter().map(|path| path.as_os_str().to_owned()));
+    run(
+        context,
+        args,
+        sparse_timeout(context),
+        "reconnect moved worktrees",
         None,
     )?;
     Ok(())

@@ -39,7 +39,11 @@ fn an_empty_match_read_states_its_zero_once() {
     for restated in ["matchedLines", "selectedMatchCount", "returnedLines"] {
         assert!(wire.get(restated).is_none(), "{restated}: {wire}");
     }
-    assert_eq!(format!("{:?}", result.status), "Empty", "the row's status states it");
+    assert_eq!(
+        format!("{:?}", result.status),
+        "Empty",
+        "the row's status states it"
+    );
     crate::tools::test_support::published(crate::id::ToolId::LocalFetch, &wire);
 }
 

@@ -209,11 +209,6 @@ pub(super) fn durable_write(path: &Path, bytes: &[u8]) -> Result<(), ToolError> 
 }
 
 pub(super) fn sync_dir(path: &Path) -> Result<(), ToolError> {
-    #[cfg(unix)]
-    std::fs::File::open(path)
-        .and_then(|file| file.sync_all())
-        .map_err(|error| failure(format!("cannot sync graph checkpoint directory: {error}")))?;
-    #[cfg(not(unix))]
-    let _ = path;
-    Ok(())
+    octocode_io::atomic::sync_dir(path)
+        .map_err(|error| failure(format!("cannot sync graph checkpoint directory: {error}")))
 }

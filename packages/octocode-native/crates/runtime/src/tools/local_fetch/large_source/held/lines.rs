@@ -1,8 +1,9 @@
 //! What a pass over a streamed source holds of its requested windows, and the
 //! private-key block state over all of it.
 use super::super::MARKER_PREFIX_BYTES;
+use super::super::edit_map::EditMap;
+use super::super::error::ReadError;
 use super::super::masks::Judged;
-use super::super::sealed::Edit;
 use super::{Held, SealMap, Want};
 use crate::security::{KeyBlockState, LineShapeScan, MarkerScan};
 
@@ -106,8 +107,9 @@ impl WindowLines {
             held.line_source = point.line_at;
             if let Some(map) = &self.seal {
                 match map.keyed(point.line_at, held.sealed_from) {
-                    Some(from) => held.from = from,
-                    None => held.unplaced = true,
+                    Ok(Some(from)) => held.from = from,
+                    Ok(None) => held.unplaced = true,
+                    Err(error) => held.failed = Some(error),
                 }
             }
         }
@@ -135,14 +137,16 @@ impl WindowLines {
         self.held.iter().all(|held| held.full)
     }
 
-    /// Seal every window with `edits`, and hide what `judged` leaves to each.
+    /// Seal every window with `edits` (placed on the bytes of `file`), and hide
+    /// what `judged` leaves to each.
     pub(in crate::tools::local_fetch::large_source) fn seal(
         &mut self,
-        edits: &[Edit],
+        edits: &EditMap,
+        file: &std::fs::File,
         judged: &Judged,
-    ) -> Result<(), String> {
+    ) -> Result<(), ReadError> {
         for held in &mut self.held {
-            held.seal(edits, judged)?;
+            held.seal(edits, file, judged)?;
         }
         Ok(())
     }

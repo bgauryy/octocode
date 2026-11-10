@@ -258,7 +258,11 @@ pub(super) fn annotate(
     }
     super::session::record_waits(
         result,
-        disclose_waits(&session.config, session.client.waits_since(session.began)),
+        disclose_waits(
+            &session.config,
+            session.client.waits_since(session.began),
+            session.began.elapsed(),
+        ),
     );
     let language_id = target.config.language_id.as_deref();
     inferred_project::annotate(result, query, language_id, &target.path, scope);
@@ -291,7 +295,7 @@ pub(super) fn annotate(
 /// which scope files changed since this process's last request to it:
 /// without a watcher of its own, a file no request opened (a new
 /// importer, a deleted module, regenerated output) would never reach its
-/// index. The first request of a server process records the snapshot
+/// index. The first request of a server process that watches records the snapshot
 /// only (the process indexed the disk itself). The walk is the request's
 /// one scope walk ([`scope::Scope::walked`]): a server that watches no
 /// files makes none.

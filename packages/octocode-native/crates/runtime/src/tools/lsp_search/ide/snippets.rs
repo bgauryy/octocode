@@ -10,6 +10,18 @@ use serde_json::{Value, json};
 /// the policy withholds or that cannot be read keeps its location with the
 /// reason as content, so the caller's policy decides what to drop.
 pub(super) async fn from_locations(answer: &Value, sources: &mut SourceCache<'_>) -> Vec<Value> {
+    snippets_of(answer, sources)
+        .await
+        .into_iter()
+        .map(|snippet| serde_json::to_value(snippet).unwrap_or(Value::Null))
+        .collect()
+}
+
+/// [`from_locations`] as the typed snippets.
+pub(super) async fn snippets_of(
+    answer: &Value,
+    sources: &mut SourceCache<'_>,
+) -> Vec<LspCodeSnippet> {
     let entries: &[Value] = match answer {
         Value::Array(entries) => entries,
         Value::Object(_) => std::slice::from_ref(answer),
@@ -18,7 +30,7 @@ pub(super) async fn from_locations(answer: &Value, sources: &mut SourceCache<'_>
     let mut found = Vec::new();
     for entry in entries {
         if let Some(snippet) = snippet(entry, sources).await {
-            found.push(serde_json::to_value(snippet).unwrap_or(Value::Null));
+            found.push(snippet);
         }
     }
     found

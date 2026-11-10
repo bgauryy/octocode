@@ -1,23 +1,62 @@
-//! A repository identity every listed row of a page shares is stated once,
-//! on the page's `data`: GitHub search rows otherwise repeat the same
-//! `owner`, `repo` and `commitSha` on each row. Rows of different
-//! repositories keep their own. The output contract decides which fields
-//! move: a field moves only where the tool's schema declares it on `data`
-//! and lets a row omit it (an optional page-context field), so a row's own
-//! required identity (a commit row's `commitSha`) always stays.
+//! A value every listed row of a page shares is stated once, on the page's
+//! `data`: GitHub search rows otherwise repeat the same `owner`, `repo` and
+//! `commitSha` on each row, and graph traversal rows the same `from`, `edge`
+//! and `verify`. Rows that differ keep their own. The output contract decides
+//! what moves: its `pageContextFields.statedOnce` lists the groups of row
+//! fields a page may state once, and a group moves only where the tool's
+//! schema declares each field on `data` and lets a row omit it (an optional
+//! page-context field), so a row's own required field (a commit row's
+//! `commitSha`) always stays. A page repeats what it states on every part,
+//! so each part reads alone.
 use crate::contracts::output_fields::{PageContext, page_context_fields};
 use crate::id::ToolId;
 use serde_json::{Map, Value};
 
-/// The identity a row states and a page may state for all of its rows, in
-/// order. `owner` and `repo` name one repository only together, so they
-/// move as one; a commit names a state of that repository, so `commitSha`
-/// moves only once no row still states its own repository.
-const GROUPS: [&[&str]; 2] = [&["owner", "repo"], &["commitSha"]];
-/// The group a later group's move waits on.
-const REPOSITORY: &[&str] = GROUPS[0];
+/// A group of row fields a page states once, as core declares it
+/// (`pageContextFields.statedOnce`). `after` names the fields of an earlier
+/// group that must no longer sit on any row before this group moves (a
+/// commit names a state of a repository, so `commitSha` waits for `owner`
+/// and `repo`).
+#[derive(Debug)]
+pub(crate) struct Group {
+    fields: Vec<String>,
+    after: Vec<String>,
+}
 
-/// States each identity group every listed row of each result row shares
+#[expect(
+    clippy::expect_used,
+    reason = "a missing or malformed embedded group list is a contract defect caught for every tool by contract tests"
+)]
+pub(crate) fn stated_once(tool: ToolId) -> &'static [Group] {
+    static GROUPS: [std::sync::OnceLock<Vec<Group>>; ToolId::ALL.len()] =
+        [const { std::sync::OnceLock::new() }; ToolId::ALL.len()];
+    GROUPS[tool.index()].get_or_init(|| {
+        let contract =
+            crate::contracts::tool_contract(tool).expect("embedded contract contains every tool");
+        let names = |value: &Value| {
+            value
+                .as_array()
+                .map(|names| {
+                    names
+                        .iter()
+                        .map(|name| name.as_str().expect("group field name").to_owned())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        };
+        contract["pageContextFields"]["statedOnce"]
+            .as_array()
+            .expect("core declares each tool's stated-once groups")
+            .iter()
+            .map(|group| Group {
+                fields: names(&group["fields"]),
+                after: names(&group["after"]),
+            })
+            .collect()
+    })
+}
+
+/// States each group every listed row of each result row shares
 /// once on that result row's `data`, as `tool`'s output contract declares.
 pub(crate) fn state_shared_identity(tool: ToolId, structured: &mut Value) {
     let Some(rows) = structured.get_mut("results").and_then(Value::as_array_mut) else {
@@ -34,18 +73,31 @@ pub(crate) fn state_shared_identity(tool: ToolId, structured: &mut Value) {
 /// its rows before the response stage measures them as the stage states them.
 pub(crate) fn state_shared_identity_on(tool: ToolId, data: &mut Map<String, Value>) {
     let context = page_context_fields(tool);
-    hoist(data, &|pointer| context.at(pointer));
+    hoist(data, stated_once(tool), &|pointer| context.at(pointer));
 }
 
 /// [`state_shared_identity`] for one `data`, with `declared` answering what
-/// the contract keeps at a row pointer ([`PageContextFields::at`]).
-fn hoist(data: &mut Map<String, Value>, declared: &dyn Fn(&str) -> Option<PageContext>) {
+/// the contract keeps at a row pointer ([`PageContextFields::at`]) and
+/// `groups` the groups the contract lets a page state once, in order.
+fn hoist(
+    data: &mut Map<String, Value>,
+    groups: &[Group],
+    declared: &dyn Fn(&str) -> Option<PageContext>,
+) {
     let collections = data
         .iter()
-        .filter(|(_, value)| value.as_array().is_some_and(|items| items.iter().any(Value::is_object)))
+        .filter(|(_, value)| {
+            value
+                .as_array()
+                .is_some_and(|items| items.iter().any(Value::is_object))
+        })
         .map(|(key, _)| key.clone())
         .collect::<Vec<_>>();
-    for group in GROUPS {
+    for Group {
+        fields: group,
+        after,
+    } in groups
+    {
         let movable = |collection: &str| {
             group.iter().all(|field| {
                 declared(&format!("/data/{collection}/0/{field}")) == Some(PageContext::Optional)
@@ -60,27 +112,27 @@ fn hoist(data: &mut Map<String, Value>, declared: &dyn Fn(&str) -> Option<PageCo
             })
             .cloned()
             .collect::<Vec<_>>();
-        let repository_on_rows = group != REPOSITORY
-            && carriers.iter().any(|collection| {
-                data[collection.as_str()]
-                    .as_array()
-                    .is_some_and(|items| items.iter().any(|item| carries_any(item, REPOSITORY)))
-            });
+        let after_on_rows = carriers.iter().any(|collection| {
+            data[collection.as_str()]
+                .as_array()
+                .is_some_and(|items| items.iter().any(|item| carries_any(item, after)))
+        });
         if carriers.is_empty()
-            || repository_on_rows
+            || after_on_rows
             || !carriers.iter().all(|collection| movable(collection))
-            || !group.iter().all(|field| declared(&format!("/data/{field}")).is_some())
+            || !group
+                .iter()
+                .all(|field| declared(&format!("/data/{field}")).is_some())
         {
             continue;
         }
         let Some(shared) = shared_values(data, &carriers, group) else {
             continue;
         };
-        if group
-            .iter()
-            .zip(&shared)
-            .any(|(field, value)| data.get(*field).is_some_and(|stated| stated != value))
-        {
+        if group.iter().zip(&shared).any(|(field, value)| {
+            data.get(field.as_str())
+                .is_some_and(|stated| stated != value)
+        }) {
             continue;
         }
         for collection in &carriers {
@@ -91,18 +143,18 @@ fn hoist(data: &mut Map<String, Value>, declared: &dyn Fn(&str) -> Option<PageCo
                 .filter_map(Value::as_object_mut)
             {
                 for field in group {
-                    item.shift_remove(*field);
+                    item.shift_remove(field.as_str());
                 }
             }
         }
         for (field, value) in group.iter().zip(shared) {
-            data.insert((*field).to_owned(), value);
+            data.insert(field.clone(), value);
         }
     }
 }
 
-fn carries_any(item: &Value, group: &[&str]) -> bool {
-    group.iter().any(|field| item.get(*field).is_some())
+fn carries_any(item: &Value, group: &[String]) -> bool {
+    group.iter().any(|field| item.get(field.as_str()).is_some())
 }
 
 /// The values of `group` every object item of `collections` states, when
@@ -110,7 +162,7 @@ fn carries_any(item: &Value, group: &[&str]) -> bool {
 fn shared_values(
     data: &Map<String, Value>,
     collections: &[String],
-    group: &[&str],
+    group: &[String],
 ) -> Option<Vec<Value>> {
     let mut items = collections
         .iter()
@@ -118,14 +170,19 @@ fn shared_values(
     let first = items.next()?;
     let values = group
         .iter()
-        .map(|field| first.get(*field).filter(|value| !value.is_null()).cloned())
+        .map(|field| {
+            first
+                .get(field.as_str())
+                .filter(|value| !value.is_null())
+                .cloned()
+        })
         .collect::<Option<Vec<_>>>()?;
     items
         .all(|item| {
             group
                 .iter()
                 .zip(&values)
-                .all(|(field, value)| item.get(*field) == Some(value))
+                .all(|(field, value)| item.get(field.as_str()) == Some(value))
         })
         .then_some(values)
 }

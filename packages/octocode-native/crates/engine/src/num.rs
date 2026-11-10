@@ -12,6 +12,11 @@ pub fn saturating_u32(value: impl TryInto<u32>) -> u32 {
     value.try_into().unwrap_or(u32::MAX)
 }
 
+/// `value` as a `u64`, saturating at `u64::MAX`.
+pub fn saturating_u64(value: impl TryInto<u64>) -> u64 {
+    value.try_into().unwrap_or(u64::MAX)
+}
+
 /// `value` as an `i64`, saturating at `i64::MAX`.
 pub fn saturating_i64(value: impl TryInto<i64>) -> i64 {
     value.try_into().unwrap_or(i64::MAX)

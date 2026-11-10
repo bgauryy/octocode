@@ -1,13 +1,14 @@
 //! A row split into `rowPart` parts delivers each evidence value once: a
-//! later part keeps required free text only as `""` (so it validates), the
-//! names that place the continued element whole, and the parts join back to
+//! later part keeps required free text only as `""` (so it validates against
+//! the published output schema), the names that place the continued element
+//! whole, and the parts join back to
 //! the unsplit row. The oracle is the unsplit row and the output schema, not
 //! the pager's own page-context rule.
 use super::nested_continuation::{Join, continued_elements, declared_collections, merge};
 use super::part_metadata::parts;
 use super::*;
 use crate::id::ToolId;
-use crate::tools::test_support::assert_row_contract;
+use crate::tools::test_support::{assert_part_contract, assert_row_contract};
 
 /// Every scalar leaf of `value` with its pointer, in document order.
 pub(super) fn leaves(value: &Value, at: &str, out: &mut Vec<(String, Value)>) {
@@ -34,7 +35,7 @@ pub(super) fn walk_and_join(tool: ToolId, data: &Value, budget: usize) -> (Vec<V
     let parts = parts(tool, data, budget);
     let mut joined: Option<Value> = None;
     for part in &parts {
-        assert_row_contract(tool, &part["data"]);
+        assert_part_contract(tool, part);
         let continued = continued_elements(&part["rowPart"]["continues"]);
         let join = Join {
             continued: &continued,

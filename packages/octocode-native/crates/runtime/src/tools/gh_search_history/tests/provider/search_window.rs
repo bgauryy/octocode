@@ -139,7 +139,7 @@ async fn a_page_past_the_search_window_leads_to_the_last_reachable_page() {
         failure.error.reason,
         Some(ProviderErrorReason::SearchWindowExceeded)
     );
-    let next = failure.calls.expect("a repair lead");
+    let next = *failure.calls.expect("a repair lead");
     let repair = &next["repair"];
     assert_eq!(repair["tool"], "ghSearchHistory", "{next}");
     let row = &repair["input"]["queries"][0];

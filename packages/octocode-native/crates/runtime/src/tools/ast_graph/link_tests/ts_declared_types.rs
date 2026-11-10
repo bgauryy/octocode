@@ -101,6 +101,14 @@ const B154: &[(&str, &str)] = &[
         "import type App from \"./app\";\nexport function z(app: App) { app.scene.mutateElement(1, {}); }\n",
     ),
     (
+        "src/f22_window_member.ts",
+        "const hook = window.h;\nexport function aa() { hook.scene.mutateElement(1, {}); }\nexport function ab() { window.h.scene.mutateElement(1, {}); }\nexport function ad() { window.h.app.scene.mutateElement(1, {}); }\n",
+    ),
+    (
+        "src/f23_shadowed_window.ts",
+        "export function ac(window: any) { window.h.scene.mutateElement(1, {}); }\nexport function ae(window: Foreign) { window.h.scene.mutateElement(1, {}); }\n",
+    ),
+    (
         "src/holder.ts",
         "import type { Scene } from \"./scene\";\nexport interface HolderI { scene: Scene }\nexport type HolderT = { scene: Scene };\n",
     ),
@@ -114,7 +122,7 @@ const B154: &[(&str, &str)] = &[
     ),
     (
         "src/decoy.ts",
-        "export class Scene {\n  mutateElement(el: unknown, updates: object) { return el; }\n}\nexport class App {\n  public scene: Scene;\n}\n",
+        "export class Scene {\n  mutateElement(el: unknown, updates: object) { return el; }\n}\nexport class App {\n  public scene: Scene;\n}\ninterface Window {\n  h: { scene: Scene };\n}\n",
     ),
     (
         "src/generic.ts",
@@ -127,6 +135,10 @@ fn declared_types_type_receivers_across_files() {
     let temp = fixture(B154);
     let root = ingested(&temp);
     let receiver = |caller: &str| edge(caller, "receiver-type", "high");
+    // A `Window` member reaches the receiver through interface merging across
+    // the repository: the declarations may sit outside the program that
+    // reads them, so the link is `medium`.
+    let windowed = |caller: &str| edge(caller, "receiver-type", "medium");
     assert_eq!(
         caller_edges(root, "src/scene.ts#Scene.mutateElement"),
         [
@@ -140,6 +152,7 @@ fn declared_types_type_receivers_across_files() {
             receiver("src/f08_alias_object_direct.ts#h"),
             receiver("src/f09_contextual_alias.ts#k"),
             receiver("src/f10_destructure_from_typed.ts#m"),
+            windowed("src/f11_window_global.ts#n"),
             receiver("src/f12_interface_param_field.ts#o"),
             receiver("src/f13_local_class_field_chain.ts#q"),
             receiver("src/f15_imported_interface_member.ts#s"),
@@ -149,6 +162,9 @@ fn declared_types_type_receivers_across_files() {
             receiver("src/f19_local_indexed_access.ts#w"),
             receiver("src/f20_indexed_destructured.tsx#y"),
             receiver("src/f21_param_field_chain.tsx#z"),
+            windowed("src/f22_window_member.ts#aa"),
+            windowed("src/f22_window_member.ts#ab"),
+            windowed("src/f22_window_member.ts#ad"),
         ]
     );
     // Same names in another file share only the spelling.
@@ -195,4 +211,113 @@ fn a_declared_type_chain_may_meet_a_class_or_alias_again() {
             "src/use.ts#two"
         ]
     );
+}
+
+/// A function or object literal passed to a call takes its parameters' types
+/// from the callee's declared parameter, as tsserver types them contextually:
+/// a type parameter stands for its constraint (`register<T extends Action>`).
+/// An overloaded callee, a shadowed name and an untyped parameter type nothing.
+#[test]
+fn call_arguments_take_the_callee_parameters_declared_types() {
+    let temp = fixture(&[
+        (
+            "src/scene.ts",
+            "export class Scene {\n  mutate() { return 1; }\n}\n",
+        ),
+        (
+            "src/action.ts",
+            "import type { Scene } from \"./scene\";\nexport interface Props { scene: Scene }\nexport interface Action<D = any> {\n  name: string;\n  perform: (n: number, props: Props) => void;\n}\n",
+        ),
+        (
+            "src/register.ts",
+            "import type { Action } from \"./action\";\nimport type { Props } from \"./action\";\nexport const register = <D, T extends Action<D> = Action<D>>(action: T) => action;\nexport function takes(cb: (p: Props) => void) { cb({} as Props); }\nexport function over(cb: (p: Props) => void): void;\nexport function over(cb: number): void;\nexport function over(cb: any) {}\nexport function loose(cb: (p: any) => void) { cb(1); }\n",
+        ),
+        (
+            "src/use.ts",
+            "import { register, takes, over, loose } from \"./register\";\nexport function viaObject() {\n  return register<string>({ name: \"x\", perform: (n, props) => { props.scene.mutate(); } });\n}\nexport function viaFunction() { takes((p) => { p.scene.mutate(); }); }\nexport function overloaded() { over((p) => { p.scene.mutate(); }); }\nexport function untyped() { loose((p) => { p.scene.mutate(); }); }\nexport function shadowed(register: any) { register({ perform: (n: number, props: any) => { props.scene.mutate(); } }); }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    assert_eq!(
+        caller_edges(root, "src/scene.ts#Scene.mutate")
+            .into_iter()
+            .map(|(id, via, _)| (id, via))
+            .collect::<Vec<_>>(),
+        [
+            (
+                "src/use.ts#viaFunction".to_owned(),
+                "receiver-type".to_owned()
+            ),
+            (
+                "src/use.ts#viaObject".to_owned(),
+                "receiver-type".to_owned()
+            ),
+        ]
+    );
+}
+
+/// A name merges through the repository's globals only when no scope binds
+/// it: an import-bound name (external or unresolved module), a declaration of
+/// a CommonJS file (a module, not a global script) and the DOM `window` in a
+/// file with its own `Window` all stay off the global target. `window` is the
+/// global `Window` whatever the file declares or imports under that name.
+#[test]
+fn merged_globals_never_reach_bound_names_or_modules() {
+    let temp = fixture(&[
+        (
+            "src/target.ts",
+            "export class Target {\n  m() { return 1; }\n}\n",
+        ),
+        (
+            "src/globals.ts",
+            "import type { Target } from \"./target\";\ndeclare global {\n  interface Config { x: Target }\n  interface Window { gh: Target }\n}\nexport {};\n",
+        ),
+        ("src/ok.ts", "export function ok(c: Config) { c.x.m(); }\n"),
+        (
+            "src/ext.ts",
+            "import type { Config } from \"zod\";\nexport function ext(c: Config) { c.x.m(); }\n",
+        ),
+        (
+            "src/unres.ts",
+            "import type { Config } from \"./missing\";\nexport function unres(c: Config) { c.x.m(); }\n",
+        ),
+        (
+            "src/cjs.ts",
+            "const t = require(\"./target\");\nclass Wrong { m() { return 2; } }\ninterface Local { x: Wrong }\nmodule.exports = { t };\n",
+        ),
+        (
+            "src/user_local.ts",
+            "export function ul(c: Local) { c.x.m(); }\n",
+        ),
+        (
+            "src/win_local.ts",
+            "class Wrong2 { m() { return 3; } }\ninterface Window { gh: Wrong2 }\nexport function wl() { window.gh.m(); }\n",
+        ),
+        (
+            "src/winlib.ts",
+            "export class Wrong3 { m() { return 4; } }\nexport interface Window { gh: Wrong3 }\n",
+        ),
+        (
+            "src/win_imp.ts",
+            "import type { Window } from \"./winlib\";\nexport function wi(w: Window) { return w; }\nexport function wj() { window.gh.m(); }\n",
+        ),
+    ]);
+    let root = ingested(&temp);
+    let callers = |target: &str| {
+        caller_edges(root, target)
+            .into_iter()
+            .map(|(id, _, _)| id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        callers("src/target.ts#Target.m"),
+        ["src/ok.ts#ok", "src/win_imp.ts#wj", "src/win_local.ts#wl"]
+    );
+    for decoy in [
+        "src/cjs.ts#Wrong.m",
+        "src/win_local.ts#Wrong2.m",
+        "src/winlib.ts#Wrong3.m",
+    ] {
+        assert_eq!(callers(decoy), Vec::<String>::new(), "{decoy}");
+    }
 }

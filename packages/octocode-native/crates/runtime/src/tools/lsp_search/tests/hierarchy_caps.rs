@@ -332,10 +332,10 @@ async fn a_walk_at_its_depth_offers_the_next_level() {
         row["next"]
     );
 
-    // Depth has no maximum: a walk whose last level still has nodes always
-    // offers the next one.
+    // Depth has no maximum: a walk whose last level still has unexpanded
+    // nodes always offers the next one.
     let far = 1_000;
-    let mut long = walk(far).await.expect("walk");
+    let mut long = walk(1).await.expect("walk");
     for edge in &mut long.edges {
         edge.level = far;
     }
@@ -348,6 +348,57 @@ async fn a_walk_at_its_depth_offers_the_next_level() {
             .any(|call| call["tool"] == "lspSearch"
                 && call["input"]["queries"][0]["depth"] == far + 1),
         "{row}"
+    );
+}
+
+/// The deeper-walk lead needs a node at the last level the walk never
+/// expanded. A last level whose nodes the walk already expanded (a cycle back
+/// to the anchor) has no deeper level to show: it offers nothing.
+#[tokio::test(flavor = "current_thread")]
+async fn a_last_level_of_expanded_nodes_offers_no_deeper_walk() {
+    let (_dir, root, paths) = temp_workspace();
+    let (file, uri) = graph_ts(&root);
+    let mut cycle = graph(&[("root", &["child"]), ("child", &["root"])]);
+    cycle.uri = Some(uri.clone());
+    let depth_leads = |depth: u32, walk: &HierarchyWalk| {
+        let q = query(serde_json::json!({
+            "operation": "callers", "path": file.to_string_lossy(),
+            "symbolName": "root", "line": 1, "depth": depth
+        }));
+        let items = walk
+            .edges
+            .iter()
+            .map(|edge| public_edge(Expansion::IncomingCalls, edge, None))
+            .collect::<Vec<_>>();
+        let mut row = items_payload(&q, "callers", serde_json::json!(items), TEST_BUDGET);
+        mark_truncation(&mut row, &q, &[(Expansion::IncomingCalls, walk)], &paths);
+        row["related"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|call| call["tool"] == "lspSearch")
+            .map(|call| call["input"]["queries"][0]["depth"].clone())
+            .collect::<Vec<_>>()
+    };
+    let walk = |depth: u32| {
+        walk_from(
+            &cycle,
+            node_at("root", Some(&uri)),
+            depth,
+            &paths,
+            &crate::execution::cancel::NeverCancel,
+        )
+    };
+    // Depth 1 ends on `child`, which was never expanded: one level deeper.
+    let shallow = walk(1).await.expect("walk");
+    assert_eq!(depth_leads(1, &shallow), vec![serde_json::json!(2)]);
+    // Depth 2 ends on `root` again, already expanded: nothing lies deeper.
+    let closed = walk(2).await.expect("walk");
+    assert_eq!(closed.edges.len(), 2);
+    assert!(
+        depth_leads(2, &closed).is_empty(),
+        "{:?}",
+        depth_leads(2, &closed)
     );
 }
 

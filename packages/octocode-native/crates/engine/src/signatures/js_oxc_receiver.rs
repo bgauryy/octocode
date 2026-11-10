@@ -63,9 +63,10 @@ pub(super) struct ReceiverScopes {
     /// Per enclosing function, the type its annotated declarator gives it
     /// (`const f: A = (p) => …`) and the index of its next parameter.
     contexts: Vec<Option<(GraphDeclaredType, u32)>>,
-    /// The function an annotated declarator is about to walk: its span start
-    /// and the annotation.
-    pending_context: Option<(u32, GraphDeclaredType)>,
+    /// The functions about to be walked that a declared type gives their
+    /// parameters (an annotated declarator, an argument of a call), by span
+    /// start.
+    pending_context: HashMap<u32, GraphDeclaredType>,
 }
 
 impl Default for ReceiverScopes {
@@ -78,7 +79,7 @@ impl Default for ReceiverScopes {
             object_types: ObjectTypes::default(),
             return_shapes: ReturnShapes::default(),
             contexts: Vec::new(),
-            pending_context: None,
+            pending_context: HashMap::new(),
         }
     }
 }
@@ -148,14 +149,25 @@ impl ReceiverScopes {
             self.bind_object_pattern(object, &fields);
             return;
         }
-        if let (BindingPattern::ObjectPattern(object), None, Some(Expression::Identifier(value))) = (
-            &it.id,
-            &it.type_annotation,
-            it.init.as_ref().map(unwrap_expr),
-        ) && let Some(base) = self.lookup_declared(value.name.as_str())
+        if it.type_annotation.is_none()
+            && let Some(init) = &it.init
+            && let Some(base) = self.declared_of(init)
         {
-            self.bind_declared_object(object, &base);
-            return;
+            match &it.id {
+                BindingPattern::ObjectPattern(object) => {
+                    self.bind_declared_object(object, &base);
+                    return;
+                }
+                // `let` may be reassigned: only a constant keeps the type of
+                // the value it takes a member of.
+                pattern @ BindingPattern::BindingIdentifier(_)
+                    if self.in_const && declared::has_steps(&base) =>
+                {
+                    self.bind_path(pattern, base);
+                    return;
+                }
+                _ => {}
+            }
         }
         let declared = it
             .type_annotation

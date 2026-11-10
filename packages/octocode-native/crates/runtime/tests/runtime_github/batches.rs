@@ -169,13 +169,16 @@ async fn gh_search_picked_repositories_are_contract_valid() {
         row_data(&outcome)["repositories"],
         json!([{"owner":"o","repo":"r","stars":0}])
     );
-    // A search page offers no one repository's tree: any row may be the
-    // one worth opening (`get` leads to a repository's tree and refs).
-    assert!(
-        row_data(&outcome).get("related").is_none(),
-        "{}",
-        row_data(&outcome)
-    );
+    // The page's one lead is the first row's tree: it needs only the row's
+    // identity, which a pick keeps, and its call is valid input to run.
+    let lead = row_data(&outcome)["related"][0].clone();
+    assert_eq!(lead["tool"], "ghStructure", "{}", row_data(&outcome));
+    let tree = lead["input"]["queries"][0].clone();
+    assert_eq!(tree["owner"], "o");
+    assert_eq!(tree["repo"], "r");
+    call(&runtime, "ghStructure", tree)
+        .await
+        .expect("the lead's call is contract-valid and runs");
     assert!(row_data(&outcome).get("next").is_none());
     runtime.close().await;
 }

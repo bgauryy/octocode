@@ -375,20 +375,16 @@ impl QualifiedMiss {
             return;
         }
         // A lead an empty page's own explanation already offers stays: this
-        // one takes the next numbered `broadenSearch` (`crate::id::numbered`).
-        let mut index = 0;
-        while out["calls"]
-            .get(crate::id::numbered("broadenSearch", index))
-            .is_some()
-        {
-            index += 1;
-        }
-        let key = crate::id::numbered("broadenSearch", index);
-        out["calls"][key] = crate::response::result::Continuation::related_input(
-            ToolId::AstSearch,
-            json!({"queries": queries}),
-        )
-        .build();
+        // one takes the next numbered `broadenSearch`.
+        crate::response::result::place_numbered(
+            out,
+            "broadenSearch",
+            crate::response::result::Continuation::related_input(
+                ToolId::AstSearch,
+                json!({"queries": queries}),
+            )
+            .build(),
+        );
     }
 }
 

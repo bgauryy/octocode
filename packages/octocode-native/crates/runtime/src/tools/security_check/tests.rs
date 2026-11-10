@@ -281,6 +281,40 @@ fn a_range_github_writes_as_text_is_stated_as_written() {
     );
 }
 
+/// OSV and GitHub each carry a record of one advisory: the same claim (the
+/// same packages, ranges and fixes) is stated once, however each source
+/// words its range; a record that claims something else is stated too.
+#[test]
+fn one_advisory_claimed_alike_by_two_sources_is_stated_once() {
+    let osv = json!({"id": "GHSA-same", "affected": [{"packageName": "lodash",
+        "ranges": [{"type": "ECOSYSTEM",
+            "events": [{"introduced": "4.0.0"}, {"fixed": "4.17.21"}]}]}]});
+    let github = json!({"id": "GHSA-same", "affected": [{"packageName": "lodash",
+        "ecosystemSpecific": {"vulnerable_version_range": ">= 4.0.0, < 4.17.21",
+            "first_patched_version": "4.17.21"}}]});
+    let lead = super::answer::advisory_lead(&json!({"advisories": [osv, github.clone()]}));
+    let sentence = lead["answer"].as_str().expect("answer");
+    assert_eq!(sentence.matches("GHSA-same").count(), 1, "{sentence}");
+    assert!(
+        !sentence.contains("as GitHub writes it"),
+        "OSV leads: {sentence}"
+    );
+
+    let other = json!({"id": "GHSA-same", "affected": [{"packageName": "lodash",
+        "ecosystemSpecific": {"vulnerable_version_range": ">= 3.0.0, < 4.17.21",
+            "first_patched_version": "4.17.21"}}]});
+    let osv = json!({"id": "GHSA-same", "affected": [{"packageName": "lodash",
+        "ranges": [{"type": "ECOSYSTEM",
+            "events": [{"introduced": "4.0.0"}, {"fixed": "4.17.21"}]}]}]});
+    let lead = super::answer::advisory_lead(&json!({"advisories": [osv, other]}));
+    let sentence = lead["answer"].as_str().expect("answer");
+    assert_eq!(sentence.matches("GHSA-same").count(), 2, "{sentence}");
+    assert!(
+        sentence.contains(">=3.0.0 <4.17.21 as GitHub writes it"),
+        "{sentence}"
+    );
+}
+
 /// OSV lets `versions` add to ranges: an entry holding both states both.
 #[test]
 fn an_entry_with_ranges_and_versions_states_both() {
@@ -590,6 +624,36 @@ async fn a_release_asked_with_no_version_makes_no_second_ask() {
     let data = answer(&http, debian(Some("99"), None)).await.expect("row");
     assert_eq!(data["sources"][0]["status"], "notCovered", "{data}");
     assert_eq!(http.osv_queries().len(), 1);
+}
+
+/// A release walk that stops after a page and resumes counts every page: the
+/// last page holds no record of its own, yet the row is not an unnamed release
+/// and states the record the first page read.
+#[tokio::test]
+async fn a_resumed_release_walk_counts_every_page_not_the_last() {
+    let http = RouteHttp::new().osv_pages(vec![
+        (
+            200,
+            json!({"vulns": [debian_record("DSA-1", &["12"])], "next_page_token": "t1"}),
+        ),
+        (503, json!({})),
+    ]);
+    let stopped = answer(&http, debian(Some("12"), Some("3.0.8-1")))
+        .await
+        .expect("row");
+    let next = stopped["next"]["nextPage"]["input"]["queries"][0].clone();
+    assert!(
+        next["resume"].is_string(),
+        "a call that reads on: {stopped}"
+    );
+    let last = RouteHttp::new().osv_pages(vec![(200, json!({}))]);
+    let data = answer(&last, next).await.expect("row");
+    assert_eq!(data["affected"], true, "{data}");
+    assert_eq!(data["advisories"][0]["id"], "DSA-1", "{data}");
+    let lead = data["answer"].as_str().expect("answer");
+    assert!(!lead.contains("not evaluated"), "{lead}");
+    assert!(lead.contains("1 known advisory"), "{lead}");
+    assert!(!lead.contains("none known to OSV"), "{lead}");
 }
 
 fn distro_row(ecosystem: &str, release: Option<&str>) -> Value {

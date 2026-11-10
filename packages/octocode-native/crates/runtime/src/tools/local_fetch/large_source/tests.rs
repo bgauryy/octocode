@@ -67,7 +67,9 @@ fn query(json: serde_json::Value) -> LocalFetchQuery {
 }
 
 mod byte_pages;
+mod checkpoints;
 mod edges;
+mod exact_edits;
 mod kept_matches;
 mod kept_pass;
 mod long_lines;
@@ -145,6 +147,7 @@ fn a_cancelled_stream_stops_with_the_cancel_reason() {
         stream(&opened(file.path()), &[Want::lines(1, 2)], &Cancelled)
             .map(drop)
             .err()
+            .map(|error| error.to_string())
             .as_deref(),
         Some("deadline reached")
     );

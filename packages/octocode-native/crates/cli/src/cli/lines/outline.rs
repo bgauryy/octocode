@@ -92,6 +92,11 @@ fn is_word(value: &Value) -> bool {
 /// `head` (`key:` or `-`) and `value`, nested `indent` deep.
 fn entry(head: &str, value: &Value, indent: &str, out: &mut Vec<String>) {
     let inner = format!("{indent}  ");
+    if let Value::Object(fields) = value
+        && let Some(named) = floor_named(fields)
+    {
+        return entry(head, &Value::Object(named), indent, out);
+    }
     match value {
         Value::String(text) if text.contains('\n') => {
             out.push(format!("{head} |"));
@@ -115,19 +120,52 @@ fn entry(head: &str, value: &Value, indent: &str, out: &mut Vec<String>) {
         }
         Value::Array(items) => {
             out.push(head.to_owned());
+            // One layout per array: a row of single words stays inline only
+            // when every row of its array does.
+            let block = items.iter().any(needs_block);
             for item in items {
-                list_item(item, &inner, out);
+                list_item(item, &inner, block, out);
             }
         }
         other => out.push(format!("{head} {other}")),
     }
 }
 
+/// `fields` with a count that is only a floor named as one: where
+/// `countScope` is `loaded`, `totalItems` is the rows read so far, so it
+/// prints as `totalItemsAtLeast`. `None` when `fields` holds no such floor.
+fn floor_named(fields: &Map<String, Value>) -> Option<Map<String, Value>> {
+    if fields.get("countScope").and_then(Value::as_str) != Some("loaded")
+        || !fields.contains_key("totalItems")
+    {
+        return None;
+    }
+    Some(
+        fields
+            .iter()
+            .map(|(key, value)| {
+                let key = if key == "totalItems" {
+                    "totalItemsAtLeast"
+                } else {
+                    key
+                };
+                (key.to_owned(), value.clone())
+            })
+            .collect(),
+    )
+}
+
+/// An object row that cannot read as one line of words.
+fn needs_block(item: &Value) -> bool {
+    matches!(item, Value::Object(fields) if !fields.is_empty() && !fields.values().all(is_word))
+}
+
 /// One list item: `- value`, or an object's first field on the `- ` line
-/// and the rest aligned under it.
-fn list_item(item: &Value, indent: &str, out: &mut Vec<String>) {
+/// and the rest aligned under it (`block`: for every object row, however
+/// few words it has).
+fn list_item(item: &Value, indent: &str, block: bool, out: &mut Vec<String>) {
     match item {
-        Value::Object(fields) if !fields.is_empty() && !fields.values().all(is_word) => {
+        Value::Object(fields) if !fields.is_empty() && (block || needs_block(item)) => {
             let start = out.len();
             let nested = format!("{indent}  ");
             object(fields, &nested, out);

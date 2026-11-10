@@ -87,6 +87,12 @@ pub(super) fn render_match_page(
     if !diagnostics.is_empty() {
         out["diagnostics"] = json!(diagnostics);
     }
+    // A file past a limit of its own is named by its diagnostic; the query
+    // over each half of it is a call that can answer for it.
+    if let Some([first, rest]) = source_limit_leads(q, scope, &diagnostics) {
+        out["calls"]["narrowSearch"] = first;
+        out["calls"]["narrowRest"] = rest;
+    }
     // What no flag lifts (withheld entries, read errors) is disclosed once,
     // on page 1, in `skippedPaths`, like localSearch's walk.
     let root = scope.canonical.to_string_lossy();
@@ -196,6 +202,25 @@ pub(super) fn render_match_page(
     }
     attach_source_evidence(&mut out, page_groups, cancel)?;
     Ok(out)
+}
+
+/// The narrower calls, one per half, for the first file the diagnostics name
+/// as past a source limit.
+fn source_limit_leads(
+    q: MatchQuery<'_>,
+    scope: &Scope,
+    diagnostics: &[Value],
+) -> Option<[Value; 2]> {
+    let path = diagnostics
+        .iter()
+        .filter(|d| d["code"] == super::continuations::SOURCE_LIMIT_CODE)
+        .find_map(|d| d["path"].as_str())?;
+    let file = if std::path::Path::new(path).is_absolute() {
+        std::path::PathBuf::from(path)
+    } else {
+        scope.canonical.join(path)
+    };
+    super::continuations::narrow_leads(q, &file, path)
 }
 
 /// Mark each coverage cut of the scan as a partial reason, so a partial

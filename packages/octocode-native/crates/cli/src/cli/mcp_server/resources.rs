@@ -2,8 +2,8 @@
 //! embedded from its one skill source file; the tool-flow graphs link the
 //! others by relative path, so every file they reach is served under a URI
 //! that resolves the same relative link (`octocode://research/<file>`).
-//! The instructions name only the tool-flow URI, so a session that never
-//! reads these pays nothing for them.
+//! The instructions name none of them: a client finds them through
+//! `resources/list`, so a session that never reads these pays nothing for them.
 use rmcp::model::{Resource, ResourceContents};
 
 const MARKDOWN: &str = "text/markdown";

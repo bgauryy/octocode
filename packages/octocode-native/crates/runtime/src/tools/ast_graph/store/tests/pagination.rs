@@ -80,3 +80,46 @@ fn explicit_snapshot_path_survives_ambiguous_candidate_continuation() {
         .collect::<BTreeSet<_>>();
     assert_eq!(union.len(), 25);
 }
+
+#[test]
+fn graph_header_names_the_scope_relative_root_and_pages_lose_no_rows() {
+    let dir = fixture();
+    let root = dir.0.as_path();
+    let built = ingest_fixture(root, None);
+    assert_eq!(built.class, ExitClass::Success);
+    let expected = ids(&ask(root, "symbols", Some("src/lib.ts"), |_| {}));
+    assert!(expected.len() > 2, "{expected:?}");
+    let mut options = QueryOptions {
+        op: "symbols".into(),
+        target: Some("src/lib.ts".into()),
+        workspace: Some(root.to_path_buf()),
+        limit: Some(2),
+        ..Default::default()
+    };
+    let scope = Path::new(built.value["root"].as_str().expect("root"))
+        .strip_prefix(root.canonicalize().expect("workspace"))
+        .expect("scope inside workspace")
+        .to_string_lossy()
+        .into_owned();
+    assert!(!scope.starts_with('/'), "{scope}");
+    let mut walked = Vec::new();
+    let mut pages = 0;
+    loop {
+        let page = query(&options, &workspace_policy(root));
+        assert_eq!(page.class, ExitClass::Success, "{}", page.value);
+        let graph = &page.value["graph"];
+        // Every page states the same scope-relative root graphBuild states.
+        // (Header once on later pages needs the core schema to make `root`
+        // and `createdAt` optional: patches/W8-graph-header-once.patch.)
+        assert_eq!(graph["id"], built.value["id"], "{}", page.value);
+        assert_eq!(graph["root"], scope, "{}", page.value);
+        walked.extend(ids(&page));
+        pages += 1;
+        let Some(offset) = next_offset(&page) else {
+            break;
+        };
+        options.offset = Some(offset);
+    }
+    assert!(pages > 1);
+    assert_eq!(walked, expected);
+}

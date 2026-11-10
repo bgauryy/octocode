@@ -61,10 +61,11 @@ fn census_notices_are_static_and_a_caller_limit_draws_no_narrowing_advice() {
     );
 }
 
-/// The read lead around a hit near the end of a file stops at its last
-/// line.
+/// The read lead around a hit near the end of a file windows it by the read
+/// context alone: localFetch clips what runs past the last line, so the file
+/// is not read for its length.
 #[test]
-fn the_read_lead_never_ends_past_the_last_line() {
+fn the_read_lead_windows_a_hit_without_the_files_length() {
     let root = Fixture::new();
     root.write("a.ts", "x();\ny();\ncall(1);\n");
     let out = run(
@@ -75,7 +76,11 @@ fn the_read_lead_never_ends_past_the_last_line() {
     let ranges = crate::tools::test_support::checks::related_call(&out, "localFetch", |_| true)
         ["input"]["queries"][0]["ranges"]
         .clone();
-    assert_eq!(ranges, json!([{"startLine":1,"endLine":3}]), "{out}");
+    // The hit is the last line (3): context before it reaches line 1, and
+    // after it the window ends `READ_CONTEXT` lines later.
+    let end = ranges[0]["endLine"].as_u64().expect("end");
+    assert_eq!(ranges[0]["startLine"], 1, "{out}");
+    assert!(end > 3, "{out}");
 }
 
 #[test]
@@ -122,7 +127,14 @@ fn match_rows_withhold_captures_by_default_and_state_every_end_with_captures() {
         single.get("metavars").is_none(),
         "duplicate capture map: {single}"
     );
-    assert_eq!(single["metavarRanges"]["A"][0]["text"], "one", "{single}");
+    // The capture lies inside `value`: its range is the text, stated once.
+    let capture = &single["metavarRanges"]["A"][0];
+    assert!(capture.get("text").is_none(), "{single}");
+    let value = single["value"].as_str().expect("value");
+    let column = usize::try_from(capture["column"].as_u64().expect("column")).expect("column");
+    let end = usize::try_from(capture["endColumn"].as_u64().expect("end")).expect("end");
+    let origin = usize::try_from(single["column"].as_u64().expect("column")).expect("column");
+    assert_eq!(&value[column - origin..end - origin], "one", "{single}");
     assert!(
         single["metavarRanges"]["A"][0].get("endLine").is_none(),
         "{single}"
@@ -221,9 +233,9 @@ fn list_captures_are_withheld_by_default_and_expand_on_request() {
     let m = &out["files"][0]["matches"][0];
     let body = m["metavarRanges"]["B"].as_array().expect("B ranges");
     assert_eq!(body.len(), 3, "{out}");
-    assert_eq!(body[0]["text"], "let x = 1;", "{out}");
+    assert!(body[0].get("text").is_none(), "inside value: {out}");
     assert_eq!(body[0]["line"], 2, "{out}");
-    assert_eq!(m["metavarRanges"]["N"][0]["text"], "a", "{m}");
+    assert!(m["metavarRanges"]["N"][0].get("text").is_none(), "{m}");
 }
 
 /// A single-file match parses the file as a directory scan does: raw.

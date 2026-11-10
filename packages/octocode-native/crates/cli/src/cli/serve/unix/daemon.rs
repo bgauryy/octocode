@@ -190,12 +190,16 @@ impl Daemon {
 }
 
 pub(super) async fn serve(socket: PathBuf) -> u8 {
-    use std::os::unix::fs::PermissionsExt;
     let Some(listener) = bind(&socket) else {
         return 0;
     };
     let ours = socket_identity(&socket);
-    let _ = std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600));
+    // A socket whose mode is left to the umask is not served, as one that
+    // did not bind.
+    if restrict(&socket).is_err() {
+        remove_if_ours(&socket, ours);
+        return 0;
+    }
     remove_stale_sockets(&socket);
     let daemon = std::rc::Rc::new(Daemon::new(socket.clone()));
     // Remove the socket only while it is still ours.
@@ -284,7 +288,7 @@ pub(super) async fn serve_on(
     leave();
     let in_flight = MAX_CONNECTIONS.saturating_sub(slots.available_permits());
     daemon.tell_draining(in_flight).await;
-    let all = u32::try_from(MAX_CONNECTIONS).unwrap_or(u32::MAX);
+    let all = octocode_engine::num::saturating_u32(MAX_CONNECTIONS);
     let _ = slots.acquire_many(all).await;
 }
 
@@ -302,6 +306,12 @@ pub(super) fn remove_if_ours(path: &Path, ours: Option<(u64, u64)>) {
     if ours.is_some() && socket_identity(path) == ours {
         let _ = std::fs::remove_file(path);
     }
+}
+
+/// Make the socket reachable by its owner only.
+pub(super) fn restrict(socket: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))
 }
 
 /// Bind the socket, replacing a stale file no server answers on. `None`

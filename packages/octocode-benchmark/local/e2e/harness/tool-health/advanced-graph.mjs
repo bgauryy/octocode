@@ -223,7 +223,8 @@ export const ADVANCED_GRAPH = {
       label: 'graph.witnesses.paged', checks, responseChars: 600,
       query: { operation: 'witnesses', graph: snapshot.id, target: 'graph-evidence.ts#evidenceRun', to: 'graph-evidence.ts#evidenceTarget', edges: ['calls'], limit: 1, includeProvenance: true },
     });
-    const sites = witnesses.data.flatMap(row => row.rows ?? []);
+    // A witness row without its own evidence has the page's (`data.evidence`).
+    const sites = witnesses.data.flatMap(page => (page.rows ?? []).map(row => ({ evidence: page.evidence, ...row })));
     checks.push(['graph.witnesses.preserve-distinct-sites', sites.length === 3 && new Set(sites.map(row => row.id)).size === 3 && sites.every(row => row.sourceDigest?.length === 64 && row.evidence === 'syntax'), JSON.stringify(sites)]);
     const unresolved = await scenario(ctx, 'graphQuery', 'cli', {
       label: 'graph.unresolved.paged', checks, responseChars: 600,
@@ -273,7 +274,8 @@ async function groupedViews(ctx, graph, checks) {
   for (const surface of ctx.surfaces) for (const { operation, target, reached, edges } of GROUPED) {
     const base = { operation, graph, target, depth: 2, limit: 1 };
     const walk = (view, label) => scenario(ctx, 'graphQuery', surface, { label: `graph.${operation}.${label}`, query: view ? { ...base, view } : base, checks, responseChars: 400 })
-      .then(result => result.data.flatMap(row => row.rows ?? []));
+      // A page states a `from` every row shares once, on `data`.
+      .then(result => result.data.flatMap(page => (page.rows ?? []).map(row => ({ from: page.from, ...row }))));
     const plain = await walk(undefined, 'ungrouped');
     const pairs = edges.map(edge => edge.split('>'));
     const files = tally(pairs.map(([from, to]) => `${VIEWS}/${reached === 'to' ? to : from}`));

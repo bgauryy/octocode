@@ -393,6 +393,91 @@ fn match_pages_continue_from_their_file_pagination() {
     assert!(pages.iter().all(|page| page["next"]["nextPage"].is_null()));
 }
 
+/// A file whose rows continue on later pages reports how many rows it has
+/// in all, never a preview of their line numbers: the cursor reaches them.
+#[test]
+fn a_continuing_file_reports_its_total_without_a_line_preview() {
+    let root = tempfile::tempdir().expect("fixture");
+    let rows = 90_usize;
+    fs::write(
+        root.path().join("a.txt"),
+        (1..=rows)
+            .map(|line| format!("needle {line}\n"))
+            .collect::<String>(),
+    )
+    .expect("source");
+    let (_, pages) = walk_search(
+        root.path(),
+        serde_json::json!({"path":root.path(),"matchString":["needle"]}),
+        Some(1500),
+    );
+    assert!(pages.len() > 1, "fixture must continue");
+    for page in &pages[..pages.len() - 1] {
+        let pagination = &page["files"][0]["pagination"];
+        assert_eq!(pagination["hasMore"], true, "{pagination}");
+        assert_eq!(pagination["totalItems"], rows, "{pagination}");
+        for key in ["moreLines", "moreLinesUnlisted"] {
+            assert!(pagination.get(key).is_none(), "{key} in {pagination}");
+        }
+    }
+}
+
+/// The count request a large result offers is a `related[]` call that names
+/// itself; no hint restates it.
+#[test]
+fn a_large_result_offers_its_count_call_without_a_hint_restating_it() {
+    let root = tempfile::tempdir().expect("fixture");
+    let rows = crate::tools::local_search::leads::LARGE_RESULT_MATCHES as usize + 1;
+    fs::write(root.path().join("a.txt"), "needle\n".repeat(rows)).expect("source");
+    let (_, pages) = walk_search(
+        root.path(),
+        serde_json::json!({"path":root.path(),"matchString":["needle"]}),
+        None,
+    );
+    let first = pages[0].to_string();
+    assert!(!first.contains("related[]"), "{first}");
+}
+
+/// The read a search hands off windows its hits by the hit lines and the
+/// handoff context alone: it never reads the file to learn its length, and
+/// localFetch clips a window that runs past the end.
+#[test]
+fn the_read_handoff_windows_hits_without_reading_the_file() {
+    use crate::tools::local_search::handoff::{READ_HANDOFF_CONTEXT, read_handoff};
+    let root = tempfile::tempdir().expect("fixture");
+    let hit = 9_u32;
+    // A file shorter than the window: a clamp would end it at its last line.
+    fs::write(root.path().join("a.txt"), "x\n".repeat(hit as usize)).expect("source");
+    let query = ls_query(
+        serde_json::json!({"path":root.path(),"matchString":["x"]}),
+        None,
+    );
+    let file = crate::tools::local_search::types::SearchFile {
+        path: "a.txt".into(),
+        match_keys: Vec::new(),
+        declarations: Vec::new(),
+        matches: Some(vec![crate::tools::local_search::types::SearchMatch {
+            line: hit,
+            column: None,
+            value: "x".into(),
+            byte_offset: 0,
+            first_line: hit,
+            match_lines: None,
+            count: None,
+            enclosing: None,
+            declaration: None,
+        }]),
+        total_occurrences: None,
+        total_matched_lines: None,
+        term_counts: None,
+        pagination: None,
+    };
+    let read = read_handoff(&query, root.path(), &file).expect("a read lead");
+    let range = &read["input"]["queries"][0]["ranges"][0];
+    assert_eq!(range["startLine"], hit - READ_HANDOFF_CONTEXT, "{read}");
+    assert_eq!(range["endLine"], hit + READ_HANDOFF_CONTEXT, "{read}");
+}
+
 #[test]
 fn overlapping_context_windows_reconstruct_every_requested_source_line_once() {
     let root = tempfile::tempdir().expect("fixture");

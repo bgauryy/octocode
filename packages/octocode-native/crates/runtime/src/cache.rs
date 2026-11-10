@@ -31,6 +31,17 @@ pub(crate) enum Directory {
     ProviderAnswers,
 }
 impl Directory {
+    /// Store directories no code reads or writes any more, relative to the
+    /// home: the maintenance sweep and `cache clear` remove them. A layout
+    /// bump moves the old directory here.
+    pub(crate) const RETIRED: [&'static str; 2] =
+        ["cache/lexical-pages", "cache/provider-answers-v1"];
+
+    /// [`Self::RETIRED`] under `home`.
+    pub(crate) fn retired(home: &std::path::Path) -> impl Iterator<Item = PathBuf> {
+        Self::RETIRED.into_iter().map(|name| home.join(name))
+    }
+
     pub(crate) const ALL: [Self; 6] = [
         Self::ResponsePages,
         Self::Continuations,
@@ -47,7 +58,7 @@ impl Directory {
             Self::LspAnswers => home.join("tmp/lsp-answers"),
             Self::GraphRows => home.join("tmp/graph-rows"),
             // Outlives its session, so not under `tmp`. The name carries the
-            // layout's version: a bump leaves one directory to delete.
+            // layout's version: a bump moves the old name to [`Self::RETIRED`].
             Self::ProviderAnswers => home.join("cache/provider-answers-v2"),
         }
     }

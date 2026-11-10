@@ -173,7 +173,7 @@ pub(super) fn implemented_traits<'a>(
 /// line of the comment block directly above, when present. `parent` names the
 /// containing declaration and stays meaningful when a `symbolKinds` or `name`
 /// filter drops the parent row; `parentLine` is added only when another
-/// declaration in the file has the same name and kind (two `impl A` blocks). `exported` appears only when true, with
+/// declaration in the file has the same name and kind (two `impl A` blocks). `exported` appears only when the engine tags the declaration exported (a member is exported only when its owning type is), with
 /// `exportedAs` listing public names that differ from `name`. Rows are
 /// returned in input order, one per engine declaration.
 ///
@@ -247,14 +247,6 @@ pub(super) fn compact_declarations(
             if end != line {
                 row["endLine"] = json!(end);
             }
-            if d.exported {
-                row["exported"] = json!(true);
-                // Public names when exported under another name (`export { foo
-                // as bar }`, `export default function foo`).
-                if !d.exported_as.is_empty() {
-                    row["exportedAs"] = json!(d.exported_as);
-                }
-            }
             // Parents precede children in engine preorder; an unknown parent
             // (never expected) is dropped rather than leaking an engine id.
             // A declaration never names itself as parent: C's one-line
@@ -274,6 +266,14 @@ pub(super) fn compact_declarations(
                     .is_some_and(|&(parent, parent_line, _)| (parent, parent_line) == (name, line))
             {
                 parent_index = parent_of(raw[index]);
+            }
+            if d.exported {
+                row["exported"] = json!(true);
+                // Public names when exported under another name (`export { foo
+                // as bar }`, `export default function foo`).
+                if !d.exported_as.is_empty() {
+                    row["exportedAs"] = json!(d.exported_as);
+                }
             }
             if let Some(index) = parent_index
                 && let Some(&(parent, parent_line, _)) = anchors.get(index)

@@ -189,3 +189,22 @@ fn a_cold_symbols_view_seeds_the_declarations_from_its_own_parse() {
     assert!(content.contains("9-11\t    pub fn origin"), "{content}");
     assert!(content.contains("pub struct Point"), "{content}");
 }
+
+/// The hit lines a page states: `matchedLines`, or, when it is absent because
+/// every shown line is a hit, the lines `sourceLineRanges` locates.
+pub(super) fn shown_hits(wire: &serde_json::Value) -> serde_json::Value {
+    if let Some(lines) = wire.get("matchedLines") {
+        return lines.clone();
+    }
+    let ranges = wire["sourceLineRanges"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    ranges
+        .iter()
+        .flat_map(|range| {
+            range["line"].as_u64().unwrap_or(0)..=range["endLine"].as_u64().unwrap_or(0)
+        })
+        .collect::<Vec<_>>()
+        .into()
+}

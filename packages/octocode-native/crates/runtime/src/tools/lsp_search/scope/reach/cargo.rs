@@ -176,20 +176,13 @@ fn patched(package: &Path, defining: &Path) -> bool {
 
 /// The modules the package at `package` places by `#[path = "…"]`, each
 /// as (declaring file, module file), canonical; nested packages are their
-/// own. Every `.rs` file is read; `None` when `stopped` ended the walk
+/// own. Every `.rs` file is read (bounded, never a FIFO); `None` when `stopped` ended the walk
 /// first.
 pub(super) fn relocated_modules(
     package: &Path,
     stopped: &dyn Fn() -> bool,
 ) -> Option<Vec<(PathBuf, PathBuf)>> {
-    let root = package.to_path_buf();
-    let walker = ignore::WalkBuilder::new(package)
-        .filter_entry(move |entry| {
-            entry.path() == root
-                || !entry.file_type().is_some_and(|kind| kind.is_dir())
-                || !entry.path().join(MANIFEST).is_file()
-        })
-        .build();
+    let walker = crate::tools::package_walk(package).build();
     let mut found = Vec::new();
     for entry in walker.flatten() {
         if stopped() {
@@ -201,7 +194,13 @@ pub(super) fn relocated_modules(
         {
             continue;
         }
-        let Ok(text) = std::fs::read_to_string(path) else {
+        let Ok(bytes) = crate::tools::source::read_bounded(
+            path,
+            crate::security::SourceLimits::REAL.whole_source,
+        ) else {
+            continue;
+        };
+        let Ok(text) = String::from_utf8(bytes) else {
             continue;
         };
         let dir = path.parent().unwrap_or(path);
@@ -222,4 +221,69 @@ fn path_attributes(text: &str) -> Vec<&str> {
             value.trim_start().strip_prefix('"')?.split('"').next()
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn package(dir: &Path) {
+        std::fs::write(
+            dir.join(MANIFEST),
+            "[package]\nname = \"p\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("manifest");
+    }
+
+    /// `relocated_modules` of `package` on a thread: a read that blocks fails
+    /// the test instead of hanging it.
+    fn modules_of(package: &Path) -> Option<Vec<(PathBuf, PathBuf)>> {
+        let package = package.to_path_buf();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = sender.send(relocated_modules(&package, &|| false));
+        });
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .expect("the scan returned")
+    }
+
+    #[test]
+    fn a_path_attribute_in_a_source_file_is_found() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        package(dir.path());
+        std::fs::write(dir.path().join("a.rs"), "#[path = \"b.rs\"]\nmod b;\n").expect("source");
+        let found = modules_of(dir.path()).expect("finished");
+        assert_eq!(found.len(), 1);
+        assert!(found[0].1.ends_with("b.rs"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_named_like_source_is_not_read() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        package(dir.path());
+        crate::tools::test_support::make_fifo(&dir.path().join("x.rs"));
+        assert_eq!(modules_of(dir.path()), Some(Vec::new()));
+    }
+
+    #[test]
+    fn a_source_file_past_the_read_limit_is_not_read() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        package(dir.path());
+        let mut text = "#[path = \"b.rs\"]\nmod b;\n".to_owned();
+        text.push_str(&" ".repeat(crate::security::SourceLimits::REAL.whole_source));
+        std::fs::write(dir.path().join("big.rs"), text).expect("source");
+        assert_eq!(modules_of(dir.path()), Some(Vec::new()));
+    }
+
+    #[test]
+    fn a_directory_the_default_prune_leaves_out_is_not_walked() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        package(dir.path());
+        let store = dir.path().join("node_modules");
+        std::fs::create_dir(&store).expect("store");
+        std::fs::write(store.join("k.rs"), "#[path = \"b.rs\"]\nmod b;\n").expect("source");
+        assert_eq!(modules_of(dir.path()), Some(Vec::new()));
+    }
 }

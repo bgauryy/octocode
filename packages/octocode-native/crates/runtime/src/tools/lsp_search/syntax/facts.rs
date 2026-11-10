@@ -5,6 +5,7 @@ use super::super::source::read_bounded_source;
 use crate::tools::declarations;
 use octocode_engine::graph::{GraphFactDeclaration, GraphFactsDocument, GraphRange};
 use octocode_engine::lsp::types::{LspCodeSnippet, LspExactPosition, LspRange};
+use octocode_engine::num::saturating_u32;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -130,7 +131,7 @@ pub(super) fn occurrences(
                 if !bounded {
                     continue;
                 }
-                let line = u32::try_from(line).unwrap_or(u32::MAX);
+                let line = saturating_u32(line);
                 let column = |byte: usize| {
                     saturating_u32(text.get(..byte).unwrap_or_default().encode_utf16().count())
                 };
@@ -259,10 +260,6 @@ fn contains(outer: &GraphRange, inner: &GraphRange) -> bool {
 
 fn is_word(character: char) -> bool {
     character.is_alphanumeric() || character == '_' || character == '$'
-}
-
-fn saturating_u32(value: usize) -> u32 {
-    u32::try_from(value).unwrap_or(u32::MAX)
 }
 
 pub(super) fn lsp_range(range: &GraphRange) -> LspRange {

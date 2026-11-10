@@ -307,6 +307,15 @@ pub(super) fn walk_frame(
         .ignore_rules
         .as_ref()
         .map(|rules| rules.enter(&frame.base, complete.then(|| listed_rules(&children))));
+    // An ignore file that cannot be read applied no rules: counted as an
+    // unreadable entry, once (a resumed walk replays this directory).
+    if let Some(rules) = &rules
+        && !(query.skip_entries > 0 && state.position <= query.skip_entries)
+    {
+        for file in rules.unreadable() {
+            state.unreadable(&std::io::Error::from(file.kind));
+        }
+    }
     frame.children = Some(children);
     state.stack.push(frame);
     let level = state.stack.len() - 1;

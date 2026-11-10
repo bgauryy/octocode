@@ -251,7 +251,17 @@ impl Graph {
     /// names the cut. A snapshot bound is no cut: a build past one is
     /// refused, never published.
     pub(super) fn summary(&self) -> Value {
-        let mut out = json!({"id": self.id, "root": self.manifest["root"], "createdAt": self.manifest["createdAt"]});
+        // The scope is named relative to the workspace, as graphBuild states it.
+        let root = self.manifest["root"].as_str().unwrap_or_default();
+        let shown = self.manifest["workspace"]
+            .as_str()
+            .and_then(|workspace| Path::new(root).strip_prefix(workspace).ok())
+            .map(|relative| match relative.as_os_str().is_empty() {
+                true => ".".to_owned(),
+                false => octocode_engine::text::slash_path(relative),
+            })
+            .unwrap_or_else(|| root.to_owned());
+        let mut out = json!({"id": self.id, "root": shown, "createdAt": self.manifest["createdAt"]});
         if self.manifest["scan"]["filesSkipped"].as_u64().unwrap_or(0) > 0 {
             crate::response::paging::mark_partial(
                 &mut out,

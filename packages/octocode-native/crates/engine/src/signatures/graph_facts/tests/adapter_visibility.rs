@@ -155,3 +155,47 @@ fn scala_forwarding_is_an_explicit_linking_boundary() {
             .any(|e| e.source.as_deref() == Some("Source.handler"))
     );
 }
+
+/// A member is exported only when its owning type is: a `pub` field or method
+/// of an unexported type is unreachable through it, and states no export fact.
+#[test]
+fn a_member_of_an_unexported_type_is_not_exported() {
+    for (path, source, hidden, shown) in [
+        (
+            "a.rs",
+            "pub(super) struct Hidden { pub field: u8 }\npub struct Shown { pub field: u8 }\n",
+            "Hidden",
+            "Shown",
+        ),
+        (
+            "a.java",
+            "public class Outer { private class Hidden { public void m() {} } public class Shown { public void m() {} } }",
+            "Hidden",
+            "Shown",
+        ),
+    ] {
+        if languages::find_entry(&extension_of(path, true, "")).is_none() {
+            continue;
+        }
+        let facts = typed(source, path);
+        let owner_id = |owner: &str| {
+            facts
+                .declarations
+                .iter()
+                .find(|d| d.name == owner)
+                .unwrap_or_else(|| panic!("{path} {owner}"))
+                .id
+                .clone()
+        };
+        for (owner, exported) in [(hidden, false), (shown, true)] {
+            let id = owner_id(owner);
+            let members: Vec<_> = facts
+                .declarations
+                .iter()
+                .filter(|d| d.parent.as_deref() == Some(id.as_str()))
+                .collect();
+            assert_eq!(members.len(), 1, "{path}: {owner}: {members:?}");
+            assert_eq!(members[0].exported, exported, "{path}: {owner} member");
+        }
+    }
+}

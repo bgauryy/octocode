@@ -136,6 +136,10 @@ pub(super) struct HierarchyWalk {
     /// Anchor results listed past the node cap without being expanded; each
     /// is also a resume point.
     pub(super) unexpanded_nodes: usize,
+    /// Nodes first reached at the walk's last level: listed, never expanded,
+    /// so whether anything lies deeper is unknown. A last-level edge to a
+    /// node the walk already expanded is not among them.
+    pub(super) unexpanded_last_level: Vec<Value>,
     /// Results naming a file outside the read policy (skipped).
     pub(super) out_of_policy: usize,
     /// Results declared in a TypeScript built-in lib file (`lib.*.d.ts`,

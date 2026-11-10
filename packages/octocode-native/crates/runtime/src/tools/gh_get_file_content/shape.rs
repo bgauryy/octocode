@@ -74,6 +74,15 @@ pub(super) fn shape(
         )
     };
     let match_not_found = settle_status(&mut content, query, &acquired.bytes)?;
+    if let Some(pointer) = super::lfs::parse(&acquired.bytes) {
+        content.warnings.push(super::lfs::warning(
+            &pointer,
+            access::owner(query),
+            access::repo(query),
+            &acquired.resolved_ref,
+            access::path(query),
+        ));
+    }
     if let Some(warning) = renamed_warning {
         content.warnings.insert(0, warning);
     }

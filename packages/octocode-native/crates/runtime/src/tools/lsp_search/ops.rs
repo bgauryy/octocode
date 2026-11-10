@@ -53,7 +53,7 @@ const ANCHOR_DIAGNOSTICS_WAIT_MS: u32 = 1_000;
 
 /// `lsp.source` of rows read from source by the heritage scan, not from the
 /// language server.
-const SCAN_SOURCE: &str = "native-graph-facts";
+pub(super) const SCAN_SOURCE: &str = "native-graph-facts";
 
 /// Partial reason of a heritage-scan answer standing in for a server that
 /// did not answer.
@@ -148,7 +148,7 @@ fn mark_scan_answer(
 /// base it matched: a scan row is in the answer when a server location in
 /// its file spans its line (servers locate an implementation at its name or
 /// over its whole declaration).
-fn scan_only(
+pub(super) fn scan_only(
     found: &[octocode_engine::lsp::types::LspCodeSnippet],
     scan: heritage::HeritageScan,
 ) -> (Vec<octocode_engine::lsp::types::LspCodeSnippet>, String) {
@@ -174,6 +174,26 @@ fn scan_only(
         })
         .collect();
     (extra, scan.base)
+}
+
+/// A heritage-scan declaration as a row of the answer, labelled with the
+/// source that read it.
+pub(super) fn scan_row(snippet: &octocode_engine::lsp::types::LspCodeSnippet) -> Value {
+    let mut value = serde_json::to_value(snippet).unwrap_or(Value::Null);
+    value["source"] = json!(SCAN_SOURCE);
+    value
+}
+
+/// Flag an `implementation` row incomplete when `extra` scan declarations
+/// stand beside the answer. Each row's `source` and `partialReasons` state
+/// it; the reason's meaning lives in the contract.
+pub(super) fn flag_scan_only(
+    row: &mut Value,
+    extra: &[octocode_engine::lsp::types::LspCodeSnippet],
+) {
+    if !extra.is_empty() && row.get("errorCode").is_none() {
+        crate::response::paging::mark_partial(row, SCAN_ONLY, &[]);
+    }
 }
 
 /// Everything one operation needs, borrowed from `execute`.
@@ -365,11 +385,7 @@ fn outline_row(
     budget: usize,
     readiness: Option<Readiness>,
 ) -> Value {
-    if octocode_engine::lsp::family::is_typescript_family(language_id)
-        && let Some(content) = content
-    {
-        super::render::name_type_aliases(&mut symbols, content);
-    }
+    super::render::name_type_aliases_in(&mut symbols, language_id, content);
     let mut payload = items_payload(query, "documentSymbols", symbols, budget);
     super::responses::flag_still_loading(&mut payload, query, readiness);
     payload

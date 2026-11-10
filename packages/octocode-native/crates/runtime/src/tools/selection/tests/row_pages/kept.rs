@@ -60,20 +60,33 @@ fn structure() -> Value {
     json!({"files":[{"dir":"a","files":["fix.rs (1)","other.rs (2)"]},{"dir":"b","files":["plain.rs (3)"]}]})
 }
 
+/// The receipt states the kept and total counts; a page that shows all it
+/// kept, with nothing to judge, unknown or hidden, adds no warning that
+/// restates them (declared intent of B263: counts once).
 #[test]
-fn a_history_page_that_leaves_rows_out_says_what_it_kept() {
-    let data = page(
+fn a_page_showing_all_it_kept_states_the_counts_once_in_the_receipt() {
+    let history = page(
         ToolId::GhSearchHistory,
         FixJudge,
         &query(),
         json!({"commits":commits()}),
     );
-    let warnings = data["warnings"].to_string();
-    assert!(
-        warnings.contains("classification kept 2 of 6 hits that pass the classifiers."),
-        "{data}"
+    let listing = page(
+        ToolId::StructureSearch,
+        FixJudge,
+        &json!({"path":".","classification":{"predicates":["Is it a fix?"]}}),
+        structure(),
     );
-    assert!(!warnings.contains("not absence"), "{data}");
+    for data in [history, listing] {
+        let receipt = &data["selection"];
+        let kept = receipt["selectedItems"].as_i64().expect("selectedItems");
+        let total = receipt["totalItems"].as_i64().expect("totalItems");
+        assert!(0 < kept && kept < total, "{data}");
+        assert!(
+            !data["warnings"].to_string().contains("classification kept"),
+            "{data}"
+        );
+    }
 }
 
 #[test]

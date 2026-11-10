@@ -5,10 +5,12 @@ use super::client::Bridge;
 use super::{Fault, hierarchy, snippets};
 use crate::execution::cancel::CancellationCheck;
 use crate::tools::lsp_search::failure::no_answer;
+use crate::tools::lsp_search::heritage;
 use crate::tools::lsp_search::locations::{
     items_payload, public_hover, public_workspace_symbol, salted_locations,
 };
 use crate::tools::lsp_search::ops::{dedupe_diagnostics, diagnostic_items};
+use crate::tools::lsp_search::ops::{flag_scan_only, scan_only, scan_row};
 use crate::tools::lsp_search::render::items;
 use crate::tools::lsp_search::source::{SourceCache, filter_authorized_items};
 use crate::tools::lsp_search::{LspSearchQuery, Op, cancellable, lsp_search_query};
@@ -20,6 +22,8 @@ pub(super) struct Question<'a, 'p> {
     pub(super) query: &'a LspSearchQuery,
     pub(super) sources: &'a mut SourceCache<'p>,
     pub(super) cancel: &'a dyn CancellationCheck,
+    /// Where lexical scans search; the heritage scan reads its files.
+    pub(super) scope: &'a crate::tools::lsp_search::scope::Scope,
     /// Canonical file (or workspace-root directory) of the request.
     pub(super) path: &'a str,
     /// The request names a workspace root, not a file: `path` is a directory.
@@ -48,7 +52,7 @@ impl Question<'_, '_> {
         match lsp_search_query::op(query) {
             Op::Definition => self.locations("definition", "definition").await,
             Op::TypeDefinition => self.locations("typeDefinition", "typeDefinition").await,
-            Op::Implementation => self.locations("implementation", "implementation").await,
+            Op::Implementation => self.implementation().await,
             Op::References => self.references().await,
             Op::Hover => {
                 let hover = self.ask("hover", self.anchor()).await?;
@@ -67,9 +71,19 @@ impl Question<'_, '_> {
                 })
             }
             Op::DocumentSymbols => {
-                let symbols = self
+                let mut symbols = self
                     .ask("documentSymbols", json!({ "path": self.path }))
                     .await?;
+                let content = self
+                    .sources
+                    .get(self.path)
+                    .await
+                    .map(|source| source.content.clone());
+                crate::tools::lsp_search::render::name_type_aliases_in(
+                    &mut symbols,
+                    octocode_engine::lsp::config::detect_language_id(self.path).as_deref(),
+                    content.as_deref(),
+                );
                 Ok(items_payload(
                     query,
                     "documentSymbols",
@@ -100,6 +114,50 @@ impl Question<'_, '_> {
     async fn locations(&mut self, kind: &str, method: &str) -> Result<Value, Fault> {
         let answer = self.ask(method, self.anchor()).await?;
         Ok(self.page(kind, answer).await)
+    }
+
+    /// `implementation`: the editor's answer, with the heritage scan's
+    /// declarations it left out for a type anchor, as a server answer has.
+    async fn implementation(&mut self) -> Result<Value, Fault> {
+        let answer = self.ask("implementation", self.anchor()).await?;
+        let found = snippets::snippets_of(&answer, self.sources).await;
+        let content = self
+            .sources
+            .get(self.path)
+            .await
+            .map(|source| source.content.clone())
+            .unwrap_or_default();
+        let scannable = lsp_search_query::symbol_name(self.query).is_some_and(|name| {
+            heritage::anchors_type_declaration(&content, self.path, self.line, name)
+        });
+        let scan = if scannable {
+            // A scan that cannot run adds nothing; only cancellation stops.
+            match heritage::scan_workspace(
+                self.query,
+                self.scope,
+                self.sources.policy(),
+                self.cancel,
+            )
+            .await
+            {
+                Err(failure) if failure.is_cancelled() => return Err(failure.into()),
+                Ok(scan) => scan,
+                Err(_) => None,
+            }
+        } else {
+            None
+        };
+        let extra = scan
+            .map(|scan| scan_only(&found, scan).0)
+            .unwrap_or_default();
+        let rows = found
+            .iter()
+            .map(|snippet| serde_json::to_value(snippet).unwrap_or(Value::Null))
+            .chain(extra.iter().map(scan_row))
+            .collect();
+        let mut row = self.page_of("implementation", rows).await;
+        flag_scan_only(&mut row, &extra);
+        Ok(row)
     }
 
     async fn references(&mut self) -> Result<Value, Fault> {

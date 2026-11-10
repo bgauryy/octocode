@@ -24,6 +24,9 @@ pub(super) struct Global {
     /// What GitHub states of each record beyond its row: its withdrawal and
     /// its class when not `reviewed` ([`advisories::github_notes`]).
     notes: Vec<String>,
+    /// Ids GitHub classes `unreviewed`: a withdrawn one states that in its
+    /// withdrawal warning, so its note is not repeated.
+    unreviewed: Vec<String>,
     /// Ids GitHub classes as malware that it still matches (not withdrawn):
     /// each fires the contract's `malware` caution.
     malware: Vec<String>,
@@ -57,11 +60,15 @@ pub(super) async fn read(confirmed: &Confirmed, net: &Net<'_>) -> Option<Global>
     let mut end = walked.end;
     let mut rows = Vec::new();
     let mut notes = Vec::new();
+    let mut unreviewed = Vec::new();
     let mut malware = Vec::new();
     for advisory in &walked.advisories {
         match advisories::row(advisory, &selection) {
             Ok(row) => {
                 notes.extend(advisories::github_notes(advisory));
+                if advisory.kind.as_deref() == Some("unreviewed") {
+                    unreviewed.push(advisory.ghsa_id.clone());
+                }
                 if advisory.kind.as_deref() == Some("malware") && advisory.withdrawn_at.is_none() {
                     malware.push(advisory.ghsa_id.clone());
                 }
@@ -83,6 +90,7 @@ pub(super) async fn read(confirmed: &Confirmed, net: &Net<'_>) -> Option<Global>
         others: Vec::new(),
         withdrawn: Vec::new(),
         notes,
+        unreviewed,
         malware,
     })
 }
@@ -195,14 +203,33 @@ impl Global {
                 if listed.len() == 1 { "it" } else { "them" }
             ));
         }
+        // A withdrawn record that is also unreviewed gets one warning naming
+        // both facts, so its unreviewed note is not stated again.
+        let folded = |id: &str| self.unreviewed.iter().any(|known| known == id);
         warnings.extend(self.withdrawn.iter().map(|(id, at)| {
+            let both = if folded(id) {
+                " and has not reviewed it (its database marks it unreviewed)"
+            } else {
+                ""
+            };
             format!(
-                "GitHub withdrew {} at {}: not a match; related reads it whole.",
+                "GitHub withdrew {} at {}{both}: not a match; related reads it whole.",
                 super::answer::stated_id(id),
                 super::answer::typed(at)
             )
         }));
-        warnings.extend(self.notes.iter().cloned());
+        let repeated = self
+            .withdrawn
+            .iter()
+            .filter(|(id, _)| folded(id))
+            .map(|(id, _)| advisories::unreviewed_note(&super::answer::stated_id(id)))
+            .collect::<Vec<_>>();
+        warnings.extend(
+            self.notes
+                .iter()
+                .filter(|note| !repeated.contains(note))
+                .cloned(),
+        );
         if !warnings.is_empty() {
             paging::push_warnings(data, warnings);
         }

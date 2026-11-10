@@ -7,6 +7,7 @@ use crate::signatures::nodes::node_text;
 
 use super::{GraphAccumulator, NodePositions};
 use crate::graph::GraphFactImport;
+use crate::num::saturating_u32;
 
 /// Outer attributes that precede one item, folded as `(path, unsupported)`
 /// plus whether a `cfg` compiles the item only under test.
@@ -326,7 +327,7 @@ pub(super) fn collect_rust_paths(
                 line,
                 path,
                 caller_id: caller_id.map(str::to_owned),
-                inline_depth: u32::try_from(inline_depth).unwrap_or(u32::MAX),
+                inline_depth: saturating_u32(inline_depth),
             });
         }
     };

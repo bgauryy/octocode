@@ -46,7 +46,7 @@ pub(crate) async fn canonical_repo(
 }
 
 /// What [`canonical_scope`] learned of a repository's name.
-pub(crate) enum CanonicalScope {
+pub(super) enum CanonicalScope {
     /// The name stands (case aside), or it cannot be checked; with the
     /// metadata the check read, when it read it.
     Stands(Option<RepositoryMetadata>),
@@ -62,7 +62,7 @@ pub(crate) enum CanonicalScope {
 /// gave under the name without a redirect proves it stands; past them,
 /// `check` decides whether metadata is needed. Only a cancelled or
 /// timed-out read fails.
-pub(crate) async fn canonical_scope(
+pub(super) async fn canonical_scope(
     provider: &GitHubProvider,
     owner: &str,
     repo: &str,

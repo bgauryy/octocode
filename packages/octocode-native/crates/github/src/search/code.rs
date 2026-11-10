@@ -96,14 +96,16 @@ impl GitHubTransport {
             );
             Ok(spec)
         };
-        self.read_search_page(
-            spec,
-            request.page,
-            request.per_page,
-            context,
-            "invalid GitHub repository search response",
-        )
-        .await
-        .map(|(page, _)| page)
+        let (mut page, withheld): (RepositorySearchPage, _) = self
+            .read_search_page(
+                spec,
+                request.page,
+                request.per_page,
+                context,
+                "invalid GitHub repository search response",
+            )
+            .await?;
+        page.sso_partial_organizations = withheld;
+        Ok(page)
     }
 }

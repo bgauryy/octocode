@@ -5,10 +5,10 @@ use crate::support::Workspace;
 use serde_json::json;
 use std::time::Duration;
 
-/// An offered lspSearch lead is not a request for a language server: under
-/// `targeted`, a search whose result offers one starts no whole-project index.
+/// Under `targeted`, a search whose result offers an lspSearch lead starts the
+/// server that lead names, so the first lspSearch finds it warm.
 #[test]
-fn targeted_prewarm_ignores_an_offered_lead_until_lsp_search_runs() {
+fn targeted_prewarm_starts_the_server_an_offered_lead_names() {
     use std::os::unix::fs::PermissionsExt;
     let workspace = Workspace::new();
     let root = &workspace.workspace;
@@ -56,7 +56,10 @@ fn targeted_prewarm_ignores_an_offered_lead_until_lsp_search_runs() {
     while !marker.exists() && std::time::Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(50));
     }
-    assert!(!marker.exists(), "no lspSearch ran, so no server starts");
+    assert!(
+        marker.exists(),
+        "the offered lead names a.ts, so its server starts before any lspSearch"
+    );
     assert!(server.finish().success());
 }
 

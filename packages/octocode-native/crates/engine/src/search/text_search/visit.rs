@@ -7,6 +7,7 @@ use super::file_terms::FileTerms;
 use super::mode::ranks_by_relevance;
 use super::state::{CollectState, FileRec};
 use super::walk_rule::{EntryRule, Skipped, capture_sort_time};
+use crate::num::saturating_u64;
 use crate::search::relevance;
 use crate::types::TextSearchOptions;
 use aho_corasick::AhoCorasick;
@@ -32,6 +33,22 @@ pub(super) struct WalkScope<'a> {
 }
 
 impl WalkScope<'_> {
+    /// Count each ignore file the walk could not read as an error of the
+    /// search: its rules did not apply. Rule files load as the walk meets
+    /// them, so call this once the walk is done.
+    pub(super) fn record_unreadable_ignore_files(&self) {
+        let Some(rule) = &self.rule else {
+            return;
+        };
+        for file in rule.unreadable_ignore_files() {
+            self.state.record_error(format!(
+                "{}: ignore file unreadable ({:?}); its rules were not applied",
+                file.path.display(),
+                file.kind
+            ));
+        }
+    }
+
     /// Search one walk entry and keep its record; returns how the walk goes on.
     pub(super) fn visit<M: Matcher>(
         &self,
@@ -100,11 +117,8 @@ impl WalkScope<'_> {
                     .as_ref()
                     .is_some_and(|marks| marks.marks_generated(path))
                 || outcome.generated_header.unwrap_or_else(|| {
-                    read_prefix(
-                        &file,
-                        u64::try_from(relevance::GENERATED_HEADER_BYTES).unwrap_or(u64::MAX),
-                    )
-                    .is_ok_and(|prefix| relevance::has_generated_header(&prefix))
+                    read_prefix(&file, saturating_u64(relevance::GENERATED_HEADER_BYTES))
+                        .is_ok_and(|prefix| relevance::has_generated_header(&prefix))
                 }));
         state.files_searched.fetch_add(1, Ordering::Relaxed);
         state.bytes_searched.fetch_add(file_len, Ordering::Relaxed);

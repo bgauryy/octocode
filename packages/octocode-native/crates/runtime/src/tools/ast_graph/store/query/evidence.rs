@@ -115,14 +115,18 @@ impl Query<'_> {
                     ])
                     .to_string();
                     let mut row = json!({
-                        "id": octocode_engine::digest::sha256(identity.as_bytes()),
                         "from": self.g.key(edge.src), "to": self.g.key(edge.dst),
                         "edge": edge.kind.as_str(), "detail": detail,
                         "file": file,
-                        "line": (edge.line != NONE).then_some(edge.line), "confidence": edge.confidence.as_str(), "test": edge.test,
-                        "sourceDigest": source_digest, "evidence": "syntax",
+                        "line": (edge.line != NONE).then_some(edge.line), "confidence": edge.confidence.as_str(),
+                        "sourceDigest": source_digest,
                         "sourceRange": range, "sourceOrigin": origin.value,
                     });
+                    // Absent `test` is false; the page states the evidence.
+                    if edge.test {
+                        row["test"] = json!(true);
+                    }
+                    self.occurrence_id(&mut row, &identity);
                     self.derivation(&mut row, rule, &version);
                     argument_fields(self.g, witness.argument, &mut row, self.cancel)?;
                     Ok(row)
@@ -168,14 +172,14 @@ impl Query<'_> {
                     ])
                     .to_string();
                     let mut row = json!({
-                        "id": octocode_engine::digest::sha256(identity.as_bytes()),
                         "from": self.g.key(site.src), "targetName": callee,
                         "edge": site.relation.as_str(),
                         "file": file,
                         "line": site.line, "reason": reason,
-                        "sourceDigest": source_digest, "evidence": "syntax",
+                        "sourceDigest": source_digest,
                         "sourceRange": range, "sourceOrigin": origin.value,
                     });
+                    self.occurrence_id(&mut row, &identity);
                     self.derivation(&mut row, rule, &version);
                     argument_fields(self.g, site.argument, &mut row, self.cancel)?;
                     Ok(row)
@@ -199,6 +203,14 @@ impl Query<'_> {
 }
 
 impl Query<'_> {
+    /// The row's occurrence `id`, a digest of its provenance: only under
+    /// `includeProvenance:true`, as the digest and spans it comes from.
+    fn occurrence_id(&self, row: &mut Value, identity: &str) {
+        if !self.g.compact_provenance {
+            row["id"] = json!(octocode_engine::digest::sha256(identity.as_bytes()));
+        }
+    }
+
     /// `derivation` on full rows; lean rows omit it (`edge` and `detail` or
     /// `reason` name the rule; `includeProvenance` returns it).
     fn derivation(&self, row: &mut Value, rule: String, version: &str) {

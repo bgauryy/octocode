@@ -334,6 +334,7 @@ impl<'a> Walker<'a> {
         }
         self.seen.insert(node_key.clone());
         if level >= self.depth {
+            self.walk.unexpanded_last_level.push(node);
             return;
         }
         if full {

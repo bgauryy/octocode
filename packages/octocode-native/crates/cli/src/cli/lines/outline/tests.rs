@@ -138,3 +138,47 @@ fn a_batch_prints_each_row_under_its_heading_in_its_line_format() {
         lines.out
     );
 }
+
+/// One layout per array: a row of single words reads as a block when a
+/// sibling row needs one, so rows never alternate between layouts.
+#[test]
+fn every_row_of_an_array_uses_one_layout() {
+    let fetched = json!({"results":[{"index":0,"data":{"commits":[
+        {"sha":"abc","date":"2026-01-01","author":"ada"},
+        {"sha":"def","date":"2026-01-02","messageHeadline":"fix: two words"},
+        {"sha":"fed","date":"2026-01-03","author":"bob"}]}}]});
+    let lines = render(ToolId::LocalFetch, &fetched, &json!({}), None).expect("text");
+    let heads: Vec<&str> = lines
+        .out
+        .lines()
+        .filter(|line| line.trim_start().starts_with("- "))
+        .collect();
+    assert_eq!(heads.len(), 3, "{}", lines.out);
+    assert!(
+        heads.iter().all(|head| head.split_whitespace().count() == 3),
+        "an inline row among block rows: {}",
+        lines.out
+    );
+    // Rows of single words alone keep the compact inline layout.
+    let words = json!({"results":[{"index":0,"data":{"commits":[
+        {"sha":"abc","author":"ada"},{"sha":"def","author":"bob"}]}}]});
+    let lines = render(ToolId::LocalFetch, &words, &json!({}), None).expect("text");
+    assert!(lines.out.contains("- sha abc author ada"), "{}", lines.out);
+}
+
+/// A count that is only the rows loaded so far prints as a floor; an exact
+/// total keeps its name.
+#[test]
+fn a_loaded_count_prints_as_a_floor() {
+    let page = |extra: Value| {
+        let mut pagination = json!({"page":1,"hasMore":true,"totalItems":2});
+        pagination.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let fetched = json!({"results":[{"index":0,"data":{"pagination":pagination}}]});
+        render(ToolId::LocalFetch, &fetched, &json!({}), None).expect("text").out
+    };
+    let floor = page(json!({"countScope":"loaded"}));
+    assert!(floor.contains("totalItemsAtLeast 2"), "{floor}");
+    assert!(floor.contains("countScope loaded"), "{floor}");
+    let exact = page(json!({}));
+    assert!(exact.contains("totalItems 2") && !exact.contains("AtLeast"), "{exact}");
+}

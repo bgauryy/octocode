@@ -54,7 +54,7 @@ pub(super) fn is_oxc_dialect(file_path: &str, parser: Option<&str>) -> bool {
 /// Run an oxc `job` on the deep-stack pool to completion: one file cannot be
 /// paged (see `extractor::whole_file_deadline`); the caller's cancel stops
 /// it. `None` for a non-JS/TS path. oxc can ICE on pathological input; the unwind is contained
-/// so it never aborts the process.
+/// by `run_on_deep_stack`, which answers `None`, so it never aborts the process.
 pub(super) fn on_oxc_worker<T: Send + 'static>(
     content: &str,
     file_path: &str,
@@ -66,10 +66,7 @@ pub(super) fn on_oxc_worker<T: Send + 'static>(
     }
     let content = content.to_owned();
     let file_path = file_path.to_owned();
-    run_on_deep_stack(move || {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(&content, &file_path)))
-            .unwrap_or(None)
-    })
+    run_on_deep_stack(move || job(&content, &file_path))
 }
 
 /// Parse JS/TS `content` on the thread arena (`TOKENS` keeps the token

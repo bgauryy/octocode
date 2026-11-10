@@ -121,10 +121,6 @@ impl<'a> Reader<'a> {
         let total = self.small()?;
         let start = self.small()?;
         let end = self.small()?;
-        let later = (0..self.number()?)
-            .map(|_| self.small())
-            .collect::<Option<Vec<_>>>()?;
-        let unlisted = self.optional()?;
         let neighbours = (0..self.number()?)
             .map(|_| {
                 Some(HitWindow {
@@ -139,8 +135,6 @@ impl<'a> Reader<'a> {
             total,
             start,
             end,
-            later,
-            unlisted,
             neighbours,
         })
     }

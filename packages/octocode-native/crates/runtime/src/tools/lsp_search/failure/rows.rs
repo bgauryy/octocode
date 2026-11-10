@@ -147,7 +147,16 @@ pub(in super::super) fn annotate_empty_includes(
                 crate::response::paging::mark_partial(row, reason, &[]);
                 crate::response::paging::mark_stated(row, reason);
             }
-            if !includes.generated.is_empty() && !rust.build_scripts {
+            // A build script generates the names no source declares: a name
+            // the package declares is no generated name, whatever scripts
+            // the package has.
+            let generated = !includes.generated.is_empty()
+                && !lsp_search_query::symbol_name(query)
+                    .filter(|name| !name.trim().is_empty())
+                    .is_some_and(|name| {
+                        super::super::server_coverage::package_declares(&anchor, name, stopped)
+                    });
+            if generated && !rust.build_scripts {
                 // With an outside include as well, the name may be defined
                 // there: the ~2 GB rerun is no repair to lead with, so the
                 // tip names it instead. Alone, the executable rerun is the
@@ -300,8 +309,8 @@ pub(in super::super) fn mark_anchor_line_errors(row: &mut Value, diagnostics: &V
                 .pointer("/displayRange/startLine")
                 .and_then(Value::as_u64);
             let end = item
-                .pointer("/displayRange/endLine")
-                .and_then(Value::as_u64);
+                .get("displayRange")
+                .and_then(super::super::locations::display_last_line);
             matches!((start, end), (Some(start), Some(end)) if start <= line && line <= end)
         })
         .collect::<Vec<_>>();

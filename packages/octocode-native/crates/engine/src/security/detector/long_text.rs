@@ -55,7 +55,7 @@ fn document_spans(text: &str, named: Named, budget: usize) -> (Vec<SecretSpan>, 
     walk.feed(text.as_bytes());
     match walk.finish() {
         SecretSpans::Exact(spans) => (spans, false),
-        SecretSpans::TooMany => (every_value_spans(text.as_bytes(), false, named), true),
+        SecretSpans::TooMany => (every_value_spans(text.as_bytes(), named), true),
     }
 }
 

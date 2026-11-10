@@ -19,8 +19,8 @@ fn call_sites_that_differ_only_in_end_column_publish_once() {
     assert_eq!(
         public["fromRanges"],
         serde_json::json!([
-            {"startLine": 871, "startCharacter": 11, "endLine": 871},
-            {"startLine": 872, "startCharacter": 3, "endLine": 872}
+            {"startLine": 871, "startCharacter": 11},
+            {"startLine": 872, "startCharacter": 3}
         ])
     );
 }

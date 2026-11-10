@@ -58,3 +58,39 @@ fn resume_points_count_occurrences_on_the_servers_lines() {
     assert_eq!(again["occurrence"], 1, "{again}");
     assert_eq!(sources.len(), 1);
 }
+
+/// A resume point reads its file as the server got it: through the one
+/// bounded source admission, so a BOM-marked UTF-16 source counts the
+/// occurrence on its decoded line instead of dropping it.
+#[test]
+fn a_utf16_source_resumes_at_its_occurrence() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let file = dir.path().join("wide.ts");
+    let mut bytes = vec![0xFF, 0xFE];
+    bytes.extend(
+        "let a = 1;\nfoo(); foo();\n"
+            .encode_utf16()
+            .flat_map(u16::to_le_bytes),
+    );
+    std::fs::write(&file, bytes).expect("source");
+    let path = file.to_string_lossy().into_owned();
+    let uri = octocode_engine::lsp::uri::path_to_uri(&path).expect("uri");
+    let query: LspSearchQuery = serde_json::from_value(json!({
+        "operation": "callers", "path": path, "symbolName": "foo", "line": 2, "depth": 2
+    }))
+    .expect("query");
+    let second = resume_query(
+        &query,
+        &Resume {
+            node: node(&uri, 1, 7),
+            depth: 1,
+        },
+        &mut HashMap::new(),
+    )
+    .expect("resumable");
+    let second = serde_json::to_value(second).expect("row");
+    assert_eq!(
+        second["occurrence"], 1,
+        "the second foo on the decoded line: {second}"
+    );
+}

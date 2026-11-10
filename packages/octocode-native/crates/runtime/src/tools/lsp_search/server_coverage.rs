@@ -35,7 +35,7 @@ mod includes;
 mod projects;
 use gates::*;
 use includes::{annotate_includes, record_text_coverage};
-pub(super) use includes::{include_declaring, package_includes};
+pub(super) use includes::{include_declaring, package_declares, package_includes};
 use projects::annotate_unanswered;
 pub(super) use projects::answer_settled_files;
 

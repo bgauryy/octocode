@@ -99,5 +99,11 @@ pub(crate) const VERIFY_PATH_HINT: &str = "Path not found: list its parent direc
 /// answer: no fallback text is added.
 pub(crate) const NO_HINT: &str = "";
 
+/// The `error_hint` of a tool whose `NotFound` message is the whole answer:
+/// [`NO_HINT`] for it, the shared response stage's answer for any other code.
+pub(crate) fn not_found_is_the_answer(code: ErrorCode) -> Option<&'static str> {
+    (code == ErrorCode::NotFound).then_some(NO_HINT)
+}
+
 /// Recovery for a path a local read could not open (`fileAccessFailed`).
 pub(crate) const LIST_FILES_HINT: &str = "Path did not open as a file: list it with structureSearch operation:\"files\", then retry with one exact listed file.";

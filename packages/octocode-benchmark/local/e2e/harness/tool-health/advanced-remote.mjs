@@ -2,7 +2,7 @@
 // the authored envelope and every required cursor through both built surfaces.
 import fs from 'node:fs';
 import path from 'node:path';
-import { inventoryRows, joinTextParts, nextHints, sourceLines, sourceView, structureFiles, rawPatch } from '../responses.mjs';
+import { inventoryRows, joinTextParts, matchHits, nextHints, sourceLines, sourceView, structureFiles, rawPatch } from '../responses.mjs';
 import { tokenFor } from './surfaces.mjs';
 import { advancedRegistries } from './advanced-registry.mjs';
 import { advancedSecurityCheck } from './advanced-osv.mjs';
@@ -219,7 +219,7 @@ async function readerMatchPages(ctx, surface, out, sources) {
   const report = await ctx.explore('ghGetFileContent', { queries: [query], responseChars: 1 }, surface);
   const expected = numberedSource(sources['flow-lines.txt']).filter(([line]) => line >= 4 && line <= 22 && line % 3 !== 0);
   const rows = readRows(report);
-  const matches = rows.flatMap(row => row.data.matchedLines ?? []);
+  const matches = rows.flatMap(row => matchHits(row.data));
   out.push([`advanced.flow.matchPages.${surface}`, !report.failures.length && equal(rows.flatMap(row => sourceLines(row.data)), expected) && equal(matches, [4, 7, 10, 13, 16, 19, 22]), `${report.responses.length} calls; matched ${JSON.stringify(matches)}`]);
   await exactRead(ctx, surface, out, {
     label: 'oversizedMatchRange', query: { ...query, path: 'flow-long.txt', matchString: ['0:界😀;', '5999:界😀;'], ranges: [{ startLine: 1, endLine: 1 }], contextLines: { before: 100, after: 100 } },
@@ -231,7 +231,7 @@ async function readerMatchAttribution(ctx, surface, out) {
   const query = { ...REPO, ref: ctx.mock.model.head.oid, path: 'flow-attribution.txt', matchString: ['(?<=prefix\n)same'], regexEngine: 'pcre2', contextLines: { before: 0, after: 1 } };
   const report = await ctx.explore('ghGetFileContent', { queries: [query], responseChars: 1 }, surface);
   const rows = readRows(report);
-  const attribution = rows.map(row => ({ lines: sourceLines(row.data), matched: row.data.matchedLines }));
+  const attribution = rows.map(row => ({ lines: sourceLines(row.data), matched: matchHits(row.data) }));
   out.push([`advanced.flow.identicalContextAttribution.${surface}`, !report.failures.length && equal(attribution, [
     { lines: [[2, 'same']], matched: [2] }, { lines: [[3, 'same']], matched: [] },
   ]), JSON.stringify(attribution)]);

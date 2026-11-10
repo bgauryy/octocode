@@ -4,11 +4,11 @@ use super::*;
 #[test]
 fn nested_file_fields_are_words() {
     let paged = json!({"results":[{"index":0,"data":{"files":[{"path":"a.rs","matches":[{"line":3,"value":"x"}],
-            "pagination":{"totalItems":471,"hasMore":true,"moreLines":[44,49],"moreLinesUnlisted":437}}]}}]});
+            "pagination":{"totalItems":471,"hasMore":true}}]}}]});
     let lines = render(ToolId::LocalSearch, &paged, &json!({}), None).expect("lines");
     assert_eq!(
         lines.notes,
-        "# file a.rs: pagination (totalItems 471 hasMore moreLines 44,49 moreLinesUnlisted 437)"
+        "# file a.rs: pagination (totalItems 471 hasMore)"
     );
 }
 
@@ -96,4 +96,29 @@ fn batches_and_other_tools_print_text() {
     assert!(!all_rows_failed(
         &json!({"results":[{"status":"error"},{"data":{}}]})
     ));
+}
+
+/// Every part prints `rowPart` in one form, and a later part keeps the
+/// `continues` fact its JSON carries.
+#[test]
+fn every_row_part_prints_in_one_form() {
+    let first = sample();
+    let mut later = sample();
+    later["results"][0]["rowPart"] = json!({
+        "part": 2, "of": 30,
+        "continues": {"tool": "localSearch", "index": 0}
+    });
+    let note = |value: &Value| {
+        render(ToolId::LocalSearch, value, &context(), None)
+            .expect("lines")
+            .notes
+            .lines()
+            .find(|line| line.starts_with("# rowPart:"))
+            .map(str::to_owned)
+            .expect("a rowPart note")
+    };
+    assert_eq!(note(&first), "# rowPart: part 1 of 2");
+    let later = note(&later);
+    assert!(later.starts_with("# rowPart: part 2 of 30"), "{later}");
+    assert!(later.contains("continues (tool localSearch index 0)"), "{later}");
 }

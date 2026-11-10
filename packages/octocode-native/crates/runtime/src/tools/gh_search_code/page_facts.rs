@@ -6,7 +6,7 @@ use crate::id::ToolId;
 use crate::response::paging::mark_partial;
 use crate::response::result::{Continuation, ToolData};
 use crate::tools::gh_shared::{SearchCompleteness, apply_partial, push_warning_front};
-use octocode_engine::num::saturating_usize;
+use octocode_engine::num::{saturating_u64, saturating_usize};
 use serde_json::json;
 
 /// The searched page's `coverage`: `state` reads the page's own partial
@@ -51,7 +51,7 @@ pub(super) fn walked(
         listed: within
             .or_else(|| data.listed.state())
             .and_then(|state| state.try_into().ok()),
-        matched: Some(u64::try_from(data.matched).unwrap_or(u64::MAX)),
+        matched: Some(saturating_u64(data.matched)),
         index_head: head
             .and_then(|head| head.try_into().ok())
             .or_else(|| query.index_head.clone()),
@@ -228,6 +228,15 @@ pub(super) fn disclose_reads(
             [format!(
                 "{} file(s) on this page are withheld by the security path policy (a credential file name or a sensitive directory): their rows list the path only, with no lines, and nothing of them was read. No query field lifts it.",
                 reads.withheld
+            )],
+        );
+    }
+    if reads.panicked > 0 {
+        crate::response::paging::push_warnings(
+            value,
+            [format!(
+                "{} file(s) on this page failed inside the line scan (a defect, not an unreadable file; please report it): their lines were not resolved (`lineResolved:false`): read them with ghGetFileContent at the commit.",
+                reads.panicked
             )],
         );
     }

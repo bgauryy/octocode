@@ -25,6 +25,11 @@ const WARM_CHECKS: [&str; 5] = [
 
 const AVAILABILITY: &str = "check Git availability";
 
+/// The check that a fresh store holds no credential-named blob, and the
+/// local worktree step it can run beside.
+const BLOB_CHECK: &str = "check credential blobs are not stored";
+const ADD_WORKTREE: &str = "add worktree";
+
 /// The first git step of a fresh checkout, inside the clone itself.
 const INITIALIZE: &str = "initialize shared store";
 
@@ -48,6 +53,11 @@ struct Events {
     runtime_ran: bool,
     /// Per held first step: whether the runtime ran a task before it ended.
     runtime_ran_during_clone: Vec<bool>,
+    /// Hold the blob check until the worktree step starts.
+    hold_blob_check: bool,
+    worktree_started: bool,
+    /// Per held blob check: whether the worktree step started before it ended.
+    worktree_started_during_blob_check: Vec<bool>,
 }
 
 #[derive(Default)]
@@ -88,6 +98,16 @@ impl SyncPoints {
     /// Hold `label` at its sync point, if it has one, before it runs.
     fn before(&self, label: &str) {
         let mut events = self.events();
+        if label == ADD_WORKTREE {
+            events.worktree_started = true;
+            self.changed.notify_all();
+        }
+        if events.hold_blob_check && label == BLOB_CHECK {
+            drop(events);
+            let (started, mut events) = self.wait_until(|events| events.worktree_started);
+            events.worktree_started_during_blob_check.push(started);
+            return;
+        }
         if events.hold_warm && WARM_CHECKS.contains(&label) {
             events.warm_started += 1;
             drop(events);
@@ -216,6 +236,65 @@ fn a_fresh_checkout_spends_no_separate_config_calls() {
         )
         .trim(),
         "blob:none"
+    );
+}
+
+/// A fresh store's check for credential-named blobs and the checkout's
+/// worktree setup read and write different things and neither fetches a
+/// blob: they run together, and the checkout that fetches blobs follows both.
+/// The check is held until the worktree step starts, which only overlapping
+/// code does.
+#[test]
+fn a_fresh_stores_blob_check_overlaps_the_worktree_setup() {
+    let fixture = super::withheld::fixture_with_secrets();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let sync = Arc::new(SyncPoints::default());
+    sync.events().hold_blob_check = true;
+    let held = Held {
+        inner: Arc::new(fixture_runner(&fixture)),
+        sync: Arc::clone(&sync),
+    };
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&held, &config, &endpoint, &policy, &NeverCancel, None);
+    let result = clone_pinned(&fixture, &query(), &context).expect("clone");
+    assert!(result.location.skipped.iter().flatten().count() > 0);
+    assert_eq!(
+        sync.events().worktree_started_during_blob_check,
+        [true],
+        "the blob check ran before the worktree setup began"
+    );
+}
+
+/// The most git processes a cold single-commit clone spawns: the version
+/// probe, store init, fetch, tree listing, worktree add, checkout and the
+/// publishing move, with one spare for a sparse scope.
+const COLD_CLONE_GIT_SPAWNS: usize = 8;
+
+/// A cold clone runs a bounded number of git processes: each spawn is
+/// 10-30 ms of process start, and the store's setup, probes of a store the
+/// row just made, and post-checkout reads are all answers the clone already
+/// holds.
+#[test]
+fn a_cold_clone_spawns_few_git_processes() {
+    let fixture = Fixture::new();
+    let (root, home) = home_root();
+    let policy = test_support::workspace_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = fixture_runner(&fixture);
+    let config = CloneConfig::persistent(&home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+    clone_pinned(&fixture, &query(), &context).expect("clone");
+    let seen = runner
+        .seen
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone();
+    assert!(
+        seen.len() <= COLD_CLONE_GIT_SPAWNS,
+        "{} git spawns: {seen:#?}",
+        seen.len()
     );
 }
 

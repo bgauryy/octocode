@@ -1,7 +1,5 @@
 //! 1-based inclusive line spans: merging, run compression, the `a-b` range
-//! text, and the bounded `moreLines` list localSearch writes.
-
-use octocode_engine::num::saturating_u32;
+//! text.
 
 /// A line number type the span helpers accept.
 pub(crate) trait LineNumber: Copy + Ord + std::fmt::Display {
@@ -32,31 +30,6 @@ pub(crate) fn merge_spans<T: LineNumber>(spans: impl IntoIterator<Item = (T, T)>
         }
     }
     merged
-}
-
-/// The lines of the file at `path` (a final line without a newline
-/// counts), so a read lead's context window ends at the file's last line;
-/// `None` when the file cannot be read.
-pub(crate) fn file_lines(path: &std::path::Path) -> Option<u32> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path).ok()?;
-    let mut buffer = [0_u8; 16 * 1024];
-    let (mut lines, mut last) = (0_usize, None);
-    loop {
-        match file.read(&mut buffer) {
-            Ok(0) => break,
-            Ok(read) => {
-                let read = &buffer[..read];
-                lines += read.iter().filter(|byte| **byte == b'\n').count();
-                last = read.last().copied();
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(_) => return None,
-        }
-    }
-    Some(saturating_u32(
-        lines + usize::from(last.is_some_and(|byte| byte != b'\n')),
-    ))
 }
 
 /// Consecutive runs of `lines` (in the given order): `[3,4,5,9]` →

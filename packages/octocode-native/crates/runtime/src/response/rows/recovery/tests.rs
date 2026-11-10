@@ -64,7 +64,11 @@ fn every_error_row_of_a_batch_carries_its_own_shared_hint() {
     let mut structured = json!({"results":[failed(), failed(),
         {"status":"error","data":{"errorCode":"notFound","error":"gone","hints":["own"]}}]});
     for row in structured["results"].as_array_mut().expect("rows") {
-        attach_error_hint(ToolId::ArtifactSearch.output(), &mut row["data"], &Value::Null);
+        attach_error_hint(
+            ToolId::ArtifactSearch.output(),
+            &mut row["data"],
+            &Value::Null,
+        );
     }
     crate::response::notices::place(&mut structured, "results");
     let hints = |index: usize| structured["results"][index]["data"].get("hints").cloned();
@@ -108,7 +112,8 @@ fn a_not_found_hint_fits_the_resource_and_repeats_no_caution() {
 fn an_expired_or_stale_cursor_gets_no_hint_that_repeats_its_message() {
     for tool in ToolId::ALL {
         for code in ["responseSnapshotExpired", "staleSnapshot", "sourceMismatch"] {
-            let mut data = json!({"errorCode":code,"error":"Rerun the original request without cursor."});
+            let mut data =
+                json!({"errorCode":code,"error":"Rerun the original request without cursor."});
             attach_error_hint(tool.output(), &mut data, &Value::Null);
             let hints = data["hints"].to_string().to_lowercase();
             assert!(!hints.contains("restart call"), "{tool} {code}: {data}");

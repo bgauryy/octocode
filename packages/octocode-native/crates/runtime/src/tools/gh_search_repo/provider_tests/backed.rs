@@ -38,15 +38,20 @@ async fn picked_rows_keep_the_repository_id() {
         "{}",
         out.data
     );
-    // A page of rows names no repository as the obvious next read.
-    assert!(out.data.get("related").is_none(), "{}", out.data);
+    // The page's one lead is the first row's tree, whatever fields are picked.
+    assert_eq!(
+        out.data["related"].as_array().map(Vec::len),
+        Some(1),
+        "{}",
+        out.data
+    );
 }
 
-/// A page of repositories names no one of them as the next read: its
-/// first row is an arbitrary pick, and the row already carries the owner,
-/// repo and default branch of every next hop.
+/// A page of repositories carries one lead, not one per row: the root
+/// tree of its first repository (S-2: the route to ghStructure is
+/// lead-driven).
 #[tokio::test]
-async fn a_repository_page_leads_to_no_single_tree() {
+async fn a_repository_page_leads_to_its_first_repositorys_tree_only() {
     let server = MockServer::builder().start().await;
     mount_json(
         &server,
@@ -61,7 +66,14 @@ async fn a_repository_page_leads_to_no_single_tree() {
     let out = run(&server, json!({"operation":"search","keywords":["x"]}))
         .await
         .expect("search");
-    assert!(out.data.get("related").is_none(), "{}", out.data);
+    let related = out.data["related"].as_array().expect("one lead");
+    assert_eq!(related.len(), 1, "{}", out.data);
+    let call = related[0].to_string();
+    assert!(
+        call.contains("ghStructure") && call.contains("top"),
+        "{call}"
+    );
+    assert!(!call.contains("second"), "{call}");
 }
 
 /// ghSearchRepo rows carry decision facts only, topics
@@ -187,10 +199,13 @@ async fn repositories_lead_nowhere_and_an_empty_search_broadens() {
     let out = run(&server, json!({"operation":"search","keywords":["needle"]}))
         .await
         .expect("search");
-    // Repo-discovery words are not code keywords, and a page of rows
-    // names no repository as the next read.
+    // Repo-discovery words are not code keywords: the one lead is the tree.
     assert!(out.data["next"].get("searchCode").is_none(), "{}", out.data);
-    assert!(out.data.get("related").is_none(), "{}", out.data);
+    assert!(
+        out.data["related"].to_string().contains("ghStructure"),
+        "{}",
+        out.data
+    );
     let empty = run(
         &server,
         json!({"operation":"search","keywords":["needle"],"filters":{"language":"rust"}}),

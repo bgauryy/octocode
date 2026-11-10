@@ -6,8 +6,8 @@
 //! the bounded body reader, the bounded stream [`read`], Gregorian day math ([`civil`]), the in-process
 //! [`memo`] and keyed single [`flight`], stderr [`notice`]s, and POSIX [`shell`]
 //! quoting for printed commands.
-//! GitHub, runtime and CLI all use them, so they live in this leaf below
-//! all three. Retained memory stores hold issued continuation state;
+//! GitHub, runtime, CLI and engine all use them, so they live in this leaf
+//! below all four. Retained memory stores hold issued continuation state;
 //! fresh tool requests do not reuse prior computed results.
 // Numeric conversions are explicit (`try_from` with a stated outcome): a
 // lossy `as` cast fails CI (`-D warnings`). Tests may cast fixture values.

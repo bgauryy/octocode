@@ -412,7 +412,8 @@ impl GitHubTransport {
         path: &str,
         context: &RequestContext,
     ) -> Result<LastCommit, ProviderError> {
-        // One commit is wanted: the list's `Link` is never followed.
+        // One commit is wanted: the list's `Link` is never followed. The list
+        // is bound to a commit by its `sha`, so its answer cannot change.
         let spec = self
             .commit_list_spec(
                 &CommitListRequest {
@@ -428,7 +429,8 @@ impl GitHubTransport {
                 },
                 None,
             )?
-            .reading_first_page_only();
+            .reading_first_page_only()
+            .pinned_to_commit();
         let page = self.read_commit_list(spec, context).await?;
         let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_owned);
         Ok(page.items.first().map_or((None, None), |last| {

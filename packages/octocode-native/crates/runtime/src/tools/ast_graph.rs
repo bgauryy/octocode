@@ -27,7 +27,12 @@ mod walk_scope;
 /// function-typed member is called by its bare name inside its type (Scala,
 /// C#, C++); declared-type chains guard cycles per path; a workspace
 /// member reaches itself through its `node_modules` link.
-const ANALYSIS_VERSION: u32 = 26;
+/// 27: declared types follow a global `Window` interface merged across files,
+/// and the parameter a call passes a function to.
+/// 28: a declared type's bare name reaches a merged global only when no scope
+/// binds it (not an import, not a name match in another module), and `window`
+/// is `globalThis.Window` whatever the file declares or imports.
+const ANALYSIS_VERSION: u32 = 28;
 
 /// graphBuild's and graphQuery's recovery for the shared response stages.
 pub(crate) struct Output;
@@ -40,8 +45,7 @@ impl crate::response::output::ToolOutput for Output {
         code: octocode_contract_types::ErrorCode,
         _query: &serde_json::Value,
     ) -> Option<&'static str> {
-        (code == octocode_contract_types::ErrorCode::NotFound)
-            .then_some(crate::response::output::NO_HINT)
+        crate::response::output::not_found_is_the_answer(code)
     }
 }
 

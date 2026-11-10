@@ -20,6 +20,9 @@ use octocode_engine::graph::{GraphDeclaredType, GraphTypeStep};
 pub(crate) struct DeclaredTypes<'r> {
     pub(crate) types: HashMap<u32, &'r GraphDeclaredType>,
     pub(crate) units: HashMap<u32, &'r FileLinks<'r>>,
+    /// The type declarations of the global scope (`declare global`, script
+    /// files) by name: same-named interfaces merge, so a name holds them all.
+    pub(crate) globals: HashMap<String, Vec<u32>>,
 }
 
 impl<'r> DeclaredTypes<'r> {
@@ -40,7 +43,26 @@ impl<'r> DeclaredTypes<'r> {
                 })
             })
             .collect();
+        let mut globals: HashMap<String, Vec<u32>> = HashMap::new();
+        for (unit, facts) in units {
+            for declared in facts
+                .declared_types
+                .iter()
+                .filter(|declared| declared.global)
+            {
+                let id = declared.declaration_id.as_str();
+                let Some(node) = unit.index.decl_nodes.get(id) else {
+                    continue;
+                };
+                // `path#Outer.Name@line:col:kind`: the declared name.
+                let local = id.split_once('#').map_or(id, |(_, local)| local);
+                let local = local.split('@').next().unwrap_or(local);
+                let name = local.rsplit('.').next().unwrap_or(local);
+                globals.entry(name.to_owned()).or_default().push(*node);
+            }
+        }
         Self {
+            globals,
             types,
             units: units.iter().map(|(unit, _)| (unit.file_id, unit)).collect(),
         }
@@ -113,7 +135,9 @@ impl Linker<'_> {
                 _ => vec![(node, confidence)],
             },
             Reached::Written(GraphDeclaredType::Named { name, steps }, file, confidence) => {
-                let mut reached = self.declared_named(file, name, confidence);
+                // `f`'s parameter: the name may be a function, not a type.
+                let callable = matches!(steps.first(), Some(GraphTypeStep::Parameter(_)));
+                let mut reached = self.declared_named(file, name, confidence, callable);
                 for step in steps {
                     reached = reached
                         .into_iter()
@@ -129,31 +153,84 @@ impl Linker<'_> {
         }
     }
 
+    /// The global declarations of `name` merged across the repository. The
+    /// declaring files may sit outside the program that reads them: `medium`.
+    fn global_named(&self, name: &str, confidence: Confidence) -> Vec<Reached<'static>> {
+        self.declared
+            .globals
+            .get(name)
+            .into_iter()
+            .flatten()
+            .map(|node| Reached::Node(*node, confidence.max(Confidence::Medium)))
+            .collect()
+    }
+
     /// The type declarations `name` names in `file`'s scope.
     fn declared_named(
         &self,
         file: u32,
         name: &str,
         confidence: Confidence,
+        callable: bool,
     ) -> Vec<Reached<'static>> {
         let Some(unit) = self.declared.units.get(&file) else {
             return Vec::new();
         };
         let (qualifier, name) = split_callee(name);
+        // `globalThis.T`: only the merged global declarations of `T`.
+        if qualifier == "globalThis" {
+            return self.global_named(name, confidence);
+        }
+        let accept = |node: u32| {
+            (self.is_type)(node)
+                || callable
+                    && matches!(
+                        self.declared.types.get(&node),
+                        Some(GraphDeclaredType::Function { .. })
+                    )
+        };
+        // A name an import binds that did not link (an external package or an
+        // unresolved module) is that import's: no same-named declaration of
+        // the repository, global or not, is its type.
+        let bindings = &unit.bindings;
+        if qualifier.is_empty()
+            && !bindings.named.contains_key(name)
+            && (bindings.external.contains(name) || bindings.unknown.contains(name))
+        {
+            return Vec::new();
+        }
         let site = Site {
             bindings: &unit.bindings,
             index: unit.index,
             caller: unit.file_id,
             qualifier,
             name,
-            accept: self.is_type,
+            accept: &accept,
             receiver_type: None,
             term_binding: false,
             self_template: None,
             value_qualifier: false,
         };
-        let Some((targets, _, linked)) = self.link(&site) else {
-            return Vec::new();
+        // A type the file neither declares nor imports is not a same-named
+        // declaration a name match picks (`unique-name`, `same-package`,
+        // `import-scope`): another module's declaration is invisible here
+        // unless it is global, so only a scope or a merged global names it.
+        let Some((targets, _, linked)) = self
+            .link(&site)
+            .filter(|(_, via, _)| !matches!(*via, "unique-name" | "same-package" | "import-scope"))
+        else {
+            // A name the file neither declares nor imports: a global
+            // declaration merged across the repository. The declaring files
+            // may sit outside the program that reads them: `medium`. An
+            // import binds the name even when it reaches no declaration.
+            let imported = bindings.strict_names.contains(name)
+                || bindings.named.contains_key(name)
+                || bindings.modules.contains_key(name);
+            return if qualifier.is_empty() && !imported {
+                self.global_named(name, confidence)
+            } else {
+                Vec::new()
+            };
         };
         targets
             .into_iter()

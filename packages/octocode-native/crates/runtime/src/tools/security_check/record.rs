@@ -113,7 +113,10 @@ impl SecurityAdvisory {
         if !self.disputed_by.is_empty() {
             row["disputedBy"] = json!(self.disputed_by);
         }
-        row["link"] = json!(self.link);
+        // The same URL as `source` is stated once, as `source`.
+        if self.source.as_deref() != Some(self.link.as_str()) {
+            row["link"] = json!(self.link);
+        }
         row
     }
 

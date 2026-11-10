@@ -744,10 +744,11 @@ mod batch_walk {
                     batch(vec![json!({"vulns": [listed("A", modified)]})]),
                 )])
         };
-        for (modified, reads) in [("m1", 1), ("m1", 0), ("m2", 1)] {
+        // Each call asks another version, so none reuses an earlier id list.
+        for (call, (modified, reads)) in [("m1", 1), ("m1", 0), ("m2", 1)].into_iter().enumerate() {
             let http = asking(modified);
             let net = net_of(&http, &budget, &reused, &config, Some(&store));
-            let walked = walk::walk_one(&net, &lodash("1.0.0"), None)
+            let walked = walk::walk_one(&net, &lodash(&format!("{call}.0.0")), None)
                 .await
                 .expect("walk");
             assert_eq!(walked.read[0]["modified"], modified);
@@ -858,5 +859,123 @@ mod batch_walk {
         let http = RouteHttp::new().post_sequence(vec![(200, batch(vec![json!({})]))]);
         let done = run(&http, Some(&saved)).await.expect("walk");
         assert_eq!(ids(&done), ["A"]);
+    }
+
+    fn stamped(id: &str) -> Value {
+        let mut stamped = record(id);
+        stamped["modified"] = json!("m");
+        stamped
+    }
+
+    /// A transport that answers after a fixed latency, as OSV does.
+    struct Slow {
+        inner: RouteHttp,
+        latency: std::time::Duration,
+    }
+
+    impl crate::providers::artifact::ArtifactHttp for Slow {
+        fn get<'a>(
+            &'a self,
+            request: crate::providers::artifact::ArtifactHttpRequest,
+            budget: &'a octocode_io::budget::RequestBudget,
+        ) -> crate::providers::artifact::ArtifactHttpFuture<'a> {
+            Box::pin(async move {
+                tokio::time::sleep(self.latency).await;
+                self.inner.get(request, budget).await
+            })
+        }
+
+        fn post<'a>(
+            &'a self,
+            request: crate::providers::artifact::ArtifactHttpRequest,
+            body: Vec<u8>,
+            budget: &'a octocode_io::budget::RequestBudget,
+        ) -> crate::providers::artifact::ArtifactHttpFuture<'a> {
+            self.inner.post(request, body, budget)
+        }
+    }
+
+    /// A repeated question asks OSV for its current id list: OSV sends no
+    /// validator for `/v1/querybatch`, so a kept list could only answer as of
+    /// an earlier time, and a security answer is not served stale. Records
+    /// stay exact under `(id, modified)`, so an unchanged one is not read again.
+    #[tokio::test]
+    async fn a_repeated_query_asks_for_the_current_list_and_reuses_unchanged_records() {
+        let store = KeptAnswers::new(None);
+        let (budget, config) = (
+            test_budget(),
+            crate::tools::security_check::tests::default_config(),
+        );
+        let asking = || {
+            RouteHttp::new()
+                .json("/v1/vulns/A", stamped("A"))
+                .post_sequence(vec![(
+                    200,
+                    batch(vec![json!({"vulns": [listed("A", "m")]})]),
+                )])
+        };
+        let first = asking();
+        let reused = ReusedSince::default();
+        let net = net_of(&first, &budget, &reused, &config, Some(&store));
+        let walked = walk::walk_one(&net, &lodash("1.0.0"), None)
+            .await
+            .expect("walk");
+        assert_eq!(walked.read.len(), 1);
+        assert_eq!(first.post_bodies().len(), 1);
+        assert_eq!(reused.get(), None, "a fresh answer discloses nothing");
+
+        let again = asking();
+        let reused = ReusedSince::default();
+        let net = net_of(&again, &budget, &reused, &config, Some(&store));
+        let walked = walk::walk_one(&net, &lodash("1.0.0"), None)
+            .await
+            .expect("walk");
+        assert_eq!(walked.read.len(), 1);
+        assert_eq!(again.post_bodies().len(), 1, "the id list is asked again");
+        assert_eq!(gets(&again, "A"), 0, "an unchanged record is not read again");
+        assert_eq!(reused.get(), None, "a current list discloses no reuse");
+    }
+
+    /// Listed records are read together, not one after another: five records
+    /// at one latency each finish in under two latencies.
+    #[tokio::test]
+    async fn listed_records_are_read_concurrently() {
+        let latency = std::time::Duration::from_millis(100);
+        let ids = ["A", "B", "C", "D", "E"];
+        let mut inner = RouteHttp::new();
+        for id in ids {
+            inner = inner.json(&format!("/v1/vulns/{id}"), stamped(id));
+        }
+        let listed_all = ids.iter().map(|id| listed(id, "m")).collect::<Vec<_>>();
+        let http = Slow {
+            inner: inner.post_sequence(vec![(200, batch(vec![json!({"vulns": listed_all})]))]),
+            latency,
+        };
+        assert!(ids.len() <= CONCURRENT_READS, "the bound allows one round");
+        let (budget, reused, config) = (
+            test_budget(),
+            ReusedSince::default(),
+            crate::tools::security_check::tests::default_config(),
+        );
+        let net = Net {
+            http: &http,
+            budget: &budget,
+            answers: None,
+            reused: &reused,
+            config: &config,
+            github: None,
+            osv_api: crate::execution::RuntimeLimits::DEFAULT.osv_api,
+        };
+        let started = std::time::Instant::now();
+        let walked = walk::walk_one(&net, &lodash("1.0.0"), None)
+            .await
+            .expect("walk");
+        assert_eq!(walked.read.len(), ids.len());
+        assert!(
+            started.elapsed() < latency * 2,
+            "{:?} for {} records",
+            started.elapsed(),
+            ids.len()
+        );
     }
 }

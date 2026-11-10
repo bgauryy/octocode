@@ -76,6 +76,23 @@ fn a_pruned_snapshot_id_names_its_successor() {
     assert_eq!(recovered["counts"], read["counts"], "{recovered}");
 }
 
+/// An ID of this scope later than every snapshot here (built in another
+/// workspace's store) was replaced by none of them: no older snapshot is
+/// named its successor.
+#[test]
+fn an_id_newer_than_every_snapshot_is_not_called_superseded() {
+    let dir = Fixture::new();
+    let built = rebuild(&dir, 1);
+    let (_, scope) = built.split_once('-').expect("timestamped id");
+    let later = format!("99991231T235959Z-{scope}");
+    let missing = stats(&dir, &later);
+    assert_eq!(missing["errorCode"], "notFound", "{missing}");
+    assert!(
+        !missing["error"].to_string().contains("replaced"),
+        "{missing}"
+    );
+}
+
 #[test]
 fn an_unknown_id_is_not_called_superseded() {
     let dir = Fixture::new();

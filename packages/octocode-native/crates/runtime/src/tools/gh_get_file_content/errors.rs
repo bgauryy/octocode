@@ -21,14 +21,19 @@ pub(super) fn repo_path(query: &GhGetFileContentQuery) -> RepoPath<'_> {
     }
 }
 
-/// The failure row of a read. `found` is the missing-path walk's answer
-/// (only for a path that did not resolve).
+/// The failure row of a read. `commit` is the commit the read's ref
+/// resolved to, which the recovery leads pin in place of the ref; `found` is
+/// the missing-path walk's answer (only for a path that did not resolve).
 pub(crate) fn failure(
     error: ProviderError,
     query: &GhGetFileContentQuery,
+    commit: Option<&str>,
     found: Option<PathRecovery>,
 ) -> GhFailure {
-    let at = repo_path(query);
+    let at = RepoPath {
+        reference: commit.or(access::reference(query)),
+        ..repo_path(query)
+    };
     let (owner, repo, requested) = (at.owner, at.repo, at.path);
     let identity = |mut failure: GhFailure| {
         failure.fields = vec![
@@ -147,6 +152,10 @@ fn path_recovery(
         Some(path) => {
             let mut read = query_row(query, &[]);
             read["path"] = json!(path);
+            // The lead pins the commit the failed read resolved.
+            if let Some(reference) = at.reference {
+                read["ref"] = json!(reference);
+            }
             let read = Continuation::related(ToolId::GhGetFileContent, read).build();
             (
                 Some("Only the path's case differs."),

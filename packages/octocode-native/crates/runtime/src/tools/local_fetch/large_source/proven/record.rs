@@ -9,11 +9,14 @@ impl<'s> Proof<'s> {
         path: &std::path::Path,
         wants: &[Want],
         scan: &'s dyn ContentScan,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, ReadError> {
         let started = octocode_engine::stamp::settle_clock();
+        let held = super::super::memory()
+            .reserve(0)
+            .ok_or(ReadError::Refused)?;
         Ok(Self {
             scan,
-            recorder: Recorder::new(path, super::super::sealed::Limits::REAL),
+            recorder: Recorder::new(path, super::super::sealed::Limits::REAL, held),
             key_lines: Vec::new(),
             hasher: octocode_engine::digest::HashWriter::default(),
             lines: WindowLines::new(wants, KeyBlockState::default()),
@@ -91,17 +94,16 @@ impl<'s> Proof<'s> {
     }
 
     /// The pass once the source ended, or the scanner's refusal of it.
-    pub(in super::super) fn finish(mut self) -> Result<Pass, String> {
+    pub(in super::super) fn finish(mut self) -> Result<Pass, ReadError> {
         if self.pending {
             self.close_line();
         }
-        let edits = self
-            .recorder
-            .finish(self.scan)
-            .map_err(|(_, message)| message)?;
+        let (edits, held) = self.recorder.finish(self.scan)?;
+        let scanned: Arc<[Edit]> = outside_key_lines(edits, &self.key_lines).into();
+        drop(held);
         Ok(Pass {
             proven: Proven {
-                scanned: outside_key_lines(edits, &self.key_lines),
+                scanned,
                 key_lines: self.key_lines.into(),
                 sealed: OnceLock::new(),
                 digest: hex::encode(self.hasher.finalize()),
@@ -121,46 +123,6 @@ impl<'s> Proof<'s> {
             },
         })
     }
-}
-
-/// `edits` less their bytes on lines a private-key block replaces: such a line
-/// shows only its placeholder. An edit cut by one keeps its placeholder.
-pub(super) fn outside_key_lines(
-    edits: Vec<Edit>,
-    key_lines: &[(std::ops::Range<usize>, usize)],
-) -> Vec<Edit> {
-    if key_lines.is_empty() {
-        return edits;
-    }
-    let mut out = Vec::with_capacity(edits.len());
-    for edit in edits {
-        let mut range = edit.range.clone();
-        let first = key_lines.partition_point(|(line, _)| line.end <= range.start);
-        for (line, _) in key_lines[first..]
-            .iter()
-            .take_while(|(line, _)| line.start < edit.range.end)
-        {
-            if line.start <= range.start {
-                range.start = range.start.max(line.end);
-            } else {
-                // The bytes past this key line stay hidden by the same edit.
-                if range.start < line.start {
-                    out.push(Edit {
-                        range: range.start..line.start,
-                        text: edit.text.clone(),
-                    });
-                }
-                range.start = line.end;
-            }
-        }
-        if range.start < range.end {
-            out.push(Edit {
-                range,
-                text: edit.text,
-            });
-        }
-    }
-    out
 }
 
 /// The bytes of `rest` up to and including its first newline, and whether

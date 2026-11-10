@@ -173,7 +173,10 @@ fn a_write_restoring_its_time_during_a_window_read_refuses_the_windows() {
         &writer,
     );
     assert!(writer.wrote(), "the write ran during the read");
-    let error = windows.err().expect("the changed source is refused");
+    let error = windows
+        .err()
+        .expect("the changed source is refused")
+        .to_string();
     assert!(error.contains("changed while it was read"), "{error}");
 }
 

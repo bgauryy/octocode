@@ -84,9 +84,9 @@ fn unresolved_sites_are_attributable_and_empty_population_is_unavailable() {
         o.limit = Some(1);
         o.offset = Some(1);
     });
-    assert_ne!(first.value["rows"][0]["id"], second.value["rows"][0]["id"]);
+    assert_ne!(first.value["rows"][0], second.value["rows"][0]);
     assert_eq!(first.value["rows"][0]["reason"], "not-declared-in-repo");
-    assert_eq!(first.value["rows"][0]["evidence"], "syntax");
+    assert_eq!(first.value["evidence"], "syntax");
     for out in [&first, &second] {
         let row = &out.value["rows"][0];
         let start = row["sourceRange"]["startByte"].as_u64().unwrap() as usize;

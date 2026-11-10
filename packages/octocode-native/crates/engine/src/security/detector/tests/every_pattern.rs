@@ -92,6 +92,21 @@ fn file_context_patterns_hide_values_in_their_own_files() {
             format!(r#""Main": "Server=x;User Id=u;Pwd={value}""#),
         ),
         (
+            "sqlUserPassword",
+            "init.sql",
+            format!("CREATE USER app IDENTIFIED BY '{value}';"),
+        ),
+        (
+            "xmlCredentialAttribute",
+            "app.config",
+            format!(r#"<add key="password" value="{value}"/>"#),
+        ),
+        (
+            "xmlCredentialElement",
+            "settings.xml",
+            format!("<server><password>{value}</password></server>"),
+        ),
+        (
             "dockerComposeSecrets",
             "docker-compose.yml",
             format!(r#"POSTGRES_PASSWORD: "{value}""#),

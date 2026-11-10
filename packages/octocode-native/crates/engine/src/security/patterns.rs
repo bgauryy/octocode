@@ -35,12 +35,14 @@ macro_rules! credential_words {
 }
 
 /// The comment marker a line-anchored assignment rule reads through
-/// (`// KEY=value`, `# key: value`, ` * key: value`, `! key=value`): a commented-out
+/// (`// KEY=value`, `# key: value`, ` * key: value`, `! key=value`, and the
+/// markers of grammarless files: `-- key: value` (SQL, Lua), `; key = value`
+/// (INI), `/* key: value`, `<!-- key: value`): a commented-out
 /// credential is still one. In a source file the detector's syntax judgment
 /// places the line in its comment.
 macro_rules! comment_lead {
     () => {
-        r"(?:(?://+|#+|[*!]+)[ \t]*)?"
+        r"(?:(?://+|#+|;+|/\*+|<!--|--+[ \t]|[*!]+)[ \t]*)?"
     };
 }
 

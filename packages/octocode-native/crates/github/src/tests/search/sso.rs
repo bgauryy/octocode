@@ -83,3 +83,35 @@ async fn a_search_partly_withheld_by_saml_names_the_organizations_and_is_not_cac
         );
     }
 }
+
+/// A repository search the token only partly covered names the withheld
+/// organizations, as code search does.
+#[tokio::test]
+async fn a_repository_search_partly_withheld_by_saml_names_the_organizations() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("x-github-sso", "partial-results; organizations=21955855")
+                .set_body_json(serde_json::json!({
+                    "total_count": 0, "incomplete_results": false, "items": []
+                })),
+        )
+        .mount(&server)
+        .await;
+    let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    let context = with_token("t", Duration::from_secs(5), 1 << 20);
+    let page = transport
+        .search_repositories(
+            &RepositorySearchRequest {
+                query: "x".into(),
+                page: 1,
+                per_page: 10,
+                sort: None,
+            },
+            &context,
+        )
+        .await
+        .expect("repository search");
+    assert_eq!(page.sso_partial_organizations, vec![21955855]);
+}

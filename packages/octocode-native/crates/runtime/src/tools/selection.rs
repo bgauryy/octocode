@@ -295,7 +295,9 @@ pub(crate) fn unless_transient(
 /// shows when an earlier candidate page kept some, whether units wait for
 /// `next.nextCandidatePage` or none is left to judge, how many it hid as
 /// related near misses (complete is not full recall), and, when this page
-/// shows none, that an empty classified result is no absence.
+/// shows none, that an empty classified result is no absence. A page that
+/// shows everything it kept, with nothing left to judge, unknown or hidden,
+/// has only counts the receipt states: no note.
 pub(crate) fn kept_note(outcome: &Outcome, shown: usize) -> Option<String> {
     let receipt = &outcome.receipt;
     if outcome.provider_unavailable()
@@ -313,6 +315,18 @@ pub(crate) fn kept_note(outcome: &Outcome, shown: usize) -> Option<String> {
         }
     };
     let count = |value: i64| usize::try_from(value).unwrap_or_default();
+    let pending = outcome.unjudged.len();
+    // Counts the receipt already states (`selectedItems`, `totalItems`) and
+    // nothing to act on: this page shows all it kept, nothing awaits
+    // judgment, no unit stays unknown, no near miss is hidden.
+    if count(receipt.selected_items) == shown
+        && shown > 0
+        && pending == 0
+        && receipt.unknown_items == 0
+        && receipt.related_items.is_none()
+    {
+        return None;
+    }
     let mut note = format!(
         "classification kept {} of {} that pass the classifiers",
         receipt.selected_items,
@@ -325,7 +339,6 @@ pub(crate) fn kept_note(outcome: &Outcome, shown: usize) -> Option<String> {
             format!(" ({shown} on this page)")
         });
     }
-    let pending = outcome.unjudged.len();
     if pending > 0 {
         note.push_str(&format!(
             "; {} not judged yet: next.nextCandidatePage judges them",

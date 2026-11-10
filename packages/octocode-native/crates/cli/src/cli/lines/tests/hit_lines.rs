@@ -105,6 +105,27 @@ fn several_hits_print_their_file_and_each_declaration_once() {
     );
 }
 
+/// A declaration with attribute and doc lines states them once, with its
+/// span, for the group of hits it holds; they are not restated per hit.
+#[test]
+fn declaration_with_doc_lines_prints_once_per_group() {
+    let result = json!({"results":[{"index":0,"data":{"files":[{
+        "path":"a.rs",
+        "declarations":[
+            {"symbolName":"first","kind":"struct","line":10,"endLine":20,"startLine":8,"docStartLine":7}
+        ],
+        "matches":[
+            {"line":12,"value":"needle","enclosing":0},
+            {"line":15,"value":"needle","enclosing":0}
+        ]
+    }]}}]});
+    let lines = render(ToolId::LocalSearch, &result, &json!({}), None).expect("lines");
+    assert_eq!(
+        lines.out,
+        "a.rs\n12:needle  [struct first 10-20 startLine 8 docStartLine 7]\n15:needle"
+    );
+}
+
 /// A location answer groups its rows by file; each still prints as a hit.
 #[test]
 fn grouped_location_rows_print_as_hits() {

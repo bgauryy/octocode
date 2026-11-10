@@ -104,6 +104,23 @@ pub(crate) async fn execute(
             ("includeArchived", include_archived(query)),
         );
     }
+    // One lead per response, on page 1: the first repository's root tree.
+    if current == 1
+        && let Some(first) = data.items.first()
+    {
+        let (owner, repo) = first
+            .full_name
+            .split_once('/')
+            .unwrap_or(("", first.name.as_str()));
+        if !owner.is_empty() {
+            leads.push((
+                "viewTree",
+                crate::tools::gh_shared::RepoPath::root(owner, repo)
+                    .lead(ToolId::GhStructure)
+                    .build(),
+            ));
+        }
+    }
     let wanted = wanted_topics(query);
     let fields = access::fields(query);
     let with_topics = fields.iter().any(|field| field == "topics");
@@ -260,6 +277,6 @@ impl crate::response::output::ToolOutput for Output {
     /// repository that did not resolve carries its own `findRepository`
     /// lead. Neither is helped by the search fallback.
     fn error_hint(&self, code: ErrorCode, _query: &serde_json::Value) -> Option<&'static str> {
-        (code == ErrorCode::NotFound).then_some(crate::response::output::NO_HINT)
+        crate::response::output::not_found_is_the_answer(code)
     }
 }

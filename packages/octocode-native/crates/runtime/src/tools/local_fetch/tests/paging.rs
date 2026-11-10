@@ -70,3 +70,31 @@ fn a_mid_character_byte_offset_is_refused_with_a_restart() {
         "{r:?}"
     );
 }
+
+/// A line page fits the room its response gives it, counted as serialized
+/// text: quotes, tabs and multi-byte lines never push a page past its share.
+#[test]
+fn a_line_page_fits_its_share_as_serialized_text() {
+    let fixture = Fixture::new();
+    let source = "\tlet s = \"quoted é語\"; // \\ tail\n".repeat(3_000);
+    let file = fixture.write("escapes.rs", &source);
+    let paths = Paths(fixture.0.clone());
+    for budget in [1500, 10000, 50000] {
+        let mut query = q(&file);
+        let mut pages = 0;
+        loop {
+            let page = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, Some(budget), None);
+            assert_eq!(page.error_code, None, "{page:?}");
+            let content = page.content.as_deref().expect("content");
+            let used = crate::response::cut::escaped_len(content);
+            assert!(used <= budget, "budget {budget}: page {pages} holds {used}");
+            pages += 1;
+            assert!(pages <= 3_000, "{pages} pages");
+            let Some(next) = page.next.and_then(|next| next.continue_window) else {
+                break;
+            };
+            query = next.query;
+        }
+        assert!(pages > 1);
+    }
+}

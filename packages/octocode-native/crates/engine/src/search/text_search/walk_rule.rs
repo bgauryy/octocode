@@ -84,6 +84,15 @@ pub(super) struct EntryRule {
 }
 
 impl EntryRule {
+    /// The ignore files the walk met that exist but could not be read: they
+    /// applied no rules, so the entries they would leave out were searched.
+    pub(super) fn unreadable_ignore_files(&self) -> Vec<crate::search::walk::UnreadableRule> {
+        self.ignored
+            .as_ref()
+            .map(IgnoreRules::unreadable_rule_files)
+            .unwrap_or_default()
+    }
+
     pub(super) fn skips(&self, dent: &ignore::DirEntry, is_dir: bool) -> Option<Skipped> {
         if dent.depth() == 0 {
             return None;

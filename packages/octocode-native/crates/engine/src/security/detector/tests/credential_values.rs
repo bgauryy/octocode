@@ -11,6 +11,7 @@ mod phrases;
 mod properties_files;
 mod readable_code;
 mod short_literals;
+mod source_forms;
 
 /// A hex value is no proof of a git object id: tokens of that shape (classic
 /// GitHub PATs, CircleCI, Sentry) under a credential-named key stay redacted,

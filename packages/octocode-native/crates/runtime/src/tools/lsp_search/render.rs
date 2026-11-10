@@ -115,6 +115,20 @@ pub(super) fn label_name(label: &str) -> (&str, Option<&str>) {
 /// typescript-language-server reports a `type X = …` alias as a variable
 /// (LSP has no alias kind). Name each such symbol `type` when its declaring
 /// line says so; nested symbols are walked too.
+/// [`name_type_aliases`] for a TypeScript-family document: the rung that
+/// answered (server or editor) does not change how its outline names aliases.
+pub(super) fn name_type_aliases_in(
+    symbols: &mut Value,
+    language_id: Option<&str>,
+    content: Option<&str>,
+) {
+    if octocode_engine::lsp::family::is_typescript_family(language_id)
+        && let Some(content) = content
+    {
+        name_type_aliases(symbols, content);
+    }
+}
+
 pub(super) fn name_type_aliases(symbols: &mut Value, content: &str) {
     let lines: Vec<&str> = content.lines().collect();
     fn walk(symbols: &mut Value, lines: &[&str]) {

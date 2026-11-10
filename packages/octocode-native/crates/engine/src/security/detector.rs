@@ -22,7 +22,7 @@ mod objects;
 mod source_names;
 pub(super) mod structured;
 mod yaml_secret;
-pub use every_value::every_value_spans;
+pub use every_value::{EveryValueScan, every_value_spans};
 pub use jwk::hide_members as hide_jwk_members;
 pub use long_line::{LONG_LINE_BYTES, LongLine};
 #[cfg(feature = "test-hooks")]

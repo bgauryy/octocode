@@ -9,6 +9,7 @@ use serde_json::json;
 mod continuation;
 mod filters;
 mod leads;
+mod members;
 mod memory;
 mod scans;
 

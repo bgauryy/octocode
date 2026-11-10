@@ -176,3 +176,15 @@ fn stopping_and_waiting_needs_each_servers_drain_confirmation() {
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).expect("chmod");
     assert!(stop_and_wait_in(temp.path()).is_err(), "a shared directory");
 }
+
+#[test]
+fn a_socket_that_cannot_be_restricted_is_an_error() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().expect("dir");
+    let socket = dir.path().join("serve-own.sock");
+    assert!(restrict(&socket).is_err(), "no socket, no restriction");
+    let _listener = std::os::unix::net::UnixListener::bind(&socket).expect("bind");
+    restrict(&socket).expect("restrict");
+    let mode = std::fs::metadata(&socket).expect("meta").permissions().mode();
+    assert_eq!(mode & 0o777, 0o600);
+}

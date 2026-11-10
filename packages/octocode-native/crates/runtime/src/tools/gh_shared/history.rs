@@ -1,6 +1,6 @@
 //! Failure wording shared by both history tools: the message and the hint
 //! for a provider error.
-use super::{provider_hint, provider_message, validation_message};
+use super::{GhFailure, provider_hint, provider_message, validation_message};
 use octocode_github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
 
 /// The message and the optional hint for a history failure. `search`
@@ -40,4 +40,15 @@ pub(crate) fn history_failure(
     let hint = provider_hint(error)
         .filter(|_| !(search && error.reason == Some(ProviderErrorReason::UserNotFound)));
     (message, hint)
+}
+
+/// The failure of a history tool's provider `error`: [`history_failure`]'s
+/// message and hint (`search` as there).
+pub(crate) fn history_tool_failure(error: ProviderError, search: bool) -> GhFailure {
+    let (message, hint) = history_failure(&error, search);
+    let failure = GhFailure::new(error, message);
+    match hint {
+        Some(hint) => failure.hint(hint),
+        None => failure,
+    }
 }

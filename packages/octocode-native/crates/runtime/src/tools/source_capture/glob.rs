@@ -23,6 +23,7 @@ use octocode_engine::search::glob::{GLOB_META, IncludeScope, matches};
 use octocode_engine::search::text_search::TextSearchPathFilter as _;
 use serde_json::{Map, Value, json};
 use std::path::Path;
+use std::sync::Arc;
 
 /// What a glob that matched no file says.
 const NO_MATCH_HINT: &str = "A glob walks as local searches do: it skips dot entries, git-ignored files and default-excluded directories, and matches names case-sensitively. Write a literal [ as \\[, or name a file by its path.";
@@ -219,10 +220,11 @@ fn matching(
         None,
     );
     walk.sort_by_file_name(std::cmp::Ord::cmp);
+    let rules = Arc::new(octocode_engine::search::walk::IgnoreRules::new(&root));
     {
         let (admission, matcher, root) = (admission.clone(), matcher.clone(), root.clone());
         let scope = IncludeScope::new(&root, &include);
-        let rules = octocode_engine::search::walk::IgnoreRules::new(&root);
+        let rules = Arc::clone(&rules);
         walk.filter_entry(move |entry| {
             let path = entry.path();
             let is_dir = entry.file_type().is_some_and(|kind| kind.is_dir());
@@ -271,6 +273,14 @@ fn matching(
                 entry.path().strip_prefix(&root).unwrap_or(entry.path()),
             );
             files.push((relative.clone(), spelled(&relative)));
+        }
+    }
+    // An ignore file the walk could not read applied no rules: one more
+    // unreadable entry.
+    for file in rules.unreadable_rule_files() {
+        errors.skipped += 1;
+        if file.kind == std::io::ErrorKind::PermissionDenied {
+            errors.denied += 1;
         }
     }
     let skips = admission.skipped();

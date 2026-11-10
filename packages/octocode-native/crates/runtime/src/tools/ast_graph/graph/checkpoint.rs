@@ -2,6 +2,7 @@
 use super::*;
 use octocode_engine::fact_scan::GraphFactsView;
 use octocode_engine::graph::{GraphFactRustModule, GraphFactsTypedEntry};
+use octocode_engine::num::saturating_usize;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
@@ -183,7 +184,7 @@ impl Job<'_> {
                 let storage = Storage::Disk(self.target(view.relative_path));
                 return Ok(Ok((
                     self.retain(view, source, size, storage),
-                    to_usize(size),
+                    saturating_usize(size),
                 )));
             }
         }
@@ -264,7 +265,7 @@ impl Job<'_> {
         };
         Ok(Ok((
             self.retain(view, source, size, storage),
-            to_usize(size),
+            saturating_usize(size),
         )))
     }
 
@@ -390,10 +391,6 @@ pub(in crate::tools::ast_graph) fn complete(
 fn decoded(view: &GraphFactsView<'_>, source: capture::CapturedSource) -> super::scan::Kept {
     let marks = super::super::classify::SourceMarks::of(view.relative_path, view.content);
     super::scan::Kept::Memory(Box::new((view.to_entry(), marks, source)))
-}
-
-fn to_usize(bytes: u64) -> usize {
-    usize::try_from(bytes).unwrap_or(usize::MAX)
 }
 
 fn failure(message: impl Into<String>) -> ToolError {

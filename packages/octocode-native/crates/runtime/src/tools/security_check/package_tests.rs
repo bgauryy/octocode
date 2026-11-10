@@ -1044,6 +1044,13 @@ async fn a_withdrawn_global_advisory_is_stated_as_withdrawn_never_as_a_match() {
         "{text}"
     );
     assert!(text.contains("unreviewed"), "{text}");
+    // One warning names both facts, not one for each.
+    let about = warnings
+        .iter()
+        .filter_map(Value::as_str)
+        .filter(|text| text.contains("GHSA-8p5q-j9m2-g8wr"))
+        .count();
+    assert_eq!(about, 1, "{text}");
     assert!(
         read_whole_ids(&data).contains(&"GHSA-8p5q-j9m2-g8wr".to_owned()),
         "still one call away: {data}"
@@ -1297,10 +1304,11 @@ async fn an_osv_failure_never_counts_a_withdrawn_record_as_a_match() {
         !data["cves"].to_string().contains("CVE-2021-41720"),
         "{data}"
     );
+    let warnings = data["warnings"].to_string();
     assert!(
-        data["warnings"]
-            .to_string()
-            .contains("GitHub withdrew GHSA-8p5q-j9m2-g8wr at 2021-10-01T22:04:28Z: not a match"),
+        warnings.contains("GitHub withdrew GHSA-8p5q-j9m2-g8wr at 2021-10-01T22:04:28Z")
+            && warnings.contains("unreviewed")
+            && warnings.contains(": not a match"),
         "{data}"
     );
     assert!(

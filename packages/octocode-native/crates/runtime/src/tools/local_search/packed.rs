@@ -28,8 +28,7 @@
 //!    deferred values' duplicate classes are numbered per file across all
 //!    of its frames;
 //! 2. the entry's facts ([`super::page_view::EntryFacts`]): the file's row
-//!    total, the entry's rank range, its later rows' first lines and the
-//!    count of the rest, and the neighbouring context windows;
+//!    total, the entry's rank range and the neighbouring context windows;
 //! 3. the entry's rows whose value redaction changed (indexes into the
 //!    entry), and whether the file had a key-block scan.
 //!

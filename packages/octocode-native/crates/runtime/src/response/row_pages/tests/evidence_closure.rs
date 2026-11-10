@@ -1,5 +1,6 @@
 use super::*;
 use crate::id::ToolId;
+use crate::tools::test_support::assert_part_contract;
 use crate::tools::test_support::assert_row_contract;
 use octocode_contract_types::{OutputSourceEvidence, OutputSourceOrigin};
 use octocode_io::cancellation::Cancellation;
@@ -168,7 +169,7 @@ fn hundred_unit_graph_fragments_fit_and_preserve_all_evidence_lazily() {
             "page {page} exceeds its row budget"
         );
         for row in rows {
-            assert_row_contract(ToolId::GraphQuery, &row["data"]);
+            assert_part_contract(ToolId::GraphQuery, &row);
             exact_closure(&row["data"], &catalog);
             assert!(
                 row["data"]["sourceEvidence"]["units"]
@@ -272,7 +273,7 @@ fn recursive_joined_neighbors_keep_their_own_closures_before_and_after() {
                 .unwrap();
             assert!(chars(&json!(rows)) <= budget);
             for row in rows {
-                assert_row_contract(ToolId::AstSearch, &row["data"]);
+                assert_part_contract(ToolId::AstSearch, &row);
                 exact_closure(&row["data"], &catalog);
                 let symbols = &row["data"]["symbols"];
                 let names = symbols
@@ -319,7 +320,7 @@ fn escaped_keyed_records_preserve_each_origin_and_only_its_descriptor_closure() 
             .unwrap();
         assert!(chars(&json!(rows)) <= 12_000);
         for row in rows {
-            assert_row_contract(ToolId::GraphQuery, &row["data"]);
+            assert_part_contract(ToolId::GraphQuery, &row);
             exact_closure(&row["data"], &catalog);
             for finding in row["data"]["rows"].as_array().unwrap() {
                 for (key, values) in finding["evidence"]["textMentions"].as_object().unwrap() {
@@ -381,7 +382,7 @@ fn artifact_engine_names_are_metadata_without_a_source_catalog() {
             .build_page(page, &[None], &Cancellation::new())
             .unwrap()
         {
-            assert_row_contract(ToolId::ArtifactSearch, &row["data"]);
+            assert_part_contract(ToolId::ArtifactSearch, &row);
             assert!(row["data"].get("sourceEvidence").is_none());
             for artifact in row["data"]["artifacts"].as_array().unwrap() {
                 seen.extend(artifact["engines"].as_array().unwrap().iter().cloned());

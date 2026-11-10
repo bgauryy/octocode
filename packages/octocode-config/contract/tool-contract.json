@@ -14,7 +14,7 @@
               "additionalProperties": false,
               "properties": {
                 "path": {
-                  "$ref": "#/$defs/_h55"
+                  "$ref": "#/$defs/_h56"
                 },
                 "ranges": {
                   "$ref": "#/$defs/_h100"
@@ -113,7 +113,7 @@
           "$ref": "#/$defs/_h234"
         },
         "maxDepth": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "operation": {
           "const": "tree"
@@ -168,7 +168,7 @@
           "$ref": "#/$defs/GraphEdgeconfidence"
         },
         "depth": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "direction": {
           "enum": [
@@ -261,7 +261,7 @@
           "$ref": "#/$defs/GraphEdgeconfidence"
         },
         "depth": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "direction": {
           "enum": [
@@ -331,7 +331,7 @@
           "type": "boolean"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "line": {
           "$ref": "#/$defs/_h32"
@@ -349,7 +349,7 @@
           "$ref": "#/$defs/_h59"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -383,72 +383,6 @@
       "type": "object"
     },
     "_h107": {
-      "additionalProperties": false,
-      "properties": {
-        "countScope": {
-          "enum": [
-            "complete",
-            "loaded",
-            "partial"
-          ]
-        },
-        "hasMore": {
-          "type": "boolean"
-        },
-        "matchPage": {
-          "$ref": "#/$defs/_h0"
-        },
-        "moreLines": {
-          "items": {
-            "$ref": "#/$defs/_h33"
-          },
-          "type": "array"
-        },
-        "moreLinesUnlisted": {
-          "$ref": "#/$defs/_h0"
-        },
-        "next": {
-          "$ref": "#/$defs/CollectionNext"
-        },
-        "outOfRange": {
-          "const": true
-        },
-        "page": {
-          "$ref": "#/$defs/_h0"
-        },
-        "providerLimit": {
-          "$ref": "#/$defs/_h210"
-        },
-        "providerPagesRead": {
-          "$ref": "#/$defs/_h0"
-        },
-        "totalItems": {
-          "$ref": "#/$defs/_h0"
-        },
-        "totalItemsCapped": {
-          "type": "boolean"
-        },
-        "totalPages": {
-          "$ref": "#/$defs/_h0"
-        },
-        "unit": {
-          "enum": [
-            "items",
-            "files",
-            "lines",
-            "matches"
-          ]
-        },
-        "unshown": {
-          "const": true
-        }
-      },
-      "required": [
-        "hasMore"
-      ],
-      "type": "object"
-    },
-    "_h108": {
       "items": {
         "additionalProperties": {},
         "properties": {
@@ -467,7 +401,7 @@
       },
       "type": "array"
     },
-    "_h109": {
+    "_h108": {
       "items": {
         "additionalProperties": false,
         "properties": {
@@ -486,6 +420,64 @@
         "type": "object"
       },
       "type": "array"
+    },
+    "_h109": {
+      "additionalProperties": false,
+      "properties": {
+        "block": {
+          "type": "boolean"
+        },
+        "caseMode": {
+          "$ref": "#/$defs/_h257"
+        },
+        "classification": {
+          "$ref": "#/$defs/_h4"
+        },
+        "contextLines": {
+          "$ref": "#/$defs/_h37"
+        },
+        "limit": {
+          "$ref": "#/$defs/_h113"
+        },
+        "mainGoal": {
+          "$ref": "#/$defs/_h17"
+        },
+        "matchString": {
+          "$ref": "#/$defs/TextMatchTerms"
+        },
+        "path": {
+          "$ref": "#/$defs/_h56"
+        },
+        "ranges": {
+          "$ref": "#/$defs/_h100"
+        },
+        "readProgress": {
+          "$ref": "#/$defs/_h224"
+        },
+        "reasoning": {
+          "$ref": "#/$defs/_h17"
+        },
+        "regexEngine": {
+          "$ref": "#/$defs/_h248"
+        },
+        "selection": {
+          "$ref": "#/$defs/_h48"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/_h225"
+        },
+        "view": {
+          "$ref": "#/$defs/_h282"
+        },
+        "wholeWord": {
+          "$ref": "#/$defs/_h300"
+        }
+      },
+      "required": [
+        "path",
+        "matchString"
+      ],
+      "type": "object"
     },
     "_h11": {
       "$ref": "#/$defs/ghGetHistoryItemNext",
@@ -553,64 +545,6 @@
         "contextLines": {
           "$ref": "#/$defs/_h37"
         },
-        "limit": {
-          "$ref": "#/$defs/_h114"
-        },
-        "mainGoal": {
-          "$ref": "#/$defs/_h17"
-        },
-        "matchString": {
-          "$ref": "#/$defs/TextMatchTerms"
-        },
-        "path": {
-          "$ref": "#/$defs/_h55"
-        },
-        "ranges": {
-          "$ref": "#/$defs/_h100"
-        },
-        "readProgress": {
-          "$ref": "#/$defs/_h224"
-        },
-        "reasoning": {
-          "$ref": "#/$defs/_h17"
-        },
-        "regexEngine": {
-          "$ref": "#/$defs/_h248"
-        },
-        "selection": {
-          "$ref": "#/$defs/_h48"
-        },
-        "snapshot": {
-          "$ref": "#/$defs/_h225"
-        },
-        "view": {
-          "$ref": "#/$defs/_h282"
-        },
-        "wholeWord": {
-          "$ref": "#/$defs/_h300"
-        }
-      },
-      "required": [
-        "path",
-        "matchString"
-      ],
-      "type": "object"
-    },
-    "_h111": {
-      "additionalProperties": false,
-      "properties": {
-        "block": {
-          "type": "boolean"
-        },
-        "caseMode": {
-          "$ref": "#/$defs/_h257"
-        },
-        "classification": {
-          "$ref": "#/$defs/_h4"
-        },
-        "contextLines": {
-          "$ref": "#/$defs/_h37"
-        },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
         },
@@ -659,7 +593,7 @@
       ],
       "type": "object"
     },
-    "_h112": {
+    "_h111": {
       "additionalProperties": false,
       "properties": {
         "defaultExcludes": {
@@ -678,7 +612,7 @@
           "type": "boolean"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
@@ -696,7 +630,7 @@
           "$ref": "#/$defs/AstParserGlobs"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -723,7 +657,7 @@
       ],
       "type": "object"
     },
-    "_h113": {
+    "_h112": {
       "additionalProperties": false,
       "properties": {
         "importerPage": {
@@ -734,7 +668,7 @@
           "type": "boolean"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "line": {
           "$ref": "#/$defs/_h32"
@@ -752,7 +686,7 @@
           "$ref": "#/$defs/_h59"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -786,11 +720,11 @@
       "title": "anchored:references:files",
       "type": "object"
     },
-    "_h114": {
+    "_h113": {
       "minimum": 1,
       "type": "integer"
     },
-    "_h115": {
+    "_h114": {
       "additionalProperties": false,
       "properties": {
         "baseRef": {
@@ -845,11 +779,11 @@
       ],
       "type": "object"
     },
-    "_h116": {
+    "_h115": {
       "pattern": "^(?:nextPage|repair(?:[2-9]|[1-9][0-9]+)?|retry(?:[2-9]|[1-9][0-9]+)?|restart(?:[2-9]|[1-9][0-9]+)?)$",
       "type": "string"
     },
-    "_h117": {
+    "_h116": {
       "additionalProperties": {
         "$ref": "#/$defs/_h0"
       },
@@ -858,7 +792,7 @@
       },
       "type": "object"
     },
-    "_h118": {
+    "_h117": {
       "additionalProperties": false,
       "properties": {
         "error": {
@@ -874,7 +808,7 @@
           "$ref": "#/$defs/_h8"
         },
         "related": {
-          "$ref": "#/$defs/_h56"
+          "$ref": "#/$defs/_h54"
         }
       },
       "required": [
@@ -883,7 +817,7 @@
       ],
       "type": "object"
     },
-    "_h119": {
+    "_h118": {
       "additionalProperties": false,
       "properties": {
         "depth": {
@@ -893,7 +827,7 @@
           "$ref": "#/$defs/_h142"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "line": {
           "$ref": "#/$defs/_h32"
@@ -911,7 +845,7 @@
           "$ref": "#/$defs/_h59"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -941,27 +875,7 @@
       "title": "anchored:callers",
       "type": "object"
     },
-    "_h12": {
-      "additionalProperties": {},
-      "properties": {
-        "reason": {
-          "type": "string"
-        },
-        "state": {
-          "enum": [
-            "complete",
-            "partial",
-            "error"
-          ]
-        }
-      },
-      "required": [
-        "state"
-      ],
-      "title": "Coverage",
-      "type": "object"
-    },
-    "_h120": {
+    "_h119": {
       "additionalProperties": false,
       "properties": {
         "ecosystem": {
@@ -992,6 +906,83 @@
         "packageName"
       ],
       "title": "resolve npm",
+      "type": "object"
+    },
+    "_h12": {
+      "additionalProperties": {},
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "complete",
+            "partial",
+            "error"
+          ]
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "Coverage",
+      "type": "object"
+    },
+    "_h120": {
+      "additionalProperties": false,
+      "properties": {
+        "countScope": {
+          "enum": [
+            "complete",
+            "loaded",
+            "partial"
+          ]
+        },
+        "hasMore": {
+          "type": "boolean"
+        },
+        "matchPage": {
+          "$ref": "#/$defs/_h0"
+        },
+        "next": {
+          "$ref": "#/$defs/CollectionNext"
+        },
+        "outOfRange": {
+          "const": true
+        },
+        "page": {
+          "$ref": "#/$defs/_h0"
+        },
+        "providerLimit": {
+          "$ref": "#/$defs/_h210"
+        },
+        "providerPagesRead": {
+          "$ref": "#/$defs/_h0"
+        },
+        "totalItems": {
+          "$ref": "#/$defs/_h0"
+        },
+        "totalItemsCapped": {
+          "type": "boolean"
+        },
+        "totalPages": {
+          "$ref": "#/$defs/_h0"
+        },
+        "unit": {
+          "enum": [
+            "items",
+            "files",
+            "lines",
+            "matches"
+          ]
+        },
+        "unshown": {
+          "const": true
+        }
+      },
+      "required": [
+        "hasMore"
+      ],
       "type": "object"
     },
     "_h121": {
@@ -1074,7 +1065,7 @@
           "$ref": "#/$defs/_h53"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "line": {
           "$ref": "#/$defs/_h32"
@@ -1092,7 +1083,7 @@
           "$ref": "#/$defs/_h59"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -1342,7 +1333,7 @@
           "$ref": "#/$defs/_h322"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "line": {
           "$ref": "#/$defs/_h32"
@@ -1360,7 +1351,7 @@
           "$ref": "#/$defs/_h59"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -1407,10 +1398,10 @@
           "type": "object"
         },
         "of": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         },
         "part": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         },
         "text": {
           "type": "string"
@@ -1617,7 +1608,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "line": {
           "$ref": "#/$defs/_h32"
@@ -1635,7 +1626,7 @@
           "$ref": "#/$defs/_h59"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -1670,7 +1661,7 @@
         "additionalProperties": false,
         "properties": {
           "bytes": {
-            "$ref": "#/$defs/_h33"
+            "$ref": "#/$defs/_h34"
           },
           "expiresAt": {
             "$ref": "#/$defs/_h44"
@@ -1682,7 +1673,7 @@
             ]
           },
           "height": {
-            "$ref": "#/$defs/_h33"
+            "$ref": "#/$defs/_h34"
           },
           "path": {
             "$ref": "#/$defs/_h44"
@@ -1694,13 +1685,13 @@
             "$ref": "#/$defs/_h2"
           },
           "sourceHeight": {
-            "$ref": "#/$defs/_h33"
+            "$ref": "#/$defs/_h34"
           },
           "sourceWidth": {
-            "$ref": "#/$defs/_h33"
+            "$ref": "#/$defs/_h34"
           },
           "width": {
-            "$ref": "#/$defs/_h33"
+            "$ref": "#/$defs/_h34"
           }
         },
         "required": [
@@ -1768,7 +1759,7 @@
           "$ref": "#/$defs/_h322"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "line": {
           "$ref": "#/$defs/_h32"
@@ -1789,7 +1780,7 @@
           "$ref": "#/$defs/_h59"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -2051,7 +2042,7 @@
       "additionalProperties": {},
       "properties": {
         "character": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         },
         "containerName": {
           "type": "string"
@@ -2390,7 +2381,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "line": {
           "$ref": "#/$defs/_h32"
@@ -2408,7 +2399,7 @@
           "$ref": "#/$defs/_h59"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -2707,13 +2698,13 @@
           "$ref": "#/$defs/_h4"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
         },
         "path": {
-          "$ref": "#/$defs/_h55"
+          "$ref": "#/$defs/_h56"
         },
         "ranges": {
           "$ref": "#/$defs/_h100"
@@ -2979,7 +2970,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
@@ -2991,7 +2982,7 @@
           "$ref": "#/$defs/_h59"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -3072,7 +3063,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
@@ -3159,13 +3150,13 @@
           "$ref": "#/$defs/_h4"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
         },
         "path": {
-          "$ref": "#/$defs/_h55"
+          "$ref": "#/$defs/_h56"
         },
         "readProgress": {
           "$ref": "#/$defs/_h224"
@@ -3274,7 +3265,7 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
@@ -3289,7 +3280,7 @@
           "$ref": "#/$defs/_h59"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -3629,13 +3620,13 @@
           "type": "boolean"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
         },
         "path": {
-          "$ref": "#/$defs/_h55"
+          "$ref": "#/$defs/_h56"
         },
         "ranges": {
           "$ref": "#/$defs/_h100"
@@ -3738,7 +3729,7 @@
           "$ref": "#/$defs/AstParser"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -3863,7 +3854,7 @@
         "$ref": "#/$defs/securityCheckContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h116"
+        "$ref": "#/$defs/_h115"
       },
       "type": "object"
     },
@@ -4204,13 +4195,13 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
         },
         "path": {
-          "$ref": "#/$defs/_h55"
+          "$ref": "#/$defs/_h56"
         },
         "readProgress": {
           "$ref": "#/$defs/_h224"
@@ -4240,7 +4231,7 @@
               "additionalProperties": false,
               "properties": {
                 "path": {
-                  "$ref": "#/$defs/_h55"
+                  "$ref": "#/$defs/_h56"
                 }
               },
               "required": [
@@ -4356,13 +4347,13 @@
       "additionalProperties": false,
       "properties": {
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
         },
         "path": {
-          "$ref": "#/$defs/_h55"
+          "$ref": "#/$defs/_h56"
         },
         "readProgress": {
           "$ref": "#/$defs/_h224"
@@ -4552,7 +4543,7 @@
           "$ref": "#/$defs/RowHints"
         },
         "related": {
-          "$ref": "#/$defs/_h56"
+          "$ref": "#/$defs/_h54"
         }
       },
       "required": [
@@ -4628,7 +4619,7 @@
     },
     "_h215": {
       "additionalProperties": {
-        "$ref": "#/$defs/_h33"
+        "$ref": "#/$defs/_h34"
       },
       "propertyNames": {
         "type": "string"
@@ -4670,7 +4661,7 @@
           "additionalProperties": false,
           "properties": {
             "maxFileBytes": {
-              "$ref": "#/$defs/_h33"
+              "$ref": "#/$defs/_h34"
             }
           },
           "required": [
@@ -5032,7 +5023,7 @@
         "additionalProperties": {},
         "properties": {
           "character": {
-            "$ref": "#/$defs/_h33"
+            "$ref": "#/$defs/_h34"
           },
           "containerName": {
             "type": "string"
@@ -5489,7 +5480,7 @@
                 "$ref": "#/$defs/_h219"
               },
               "maxProperties": 255,
-              "minProperties": 1,
+              "minProperties": 2,
               "propertyNames": {
                 "$ref": "#/$defs/_h44"
               },
@@ -5650,7 +5641,7 @@
         "$ref": "#/$defs/artifactSearchContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h116"
+        "$ref": "#/$defs/_h115"
       },
       "type": "object"
     },
@@ -5715,10 +5706,10 @@
       "additionalProperties": false,
       "properties": {
         "column": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         },
         "line": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         }
       },
       "required": [
@@ -6073,8 +6064,7 @@
           }
         },
         "required": [
-          "id",
-          "link"
+          "id"
         ],
         "title": "SecurityAdvisory",
         "type": "object"
@@ -6569,9 +6559,9 @@
       ]
     },
     "_h33": {
-      "maximum": 9007199254740991,
-      "minimum": 1,
-      "type": "integer"
+      "pattern": "\\S",
+      "type": "string",
+      "x-patternMessage": "Set a non-blank path."
     },
     "_h330": {
       "maximum": 100,
@@ -6620,7 +6610,7 @@
     "_h335": {
       "anyOf": [
         {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         },
         {
           "type": "null"
@@ -6657,9 +6647,9 @@
       "x-listing": "name"
     },
     "_h34": {
-      "pattern": "\\S",
-      "type": "string",
-      "x-patternMessage": "Set a non-blank path."
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "type": "integer"
     },
     "_h340": {
       "items": {
@@ -7157,7 +7147,7 @@
           "$ref": "#/$defs/_h350"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
@@ -7188,7 +7178,7 @@
           "$ref": "#/$defs/_h59"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "permissions": {
           "pattern": "^[0-7]{3,4}$",
@@ -7745,6 +7735,12 @@
       "type": "object"
     },
     "_h54": {
+      "items": {
+        "$ref": "#/$defs/RelatedCall"
+      },
+      "type": "array"
+    },
+    "_h55": {
       "$ref": "#/$defs/ghSearchCodeNext",
       "additionalProperties": {
         "$ref": "#/$defs/_h310"
@@ -7777,17 +7773,11 @@
       },
       "type": "object"
     },
-    "_h55": {
+    "_h56": {
       "pattern": "\\S",
       "type": "string",
       "x-patternMessage": "Set a non-blank path.",
       "x-requiredMessage": "Set path to a local file."
-    },
-    "_h56": {
-      "items": {
-        "$ref": "#/$defs/RelatedCall"
-      },
-      "type": "array"
     },
     "_h57": {
       "pattern": "\\S",
@@ -8292,10 +8282,10 @@
           "$ref": "#/$defs/_h319"
         },
         "foundAtCharacter": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         },
         "foundAtLine": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         },
         "lineDeviation": {
           "$ref": "#/$defs/_h0"
@@ -8444,7 +8434,7 @@
           "type": "boolean"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
@@ -8456,7 +8446,7 @@
           "$ref": "#/$defs/TextMatchTerms"
         },
         "maxDepth": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "multiline": {
           "$ref": "#/$defs/_h345"
@@ -8465,7 +8455,7 @@
           "$ref": "#/$defs/_h59"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -8551,7 +8541,7 @@
           "type": "boolean"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
@@ -8563,7 +8553,7 @@
           "$ref": "#/$defs/TextMatchTerms"
         },
         "maxDepth": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "multiline": {
           "$ref": "#/$defs/_h345"
@@ -8572,7 +8562,7 @@
           "$ref": "#/$defs/_h59"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -8699,7 +8689,7 @@
           "$ref": "#/$defs/_h350"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
@@ -8718,7 +8708,7 @@
           "$ref": "#/$defs/_h59"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -8833,7 +8823,7 @@
           "type": "boolean"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
@@ -8845,7 +8835,7 @@
           "$ref": "#/$defs/TextMatchTerms"
         },
         "maxDepth": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "multiline": {
           "$ref": "#/$defs/_h345"
@@ -8854,7 +8844,7 @@
           "$ref": "#/$defs/_h59"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -8956,13 +8946,13 @@
           "type": "boolean"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
         },
         "maxDepth": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "operation": {
           "const": "match"
@@ -8977,7 +8967,7 @@
           "$ref": "#/$defs/AstParserGlobs"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -9106,13 +9096,13 @@
           "type": "boolean"
         },
         "limit": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "mainGoal": {
           "$ref": "#/$defs/_h17"
         },
         "maxDepth": {
-          "$ref": "#/$defs/_h114"
+          "$ref": "#/$defs/_h113"
         },
         "operation": {
           "const": "match"
@@ -9127,7 +9117,7 @@
           "$ref": "#/$defs/AstParserGlobs"
         },
         "path": {
-          "$ref": "#/$defs/_h34"
+          "$ref": "#/$defs/_h33"
         },
         "reasoning": {
           "$ref": "#/$defs/_h17"
@@ -9785,7 +9775,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -9850,7 +9840,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -9877,7 +9867,7 @@
         "$ref": "#/$defs/artifactSearchContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h116"
+        "$ref": "#/$defs/_h115"
       },
       "type": "object"
     },
@@ -10087,7 +10077,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -10308,7 +10298,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -10433,7 +10423,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -10558,7 +10548,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -10683,7 +10673,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -10808,7 +10798,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -10893,13 +10883,13 @@
                             "type": "boolean"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
                           },
                           "maxDepth": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "operation": {
                             "const": "match"
@@ -10911,7 +10901,7 @@
                             "$ref": "#/$defs/AstParserGlobsContinuationInput"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -10958,13 +10948,13 @@
                             "type": "boolean"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
                           },
                           "maxDepth": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "operation": {
                             "const": "match"
@@ -10976,7 +10966,7 @@
                             "$ref": "#/$defs/AstParserGlobsContinuationInput"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -11030,7 +11020,7 @@
                             "$ref": "#/$defs/AstParser"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -11061,7 +11051,7 @@
                             "type": "boolean"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
@@ -11076,7 +11066,7 @@
                             "$ref": "#/$defs/AstParserGlobsContinuationInput"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -11104,7 +11094,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -11443,7 +11433,7 @@
               "$ref": "#/$defs/ClasifyQuestions"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "replayed": {
               "const": true
@@ -11485,7 +11475,7 @@
               "$ref": "#/$defs/ClasifyQuestions"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "replayed": {
               "const": true
@@ -11526,7 +11516,7 @@
               "$ref": "#/$defs/_h0"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "source": {
               "$ref": "#/$defs/_h235"
@@ -11577,7 +11567,7 @@
               "$ref": "#/$defs/_h8"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             }
           },
           "required": [
@@ -11601,7 +11591,7 @@
               "$ref": "#/$defs/_h8"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "usage": {
               "$ref": "#/$defs/ClasifyEvaluationUsage"
@@ -11632,7 +11622,7 @@
               "$ref": "#/$defs/_h8"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "resources": {
               "additionalProperties": {
@@ -11847,7 +11837,7 @@
                                         "additionalProperties": false,
                                         "properties": {
                                           "path": {
-                                            "$ref": "#/$defs/_h55"
+                                            "$ref": "#/$defs/_h56"
                                           },
                                           "ranges": {
                                             "$ref": "#/$defs/_h151"
@@ -11973,7 +11963,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -12140,7 +12130,7 @@
           "additionalProperties": false,
           "properties": {
             "error": {
-              "$ref": "#/$defs/_h118"
+              "$ref": "#/$defs/_h117"
             },
             "status": {
               "const": "error"
@@ -12156,7 +12146,7 @@
           "additionalProperties": false,
           "properties": {
             "error": {
-              "$ref": "#/$defs/_h118"
+              "$ref": "#/$defs/_h117"
             },
             "status": {
               "const": "unsupported"
@@ -12258,7 +12248,7 @@
               "const": "capture"
             },
             "error": {
-              "$ref": "#/$defs/_h118"
+              "$ref": "#/$defs/_h117"
             },
             "expiresAt": {
               "$ref": "#/$defs/_h44"
@@ -12293,7 +12283,7 @@
               "const": "capture"
             },
             "error": {
-              "$ref": "#/$defs/_h118"
+              "$ref": "#/$defs/_h117"
             },
             "expiresAt": {
               "$ref": "#/$defs/_h44"
@@ -12555,7 +12545,7 @@
                   "$ref": "#/$defs/_h44"
                 },
                 "historyDepth": {
-                  "$ref": "#/$defs/_h33"
+                  "$ref": "#/$defs/_h34"
                 },
                 "kind": {
                   "enum": [
@@ -12615,7 +12605,7 @@
               "not": {}
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -12687,7 +12677,7 @@
           "$ref": "#/$defs/_h6"
         },
         "related": {
-          "$ref": "#/$defs/_h56"
+          "$ref": "#/$defs/_h54"
         },
         "retryable": {
           "const": true
@@ -12729,7 +12719,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "historyDepth": {
-                        "$ref": "#/$defs/_h114"
+                        "$ref": "#/$defs/_h113"
                       },
                       "mainGoal": {
                         "$ref": "#/$defs/_h17"
@@ -12761,7 +12751,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -12885,7 +12875,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -13010,7 +13000,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -13326,7 +13316,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -13502,7 +13492,7 @@
                         "$ref": "#/$defs/ghGetHistoryItemNext"
                       },
                       "number": {
-                        "$ref": "#/$defs/_h33"
+                        "$ref": "#/$defs/_h34"
                       },
                       "owner": {
                         "type": "string"
@@ -13591,7 +13581,7 @@
                         "$ref": "#/$defs/ghGetHistoryItemNext"
                       },
                       "number": {
-                        "$ref": "#/$defs/_h33"
+                        "$ref": "#/$defs/_h34"
                       },
                       "owner": {
                         "type": "string"
@@ -13637,7 +13627,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -13708,7 +13698,7 @@
                           "type": "string"
                         },
                         "number": {
-                          "$ref": "#/$defs/_h33"
+                          "$ref": "#/$defs/_h34"
                         },
                         "state": {
                           "type": "string"
@@ -13738,7 +13728,7 @@
                     "$ref": "#/$defs/_h26"
                   },
                   "number": {
-                    "$ref": "#/$defs/_h33"
+                    "$ref": "#/$defs/_h34"
                   },
                   "owner": {
                     "type": "string"
@@ -13779,7 +13769,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -13890,7 +13880,7 @@
               "type": "string"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -14029,7 +14019,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -14106,7 +14096,7 @@
           "$ref": "#/$defs/_h6"
         },
         "related": {
-          "$ref": "#/$defs/_h56"
+          "$ref": "#/$defs/_h54"
         },
         "retryable": {
           "const": true
@@ -14547,7 +14537,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -14626,7 +14616,7 @@
               "type": "boolean"
             },
             "next": {
-              "$ref": "#/$defs/_h54"
+              "$ref": "#/$defs/_h55"
             },
             "observedAt": {
               "type": "string"
@@ -14644,7 +14634,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -14706,7 +14696,7 @@
               "type": "boolean"
             },
             "next": {
-              "$ref": "#/$defs/_h54"
+              "$ref": "#/$defs/_h55"
             },
             "observedAt": {
               "type": "string"
@@ -14724,7 +14714,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -14860,7 +14850,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -14974,7 +14964,7 @@
                     "type": "string"
                   },
                   "number": {
-                    "$ref": "#/$defs/_h33"
+                    "$ref": "#/$defs/_h34"
                   },
                   "owner": {
                     "type": "string"
@@ -15004,7 +14994,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -15077,7 +15067,7 @@
                     "$ref": "#/$defs/_h26"
                   },
                   "number": {
-                    "$ref": "#/$defs/_h33"
+                    "$ref": "#/$defs/_h34"
                   },
                   "owner": {
                     "type": "string"
@@ -15122,7 +15112,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -15234,7 +15224,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -15308,7 +15298,7 @@
           "$ref": "#/$defs/_h6"
         },
         "related": {
-          "$ref": "#/$defs/_h56"
+          "$ref": "#/$defs/_h54"
         },
         "retryable": {
           "const": true
@@ -15744,7 +15734,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -15823,7 +15813,7 @@
               "type": "string"
             },
             "pagination": {
-              "$ref": "#/$defs/_h107"
+              "$ref": "#/$defs/_h120"
             },
             "partialReasons": {
               "$ref": "#/$defs/_h58"
@@ -15832,7 +15822,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repositories": {
               "$ref": "#/$defs/_h145"
@@ -15888,7 +15878,7 @@
               "type": "string"
             },
             "pagination": {
-              "$ref": "#/$defs/_h107"
+              "$ref": "#/$defs/_h120"
             },
             "partialReasons": {
               "$ref": "#/$defs/_h58"
@@ -15897,7 +15887,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repositories": {
               "$ref": "#/$defs/_h145"
@@ -16132,7 +16122,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -16181,7 +16171,7 @@
         {
           "properties": {
             "branches": {
-              "$ref": "#/$defs/_h109"
+              "$ref": "#/$defs/_h108"
             },
             "clientWaits": {
               "$ref": "#/$defs/_h49"
@@ -16202,7 +16192,7 @@
               "$ref": "#/$defs/ErrorCode"
             },
             "files": {
-              "$ref": "#/$defs/_h108"
+              "$ref": "#/$defs/_h107"
             },
             "hints": {
               "$ref": "#/$defs/RowHints"
@@ -16214,7 +16204,7 @@
               "type": "boolean"
             },
             "languages": {
-              "$ref": "#/$defs/_h117"
+              "$ref": "#/$defs/_h116"
             },
             "location": {
               "$ref": "#/$defs/_h104"
@@ -16244,7 +16234,7 @@
               "$ref": "#/$defs/_h341"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -16279,7 +16269,7 @@
         {
           "properties": {
             "branches": {
-              "$ref": "#/$defs/_h109"
+              "$ref": "#/$defs/_h108"
             },
             "clientWaits": {
               "$ref": "#/$defs/_h49"
@@ -16300,7 +16290,7 @@
               "$ref": "#/$defs/ErrorCode"
             },
             "files": {
-              "$ref": "#/$defs/_h108"
+              "$ref": "#/$defs/_h107"
             },
             "hints": {
               "$ref": "#/$defs/RowHints"
@@ -16312,7 +16302,7 @@
               "type": "boolean"
             },
             "languages": {
-              "$ref": "#/$defs/_h117"
+              "$ref": "#/$defs/_h116"
             },
             "location": {
               "$ref": "#/$defs/_h104"
@@ -16342,7 +16332,7 @@
               "$ref": "#/$defs/_h341"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -16377,7 +16367,7 @@
         {
           "properties": {
             "branches": {
-              "$ref": "#/$defs/_h109"
+              "$ref": "#/$defs/_h108"
             },
             "clientWaits": {
               "$ref": "#/$defs/_h49"
@@ -16398,7 +16388,7 @@
               "$ref": "#/$defs/ErrorCode"
             },
             "files": {
-              "$ref": "#/$defs/_h108"
+              "$ref": "#/$defs/_h107"
             },
             "hints": {
               "$ref": "#/$defs/RowHints"
@@ -16410,7 +16400,7 @@
               "type": "boolean"
             },
             "languages": {
-              "$ref": "#/$defs/_h117"
+              "$ref": "#/$defs/_h116"
             },
             "location": {
               "$ref": "#/$defs/_h104"
@@ -16440,7 +16430,7 @@
               "$ref": "#/$defs/_h341"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -16475,7 +16465,7 @@
         {
           "properties": {
             "branches": {
-              "$ref": "#/$defs/_h109"
+              "$ref": "#/$defs/_h108"
             },
             "clientWaits": {
               "$ref": "#/$defs/_h49"
@@ -16496,7 +16486,7 @@
               "$ref": "#/$defs/ErrorCode"
             },
             "files": {
-              "$ref": "#/$defs/_h108"
+              "$ref": "#/$defs/_h107"
             },
             "hints": {
               "$ref": "#/$defs/RowHints"
@@ -16508,7 +16498,7 @@
               "type": "boolean"
             },
             "languages": {
-              "$ref": "#/$defs/_h117"
+              "$ref": "#/$defs/_h116"
             },
             "location": {
               "$ref": "#/$defs/_h104"
@@ -16538,7 +16528,7 @@
               "$ref": "#/$defs/_h341"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -16573,7 +16563,7 @@
         {
           "properties": {
             "branches": {
-              "$ref": "#/$defs/_h109"
+              "$ref": "#/$defs/_h108"
             },
             "clientWaits": {
               "$ref": "#/$defs/_h49"
@@ -16594,7 +16584,7 @@
               "$ref": "#/$defs/ErrorCode"
             },
             "files": {
-              "$ref": "#/$defs/_h108"
+              "$ref": "#/$defs/_h107"
             },
             "hints": {
               "$ref": "#/$defs/RowHints"
@@ -16606,7 +16596,7 @@
               "type": "boolean"
             },
             "languages": {
-              "$ref": "#/$defs/_h117"
+              "$ref": "#/$defs/_h116"
             },
             "location": {
               "$ref": "#/$defs/_h104"
@@ -16636,7 +16626,7 @@
               "$ref": "#/$defs/_h341"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -16671,7 +16661,7 @@
         {
           "properties": {
             "branches": {
-              "$ref": "#/$defs/_h109"
+              "$ref": "#/$defs/_h108"
             },
             "clientWaits": {
               "$ref": "#/$defs/_h49"
@@ -16692,7 +16682,7 @@
               "$ref": "#/$defs/ErrorCode"
             },
             "files": {
-              "$ref": "#/$defs/_h108"
+              "$ref": "#/$defs/_h107"
             },
             "hints": {
               "$ref": "#/$defs/RowHints"
@@ -16704,7 +16694,7 @@
               "type": "boolean"
             },
             "languages": {
-              "$ref": "#/$defs/_h117"
+              "$ref": "#/$defs/_h116"
             },
             "location": {
               "$ref": "#/$defs/_h104"
@@ -16734,7 +16724,7 @@
               "$ref": "#/$defs/_h341"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repo": {
               "type": "string"
@@ -16795,7 +16785,7 @@
                             "$ref": "#/$defs/_h240"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
@@ -16804,7 +16794,7 @@
                             "type": "boolean"
                           },
                           "maxDepth": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "operation": {
                             "const": "tree"
@@ -16874,7 +16864,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -17157,7 +17147,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -17246,7 +17236,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -17335,7 +17325,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -17397,7 +17387,7 @@
                         "type": "boolean"
                       },
                       "keep": {
-                        "$ref": "#/$defs/_h114"
+                        "$ref": "#/$defs/_h113"
                       },
                       "mainGoal": {
                         "$ref": "#/$defs/_h17"
@@ -17422,7 +17412,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -17469,7 +17459,7 @@
       "type": "integer"
     },
     "GraphPagelimitContinuationInput": {
-      "$ref": "#/$defs/_h114"
+      "$ref": "#/$defs/_h113"
     },
     "GraphPageoffset": {
       "$ref": "#/$defs/_h234"
@@ -17753,6 +17743,9 @@
             "freshness": {
               "$ref": "#/$defs/_h274"
             },
+            "from": {
+              "type": "string"
+            },
             "graph": {
               "$ref": "#/$defs/_h131"
             },
@@ -17862,7 +17855,7 @@
               "$ref": "#/$defs/RelatedCall"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -17902,10 +17895,10 @@
                   "type": "boolean"
                 },
                 "byDepth": {
-                  "$ref": "#/$defs/_h117"
+                  "$ref": "#/$defs/_h116"
                 },
                 "byDetector": {
-                  "$ref": "#/$defs/_h117"
+                  "$ref": "#/$defs/_h116"
                 },
                 "changed": {
                   "$ref": "#/$defs/_h319"
@@ -17935,7 +17928,7 @@
                   "$ref": "#/$defs/_h43"
                 },
                 "fileRoles": {
-                  "$ref": "#/$defs/_h117"
+                  "$ref": "#/$defs/_h116"
                 },
                 "filesAdded": {
                   "$ref": "#/$defs/_h0"
@@ -18011,6 +18004,9 @@
             },
             "testEdges": {
               "type": "string"
+            },
+            "verify": {
+              "$ref": "#/$defs/_h54"
             },
             "warnings": {
               "$ref": "#/$defs/_h26"
@@ -18137,18 +18133,14 @@
                               }
                             },
                             "required": [
-                              "id",
-                              "from",
                               "file",
                               "line",
                               "sourceDigest",
                               "sourceRange",
                               "sourceOrigin",
-                              "evidence",
                               "to",
                               "detail",
                               "confidence",
-                              "test",
                               "edge"
                             ],
                             "type": "object"
@@ -18200,18 +18192,14 @@
                               }
                             },
                             "required": [
-                              "id",
-                              "from",
                               "file",
                               "line",
                               "sourceDigest",
                               "sourceRange",
                               "sourceOrigin",
-                              "evidence",
                               "to",
                               "detail",
                               "confidence",
-                              "test",
                               "edge"
                             ],
                             "type": "object"
@@ -18257,15 +18245,11 @@
                               }
                             },
                             "required": [
-                              "id",
-                              "from",
                               "file",
                               "line",
-                              "evidence",
                               "to",
                               "detail",
                               "confidence",
-                              "test",
                               "edge"
                             ],
                             "type": "object"
@@ -18303,7 +18287,7 @@
                             "$ref": "#/$defs/_h44"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h33"
+                            "$ref": "#/$defs/_h34"
                           },
                           "parseAssessment": {
                             "$ref": "#/$defs/OutputParseAssessment"
@@ -18337,18 +18321,14 @@
                           }
                         },
                         "required": [
-                          "id",
-                          "from",
                           "file",
                           "line",
                           "sourceDigest",
                           "sourceRange",
                           "sourceOrigin",
-                          "evidence",
                           "to",
                           "detail",
                           "confidence",
-                          "test",
                           "recipient",
                           "parseAssessment",
                           "argument",
@@ -18390,7 +18370,7 @@
                             "$ref": "#/$defs/_h44"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h33"
+                            "$ref": "#/$defs/_h34"
                           },
                           "parseAssessment": {
                             "$ref": "#/$defs/OutputParseAssessment"
@@ -18406,15 +18386,11 @@
                           }
                         },
                         "required": [
-                          "id",
-                          "from",
                           "file",
                           "line",
-                          "evidence",
                           "to",
                           "detail",
                           "confidence",
-                          "test",
                           "argument",
                           "targetName",
                           "edge"
@@ -18467,7 +18443,7 @@
                                 "$ref": "#/$defs/_h44"
                               },
                               "line": {
-                                "$ref": "#/$defs/_h33"
+                                "$ref": "#/$defs/_h34"
                               },
                               "reason": {
                                 "$ref": "#/$defs/_h222"
@@ -18486,14 +18462,11 @@
                               }
                             },
                             "required": [
-                              "id",
-                              "from",
                               "file",
                               "line",
                               "sourceDigest",
                               "sourceRange",
                               "sourceOrigin",
-                              "evidence",
                               "targetName",
                               "edge",
                               "reason"
@@ -18525,7 +18498,7 @@
                                 "$ref": "#/$defs/_h44"
                               },
                               "line": {
-                                "$ref": "#/$defs/_h33"
+                                "$ref": "#/$defs/_h34"
                               },
                               "reason": {
                                 "$ref": "#/$defs/_h222"
@@ -18544,14 +18517,11 @@
                               }
                             },
                             "required": [
-                              "id",
-                              "from",
                               "file",
                               "line",
                               "sourceDigest",
                               "sourceRange",
                               "sourceOrigin",
-                              "evidence",
                               "targetName",
                               "edge",
                               "reason"
@@ -18583,7 +18553,7 @@
                                 "$ref": "#/$defs/_h44"
                               },
                               "line": {
-                                "$ref": "#/$defs/_h33"
+                                "$ref": "#/$defs/_h34"
                               },
                               "parseAssessment": {
                                 "$ref": "#/$defs/OutputParseAssessment"
@@ -18596,11 +18566,8 @@
                               }
                             },
                             "required": [
-                              "id",
-                              "from",
                               "file",
                               "line",
-                              "evidence",
                               "targetName",
                               "edge",
                               "reason"
@@ -18633,7 +18600,7 @@
                                 "$ref": "#/$defs/_h44"
                               },
                               "line": {
-                                "$ref": "#/$defs/_h33"
+                                "$ref": "#/$defs/_h34"
                               },
                               "reason": {
                                 "$ref": "#/$defs/_h256"
@@ -18652,14 +18619,11 @@
                               }
                             },
                             "required": [
-                              "id",
-                              "from",
                               "file",
                               "line",
                               "sourceDigest",
                               "sourceRange",
                               "sourceOrigin",
-                              "evidence",
                               "targetName",
                               "edge",
                               "reason"
@@ -18688,7 +18652,7 @@
                                 "$ref": "#/$defs/_h44"
                               },
                               "line": {
-                                "$ref": "#/$defs/_h33"
+                                "$ref": "#/$defs/_h34"
                               },
                               "reason": {
                                 "$ref": "#/$defs/_h256"
@@ -18707,14 +18671,11 @@
                               }
                             },
                             "required": [
-                              "id",
-                              "from",
                               "file",
                               "line",
                               "sourceDigest",
                               "sourceRange",
                               "sourceOrigin",
-                              "evidence",
                               "targetName",
                               "edge",
                               "reason"
@@ -18743,7 +18704,7 @@
                                 "$ref": "#/$defs/_h44"
                               },
                               "line": {
-                                "$ref": "#/$defs/_h33"
+                                "$ref": "#/$defs/_h34"
                               },
                               "parseAssessment": {
                                 "$ref": "#/$defs/OutputParseAssessment"
@@ -18756,11 +18717,8 @@
                               }
                             },
                             "required": [
-                              "id",
-                              "from",
                               "file",
                               "line",
-                              "evidence",
                               "targetName",
                               "edge",
                               "reason"
@@ -18797,7 +18755,7 @@
                             "$ref": "#/$defs/_h44"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h33"
+                            "$ref": "#/$defs/_h34"
                           },
                           "parseAssessment": {
                             "$ref": "#/$defs/OutputParseAssessment"
@@ -18828,14 +18786,11 @@
                           }
                         },
                         "required": [
-                          "id",
-                          "from",
                           "file",
                           "line",
                           "sourceDigest",
                           "sourceRange",
                           "sourceOrigin",
-                          "evidence",
                           "recipient",
                           "parseAssessment",
                           "argument",
@@ -18875,7 +18830,7 @@
                             "$ref": "#/$defs/_h44"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h33"
+                            "$ref": "#/$defs/_h34"
                           },
                           "parseAssessment": {
                             "$ref": "#/$defs/OutputParseAssessment"
@@ -18888,11 +18843,8 @@
                           }
                         },
                         "required": [
-                          "id",
-                          "from",
                           "file",
                           "line",
-                          "evidence",
                           "argument",
                           "targetName",
                           "edge",
@@ -18925,7 +18877,7 @@
                             "$ref": "#/$defs/_h44"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h33"
+                            "$ref": "#/$defs/_h34"
                           },
                           "parseAssessment": {
                             "$ref": "#/$defs/OutputParseAssessment"
@@ -18956,14 +18908,11 @@
                           }
                         },
                         "required": [
-                          "id",
-                          "from",
                           "file",
                           "line",
                           "sourceDigest",
                           "sourceRange",
                           "sourceOrigin",
-                          "evidence",
                           "recipient",
                           "parseAssessment",
                           "argument",
@@ -19000,7 +18949,7 @@
                             "$ref": "#/$defs/_h44"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h33"
+                            "$ref": "#/$defs/_h34"
                           },
                           "parseAssessment": {
                             "$ref": "#/$defs/OutputParseAssessment"
@@ -19013,11 +18962,8 @@
                           }
                         },
                         "required": [
-                          "id",
-                          "from",
                           "file",
                           "line",
-                          "evidence",
                           "argument",
                           "targetName",
                           "edge",
@@ -19056,7 +19002,7 @@
                             "$ref": "#/$defs/_h44"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h33"
+                            "$ref": "#/$defs/_h34"
                           },
                           "parseAssessment": {
                             "$ref": "#/$defs/OutputParseAssessment"
@@ -19087,14 +19033,11 @@
                           }
                         },
                         "required": [
-                          "id",
-                          "from",
                           "file",
                           "line",
                           "sourceDigest",
                           "sourceRange",
                           "sourceOrigin",
-                          "evidence",
                           "recipient",
                           "parseAssessment",
                           "argument",
@@ -19133,7 +19076,7 @@
                             "$ref": "#/$defs/_h44"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h33"
+                            "$ref": "#/$defs/_h34"
                           },
                           "parseAssessment": {
                             "$ref": "#/$defs/OutputParseAssessment"
@@ -19164,14 +19107,11 @@
                           }
                         },
                         "required": [
-                          "id",
-                          "from",
                           "file",
                           "line",
                           "sourceDigest",
                           "sourceRange",
                           "sourceOrigin",
-                          "evidence",
                           "recipient",
                           "parseAssessment",
                           "argument",
@@ -19208,7 +19148,7 @@
                             "$ref": "#/$defs/_h44"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h33"
+                            "$ref": "#/$defs/_h34"
                           },
                           "parseAssessment": {
                             "$ref": "#/$defs/OutputParseAssessment"
@@ -19221,11 +19161,8 @@
                           }
                         },
                         "required": [
-                          "id",
-                          "from",
                           "file",
                           "line",
-                          "evidence",
                           "argument",
                           "targetName",
                           "edge",
@@ -19264,7 +19201,7 @@
                             "$ref": "#/$defs/_h44"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h33"
+                            "$ref": "#/$defs/_h34"
                           },
                           "parseAssessment": {
                             "$ref": "#/$defs/OutputParseAssessment"
@@ -19295,14 +19232,11 @@
                           }
                         },
                         "required": [
-                          "id",
-                          "from",
                           "file",
                           "line",
                           "sourceDigest",
                           "sourceRange",
                           "sourceOrigin",
-                          "evidence",
                           "recipient",
                           "parseAssessment",
                           "argument",
@@ -19341,7 +19275,7 @@
                             "$ref": "#/$defs/_h44"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h33"
+                            "$ref": "#/$defs/_h34"
                           },
                           "parseAssessment": {
                             "$ref": "#/$defs/OutputParseAssessment"
@@ -19354,11 +19288,8 @@
                           }
                         },
                         "required": [
-                          "id",
-                          "from",
                           "file",
                           "line",
-                          "evidence",
                           "argument",
                           "targetName",
                           "edge",
@@ -19394,7 +19325,7 @@
                             "$ref": "#/$defs/_h44"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h33"
+                            "$ref": "#/$defs/_h34"
                           },
                           "parseAssessment": {
                             "$ref": "#/$defs/OutputParseAssessment"
@@ -19416,14 +19347,11 @@
                           }
                         },
                         "required": [
-                          "id",
-                          "from",
                           "file",
                           "line",
                           "sourceDigest",
                           "sourceRange",
                           "sourceOrigin",
-                          "evidence",
                           "recipient",
                           "parseAssessment",
                           "construct",
@@ -19461,7 +19389,7 @@
                             "$ref": "#/$defs/_h44"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h33"
+                            "$ref": "#/$defs/_h34"
                           },
                           "parseAssessment": {
                             "$ref": "#/$defs/OutputParseAssessment"
@@ -19471,11 +19399,8 @@
                           }
                         },
                         "required": [
-                          "id",
-                          "from",
                           "file",
                           "line",
-                          "evidence",
                           "construct",
                           "argument",
                           "reason",
@@ -19511,7 +19436,7 @@
                             "$ref": "#/$defs/_h44"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h33"
+                            "$ref": "#/$defs/_h34"
                           },
                           "parseAssessment": {
                             "$ref": "#/$defs/OutputParseAssessment"
@@ -19533,14 +19458,11 @@
                           }
                         },
                         "required": [
-                          "id",
-                          "from",
                           "file",
                           "line",
                           "sourceDigest",
                           "sourceRange",
                           "sourceOrigin",
-                          "evidence",
                           "recipient",
                           "parseAssessment",
                           "construct",
@@ -19578,7 +19500,7 @@
                             "$ref": "#/$defs/_h44"
                           },
                           "line": {
-                            "$ref": "#/$defs/_h33"
+                            "$ref": "#/$defs/_h34"
                           },
                           "parseAssessment": {
                             "$ref": "#/$defs/OutputParseAssessment"
@@ -19588,11 +19510,8 @@
                           }
                         },
                         "required": [
-                          "id",
-                          "from",
                           "file",
                           "line",
-                          "evidence",
                           "construct",
                           "argument",
                           "reason",
@@ -19811,7 +19730,7 @@
                             "$ref": "#/$defs/GraphEdgeconfidenceContinuationInput"
                           },
                           "depth": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "direction": {
                             "enum": [
@@ -19864,7 +19783,7 @@
                             "$ref": "#/$defs/GraphEdgeconfidenceContinuationInput"
                           },
                           "depth": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "direction": {
                             "enum": [
@@ -20267,7 +20186,7 @@
                                 "$ref": "#/$defs/_h23"
                               },
                               "depth": {
-                                "$ref": "#/$defs/_h114"
+                                "$ref": "#/$defs/_h113"
                               },
                               "graph": {
                                 "$ref": "#/$defs/GraphScopegraphContinuationInput"
@@ -20313,7 +20232,7 @@
                                 "$ref": "#/$defs/_h23"
                               },
                               "depth": {
-                                "$ref": "#/$defs/_h114"
+                                "$ref": "#/$defs/_h113"
                               },
                               "graph": {
                                 "$ref": "#/$defs/GraphScopegraphContinuationInput"
@@ -20353,7 +20272,7 @@
                             "additionalProperties": false,
                             "properties": {
                               "depth": {
-                                "$ref": "#/$defs/_h114"
+                                "$ref": "#/$defs/_h113"
                               },
                               "graph": {
                                 "$ref": "#/$defs/GraphScopegraphContinuationInput"
@@ -20432,7 +20351,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -20571,7 +20490,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -20681,7 +20600,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -20754,13 +20673,13 @@
                             "$ref": "#/$defs/_h4"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h55"
+                            "$ref": "#/$defs/_h56"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -20784,13 +20703,13 @@
                             "$ref": "#/$defs/_h4"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h55"
+                            "$ref": "#/$defs/_h56"
                           },
                           "ranges": {
                             "$ref": "#/$defs/_h151"
@@ -20824,7 +20743,7 @@
                             "$ref": "#/$defs/_h53"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
@@ -20833,7 +20752,7 @@
                             "$ref": "#/$defs/TextMatchTerms"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h55"
+                            "$ref": "#/$defs/_h56"
                           },
                           "ranges": {
                             "$ref": "#/$defs/_h151"
@@ -20861,13 +20780,13 @@
                         "additionalProperties": false,
                         "properties": {
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h55"
+                            "$ref": "#/$defs/_h56"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -20889,13 +20808,13 @@
                             "type": "boolean"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h55"
+                            "$ref": "#/$defs/_h56"
                           },
                           "ranges": {
                             "$ref": "#/$defs/_h151"
@@ -20918,13 +20837,13 @@
                         "additionalProperties": false,
                         "properties": {
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h55"
+                            "$ref": "#/$defs/_h56"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -20946,7 +20865,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -21058,7 +20977,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -21156,7 +21075,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -21254,7 +21173,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -21348,7 +21267,7 @@
                             "type": "boolean"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
@@ -21357,7 +21276,7 @@
                             "$ref": "#/$defs/_h23"
                           },
                           "maxDepth": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "multiline": {
                             "enum": [
@@ -21367,7 +21286,7 @@
                             ]
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -21428,7 +21347,7 @@
                             "type": "boolean"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
@@ -21437,7 +21356,7 @@
                             "$ref": "#/$defs/_h23"
                           },
                           "maxDepth": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "multiline": {
                             "enum": [
@@ -21447,7 +21366,7 @@
                             ]
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -21512,7 +21431,7 @@
                             "type": "boolean"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
@@ -21521,7 +21440,7 @@
                             "$ref": "#/$defs/_h23"
                           },
                           "maxDepth": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "multiline": {
                             "enum": [
@@ -21531,7 +21450,7 @@
                             ]
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -21573,7 +21492,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -21786,7 +21705,7 @@
               "$ref": "#/$defs/_h0"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "resolvedSymbol": {
               "$ref": "#/$defs/_h70"
@@ -21911,7 +21830,7 @@
               "$ref": "#/$defs/_h0"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "resolvedSymbol": {
               "$ref": "#/$defs/_h70"
@@ -22036,7 +21955,7 @@
               "$ref": "#/$defs/_h0"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "resolvedSymbol": {
               "$ref": "#/$defs/_h70"
@@ -22161,7 +22080,7 @@
               "$ref": "#/$defs/_h0"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "resolvedSymbol": {
               "$ref": "#/$defs/_h70"
@@ -22286,7 +22205,7 @@
               "$ref": "#/$defs/_h0"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "resolvedSymbol": {
               "$ref": "#/$defs/_h70"
@@ -22411,7 +22330,7 @@
               "$ref": "#/$defs/_h0"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "resolvedSymbol": {
               "$ref": "#/$defs/_h70"
@@ -22504,7 +22423,7 @@
                             "$ref": "#/$defs/_h53"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "line": {
                             "$ref": "#/$defs/_h32"
@@ -22519,7 +22438,7 @@
                             "$ref": "#/$defs/_h361"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -22548,7 +22467,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "line": {
                             "$ref": "#/$defs/_h32"
@@ -22563,7 +22482,7 @@
                             "$ref": "#/$defs/_h361"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -22599,7 +22518,7 @@
                             "type": "boolean"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "line": {
                             "$ref": "#/$defs/_h32"
@@ -22614,7 +22533,7 @@
                             "const": "references"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -22650,7 +22569,7 @@
                             "type": "boolean"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "line": {
                             "$ref": "#/$defs/_h32"
@@ -22665,7 +22584,7 @@
                             "const": "references"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -22699,10 +22618,10 @@
                         "additionalProperties": false,
                         "properties": {
                           "depth": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "line": {
                             "$ref": "#/$defs/_h32"
@@ -22717,7 +22636,7 @@
                             "const": "callers"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -22747,10 +22666,10 @@
                         "additionalProperties": false,
                         "properties": {
                           "depth": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "line": {
                             "$ref": "#/$defs/_h32"
@@ -22768,7 +22687,7 @@
                             ]
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -22795,10 +22714,10 @@
                         "additionalProperties": false,
                         "properties": {
                           "depth": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "line": {
                             "$ref": "#/$defs/_h32"
@@ -22813,7 +22732,7 @@
                             "const": "subtypes"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -22840,7 +22759,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "line": {
                             "$ref": "#/$defs/_h32"
@@ -22855,7 +22774,7 @@
                             "const": "hover"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -22882,7 +22801,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
@@ -22894,7 +22813,7 @@
                             ]
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -22916,7 +22835,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
@@ -22925,7 +22844,7 @@
                             "const": "workspaceSymbol"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -22951,7 +22870,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
@@ -22986,7 +22905,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -23214,7 +23133,7 @@
           "$ref": "#/$defs/_h47"
         },
         "startCharacter": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         },
         "startLine": {
           "$ref": "#/$defs/_h47"
@@ -23332,7 +23251,7 @@
           "type": "string"
         },
         "in": {
-          "$ref": "#/$defs/_h117"
+          "$ref": "#/$defs/_h116"
         },
         "kind": {
           "enum": [
@@ -23358,7 +23277,7 @@
           "$ref": "#/$defs/_h44"
         },
         "out": {
-          "$ref": "#/$defs/_h117"
+          "$ref": "#/$defs/_h116"
         },
         "parent": {
           "type": "string"
@@ -23522,7 +23441,7 @@
           "type": "string"
         },
         "verify": {
-          "$ref": "#/$defs/_h56"
+          "$ref": "#/$defs/_h54"
         }
       },
       "title": "GraphResultRow",
@@ -23775,7 +23694,7 @@
               "$ref": "#/$defs/_h314"
             },
             "level": {
-              "$ref": "#/$defs/_h33"
+              "$ref": "#/$defs/_h34"
             },
             "via": {
               "$ref": "#/$defs/_h146"
@@ -23793,7 +23712,7 @@
               "$ref": "#/$defs/_h314"
             },
             "level": {
-              "$ref": "#/$defs/_h33"
+              "$ref": "#/$defs/_h34"
             },
             "to": {
               "$ref": "#/$defs/OutputLspLocation"
@@ -23816,7 +23735,7 @@
           "additionalProperties": {},
           "properties": {
             "character": {
-              "$ref": "#/$defs/_h33"
+              "$ref": "#/$defs/_h34"
             },
             "containerName": {
               "type": "string"
@@ -23867,7 +23786,7 @@
           "additionalProperties": {},
           "properties": {
             "character": {
-              "$ref": "#/$defs/_h33"
+              "$ref": "#/$defs/_h34"
             },
             "containerName": {
               "type": "string"
@@ -23918,7 +23837,7 @@
           "additionalProperties": {},
           "properties": {
             "character": {
-              "$ref": "#/$defs/_h33"
+              "$ref": "#/$defs/_h34"
             },
             "containerName": {
               "type": "string"
@@ -23969,7 +23888,7 @@
           "additionalProperties": {},
           "properties": {
             "character": {
-              "$ref": "#/$defs/_h33"
+              "$ref": "#/$defs/_h34"
             },
             "containerName": {
               "type": "string"
@@ -24157,15 +24076,6 @@
               "type": "boolean"
             },
             "matchPage": {
-              "$ref": "#/$defs/_h0"
-            },
-            "moreLines": {
-              "items": {
-                "$ref": "#/$defs/_h33"
-              },
-              "type": "array"
-            },
-            "moreLinesUnlisted": {
               "$ref": "#/$defs/_h0"
             },
             "next": {
@@ -24647,7 +24557,6 @@
             }
           },
           "required": [
-            "text",
             "line",
             "column",
             "endColumn",
@@ -24677,7 +24586,6 @@
             }
           },
           "required": [
-            "text",
             "line",
             "column",
             "endColumn"
@@ -25191,7 +25099,7 @@
               "const": false
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repository": {
               "$ref": "#/$defs/_h66"
@@ -25310,7 +25218,7 @@
               "const": false
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repository": {
               "$ref": "#/$defs/_h66"
@@ -25429,7 +25337,7 @@
               "const": false
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repository": {
               "$ref": "#/$defs/_h66"
@@ -25548,7 +25456,7 @@
               "const": false
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "repository": {
               "$ref": "#/$defs/_h66"
@@ -25596,7 +25504,7 @@
         "$ref": "#/$defs/securityCheckContinueCall"
       },
       "propertyNames": {
-        "$ref": "#/$defs/_h116"
+        "$ref": "#/$defs/_h115"
       },
       "type": "object"
     },
@@ -25703,7 +25611,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -25744,7 +25652,7 @@
           "type": "string"
         },
         "relatedItems": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         },
         "scope": {
           "enum": [
@@ -25844,7 +25752,10 @@
           "$ref": "#/$defs/_h0"
         },
         "remainingInputTokensEstimate": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
+        },
+        "replayed": {
+          "type": "boolean"
         },
         "unknownUsageCalls": {
           "$ref": "#/$defs/_h0"
@@ -25870,10 +25781,10 @@
       "additionalProperties": false,
       "properties": {
         "endLine": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         },
         "startLine": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         }
       },
       "required": [
@@ -25893,10 +25804,10 @@
       "additionalProperties": false,
       "properties": {
         "endLine": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         },
         "startLine": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         }
       },
       "required": [
@@ -25936,10 +25847,10 @@
       "additionalProperties": false,
       "properties": {
         "column": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         },
         "line": {
-          "$ref": "#/$defs/_h33"
+          "$ref": "#/$defs/_h34"
         }
       },
       "required": [
@@ -26000,7 +25911,7 @@
         {
           "properties": {
             "atLeast": {
-              "$ref": "#/$defs/_h33"
+              "$ref": "#/$defs/_h34"
             },
             "clientWaits": {
               "$ref": "#/$defs/_h49"
@@ -26054,7 +25965,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -26095,7 +26006,7 @@
         {
           "properties": {
             "atLeast": {
-              "$ref": "#/$defs/_h33"
+              "$ref": "#/$defs/_h34"
             },
             "clientWaits": {
               "$ref": "#/$defs/_h49"
@@ -26149,7 +26060,7 @@
               "$ref": "#/$defs/_h6"
             },
             "related": {
-              "$ref": "#/$defs/_h56"
+              "$ref": "#/$defs/_h54"
             },
             "retryable": {
               "const": true
@@ -26240,19 +26151,19 @@
                             "type": "boolean"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
                           },
                           "maxDepth": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "operation": {
                             "const": "tree"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "reasoning": {
                             "$ref": "#/$defs/_h17"
@@ -26310,16 +26221,16 @@
                             "type": "boolean"
                           },
                           "limit": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "mainGoal": {
                             "$ref": "#/$defs/_h17"
                           },
                           "maxDepth": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "minDepth": {
-                            "$ref": "#/$defs/_h114"
+                            "$ref": "#/$defs/_h113"
                           },
                           "modifiedAt": {
                             "$ref": "#/$defs/DateRangeContinuationInput"
@@ -26331,7 +26242,7 @@
                             "const": "files"
                           },
                           "path": {
-                            "$ref": "#/$defs/_h34"
+                            "$ref": "#/$defs/_h33"
                           },
                           "permissions": {
                             "pattern": "^[0-7]{3,4}$",
@@ -26391,7 +26302,7 @@
                   "type": "array"
                 },
                 "responseChars": {
-                  "$ref": "#/$defs/_h114"
+                  "$ref": "#/$defs/_h113"
                 }
               },
               "required": [
@@ -26784,7 +26695,7 @@
     "restart": "branch",
     "retry": "branch"
   },
-  "fingerprint": "9d80d588dddd849bbf6927a14219264e5865a0baf854360379f4b8a441b475e0",
+  "fingerprint": "c93a730b8001fa705c9e0660a2d014de70c37275ec02cacac2185ab90867e67c",
   "limits": {
     "clasifyContextLines": 8,
     "defaultReadContextLines": 0,
@@ -27089,7 +27000,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -27236,7 +27147,8 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
-        ]
+        ],
+        "statedOnce": []
       },
       "querySchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -27401,7 +27313,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -27534,7 +27446,9 @@
           "/data/candidates/*/sourceRange",
           "/data/clientWaits",
           "/data/commitSha",
+          "/data/evidence",
           "/data/filteredByConfidence",
+          "/data/from",
           "/data/graph/isPartial",
           "/data/graph/partialReasons",
           "/data/isPartial",
@@ -27553,6 +27467,8 @@
           "/data/path/*/sourceOrigin",
           "/data/path/*/sourceRange",
           "/data/retryable",
+          "/data/rows/*/from",
+          "/data/rows/*/verify",
           "/data/sourceEvidence",
           "/data/target/selectionByteRange",
           "/data/target/selectionOrigin",
@@ -27560,6 +27476,7 @@
           "/data/target/sourceOrigin",
           "/data/target/sourceRange",
           "/data/terminalLimit",
+          "/data/verify",
           "/data/warnings",
           "/rowPart"
         ],
@@ -27867,9 +27784,7 @@
           "/data/rows/*/derivation/version",
           "/data/rows/*/detail",
           "/data/rows/*/edge",
-          "/data/rows/*/evidence",
           "/data/rows/*/file",
-          "/data/rows/*/from",
           "/data/rows/*/id",
           "/data/rows/*/line",
           "/data/rows/*/parseAssessment",
@@ -27950,7 +27865,6 @@
           "/data/rows/*/sourceRange/endByte",
           "/data/rows/*/sourceRange/startByte",
           "/data/rows/*/targetName",
-          "/data/rows/*/test",
           "/data/rows/*/testIdentity/framework",
           "/data/rows/*/testIdentity/kind",
           "/data/rows/*/testIdentity/name",
@@ -28047,6 +27961,18 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
+        ],
+        "statedOnce": [
+          {
+            "fields": [
+              "from"
+            ]
+          },
+          {
+            "fields": [
+              "verify"
+            ]
+          }
         ]
       },
       "querySchema": {
@@ -28629,7 +28555,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -28880,7 +28806,8 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
-        ]
+        ],
+        "statedOnce": []
       },
       "querySchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -29173,7 +29100,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -29305,7 +29232,8 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
-        ]
+        ],
+        "statedOnce": []
       },
       "querySchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -29617,7 +29545,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -29733,7 +29661,7 @@
                               "type": "boolean"
                             },
                             "next": {
-                              "$ref": "#/$defs/_h54"
+                              "$ref": "#/$defs/_h55"
                             },
                             "observedAt": {
                               "type": "string"
@@ -29748,7 +29676,7 @@
                               "$ref": "#/$defs/_h6"
                             },
                             "related": {
-                              "$ref": "#/$defs/_h56"
+                              "$ref": "#/$defs/_h54"
                             },
                             "retryable": {
                               "const": true
@@ -29898,6 +29826,23 @@
           "/rowPart/of",
           "/rowPart/part",
           "/status"
+        ],
+        "statedOnce": [
+          {
+            "fields": [
+              "owner",
+              "repo"
+            ]
+          },
+          {
+            "after": [
+              "owner",
+              "repo"
+            ],
+            "fields": [
+              "commitSha"
+            ]
+          }
         ]
       },
       "querySchema": {
@@ -30166,7 +30111,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -30321,7 +30266,8 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
-        ]
+        ],
+        "statedOnce": []
       },
       "querySchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -30440,7 +30386,7 @@
                       "$ref": "#/$defs/_h160"
                     },
                     {
-                      "$ref": "#/$defs/_h111"
+                      "$ref": "#/$defs/_h110"
                     },
                     {
                       "$ref": "#/$defs/_h197"
@@ -30458,7 +30404,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -30621,7 +30567,8 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
-        ]
+        ],
+        "statedOnce": []
       },
       "querySchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -30633,7 +30580,7 @@
             "$ref": "#/$defs/_h160"
           },
           {
-            "$ref": "#/$defs/_h111"
+            "$ref": "#/$defs/_h110"
           },
           {
             "$ref": "#/$defs/_h197"
@@ -30862,7 +30809,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -31026,6 +30973,14 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
+        ],
+        "statedOnce": [
+          {
+            "fields": [
+              "owner",
+              "repo"
+            ]
+          }
         ]
       },
       "querySchema": {
@@ -31220,7 +31175,7 @@
                       "$ref": "#/$defs/_h97"
                     },
                     {
-                      "$ref": "#/$defs/_h115"
+                      "$ref": "#/$defs/_h114"
                     },
                     {
                       "$ref": "#/$defs/_h90"
@@ -31281,7 +31236,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -31519,6 +31474,14 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
+        ],
+        "statedOnce": [
+          {
+            "fields": [
+              "owner",
+              "repo"
+            ]
+          }
         ]
       },
       "querySchema": {
@@ -31540,7 +31503,7 @@
             "$ref": "#/$defs/_h97"
           },
           {
-            "$ref": "#/$defs/_h115"
+            "$ref": "#/$defs/_h114"
           },
           {
             "$ref": "#/$defs/_h90"
@@ -31868,7 +31831,7 @@
                 "items": {
                   "anyOf": [
                     {
-                      "$ref": "#/$defs/_h120"
+                      "$ref": "#/$defs/_h119"
                     },
                     {
                       "$ref": "#/$defs/_h176"
@@ -31892,7 +31855,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -32040,13 +32003,14 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
-        ]
+        ],
+        "statedOnce": []
       },
       "querySchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "anyOf": [
           {
-            "$ref": "#/$defs/_h120"
+            "$ref": "#/$defs/_h119"
           },
           {
             "$ref": "#/$defs/_h176"
@@ -32269,7 +32233,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -32416,7 +32380,8 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
-        ]
+        ],
+        "statedOnce": []
       },
       "querySchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -32518,7 +32483,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -32762,7 +32727,6 @@
           "/data/files/*/matches/*/metavarRanges/*/*/sourceOrigin/segments/*/sourceRange/startByte",
           "/data/files/*/matches/*/metavarRanges/*/*/sourceRange/endByte",
           "/data/files/*/matches/*/metavarRanges/*/*/sourceRange/startByte",
-          "/data/files/*/matches/*/metavarRanges/*/*/text",
           "/data/files/*/matches/*/sourceOrigin/analysisUnitId",
           "/data/files/*/matches/*/sourceOrigin/segments",
           "/data/files/*/matches/*/sourceOrigin/segments/*/analysis",
@@ -32906,7 +32870,8 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
-        ]
+        ],
+        "statedOnce": []
       },
       "querySchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -33083,7 +33048,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -33251,7 +33216,8 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
-        ]
+        ],
+        "statedOnce": []
       },
       "querySchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -33393,7 +33359,7 @@
                       "$ref": "#/$defs/_h184"
                     },
                     {
-                      "$ref": "#/$defs/_h112"
+                      "$ref": "#/$defs/_h111"
                     }
                   ]
                 },
@@ -33402,7 +33368,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -33670,7 +33636,6 @@
           "/data/files/*/matches/*/metavarRanges/*/*/sourceOrigin/segments/*/sourceRange/startByte",
           "/data/files/*/matches/*/metavarRanges/*/*/sourceRange/endByte",
           "/data/files/*/matches/*/metavarRanges/*/*/sourceRange/startByte",
-          "/data/files/*/matches/*/metavarRanges/*/*/text",
           "/data/files/*/matches/*/sourceOrigin/analysisUnitId",
           "/data/files/*/matches/*/sourceOrigin/segments",
           "/data/files/*/matches/*/sourceOrigin/segments/*/analysis",
@@ -33880,7 +33845,8 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
-        ]
+        ],
+        "statedOnce": []
       },
       "querySchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -33895,7 +33861,7 @@
             "$ref": "#/$defs/_h184"
           },
           {
-            "$ref": "#/$defs/_h112"
+            "$ref": "#/$defs/_h111"
           }
         ]
       },
@@ -34065,7 +34031,7 @@
                       "$ref": "#/$defs/_h161"
                     },
                     {
-                      "$ref": "#/$defs/_h110"
+                      "$ref": "#/$defs/_h109"
                     },
                     {
                       "$ref": "#/$defs/_h199"
@@ -34083,7 +34049,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -34244,7 +34210,8 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
-        ]
+        ],
+        "statedOnce": []
       },
       "querySchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -34256,7 +34223,7 @@
             "$ref": "#/$defs/_h161"
           },
           {
-            "$ref": "#/$defs/_h110"
+            "$ref": "#/$defs/_h109"
           },
           {
             "$ref": "#/$defs/_h199"
@@ -34460,10 +34427,10 @@
                       "$ref": "#/$defs/_h106"
                     },
                     {
-                      "$ref": "#/$defs/_h113"
+                      "$ref": "#/$defs/_h112"
                     },
                     {
-                      "$ref": "#/$defs/_h119"
+                      "$ref": "#/$defs/_h118"
                     },
                     {
                       "$ref": "#/$defs/_h139"
@@ -34524,7 +34491,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -34772,7 +34739,6 @@
           "/data/files/*/matches/*/metavarRanges/*/*/sourceOrigin/segments/*/sourceRange/startByte",
           "/data/files/*/matches/*/metavarRanges/*/*/sourceRange/endByte",
           "/data/files/*/matches/*/metavarRanges/*/*/sourceRange/startByte",
-          "/data/files/*/matches/*/metavarRanges/*/*/text",
           "/data/files/*/matches/*/path",
           "/data/files/*/matches/*/range",
           "/data/files/*/matches/*/range/end",
@@ -34987,7 +34953,8 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
-        ]
+        ],
+        "statedOnce": []
       },
       "querySchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -35002,10 +34969,10 @@
             "$ref": "#/$defs/_h106"
           },
           {
-            "$ref": "#/$defs/_h113"
+            "$ref": "#/$defs/_h112"
           },
           {
-            "$ref": "#/$defs/_h119"
+            "$ref": "#/$defs/_h118"
           },
           {
             "$ref": "#/$defs/_h139"
@@ -35403,7 +35370,15 @@
       "beta": false,
       "collectionPaths": [
         "/data/advisories",
-        "/data/moduleOnly/advisories"
+        "/data/moduleOnly/advisories",
+        "/data/advisories/*/affected",
+        "/data/advisories/*/credits",
+        "/data/advisories/*/references",
+        "/data/moduleOnly/advisories/*/affected",
+        "/data/moduleOnly/advisories/*/credits",
+        "/data/moduleOnly/advisories/*/references",
+        "/data/advisories/*/affected/*/versions",
+        "/data/moduleOnly/advisories/*/affected/*/versions"
       ],
       "family": "remote",
       "inputSchema": {
@@ -35437,7 +35412,7 @@
                 "type": "array"
               },
               "responseChars": {
-                "$ref": "#/$defs/_h114"
+                "$ref": "#/$defs/_h113"
               }
             },
             "required": [
@@ -35537,11 +35512,13 @@
       },
       "pageContextFields": {
         "optional": [
+          "/data/advisories/*/affected/*/packageName",
           "/data/cautions",
           "/data/clientWaits",
           "/data/commitSha",
           "/data/coverage",
           "/data/coverage/reason",
+          "/data/moduleOnly/advisories/*/affected/*/packageName",
           "/data/next",
           "/data/packageName",
           "/data/pagination",
@@ -35567,7 +35544,6 @@
           "/data/advisories/*/epss/percentage",
           "/data/advisories/*/epss/percentile",
           "/data/advisories/*/id",
-          "/data/advisories/*/link",
           "/data/answer",
           "/data/cautions/*/basis",
           "/data/cautions/*/level",
@@ -35584,7 +35560,6 @@
           "/data/moduleOnly/advisories/*/epss/percentage",
           "/data/moduleOnly/advisories/*/epss/percentile",
           "/data/moduleOnly/advisories/*/id",
-          "/data/moduleOnly/advisories/*/link",
           "/data/moduleOnly/note",
           "/data/pagination/hasMore",
           "/data/pagination/length",
@@ -35605,7 +35580,8 @@
           "/rowPart/continues/index",
           "/rowPart/of",
           "/rowPart/part"
-        ]
+        ],
+        "statedOnce": []
       },
       "querySchema": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

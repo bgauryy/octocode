@@ -288,9 +288,12 @@ fn notes(
     // silent.
     let row_rest: Map<String, Value> = row
         .iter()
-        .filter(|(key, _)| !matches!(key.as_str(), "index" | "status" | "data"))
+        .filter(|(key, _)| !matches!(key.as_str(), "index" | "status" | "data" | "rowPart"))
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
+    if let Some(part) = row.get("rowPart") {
+        notes.push(row_part_note(part));
+    }
     notes.extend(field_notes("", &row_rest));
     notes.extend(envelope_notes(structured, cwd));
     notes
@@ -298,6 +301,31 @@ fn notes(
         .map(|line| format!("# {line}"))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The `rowPart` note, one form for every part: `rowPart: part N of M`, then
+/// any other fact the part carries (`continues`) as words.
+fn row_part_note(part: &Value) -> String {
+    let Some(fields) = part.as_object() else {
+        return format!("rowPart: {part}");
+    };
+    let mut rest = fields.clone();
+    let position = rest.shift_remove("part");
+    let of = rest.shift_remove("of");
+    let mut note = match (position, of) {
+        (Some(position), Some(of)) => format!("rowPart: part {position} of {of}"),
+        (position, of) => {
+            let mut named = Map::new();
+            named.extend(position.map(|value| ("part".to_owned(), value)));
+            named.extend(of.map(|value| ("of".to_owned(), value)));
+            format!("rowPart: {}", words(&named))
+        }
+    };
+    if !rest.is_empty() {
+        note.push(' ');
+        note.push_str(&words(&rest));
+    }
+    note
 }
 
 /// The envelope's fields beside `results` (`responsePagination`,

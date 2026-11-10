@@ -177,7 +177,7 @@ async fn location_rows_are_objects_named_like_tool_inputs() {
     let row = &lean.data()["files"][0]["matches"][0];
     assert_eq!(
         row["metavarRanges"]["A"][0],
-        json!({"text":"a","line":2,"column":9,"endColumn":10}),
+        json!({"line":2,"column":9,"endColumn":10}),
         "{}",
         lean.structured_content
     );

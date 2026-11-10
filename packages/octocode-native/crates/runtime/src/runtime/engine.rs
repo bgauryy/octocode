@@ -107,8 +107,6 @@ pub struct ToolRuntime {
     selection_available: bool,
     lsp_execution_config: Arc<crate::tools::lsp_search::LspExecutionConfig>,
     lsp_answers: Arc<crate::tools::lsp_search::ContinuationAnswers>,
-    /// Whether this session has run an lspSearch (see `lsp.prewarm`).
-    lsp_requested: Arc<std::sync::atomic::AtomicBool>,
     /// Complete graph answer rows its first page retained for continuations.
     graph_rows: Arc<crate::tools::ast_graph::store::SavedRows>,
     /// The sandbox workspace root (configured workspaceRoot, else host cwd).

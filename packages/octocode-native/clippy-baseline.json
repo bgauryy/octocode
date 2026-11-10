@@ -143,7 +143,6 @@
       "crates/runtime/src/tools/ast_graph/store/snapshots.rs": 1,
       "crates/runtime/src/tools/bounded_process.rs": 1,
       "crates/runtime/src/tools/clasify/sections/store.rs": 1,
-      "crates/runtime/src/tools/gh_clone_repo.rs": 1,
       "crates/runtime/src/tools/gh_clone_repo/git/admission.rs": 1,
       "crates/runtime/src/tools/gh_clone_repo/process.rs": 1,
       "crates/runtime/src/tools/local_search/packed/read.rs": 1,
@@ -177,15 +176,13 @@
       "crates/engine/src/lsp/workspace/includes.rs": 1,
       "crates/engine/src/search/relevance/demotion.rs": 1,
       "crates/engine/src/search/walk/ignore_rules.rs": 1,
-      "crates/engine/src/search/walk/ignore_rules/level.rs": 2
+      "crates/engine/src/search/walk/ignore_rules/git_dir.rs": 2
     },
     "runtime": {
       "crates/runtime/src/providers/artifact/npmrc.rs": 1,
       "crates/runtime/src/runtime/maintenance.rs": 1,
       "crates/runtime/src/tools/ast_graph/store/query/load.rs": 1,
       "crates/runtime/src/tools/gh_clone_repo/storage.rs": 1,
-      "crates/runtime/src/tools/lsp_search/scope/reach/cargo.rs": 1,
-      "crates/runtime/src/tools/lsp_search/walk/outcome/resume.rs": 1,
       "crates/runtime/src/tools/source_view/types/path_access.rs": 1
     }
   },
@@ -407,7 +404,6 @@
       "crates/runtime/src/tools/gh_search_code/lines/scoring.rs": 1,
       "crates/runtime/src/tools/gh_structure/tag_order.rs": 6,
       "crates/runtime/src/tools/judgment.rs": 2,
-      "crates/runtime/src/tools/local_fetch/large_source/masks.rs": 2,
       "crates/runtime/src/tools/lsp_search/anchor.rs": 7,
       "crates/runtime/src/tools/lsp_search/heritage.rs": 3,
       "crates/runtime/src/tools/lsp_search/import_stop.rs": 1,

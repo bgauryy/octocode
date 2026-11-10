@@ -135,6 +135,7 @@ pub(super) fn declared_types_of(
             Some(crate::graph::GraphFactDeclaredType {
                 declaration_id: (*by_name_start.get(&key)?).to_owned(),
                 ty: item.ty,
+                global: item.global,
             })
         })
         .collect()

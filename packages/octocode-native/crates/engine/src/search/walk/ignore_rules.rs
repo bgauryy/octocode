@@ -14,8 +14,8 @@ mod level;
 pub use git_dir::{checkout_git_dir, common_git_dir};
 #[cfg(test)]
 pub(crate) use level::LEVELS_STATED;
-pub use level::ListedRules;
 use level::{Level, git_exclude_file};
+pub use level::{ListedRules, UnreadableRule};
 
 /// The ignore rule that keeps a path out of a walk.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -40,6 +40,17 @@ pub const IGNORE_FILES: [&str; 2] = [".gitignore", ".ignore"];
 /// ([`IgnoreRules::enter`]): a walk keeps it for the directory, so an entry
 /// costs no cache lookup.
 pub struct DirRules(Arc<Chain>);
+
+impl DirRules {
+    /// The rule files of this directory itself that exist but could not be
+    /// read ([`IgnoreRules::unreadable_rule_files`] for every directory met).
+    pub fn unreadable(&self) -> &[UnreadableRule] {
+        self.0
+            .levels
+            .first()
+            .map_or(&[], |level| level.unreadable.as_slice())
+    }
+}
 
 /// The files outside a walk of `root` whose contents decide its ignore rules
 /// ([`walk_builder`](super::walk_builder), [`IgnoreRules`]): the [`IGNORE_FILES`] of each
@@ -172,6 +183,26 @@ impl IgnoreRules {
             Some(listed) => self.chained(dir, Level::listed(dir, listed)),
             None => self.chain(dir),
         }))
+    }
+
+    /// The rule files this value has met that exist but could not be read
+    /// (sorted, once each): their rules did not apply, so entries they would
+    /// leave out were walked. Rule files load lazily, so ask after the walk.
+    pub fn unreadable_rule_files(&self) -> Vec<UnreadableRule> {
+        let inner = self.inner.read().unwrap_or_else(PoisonError::into_inner);
+        let mut files: Vec<UnreadableRule> = self
+            .outer
+            .iter()
+            .chain(
+                inner
+                    .values()
+                    .filter_map(|chain| chain.levels.first().map(|level| &**level)),
+            )
+            .flat_map(|level| level.unreadable.iter().cloned())
+            .collect();
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+        files.dedup();
+        files
     }
 
     /// Whether the root lies in a git work tree (it or a directory above it

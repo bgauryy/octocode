@@ -287,3 +287,40 @@ fn stopped_scan_all_propagates_errors_instead_of_unavailable_hits() {
     );
     assert_eq!(result.unwrap_err().kind, ProviderErrorKind::Timeout);
 }
+
+/// A scan that panics is a defect, not a missing blob: its file is
+/// `Panicked` (the page says so), the other files keep their hits.
+#[test]
+fn a_panicking_scan_is_disclosed_as_a_panic_not_an_unreadable_file() {
+    struct PanicOn(&'static str);
+    impl ContentScan for PanicOn {
+        fn sanitize(
+            &self,
+            text: &str,
+            _: &std::path::Path,
+        ) -> Result<(String, Vec<String>), (octocode_contract_types::ErrorCode, String)> {
+            assert!(!text.contains(self.0), "scan defect");
+            Ok((text.to_owned(), Vec::new()))
+        }
+    }
+    let files: Vec<(&[u8], &str)> = vec![
+        (b"needle fine\n", "a.rs"),
+        (b"needle boom\n", "b.rs"),
+        (b"needle fine\n", "c.rs"),
+    ];
+    let keywords = ["needle".to_owned()];
+    let out = scan_all(
+        &files,
+        &Listing {
+            keywords: &keywords,
+            goal: "",
+            window: Window::default(),
+        },
+        &PanicOn("boom"),
+        &test_context(),
+    )
+    .unwrap();
+    assert!(matches!(out[0], FileHits::Lines { .. }), "{out:?}");
+    assert_eq!(out[1], FileHits::Panicked);
+    assert!(matches!(out[2], FileHits::Lines { .. }), "{out:?}");
+}

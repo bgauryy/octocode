@@ -27,6 +27,8 @@ pub(super) struct PageReads {
     pub(super) withheld: usize,
     /// Rows whose blob is over [`super::lines::MAX_SCAN_BYTES`]: not scanned.
     pub(super) oversized: usize,
+    /// Rows whose scan panicked: a defect to report, not a missing blob.
+    pub(super) panicked: usize,
 }
 
 /// Whether source lines must be read before projecting the returned fields.
@@ -74,6 +76,7 @@ pub(super) fn shape_files(
     // no lines, no index fragment, no read lead.
     let mut withheld = 0;
     let mut oversized = 0;
+    let mut panicked = 0;
     for row in items.iter_mut() {
         if withheld_row(query, withholds, row)
             && let Some(row) = row.as_object_mut()
@@ -138,8 +141,11 @@ pub(super) fn shape_files(
                     // The path, or its hit, is not at the ref.
                     row.insert("atRef".into(), json!(false));
                 }
-                super::lines::FileHits::Unavailable | super::lines::FileHits::Oversized => {
+                super::lines::FileHits::Unavailable
+                | super::lines::FileHits::Oversized
+                | super::lines::FileHits::Panicked => {
                     oversized += usize::from(matches!(hits, super::lines::FileHits::Oversized));
+                    panicked += usize::from(matches!(hits, super::lines::FileHits::Panicked));
                     // Not read here (over the scan limit, binary, a failed
                     // read): lead to the keyword lines at the commit, on the
                     // default branch as at a ref. Without a commit there is
@@ -170,6 +176,7 @@ pub(super) fn shape_files(
         redacted,
         withheld,
         oversized,
+        panicked,
     }
 }
 

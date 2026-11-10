@@ -12,6 +12,9 @@ test('capture oracle rejects wrong text and byte columns on the same Unicode lin
   assert.equal(captureMatchesFixture(fixture, sourceLine, capture), true);
   assert.equal(captureMatchesFixture(fixture, sourceLine, { ...capture, text: 'helper', column: sourceLine.indexOf('helper') + 1 }), false);
   assert.equal(captureMatchesFixture(fixture, sourceLine, { ...capture, column: capture.column + 2 }), false);
+  const ranged = { column: capture.column, endColumn: capture.column + fixture.argument.length };
+  assert.equal(captureMatchesFixture(fixture, sourceLine, ranged), true);
+  assert.equal(captureMatchesFixture(fixture, sourceLine, { ...ranged, endColumn: ranged.endColumn - 1 }), false);
 });
 
 test('every grammar fixture defines an independent UTF-16 anchor and declaration', () => {

@@ -108,9 +108,12 @@ pub(super) fn select_scoped(
     };
     let mut usage = ClassificationUsage::default();
     let bound = binding(tool, query, source, runtime);
-    let saved = prior
-        .zip(runtime)
-        .map(|(token, runtime)| (token, &*runtime.saved, runtime.limits.max_chars));
+    // A page is saved under the token that opened it, or under its binding
+    // when a fresh call opened it: the same query, source and judge is the
+    // same judgment, and a judgment bills every time it is made.
+    let opening = prior.map_or_else(|| format!("fresh:{bound}"), str::to_owned);
+    let saved =
+        runtime.map(|runtime| (opening.as_str(), &*runtime.saved, runtime.limits.max_chars));
     // A saved plan replays; a token opening a candidate page judges its pool.
     let (mut pool, mut carried) = (Vec::new(), super::plan::Tally::default());
     if let Some(token) = prior {
@@ -129,6 +132,11 @@ pub(super) fn select_scoped(
             return Ok(finish(page.plan, &page.usage));
         }
         (pool, carried) = (plan.pool, plan.carried);
+    } else if let Some(page) =
+        saved.and_then(|(opening, saved, max_chars)| saved.get(opening, max_chars))
+        && page.plan.valid(&bound, candidates.len(), scope, unit)
+    {
+        return Ok(finish(page.plan, &page.usage));
     }
     let mut plan = Plan::new(
         bound,

@@ -168,11 +168,7 @@ impl Operation<'_, '_> {
         let rows = found
             .into_iter()
             .map(|snippet| serde_json::to_value(snippet).unwrap_or(Value::Null))
-            .chain(extra_rows.iter().map(|snippet| {
-                let mut value = serde_json::to_value(snippet).unwrap_or(Value::Null);
-                value["source"] = json!(SCAN_SOURCE);
-                value
-            }))
+            .chain(extra_rows.iter().map(scan_row))
             .collect::<Vec<_>>();
         let mut row = self
             .locations("implementation", "implementationProvider", rows)
@@ -181,13 +177,8 @@ impl Operation<'_, '_> {
             row["lsp"]["source"] = json!(SCAN_SOURCE);
             mark_scan_answer(&mut row, query, scope, paths, note, &unread);
         }
-        if let Some((rows, _)) = &extra
-            && !rows.is_empty()
-            && row.get("errorCode").is_none()
-        {
-            // Each row's `source` and `partialReasons` state it; the
-            // reason's meaning lives in the contract.
-            crate::response::paging::mark_partial(&mut row, SCAN_ONLY, &[]);
+        if let Some((rows, _)) = &extra {
+            flag_scan_only(&mut row, rows);
         }
         Ok(row)
     }
@@ -256,34 +247,7 @@ impl Operation<'_, '_> {
     /// implementation request. `None` when no name is queried or the text
     /// scan of the workspace could not run.
     pub(super) async fn heritage_scan(&self) -> Result<Option<heritage::HeritageScan>, LspFailure> {
-        let Some(base) =
-            lsp_search_query::symbol_name(self.query).filter(|name| !name.trim().is_empty())
-        else {
-            return Ok(None);
-        };
-        let Some(files) = self
-            .scope
-            .text_files(base, self.sources.policy(), self.cancel)
-            .await?
-        else {
-            return Ok(None);
-        };
-        let name = base.to_owned();
-        let scanned = files.clone();
-        let Some((found, unread)) =
-            super::super::blocking_cancellable(self.cancel, move |stopped| {
-                heritage::scan_subtypes(&scanned, &name, stopped)
-            })
-            .await?
-        else {
-            return Ok(None);
-        };
-        Ok(Some(heritage::HeritageScan {
-            base: base.to_owned(),
-            files: files.len(),
-            found,
-            unread,
-        }))
+        heritage::scan_workspace(self.query, self.scope, self.sources.policy(), self.cancel).await
     }
 
     /// A call or type hierarchy walk; TS/JS incoming walks also verify the

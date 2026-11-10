@@ -1,5 +1,6 @@
 use super::*;
 use crate::id::ToolId;
+use crate::tools::test_support::assert_part_contract;
 use crate::tools::test_support::assert_row_contract;
 use octocode_io::cancellation::Cancellation;
 
@@ -57,7 +58,7 @@ fn deeply_nested_symbols_page_every_alias_and_preserve_required_identity() {
             .build_page(page, &[None], &Cancellation::new())
             .expect("valid build_page")
         {
-            assert_row_contract(ToolId::AstSearch, &row["data"]);
+            assert_part_contract(ToolId::AstSearch, &row);
             collect_symbols(&row["data"]["symbols"], &mut seen_aliases, &mut seen_leaves);
         }
     }

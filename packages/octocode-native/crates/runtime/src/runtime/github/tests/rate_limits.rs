@@ -41,11 +41,11 @@ fn rate_limit_rows_have_one_shape_on_every_github_tool() {
             (ToolId::GhSearchCode, search_row(error.clone())),
             (
                 ToolId::GhSearchHistory,
-                history_error(error.clone(), true, None),
+                history_error(error.clone(), true),
             ),
             (
                 ToolId::GhGetHistoryItem,
-                history_error(error.clone(), false, None),
+                history_error(error.clone(), false),
             ),
             (ToolId::GhCloneRepo, provider_error(error.clone())),
         ] {
@@ -79,7 +79,7 @@ fn rate_limit_rows_have_one_shape_on_every_github_tool() {
 #[test]
 fn login_advice_needs_an_anonymous_caller_and_a_spent_primary_quota() {
     let advised = |error: ProviderError, anonymous: bool| {
-        let mut data = history_error(error, true, None).data;
+        let mut data = history_error(error, true).data;
         advise_login_for_anonymous_quota(&mut data, anonymous);
         data["hints"][0]
             .as_str()
@@ -110,7 +110,7 @@ fn provider_rows_state_retryable_only_when_true() {
         let expected = error.retryable;
         for result in [
             search_row(error.clone()),
-            history_error(error.clone(), false, None),
+            history_error(error.clone(), false),
             file_row(error.clone(), json!({"owner":"a","repo":"b","path":"x"})),
             provider_error(error.clone()),
         ] {
@@ -139,7 +139,7 @@ fn history_search_422_names_the_query() {
         reason: None,
         sso_url: None,
     };
-    let result = history_error(error, true, None);
+    let result = history_error(error, true);
     assert_eq!(
         result.data["error"],
         "Invalid search query or request parameters"

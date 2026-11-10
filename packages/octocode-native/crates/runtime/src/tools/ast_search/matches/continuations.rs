@@ -13,6 +13,70 @@ use octocode_contract_types::{
 };
 use serde_json::{Value, json};
 
+/// The diagnostic code of a file the scan skipped for passing one of its own
+/// source limits, the code of the engine's `sourceLimit` skip.
+pub(super) const SOURCE_LIMIT_CODE: &str = "structural.source.failed";
+
+/// The query again over each half of the lines it searched in `file`
+/// (`display` as the response spells it): its `scope`, or the whole file.
+/// Where that range passed a limit of the file's own, each half is a call
+/// that can answer, and a half that still passes leads to its own halves, so
+/// the chain ends in about log2 steps and reaches every line once. `None`
+/// when the range is a single line.
+pub(super) fn narrow_leads(
+    q: MatchQuery<'_>,
+    file: &std::path::Path,
+    display: &str,
+) -> Option<[Value; 2]> {
+    let query = q.to_value();
+    let line = |at: &str| query["scope"][at]["line"].as_u64();
+    let start = line("start").unwrap_or(1);
+    let end = match line("end") {
+        Some(end) => end,
+        None => line_count(file)?.saturating_add(1),
+    };
+    let middle = start + end.saturating_sub(start) / 2;
+    if middle <= start {
+        return None;
+    }
+    let mut row = crate::response::result::fresh_query_row(ToolId::AstSearch, &query);
+    let fields = row.as_object_mut()?;
+    for field in ["include", "exclude", "maxDepth", "scope"] {
+        fields.remove(field);
+    }
+    fields.insert("path".to_owned(), json!(display));
+    let half = |from: u64, to: u64| {
+        let mut row = row.clone();
+        row["scope"] =
+            json!({"start": {"line": from, "column": 1}, "end": {"line": to, "column": 1}});
+        crate::response::result::restart_query(ToolId::AstSearch, &row)
+    };
+    Some([half(start, middle), half(middle, end)])
+}
+
+/// The lines of `file`, counted in fixed-size reads: the file passed a limit
+/// of its own, so it is never held whole. A final line without a newline
+/// counts. `None` when it cannot be read.
+fn line_count(file: &std::path::Path) -> Option<u64> {
+    use std::io::Read;
+    let (mut reader, _) = octocode_engine::text::open_regular(file).ok()?;
+    let mut buffer = [0_u8; 16 * 1024];
+    let (mut lines, mut last) = (0_u64, None);
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => return Some(lines + u64::from(last.is_some_and(|byte| byte != b'\n'))),
+            Ok(read) => {
+                let read = &buffer[..read];
+                let newlines = read.iter().filter(|byte| **byte == b'\n').count();
+                lines = lines.saturating_add(octocode_engine::num::saturating_u64(newlines));
+                last = read.last().copied();
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return None,
+        }
+    }
+}
+
 /// `next` pages and the scan expansion; the related capture expansion and
 /// read of the top file's hits.
 pub(super) fn attach_match_continuations(

@@ -185,3 +185,121 @@ fn cancelled_judgment_never_becomes_a_fallback_page() {
         Err(Failure::Cancelled)
     ));
 }
+
+/// A fresh call over `source`, judged by `runtime`.
+fn fresh(runtime: &Runtime, candidates: &[Candidate], query: &Value, source: &str) -> Outcome {
+    select(
+        Some(runtime),
+        crate::id::ToolId::LocalFetch,
+        query,
+        source,
+        None,
+        candidates,
+        None,
+        SelectionUnit::Hits,
+    )
+    .ok()
+    .expect("selection")
+}
+
+fn fact_query(predicate: &str) -> Value {
+    json!({"classification":{"predicates":[predicate]}})
+}
+
+/// A fresh call that repeats a judged one (same query, source and judge)
+/// replays its saved judgment instead of billing again.
+#[test]
+fn an_identical_fresh_call_replays_the_saved_judgment_without_a_provider_call() {
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let (runtime, calls) = selecting_runtime(&executor);
+    let candidates = vec![Candidate::new(Some(json!("the fact")))];
+    let query = fact_query("Does this state the fact?");
+    let first = fresh(&runtime, &candidates, &query, "source");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let again = fresh(&runtime, &candidates, &query, "source");
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "the repeat bills nothing");
+    assert_eq!(again.selected, first.selected);
+    assert_eq!(again.token, first.token);
+    let usage = serde_json::to_value(&again.receipt.usage).unwrap();
+    assert_eq!(usage["calls"], 0);
+}
+
+/// The replay is bound to the query.
+#[test]
+fn a_changed_query_judges_again_after_a_saved_judgment() {
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let (runtime, calls) = selecting_runtime(&executor);
+    let candidates = vec![Candidate::new(Some(json!("the fact")))];
+    fresh(
+        &runtime,
+        &candidates,
+        &fact_query("Does this state the fact?"),
+        "source",
+    );
+    fresh(
+        &runtime,
+        &candidates,
+        &fact_query("Does this state another fact?"),
+        "source",
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+/// The replay is bound to the source digest: an edited file is another source.
+#[test]
+fn a_changed_source_judges_again_after_a_saved_judgment() {
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let (runtime, calls) = selecting_runtime(&executor);
+    let candidates = vec![Candidate::new(Some(json!("the fact")))];
+    let query = fact_query("Does this state the fact?");
+    fresh(&runtime, &candidates, &query, "source digest one");
+    fresh(&runtime, &candidates, &query, "source digest two");
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+/// The replay is bound to the judge, though the saved pages are shared.
+#[test]
+fn a_changed_judge_judges_again_after_a_saved_judgment() {
+    struct OtherJudge(std::sync::Arc<AtomicUsize>);
+    impl SelectionJudge for OtherJudge {
+        fn identity(&self) -> Value {
+            json!({"backend":"other-test"})
+        }
+        fn select(&self, call: JudgeCall<'_>) -> Judgments {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(call
+                .admitted
+                .iter()
+                .map(|&ordinal| (ordinal, Decision::Selected))
+                .collect())
+        }
+    }
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let (runtime, calls) = selecting_runtime(&executor);
+    let candidates = vec![Candidate::new(Some(json!("the fact")))];
+    let query = fact_query("Does this state the fact?");
+    fresh(&runtime, &candidates, &query, "source");
+    let other = Runtime {
+        judge: std::sync::Arc::new(OtherJudge(calls.clone())),
+        saved: runtime.saved.clone(),
+        ..test_runtime(std::sync::Arc::new(FailedJudge), executor.handle().clone())
+    };
+    fresh(&other, &candidates, &query, "source");
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
+/// The receipt says a page repeats an earlier judgment, and a judged page
+/// does not.
+#[test]
+fn a_replayed_page_discloses_replayed_and_a_judged_page_omits_it() {
+    let executor = tokio::runtime::Runtime::new().expect("runtime");
+    let (runtime, _) = selecting_runtime(&executor);
+    let candidates = vec![Candidate::new(Some(json!("the fact")))];
+    let query = fact_query("Does this state the fact?");
+    let first = fresh(&runtime, &candidates, &query, "source");
+    let usage = serde_json::to_value(&first.receipt.usage).unwrap();
+    assert!(usage.get("replayed").is_none(), "{usage}");
+    let again = fresh(&runtime, &candidates, &query, "source");
+    let usage = serde_json::to_value(&again.receipt.usage).unwrap();
+    assert_eq!(usage["replayed"], true, "{usage}");
+}

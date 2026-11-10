@@ -9,6 +9,7 @@ use std::{
 use serde_json::Value;
 
 use crate::id::ToolId;
+use octocode_engine::num::saturating_usize;
 
 /// One `oneOf`/`anyOf` branch of a tool's query schema (or the whole schema).
 struct Variant<'a> {
@@ -277,8 +278,7 @@ pub(crate) fn query_schema_max(
     operation: Option<&str>,
     field: &str,
 ) -> Option<usize> {
-    query_schema_number(tool, operation, field, "maximum")
-        .map(|maximum| usize::try_from(maximum).unwrap_or(usize::MAX))
+    query_schema_number(tool, operation, field, "maximum").map(saturating_usize)
 }
 
 #[cfg(test)]

@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { LANG, SYMBOLS, textOf, testModeKeeps, visibleFiles } from './world-local.mjs';
+import { captureText } from '../responses.mjs';
 
 const firstValue = (value, fallback) => value ?? fallback;
 const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
@@ -135,7 +136,7 @@ function provenanceProblem(query, pages) {
 function captureProblem(query, pages) {
   if (!query.rule.pattern?.includes('$A')) return null;
   for (const match of matchesOf(pages)) {
-    const captured = match.metavarRanges?.A?.[0]?.text;
+    const captured = captureText(match, match.metavarRanges?.A?.[0]);
     if (query.includeCaptures === true && !captured) return `includeCaptures: no capture at line ${match.line}`;
     if (query.includeCaptures !== true && match.metavarRanges) return 'captures returned without includeCaptures';
     if (captured && !match.value.includes(captured)) return `capture ${captured} is not inside ${match.value}`;

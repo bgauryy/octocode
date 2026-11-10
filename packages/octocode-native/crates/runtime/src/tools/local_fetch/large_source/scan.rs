@@ -169,7 +169,8 @@ pub(super) fn scan_with(
         counted: 0,
         newlines: 0,
         last: None,
-        proof: super::proven::Proof::new(file, path, &[], security).map_err(failed)?,
+        proof: super::proven::Proof::new(file, path, &[], security)
+            .map_err(|error| failed(error.message().to_owned()))?,
     };
     loop {
         let ended = scanner.fill(&mut reader)?;
@@ -377,7 +378,7 @@ impl<C: CancellationCheck> Scanner<'_, C> {
         let pass = self
             .proof
             .finish()
-            .map_err(|error| ExtractionError::new(ErrorCode::FileReadFailed, error))?;
+            .map_err(|error| ExtractionError::new(ErrorCode::FileReadFailed, error.message()))?;
         self.found.proven = Some(pass.proven);
         Ok(self.found)
     }

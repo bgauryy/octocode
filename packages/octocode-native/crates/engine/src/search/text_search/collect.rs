@@ -106,6 +106,7 @@ pub(super) fn collect<M: Matcher + Sync>(
     } else {
         walk_builder.build_parallel().run(|| Box::new(worker()));
     }
+    scope.record_unreadable_ignore_files();
     Ok(())
 }
 

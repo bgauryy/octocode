@@ -11,8 +11,10 @@
 //! the sealed text, never scanned again, so no secret depends on how far a page
 //! looks back.
 
+use super::edit_map::make_room;
+use super::error::ReadError;
 use crate::security::scan::ContentScan;
-use octocode_contract_types::ErrorCode;
+use octocode_io::memo::Reservation;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
@@ -49,7 +51,26 @@ impl Limits {
 
 const _: () = assert!(Limits::REAL.overlap >= octocode_engine::security::LONGEST_BOUNDED_MATCH);
 
-/// Judges a source as it streams and records its edits.
+/// Why a recording did not end in edits.
+#[derive(Debug)]
+pub(super) enum RecordError {
+    /// The memory budget has no room to hold the edits recorded so far.
+    Refused,
+    /// The scanner refused the source, as its message.
+    Failed(String),
+}
+
+impl From<RecordError> for ReadError {
+    fn from(error: RecordError) -> Self {
+        match error {
+            RecordError::Refused => Self::Refused,
+            RecordError::Failed(message) => Self::Failed(message),
+        }
+    }
+}
+
+/// Judges a source as it streams and records its edits, each held against the
+/// memory budget (through `held`) from the moment it is recorded.
 pub(super) struct Recorder {
     limits: Limits,
     path: PathBuf,
@@ -67,11 +88,12 @@ pub(super) struct Recorder {
     /// The text length a judgement waits for.
     due: usize,
     edits: Vec<Edit>,
-    failed: Option<(ErrorCode, String)>,
+    held: Reservation<'static>,
+    failed: Option<RecordError>,
 }
 
 impl Recorder {
-    pub(super) fn new(path: &Path, limits: Limits) -> Self {
+    pub(super) fn new(path: &Path, limits: Limits, held: Reservation<'static>) -> Self {
         Self {
             limits,
             path: path.to_path_buf(),
@@ -82,6 +104,7 @@ impl Recorder {
             shifts: Vec::new(),
             due: limits.chunk + 2 * limits.overlap,
             edits: Vec::new(),
+            held,
             failed: None,
         }
     }
@@ -97,11 +120,13 @@ impl Recorder {
         }
     }
 
-    /// The source ended: its edits, in order, or the scanner's refusal.
+    /// The source ended: its edits, in order, with the room they and the shared
+    /// copy made of them are held in (given back when it drops), or the
+    /// scanner's refusal or the budget's.
     pub(super) fn finish(
         mut self,
         scan: &(impl ContentScan + ?Sized),
-    ) -> Result<Vec<Edit>, (ErrorCode, String)> {
+    ) -> Result<(Vec<Edit>, Reservation<'static>), RecordError> {
         if !self.pending.is_empty() {
             let rest = std::mem::take(&mut self.pending);
             self.push_lossy(&rest);
@@ -109,10 +134,15 @@ impl Recorder {
         if self.failed.is_none() {
             self.judge(scan, true);
         }
-        match self.failed {
-            Some(error) => Err(error),
-            None => Ok(self.edits),
+        if let Some(error) = self.failed {
+            return Err(error);
         }
+        // The shared list is a copy beside these edits while it is built.
+        let copy: usize = self.edits.iter().map(Edit::weight).sum();
+        if !self.held.grow(copy) {
+            return Err(RecordError::Refused);
+        }
+        Ok((self.edits, self.held))
     }
 
     fn push_lossy(&mut self, bad: &[u8]) {
@@ -181,7 +211,7 @@ impl Recorder {
             Ok((clean, true)) => align(&self.text, &clean),
             Ok((_, false)) => Vec::new(),
             Err(error) => {
-                self.failed = Some(error);
+                self.failed = Some(RecordError::Failed(error.1));
                 return;
             }
         };
@@ -203,6 +233,7 @@ impl Recorder {
             self.due = len + self.limits.chunk;
             return;
         }
+        let mut fresh = Vec::new();
         for (range, text) in found {
             if range.end <= self.owned || range.start >= edge {
                 continue;
@@ -210,11 +241,19 @@ impl Recorder {
             // A match that starts in the context was not whole in the judgement
             // that owned its start: its owned part is hidden.
             let start = range.start.max(self.owned);
-            self.edits.push(Edit {
+            fresh.push(Edit {
                 range: self.source_at(start)..self.source_at(range.end),
                 text: text.into(),
             });
         }
+        // Held before they are kept: the list's room, then each placeholder.
+        let text: usize = fresh.iter().map(|edit| edit.text.len()).sum();
+        if make_room(&mut self.edits, fresh.len(), &mut self.held).is_err() || !self.held.grow(text)
+        {
+            self.failed = Some(RecordError::Refused);
+            return;
+        }
+        self.edits.extend(fresh);
         if last {
             return;
         }
@@ -433,6 +472,46 @@ pub(super) fn merge(edits: Vec<Edit>, more: Vec<Edit>) -> Vec<Edit> {
                 }
             }
             _ => out.push(edit),
+        }
+    }
+    out
+}
+
+/// `edits` less their bytes on lines a private-key block replaces: such a line
+/// shows only its placeholder. An edit cut by one keeps its placeholder.
+pub(super) fn outside_key_lines(
+    edits: Vec<Edit>,
+    key_lines: &[(Range<usize>, usize)],
+) -> Vec<Edit> {
+    if key_lines.is_empty() {
+        return edits;
+    }
+    let mut out = Vec::with_capacity(edits.len());
+    for edit in edits {
+        let mut range = edit.range.clone();
+        let first = key_lines.partition_point(|(line, _)| line.end <= range.start);
+        for (line, _) in key_lines[first..]
+            .iter()
+            .take_while(|(line, _)| line.start < edit.range.end)
+        {
+            if line.start <= range.start {
+                range.start = range.start.max(line.end);
+            } else {
+                // The bytes past this key line stay hidden by the same edit.
+                if range.start < line.start {
+                    out.push(Edit {
+                        range: range.start..line.start,
+                        text: edit.text.clone(),
+                    });
+                }
+                range.start = line.end;
+            }
+        }
+        if range.start < range.end {
+            out.push(Edit {
+                range,
+                text: edit.text,
+            });
         }
     }
     out

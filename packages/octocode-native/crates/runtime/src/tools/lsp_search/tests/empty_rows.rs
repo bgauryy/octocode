@@ -116,6 +116,19 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
         &query,
         serde_json::json!({"path": package.path().join("src/lib.rs").to_string_lossy()}),
     );
+    // A name the package's own source declares is no generated name: the
+    // package-level build script is no evidence for this anchor.
+    std::fs::write(
+        package.path().join("src/declared.rs"),
+        "pub fn execute() {}\n",
+    )
+    .expect("declared");
+    let declared = annotated_empty(&scripted, "noLocations", "none", true);
+    assert!(
+        declared.get("hints").is_none() && declared.get("related").is_none(),
+        "{declared}"
+    );
+    std::fs::remove_file(package.path().join("src/declared.rs")).expect("remove");
     // The executable rerun carries the call; one tip states its risk
     // (it runs repository code) without restating the call.
     let tipped = annotated_empty(&scripted, "noLocations", "none", true);

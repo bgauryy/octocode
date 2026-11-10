@@ -166,6 +166,7 @@ pub(super) fn scoped_fragment_read(
                 _,
                 super::lines::FileHits::Unmatched
                 | super::lines::FileHits::Unavailable
+                | super::lines::FileHits::Panicked
                 | super::lines::FileHits::Oversized,
             )) if resolution.reference.is_some() => {
                 return None;

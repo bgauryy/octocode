@@ -10,6 +10,12 @@ use crate::providers::artifact::ArtifactError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+// An id list is never kept to answer a later question: OSV sends no
+// validator or lifetime with `/v1/querybatch` (measured 2026-11-10), so a
+// kept list could only answer as of an earlier time, and a security answer is
+// not served stale. The records it lists are kept exactly, under their own
+// `(id, modified)` ([`super::hydrate`]).
+
 /// The most queries one `/v1/querybatch` request holds: OSV's own limit. It
 /// answers 1000 and refuses 1001 with HTTP 400 `too many queries` (measured
 /// 2026-11-07), so a larger batch is split here and never sent whole.
@@ -65,9 +71,9 @@ async fn request(net: &Net<'_>, chunk: &[PageQuery<'_>]) -> Vec<Result<Page, Art
         .iter()
         .map(|query| query.ask.body(query.token))
         .collect::<Vec<_>>();
-    let answered = post(net, "querybatch", &json!({"queries": queries}), &target).await;
+    let asked = json!({"queries": queries});
     let failed = |error: ArtifactError| chunk.iter().map(|_| Err(error.clone())).collect();
-    let body = match answered {
+    let body = match post(net, "querybatch", &asked, &target).await {
         Ok(body) => body,
         Err(error) => return failed(error),
     };
@@ -78,7 +84,7 @@ async fn request(net: &Net<'_>, chunk: &[PageQuery<'_>]) -> Vec<Result<Page, Art
             .map(|(result, query)| {
                 page(result).map_err(|reason| malformed(&reason, &query.ask.target()))
             })
-            .collect(),
+            .collect::<Vec<_>>(),
         Err(reason) => failed(malformed(&reason, &target)),
     }
 }

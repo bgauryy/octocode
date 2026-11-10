@@ -178,6 +178,7 @@ fn finish(
     failure: Option<FailureKind>,
     all_failed: bool,
 ) -> Result<ToolOutcome, ContractValidationError> {
+    structured_content.edit(super::page_receipts::drop_later_page_receipts);
     let paged = reshaped || structured_content.get("responsePagination").is_some();
     if paged {
         structured_content

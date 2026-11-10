@@ -1,5 +1,6 @@
 //! Reading, parsing and mapping each walked file of a graph-facts scan.
 
+use crate::num::saturating_u32;
 use std::{path::Path, sync::Arc};
 
 mod facts;
@@ -103,7 +104,7 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
     let mut rest = entries.as_slice();
     while !rest.is_empty() {
         if pacer.spent() || held > limit {
-            scan_resume = Some(u32::try_from(skip + evaluated).unwrap_or(u32::MAX));
+            scan_resume = Some(saturating_u32(skip + evaluated));
             break;
         }
         let chunk = &rest[..pacer.next_chunk().min(rest.len())];
@@ -147,7 +148,7 @@ pub(super) fn evaluate_walk_with_registry<T: Send>(
     // Every cut resumes where it stopped: the walk cap of an unset
     // `max_files`, and a caller's file window.
     if scan_resume.is_none() && truncated {
-        scan_resume = Some(u32::try_from(skip + evaluated).unwrap_or(u32::MAX));
+        scan_resume = Some(saturating_u32(skip + evaluated));
     }
     let truncated = truncated || scan_resume.is_some();
     kept.sort_unstable_by(|left, right| left.0.cmp(&right.0));

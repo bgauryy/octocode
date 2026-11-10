@@ -45,7 +45,9 @@ fn empty_selection_preserves_provider_page_and_unfiltered_recovery() {
     // The page says what it kept, once, and that empty is no absence.
     assert_eq!(
         data["warnings"],
-        json!(["classification kept 0 of 1 hit that pass the classifiers. An empty classified result is not absence: next.unfiltered lists them all."]),
+        json!([
+            "classification kept 0 of 1 hit that pass the classifiers. An empty classified result is not absence: next.unfiltered lists them all."
+        ]),
         "{data}"
     );
     let provider_next = &data["next"]["nextPage"]["input"]["queries"][0];

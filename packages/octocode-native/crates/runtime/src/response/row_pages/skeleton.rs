@@ -42,9 +42,12 @@ pub(super) fn continues_chars(array: &str, index: usize) -> usize {
 /// unless it is the pointer's next step, guidance, a core-declared
 /// page-context field at that row pointer (`pageContextFields`: identity,
 /// next and disclosure fields whole, required evidence emptied, see
-/// [`PageContextFields::keep_later`]), or a holder of a declared collection
+/// [`PageContextFields::keep_later`]), or a declared collection itself
 /// (emptied beside the paged one, and dropped by the final materialization
-/// pass once the part is whole).
+/// pass once the part is whole). An object or array that only holds declared
+/// collections off the pointer's path rides the first part: its collections
+/// are delivered by the parts that page them, and repeating its context on
+/// every later part would outgrow the page.
 ///
 /// [`PageContextFields::keep_later`]: crate::contracts::output_fields::PageContextFields::keep_later
 pub(super) fn lean_later_context(
@@ -53,13 +56,8 @@ pub(super) fn lean_later_context(
     context: &crate::contracts::output_fields::PageContextFields,
     routes: &crate::contracts::output_fields::CollectionRoutes,
 ) {
-    let holders = collection_paths(skeleton, routes);
-    let holds = |path: &str| {
-        holders.iter().any(|held| {
-            held.strip_prefix(path)
-                .is_some_and(|tail| tail.is_empty() || tail.starts_with('/'))
-        })
-    };
+    let collections = collection_paths(skeleton, routes);
+    let holds = |path: &str| collections.iter().any(|held| held == path);
     let mut node = Some(skeleton);
     let mut at = String::new();
     for segment in pointer.trim_start_matches('/').split('/') {

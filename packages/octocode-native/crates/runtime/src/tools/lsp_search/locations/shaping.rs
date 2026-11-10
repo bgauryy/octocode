@@ -319,10 +319,13 @@ pub(in super::super) fn public_location(internal: Value) -> Value {
     {
         public.insert("path".into(), json!(uri_to_path(uri)));
     }
-    let display = range
-        .as_ref()
-        .and_then(public_range)
-        .or_else(|| window.clone());
+    let display = range.as_ref().and_then(public_range).or_else(|| {
+        let mut window = window.clone()?;
+        let end = window.get("endLine").and_then(Value::as_u64)?;
+        window.as_object_mut()?.remove("endLine");
+        display_end(&mut window, end);
+        Some(window)
+    });
     let symbol_start = display
         .as_ref()
         .and_then(|display| display.get("startLine"))

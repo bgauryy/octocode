@@ -177,9 +177,13 @@ async fn capped_search_states_the_full_match_count() {
         json!({"owner":"o","sort":{"by":"stars","order":"desc"},"operation":"search"}),
     )
     .await;
+    // The cap is stated once, as the warning that carries the full count;
+    // `isPartial` and `totalItemsCapped` stay as facts.
+    assert!(out.data.get("partialReasons").is_none(), "{}", out.data);
+    assert_eq!(out.data["isPartial"], json!(true), "{}", out.data);
     assert_eq!(
-        out.data["partialReasons"],
-        json!(["providerResultCap"]),
+        out.data["pagination"]["totalItemsCapped"],
+        json!(true),
         "{}",
         out.data
     );
@@ -328,5 +332,61 @@ async fn search_failures_lead_to_their_repair() {
         next["findRepository2"]["input"]["queries"][0],
         json!({"operation":"list","owner":"o"}),
         "{next}"
+    );
+}
+
+/// A repository search the token only partly covered (SAML enforcement
+/// withheld organizations) says so in `warnings`, as code search does: the
+/// page is not a complete answer.
+#[tokio::test]
+async fn a_partly_withheld_repository_search_warns_to_authorize_the_token() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/repositories"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("x-github-sso", "partial-results; organizations=21955855")
+                .set_body_json(page(vec![repo_item("r", false)])),
+        )
+        .mount(&server)
+        .await;
+    let out = run(&server, json!({"keywords":["x"],"operation":"search"})).await;
+    let warnings = out.data["warnings"].to_string();
+    assert!(
+        warnings.contains("SAML") && warnings.contains("21955855"),
+        "{}",
+        out.data
+    );
+}
+
+/// The first page leads from its first repository to that repository's
+/// tree, once; a later page leads nowhere new.
+#[tokio::test]
+async fn the_first_page_leads_to_the_first_repositorys_tree() {
+    let server = MockServer::builder().start().await;
+    mount_json(
+        &server,
+        "/api/v3/search/repositories",
+        200,
+        page(vec![repo_item("first", false), repo_item("second", false)]),
+    )
+    .await;
+    let out = run(&server, json!({"keywords":["x"],"operation":"search"})).await;
+    let leads = out.data["related"].to_string();
+    assert!(leads.contains("ghStructure"), "{}", out.data);
+    assert!(
+        leads.contains("first") && !leads.contains("second"),
+        "{}",
+        out.data
+    );
+    let later = run(
+        &server,
+        json!({"keywords":["x"],"page":2,"operation":"search"}),
+    )
+    .await;
+    assert!(
+        !later.data["related"].to_string().contains("ghStructure"),
+        "{}",
+        later.data
     );
 }

@@ -81,7 +81,6 @@ fn history_depth(query: &GhCloneRepoQuery) -> u64 {
 pub struct CloneConfig {
     pub home: PathBuf,
     pub persistent: bool,
-    pub lock_wait: Duration,
     /// The runtime's network timeout: git's network steps are sized from it.
     pub network_timeout: Duration,
 }
@@ -93,7 +92,6 @@ impl CloneConfig {
         Self {
             home: home.into(),
             persistent: true,
-            lock_wait: Duration::from_secs(5 * 60),
             network_timeout: Duration::ZERO,
         }
         .with_network_timeout(defaults.network_timeout)

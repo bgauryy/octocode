@@ -279,7 +279,6 @@ impl ToolRuntime {
             section_sessions,
             lsp_execution_config,
             lsp_answers,
-            lsp_requested: Arc::default(),
             graph_rows,
             workspace_root,
         })

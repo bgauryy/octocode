@@ -4,7 +4,7 @@ use crate::policy::path::PathPolicy;
 use crate::tools::lsp_search::scope::canonical;
 use crate::tools::page_memo::directory_ignore_inputs;
 use octocode_engine::search::text_search::TextSearchPathFilter;
-use octocode_engine::search::walk::{NestedRepositories, walk_builder};
+use octocode_engine::search::walk::NestedRepositories;
 use octocode_engine::types::IgnorePolicy;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -71,18 +71,14 @@ fn walk_family(
     nested: Option<Arc<NestedRepositories>>,
     stopped: &(dyn Fn() -> bool + Sync),
 ) -> Walk {
-    let prune = crate::policy::prune::OwnWalk::new(root, []);
     let filter = Arc::new(crate::policy::path::DiscoveryWalk::owned(policy.clone()));
     let dirs_policy = Arc::clone(&filter);
-    let mut builder = walk_builder(root, ignores, None);
-    builder.filter_entry(move |entry| {
+    let builder = crate::tools::pruned_walk_keeping(root, true, [], ignores, move |entry| {
         let path = entry.path();
-        let is_dir = entry.file_type().is_some_and(|kind| kind.is_dir());
-        !is_dir
-            || (!prune.prunes(path, true)
-                && !nested
-                    .as_ref()
-                    .is_some_and(|nested| nested.skips(path, true))
+        !entry.file_type().is_some_and(|kind| kind.is_dir())
+            || (!nested
+                .as_ref()
+                .is_some_and(|nested| nested.skips(path, true))
                 && dirs_policy.allows_entry(path, entry.file_type()))
     });
     let seen = Mutex::new((BTreeSet::new(), Vec::new()));

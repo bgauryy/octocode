@@ -206,9 +206,7 @@ fn project_files(
                 }
                 None => shown,
             };
-            // Rows on later pages are named by line so a reader can fetch
-            // them directly instead of paging.
-            let span = (facts.start as usize, facts.end as usize, shown.len());
+            let span = (facts.start as usize, facts.end as usize);
             SearchFile {
                 declarations: Vec::new(),
                 matches: (!layout.list).then_some(shown),
@@ -218,13 +216,7 @@ fn project_files(
                     .then_some(f.match_count),
                 term_counts: (is_count_view(query) && !f.term_counts.is_empty())
                     .then_some(f.term_counts),
-                pagination: file_pagination(
-                    layout,
-                    facts.total,
-                    span,
-                    (&facts.later, facts.unlisted),
-                    match_page,
-                ),
+                pagination: file_pagination(layout, facts.total, span, match_page),
                 path: f.path,
                 match_keys: Vec::new(),
             }

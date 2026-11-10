@@ -187,9 +187,10 @@ pub(in crate::tools::lsp_search) fn mark_truncation(
 }
 
 /// The lead past `depth`: the walk answered every level it was asked
-/// for, but nodes at its last level were never expanded, so whether they
-/// have results of their own (a subclass of a subclass, a caller's callers)
-/// is unknown. `next.walkDeeper` reruns the query one level deeper from its
+/// for, but nodes first reached at its last level were never expanded, so
+/// whether they have results of their own (a subclass of a subclass, a
+/// caller's callers) is unknown. A last level of nodes the walk already
+/// expanded (a cycle) leaves nothing unknown and offers no lead. `next.walkDeeper` reruns the query one level deeper from its
 /// start (no cursor), on the page that ends the listing: none while a
 /// remaining page (site, candidate or importer window) is offered, since
 /// those list the same walk. `depth` has no maximum, so a frontier always
@@ -204,16 +205,24 @@ fn offer_deeper_walk(
     paths: &PathPolicy,
 ) {
     let depth = lsp_search_query::depth(query).unwrap_or(1);
-    let mut frontier = walks
-        .iter()
-        .flat_map(|(expansion, walk)| {
-            walk.edges
-                .iter()
-                .filter(|edge| edge.level == depth)
-                .map(|edge| public_edge(*expansion, edge, None))
-        })
-        .collect::<Vec<_>>();
-    let reached = frontier.len();
+    let last_level = |unexpanded_only: bool| {
+        walks
+            .iter()
+            .flat_map(|(expansion, walk)| {
+                walk.edges
+                    .iter()
+                    .filter(|edge| edge.level == depth)
+                    .filter(|edge| {
+                        !unexpanded_only || walk.unexpanded_last_level.contains(&edge.node)
+                    })
+                    .map(|edge| public_edge(*expansion, edge, None))
+            })
+            .collect::<Vec<_>>()
+    };
+    let reached = last_level(false).len();
+    // Only a node the walk never expanded can have results of its own.
+    let mut frontier = last_level(true);
+    let unexpanded = frontier.len();
     test_scope::retain_callers(query, paths, &mut frontier);
     let pages_remain = row
         .get("next")
@@ -225,8 +234,12 @@ fn offer_deeper_walk(
     if reached == 0 || pages_remain {
         return;
     }
-    let change = if frontier.is_empty() {
+    // A scope that left out every last-level edge leads to the call that
+    // lists them; a last level of already-expanded nodes leads nowhere.
+    let change = if frontier.is_empty() && unexpanded > 0 {
         json!({"testCode": "include"})
+    } else if frontier.is_empty() {
+        return;
     } else {
         json!({"depth": depth + 1})
     };

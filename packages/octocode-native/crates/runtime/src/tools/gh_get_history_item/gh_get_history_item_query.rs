@@ -44,6 +44,31 @@ pub(super) fn operation(query: &Q) -> ItemOperation {
         Q::Compare5(..) | Q::CompareMatchString(..) => ItemOperation::Compare,
     }
 }
+/// What a read names, taken from its variant's own fields: the item a
+/// not-found answer says is missing.
+pub(super) enum Subject<'a> {
+    PullRequest(u64),
+    Issue(u64),
+    Commit(&'a str),
+    Compare { base: &'a str, head: &'a str },
+}
+pub(super) fn subject(query: &Q) -> Subject<'_> {
+    match query {
+        Q::PullRequest0(q) => Subject::PullRequest(q.number.get()),
+        Q::PullRequestMatchString(q) => Subject::PullRequest(q.number.get()),
+        Q::Issue(q) => Subject::Issue(q.number.get()),
+        Q::Commit3(q) => Subject::Commit(q.ref_.as_str()),
+        Q::CommitMatchString(q) => Subject::Commit(q.ref_.as_str()),
+        Q::Compare5(q) => Subject::Compare {
+            base: q.base_ref.as_str(),
+            head: q.head_ref.as_str(),
+        },
+        Q::CompareMatchString(q) => Subject::Compare {
+            base: q.base_ref.as_str(),
+            head: q.head_ref.as_str(),
+        },
+    }
+}
 pub(crate) fn owner(query: &Q) -> &str {
     any_operation!(query, q => q.owner.as_str())
 }

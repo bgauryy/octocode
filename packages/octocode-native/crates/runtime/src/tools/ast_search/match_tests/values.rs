@@ -19,7 +19,7 @@ fn a_match_offers_a_read_of_the_top_files_hits() {
     let row = &read["input"]["queries"][0];
     assert_eq!(
         row["ranges"],
-        json!([{"startLine":1,"endLine":5},{"startLine":9,"endLine":12}]),
+        json!([{"startLine":1,"endLine":5},{"startLine":9,"endLine":15}]),
         "{out}"
     );
     assert!(
@@ -49,7 +49,7 @@ fn a_multi_line_match_read_covers_the_whole_match() {
         ["queries"][0];
     assert_eq!(
         row["ranges"],
-        json!([{"startLine":1,"endLine":11}]),
+        json!([{"startLine":1,"endLine":14}]),
         "{out}"
     );
 }

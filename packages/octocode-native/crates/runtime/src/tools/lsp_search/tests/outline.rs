@@ -173,7 +173,7 @@ fn locations_are_compact_camel_case_and_one_based() {
     assert!(public.get("range").is_none(), "one coordinate form only");
     assert_eq!(
         public["displayRange"],
-        serde_json::json!({"startLine": 6, "startCharacter": 4, "endLine": 6})
+        serde_json::json!({"startLine": 6, "startCharacter": 4})
     );
     assert!(public.get("contentStartLine").is_none());
     assert_eq!(public["content"], "6\tpub fn greet() {}", "{public}");

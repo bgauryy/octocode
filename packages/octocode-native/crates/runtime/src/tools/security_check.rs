@@ -395,14 +395,13 @@ fn other_repository(repo: &str, results: &[source::SourceResult]) -> Option<Stri
 #[path = "security_check/tests.rs"]
 pub(crate) mod tests;
 
-
 /// This tool's recovery for the shared response stages.
 pub(crate) struct Output;
 impl crate::response::output::ToolOutput for Output {
     /// A miss names each source asked (OSV, GitHub, the registry) and says
     /// that it proves nothing about any other source.
     fn error_hint(&self, code: ErrorCode, _query: &serde_json::Value) -> Option<&'static str> {
-        (code == ErrorCode::NotFound).then_some(crate::response::output::NO_HINT)
+        crate::response::output::not_found_is_the_answer(code)
     }
 }
 

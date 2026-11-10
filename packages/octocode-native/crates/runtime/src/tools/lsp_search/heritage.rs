@@ -34,6 +34,42 @@ pub(super) fn fallback_provider(operation: &str) -> Option<&'static str> {
     }
 }
 
+/// Subtypes read from the heritage clauses of every workspace file that
+/// spells the queried name: the syntax answer standing by for a failed
+/// implementation request, or beside the answer of a rung that gave one.
+/// `None` when no name is queried or the text scan of the workspace could
+/// not run.
+pub(super) async fn scan_workspace(
+    query: &super::LspSearchQuery,
+    scope: &super::scope::Scope,
+    policy: &crate::policy::path::PathPolicy,
+    cancel: &dyn crate::execution::cancel::CancellationCheck,
+) -> Result<Option<HeritageScan>, LspFailure> {
+    let Some(base) =
+        super::lsp_search_query::symbol_name(query).filter(|name| !name.trim().is_empty())
+    else {
+        return Ok(None);
+    };
+    let Some(files) = scope.text_files(base, policy, cancel).await? else {
+        return Ok(None);
+    };
+    let name = base.to_owned();
+    let scanned = files.clone();
+    let Some((found, unread)) = super::blocking_cancellable(cancel, move |stopped| {
+        scan_subtypes(&scanned, &name, stopped)
+    })
+    .await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(HeritageScan {
+        base: base.to_owned(),
+        files: files.len(),
+        found,
+        unread,
+    }))
+}
+
 /// One base type named by a declaration's heritage clause.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct BaseType {

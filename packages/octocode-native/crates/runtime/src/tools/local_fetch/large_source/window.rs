@@ -1,6 +1,7 @@
 //! One streamed window of a read: its span, the pass that holds it, and the
 //! page served from it.
 
+use super::error::ReadError;
 use super::held::Want;
 use super::page::{continue_window, map_to_file, past_end_row, served_span};
 use super::proven::Proven;
@@ -15,55 +16,26 @@ use octocode_engine::num::saturating_usize;
 use std::path::Path;
 
 /// Why a page of a source whose structure outran the memory budget hides its values.
-const EVERY_VALUE_NOTE: &str = "redactedContent: this source names a Kubernetes Secret, a JSON Web Key or a Docker registry config, and its nesting outgrew the memory budget before the walk that places their values finished, so every value on this page is hidden, secret or not. Split the source to read it.";
-
-/// Drop the byte continuation of a page of a source each of whose windows hides
-/// every value on its own: the next window's offsets would count another view,
-/// so its page would gap or repeat. The rest of line `line` is disclosed as
-/// unread; the lines after it continue by line.
-fn withhold_byte_page(result: &mut LocalFetchResult, line: usize, reads_on: bool) {
-    let Some(next) = result.next.as_mut() else {
-        return;
-    };
-    if !next
-        .continue_window
-        .as_ref()
-        .is_some_and(|call| local_fetch_query::unit(&call.query) == ReadProgressUnit::Bytes)
-    {
-        return;
-    }
-    next.continue_window = None;
-    // The line's tail is terminal: its byte pages end here.
-    let end = result.pagination.as_mut().map_or(0, |page| {
-        page.has_more = false;
-        page.next_offset = None;
-        page.offset + page.length
-    });
-    let rest = if reads_on {
-        " The lines after it read on."
-    } else {
-        ""
-    };
-    result.warnings.push(format!(
-        "Line {line} is not read past byte {end} of this page's view: the source's nesting outgrew the memory budget, so each window hides every value on its own and no later byte page shares these offsets.{rest}"
-    ));
-    // Every page of the fallback names the memory budget once core declares
-    // it ([`every_value_reason`]); until then the withhold keeps its old reason.
-    if !result
-        .partial_reasons
-        .contains(&PartialReason::SecurityWalkMemoryBudget)
-    {
-        result.terminal_limit(PartialReason::SecuritySelectedView);
-    }
-}
+const EVERY_VALUE_NOTE: &str = "redactedContent: this source names a Kubernetes Secret, a JSON Web Key or a Docker registry config, and the walk that places their values outgrew the memory budget (nesting too deep, too many values, or a token too long to carry) before it finished, so every value on this page is hidden, secret or not. Split the source to read it.";
 
 /// Disclose a page of the every-value fallback: its values are hidden, secret
-/// or not, because the structure walk outgrew the memory budget. A terminal
-/// limit under core's reason for it, once the contract declares that reason.
+/// or not, because the structure walk outgrew the memory budget.
 fn every_value_reason(result: &mut LocalFetchResult) {
-    if let Some(reason) = PartialReason::walk_memory_budget() {
-        result.terminal_limit(reason);
+    result.terminal_limit(PartialReason::SecurityWalkMemoryBudget);
+}
+
+/// The row of a streamed read that failed: a read the memory budget has no room
+/// to place the values of is refused whole, and says why.
+pub(super) fn read_failed(q: &LocalFetchQuery, error: ReadError) -> LocalFetchResult {
+    let mut result = LocalFetchResult::error(
+        local_fetch_query::path(q).to_owned(),
+        ErrorCode::FileReadFailed,
+        error.message().to_owned(),
+    );
+    if error == ReadError::Refused {
+        every_value_reason(&mut result);
     }
+    result
 }
 
 /// The file lines one streamed window of `q` holds.
@@ -169,7 +141,7 @@ impl Opened<'_> {
         &self,
         wants: &[Want],
         cancel: &impl CancellationCheck,
-    ) -> Result<Vec<Streamed>, String> {
+    ) -> Result<Vec<Streamed>, ReadError> {
         match self.proven {
             Some((proven, total_lines)) => proven.windows(self.file, wants, total_lines, cancel),
             None => {
@@ -201,14 +173,10 @@ pub(super) fn stream_window(
     // One span streams exactly one window.
     let streamed = source
         .windows(&[span.want(source.limits.window)], cancel)
-        .and_then(|mut windows| windows.pop().ok_or_else(|| "no window streamed".to_owned()));
+        .and_then(|mut windows| windows.pop().ok_or_else(|| "no window streamed".into()));
     match streamed {
         Ok(streamed) => serve_window(q, streamed, span, source, modified, share, security, cancel),
-        Err(error) => LocalFetchResult::error(
-            local_fetch_query::path(q).to_owned(),
-            ErrorCode::FileReadFailed,
-            error,
-        ),
+        Err(error) => read_failed(q, error),
     }
 }
 
@@ -339,10 +307,6 @@ pub(super) fn serve_window(
         // The lines the page returned, which the window's page budget may have
         // cut short of the window it held.
         let served = served_span(&result).unwrap_or((streamed.first, held_last));
-        if streamed.every_value {
-            // The same fact `continue_window` pages the next line by.
-            withhold_byte_page(&mut result, served.1, served.1 < last);
-        }
         if let Err(error) = continue_window(
             q,
             &mut result,

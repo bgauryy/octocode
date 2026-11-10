@@ -3,6 +3,7 @@
 use tree_sitter::Node;
 
 use crate::graph::{GraphPosition, GraphRange};
+use crate::num::saturating_u32;
 
 /// Graph positions of syntax-tree nodes: the shared [`LineIndex`] under the
 /// tree-sitter rule (`\n` only), with UTF-16 columns.
@@ -87,7 +88,7 @@ pub(super) fn syntax_error_lines(root: Node<'_>) -> Vec<[u32; 2]> {
     let mut stack = vec![root];
     while let Some(node) = stack.pop() {
         if node.is_error() || node.is_missing() {
-            let line = |row: usize| u32::try_from(row + 1).unwrap_or(u32::MAX);
+            let line = |row: usize| saturating_u32(row + 1);
             let (start, end) = (node.start_position(), node.end_position());
             // A node ending at column 0 ends with the previous line's newline.
             let last = if end.column == 0 && end.row > start.row {

@@ -18,6 +18,9 @@ const CREDENTIAL_ASSIGNMENT_PATTERNS: &[(&str, ValueTest)] = &[
     ("propertiesFileCredential", ValueTest::FileClass),
     ("yamlSecretValue", ValueTest::Scalar),
     ("dotnetConnectionStrings", ValueTest::Field),
+    ("sqlUserPassword", ValueTest::Field),
+    ("xmlCredentialElement", ValueTest::Scalar),
+    ("xmlCredentialAttribute", ValueTest::Field),
 ];
 
 /// The quotes a literal opens with: the text before a quoted value ends in one.
@@ -35,9 +38,10 @@ pub(super) enum ValueTest {
     /// (`"bin/with_credentials.mjs": "<sha256>"`) is a checksum manifest entry.
     /// See [`assigns_a_credential`].
     KeyName,
-    /// [`ValueTest::KeyName`] for a YAML scalar of any length, except the
-    /// keywords YAML reads as a boolean or null ([`is_non_string_scalar`]),
-    /// which hold no secret. A quoted scalar is also a [`ValueTest::Quoted`]
+    /// [`ValueTest::KeyName`] for a YAML scalar (or an XML element's text) of
+    /// any length, except the keywords YAML reads as a boolean or null
+    /// ([`is_non_string_scalar`]), which hold no secret, and a placeholder
+    /// ([`is_template`]). A quoted scalar is also a [`ValueTest::Quoted`]
     /// literal: a template or a short value under an opaque-string key
     /// (`token`) stays.
     Scalar,
@@ -74,7 +78,7 @@ impl ValueTest {
     pub(super) fn redacts_in_comment_by(self, key: &impl KeyFacts, secret: &str) -> bool {
         self.redacts_by_name(key, secret)
             && secret.chars().any(|c| !c.is_alphabetic())
-            && !is_sentence(key, secret)
+            && (!is_sentence(key, secret) || opens_with_opaque_word(key, secret))
             && !secret.contains('`')
     }
 
@@ -124,6 +128,7 @@ impl ValueTest {
             Self::Scalar => {
                 assigns_a_credential(key, secret)
                     && !is_non_string_scalar(secret)
+                    && !is_template(secret.trim())
                     && (!key.ends_with_quote() || is_quoted_credential(key, secret))
             }
             Self::Quoted => {
@@ -144,6 +149,27 @@ impl ValueTest {
 /// are a value.
 pub(super) fn is_sentence(key: &impl KeyFacts, secret: &str) -> bool {
     key.ends_with_colon() && secret.contains(char::is_whitespace)
+}
+
+/// Characters of a comment's first word after `name:` that make it a secret
+/// whatever words follow it (`// password: Fake0Moo9Zed and more`): the
+/// length of a chosen secret's shortest opaque word.
+const COMMENT_OPAQUE_WORD_CHARS: usize = 8;
+
+/// Whether the first word of a comment sentence after `name:` is a secret and
+/// no word of the sentence: a chosen credential's word ([`is_chosen_secret`])
+/// of [`COMMENT_OPAQUE_WORD_CHARS`] or more, or under any credential word one
+/// of [`OPAQUE_LITERAL_CHARS`] or more that mixes letters and digits. A
+/// sentence of plain words (`must be at least 8 characters`) opens with none.
+fn opens_with_opaque_word(key: &impl KeyFacts, secret: &str) -> bool {
+    let Some(word) = secret.split_whitespace().next() else {
+        return false;
+    };
+    let word = word.trim_end_matches(['.', ',', ';', ')']);
+    let chars = word.chars().count();
+    let mixes = word.chars().any(char::is_alphabetic) && word.chars().any(|c| c.is_ascii_digit());
+    (chars >= COMMENT_OPAQUE_WORD_CHARS && mixes && is_chosen_secret(key, word))
+        || (chars >= OPAQUE_LITERAL_CHARS && mixes && !is_template(word))
 }
 
 /// Whether a literal interpolates an expression (`` `pi-${id}` ``,
@@ -778,6 +804,7 @@ fn is_setting_value(secret: &str) -> bool {
 /// Whether a file-class value under a credential name is no credential:
 /// empty, a reference to another variable or key without a default
 /// (`${NAME}`, `${app.db.password}`, or `$NAME` in env-var shape; a
+/// lone opening bracket, which begins a value over the next lines; a
 /// single-quoted value is a literal, and `${NAME:default}` holds a default
 /// that may be the secret), the tool's own redaction marker, or
 /// a value whose key or option names a location (`TOKEN_FILE=/run/token`,
@@ -794,6 +821,7 @@ fn file_class_value_is_readable(key: &str, secret: &str) -> bool {
                 .strip_prefix('$')
                 .is_some_and(|name| is_reference_name(name, false)));
     value.is_empty()
+        || matches!(value, "(" | "[" | "{")
         || reference
         || is_redaction_marker(value)
         || is_type_expression(value)
@@ -805,9 +833,13 @@ fn file_class_value_is_readable(key: &str, secret: &str) -> bool {
 /// quote-aware rule left around it (`"[REDACTED-SPRINGBOOTSECRETS]"`): text
 /// this tool wrote is no credential, whichever rule reads the line next.
 fn is_redaction_marker(value: &str) -> bool {
+    // The wrappers a literal's own syntax puts around it: a call's `(` and the
+    // quotes, whose partner may be on a later line (a literal split over lines).
+    let value = value.trim_start_matches('(');
     let inner = QUOTES
         .into_iter()
         .find_map(|quote| value.strip_prefix(quote)?.strip_suffix(quote))
+        .or_else(|| value.strip_prefix(QUOTES))
         .unwrap_or(value);
     crate::security::placeholder_regex()
         .find(inner)
@@ -1031,12 +1063,13 @@ fn is_chosen_secret(key: &impl KeyFacts, secret: &str) -> bool {
             .any(|c| c.is_ascii_digit() || !(c.is_alphanumeric() || matches!(c, '_' | '.' | '-')))
 }
 
-/// Whether `secret` is a placeholder to fill in: `<…>`, `${…}`, `{{…}}` or a
+/// Whether `secret` is a placeholder to fill in: `<…>`, `${…}`, `{{…}}`, `{%…%}` or a
 /// format argument (`{value}`, `{0}`: a name or a position in braces).
 fn is_template(secret: &str) -> bool {
     angle_inner(secret).is_some_and(|inner| !is_lone_opaque_word(inner))
         || (secret.starts_with("${") && secret.ends_with('}'))
         || (secret.starts_with("{{") && secret.ends_with("}}"))
+        || (secret.starts_with("{%") && secret.ends_with("%}"))
         || secret
             .strip_prefix('{')
             .and_then(|rest| rest.strip_suffix('}'))
@@ -1114,7 +1147,9 @@ fn is_plain_phrase(key: &impl KeyFacts, secret: &str) -> bool {
 )]
 pub(super) fn key_name(key: &str) -> &str {
     let operators = |c: char| {
-        c.is_whitespace() || QUOTES.contains(&c) || matches!(c, ':' | '=' | '>' | '|' | '?')
+        c.is_whitespace()
+            || QUOTES.contains(&c)
+            || matches!(c, ':' | '=' | '>' | '|' | '?' | '<' | '-')
     };
     let head = without_literal_prefix(key).trim_end_matches(operators);
     // A constructor call that wraps the literal (`token: Some(`,
@@ -1130,12 +1165,55 @@ pub(super) fn key_name(key: &str) -> &str {
             bytes[at] == b':'
                 && at.checked_sub(1).is_none_or(|before| bytes[before] != b':')
                 && bytes.get(at + 1) != Some(&b':')
-                && !head[at..].contains(|c: char| QUOTES.contains(&c) || matches!(c, '{' | '}'))
+                && !holds_quote_or_brace(&head[at..])
         })
-        .map_or(head, |colon| &head[..colon]);
+        .map_or_else(|| go_declared_name(head), |colon| &head[..colon]);
     name.rsplit(|c: char| c.is_whitespace() || QUOTES.contains(&c) || matches!(c, '{' | ',' | '('))
         .next()
         .unwrap_or_default()
+}
+
+/// Whether `text` holds a quote that opens a literal or a brace. A lifetime's
+/// quote (`&'static str`, `Foo<'a>`) opens no literal.
+fn holds_quote_or_brace(text: &str) -> bool {
+    let mut before = None;
+    let mut chars = text.char_indices().peekable();
+    while let Some((_, c)) = chars.next() {
+        let lifetime = c == '\''
+            && matches!(before, Some('&' | '<'))
+            && chars
+                .peek()
+                .is_some_and(|&(_, next)| next.is_ascii_alphabetic() || next == '_');
+        if !lifetime && (QUOTES.contains(&c) || matches!(c, '{' | '}')) {
+            return true;
+        }
+        if !c.is_whitespace() {
+            before = Some(c);
+        }
+    }
+    false
+}
+
+/// The name of a declaration that puts the type after it (`var password
+/// string`, Go): the word before a type word, when it names a credential and
+/// the key holds no operator or bracket before them. Any other text is its
+/// own name.
+fn go_declared_name(head: &str) -> &str {
+    let is_word = |word: &str, extra: &[u8]| {
+        word.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || extra.contains(&b))
+    };
+    let mut words = head.rsplit(char::is_whitespace);
+    match (words.next(), words.next()) {
+        (Some(declared), Some(name))
+            if names_a_credential_word(&name.to_ascii_lowercase())
+                && is_word(declared, b".*[]")
+                && is_word(name, b".-") =>
+        {
+            name
+        }
+        _ => head,
+    }
 }
 
 /// Whether an unquoted `secret` opens with a code statement that assigns

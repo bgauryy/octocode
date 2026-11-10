@@ -249,6 +249,10 @@ pub struct GraphTypeMember {
 pub struct GraphFactDeclaredType {
     pub declaration_id: String,
     pub ty: GraphDeclaredType,
+    /// Declared in the global scope (`declare global { .. }`, or a script
+    /// file): an interface of the same name in any other file merges into it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub global: bool,
 }
 
 /// The call whose value a member call's receiver is: the bytes of that call

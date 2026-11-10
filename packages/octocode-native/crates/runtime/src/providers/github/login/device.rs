@@ -5,6 +5,7 @@ use super::{
     token_poll_form,
 };
 use crate::civil_date::unix_secs;
+use octocode_engine::num::saturating_u32;
 use octocode_github::{ProviderError, ProviderErrorKind};
 use octocode_io::cancellation::Cancellation;
 use serde::Deserialize;
@@ -44,12 +45,7 @@ pub(super) fn slow_down_interval(
     second: Duration,
 ) -> Duration {
     let floor = current + second * 5;
-    returned.map_or(floor, |secs| (second * secs_u32(secs)).max(floor))
-}
-
-/// A device-flow second count as a `Duration` multiplier.
-fn secs_u32(secs: u64) -> u32 {
-    u32::try_from(secs).unwrap_or(u32::MAX)
+    returned.map_or(floor, |secs| (second * saturating_u32(secs)).max(floor))
 }
 
 pub async fn login_device_flow_in_store(
@@ -104,8 +100,9 @@ pub(super) async fn login_device_flow_with_store(
         "Open {} and enter code {}",
         device.verification_uri, device.user_code
     );
-    let deadline = Instant::now() + second * secs_u32(device.expires_in.unwrap_or(900).min(900));
-    let mut interval = second * secs_u32(device.interval.unwrap_or(5).max(1));
+    let deadline =
+        Instant::now() + second * saturating_u32(device.expires_in.unwrap_or(900).min(900));
+    let mut interval = second * saturating_u32(device.interval.unwrap_or(5).max(1));
     while Instant::now() < deadline {
         tokio::select! {
             _ = cancellation.cancelled() => return Err(login_cancelled()),
