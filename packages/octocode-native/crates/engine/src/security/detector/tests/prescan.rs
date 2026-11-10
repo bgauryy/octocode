@@ -6,8 +6,10 @@ use super::*;
 /// The prescan gate is necessary: every text a pattern matches selects that
 /// pattern. Texts are generated from each pattern's own syntax tree (random
 /// branches, class members, Unicode case variants and repetition counts), so
-/// every gate `build.rs` derives, prefix or structural, is checked against
-/// real matches, `(?i)` patterns included.
+/// every gate `build.rs` derives, prefix, structural or a fallback's weak
+/// gate, is checked against real matches, `(?i)` patterns included, in both
+/// the full form and the form runtime picks for the text (ASCII classes and
+/// word boundaries on ASCII text).
 #[test]
 fn every_text_a_pattern_matches_passes_its_prescan_gate() {
     let mut rng = Lcg(0x5eed);
@@ -18,7 +20,8 @@ fn every_text_a_pattern_matches_passes_its_prescan_gate() {
             let mut text = String::from("\n");
             sample(&hir, &mut rng, &mut text);
             text.push('\n');
-            if !pattern_regex(idx).is_match(&text) {
+            if !pattern_regex(idx).is_match(&text) && !pattern_regex_for(idx, &text).is_match(&text)
+            {
                 continue;
             }
             checked[idx] += 1;
@@ -183,4 +186,112 @@ fn a_whole_source_scan_is_asked_only_where_a_window_cannot_decide() {
     assert!(!patterns.named_by("data:"));
     assert!(!patterns.named_by("  name: x"));
     assert!(!patterns.named_by("ordinary line"));
+}
+
+fn pattern_index(name: &str) -> usize {
+    PATTERNS
+        .iter()
+        .position(|pattern| pattern.name == name)
+        .expect(name)
+}
+
+/// A pattern with no prefix literal still requires some text inside every
+/// match, so a line without it is no candidate: the pattern's regex never
+/// runs on it.
+#[test]
+fn fallback_pattern_is_no_candidate_where_text_its_match_requires_is_absent() {
+    let log_line =
+        "2026-11-10T22:13:22Z INFO svc-6 id=a16563e70c9b queue depth sampled took=8942ms";
+    let candidates = candidate_pattern_indices(log_line);
+    for name in [
+        "azureAdClientSecret",
+        "faunadbKey",
+        "twilioApiKey",
+        "twilioAccountSid",
+    ] {
+        assert!(
+            !candidates.contains(&pattern_index(name)),
+            "{name} needs text the line lacks, yet it is a candidate"
+        );
+    }
+}
+
+/// Matching texts for every fallback pattern, each placed at a line start, a
+/// line end, beside Unicode, and as a near miss one byte short of the text its
+/// match requires: whatever the regex matches, the pattern is a candidate.
+#[test]
+fn fallback_patterns_stay_candidates_wherever_their_regex_matches() {
+    let hex = |n: usize| {
+        "0123456789abcdef"
+            .chars()
+            .cycle()
+            .take(n)
+            .collect::<String>()
+    };
+    let alnum = |n: usize| "aB3dE5gH7jK".chars().cycle().take(n).collect::<String>();
+    let shapes = [
+        format!("123456789:{}", alnum(35)),
+        format!("{}-us12", hex(32)),
+        "Server=db;User Id=sa;Password=hunter2".to_owned(),
+        "Password=hunter2;Server=db;".to_owned(),
+        format!("{}1Q~{}", alnum(3), alnum(34)),
+        format!("M{}.{}.{}", alnum(23), alnum(6), alnum(27)),
+        format!("fn{}", alnum(40)),
+        format!("AC{}", hex(32)),
+        format!("SK{}", "abcdef0123456789".repeat(2)),
+        format!("{}.{}.{}", alnum(14), alnum(6), alnum(16)),
+        hex(40),
+        format!("{}-{}-{}-{}-{}", hex(8), hex(4), hex(4), hex(4), hex(12)),
+        format!(
+            "azure_subscription_id = {}-{}-{}-{}-{}",
+            hex(8),
+            hex(4),
+            hex(4),
+            hex(4),
+            hex(12)
+        ),
+        format!(
+            "{}-{}-{}-{}-{}.onmicrosoft.com",
+            hex(8),
+            hex(4),
+            hex(4),
+            hex(4),
+            hex(12)
+        ),
+    ];
+    let mut covered = std::collections::HashSet::new();
+    for shape in &shapes {
+        let variants = [
+            shape.clone(),
+            format!("{shape}\n"),
+            format!("\n{shape}"),
+            format!("é {shape} ſ"),
+            format!("日本語 {shape} \u{212A}"),
+            format!("x={shape};"),
+            format!("\"{shape}\""),
+            shape.replace(['~', ';', '.'], "_"),
+            shape.replace("Q~", "Q-"),
+            shape.to_lowercase(),
+        ];
+        for text in variants {
+            let candidates = candidate_pattern_indices(&text);
+            for (idx, pattern) in PATTERNS.iter().enumerate() {
+                if pattern_regex(idx).is_match(&text) {
+                    covered.insert(idx);
+                    assert!(
+                        candidates.contains(&idx),
+                        "{} matches {text:?} but is no candidate",
+                        pattern.name
+                    );
+                }
+            }
+        }
+    }
+    for &idx in gates::FALLBACK {
+        assert!(
+            covered.contains(&idx),
+            "no sample reached fallback pattern {}",
+            PATTERNS[idx].name
+        );
+    }
 }

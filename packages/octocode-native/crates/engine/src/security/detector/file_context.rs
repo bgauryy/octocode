@@ -7,8 +7,8 @@ use crate::security::patterns::PATTERNS;
 use regex::Regex;
 use std::sync::LazyLock;
 
-/// Index-aligned with PATTERNS: the pattern is a bare shape, no literal gates
-/// it (see `gates::FALLBACK`). With a file context, that context is all that
+/// Index-aligned with PATTERNS: the pattern is a bare shape, no strong literal
+/// gates it (see `gates::FALLBACK`). With a file context, that context is all that
 /// tells a key from any other value of its shape: `wandbApiKey` is every
 /// 40-hex string, so a commit SHA beside a path naming `wandb` is not one.
 pub(super) static BARE_SHAPE: LazyLock<Vec<bool>> = LazyLock::new(|| {

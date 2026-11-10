@@ -213,24 +213,3 @@ fn a_match_starting_inside_a_continued_secret_joins_it() {
     );
     assert_eq!(replaced.len(), 1, "{replaced:?}");
 }
-
-#[test]
-#[ignore]
-fn nifty_time_fallback_patterns() {
-    let text = std::fs::read_to_string("/Users/bgaryy/code/octocode/.octocode/tmp/b291-b1/big.log").unwrap();
-    let lines: Vec<&str> = text.lines().filter(|l| l.contains("INFO")).collect();
-    let scope = Scope::File("/x/big.log");
-    let first = lines[0];
-    let mut rows = Vec::new();
-    for &idx in gates::FALLBACK {
-        if !should_apply(idx, scope, first) { rows.push((0.0, idx, 0usize, false)); continue; }
-        let t = std::time::Instant::now();
-        let mut hits = 0usize;
-        for l in &lines { if pattern_regex_for(idx, l).is_match(l) { hits += 1; } }
-        rows.push((t.elapsed().as_secs_f64(), idx, hits, true));
-    }
-    rows.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-    let total: f64 = rows.iter().map(|r| r.0).sum();
-    eprintln!("NIFTY lines={} fallback={} total={total:.3}", lines.len(), rows.len());
-    for (s, idx, hits, applies) in rows { eprintln!("NIFTY {s:.3} applies={applies} hits={hits} idx={idx} name={} re={}", PATTERNS[idx].name, PATTERNS[idx].regex.chars().take(110).collect::<String>()); }
-}

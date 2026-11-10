@@ -21,8 +21,10 @@ use std::sync::LazyLock;
 //   2. At first call, build ONE case-insensitive aho-corasick automaton over
 //      those literals.
 //   3. Per call: scan content once with aho-corasick; only patterns whose
-//      literal appears (plus the small no-literal fallback bucket) get their
-//      regex compiled (lazily, once per process) and confirmed with is_match.
+//      literal appears, plus the fallback patterns whose weak gate
+//      (`gates::FALLBACK_GATES`) occurs in the content or that have none, get
+//      their regex compiled (lazily, once per process) and confirmed with
+//      is_match.
 //
 // Correctness invariant: for a gated pattern, "regex matches content" implies
 // "content contains one of its gate literals" (a match begins with a prefix
@@ -30,9 +32,10 @@ use std::sync::LazyLock;
 // an alternation, and of a repetition's body when its minimum is one), and
 // patterns are parsed with their flags, so a `(?i)` pattern's literals carry
 // every Unicode case variant its regex matches (`ſ` for `s`); the automaton
-// is ASCII-case-insensitive over literals stored lowercased. Patterns whose
-// literals cannot be proven (pure entropy shapes, UUIDs) are ALWAYS
-// candidates — they are never gated out.
+// is ASCII-case-insensitive over literals stored lowercased. A fallback
+// pattern's weak gate obeys the same invariant with exact bytes; a fallback
+// pattern with no provable literal at all (a pure entropy shape) is ALWAYS a
+// candidate — it is never gated out.
 // ---------------------------------------------------------------------------
 
 /// One automaton over every gated pattern's literals; its pattern id indexes
@@ -102,8 +105,20 @@ pub(super) fn prescan_candidates(content: &str) -> PatternSet {
     for hit in PRESCAN.find_overlapping_iter(content) {
         candidates.insert(gates::GATE_LITERALS[hit.pattern().as_usize()].1);
     }
-    for &idx in gates::FALLBACK {
-        candidates.insert(idx);
+    // A fallback pattern has no prefix literal, but may still require some text
+    // in every match (its weak gate): without that text its regex cannot match.
+    for &(idx, needles) in gates::FALLBACK_GATES {
+        if needles.is_empty() || needles.iter().any(|needle| holds(content, needle)) {
+            candidates.insert(idx);
+        }
     }
     candidates
+}
+
+/// Whether `content` holds `needle`, exactly.
+fn holds(content: &str, needle: &str) -> bool {
+    match needle.as_bytes() {
+        [byte] => content.as_bytes().contains(byte),
+        _ => content.contains(needle),
+    }
 }

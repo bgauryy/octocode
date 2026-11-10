@@ -7,11 +7,21 @@
 //! occurs in every match. The *required prefix
 //! literals* come first; a pattern without them gates on literals its
 //! structure requires inside the match. A pattern with neither goes to the
-//! fallback bucket, which is always a candidate. Patterns are parsed with
+//! fallback bucket. A fallback pattern may still carry a weak gate
+//! (`FALLBACK_GATES`): exact literals of at least 1 byte, derived the same
+//! way, that every match contains; a fallback pattern without one is always
+//! a candidate. Patterns are parsed with
 //! their flags, so a `(?i)` pattern's literals include every Unicode case
 //! variant the regex matches (`ſ` for `s`, `K` (U+212A) for `k`).
 //! The runtime builds one ASCII-case-insensitive aho-corasick automaton over
 //! the lowercased literals written to `OUT_DIR/secret_gates.rs`.
+//!
+//! A fallback pattern is not left fully ungated when its structure still
+//! requires some shorter text in every match (`;` of a connection string,
+//! `Q~` of an Azure client secret): the same extraction at a one-byte
+//! minimum gives it a *weak gate*, exact bytes the runtime looks for before
+//! it runs that pattern's regex. A pattern with no such text stays an
+//! always-candidate.
 
 use regex_syntax::hir::literal::{ExtractKind, Extractor};
 use regex_syntax::hir::{Hir, HirKind};
@@ -31,6 +41,27 @@ mod security {
 }
 use security::patterns;
 
+/// What a literal must be to gate a pattern: its shortest allowed length, and
+/// whether it is lowercased for an ASCII-case-insensitive search (otherwise
+/// its bytes are searched exactly).
+#[derive(Clone, Copy)]
+struct Gate {
+    min_len: usize,
+    folded: bool,
+}
+
+/// The gate of the prescan automaton: literals of at least 3 bytes.
+const STRONG: Gate = Gate {
+    min_len: 3,
+    folded: true,
+};
+
+/// The gate of a fallback pattern: any literal, searched exactly.
+const WEAK: Gate = Gate {
+    min_len: 1,
+    folded: false,
+};
+
 /// The gate of `pattern`: its required prefix literals ([`prefix_literals`]),
 /// else literals one of which occurs inside every match
 /// ([`required_literals`]); `None` sends it to the fallback bucket. The
@@ -41,13 +72,33 @@ fn gate_literals(pattern: &str) -> Result<Option<Vec<Vec<u8>>>, Box<dyn Error>> 
         .utf8(false)
         .build()
         .parse(pattern)?;
-    Ok(prefix_literals(&hir).or_else(|| required_literals(&hir)))
+    Ok(prefix_literals(&hir, STRONG).or_else(|| required_literals(&hir, STRONG)))
 }
 
-/// The prefix literals of `hir`, lowercased: a finite set one of which
-/// begins every match, or `None` when no trustworthy set exists (infinite,
-/// more than 64 literals, or an anchor shorter than 3 bytes).
-fn prefix_literals(hir: &Hir) -> Option<Vec<Vec<u8>>> {
+/// The weak gate of a fallback `pattern`: UTF-8 literals one of which occurs
+/// inside every match, kept only when they are selective enough to be worth a
+/// search per text: each at least 2 bytes, or a single literal.
+fn weak_gate_literals(pattern: &str) -> Result<Option<Vec<String>>, Box<dyn Error>> {
+    let hir = regex_syntax::ParserBuilder::new()
+        .utf8(false)
+        .build()
+        .parse(pattern)?;
+    let Some(literals) = prefix_literals(&hir, WEAK).or_else(|| required_literals(&hir, WEAK))
+    else {
+        return Ok(None);
+    };
+    let selective = literals.len() == 1 || literals.iter().all(|literal| literal.len() >= 2);
+    let text: Option<Vec<String>> = literals
+        .into_iter()
+        .map(|literal| String::from_utf8(literal).ok())
+        .collect();
+    Ok(text.filter(|_| selective))
+}
+
+/// The prefix literals of `hir`, lowercased when `gate` folds: a finite set
+/// one of which begins every match, or `None` when no trustworthy set exists
+/// (infinite, more than 64 literals, or an anchor shorter than `gate.min_len`).
+fn prefix_literals(hir: &Hir, gate: Gate) -> Option<Vec<Vec<u8>>> {
     let mut extractor = Extractor::new();
     extractor.kind(ExtractKind::Prefix);
     let seq = extractor.extract(hir);
@@ -56,12 +107,16 @@ fn prefix_literals(hir: &Hir) -> Option<Vec<Vec<u8>>> {
     for literal in literals {
         let bytes = literal.as_bytes();
         // A shorter anchor gates too weakly to be worth trusting.
-        if bytes.len() < 3 {
+        if bytes.len() < gate.min_len {
             return None;
         }
-        let lowered = bytes.to_ascii_lowercase();
-        if !out.contains(&lowered) {
-            out.push(lowered);
+        let kept = if gate.folded {
+            bytes.to_ascii_lowercase()
+        } else {
+            bytes.to_vec()
+        };
+        if !out.contains(&kept) {
+            out.push(kept);
         }
     }
     (!out.is_empty() && out.len() <= 64).then_some(out)
@@ -73,20 +128,20 @@ fn prefix_literals(hir: &Hir) -> Option<Vec<Vec<u8>>> {
 /// a minimum of one contains its body. Each node's own prefix literals
 /// ([`prefix_literals`]) qualify too; the set with the longest shortest
 /// literal wins (then the smaller set).
-fn required_literals(hir: &Hir) -> Option<Vec<Vec<u8>>> {
+fn required_literals(hir: &Hir, gate: Gate) -> Option<Vec<Vec<u8>>> {
     let structural = match hir.kind() {
-        HirKind::Capture(capture) => required_literals(&capture.sub),
+        HirKind::Capture(capture) => required_literals(&capture.sub, gate),
         HirKind::Repetition(repetition) if repetition.min >= 1 => {
-            required_literals(&repetition.sub)
+            required_literals(&repetition.sub, gate)
         }
         HirKind::Concat(parts) => parts
             .iter()
-            .filter_map(required_literals)
+            .filter_map(|part| required_literals(part, gate))
             .max_by_key(|set| strength(set)),
         HirKind::Alternation(branches) => {
             let mut union: Vec<Vec<u8>> = Vec::new();
             for branch in branches {
-                for literal in required_literals(branch)? {
+                for literal in required_literals(branch, gate)? {
                     if !union.contains(&literal) {
                         union.push(literal);
                     }
@@ -96,7 +151,7 @@ fn required_literals(hir: &Hir) -> Option<Vec<Vec<u8>>> {
         }
         _ => None,
     };
-    [prefix_literals(hir), structural]
+    [prefix_literals(hir, gate), structural]
         .into_iter()
         .flatten()
         .max_by_key(|set| strength(set))
@@ -135,6 +190,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=src/security/patterns");
     let mut gates = String::new();
     let mut fallback = Vec::new();
+    let mut fallback_gates = String::new();
     let mut longest = 0usize;
     for (index, pattern) in patterns::PATTERNS.iter().enumerate() {
         let hir = regex_syntax::ParserBuilder::new()
@@ -151,7 +207,17 @@ fn main() -> Result<(), Box<dyn Error>> {
                     let _ = writeln!(gates, "    ({}, {index}),", byte_string(&literal));
                 }
             }
-            None => fallback.push(index.to_string()),
+            None => {
+                fallback.push(index.to_string());
+                let weak = weak_gate_literals(pattern.regex)
+                    .map_err(|error| format!("secret pattern {}: {error}", pattern.name))?
+                    .unwrap_or_default();
+                let literals: Vec<String> = weak
+                    .iter()
+                    .map(|literal| format!("{literal:?}"))
+                    .collect();
+                let _ = writeln!(fallback_gates, "    ({index}, &[{}]),", literals.join(", "));
+            }
         }
     }
     let output = format!(
@@ -161,6 +227,9 @@ fn main() -> Result<(), Box<dyn Error>> {
          pub(super) static GATE_LITERALS: &[(&[u8], usize)] = &[\n{gates}];\n\
          /// Patterns with no provable literal: always candidates.\n\
          pub(super) static FALLBACK: &[usize] = &[{}];\n\
+         /// Each fallback pattern with its weak gate: text one of whose entries\n\
+         /// occurs in every match, or no entry for a pattern with none.\n\
+         pub(super) static FALLBACK_GATES: &[(usize, &[&str])] = &[\n{fallback_gates}];\n\
          /// Bytes of the longest match any pattern with a bound can make.\n\
          pub const LONGEST_BOUNDED_MATCH: usize = {longest};\n",
         fallback.join(", ")
